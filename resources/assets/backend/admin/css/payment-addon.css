@@ -1,0 +1,201 @@
+.addon-sms-gateway .btn--primary[type="submit"] {
+    --bs-btn-color: var(--bs-white);
+    --bs-btn-bg: var(--bs-primary);
+    --bs-btn-border-color: var(--bs-primary);
+    --bs-btn-hover-color: var(--bs-white);
+    --bs-btn-hover-bg: var(--bs-primary);
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-focus-shadow-rgb: unset;
+    --bs-btn-active-color: var(--bs-white);
+    --bs-btn-active-bg: var(--bs-primary);
+    --bs-btn-active-border-color: transparent;
+    --bs-btn-active-shadow: none;
+    --bs-btn-disabled-color: var(--bs-white);
+    --bs-btn-disabled-bg: var(--bs-primary);
+    --bs-btn-disabled-border-color: transparent;
+    --bs-btn-disabled-opacity: 1;
+}
+
+.addon-payment-gateway .card-header {
+    display: flex;
+    justify-content: space-between !important;
+    align-items: center !important;
+}
+
+.addon-payment-gateway .card-header h4,
+.addon-payment-gateway .card-header h5 {
+    margin-bottom: 0 !important;
+}
+
+.addon-payment-gateway .mr-2 {
+    margin-inline-end: 0.5rem !important;
+}
+
+.addon-payment-gateway .switch--custom-label-text {
+    display: none !important;
+}
+
+.addon-payment-gateway .payment--gateway-img {
+    text-align: center;
+    max-width: 350px;
+    margin: 0 auto 1rem;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.addon-payment-gateway .payment--gateway-img img {
+    height: 100px;
+    width: 100%;
+    object-fit: cover;
+    border-radius: 5px;
+    display: block;
+}
+
+
+.addon-payment-gateway .form-floating .form-control,
+.addon-sms-gateway .form-floating .form-control {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    height: 40px !important;
+    min-height: 40px !important;
+}
+
+.addon-payment-gateway .form-floating .js-select,
+.addon-sms-gateway .form-floating .js-select {
+    display: block;
+    width: 100%;
+    padding: .375rem 2.25rem .375rem .75rem;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--bs-body-color);
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-color: var(--bs-body-bg);
+    background-image: var(--bs-form-select-bg-img), var(--bs-form-select-bg-icon, none);
+    background-repeat: no-repeat;
+    background-position: right .75rem center;
+    background-size: 16px 12px;
+    border: var(--bs-border-width) solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+}
+
+.addon-payment-gateway .form-floating,
+.addon-sms-gateway .form-floating {
+    position: static !important;
+}
+
+.addon-payment-gateway .form-floating>label,
+.addon-sms-gateway .form-floating>label {
+    position: relative !important;
+    padding: 0 !important;
+}
+
+.addon-payment-gateway .form-label,
+.addon-sms-gateway .form-label {
+    margin-bottom: 0.5rem;
+}
+
+.addon-payment-gateway .form-floating ,
+.addon-sms-gateway .form-floating {
+    margin-bottom: 1.5rem !important;
+}
+
+.addon-payment-gateway input[type="file"],
+.addon-sms-gateway input[type="file"] {
+    position: absolute;
+    z-index: 9;
+    width: 100%;
+    height: calc(1.6em + 1.21875rem);
+    margin: 0;
+    opacity: 0;
+}
+
+.addon-payment-gateway .form-floating:has(input[type="file"]),
+.addon-sms-gateway .form-floating:has(input[type="file"]) {
+    position: relative !important;
+    cursor: pointer;
+    text-align: start;
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    height: calc(1.6em + 1.21875rem);
+    margin-bottom: 0;
+}
+
+.addon-payment-gateway .form-floating:has(input[type="file"]) .form-label,
+.addon-sms-gateway .form-floating:has(input[type="file"]) .form-label {
+    position: absolute !important;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    padding-inline-start: 1rem !important;
+    display: flex;
+    justify-content: start;
+    align-items: center;
+    z-index: 1;
+    width: 100%;
+    height: calc(1.6em + 1.21875rem);
+    padding: 0.54688rem 0.875rem;
+    font-weight: 400;
+    line-height: 1.6;
+    color: var(--bs-dark);
+    background-color: var(--bs-white);
+    border: 0.0625rem solid var(--bs-border-color);
+    border-radius: 0.3125rem;
+    transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.addon-payment-gateway .form-floating:has(input[type="file"]) .form-label::after,
+.addon-sms-gateway .form-floating:has(input[type="file"]) .form-label::after {
+    position: absolute;
+    inset-block-start: 0;
+    inset-block-end: 0;
+    inset-inline-end: 0;
+    z-index: 3;
+    display: block;
+    height: calc(1.6em + 1.09375rem);
+    padding: 0.54688rem 0.875rem;
+    line-height: 1.6;
+    color: var(--bs-dark);
+    content: "Browse";
+    background-color: transparent;
+    border-inline-start: inherit;
+    border-radius: 0;
+}
+
+.addon-payment-gateway .text-right,
+.addon-sms-gateway .text-right {
+    text-align: end !important;
+}
+
+.main-content .main-content {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+[dir=rtl] .main-content .main-content {
+    margin: 0 !important;
+}
+
+.addon-sms-gateway .card {
+    height: 100%;
+}
+
+.addon-sms-gateway .card .card-header .page-title {
+    margin-bottom: 0;
+}
+
+.addon-sms-gateway .card .card-body form {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+}
+
+.v2-main[role="main"] .main-content {
+    margin-left: 0 !important;
+    padding: 0 !important;
+}

@@ -1,0 +1,11 @@
+{
+    "name": "TaxModule",
+    "alias": "taxmodule",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\TaxModule\\app\\Providers\\TaxModuleServiceProvider"
+    ],
+    "files": []
+}

@@ -1,0 +1,69 @@
+<?php
+
+namespace App\Repositories;
+
+use App\Contracts\Repositories\ShippingAddressRepositoryInterface;
+use App\Models\ShippingAddress;
+use App\Traits\ProductTrait;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Pagination\LengthAwarePaginator;
+
+class ShippingAddressRepository implements ShippingAddressRepositoryInterface
+{
+    use ProductTrait;
+
+    public function __construct(
+        private readonly ShippingAddress $shippingAddress,
+    )
+    {
+    }
+
+    public function add(array $data): string|object
+    {
+        return $this->shippingAddress->create($data);
+    }
+
+    public function getFirstWhere(array $params, array $relations = []): ?Model
+    {
+        return $this->shippingAddress->with($relations)->where($params)->first();
+    }
+
+    public function getList(array $orderBy = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator
+    {
+        $query = $this->shippingAddress->with($relations)
+            ->when(!empty($orderBy), function ($query) use ($orderBy) {
+                return $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
+            });
+
+        return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit);
+    }
+
+    public function getListWhere(array $orderBy = [], ?string $searchValue = null, array $filters = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator
+    {
+        $query = $this->shippingAddress
+            ->when($searchValue, function ($query) use ($searchValue) {
+                return $query->where('id', 'like', "%$searchValue%");
+            })
+            ->when(isset($filters['id']), function ($query) use ($filters) {
+                $query->where('id', $filters['id']);
+            })
+            ->when(!empty($orderBy), function ($query) use ($orderBy) {
+                $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
+            });
+
+        $filters += ['searchValue' => $searchValue];
+        return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit)->appends($filters);
+    }
+
+    public function update(string $id, array $data): bool
+    {
+        return $this->shippingAddress->where('id', $id)->update($data);
+    }
+
+    public function delete(array $params): bool
+    {
+        $this->shippingAddress->where($params)->delete();
+        return true;
+    }
+}

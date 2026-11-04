@@ -1,0 +1,57 @@
+.alert--message-2 {
+    border-inline-start: 3px solid var(--bs-primary);
+    border-radius: 6px;
+    position: fixed;
+    right: 20px;
+    top: 80px;
+    z-index: 9999;
+    background: var(--bs-white);
+    width: 80vw;
+    display: flex;
+    max-width: 330px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px;
+    font-size: 12px;
+    transition: all ease 0.5s;
+    box-shadow: 0 0 2rem rgba(0, 0, 0, 0.075);
+}
+
+.alert--message-2 h6 {
+    font-size: 16px;
+}
+
+.alert--message-2:not(.active) {
+    transform: translateX(calc(100% + 40px));
+}
+.alert--message-3 {
+    border-inline-start: 3px solid var(--bs-primary);
+    border-radius: 6px;
+    position: fixed;
+    /* Logical, not physical: a hard `right` pinned this popup over the contextual
+       sidebar in RTL, where the sidebar lives on the right. */
+    inset-inline-end: 20px;
+    top: 80px;
+    z-index: 9999;
+    background: var(--bs-white);
+    width: 80vw;
+    display: flex;
+    max-width: 330px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px;
+    font-size: 12px;
+    transition: all ease 0.5s;
+}
+
+.alert--container .alert:not(.active) {
+    transform: translateX(calc(100% + 40px));
+}
+
+/* RTL: the enter/exit slide comes from the inline-end edge, which is the left in Arabic. */
+[dir="rtl"] .alert--message-2:not(.active),
+[dir="rtl"] .alert--message-3:not(.active) {
+    transform: translateX(calc(-100% - 40px));
+}

@@ -1,0 +1,1332 @@
+[
+    {
+        "uri": "admin/component",
+        "method": "GET",
+        "view": "layouts/admin/component"
+    },
+    {
+        "uri": "admin/component-snippets",
+        "method": "GET",
+        "view": "layouts/admin/component-snippets"
+    },
+    {
+        "uri": "admin/advanced-search",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/dashboard",
+        "method": "GET",
+        "view": "admin-views/system/dashboard"
+    },
+    {
+        "uri": "admin/dashboard/earning-statistics",
+        "method": "GET",
+        "view": "admin-views/system/partials/earning-statistics"
+    },
+    {
+        "uri": "admin/dashboard/order-statistics",
+        "method": "GET",
+        "view": "admin-views/system/partials/order-statistics"
+    },
+    {
+        "uri": "admin/dashboard/real-time-activities",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/logout",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/change-customer",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/quick-view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/search-product",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/get-cart-ids",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/clear-cart-ids",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/cart-empty",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/change-cart",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/new-cart-id",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pos/cancel-order",
+        "method": "GET",
+        "view": "admin-views/pos/partials/_view-hold-orders"
+    },
+    {
+        "uri": "admin/pos/view-hold-orders",
+        "method": "GET",
+        "view": "admin-views/pos/partials/_view-hold-orders"
+    },
+    {
+        "uri": "admin/profile/update/{id}",
+        "method": "GET",
+        "view": "admin-views/profile/update-view"
+    },
+    {
+        "uri": "admin/products/list/{type}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/add",
+        "method": "GET",
+        "view": "admin-views/product/add/index"
+    },
+    {
+        "uri": "admin/products/view/{addedBy}/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/get-categories",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/barcode/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/export-excel/{type}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/stock-limit-list/{type}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/update/{id}",
+        "method": "GET",
+        "view": "admin-views/product/update/index"
+    },
+    {
+        "uri": "admin/products/delete-image",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/get-variations",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/bulk-import",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/updated-product-list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/search",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/multiple-product-details",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/product-gallery",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/stock-limit-status/{type}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/request-restock-list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/products/export-restock",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/orders/list/{status}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/orders/export-excel/{status}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/orders/generate-invoice/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/orders/details/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/orders/add-delivery-man/{order_id}/{d_man_id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/orders/customers",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/orders/inhouse-order-filter",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/attribute/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/attribute/update/{id}",
+        "method": "GET",
+        "view": "admin-views/attribute/edit"
+    },
+    {
+        "uri": "admin/brand/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/brand/add-new",
+        "method": "GET",
+        "view": "admin-views/brand/add-new"
+    },
+    {
+        "uri": "admin/brand/update/{id}",
+        "method": "GET",
+        "view": "admin-views/brand/edit"
+    },
+    {
+        "uri": "admin/brand/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/category/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/category/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/category/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/sub-category/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/sub-category/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/sub-category/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/sub-sub-category/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/sub-sub-category/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/sub-sub-category/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/banner/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/banner/update/{id}",
+        "method": "GET",
+        "view": "admin-views/banner/edit"
+    },
+    {
+        "uri": "admin/customer/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/view/{user_id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/order-list-export/{user_id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/subscriber-list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/subscriber-list/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/customer-list-search",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/customer-list-without-all-customer",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/wallet/report",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/wallet/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/wallet/bonus-setup",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/wallet/bonus-setup/edit/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/loyalty/report",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/customer/loyalty/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/inhouse-product-sale",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/add",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/order-list-export/{vendor_id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/order-details/{order_id}/{vendor_id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/view/{id}/{tab?}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/withdraw-list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/withdraw-list-export-excel",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/withdraw-view/{withdrawId}/{vendorId}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/withdraw-method/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/withdraw-method/add",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/vendors/withdraw-method/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/employee/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/employee/add",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/employee/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/employee/view/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/employee/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/custom-role/add",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/custom-role/update/{id}",
+        "method": "GET",
+        "view": "admin-views/custom-role/edit"
+    },
+    {
+        "uri": "admin/custom-role/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/transaction/refund-transaction-list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/transaction/refund-transaction-export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/transaction/refund-transaction-summary-pdf",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/earning",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/admin-earning",
+        "method": "GET",
+        "view": "admin-views/report/admin-earning"
+    },
+    {
+        "uri": "admin/report/admin-earning-excel-export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/vendor-earning",
+        "method": "GET",
+        "view": "admin-views/report/seller-earning"
+    },
+    {
+        "uri": "admin/report/vendor-earning-excel-export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/set-date",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/order",
+        "method": "GET",
+        "view": "admin-views/report/order-index"
+    },
+    {
+        "uri": "admin/report/order-report-excel",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/order-report-pdf",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/all-product",
+        "method": "GET",
+        "view": "admin-views/report/all-product"
+    },
+    {
+        "uri": "admin/report/all-product-excel",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/report/vendor-report",
+        "method": "GET",
+        "view": "admin-views/report/seller-product-sale"
+    },
+    {
+        "uri": "admin/report/vendor-report-export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/transaction/order-transaction-list",
+        "method": "GET",
+        "view": "admin-views/transaction/order-list"
+    },
+    {
+        "uri": "admin/transaction/pdf-order-wise-transaction",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/transaction/order-transaction-export-excel",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/transaction/order-transaction-summary-pdf",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/transaction/expense-transaction-list",
+        "method": "GET",
+        "view": "admin-views/transaction/expense-list"
+    },
+    {
+        "uri": "admin/transaction/pdf-order-wise-expense-transaction",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/transaction/expense-transaction-export-excel",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/transaction/expense-transaction-summary-pdf",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/transaction/wallet-bonus",
+        "method": "GET",
+        "view": "admin-views/transaction/wallet-bonus"
+    },
+    {
+        "uri": "admin/stock/product-stock",
+        "method": "GET",
+        "view": "admin-views/report/product-stock"
+    },
+    {
+        "uri": "admin/stock/product-stock-export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/stock/product-in-wishlist",
+        "method": "GET",
+        "view": "admin-views/report/product-in-wishlist"
+    },
+    {
+        "uri": "admin/stock/wishlist-product-export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/reviews/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/reviews/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/reviews/customer-list-search",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/reviews/search-product",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/coupon/add",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/coupon/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/coupon/quick-view-details",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/coupon/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/coupon/status/{id}/{status}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/flash",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/add-product/{deal_id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/search-product",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/day",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/day-update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/feature",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/feature-update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/clearance-sale",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/clearance-sale/search",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/clearance-sale/multiple-product-details",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/clearance-sale/vendor-offers",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/clearance-sale/vendor-search",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/deal/clearance-sale/priority-setup",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/push-notification/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/notification/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/notification/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/support-ticket/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/support-ticket/single-ticket/{id}",
+        "method": "GET",
+        "view": "admin-views/support-ticket/singleView"
+    },
+    {
+        "uri": "admin/messages/index/{type}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/messages/message",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/messages/new-notification",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/contact/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/contact/view/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/add",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/earning-statement-overview/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/order-wise-earning/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/order-history-log/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/order-history-log-export/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/rating/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/ajax-order-status-history/{order}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/collect-cash/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/withdraw-list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/withdraw-list-export",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/withdraw-view/{withdraw_id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/emergency-contact",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/delivery-man/emergency-contact/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/most-demanded",
+        "method": "GET",
+        "view": "admin-views/theme-features/most-demanded/view"
+    },
+    {
+        "uri": "admin/most-demanded/update/{id}",
+        "method": "GET",
+        "view": "admin-views/theme-features/most-demanded/edit"
+    },
+    {
+        "uri": "admin/addon",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/theme/setup",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/addon",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/environment-setup",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/app-settings",
+        "method": "GET",
+        "view": "admin-views/system-setup/apps-settings"
+    },
+    {
+        "uri": "admin/system-setup/software-update",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/language",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/language/delete/{lang}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/language/translate/{lang}",
+        "method": "GET",
+        "view": "admin-views/system-setup/language/translate"
+    },
+    {
+        "uri": "admin/system-setup/language/translate-list/{lang}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/language/auto-translate/{lang}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/language/auto-translate-all/{lang}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/currency/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/db-index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/login-settings/customer-login-setup",
+        "method": "GET",
+        "view": "admin-views/system-setup/login-settings/customer-login-setup"
+    },
+    {
+        "uri": "admin/system-setup/login-settings/otp-setup",
+        "method": "GET",
+        "view": "admin-views/system-setup/login-settings/otp-setup"
+    },
+    {
+        "uri": "admin/system-setup/login-settings/login-url-setup",
+        "method": "GET",
+        "view": "admin-views/system-setup/login-settings/login-url-setup"
+    },
+    {
+        "uri": "admin/system-setup/email-templates/index",
+        "method": "GET",
+        "view": "email-templates/mail-tester"
+    },
+    {
+        "uri": "admin/system-setup/email-templates/{type}/{tab}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/system-setup/file-manager/index",
+        "method": "GET",
+        "view": "admin-views/file-manager/index"
+    },
+    {
+        "uri": "admin/system-setup/file-manager/download/{file_name}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/payment-method",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/offline-payment-method/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/offline-payment-method/add",
+        "method": "GET",
+        "view": "admin-views/third-party/offline-payment-method/add-view"
+    },
+    {
+        "uri": "admin/third-party/offline-payment-method/update/{id}",
+        "method": "GET",
+        "view": "admin-views/third-party/offline-payment-method/update-view"
+    },
+    {
+        "uri": "admin/third-party/firebase-configuration/setup",
+        "method": "GET",
+        "view": "admin-views/third-party/firebase-configuration/index"
+    },
+    {
+        "uri": "admin/third-party/firebase-configuration/authentication",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/analytics-index",
+        "method": "GET",
+        "view": "admin-views/third-party/analytics/index"
+    },
+    {
+        "uri": "admin/third-party/social-login/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/storage-connection-settings/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/social-media-chat/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/mail",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/sms-module",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/recaptcha",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/third-party/map-api",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/web-config",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/website-setup",
+        "method": "GET",
+        "view": "admin-views/business-settings/website-setup"
+    },
+    {
+        "uri": "admin/business-settings/vendor-settings",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/product-settings",
+        "method": "GET",
+        "view": "admin-views/business-settings/product-settings"
+    },
+    {
+        "uri": "admin/business-settings/delivery-man-settings",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/customer-settings",
+        "method": "GET",
+        "view": "admin-views/customer/customer-settings"
+    },
+    {
+        "uri": "admin/business-settings/order-settings/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/refund-setup",
+        "method": "GET",
+        "view": "admin-views/business-settings/refund-setup"
+    },
+    {
+        "uri": "admin/business-settings/shipping-method/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/shipping-method/update/{id}",
+        "method": "GET",
+        "view": "admin-views/shipping-method/update-view"
+    },
+    {
+        "uri": "admin/business-settings/payment-method/payment-option",
+        "method": "GET",
+        "view": "admin-views/third-party/payment-method/payment-option"
+    },
+    {
+        "uri": "admin/business-settings/delivery-zone",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/invoice-settings",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/inhouse-shop",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/inhouse-shop/setup",
+        "method": "GET",
+        "view": "admin-views/inhouse-shop/setup"
+    },
+    {
+        "uri": "admin/business-settings/priority-setup",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/web-master-tool",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/robot-txt",
+        "method": "GET",
+        "view": "admin-views/seo-settings/robot-txt"
+    },
+    {
+        "uri": "admin/seo-settings/robots-meta-content",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/robots-meta-content/delete-page",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/robots-meta-content/page-content-view",
+        "method": "GET",
+        "view": "admin-views/seo-settings/robots-meta-content-view"
+    },
+    {
+        "uri": "admin/seo-settings/sitemap",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/sitemap-generate-download",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/sitemap-generate-upload",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/sitemap-download",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/sitemap-delete",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/seo-settings/error-logs/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/list",
+        "method": "GET",
+        "view": "admin-views/pages-and-media/list"
+    },
+    {
+        "uri": "admin/pages-and-media/add",
+        "method": "GET",
+        "view": "admin-views/pages-and-media/add"
+    },
+    {
+        "uri": "admin/pages-and-media/update",
+        "method": "GET",
+        "view": "admin-views/pages-and-media/update"
+    },
+    {
+        "uri": "admin/pages-and-media/company-reliability",
+        "method": "GET",
+        "view": "admin-views/pages-and-media/company-reliability/index"
+    },
+    {
+        "uri": "admin/pages-and-media/social-media",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/fetch",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/vendor-registration-settings/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/vendor-registration-settings/with-us",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/vendor-registration-settings/business-process",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/vendor-registration-settings/download-app",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/vendor-registration-settings/faq",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/vendor-registration-reason/update",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/pages-and-media/features-section",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/business-settings/announcement",
+        "method": "GET",
+        "view": "admin-views/business-settings/website-announcement"
+    },
+    {
+        "uri": "admin/helpTopic/index",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/helpTopic/update/{id}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/refund-section/refund/list/{status}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/refund-section/refund/export/{status}",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/refund-section/refund/details/{id}",
+        "method": "GET",
+        "view": "admin-views/refund/details"
+    },
+    {
+        "uri": "admin/blog/category/status",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/blog/category/get-list",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/blog/view",
+        "method": "GET",
+        "view": null
+    },
+    {
+        "uri": "admin/blog/add",
+        "method": "GET",
+        "view": "blog::admin-views/blog/create"
+    },
+    {
+        "uri": "admin/blog/edit",
+        "method": "GET",
+        "view": "blog::admin-views/blog/edit"
+    },
+    {
+        "uri": "admin/blog/draft-edit/{id}",
+        "method": "GET",
+        "view": "blog::admin-views/blog/draft-edit"
+    },
+    {
+        "uri": "admin/blog/app-download-setup",
+        "method": "GET",
+        "view": "blog::admin-views/blog/app-download-setup"
+    },
+    {
+        "uri": "admin/blog/priority-setup",
+        "method": "GET",
+        "view": null
+    }
+]

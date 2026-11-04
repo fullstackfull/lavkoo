@@ -1,0 +1,25 @@
+.stripe-button-el {
+    display: none !important;
+}
+
+.razorpay-payment-button {
+    display: none !important;
+}
+
+.custom-radio {
+    border: 1px solid #ddd !important;
+    clip: auto !important;
+    height: 1rem !important;
+    position: static !important;
+    width: 1rem !important;
+}
+.modal-content {
+    transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.wallet-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: auto; /* needed for tooltip */
+}
+

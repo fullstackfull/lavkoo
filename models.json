@@ -1,0 +1,23 @@
+[
+    {
+        "type": "contact",
+        "model": "App\\Models\\Contact::class"
+    },
+    {
+        "type": "products",
+        "model": "App\\Models\\Product::class"
+    },
+    {
+        "type": "pos",
+        "model": "App\\Models\\OrderTransaction::class"
+    },
+    {
+        "type": "orders",
+        "model": "App\\Models\\Order::class"
+    },
+    {
+        "type": "customers",
+        "model": "App\\Models\\Customer::class"
+    }
+]
+

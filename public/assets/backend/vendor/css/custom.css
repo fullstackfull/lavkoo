@@ -1,0 +1,125 @@
+/* .select2-container--default .select2-results>.select2-results__options {
+    max-height: 110px;
+} */
+
+[data-toggle="tooltip"] {
+    /* cursor: pointer; */
+}
+
+.tooltip.show {
+    max-width: 150px;
+}
+
+.remove-input-value-coupon-search {
+    inset-inline-end: 80px;
+    transform: translateY(-50%);
+    top: 50%;
+    z-index: 9;
+}
+
+.pe-3 {
+    padding-inline-end: 1rem !important;
+}
+
+.transform-scale-50 {
+    transform: scale(.5);
+}
+
+.transform-scale-75 {
+    transform: scale(.75);
+}
+
+.single-line-text-break{
+    word-break: break-all;
+}
+
+.z-3 {
+    z-index: 3 !important;
+}
+
+@media (min-width: 1199px) {
+    .min-w-xl-280 {
+        min-width: 280px !important;
+    }
+}
+
+.rich-editor-html-content {
+    overflow-wrap: anywhere !important;
+}
+.product-image-edit-icon, .product-image-edit-icon i {
+    filter: drop-shadow(0px 0px 1px #00000080);
+}
+
+
+.tooltip {
+    min-width: 0 !important;
+}
+.tooltip .tooltip-inner {
+    min-height: 24px !important;
+    min-width: 0 !important;
+    padding: 4px 8px !important;
+    line-height: 1 !important;
+}
+.top-40px{
+    top: 40px !important;
+}
+.top-45px {
+    top: 45px !important;
+}
+
+
+.quickviewSlider2 .icon-btn i{
+    position: relative !important;
+    top: 1px !important;
+}
+.min-h-41{
+    min-height: 41px !important;
+}
+
+.select2-container--default .select2-selection--multiple .select2-selection__choice{
+    margin-bottom: 0 !important;
+}
+.bootstrap-tagsinput .tag {
+    padding: 5px 10px !important;
+    margin: 0 2px 4px 0 !important;
+}
+
+.select_with-icon ~ .select2-container--default .select2-selection--multiple {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='gray'><path d='M4 6l4 4 4-4'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 14px;
+    padding-right: 26px !important;
+}
+
+
+.gallery-search-filter .min-w-300{
+    min-width: 400px !important;
+    @media screen and (max-width: 1399px) {
+        min-width: initial !important;
+    }
+}
+
+.side__slider-custom{
+    max-width: 378px;
+    width: 100%;
+    @media screen and (max-width: 575px) {
+        max-width: 100%;
+    }
+}
+
+.margin-inline-end0{
+    margin-inline-end: 0 !important;
+}
+
+.space-need.multi_image_picker .spartan_item_wrapper:last-child {
+    margin-inline-end: 0px !important;
+}
+
+
+.overflowY_hidden{
+    overflow-y: hidden !important;
+}
+.min-w-150 {
+    min-inline-size: 150px;
+}

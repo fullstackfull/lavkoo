@@ -1,0 +1,168 @@
+"use strict";
+
+let getYesWord = $('#message-yes-word').data('text');
+let getNoWord = $('#message-no-word').data('text');
+let messageAreYouSureDeleteThis = $('#message-are-you-sure-delete-this').data('text');
+let messageYouWillNotAbleRevertThis = $('#message-you-will-not-be-able-to-revert-this').data('text');
+
+// Banner types laid out as a grid, where layout and priority are meaningful.
+// Supplied by the view from BannerService::GRID_TYPES so this cannot drift from
+// what the server accepts; the fallback only covers a cached older page.
+const bannerGridTypes = window.bannerGridTypes ?? ["Home Promo Banner", "Category Section Banner"];
+
+$('#banner_type_select').on('change', function () {
+    let inputValue = ($(this).val() ?? '').toString();
+    if (inputValue === "Main Banner") {
+        $('.input-field-for-main-banner').removeClass('d-none');
+    } else {
+        $('.input-field-for-main-banner').addClass('d-none');
+    }
+    $('#banner_layout_group').toggleClass('d-none', !bannerGridTypes.includes(inputValue));
+}).trigger('change');
+
+$(".js-example-theme-single").select2({theme: "classic"});
+$(".js-example-responsive").select2({width: 'resolve'});
+
+$('#main-banner-add').on('click', function () {
+    $('#main-banner').slideToggle();
+});
+
+$('.action-display-data').on('change', function () {
+    let data = $(this).val();
+    let elementResourceProduct = $('#resource-product');
+    let elementResourceBrand = $('#resource-brand');
+    let elementResourceCategory = $('#resource-category');
+    let elementResourceShop = $('#resource-shop');
+    let elementResourceCustomUrl = $('#resource-custom-url');
+
+    elementResourceProduct.hide()
+    elementResourceBrand.hide()
+    elementResourceCategory.hide()
+    elementResourceShop.hide()
+    elementResourceCustomUrl.hide()
+
+    if (data === 'product') {
+        elementResourceProduct.show()
+    } else if (data === 'brand') {
+        elementResourceBrand.show()
+    } else if (data === 'category') {
+        elementResourceCategory.show()
+    } else if (data === 'shop') {
+        elementResourceShop.show()
+    } else {
+        elementResourceCustomUrl.show()
+    }
+})
+
+$('#banner').on('change', function(){
+    var input = this;
+    if (input.files && input.files[0]) {
+        let reader = new FileReader();
+        let inputImage = $('.input_image');
+        reader.onload = (e) => {
+            let imageData = e.target.result;
+            input.setAttribute("data-title", "");
+            let img = new Image();
+            img.onload = function () {
+                inputImage.css({
+                    "background-image": `url('${imageData}')`,
+                    "width": "100%",
+                    "height": "auto",
+                    backgroundPosition: "center",
+                    backgroundSize: "contain",
+                    backgroundRepeat: "no-repeat",
+                });
+                inputImage.addClass('hide-before-content')
+            };
+            img.src = imageData;
+        }
+        reader.readAsDataURL(input.files[0]);
+    }
+});
+
+$('.banner-delete-button').on('click', function () {
+    let bannerId = $(this).attr("id");
+    Swal.fire({
+        title: messageAreYouSureDeleteThis,
+        text: messageYouWillNotAbleRevertThis,
+        showCancelButton: true,
+        confirmButtonColor: '#1455AC',
+        cancelButtonColor: '#d33',
+        confirmButtonText: getYesWord,
+        cancelButtonText: getNoWord,
+        type: 'warning',
+        reverseButtons: true
+    }).then((result) => {
+        if (result.value) {
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="_token"]').attr('content')
+                }
+            });
+            $.ajax({
+                url: $('#route-admin-banner-delete').data('url'),
+                method: 'POST',
+                data: {id: bannerId},
+                success: function (response) {
+                    toastMagic.success(response.message);
+                    location.reload();
+                }
+            });
+        }
+    })
+});
+
+var backgroundImage = $("[data-bg-img]");
+backgroundImage.css("background-image", function () {
+    return 'url("' + $(this).data("bg-img") + '")';
+}).removeAttr("data-bg-img").addClass("bg-img");
+
+$('.most-demanded-product-delete-button').on('click', function () {
+    let productId = $(this).attr("id");
+    Swal.fire({
+        title: $(this).data('warning-text'),
+        text:  $(this).data('text'),
+        showCancelButton: true,
+        confirmButtonColor: '#1455AC',
+        cancelButtonColor: '#d33',
+        type: 'warning',
+        reverseButtons: true
+    }).then((result) => {
+        if (result.value) {
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="_token"]').attr('content')
+                }
+            });
+            $.ajax({
+                url: $('#route-admin-most-demanded-delete').data('url'),
+                method: 'POST',
+                data: {id: productId},
+                success: function (response) {
+                    toastMagic.success(response.message);
+                    location.reload()
+                }
+            });
+        }
+    })
+})
+
+$('.most-demanded-status-form').on('submit', function(event){
+    event.preventDefault();
+    $.ajaxSetup({
+        headers: {
+            'X-CSRF-TOKEN': $('meta[name="_token"]').attr('content')
+        }
+    });
+    $.ajax({
+        url: $(this).attr('action'),
+        method: 'POST',
+        data: $(this).serialize(),
+        success: function (response) {
+            toastMagic.success(response.message);
+            setTimeout(function (){
+                location.reload()
+            },1000);
+        }
+    });
+});

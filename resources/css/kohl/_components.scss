@@ -1,0 +1,699 @@
+/* ============================================================================
+   Kohl — component layer
+   ----------------------------------------------------------------------------
+   The primitives every screen is built from. Rules here read only semantic and
+   component tokens, and use only logical properties, so a screen built from
+   them is correct in light, dark, LTR and RTL without a single extra rule.
+   ========================================================================= */
+
+/* ---------------------------------------------------------------- surfaces */
+.k-card {
+    background: var(--k-surface);
+    border: var(--k-card-border, 1px solid var(--k-border));
+    border-radius: var(--k-card-radius, var(--k-radius-md));
+    box-shadow: var(--k-shadow-1);
+}
+
+.k-card__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-size-3);
+    padding: var(--k-size-4) var(--k-card-pad, var(--k-size-5));
+    border-block-end: 1px solid var(--k-border);
+}
+
+.k-card__title {
+    color: var(--k-text);
+    font-size: var(--k-text-lg);
+    font-weight: var(--k-weight-semibold);
+}
+
+.k-card__body { padding: var(--k-card-pad, var(--k-size-5)); }
+
+.k-card__foot {
+    padding: var(--k-size-3) var(--k-card-pad, var(--k-size-5));
+    border-block-start: 1px solid var(--k-border);
+    background: var(--k-surface-sunk);
+    border-end-start-radius: inherit;
+    border-end-end-radius: inherit;
+}
+
+/* ----------------------------------------------------------------- buttons */
+.k-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--k-size-2);
+    height: var(--k-control-height, 34px);
+    padding-inline: var(--k-control-pad-inline, var(--k-size-3));
+    border: 1px solid transparent;
+    border-radius: var(--k-radius-sm);
+    background: var(--k-surface);
+    color: var(--k-text);
+    font: inherit;
+    font-size: var(--k-text-md);
+    font-weight: var(--k-weight-medium);
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background var(--k-duration-fast) var(--k-ease),
+                border-color var(--k-duration-fast) var(--k-ease),
+                color var(--k-duration-fast) var(--k-ease);
+}
+
+.k-btn:hover { text-decoration: none; }
+.k-btn:disabled,
+.k-btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+
+.k-btn--primary {
+    background: var(--k-accent);
+    border-color: var(--k-accent);
+    color: var(--k-accent-contrast);
+}
+.k-btn--primary:hover:not(:disabled) { background: var(--k-accent-hover); border-color: var(--k-accent-hover); color: var(--k-accent-contrast); }
+
+.k-btn--secondary { border-color: var(--k-border-strong); color: var(--k-text); }
+.k-btn--secondary:hover:not(:disabled) { background: var(--k-surface-sunk); }
+
+.k-btn--ghost { background: transparent; color: var(--k-text-muted); }
+.k-btn--ghost:hover:not(:disabled) { background: var(--k-surface-sunk); color: var(--k-text); }
+
+.k-btn--danger { background: var(--k-danger); border-color: var(--k-danger); color: #fff; }
+.k-btn--danger:hover:not(:disabled) { filter: brightness(.94); color: #fff; }
+
+.k-btn--sm { height: var(--k-control-height-sm, 28px); font-size: var(--k-text-sm); padding-inline: var(--k-size-2); }
+.k-btn--icon { inline-size: var(--k-control-height, 34px); padding-inline: 0; }
+.k-btn--block { width: 100%; }
+
+/* ------------------------------------------------------------------ badges */
+.k-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--k-size-1);
+    padding: 2px var(--k-size-2);
+    border-radius: var(--k-radius-pill);
+    font-size: var(--k-text-xs);
+    font-weight: var(--k-weight-semibold);
+    line-height: 1.6;
+    white-space: nowrap;
+    background: var(--k-surface-sunk);
+    color: var(--k-text-muted);
+}
+
+/* A status carries a dot as well as a colour, so it survives greyscale printing
+   and colour-blind vision — colour alone is never the only signal. */
+.k-badge::before {
+    content: "";
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: 0 0 auto;
+}
+.k-badge--plain::before { display: none; }
+
+.k-badge--success { background: var(--k-success-soft); color: var(--k-success-text); }
+.k-badge--warning { background: var(--k-warning-soft); color: var(--k-warning-text); }
+.k-badge--danger  { background: var(--k-danger-soft);  color: var(--k-danger-text); }
+.k-badge--info    { background: var(--k-info-soft);    color: var(--k-info); }
+.k-badge--accent  { background: var(--k-accent-soft);  color: var(--k-accent); }
+
+/* ------------------------------------------------------------------- chips */
+/* An applied filter. Removable, and it states the field as well as the value —
+   "Status: Pending", never a bare "Pending" the reader has to decode. */
+.k-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--k-size-2);
+    height: 26px;
+    padding-inline: var(--k-size-2);
+    border: 1px solid var(--k-border-strong);
+    border-radius: var(--k-radius-pill);
+    background: var(--k-surface);
+    font-size: var(--k-text-sm);
+    color: var(--k-text);
+}
+.k-chip__key { color: var(--k-text-muted); }
+.k-chip__remove {
+    display: inline-flex;
+    border: 0;
+    padding: 0;
+    background: none;
+    color: var(--k-text-subtle);
+    cursor: pointer;
+    border-radius: 50%;
+}
+.k-chip__remove:hover { color: var(--k-danger); }
+
+/* ------------------------------------------------------------------ fields */
+.k-field { display: flex; flex-direction: column; gap: var(--k-size-1); }
+.k-field__label {
+    color: var(--k-text);
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+}
+.k-field__required { color: var(--k-danger); }
+.k-field__hint { font-size: var(--k-text-sm); color: var(--k-text-muted); }
+.k-field__error { font-size: var(--k-text-sm); color: var(--k-danger-text); }
+
+.k-input,
+.k-select,
+.k-textarea {
+    inline-size: 100%;
+    min-block-size: var(--k-control-height, 34px);
+    padding: 0 var(--k-size-3);
+    border: 1px solid var(--k-border-strong);
+    border-radius: var(--k-radius-sm);
+    background: var(--k-surface);
+    color: var(--k-text);
+    font: inherit;
+    font-size: var(--k-text-md);
+    transition: border-color var(--k-duration-fast) var(--k-ease), box-shadow var(--k-duration-fast) var(--k-ease);
+}
+.k-textarea { padding: var(--k-size-2) var(--k-size-3); resize: vertical; line-height: var(--k-leading-normal); }
+
+.k-input::placeholder,
+.k-textarea::placeholder { color: var(--k-text-subtle); }
+
+.k-input:focus,
+.k-select:focus,
+.k-textarea:focus {
+    outline: none;
+    border-color: var(--k-accent);
+    box-shadow: var(--k-focus-ring);
+}
+.k-field--invalid :is(.k-input, .k-select, .k-textarea) { border-color: var(--k-danger); }
+
+/* A search field: the icon sits at the inline start and flips with direction. */
+.k-search { position: relative; display: flex; align-items: center; }
+.k-search .k-icon {
+    position: absolute;
+    inset-inline-start: var(--k-size-3);
+    color: var(--k-text-subtle);
+    pointer-events: none;
+}
+.k-search .k-input { padding-inline-start: var(--k-size-8); }
+
+/* ------------------------------------------------------------------ switch */
+.k-switch {
+    inline-size: 36px;
+    block-size: 20px;
+    flex: 0 0 auto;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid var(--k-border-strong);
+    border-radius: var(--k-radius-pill);
+    background: var(--k-surface-sunk);
+    position: relative;
+    cursor: pointer;
+    transition: background var(--k-duration-fast) var(--k-ease);
+}
+.k-switch::after {
+    content: "";
+    position: absolute;
+    inset-block-start: 2px;
+    inset-inline-start: 2px;
+    inline-size: 14px;
+    block-size: 14px;
+    border-radius: 50%;
+    background: var(--k-text-subtle);
+    transition: inset-inline-start var(--k-duration-fast) var(--k-ease), background var(--k-duration-fast) var(--k-ease);
+}
+.k-switch:checked { background: var(--k-accent); border-color: var(--k-accent); }
+.k-switch:checked::after { inset-inline-start: 18px; background: var(--k-accent-contrast); }
+
+/* ------------------------------------------------------------- page header */
+.k-page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--k-size-3);
+    margin-block-end: var(--k-size-5);
+}
+.k-page-head__title {
+    color: var(--k-text);
+    font-size: var(--k-text-2xl);
+    font-weight: var(--k-weight-semibold);
+    letter-spacing: -.01em;
+}
+.k-page-head__sub { color: var(--k-text-muted); margin-block-start: 2px; }
+.k-page-head__actions { display: flex; flex-wrap: wrap; gap: var(--k-size-2); }
+
+/* --------------------------------------------------------------- stat tile */
+/* A number on its own is not information. Every tile carries the metric, the
+   value, and how it moved — which is the whole reason to look at it. */
+.k-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--k-size-3);
+}
+/* On a phone a 190px minimum collapses to one tile per row, so eight status tiles
+   push the list they summarise a full screen down. Two compact columns keep the
+   summary glanceable and the content reachable. */
+@media (max-width: 640px) {
+    .k-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--k-size-2); }
+    .k-stat { padding: var(--k-size-3); gap: var(--k-size-1); }
+    .k-stat__value { font-size: var(--k-text-xl); }
+    .k-stat__icon { inline-size: 22px; block-size: 22px; }
+}
+.k-stat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--k-size-2);
+    padding: var(--k-size-4);
+    background: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: var(--k-card-radius, var(--k-radius-md));
+}
+.k-stat__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-size-2);
+    color: var(--k-text-muted);
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-medium);
+}
+.k-stat__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 28px;
+    block-size: 28px;
+    border-radius: var(--k-radius-sm);
+    background: var(--k-accent-soft);
+    color: var(--k-accent);
+}
+.k-stat__value {
+    color: var(--k-text);
+    font-size: var(--k-text-2xl);
+    font-weight: var(--k-weight-semibold);
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+.k-stat__foot { display: flex; align-items: center; gap: var(--k-size-2); font-size: var(--k-text-sm); }
+.k-stat__delta { display: inline-flex; align-items: center; gap: 2px; font-weight: var(--k-weight-semibold); }
+.k-stat__delta--up { color: var(--k-success-text); }
+.k-stat__delta--down { color: var(--k-danger-text); }
+.k-stat__delta--flat { color: var(--k-text-muted); }
+.k-stat__caption { color: var(--k-text-subtle); }
+
+/* ------------------------------------------------------------------- table */
+.k-table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+.k-table {
+    inline-size: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--k-text-md);
+}
+.k-table th,
+.k-table td {
+    color: var(--k-text);
+    text-align: start;
+    padding: 0 var(--k-size-4);
+    block-size: var(--k-table-row-height, 46px);
+    border-block-end: 1px solid var(--k-border);
+    vertical-align: middle;
+}
+.k-table thead th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 1;
+    block-size: 38px;
+    background: var(--k-table-head-bg, var(--k-surface-sunk));
+    color: var(--k-text-muted);
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-semibold);
+    white-space: nowrap;
+}
+.k-table tbody a { color: var(--k-accent); }
+.k-table tbody tr { background: var(--k-surface); transition: background var(--k-duration-fast) var(--k-ease); }
+.k-table tbody tr:hover { background: var(--k-table-row-hover, var(--k-surface-sunk)); }
+.k-table tbody tr[aria-selected="true"] { background: var(--k-accent-soft); }
+.k-table tbody tr:last-child td { border-block-end: 0; }
+.k-table--compact { --k-table-row-height: 36px; }
+
+.k-table__num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.k-table__actions { display: flex; gap: var(--k-size-1); justify-content: flex-end; }
+/* The trailing actions column is empty until a row is hovered, so it collapses and
+   the buttons then overflow the row. Shrink-to-fit reserves exactly their width. */
+.k-table th:last-child:empty,
+.k-table td:has(> .k-table__actions) { inline-size: 1%; white-space: nowrap; }
+
+/* Row actions stay out of the way until the row is engaged with — on touch,
+   where there is no hover, they are always visible. */
+@media (hover: hover) and (pointer: fine) {
+    .k-table__actions { opacity: 0; transition: opacity var(--k-duration-fast) var(--k-ease); }
+    .k-table tbody tr:hover .k-table__actions,
+    .k-table tbody tr:focus-within .k-table__actions { opacity: 1; }
+}
+
+/* --------------------------------------------------------------- data view */
+.k-view__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-size-2);
+    padding: var(--k-size-3) var(--k-size-4);
+    border-block-end: 1px solid var(--k-border);
+}
+.k-view__toolbar-grow { flex: 1 1 220px; min-inline-size: 0; }
+.k-view__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--k-size-2);
+    padding: var(--k-size-2) var(--k-size-4);
+    border-block-end: 1px solid var(--k-border);
+    background: var(--k-surface-sunk);
+}
+
+/* Bulk bar: only exists while rows are selected, and it says how many, because
+   "delete" with an unstated count is how people delete the wrong thing. */
+.k-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-size-3);
+    padding: var(--k-size-2) var(--k-size-4);
+    background: var(--k-accent-soft);
+    border-block-end: 1px solid var(--k-border);
+}
+.k-bulk__count { font-weight: var(--k-weight-semibold); color: var(--k-accent); }
+.k-bulk__actions { display: flex; flex-wrap: wrap; gap: var(--k-size-2); margin-inline-start: auto; }
+
+/* -------------------------------------------------------------- pagination */
+.k-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-size-3);
+    padding: var(--k-size-3) var(--k-size-4);
+}
+.k-pager__info { color: var(--k-text-muted); font-size: var(--k-text-sm); }
+.k-pager__controls { display: flex; gap: var(--k-size-1); }
+
+/* -------------------------------------------------------------------- tabs */
+.k-tabs {
+    display: flex;
+    gap: var(--k-size-1);
+    border-block-end: 1px solid var(--k-border);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.k-tabs::-webkit-scrollbar { display: none; }
+.k-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--k-size-2);
+    padding: var(--k-size-2) var(--k-size-3);
+    border: 0;
+    border-block-end: 2px solid transparent;
+    background: none;
+    color: var(--k-text-muted);
+    font: inherit;
+    font-size: var(--k-text-md);
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+}
+.k-tab:hover { color: var(--k-text); text-decoration: none; }
+.k-tab[aria-selected="true"] { color: var(--k-accent); border-block-end-color: var(--k-accent); font-weight: var(--k-weight-medium); }
+.k-tab__count {
+    padding: 0 6px;
+    border-radius: var(--k-radius-pill);
+    background: var(--k-surface-sunk);
+    font-size: var(--k-text-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ drawer */
+.k-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--k-z-drawer);
+    background: var(--k-overlay);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--k-duration-base) var(--k-ease);
+}
+.k-drawer-backdrop.is-open { opacity: 1; pointer-events: auto; }
+
+.k-drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: calc(var(--k-z-drawer) + 1);
+    display: flex;
+    flex-direction: column;
+    inline-size: min(460px, 100vw);
+    background: var(--k-surface);
+    border-inline-start: 1px solid var(--k-border);
+    box-shadow: var(--k-shadow-3);
+    /* Logical translate: the drawer leaves towards the inline-end edge in both
+       directions, so RTL needs no separate rule. */
+    transform: translateX(100%);
+    transition: transform var(--k-duration-base) var(--k-ease);
+}
+[dir="rtl"] .k-drawer { transform: translateX(-100%); }
+.k-drawer.is-open,
+[dir="rtl"] .k-drawer.is-open { transform: translateX(0); }
+
+.k-drawer__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--k-size-3);
+    padding: var(--k-size-4);
+    border-block-end: 1px solid var(--k-border);
+}
+.k-drawer__title { color: var(--k-text); font-size: var(--k-text-lg); font-weight: var(--k-weight-semibold); }
+.k-drawer__body { flex: 1; overflow-y: auto; padding: var(--k-size-4); }
+.k-drawer__foot {
+    display: flex;
+    gap: var(--k-size-2);
+    padding: var(--k-size-3) var(--k-size-4);
+    border-block-start: 1px solid var(--k-border);
+    background: var(--k-surface-sunk);
+}
+
+/* On a phone a side drawer is a sheet: it comes up from the bottom, where the
+   thumb is, instead of squeezing a 460px panel into a 390px screen. */
+@media (max-width: 640px) {
+    .k-drawer {
+        inset-inline: 0;
+        inset-block-start: auto;
+        inline-size: 100%;
+        block-size: min(88dvh, 640px);
+        border-inline-start: 0;
+        border-start-start-radius: var(--k-radius-lg);
+        border-start-end-radius: var(--k-radius-lg);
+        transform: translateY(100%);
+    }
+    [dir="rtl"] .k-drawer { transform: translateY(100%); }
+    .k-drawer.is-open,
+    [dir="rtl"] .k-drawer.is-open { transform: translateY(0); }
+}
+
+/* ------------------------------------------------------------------ toasts */
+.k-toasts {
+    position: fixed;
+    inset-block-start: var(--k-size-4);
+    inset-inline-end: var(--k-size-4);
+    z-index: var(--k-z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: var(--k-size-2);
+    inline-size: min(360px, calc(100vw - var(--k-size-8)));
+    pointer-events: none;
+}
+.k-toast {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--k-size-3);
+    padding: var(--k-size-3);
+    border: 1px solid var(--k-border);
+    border-inline-start: 3px solid var(--k-text-subtle);
+    border-radius: var(--k-radius-sm);
+    background: var(--k-surface);
+    box-shadow: var(--k-shadow-2);
+    pointer-events: auto;
+    animation: k-toast-in var(--k-duration-base) var(--k-ease);
+}
+@keyframes k-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.k-toast--success { border-inline-start-color: var(--k-success); }
+.k-toast--warning { border-inline-start-color: var(--k-warning); }
+.k-toast--danger  { border-inline-start-color: var(--k-danger); }
+.k-toast__body { flex: 1; min-inline-size: 0; }
+.k-toast__title { color: var(--k-text); font-weight: var(--k-weight-semibold); }
+.k-toast__text { color: var(--k-text-muted); font-size: var(--k-text-sm); }
+.k-toast__action {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--k-accent);
+    font: inherit;
+    font-weight: var(--k-weight-semibold);
+    font-size: var(--k-text-sm);
+    cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- skeleton */
+/* Shape-matched placeholders. The page keeps its layout while loading, so
+   content does not jump when it lands. */
+.k-skeleton {
+    display: block;
+    border-radius: var(--k-radius-sm);
+    background: linear-gradient(90deg,
+        var(--k-surface-sunk) 25%,
+        color-mix(in srgb, var(--k-surface-sunk) 55%, var(--k-surface)) 37%,
+        var(--k-surface-sunk) 63%);
+    background-size: 400% 100%;
+    animation: k-shimmer 1.4s ease infinite;
+}
+@keyframes k-shimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+.k-skeleton--text { block-size: 12px; margin-block: 4px; }
+.k-skeleton--title { block-size: 20px; inline-size: 40%; }
+.k-skeleton--avatar { inline-size: 36px; block-size: 36px; border-radius: 50%; }
+.k-skeleton--row { block-size: var(--k-table-row-height, 46px); margin-block-end: 1px; }
+
+/* ------------------------------------------------------------- empty state */
+.k-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--k-size-3);
+    padding: var(--k-size-12) var(--k-size-5);
+    text-align: center;
+}
+.k-empty__art {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 56px;
+    block-size: 56px;
+    border-radius: 50%;
+    background: var(--k-surface-sunk);
+    color: var(--k-text-subtle);
+}
+.k-empty__title { color: var(--k-text); font-size: var(--k-text-lg); font-weight: var(--k-weight-semibold); }
+.k-empty__text { color: var(--k-text-muted); max-inline-size: 46ch; }
+
+/* ------------------------------------------------------------------ avatar */
+.k-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 32px;
+    block-size: 32px;
+    border-radius: 50%;
+    background: var(--k-accent-soft);
+    color: var(--k-accent);
+    font-size: var(--k-text-sm);
+    font-weight: var(--k-weight-semibold);
+    overflow: hidden;
+    flex: 0 0 auto;
+}
+.k-avatar img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+
+/* ------------------------------------------------------------------ layout */
+.k-stack { display: flex; flex-direction: column; gap: var(--k-size-4); }
+.k-row { display: flex; align-items: center; gap: var(--k-size-2); }
+.k-row--between { justify-content: space-between; }
+.k-grow { flex: 1; min-inline-size: 0; }
+.k-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------- settings index link */
+/* A destination in the settings hub: title, one line of what it actually does,
+   and an affordance that it goes somewhere. The description is the point — a
+   grid of bare titles is the same lookup problem the hub exists to solve. */
+.k-setting-link {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--k-size-2);
+    padding: var(--k-size-3);
+    border: 1px solid var(--k-border);
+    border-radius: var(--k-radius-sm);
+    background: var(--k-surface);
+    color: var(--k-text);
+    text-decoration: none;
+    transition: border-color var(--k-duration-fast) var(--k-ease),
+                background var(--k-duration-fast) var(--k-ease);
+}
+.k-setting-link:hover {
+    border-color: var(--k-accent);
+    background: var(--k-accent-soft);
+    text-decoration: none;
+    color: var(--k-text);
+}
+.k-setting-link__title { font-weight: var(--k-weight-medium); grid-column: 1; }
+.k-setting-link__desc {
+    grid-column: 1;
+    font-size: var(--k-text-sm);
+    color: var(--k-text-muted);
+    line-height: 1.45;
+}
+.k-setting-link__go { grid-column: 2; grid-row: 1 / span 2; color: var(--k-text-subtle); }
+.k-setting-link:hover .k-setting-link__go { color: var(--k-accent); }
+
+/* ----------------------------------------------------------------- save bar */
+/* A settings form's save button sits at the bottom of a long page. Change one
+   field near the top and the way to keep it is off-screen — which is how edits
+   get lost to a stray navigation. This bar appears the moment a form is dirty
+   and stays in view until the change is saved or discarded. */
+.k-savebar {
+    position: sticky;
+    inset-block-end: 0;
+    z-index: var(--k-z-sticky);
+    display: none;
+    align-items: center;
+    gap: var(--k-size-3);
+    margin-block-start: var(--k-size-4);
+    padding: var(--k-size-3) var(--k-size-4);
+    border: 1px solid var(--k-border-strong);
+    border-radius: var(--k-radius-md);
+    background: var(--k-surface);
+    box-shadow: var(--k-shadow-3);
+}
+.k-savebar.is-dirty { display: flex; }
+.k-savebar__dot {
+    inline-size: 8px;
+    block-size: 8px;
+    border-radius: 50%;
+    background: var(--k-warning);
+    flex: 0 0 auto;
+}
+.k-savebar__text { flex: 1; min-inline-size: 0; font-weight: var(--k-weight-medium); }
+.k-savebar__actions { display: flex; gap: var(--k-size-2); }
+
+@media (max-width: 640px) {
+    .k-savebar { flex-wrap: wrap; }
+    .k-savebar__actions { inline-size: 100%; }
+    .k-savebar__actions .k-btn { flex: 1; }
+}
+
+/* ── Category icon slot ──────────────────────────────────────────────────────
+   Where a category's icon would be, for one that has none yet. A status badge
+   reads as a state ("active", "warning"); a dashed slot reads as "no artwork",
+   which is what it actually means — and it keeps a list of icon-less rows from
+   looking like a row of broken images. */
+.category-icon-placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 38px;
+    block-size: 38px;
+    border-radius: var(--k-radius-md);
+    border: 1px dashed var(--k-border-strong, rgba(128, 138, 157, .5));
+    background: var(--k-surface-sunk);
+    color: var(--k-text-muted, #6b7a8d);
+    font-weight: var(--k-weight-bold, 700);
+    font-size: 15px;
+    line-height: 1;
+    text-transform: uppercase;
+}

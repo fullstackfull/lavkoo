@@ -1,0 +1,444 @@
+/*
+ | Analytics.
+ |
+ | A reporting screen has one job: make a number comparable. So the visual weight goes to the
+ | figure and its change, everything else recedes, and colour is spent only where it carries
+ | meaning — a decline, an exclusion, a search that found nothing. A dashboard that colours
+ | everything has said nothing.
+ |
+ | Built on the console tokens, so light and dark, RTL and the panel's palette all come for free.
+ */
+
+@use 'tokens';
+
+.ana {
+    --ana-gap: var(--k-size-3, 12px);
+    --ana-up: var(--k-success, #1f9d55);
+    --ana-down: var(--k-danger, #d64545);
+    --ana-accent: var(--k-accent, #2f6fd0);
+}
+
+/* ── Range picker and window bar ───────────────────────────────────────────── */
+.ana-range {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .1));
+}
+.ana-range__option {
+    padding: 5px 10px;
+    border-radius: var(--k-radius-sm, 6px);
+    font-size: var(--k-text-xs, 12px);
+    color: var(--k-text-muted);
+    text-decoration: none;
+
+    &:hover { text-decoration: none; color: var(--k-text); }
+    &.is-active { background: var(--k-surface, #fff); color: var(--k-text); font-weight: 600; }
+}
+
+.ana-window {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-size-3, 12px);
+    padding: 8px var(--k-size-4, 16px);
+    margin-bottom: var(--ana-gap);
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .08));
+    font-size: var(--k-text-sm, 13px);
+}
+.ana-chip {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--k-accent-soft, rgba(47, 111, 208, .14));
+    color: var(--ana-accent);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* The collection-health banner. Deliberately loud: an unnoticed dead pipeline is the failure
+   this whole area exists to prevent. */
+.ana-alert {
+    display: flex;
+    gap: var(--k-size-3, 12px);
+    padding: var(--k-size-3, 12px) var(--k-size-4, 16px);
+    margin-bottom: var(--ana-gap);
+    border-inline-start: 3px solid var(--k-warning, #d98d1a);
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface-sunk, rgba(217, 141, 26, .1));
+
+    p { margin: 2px 0 0; font-size: var(--k-text-sm, 13px); }
+    i { font-size: 18px; color: var(--k-warning, #d98d1a); }
+
+    &--danger {
+        border-inline-start-color: var(--ana-down);
+        background: var(--k-surface-sunk, rgba(214, 69, 69, .1));
+        i { color: var(--ana-down); }
+    }
+}
+
+/* ── Layout ────────────────────────────────────────────────────────────────── */
+.ana-layout {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: var(--k-size-4, 16px);
+    align-items: start;
+}
+@media (max-width: 991px) {
+    .ana-layout { grid-template-columns: minmax(0, 1fr); }
+    .ana-rail { position: static; max-height: none; }
+}
+
+.ana-rail {
+    position: sticky;
+    top: var(--k-size-4, 16px);
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    padding: var(--k-size-2, 8px);
+    border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    border-radius: var(--k-radius-lg, 12px);
+    background: var(--k-surface, #fff);
+}
+.ana-rail__group + .ana-rail__group { margin-top: var(--k-size-3, 12px); }
+.ana-rail__label {
+    display: block;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--k-text-muted);
+}
+.ana-rail__item {
+    display: block;
+    padding: 6px 10px;
+    border-radius: var(--k-radius-sm, 6px);
+    font-size: var(--k-text-sm, 13px);
+    color: var(--k-text, inherit);
+    text-decoration: none;
+
+    &:hover { background: var(--k-surface-sunk, rgba(128, 138, 157, .1)); text-decoration: none; }
+    &.is-active { background: var(--k-accent-soft, rgba(47, 111, 208, .12)); font-weight: 600; }
+}
+
+.ana-body > * + * { margin-top: var(--ana-gap); }
+.ana-grid { display: grid; gap: var(--ana-gap); }
+.ana-grid--2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+
+/* ── Metrics ───────────────────────────────────────────────────────────────── */
+.ana-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--k-size-4, 16px);
+}
+.ana-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    small { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--k-text-muted); }
+    .k-num { font-size: var(--k-text-xl, 24px); font-weight: 700; line-height: 1.1; }
+    i { font-style: normal; font-size: var(--k-text-sm, 13px); color: var(--k-text-muted); }
+}
+/* A figure that is a floor rather than a count, and the sentence that says why. The label styling
+   above uppercases every <small> in the card; this one is a sentence, so it opts out. */
+.ana-metric__floor { font-style: normal; color: var(--k-text-muted); font-weight: 600; }
+.ana-metric__caveat {
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    line-height: 1.4;
+    margin-top: 2px;
+}
+.ana-change {
+    font-size: 11px;
+    font-weight: 600;
+
+    &--up { color: var(--ana-up); }
+    &--down { color: var(--ana-down); }
+    &--flat, &--none { color: var(--k-text-muted); font-weight: 400; }
+}
+
+/* ── Chart ─────────────────────────────────────────────────────────────────── */
+.ana-chart { position: relative; }
+.ana-chart svg {
+    width: 100%;
+    height: 180px;
+    overflow: visible;
+}
+.ana-chart__line {
+    fill: none;
+    stroke: var(--ana-accent);
+    stroke-width: 2;
+    /* vector-effect keeps the stroke 2px after the viewBox is stretched to the container; without
+       it a wide screen draws a hairline and a narrow one draws a slab. */
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+
+    &--revenue { stroke: var(--ana-up); stroke-dasharray: 4 3; }
+}
+.ana-chart__axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--k-text-muted);
+}
+.ana-chart__legend { display: flex; gap: var(--k-size-4, 16px); margin-top: 6px; font-size: 11px; color: var(--k-text-muted); }
+.ana-chart__key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+
+    i { display: inline-block; width: 14px; height: 2px; background: var(--ana-accent); }
+    &--revenue i { background: var(--ana-up); }
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────────── */
+.ana-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--k-text-sm, 13px);
+
+    th {
+        padding: 6px 8px;
+        text-align: start;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: var(--k-text-muted);
+        border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    }
+    td { padding: 7px 8px; border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .12)); }
+    tbody tr:hover { background: var(--k-surface-sunk, rgba(128, 138, 157, .06)); }
+}
+.ana-num { text-align: end; white-space: nowrap; }
+
+.ana-bar {
+    display: inline-block;
+    width: 44px;
+    height: 5px;
+    margin-inline-end: 6px;
+    border-radius: 3px;
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .18));
+    overflow: hidden;
+    vertical-align: middle;
+
+    i { display: block; height: 100%; background: var(--ana-accent); }
+}
+
+/* ── Funnel ────────────────────────────────────────────────────────────────── */
+.ana-funnel__step {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 6px 0;
+}
+.ana-funnel__bar {
+    min-width: 40px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    border-radius: var(--k-radius-sm, 6px);
+    background: var(--k-accent-soft, rgba(47, 111, 208, .18));
+    color: var(--ana-accent);
+    font-weight: 700;
+    font-size: var(--k-text-sm, 13px);
+}
+.ana-funnel__label {
+    padding-top: 3px;
+
+    strong { font-size: var(--k-text-sm, 13px); }
+    small { display: block; font-size: 11px; color: var(--k-text-muted); }
+}
+.ana-drop { color: var(--ana-down); }
+
+/* ── Hour / minute histogram ───────────────────────────────────────────────── */
+.ana-hours {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 120px;
+}
+.ana-hours__slot {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    height: 100%;
+
+    small { margin-top: 4px; font-size: 9px; color: var(--k-text-muted); }
+}
+.ana-hours__bar {
+    width: 100%;
+    border-radius: 2px 2px 0 0;
+    background: var(--ana-accent);
+    opacity: .75;
+}
+
+/* ── Cohorts ───────────────────────────────────────────────────────────────── */
+.ana-cohorts__cell {
+    position: relative;
+
+    /* Colour carries the value here, so the shape of retention is readable without reading every
+       cell. The alpha is driven straight from the percentage. */
+    &[style*='--pct'] {
+        /* The accent, so the grid follows the merchant's colour and the dark theme, rather
+           than a blue hardcoded once and left behind by both. */
+        background: color-mix(in srgb, var(--k-accent) calc(var(--pct) * 1%), transparent);
+    }
+}
+
+/* ── Misc ──────────────────────────────────────────────────────────────────── */
+.ana-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--k-size-3, 12px);
+        padding: 5px 0;
+        font-size: var(--k-text-sm, 13px);
+        border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .1));
+    }
+    li:last-child { border-bottom: 0; }
+    li > span { color: var(--k-text-muted); }
+}
+
+.ana-timeline {
+    margin: var(--k-size-2, 8px) 0 0;
+    padding-inline-start: var(--k-size-5, 20px);
+    font-size: var(--k-text-sm, 13px);
+
+    li { padding: 3px 0; }
+    span { margin-inline-start: 6px; }
+}
+
+.ana-health {
+    padding: var(--k-size-3, 12px);
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface-sunk, rgba(31, 157, 85, .1));
+    margin-bottom: var(--k-size-3, 12px);
+
+    strong { text-transform: capitalize; }
+    p { margin: 4px 0 0; font-size: var(--k-text-sm, 13px); }
+
+    &--rollup_never_ran, &--no_events, &--not_installed, &--disabled {
+        background: var(--k-surface-sunk, rgba(214, 69, 69, .1));
+    }
+    &--rollup_stale { background: var(--k-surface-sunk, rgba(217, 141, 26, .1)); }
+}
+
+.ana-note { font-size: var(--k-text-sm, 13px); color: var(--k-text-muted); }
+/* A note that is a problem rather than an aside: the app is set up but the link will not open it. */
+.ana-note--warning { color: var(--k-warning-text); }
+.ana-muted { color: var(--k-text-muted); }
+.ana-warn { color: var(--k-warning, #d98d1a); }
+.ana-export { margin-top: var(--k-size-2, 8px); }
+
+.ana-details {
+    margin-top: var(--k-size-3, 12px);
+    font-size: var(--k-text-sm, 13px);
+
+    summary { cursor: pointer; color: var(--k-text-muted); }
+}
+
+.ana-inline-form {
+    display: flex;
+    gap: var(--k-size-2, 8px);
+
+    input {
+        flex: 1 1 auto;
+        min-width: 0;
+        padding: 7px 10px;
+        border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+        border-radius: var(--k-radius-md, 8px);
+        background: var(--k-surface, #fff);
+        color: inherit;
+    }
+}
+
+/* ── Campaigns ─────────────────────────────────────────────────────────────── */
+.ana-form__row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--k-size-3, 12px);
+    margin-bottom: var(--k-size-3, 12px);
+
+    label { display: flex; flex-direction: column; gap: 4px; }
+    span { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--k-text-muted); }
+    input {
+        padding: 7px 10px;
+        border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+        border-radius: var(--k-radius-md, 8px);
+        background: var(--k-surface, #fff);
+        color: inherit;
+    }
+}
+
+.ana-campaign {
+    padding: var(--k-size-4, 16px) 0;
+    border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .16));
+
+    /* A paused or expired link is still shown — a merchant needs its history — but reads as
+       switched off at a glance rather than being quietly removed from the list. */
+    &.is-inactive { opacity: .6; }
+    &:last-child { border-bottom: 0; }
+}
+.ana-campaign__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--k-size-3, 12px);
+    flex-wrap: wrap;
+
+    small { display: block; font-size: 11px; }
+}
+.ana-campaign__state { display: flex; align-items: center; gap: var(--k-size-2, 8px); }
+
+.ana-campaign__body {
+    display: flex;
+    gap: var(--k-size-4, 16px);
+    align-items: flex-start;
+    margin-top: var(--k-size-3, 12px);
+}
+.ana-campaign__links {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    label { display: block; margin-bottom: 6px; }
+    span { display: block; font-size: 11px; text-transform: uppercase; color: var(--k-text-muted); }
+    input {
+        width: 100%;
+        padding: 6px 9px;
+        border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+        border-radius: var(--k-radius-md, 8px);
+        background: var(--k-surface-sunk, rgba(128, 138, 157, .08));
+        color: inherit;
+        font-family: var(--k-font-mono, monospace);
+        font-size: var(--k-text-xs, 12px);
+    }
+}
+.ana-campaign__qr {
+    flex: 0 0 auto;
+    display: block;
+    line-height: 0;
+    border-radius: var(--k-radius-md, 8px);
+    overflow: hidden;
+
+    svg { display: block; }
+}
+
+.ana-campaign__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: var(--k-size-3, 12px);
+    margin-top: var(--k-size-3, 12px);
+
+    .k-num { font-size: var(--k-text-lg, 18px); font-weight: 700; }
+    small { display: block; font-size: 11px; color: var(--k-text-muted); }
+}

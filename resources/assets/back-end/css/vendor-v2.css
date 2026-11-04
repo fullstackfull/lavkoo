@@ -1,0 +1,2250 @@
+/* =====================================================================
+   6Valley Admin v1 — SHELL-ONLY styles (header + rail + ctxpanel + palette)
+   Every rule is scoped so it cannot bleed into @yield('content') in the
+   main column or into any other page's content. All class names are
+   prefixed with v2- to guarantee zero collision with Bootstrap / existing
+   project styles.
+   ===================================================================== */
+
+/* SweetAlert2 must render above the v1 shell + its header dropdowns.
+   Default swal2 z-index is 1060, but we raise it explicitly because some
+   header widgets (profile dropdown etc.) sit at z-index 200 and a Bootstrap
+   modal backdrop could otherwise compete. */
+body.v2-active .swal2-container { z-index: 20000 !important; }
+
+/* Lock <body> to the viewport when the v1 shell is present so the page
+   itself never scrolls — only .v2-main does. `.v2-active` class is added
+   to <body> when session('admin_sidebar_version') === 'v2' for reliable
+   targeting in all browsers. */
+html:has(body.v2-active),
+body.v2-active {
+  height: 100vh;
+  height: 100dvh;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Keep the grid layout itself LTR-deterministic regardless of
+   inherited direction. Text direction for content is restored on the
+   individual shell children further below when html is RTL. */
+.app-v2 {
+  direction: ltr;
+
+  /* Refined neutral scale — cooler, more balanced grays */
+  --v2-bg:            #F7F8FB;
+  --v2-surface:       #FFFFFF;
+  --v2-surface-2:     #FAFBFD;
+  --v2-border:        #EBEEF3;
+  --v2-border-strong: #D9DFE8;
+  --v2-hairline:      #F1F3F7;
+  --v2-chip:          #F1F3F7;
+  --v2-fg:            #0F172A;
+  --v2-fg-dim:        #475569;
+  --v2-fg-muted:      #8792A6;
+
+  /* Primary + secondary are injected inline from business settings.
+     Derived tints fall back automatically via color-mix. */
+  --v2-primary:        #1F4FD6;
+  --v2-primary-hover:  color-mix(in srgb, var(--v2-primary) 88%, #000);
+  --v2-primary-soft:   color-mix(in srgb, var(--v2-primary) 12%, var(--v2-surface));
+  --v2-primary-softer: color-mix(in srgb, var(--v2-primary)  6%, var(--v2-surface));
+  --v2-primary-ring:   color-mix(in srgb, var(--v2-primary) 18%, transparent);
+
+  --v2-secondary:       #2BB0EE;
+  --v2-secondary-hover: color-mix(in srgb, var(--v2-secondary) 88%, #000);
+  --v2-secondary-soft:  color-mix(in srgb, var(--v2-secondary) 14%, var(--v2-surface));
+
+  /* Semantic tokens */
+  --v2-success:      #15803D;
+  --v2-success-soft: #E7F5ED;
+  --v2-warn:         #D97706;
+  --v2-warn-soft:    #FEF0DF;
+  --v2-danger:       #DC2626;
+  --v2-danger-soft:  #FCE6E6;
+  --v2-info:         #0284C7;
+  --v2-info-soft:    #E0F1FB;
+
+  /* Elevation — layered subtle shadows, not flat borders */
+  --v2-shadow-xs: 0 1px 1px rgba(15, 23, 42, 0.04);
+  --v2-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03);
+  --v2-shadow-md: 0 4px 14px -2px rgba(15, 23, 42, 0.08), 0 2px 6px -2px rgba(15, 23, 42, 0.04);
+  --v2-shadow-lg: 0 20px 40px -12px rgba(15, 23, 42, 0.18), 0 6px 14px -6px rgba(15, 23, 42, 0.08);
+
+  /* Sidebar surface tokens — overridden inline on .app-v2 when the
+     business-setting panel_sidebar_color is set; otherwise they fall
+     back to the light-theme defaults. */
+  --v2-sidebar-bg:          var(--v2-surface);
+  --v2-sidebar-bg-2:        var(--v2-surface-2);
+  --v2-sidebar-fg:          var(--v2-fg);
+  --v2-sidebar-fg-dim:      var(--v2-fg-dim);
+  --v2-sidebar-fg-muted:    var(--v2-fg-muted);
+  --v2-sidebar-border:      var(--v2-border);
+  --v2-sidebar-hairline:    var(--v2-hairline);
+  --v2-sidebar-chip:        var(--v2-chip);
+  --v2-sidebar-chip-strong: var(--v2-border);
+  --v2-sidebar-active-bg:   var(--v2-primary-soft);
+
+  --v2-header-h: 60px;
+  --v2-rail-w: 60px;
+  --v2-ctx-w: 232px;
+
+  --v2-font: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  display: grid;
+  grid-template-rows: var(--v2-header-h) 1fr;
+  grid-template-columns: var(--v2-rail-w) var(--v2-ctx-w) 1fr;
+  grid-template-areas:
+    "header header header"
+    "rail   ctx    main";
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  transition: grid-template-columns 180ms ease;
+  background: var(--v2-bg);
+  font-family: var(--v2-font);
+  font-size: 14px;
+  color: var(--v2-fg);
+}
+.app-v2.v2-collapsed {
+  grid-template-columns: var(--v2-rail-w) 1fr;
+  grid-template-areas:
+    "header header"
+    "rail   main";
+}
+.app-v2.v2-collapsed .v2-ctxpanel { display: none; }
+
+/* Main column: grid-positioned + scrollable.
+   Right padding = just enough to clear the vertical "View Guideline"
+   button (`.view-guideline-btn`, position: fixed; end: 0) so it stays
+   fully visible without overlapping the content. Left padding mirrors
+   the right value so the column reads as symmetric. The !important
+   defends against classic hs-navbar-vertical-aside Bootstrap rules
+   targeting `.main`. */
+.app-v2 > .v2-main {
+  grid-area: main;
+  overflow-y: auto;
+  min-width: 0;
+  padding: 16px 4px 20px !important;
+  margin: 0 !important;
+}
+@media (max-width: 768px) {
+  .app-v2 > .v2-main { padding: 12px 4px max(28px, env(safe-area-inset-bottom) + 16px) !important; }
+  /* Reserve room for the sticky action-button bar (added at runtime by
+     initActionButton) so the last card never sits under it on mobile.
+     Also keeps the Android 3-button nav / iOS home indicator clear via
+     env(safe-area-inset-bottom). */
+  .app-v2:has(.action-btn-wrapper.fixed) > .v2-main,
+  .app-v2:has(.fixed-bottom > .action-btn-wrapper) > .v2-main {
+    padding-bottom: max(96px, env(safe-area-inset-bottom) + 88px) !important;
+  }
+}
+
+/* RTL: because .app-v2 itself is forced to direction: ltr (above),
+   we explicitly flip the grid column order so rail physically ends up
+   on the right, ctxpanel in the middle, main on the left. Child
+   elements below are set back to direction: rtl so Arabic text flows. */
+[dir="rtl"] .app-v2 {
+  grid-template-columns: 1fr var(--v2-ctx-w) var(--v2-rail-w);
+  grid-template-areas:
+    "header header header"
+    "main   ctx    rail";
+}
+[dir="rtl"] .app-v2.v2-collapsed {
+  grid-template-columns: 1fr var(--v2-rail-w);
+  grid-template-areas:
+    "header header"
+    "main   rail";
+}
+/* Restore RTL text flow on shell children (.app-v2 itself stays LTR). */
+[dir="rtl"] .app-v2 > .v2-header,
+[dir="rtl"] .app-v2 > .v2-rail,
+[dir="rtl"] .app-v2 > .v2-ctxpanel,
+[dir="rtl"] .app-v2 > .v2-main,
+[dir="rtl"] .v2-rail-flyout,
+[dir="rtl"] .v2-setup-popover {
+  direction: rtl;
+}
+
+/* =====================================================================
+   HEADER  (only matches .v2-header inside .app-v2 — scoped both ways)
+   ===================================================================== */
+.app-v2 > .v2-header {
+  grid-area: header;
+  background: var(--v2-surface);
+  border-bottom: 1px solid var(--v2-border);
+  box-shadow: var(--v2-shadow-xs);
+  display: flex; align-items: center;
+  padding: 0 20px;
+  gap: 18px;
+  z-index: 20;
+  position: relative;
+  font-family: var(--v2-font);
+  font-size: 14px;
+  color: var(--v2-fg);
+}
+.app-v2 > .v2-header * { box-sizing: border-box; }
+.app-v2 > .v2-header button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+.app-v2 > .v2-header a { color: inherit; text-decoration: none; }
+
+.app-v2 > .v2-header .v2-header-brand {
+  display: flex; align-items: center; gap: 10px;
+  /* Span the full sidebar (rail + ctxpanel) so the toggle button — pinned
+     to the inline-end via margin-inline-start: auto — sits right at the
+     boundary between the ctxpanel and the main content column. */
+  width: calc(var(--v2-rail-w) + var(--v2-ctx-w));
+  min-width: calc(var(--v2-rail-w) + var(--v2-ctx-w));
+  flex: 0 0 auto;
+}
+.app-v2 > .v2-header .v2-brand-logo {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 0 2px;
+}
+.app-v2 > .v2-header .v2-brand-logo img {
+  height: 26px;
+  width: auto;
+  max-width: 160px;
+  object-fit: contain;
+  display: block;
+}
+.app-v2 > .v2-header .v2-brand-name {
+  font-weight: 700; font-size: 16px; letter-spacing: -0.02em;
+  color: var(--v2-fg);
+}
+.app-v2 > .v2-header .v2-brand-name span { color: var(--v2-primary); }
+.app-v2 > .v2-header .v2-sidebar-toggle {
+  width: 32px; height: 32px; border-radius: 6px;
+  display: grid; place-items: center;
+  color: var(--v2-fg-dim);
+  margin-left: auto;
+  transition: background 120ms, color 120ms, transform 200ms;
+}
+.app-v2 > .v2-header .v2-sidebar-toggle:hover { background: var(--v2-chip); color: var(--v2-fg); }
+.app-v2 > .v2-header .v2-sidebar-toggle .v2-sb-icon { display: block; }
+/* Show only the matching icon for the current state. */
+.app-v2:not(.v2-collapsed) > .v2-header .v2-sidebar-toggle .v2-sb-expand { display: none; }
+.app-v2.v2-collapsed > .v2-header .v2-sidebar-toggle .v2-sb-collapse { display: none; }
+
+/* When the sidebar is collapsed:
+     - Drop the header's leading padding so the brand cell starts at x=0
+       — the same origin as the rail column underneath. Without this the
+       mini logo ends up shifted ~20px to the inline-end of the rail icons.
+     - The brand area spans the rail width PLUS room for the toggle button,
+       so the toggle still has a home on the inline-end side.
+     - The mini logo occupies the first slot at exactly the rail width
+       (68 px) and its image is centered inside, lining up with the rail
+       icon centerline below.
+     - The full logo + brand name are hidden. */
+.app-v2.v2-collapsed > .v2-header { padding-inline-start: 0; }
+.app-v2.v2-collapsed > .v2-header .v2-header-brand {
+  min-width: calc(var(--v2-rail-w) + 48px);
+  width: calc(var(--v2-rail-w) + 48px);
+  justify-content: flex-start;
+  gap: 0;
+  padding-inline: 0;
+}
+.app-v2.v2-collapsed > .v2-header .v2-brand-logo,
+.app-v2.v2-collapsed > .v2-header .v2-brand-name { display: none; }
+.app-v2.v2-collapsed > .v2-header .v2-sidebar-toggle {
+  margin-left: 0;
+  margin-inline-start: 0;
+}
+
+/* Mini brand mark — invisible by default, revealed only when collapsed.
+   The mini-logo wrapper is a full rail-width (68px) cell so the image
+   inside stays centered horizontally on the same axis as the rail icons. */
+.app-v2 > .v2-header .v2-brand-logo-mini { display: none; }
+.app-v2.v2-collapsed > .v2-header .v2-brand-logo-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--v2-rail-w);
+  height: 42px;
+  flex: 0 0 auto;
+}
+.app-v2.v2-collapsed > .v2-header .v2-brand-logo-mini img {
+  height: 26px;
+  width: 26px;
+  object-fit: contain;
+  display: block;
+}
+
+.app-v2 > .v2-header .v2-crumbs {
+  flex: 1;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--v2-fg-muted);
+  padding-left: 4px;
+  overflow: hidden;
+  min-width: 0;
+}
+.app-v2 > .v2-header .v2-crumbs .v2-primary-crumb { color: var(--v2-primary); font-weight: 500; }
+.app-v2 > .v2-header .v2-crumbs .v2-crumb-current { color: var(--v2-fg); font-weight: 500; }
+.app-v2 > .v2-header .v2-crumbs > span,
+.app-v2 > .v2-header .v2-crumbs > a {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* Without min-width:0 each flex child stays at its intrinsic content
+     width, so text-overflow:ellipsis never fires per-element and the
+     overflow just gets clipped at the .v2-crumbs parent. With it, the
+     longest crumb (typically v2-crumb-current — the current page label)
+     shrinks and shows an ellipsis, and ensureTruncatedTooltip can detect
+     scrollWidth > clientWidth to attach the hover tooltip. */
+  min-width: 0;
+}
+.app-v2 > .v2-header .v2-crumbs > .v2-crumb-current { flex: 1 1 auto; }
+.app-v2 > .v2-header .v2-crumbs > .v2-crumb-sep { flex: 0 0 auto; }
+
+/* Clickable breadcrumb links — neutral colour with subtle hover. */
+.app-v2 > .v2-header .v2-crumbs a {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 0 -4px;
+  transition: background 120ms, color 120ms;
+  cursor: pointer;
+}
+.app-v2 > .v2-header .v2-crumbs a:hover {
+  background: var(--v2-chip);
+  color: var(--v2-fg);
+}
+.app-v2 > .v2-header .v2-crumbs a.v2-primary-crumb {
+  color: var(--v2-primary);
+}
+.app-v2 > .v2-header .v2-crumbs a.v2-primary-crumb:hover {
+  background: var(--v2-primary-softer);
+  color: var(--v2-primary-hover);
+}
+.app-v2 > .v2-header .v2-crumbs .v2-crumb-sep {
+  color: var(--v2-fg-muted);
+  user-select: none;
+  font-size: 13px;
+}
+
+/* Current breadcrumb crumb (last item): the outer <a>/<span> stretches
+   to fill the remaining width of .v2-crumbs (already via flex: 1 1 auto)
+   and captures clicks across the full width — including the empty area
+   to the right of the label. The visible chrome (hover bg, padding,
+   cursor:pointer, ellipsis) lives on the inner .v2-crumb-text wrapper
+   so the affordance and tooltip only show when the pointer is over the
+   text itself. Empty space stays inert in appearance even though it's
+   still clickable. */
+.app-v2 > .v2-header .v2-crumbs > a.v2-crumb-current,
+.app-v2 > .v2-header .v2-crumbs > span.v2-crumb-current {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: default;
+  max-width: fit-content;
+  /* Outer keeps overflow:hidden + min-width:0 (inherited from earlier
+     rule on .v2-crumbs > a/span) so the inner can ellipsis within. */
+}
+.app-v2 > .v2-header .v2-crumbs > a.v2-crumb-current:hover {
+  background: transparent;
+  color: inherit;
+}
+.app-v2 > .v2-header .v2-crumbs .v2-crumb-text {
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  padding: 2px 6px;
+  transition: background 120ms, color 120ms;
+}
+.app-v2 > .v2-header .v2-crumbs > a.v2-crumb-current .v2-crumb-text {
+  cursor: pointer;
+}
+.app-v2 > .v2-header .v2-crumbs > a.v2-crumb-current:hover .v2-crumb-text {
+  background: var(--v2-chip);
+  color: var(--v2-fg);
+}
+
+.app-v2 > .v2-header .v2-search-btn {
+  width: 240px;
+  height: 34px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px 0 12px;
+  background: var(--v2-surface-2);
+  border: 1px solid var(--v2-border);
+  border-radius: 8px;
+  color: var(--v2-fg-muted);
+  font-size: 12.5px;
+  margin-right: 6px;
+  transition: border-color 120ms, background 120ms, color 120ms, box-shadow 120ms;
+}
+.app-v2 > .v2-header .v2-search-btn:hover {
+  border-color: var(--v2-border-strong);
+  color: var(--v2-fg-dim);
+  background: var(--v2-surface);
+  box-shadow: var(--v2-shadow-xs);
+}
+.app-v2 > .v2-header .v2-search-btn:focus-visible {
+  border-color: var(--v2-primary);
+  box-shadow: 0 0 0 3px var(--v2-primary-ring);
+  outline: 0;
+}
+.app-v2 > .v2-header .v2-search-btn span { flex: 1; text-align: start; }
+.app-v2 > .v2-header .v2-search-btn .v2-kbd-group { display: flex; gap: 3px; flex: 0; }
+
+.app-v2 > .v2-header .v2-header-right {
+  display: flex; align-items: center; gap: 4px;
+  margin-left: auto;
+  position: relative;
+}
+.app-v2 > .v2-header .v2-header-divider {
+  display: inline-block;
+  width: 1px;
+  height: 22px;
+  background: var(--v2-border);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+.app-v2 > .v2-header .v2-icon-btn {
+  width: 36px; height: 36px; border-radius: 8px;
+  display: grid; place-items: center;
+  color: var(--v2-fg-dim);
+  position: relative;
+  transition: background 120ms, color 120ms, transform 120ms;
+}
+.app-v2 > .v2-header .v2-icon-btn:hover { background: var(--v2-chip); color: var(--v2-fg); }
+.app-v2 > .v2-header .v2-icon-btn:active { transform: scale(0.96); }
+.app-v2 > .v2-header .v2-icon-btn:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--v2-primary-ring);
+}
+.app-v2 > .v2-header .v2-badge-dot {
+  position: absolute; top: -3px; right: -3px;
+  background: var(--v2-danger); color: #FFFFFF;
+  font-size: 9px; font-weight: 700;
+  padding: 0 4px;
+  border-radius: 999px;
+  min-width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 2px solid var(--v2-surface);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 2;
+}
+.app-v2 > .v2-header .v2-avatar-wrap {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 3px 10px 3px 3px;
+  border-radius: 999px;
+  background: var(--v2-primary-softer);
+  border: 1.5px solid var(--v2-primary);
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms, box-shadow 140ms;
+}
+.app-v2 > .v2-header .v2-avatar-wrap:hover {
+  background: var(--v2-primary-soft);
+  box-shadow: 0 0 0 3px var(--v2-primary-ring);
+}
+.app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-avatar-wrap {
+  background: var(--v2-primary-soft);
+  border-color: var(--v2-primary);
+}
+.app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-avatar-wrap .v2-profile-inline-name {
+  color: var(--v2-primary);
+}
+.app-v2 > .v2-header .v2-avatar {
+  position: relative;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: linear-gradient(135deg, #F6A623, #DC2E3D);
+  color: #fff; font-weight: 600; font-size: 13px;
+  display: grid; place-items: center;
+  overflow: visible;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--v2-surface), 0 0 0 3px var(--v2-border);
+}
+.app-v2 > .v2-header .v2-avatar img {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.app-v2 > .v2-header .v2-avatar-status {
+  position: absolute;
+  right: 1px; bottom: 1px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #16A34A;
+  box-shadow: 0 0 0 2px var(--v2-surface);
+}
+[dir="rtl"] .app-v2 > .v2-header .v2-avatar-status { right: auto; left: 1px; }
+/* Inline profile text (name + role/email). Hidden on narrow widths. */
+.app-v2 > .v2-header .v2-profile-inline {
+  display: inline-flex; flex-direction: column; justify-content: center;
+  min-width: 0; max-width: 160px;
+  line-height: 1.15;
+  text-align: start;
+}
+.app-v2 > .v2-header .v2-profile-inline-name {
+  font-weight: 600; font-size: 13.5px; color: var(--v2-fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.app-v2 > .v2-header .v2-profile-inline-role {
+  margin-top: 2px;
+  font-weight: 500; font-size: 11.5px; color: var(--v2-fg-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.app-v2 > .v2-header .v2-avatar-caret {
+  display: grid; place-items: center;
+  color: var(--v2-fg-dim);
+  transition: transform 180ms, color 140ms;
+}
+.app-v2 > .v2-header .v2-avatar-wrap:hover .v2-avatar-caret { color: var(--v2-fg); }
+.app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-avatar-wrap .v2-avatar-caret { transform: rotate(180deg); color: var(--v2-primary); }
+@media (max-width: 1024px) {
+  .app-v2 > .v2-header .v2-profile-inline { display: none; }
+  .app-v2 > .v2-header .v2-avatar-wrap { padding-inline-end: 6px; }
+}
+
+.app-v2 > .v2-header .v2-flag-img {
+  width: 18px; height: 18px; border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--v2-border);
+}
+/* Language button: flag + language name + caret (Airbnb / Booking / Notion
+   pattern). Reads unambiguously as "change language" at rest, and shows the
+   current language without hovering for a tooltip. */
+.app-v2 > .v2-header .v2-lang-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--v2-fg-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.app-v2 > .v2-header .v2-lang-btn:hover {
+  background: var(--v2-chip);
+  color: var(--v2-fg);
+}
+.app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-lang-btn {
+  background: var(--v2-primary-softer);
+  border-color: var(--v2-primary-soft);
+  color: var(--v2-primary);
+}
+.app-v2 > .v2-header .v2-lang-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  max-width: 96px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-v2 > .v2-header .v2-lang-caret {
+  color: var(--v2-fg-muted);
+  transition: transform 180ms, color 140ms;
+}
+.app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-lang-btn .v2-lang-caret {
+  transform: rotate(180deg);
+  color: var(--v2-primary);
+}
+/* Narrow screens: collapse the name, keep flag + caret only. */
+@media (max-width: 1024px) {
+  .app-v2 > .v2-header .v2-lang-name { display: none; }
+  .app-v2 > .v2-header .v2-lang-btn { padding: 0 8px; gap: 4px; }
+}
+/* Identity pill breathes from the icon cluster without a divider. */
+.app-v2 > .v2-header .v2-header-right > .v2-dropdown:has(> .v2-avatar-wrap) {
+  margin-inline-start: 10px;
+}
+
+/* Dropdown (lang, notifications, profile) */
+.app-v2 > .v2-header .v2-dropdown { position: relative; }
+.app-v2 > .v2-header .v2-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+  min-width: 240px;
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-border);
+  border-radius: 12px;
+  box-shadow: var(--v2-shadow-lg);
+  padding: 6px;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-dropdown-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.app-v2 > .v2-header .v2-dropdown-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  font-size: 13px; font-weight: 500;
+  color: var(--v2-fg);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background 120ms, color 120ms;
+}
+.app-v2 > .v2-header .v2-dropdown-item:hover { background: var(--v2-chip); color: var(--v2-fg); }
+.app-v2 > .v2-header .v2-dropdown-item-danger { color: var(--v2-danger); }
+.app-v2 > .v2-header .v2-dropdown-item-danger:hover { background: var(--v2-danger-soft); color: var(--v2-danger); }
+.app-v2 > .v2-header .v2-dropdown-item.v2-is-active { background: var(--v2-primary-soft); color: var(--v2-primary); font-weight: 500; }
+.app-v2 > .v2-header .v2-dropdown-divider { height: 1px; background: var(--v2-hairline); margin: 4px 0; }
+.app-v2 > .v2-header .v2-dropdown-header {
+  padding: 10px;
+  display: flex; gap: 10px; align-items: center;
+  border-bottom: 1px solid var(--v2-hairline);
+  margin-bottom: 4px;
+}
+.app-v2 > .v2-header .v2-dropdown-header img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+.app-v2 > .v2-header .v2-dropdown-header .v2-profile-name { font-weight: 600; font-size: 13.5px; color: var(--v2-fg); }
+.app-v2 > .v2-header .v2-dropdown-header .v2-profile-role { font-size: 11.5px; color: var(--v2-fg-muted); }
+
+.app-v2 > .v2-header .v2-orders-menu { width: 26rem; max-width: 90vw; padding: 0; }
+.app-v2 > .v2-header .v2-orders-menu .v2-pop {
+  display: flex; flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-head-title {
+  display: flex; align-items: center; gap: 8px;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-head-title h4 {
+  margin: 0;
+  font-size: 14px; font-weight: 600;
+  color: var(--v2-fg);
+  text-transform: capitalize;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-head-title span {
+  font-size: 13px;
+  color: var(--v2-fg-muted);
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-view-all {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; line-height: 1;
+  color: var(--v2-primary);
+  text-decoration: none;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-view-all:hover { text-decoration: underline; }
+
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-scroll {
+  overflow: auto;
+  max-height: 65vh;
+  border-radius: 6px;
+}
+
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+  margin: 0;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-table td {
+  padding: 8px;
+  vertical-align: middle;
+  border: 0;
+}
+
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumbs {
+  display: flex; align-items: center;
+  width: 100px;
+  flex-shrink: 0;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumb-wrap {
+  position: relative;
+  width: 100%;
+  margin-inline-start: -6px;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumbs > .v2-pop-thumb-wrap:first-child {
+  margin-inline-start: 0;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumb-wrap.is-hidden { display: none; }
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumb-wrap > img,
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumbs > img {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--v2-border);
+  background: #fff;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumb-wrap:not(:first-child) > img {
+  box-shadow: -2px 0 3px 0 rgba(15, 23, 42, 0.08);
+}
+[dir="rtl"] .app-v2 > .v2-header .v2-orders-menu .v2-pop-thumb-wrap:not(:first-child) > img {
+  box-shadow: 2px 0 3px 0 rgba(15, 23, 42, 0.08);
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-thumb-more {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 6px;
+  font-size: 11px; font-weight: 600;
+  pointer-events: none;
+}
+
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-info {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 12px;
+  color: var(--v2-fg-muted);
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-row {
+  display: flex; align-items: center; gap: 8px;
+  white-space: nowrap;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-label {
+  min-width: 80px;
+  text-align: start;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-value {
+  color: var(--v2-fg);
+  font-weight: 500;
+}
+
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-action-wrap {
+  display: flex;
+  justify-content: flex-end;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-action {
+  display: grid; place-items: center;
+  width: 30px; height: 30px;
+  border: 1px solid var(--v2-primary);
+  color: var(--v2-primary);
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background 120ms, color 120ms;
+}
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-action:hover {
+  background: var(--v2-primary);
+  color: #fff;
+}
+
+.app-v2 > .v2-header .v2-orders-menu .v2-pop-empty {
+  text-align: center;
+  padding: 24px 12px;
+  font-size: 12px;
+  color: var(--v2-fg-muted);
+}
+
+/* Inbox dropdown — small numeric chip aligned to the end of each row.
+   Used by the messages dropdown to surface customer / delivery-man
+   unread sub-totals without a separate row of badges. */
+.app-v2 > .v2-header .v2-dropdown-item .v2-item-count {
+  margin-inline-start: auto;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--v2-primary-soft);
+  color: var(--v2-primary);
+  font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* Notifications dropdown — width + scrollable list, with row layout for
+   title/time/new chip. Class names mirror v1 (.notification-data-view,
+   .notification_data_new_count, .notification_data_new_badge{id}) so
+   the existing _script-partials AJAX continues to work. */
+.app-v2 > .v2-header .v2-notif-menu {
+  width: 20rem;
+  max-width: 90vw;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.app-v2 > .v2-header .v2-notif-menu .v2-dropdown-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  text-align: start;
+  padding: 8px 12px;
+}
+.app-v2 > .v2-header .v2-notif-menu .v2-notif-title {
+  grid-column: 1;
+  grid-row: 1;
+  color: var(--v2-fg);
+  font-weight: 500;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-v2 > .v2-header .v2-notif-menu .v2-notif-time {
+  grid-column: 1;
+  grid-row: 2;
+  color: var(--v2-fg-muted);
+  font-size: 11px;
+}
+.app-v2 > .v2-header .v2-notif-menu .v2-notif-new {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--v2-danger, #dc3545) 15%, transparent);
+  color: var(--v2-danger, #dc3545);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.app-v2 > .v2-header .v2-dropdown-menu .v2-dropdown-empty {
+  text-align: center;
+  padding: 18px 12px;
+  font-size: 12px;
+  color: var(--v2-fg-muted);
+}
+
+/* =====================================================================
+   RTL mirrors for the header (physical properties don't flip on their own)
+   ===================================================================== */
+[dir="rtl"] .app-v2 > .v2-header .v2-sidebar-toggle { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .app-v2 > .v2-header .v2-crumbs { padding-left: 0; padding-right: 4px; }
+[dir="rtl"] .app-v2 > .v2-header .v2-search-btn { margin-right: 0; margin-left: 4px; }
+[dir="rtl"] .app-v2 > .v2-header .v2-header-right { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .app-v2 > .v2-header .v2-badge-dot { right: auto; left: -3px; }
+[dir="rtl"] .app-v2 > .v2-header .v2-avatar { margin-left: 0; margin-right: 4px; }
+/* The base rule uses `inset-inline-end: 0`, which already resolves to the
+   correct physical edge (right in LTR, left in RTL) to anchor the dropdown
+   under its trigger. An RTL override is not needed. */
+
+/* =====================================================================
+   ICON RAIL (left, 68px)
+   ===================================================================== */
+.app-v2 > .v2-rail {
+  grid-area: rail;
+  background: var(--v2-sidebar-bg);
+  border-right: 1px solid var(--v2-sidebar-border);
+  display: flex; flex-direction: column;
+  align-items: center;
+  padding: 8px 0 0;
+  font-family: var(--v2-font);
+  overflow: hidden;
+}
+.app-v2 > .v2-rail * { box-sizing: border-box; }
+.app-v2 > .v2-rail button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+[dir="rtl"] .app-v2 > .v2-rail { border-right: 0; border-left: 1px solid var(--v2-sidebar-border); }
+.app-v2 > .v2-rail .v2-rail-items {
+  display: flex; flex-direction: column; gap: 2px;
+  flex: 1 1 auto;
+  width: 100%;
+  align-items: center;
+  padding: 4px 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+.app-v2 > .v2-rail .v2-rail-foot {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex; justify-content: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--v2-sidebar-hairline);
+  margin-top: auto;
+}
+.app-v2 > .v2-rail .v2-rail-setup {
+  width: 44px; height: 44px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--v2-primary-soft);
+  transition: transform 120ms, background 120ms, box-shadow 120ms;
+  position: relative;
+}
+.app-v2 > .v2-rail .v2-rail-setup:hover {
+  transform: translateY(-1px);
+  background: var(--v2-primary-softer);
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--v2-primary) 25%, transparent);
+}
+.app-v2 > .v2-rail .v2-rail-setup img {
+  width: 22px; height: 22px; object-fit: contain;
+  display: block;
+}
+/* Only show the collapsed setup icon when ctxpanel is collapsed */
+.app-v2:not(.v2-collapsed) > .v2-rail .v2-rail-foot { display: none; }
+.app-v2 > .v2-rail .v2-rail-btn {
+  width: 42px; height: 42px; border-radius: 10px;
+  display: grid; place-items: center;
+  color: var(--v2-sidebar-fg-muted);
+  position: relative;
+  transition: background 140ms, color 140ms, transform 120ms, box-shadow 140ms;
+}
+.app-v2 > .v2-rail .v2-rail-btn:hover {
+  background: var(--v2-sidebar-chip);
+  color: var(--v2-sidebar-fg);
+}
+.app-v2 > .v2-rail .v2-rail-btn:active { transform: scale(0.94); }
+.app-v2 > .v2-rail .v2-rail-btn:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--v2-primary-ring);
+}
+.app-v2 > .v2-rail .v2-rail-btn.v2-is-active {
+  background: var(--v2-primary);
+  color: #FFFFFF;
+  box-shadow: 0 4px 12px -2px color-mix(in srgb, var(--v2-primary) 40%, transparent);
+}
+.app-v2 > .v2-rail .v2-rail-btn.v2-is-active::before {
+  content: "";
+  position: absolute; left: -14px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 0 3px 3px 0;
+  background: var(--v2-primary);
+}
+[dir="rtl"] .app-v2 > .v2-rail .v2-rail-btn.v2-is-active::before {
+  left: auto; right: -14px;
+  border-radius: 3px 0 0 3px;
+}
+/* Shared custom tooltip (appended to <body> by JS). Rendered outside the
+   rail so it cannot be clipped by overflow. */
+.v2-tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 500;
+  background: #1A2236;
+  color: #FFFFFF;
+  font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 7px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22), 0 2px 4px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.v2-tooltip.v2-is-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+.v2-tooltip::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background: #1A2236;
+  transform: translateY(-50%) rotate(45deg);
+  border-radius: 1px;
+}
+[dir="rtl"] .v2-tooltip { transform: translateX(6px); }
+[dir="rtl"] .v2-tooltip.v2-is-visible { transform: translateX(0); }
+[dir="rtl"] .v2-tooltip:not(.v2-tooltip-below)::before { left: auto; right: -4px; }
+
+/* When shown below a header button, flip the animation and point the
+   arrow upward from the top of the tooltip. */
+.v2-tooltip.v2-tooltip-below {
+  transform: translateY(-6px);
+}
+.v2-tooltip.v2-tooltip-below.v2-is-visible { transform: translateY(0); }
+.v2-tooltip.v2-tooltip-below::before {
+  left: 50%;
+  top: -4px;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+/* Dark-mode tooltip: lighter background to stand out against dark surface */
+body:has(.app-v2.v2-theme-dark) .v2-tooltip,
+body:has(.app-v2.v2-theme-dark) .v2-tooltip::before {
+  background: #E8ECF5;
+  color: #1A2236;
+}
+
+/* =====================================================================
+   CONTEXTUAL PANEL (middle, 256px) — ALL descendant rules scoped here
+   so none of these class names can style the main content column.
+   ===================================================================== */
+.app-v2 > .v2-ctxpanel {
+  grid-area: ctx;
+  background: var(--v2-sidebar-bg);
+  border-right: 1px solid var(--v2-sidebar-border);
+  overflow: hidden;                  /* scroll lives inside .v2-ctx-scroll */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  font-family: var(--v2-font);
+  font-size: 14px;
+  color: var(--v2-sidebar-fg);
+}
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* Large bottom padding reserves room for the absolutely-positioned
+     .v2-ctx-foot (setup-guide) that lives at the bottom of the ctxpanel.
+     When no foot is rendered the extra padding is visually harmless; we
+     prefer this over a :has() selector so the scroll area always allows
+     the last menu item to clear the setup-guide in every browser. */
+  padding: 14px 10px 90px;
+}
+.app-v2 > .v2-ctxpanel * { box-sizing: border-box; }
+.app-v2 > .v2-ctxpanel a { color: inherit; text-decoration: none; }
+.app-v2 > .v2-ctxpanel button,
+.v2-rail-flyout button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+.v2-rail-flyout * { box-sizing: border-box; }
+.v2-rail-flyout a { color: inherit; text-decoration: none; }
+[dir="rtl"] .app-v2 > .v2-ctxpanel { border-right: 0; border-left: 1px solid var(--v2-sidebar-border); }
+
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-section { display: none; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-section.v2-is-on { display: block; }
+/* Safety net — if no section has .v2-is-on (e.g. JS delayed), show the
+   first rendered section so the menu is never empty. */
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll:not(:has(.v2-ctx-section.v2-is-on)) > .v2-ctx-section:first-of-type { display: block; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-head { padding: 2px 6px 6px; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-title {
+  font-size: 18px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--v2-sidebar-fg);
+  padding: 2px 4px 10px;
+  text-transform: none;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-group {
+  margin-top: 14px;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-group.v2-is-pinned {
+  margin-top: 0;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-group-head {
+  padding: 4px 10px;
+  font-size: 11px; font-weight: 600;
+  color: var(--v2-sidebar-fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 2px;
+}
+
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item {
+  display: flex;
+  align-items: stretch;
+  border-radius: 7px;
+  position: relative;
+  transition: background 140ms, box-shadow 140ms;
+  cursor: pointer;
+  margin-bottom: 1px;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item:hover { background: var(--v2-sidebar-chip); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item.v2-is-active {
+  background: var(--v2-sidebar-active-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v2-primary) 16%, transparent);
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item.v2-is-active .v2-nav-label {
+  color: var(--v2-primary);
+  font-weight: 600;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item.v2-is-active::before {
+  content: ""; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 0 3px 3px 0;
+  background: var(--v2-primary);
+}
+[dir="rtl"] :is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item.v2-is-active::before {
+  left: auto; right: 0;
+  border-radius: 3px 0 0 3px;
+}
+
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-btn {
+  padding: 8px 11px;
+  text-align: start;
+  flex: 1;
+  min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+  line-height: 1.25;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-chev {
+  width: 18px; height: 18px; border-radius: 4px;
+  display: grid; place-items: center;
+  color: var(--v2-sidebar-fg-muted);
+  transform: rotate(90deg);
+  transition: transform 180ms, background 120ms, color 120ms;
+  flex-shrink: 0;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-chev.v2-is-open { transform: rotate(-90deg); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item:hover .v2-nav-chev { color: var(--v2-sidebar-fg-dim); background: var(--v2-sidebar-chip-strong); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item.v2-is-active .v2-nav-chev { color: var(--v2-primary); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-label {
+  font-size: 14px;
+  color: var(--v2-sidebar-fg-dim);
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-transform: capitalize;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item:hover .v2-nav-label { color: var(--v2-sidebar-fg); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-desc {
+  font-size: 11px;
+  color: var(--v2-sidebar-fg-muted);
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-children {
+  display: flex; flex-direction: column;
+  padding-top: 2px;
+  padding-bottom: 4px;
+  padding-inline-start: 24px;
+  padding-inline-end: 0;
+  position: relative;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-children.v2-is-collapsed { display: none; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-children::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 16px;
+  top: 2px; bottom: 4px;
+  width: 1px; background: var(--v2-sidebar-hairline);
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child {
+  display: flex; align-items: center; gap: 8px;
+  padding-block: 6px;
+  padding-inline-start: 12px;
+  padding-inline-end: 10px;
+  border-radius: 6px;
+  margin: 1px 4px;
+  min-height: 28px;
+  text-align: start;
+  transition: background 140ms, color 140ms;
+  min-height: 26px;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child:hover { background: var(--v2-sidebar-chip); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child.v2-is-on { background: var(--v2-sidebar-active-bg); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child.v2-is-on .v2-nav-child-label { color: var(--v2-primary); font-weight: 600; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--v2-fg-muted);
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-dot[data-tone="primary"]  { background: var(--v2-primary); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-dot[data-tone="success"]  { background: var(--v2-success); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-dot[data-tone="warn"]     { background: var(--v2-warn); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-dot[data-tone="danger"]   { background: var(--v2-danger); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-dot[data-tone="neutral"]  { background: var(--v2-fg-muted); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-label {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--v2-sidebar-fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child:hover .v2-nav-child-label { color: var(--v2-sidebar-fg); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-count {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 7px;
+  border-radius: 5px;
+  min-width: 22px;
+  text-align: center;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-count[data-tone="primary"] { color: var(--v2-primary); background: var(--v2-primary-soft); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-count[data-tone="success"] { color: var(--v2-success); background: var(--v2-success-soft); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-count[data-tone="warn"]    { color: var(--v2-warn);    background: var(--v2-warn-soft); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-count[data-tone="danger"]  { color: var(--v2-danger);  background: var(--v2-danger-soft); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child-count[data-tone="neutral"] { color: var(--v2-fg-dim);  background: var(--v2-chip); }
+
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-right {
+  display: flex; align-items: center; gap: 6px;
+  padding-inline-end: 8px;
+  padding-inline-start: 6px;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+/* Visual order inside .v2-nav-right: pin button FIRST (reserves space
+   while invisible, fades in on row hover), then count badge, then chev.
+   Pin sits before count so the count always lands at the inline-end
+   edge and doesn't shift when the pin appears. */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-right .v2-pin-btn { order: 1; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-right [data-v2-tag] { order: 2; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-right .v2-nav-chev { order: 3; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn {
+  width: 20px; height: 20px; border-radius: 4px;
+  display: grid; place-items: center;
+  color: var(--v2-sidebar-fg-muted);
+  opacity: 1;
+  transition: opacity 120ms, background 120ms, color 120ms;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn::before {
+  content: '';
+  width: 14px; height: 14px;
+  background-color: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 17v5'/%3E%3Cpath d='M9 4h6v6.8a4 4 0 0 0 1 2.6l1 1.1a1 1 0 0 1-.7 1.7H7.7a1 1 0 0 1-.7-1.7l1-1.1a4 4 0 0 0 1-2.6Z'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 17v5'/%3E%3Cpath d='M9 4h6v6.8a4 4 0 0 0 1 2.6l1 1.1a1 1 0 0 1-.7 1.7H7.7a1 1 0 0 1-.7-1.7l1-1.1a4 4 0 0 0 1-2.6Z'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;          mask-size: contain;
+  -webkit-mask-repeat: no-repeat;      mask-repeat: no-repeat;
+  -webkit-mask-position: center;       mask-position: center;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn.v2-is-on::before {
+  -webkit-mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M9 4h6v6.8a4 4 0 0 0 1 2.6l1 1.1a1 1 0 0 1-.7 1.7H13v5a1 1 0 0 1-2 0v-5H7.7a1 1 0 0 1-.7-1.7l1-1.1a4 4 0 0 0 1-2.6Z'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M9 4h6v6.8a4 4 0 0 0 1 2.6l1 1.1a1 1 0 0 1-.7 1.7H13v5a1 1 0 0 1-2 0v-5H7.7a1 1 0 0 1-.7-1.7l1-1.1a4 4 0 0 0 1-2.6Z'/%3E%3C/svg%3E");
+}
+@media (hover: hover) and (pointer: fine) {
+  :is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn { opacity: 0; }
+  :is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item:hover .v2-pin-btn { opacity: 1; }
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn:hover { background: var(--v2-sidebar-chip-strong); color: var(--v2-sidebar-fg); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn.v2-is-on { opacity: 1; color: var(--v2-primary); }
+
+/* Badge pills — use attribute selector so the word "badge" isn't in the class
+   name at all (removes any chance of Bootstrap collision). */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) [data-v2-tag] {
+  font-size: 10.5px; font-weight: 700;
+  padding: 2px 7px; border-radius: 999px;
+  min-width: 20px; text-align: center; line-height: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+/* Expandable parent items don't show a right-side badge — their count
+   belongs on the child list rows below. */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-item.v2-has-children [data-v2-tag] {
+  display: none;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) [data-v2-tag="neutral"] { background: var(--v2-chip);         color: var(--v2-fg-dim); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) [data-v2-tag="primary"] { background: var(--v2-primary-soft); color: var(--v2-primary); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) [data-v2-tag="warn"]    { background: var(--v2-warn-soft);    color: var(--v2-warn); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) [data-v2-tag="danger"]  { background: var(--v2-danger-soft);  color: var(--v2-danger); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) [data-v2-tag="success"] { background: var(--v2-success-soft); color: var(--v2-success); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) [data-v2-tag="info"]    { background: var(--v2-info-soft);    color: var(--v2-info); }
+
+.app-v2 > .v2-ctxpanel > .v2-ctx-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--v2-sidebar-hairline);
+  background: var(--v2-sidebar-bg);
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide {
+  width: 100%;
+  background: var(--v2-primary);
+  color: #fff;
+  border-radius: 12px;
+  padding: 11px 14px;
+  display: flex; align-items: center; gap: 12px;
+  box-shadow:
+    0 8px 16px -4px color-mix(in srgb, var(--v2-primary) 40%, transparent),
+    0 2px 4px color-mix(in srgb, var(--v2-primary) 16%, transparent);
+  transition: background 160ms, transform 160ms, box-shadow 160ms;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide:hover {
+  background: var(--v2-primary-hover);
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 24px -4px color-mix(in srgb, var(--v2-primary) 48%, transparent),
+    0 4px 6px color-mix(in srgb, var(--v2-primary) 20%, transparent);
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: #FFFFFF;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide-icon img {
+  width: 20px; height: 20px; object-fit: contain;
+  display: block;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; text-align: start; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide-title { font-size: 12.5px; font-weight: 600; color: #fff; }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide-sub { font-size: 10.5px; color: rgba(255,255,255,0.8); }
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-setup-guide-chev {
+  width: 22px; height: 22px; border-radius: 6px;
+  background: rgba(255,255,255,0.18);
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+
+/* =====================================================================
+   RAIL FLYOUT (overlay peek when rail is collapsed) — lives as a sibling
+   of .app-v2 OR inside it; the fixed positioning means content column
+   is never affected.
+   ===================================================================== */
+.v2-rail-flyout {
+  position: fixed;
+  top: 60px;
+  left: 68px;
+  width: 256px;
+  height: calc(100vh - 60px);
+  height: calc(100dvh - 60px);
+  background: var(--v2-sidebar-bg, #FFFFFF);
+  border-right: 1px solid var(--v2-sidebar-border, #E6EAF2);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+  z-index: 80;
+  overflow-y: auto;
+  padding: 14px 10px 88px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-8px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  color: var(--v2-sidebar-fg, #1A2236);
+}
+[dir="rtl"] .v2-rail-flyout {
+  left: auto;
+  right: 68px;
+  border-right: 0;
+  border-left: 1px solid var(--v2-sidebar-border, #E6EAF2);
+  transform: translateX(8px);
+}
+.v2-rail-flyout.v2-is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+.app-v2:not(.v2-collapsed) ~ .v2-rail-flyout,
+.app-v2:not(.v2-collapsed) .v2-rail-flyout { display: none; }
+.app-v2 > .v2-rail .v2-rail-btn.v2-is-peeking:not(.v2-is-active) {
+  background: #F0F3FB;
+  color: #1A2236;
+}
+
+/* =====================================================================
+   COMMAND PALETTE (modal, position:fixed — completely outside the grid
+   so cannot bleed into content).
+   ===================================================================== */
+.v2-palette-scrim {
+  position: fixed; inset: 0;
+  background: rgba(26, 34, 54, 0.38);
+  backdrop-filter: blur(3px);
+  z-index: 300;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 14vh;
+  animation: v1FadeIn 140ms ease-out;
+  font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.v2-palette-scrim[hidden] { display: none; }
+.v2-palette-scrim * { box-sizing: border-box; }
+.v2-palette {
+  width: min(640px, 92vw);
+  background: #FFFFFF;
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(26, 34, 54, 0.25), 0 0 0 1px #E6EAF2;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  animation: v1PopIn 140ms ease-out;
+  color: #1A2236;
+}
+@keyframes v1FadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes v1PopIn  { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+.v2-palette-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #EEF1F7;
+  color: #5B6A85;
+}
+.v2-palette-head input {
+  flex: 1;
+  background: transparent; border: 0; outline: 0;
+  font-size: 15px; color: #1A2236; font-family: inherit;
+}
+.v2-palette-list { max-height: 420px; overflow-y: auto; padding: 6px; }
+.v2-palette-group {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: #8994AB;
+  padding: 10px 12px 4px;
+  font-weight: 600;
+}
+.v2-palette-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 6px;
+  cursor: pointer;
+}
+.v2-palette-row.v2-is-active { background: #E8EFFC; }
+.v2-palette-row-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.v2-palette-row-label { font-size: 13.5px; color: #1A2236; font-weight: 500; }
+.v2-palette-row.v2-is-active .v2-palette-row-label { color: var(--v2-primary, #1F4FD6); }
+.v2-palette-row-path { font-size: 11.5px; color: #8994AB; }
+.v2-palette-empty { padding: 24px; color: #8994AB; font-size: 13px; text-align: center; }
+.v2-palette-foot {
+  display: flex; gap: 14px; align-items: center;
+  padding: 10px 16px;
+  border-top: 1px solid #EEF1F7;
+  background: #F7F9FD;
+  font-size: 11px; color: #5B6A85;
+}
+.v2-palette-hint { display: flex; align-items: center; gap: 4px; }
+
+.v2-kbd {
+  font-family: inherit;
+  font-size: 10.5px; padding: 1px 5px;
+  border: 1px solid #D4DBEB;
+  background: #FFFFFF;
+  border-radius: 4px;
+  color: #5B6A85;
+  line-height: 14px;
+  min-width: 18px; text-align: center;
+  display: inline-block;
+}
+
+/* Custom scrollbars (shell only) — ultra-thin, subtle */
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll,
+.app-v2 > .v2-main,
+.v2-palette-list,
+.v2-rail-flyout {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll:hover,
+.app-v2 > .v2-main:hover,
+.v2-palette-list:hover,
+.v2-rail-flyout:hover {
+  scrollbar-color: color-mix(in srgb, var(--v2-sidebar-fg-muted, var(--v2-fg-muted)) 40%, transparent) transparent;
+}
+
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll::-webkit-scrollbar,
+.app-v2 > .v2-main::-webkit-scrollbar,
+.v2-palette-list::-webkit-scrollbar,
+.v2-rail-flyout::-webkit-scrollbar { width: 2px; height: 2px; }
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll::-webkit-scrollbar-track,
+.app-v2 > .v2-main::-webkit-scrollbar-track,
+.v2-palette-list::-webkit-scrollbar-track,
+.v2-rail-flyout::-webkit-scrollbar-track { background: transparent; }
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll::-webkit-scrollbar-thumb,
+.app-v2 > .v2-main::-webkit-scrollbar-thumb,
+.v2-palette-list::-webkit-scrollbar-thumb,
+.v2-rail-flyout::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+  transition: background-color 160ms;
+}
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll:hover::-webkit-scrollbar-thumb,
+.app-v2 > .v2-main:hover::-webkit-scrollbar-thumb,
+.v2-palette-list:hover::-webkit-scrollbar-thumb,
+.v2-rail-flyout:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--v2-sidebar-fg-muted, var(--v2-fg-muted)) 45%, transparent);
+}
+.app-v2 > .v2-ctxpanel > .v2-ctx-scroll::-webkit-scrollbar-thumb:hover,
+.app-v2 > .v2-main::-webkit-scrollbar-thumb:hover,
+.v2-palette-list::-webkit-scrollbar-thumb:hover,
+.v2-rail-flyout::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--v2-sidebar-fg-muted, var(--v2-fg-muted)) 70%, transparent);
+}
+
+/* =====================================================================
+   Demo-mode announcement bar — follow the existing v0 behavior.
+   public/assets/backend/admin/css/demo.css already positions the bar
+   `position: fixed; top: 0;` and transforms it up when body has
+   `.page-scrolled`. Here we just make the v1 shell account for the
+   50px bar offset that demo.css applies via body.padding-top, so the
+   grid fits exactly in the remaining viewport.
+   ===================================================================== */
+body.demo .app-v2 {
+  transition: height .3s ease;
+}
+body.demo:not(.page-scrolled) .app-v2 { height: calc(100vh - 50px); height: calc(100dvh - 50px); }
+body.demo.page-scrolled .app-v2       { height: 100vh; height: 100dvh; }
+
+@media (max-width: 486px) {
+  body.demo:not(.page-scrolled) .app-v2 { height: calc(100vh - 90px); height: calc(100dvh - 90px); }
+}
+
+/* =====================================================================
+   Theme toggle icon — show moon in light mode, sun in dark mode
+   ===================================================================== */
+.app-v2 .v2-theme-icon { display: none; }
+.app-v2:not(.v2-theme-dark) .v2-theme-moon { display: block; }
+.app-v2.v2-theme-dark .v2-theme-sun { display: block; }
+
+/* =====================================================================
+   Dark mode — scoped to .app-v2.v2-theme-dark only, never touches body
+   or main content. Overrides only the CSS variables so every shell rule
+   recalculates automatically.
+   ===================================================================== */
+.app-v2.v2-theme-dark {
+  --v2-bg: #0F1525;
+  --v2-surface: #1A2236;
+  --v2-surface-2: #232C44;
+  --v2-border: #2C3551;
+  --v2-border-strong: #3A466C;
+  --v2-fg: #E8ECF5;
+  --v2-fg-dim: #A8B1C5;
+  --v2-fg-muted: #6E7897;
+  --v2-hairline: #232C44;
+  --v2-chip: #242E49;
+
+  --v2-primary: #6E9BFA;
+  --v2-primary-hover: #83ADFC;
+  --v2-primary-soft: #1E2A4D;
+  --v2-primary-softer: #1A2341;
+
+  --v2-success: #3FC16B;
+  --v2-success-soft: #13351F;
+  --v2-warn: #F9B55A;
+  --v2-warn-soft: #3A2A12;
+  --v2-danger: #F06272;
+  --v2-danger-soft: #3B1720;
+  --v2-info: #5BA8F4;
+  --v2-info-soft: #11273D;
+
+  --v2-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --v2-shadow-md: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.app-v2.v2-theme-dark > .v2-rail .v2-rail-btn.v2-is-active {
+  background: var(--v2-primary);
+  color: #FFFFFF;
+}
+.app-v2.v2-theme-dark > .v2-rail .v2-rail-btn.v2-is-active::before { background: var(--v2-primary); }
+
+/* Flyout + palette in dark mode pick up the dark tokens directly */
+.app-v2.v2-theme-dark ~ .v2-rail-flyout,
+body:has(.app-v2.v2-theme-dark) .v2-rail-flyout {
+  background: #1A2236;
+  border-color: #2C3551;
+  color: #E8ECF5;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+body:has(.app-v2.v2-theme-dark) .v2-palette {
+  background: #1A2236;
+  color: #E8ECF5;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px #2C3551;
+}
+body:has(.app-v2.v2-theme-dark) .v2-palette-head { border-bottom-color: #232C44; color: #A8B1C5; }
+body:has(.app-v2.v2-theme-dark) .v2-palette-head input { color: #E8ECF5; }
+body:has(.app-v2.v2-theme-dark) .v2-palette-row-label { color: #E8ECF5; }
+body:has(.app-v2.v2-theme-dark) .v2-palette-row.v2-is-active { background: #1E2A4D; }
+body:has(.app-v2.v2-theme-dark) .v2-palette-row.v2-is-active .v2-palette-row-label { color: var(--v2-primary, #6E9BFA); }
+body:has(.app-v2.v2-theme-dark) .v2-palette-row-path,
+body:has(.app-v2.v2-theme-dark) .v2-palette-empty,
+body:has(.app-v2.v2-theme-dark) .v2-palette-group { color: #6E7897; }
+body:has(.app-v2.v2-theme-dark) .v2-palette-foot {
+  background: #232C44; border-top-color: #232C44; color: #A8B1C5;
+}
+body:has(.app-v2.v2-theme-dark) .v2-kbd {
+  background: #1A2236; border-color: #3A466C; color: #A8B1C5;
+}
+
+/* =====================================================================
+   Setup-guide popover — modeled after the existing v0 #guideModal.
+   Opens ABOVE the trigger with a generous gap and a dimmed backdrop.
+   Same popover is reused by both triggers (ctxpanel pill + rail icon).
+   ===================================================================== */
+/* Bootstrap-style modal backdrop — solid black fading to 50% opacity */
+.v2-setup-backdrop {
+  position: fixed; inset: 0;
+  z-index: 1050;
+  background-color: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s linear;
+}
+.v2-setup-backdrop[hidden] { display: none; }
+.v2-setup-backdrop.v2-is-open { opacity: 0.5; pointer-events: auto; }
+
+.v2-setup-popover {
+  position: fixed;
+  z-index: 1055;
+  width: 408px;
+  max-width: calc(100vw - 24px);
+  background: var(--v2-surface, #FFFFFF);
+  border-radius: 14px;
+  box-shadow:
+    0 32px 64px -12px rgba(15, 23, 42, 0.24),
+    0 12px 24px -8px rgba(15, 23, 42, 0.10),
+    0 0 0 1px rgba(15, 23, 42, 0.05);
+  font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--v2-fg, #0F172A);
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 200ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: hidden;
+}
+.v2-setup-popover[hidden] { display: none; }
+.v2-setup-popover.v2-is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.v2-setup-popover * { box-sizing: border-box; }
+/* Reset only applies to non-.btn anchors so Bootstrap .btn-primary keeps
+   its own color / hover / padding inside the popover. */
+.v2-setup-popover a:not(.btn) { color: inherit; text-decoration: none; }
+.v2-setup-popover button:not(.btn) { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+
+/* Close chip in top-right (echoes v0's rounded-circle close) */
+.v2-setup-popover-close {
+  position: absolute;
+  top: 12px; right: 12px;
+  width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: #5B6A85;
+  background: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  z-index: 2;
+}
+.v2-setup-popover-close:hover { background: #F0F3FB; color: #1A2236; }
+[dir="rtl"] .v2-setup-popover-close { right: auto; left: 12px; }
+
+/* Tinted header band with title + progress pie (mirrors v0 modal-header bg-section) */
+.v2-setup-popover-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 20px 60px 20px 20px;
+  background: var(--v2-surface-2, #FAFBFD);
+  border-bottom: 1px solid var(--v2-hairline, #F1F3F7);
+}
+[dir="rtl"] .v2-setup-popover-head { padding: 20px 20px 20px 60px; }
+.v2-setup-popover-title-wrap { flex: 1; min-width: 0; }
+.v2-setup-popover-title {
+  margin: 0;
+  font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
+  color: #1A2236;
+  line-height: 1.3;
+}
+.v2-setup-popover-sub {
+  margin: 6px 0 0;
+  font-size: 12px; line-height: 1.45;
+  color: #5B6A85;
+}
+
+/* Re-use the existing .progress-pie-chart styles (loaded globally via
+   public/assets/backend/admin/css/style.css). The init JS in
+   public/assets/new/back-end/js/script.js rotates .ppc-progress-fill
+   based on data-percent and fills in the % text at page load. */
+
+/* Step list styled as cards with checkboxes (like v0) */
+.v2-setup-popover-body {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 16px 20px 72px; /* 72 bottom to clear Let's Start button */
+  max-height: 380px;
+  overflow-y: auto;
+}
+.v2-setup-step {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--v2-surface-2, #FAFBFD);
+  transition: background 140ms, border-color 140ms, transform 140ms, box-shadow 140ms;
+  font-size: 13px; color: var(--v2-fg, #0F172A);
+  border: 1px solid var(--v2-hairline, #F1F3F7);
+}
+.v2-setup-step:hover {
+  background: var(--v2-surface, #FFFFFF);
+  border-color: var(--v2-border-strong, #D9DFE8);
+  transform: translateY(-1px);
+  box-shadow: var(--v2-shadow-sm);
+}
+.v2-setup-step-check {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1.5px solid var(--v2-border-strong, #D9DFE8);
+  background: var(--v2-surface, #FFFFFF);
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  color: transparent;
+  transition: all 160ms;
+}
+.v2-setup-step.is-complete .v2-setup-step-check {
+  background: var(--v2-primary, #1F4FD6);
+  border-color: var(--v2-primary, #1F4FD6);
+  color: #FFFFFF;
+}
+.v2-setup-step-title {
+  flex: 1; line-height: 1.35; font-weight: 500;
+}
+.v2-setup-step.is-complete .v2-setup-step-title {
+  color: #8994AB;
+}
+
+/* Let's Start button container — absolute bottom-right like v0 modal's
+   `end-40 bottom-20`. The button itself is a stock Bootstrap .btn.btn-primary.btn-sm
+   so it inherits the project's button styling verbatim. */
+.v2-setup-popover-foot {
+  position: absolute;
+  bottom: 16px;
+  right: 20px;
+  z-index: 1;
+}
+[dir="rtl"] .v2-setup-popover-foot { right: auto; left: 20px; }
+
+/* Trigger highlight while popover is open — button is lifted above the
+   backdrop so its focus ring and glow stay fully visible, and clicking
+   the trigger a second time reliably closes the popover. */
+.app-v2 .v2-setup-guide[data-v2-setup-open],
+.app-v2 .v2-rail-setup[data-v2-setup-open] {
+  position: relative;
+  z-index: 1051;
+  box-shadow:
+    0 0 0 2px #FFFFFF,
+    0 0 0 4px var(--v2-primary),
+    0 0 0 10px color-mix(in srgb, var(--v2-primary) 22%, transparent),
+    0 10px 24px color-mix(in srgb, var(--v2-primary) 32%, transparent);
+}
+.app-v2 .v2-rail-setup[data-v2-setup-open] {
+  background: #FFFFFF;
+}
+.app-v2 .v2-setup-guide[data-v2-setup-open] {
+  background: var(--v2-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* Rail setup button completion badge */
+.app-v2 > .v2-rail .v2-rail-setup { position: relative; }
+.app-v2 > .v2-rail .v2-rail-setup-badge {
+  position: absolute;
+  top: -6px; right: -6px;
+  background: var(--v2-primary, #1F4FD6);
+  color: #FFFFFF;
+  font-size: 9.5px; font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  min-width: 22px; text-align: center;
+  line-height: 1;
+  border: 2px solid var(--v2-sidebar-bg, #FFFFFF);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+  letter-spacing: -0.02em;
+}
+[dir="rtl"] .app-v2 > .v2-rail .v2-rail-setup-badge { right: auto; left: -6px; }
+
+/* Dark-mode overrides for popover */
+body:has(.app-v2.v2-theme-dark) .v2-setup-backdrop.v2-is-open { opacity: 0.65; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-popover {
+  background: #1A2236;
+  color: #E8ECF5;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px #2C3551;
+}
+body:has(.app-v2.v2-theme-dark) .v2-setup-popover-head { background: #232C44; border-bottom-color: #2C3551; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-popover-title { color: #E8ECF5; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-popover-sub { color: #A8B1C5; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-popover-close { background: #232C44; color: #A8B1C5; box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+body:has(.app-v2.v2-theme-dark) .v2-setup-popover-close:hover { background: #2C3551; color: #E8ECF5; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-pie .v2-setup-pie-track { color: #2C3551; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-pie-label { color: #E8ECF5; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-pie-label i { color: #A8B1C5; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-step { background: #232C44; border-color: #232C44; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-step:hover { background: #2C3551; border-color: #3A466C; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-step-check { background: #1A2236; border-color: #3A466C; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-step-title { color: #E8ECF5; }
+body:has(.app-v2.v2-theme-dark) .v2-setup-step.is-complete .v2-setup-step-title { color: #6E7897; }
+
+/* =====================================================================
+   Hide the v0 floating Setup-Guide button when the v1 shell is rendered.
+   The v0 _setup-guide.blade.php partial outputs BOTH the button wrapper
+   (.setup-guide) AND the modal (#guideModal) inside a single @if — we
+   still need the modal, so we hide only the button wrapper here.
+   ===================================================================== */
+.app-v2 ~ .setup-guide,
+body:has(.app-v2) > .setup-guide { display: none !important; }
+
+/* =====================================================================
+   Responsive — collapse ctx panel on narrow screens
+   ===================================================================== */
+@media (max-width: 960px) {
+  .app-v2 {
+    grid-template-columns: var(--v2-rail-w) 1fr !important;
+    grid-template-areas:
+      "header header"
+      "rail   main" !important;
+  }
+  [dir="rtl"] .app-v2 {
+    grid-template-columns: 1fr var(--v2-rail-w) !important;
+    grid-template-areas:
+      "header header"
+      "main   rail" !important;
+  }
+  .app-v2 > .v2-ctxpanel { display: none !important; }
+  .app-v2 > .v2-header .v2-header-brand { min-width: 0; }
+  .app-v2 > .v2-header .v2-search-btn { width: 44px; }
+  .app-v2 > .v2-header .v2-search-btn span,
+  .app-v2 > .v2-header .v2-search-btn .v2-kbd-group { display: none; }
+}
+
+
+/* =====================================================================
+   RESPONSIVE — tablet + mobile + small desktop
+   Below 992px the rail + ctxpanel turn into an off-canvas overlay
+   that slides in over the main column when the sidebar toggle is
+   pressed. Above 992px the existing collapse/expand behaviour
+   continues. Header chrome is progressively simplified on smaller
+   viewports.
+   ===================================================================== */
+
+/* ---- SMALL DESKTOP (1024-1279px) ---- */
+@media (max-width: 1279px) and (min-width: 992px) {
+  .app-v2 {
+    --v2-ctx-w: 240px;
+  }
+  .app-v2 > .v2-header .v2-search-btn { width: 240px; max-width: 28vw; }
+}
+
+/* ---- TABLET + MOBILE (≤991px) ---- */
+@media (max-width: 991px) {
+  .app-v2 {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "header"
+      "main" !important;
+  }
+  [dir="rtl"] .app-v2 {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "header"
+      "main" !important;
+  }
+
+  /* Rail + ctxpanel become fixed off-canvas surfaces. */
+  .app-v2 > .v2-rail,
+  .app-v2 > .v2-ctxpanel {
+    position: fixed;
+    top: var(--v2-header-h);
+    bottom: 0;
+    z-index: 1051;
+    transform: translateX(-110%);
+    transition: transform 220ms ease;
+    will-change: transform;
+    box-shadow: 8px 0 24px rgba(15, 23, 42, 0.10);
+  }
+  .app-v2 > .v2-rail    { left: 0; width: var(--v2-rail-w); }
+  .app-v2 > .v2-ctxpanel {
+    left: var(--v2-rail-w);
+    width: var(--v2-ctx-w);
+    border-inline-end: 1px solid var(--v2-sidebar-border);
+    /* Override the group transform: the ctxpanel sits next to the rail
+       (left: var(--v2-rail-w)), so -110% of its own width still leaves a
+       visible sliver poking out at the left edge. Offsetting by the rail
+       width + its own 100% hides the panel completely so both surfaces
+       slide in together from the left as a single group. */
+    transform: translateX(calc(-100% - var(--v2-rail-w)));
+  }
+
+  [dir="rtl"] .app-v2 > .v2-rail,
+  [dir="rtl"] .app-v2 > .v2-ctxpanel {
+    transform: translateX(110%);
+    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.10);
+    left: auto;
+  }
+  [dir="rtl"] .app-v2 > .v2-rail    { right: 0; }
+  [dir="rtl"] .app-v2 > .v2-ctxpanel {
+    right: var(--v2-rail-w);
+    transform: translateX(calc(100% + var(--v2-rail-w)));
+  }
+
+  /* When the user opens the mobile sidebar both surfaces slide in.
+     We preserve `display: flex` (instead of resetting to block) so the
+     ctxpanel's column layout keeps the scroll area sized correctly and
+     the absolutely-positioned .v2-ctx-foot sits flush with the viewport
+     bottom. */
+  .app-v2.v2-is-open-mobile > .v2-rail,
+  .app-v2.v2-is-open-mobile > .v2-ctxpanel {
+    transform: translateX(0) !important;
+    display: flex !important;
+  }
+
+  /* Backdrop behind the sliding sidebar — clicking it closes the overlay
+     (handled in admin-v2.js / vendor-v2.js). */
+  .app-v2.v2-is-open-mobile::before {
+    content: '';
+    position: fixed;
+    inset: var(--v2-header-h) 0 0 0;
+    background: rgba(15, 23, 42, 0.42);
+    z-index: 105;
+    cursor: pointer;
+  }
+
+  /* Sticky action footer (.action-btn-wrapper inside a Bootstrap
+     .fixed-bottom parent — added at runtime by initActionButton in
+     script-extended.js) defaults to z-index 1030 and would otherwise
+     pierce the sidebar backdrop on mobile/tablet. Drop it under the
+     backdrop while the overlay is open so Reset / Save dim with the
+     rest of the page.
+
+     `transition: none` is critical: the parent div carries the `trans3`
+     class (style.css → `transition: all 0.3s ease-in-out`), and z-index
+     is a discrete-animatable property — under `transition: all` the
+     browser holds the old value (1030) until the transition midpoint
+     before flipping, which makes the button visibly pop over the
+     backdrop for ~150ms after the sidebar opens. Killing the transition
+     here makes the z-index change instant. */
+  .app-v2.v2-is-open-mobile .fixed-bottom:has(> .action-btn-wrapper.fixed),
+  .app-v2.v2-is-open-mobile .action-btn-wrapper.fixed {
+    z-index: 100 !important;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* Header chrome shrinks. The brand cell drops its sidebar-aligned
+     width, search button keeps the icon only, breadcrumbs hide. */
+  .app-v2 > .v2-header { padding: 0 14px; gap: 10px; }
+  .app-v2 > .v2-header .v2-header-brand {
+    width: auto !important;
+    min-width: auto !important;
+  }
+  /* On tablet + mobile show the compact "mini" favicon mark instead of
+     the full word-mark — header has too little room for the long logo
+     once breadcrumbs / search text / language name collapse. */
+  .app-v2 > .v2-header .v2-brand-logo { display: none !important; }
+  .app-v2 > .v2-header .v2-brand-logo-mini {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    flex: 0 0 auto;
+  }
+  .app-v2 > .v2-header .v2-brand-logo-mini img {
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+    display: block;
+  }
+  .app-v2 > .v2-header .v2-search-btn {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+  .app-v2 > .v2-header .v2-search-btn span,
+  .app-v2 > .v2-header .v2-search-btn .v2-kbd-group { display: none; }
+  .app-v2 > .v2-header .v2-lang-name { display: none; }
+  .app-v2 > .v2-header .v2-profile-inline { display: none; }
+
+  /* Mobile/tablet: pending-orders, messages and notifications popups
+     break out of their right-anchored column and centre themselves on
+     the viewport. Their rows contain content that gets unreadable in a
+     narrow 240px chip; centring also avoids the popup clipping past the
+     right edge on small phones. Language / profile dropdowns stay as
+     right-anchored chips (they only hold short single-line items). The
+     ctxpanel/sidebar are at z-index 110 so the dropdown (z-index 200)
+     always wins. The base .v2-dropdown-menu uses transform: translateY
+     for its open/close animation — we override the transform to the
+     centring translate so the two don't fight. */
+  .app-v2 > .v2-header .v2-dropdown:has(> .v2-orders-menu),
+  .app-v2 > .v2-header .v2-dropdown:has(> .v2-msg-menu),
+  .app-v2 > .v2-header .v2-dropdown:has(> .v2-notif-menu) {
+    position: static;
+  }
+  .app-v2 > .v2-header .v2-dropdown-menu.v2-orders-menu,
+  .app-v2 > .v2-header .v2-dropdown-menu.v2-msg-menu,
+  .app-v2 > .v2-header .v2-dropdown-menu.v2-notif-menu {
+    position: fixed;
+    top: calc(var(--v2-header-h) + 6px);
+    left: 50%;
+    right: auto;
+    inset-inline-start: 50%;
+    inset-inline-end: auto;
+    transform: translate(-50%, -6px);
+    width: calc(100vw - 32px);
+    max-width: 420px;
+    min-width: 0;
+    max-height: calc(100vh - var(--v2-header-h) - 16px);
+    max-height: calc(100dvh - var(--v2-header-h) - 16px);
+    overflow-y: auto;
+  }
+  .app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-dropdown-menu.v2-orders-menu,
+  .app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-dropdown-menu.v2-msg-menu,
+  .app-v2 > .v2-header .v2-dropdown.v2-is-open > .v2-dropdown-menu.v2-notif-menu {
+    transform: translate(-50%, 0);
+  }
+
+  /* Toggle button rotates differently in mobile — points at the menu
+     when closed, at the X when open. CSS-only, no JS needed. */
+  .app-v2.v2-is-open-mobile > .v2-header .v2-sidebar-toggle .v2-sb-collapse { display: block !important; }
+  .app-v2.v2-is-open-mobile > .v2-header .v2-sidebar-toggle .v2-sb-expand   { display: none !important; }
+  .app-v2:not(.v2-is-open-mobile) > .v2-header .v2-sidebar-toggle .v2-sb-collapse { display: none !important; }
+  .app-v2:not(.v2-is-open-mobile) > .v2-header .v2-sidebar-toggle .v2-sb-expand   { display: block !important; }
+
+  /* Main column: tighter padding so content has more room. */
+  .app-v2 > .v2-main { padding: 14px 14px 22px !important; }
+}
+
+/* ---- MOBILE (≤389px) — header content can no longer fit even after
+   the squeeze above. Switch to horizontal scroll so brand + actions
+   stay full-size and the user can swipe instead of seeing them clip. */
+@media (max-width: 389px) {
+  .app-v2 > .v2-header {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .app-v2 > .v2-header::-webkit-scrollbar { display: none; }
+  .app-v2 > .v2-header > *,
+  .app-v2 > .v2-header .v2-header-right > * { flex-shrink: 0; }
+
+  /* The header now scrolls horizontally with overflow:hidden on the
+     y-axis. That clips ANY popup that pops down below the header — so
+     the language and profile dropdowns disappear. Escape the clip by
+     pinning them to the viewport (position: fixed). The orders /
+     messages / notifications popups already escape via the ≤768px rule
+     above — its higher class-specific selectors keep their centred
+     placement. Profile / language stay right-anchored chips. */
+  .app-v2 > .v2-header .v2-dropdown { position: static; }
+  .app-v2 > .v2-header .v2-dropdown-menu {
+    position: fixed;
+    top: calc(var(--v2-header-h) + 6px);
+    inset-inline-start: auto;
+    inset-inline-end: 8px;
+    left: auto;
+    right: 8px;
+  }
+}
+
+/* ---- TABLET (768-991px) — rail stays in the grid, ONLY the ctxpanel
+   is off-canvas. Tapping a rail icon both switches the active section
+   and slides the ctxpanel in (handled in admin-v2.js / vendor-v2.js). */
+@media (min-width: 768px) and (max-width: 991px) {
+  .app-v2 {
+    grid-template-columns: var(--v2-rail-w) 1fr !important;
+    grid-template-areas:
+      "header header"
+      "rail   main" !important;
+  }
+  [dir="rtl"] .app-v2 {
+    grid-template-columns: 1fr var(--v2-rail-w) !important;
+    grid-template-areas:
+      "header header"
+      "main   rail" !important;
+  }
+
+  .app-v2 > .v2-rail {
+    position: static !important;
+    transform: none !important;
+    box-shadow: none !important;
+    z-index: auto !important;
+    display: flex !important;
+    width: auto !important;
+  }
+
+  .app-v2 > .v2-ctxpanel {
+    top: var(--v2-header-h);
+    left: var(--v2-rail-w);
+  }
+  [dir="rtl"] .app-v2 > .v2-ctxpanel {
+    left: auto;
+    right: var(--v2-rail-w);
+  }
+
+  .app-v2.v2-is-open-mobile::before {
+    inset: var(--v2-header-h) 0 0 var(--v2-rail-w);
+  }
+  [dir="rtl"] .app-v2.v2-is-open-mobile::before {
+    inset: var(--v2-header-h) var(--v2-rail-w) 0 0;
+  }
+
+  .app-v2 > .v2-header .v2-header-brand {
+    width: var(--v2-rail-w) !important;
+    min-width: var(--v2-rail-w) !important;
+    justify-content: center;
+  }
+
+  /* Tablet: the ctxpanel is off-canvas, so the rail-foot setup button is
+     the only always-visible entry point to the setup guide. The desktop
+     rule that hides rail-foot unless the sidebar is collapsed does not
+     apply here. */
+  .app-v2 > .v2-rail .v2-rail-foot { display: flex !important; }
+
+  /* ...but once the expanded ctxpanel is open it already has its own
+     setup-guide pinned at the bottom — the rail's duplicate setup icon
+     just clutters things, so hide it while the overlay is open. */
+  .app-v2.v2-is-open-mobile > .v2-rail .v2-rail-foot { display: none !important; }
+}
+
+/* ---- MOBILE (≤767px) — rail + ctxpanel slide in together. The rail
+   stays visible so the user can switch sections from the icon column
+   without closing the overlay. The ctxpanel's own setup-guide footer
+   handles the fixed-bottom behaviour (see .v2-ctx-foot above). */
+@media (max-width: 767px) {
+  /* Rail-foot (setup icon) stays hidden on mobile — the ctxpanel's
+     setup-guide footer is the single source while the overlay is open. */
+  .app-v2.v2-is-open-mobile > .v2-rail .v2-rail-foot { display: none !important; }
+
+  /* Phone-only: the header has no room for the breadcrumb once brand,
+     toggle, search, language and profile chips have shrunk. Tablet
+     (≥ 768px) still shows it in the left slot. */
+  .app-v2 > .v2-header .v2-crumbs { display: none; }
+}
+
+/* ---- MOBILE (≤575px) — squeeze header further ---- */
+@media (max-width: 575px) {
+  .app-v2 {
+    --v2-rail-w: 60px;
+    --v2-ctx-w: min(82vw, 280px);
+  }
+  .app-v2 > .v2-header { padding: 0 10px; gap: 6px; }
+  .app-v2 > .v2-header .v2-brand-logo-mini { width: 32px; height: 32px; }
+  .app-v2 > .v2-header .v2-brand-logo-mini img { width: 22px; height: 22px; }
+  .app-v2 > .v2-header .v2-search-btn { width: 34px; height: 34px; }
+  .app-v2 > .v2-header .v2-icon-btn { width: 34px; height: 34px; }
+  .app-v2 > .v2-header .v2-avatar { width: 30px; height: 30px; }
+
+  /* Hide non-essential header buttons on the smallest screens to keep
+     the bar uncluttered. The hidden actions stay reachable from the
+     account dropdown / sidebar. */
+  .app-v2 > .v2-header [data-v2-tooltip="Fullscreen"],
+  .app-v2 > .v2-header [data-v2-tip-enter] { display: none; }
+
+  /* Mobile main padding — env() reserves the iOS home indicator / Android
+     3-button nav strip so the last card or sticky action bar stays clear. */
+  .app-v2 > .v2-main { padding: 10px 10px max(24px, env(safe-area-inset-bottom) + 12px) !important; }
+}
+
+/* =====================================================================
+   PINNED SECTION — extra emphasis so it reads as a saved-shortcuts area,
+   distinct from the rest of the menu list. Also styles the pin button
+   when it's hosted inside a .v2-nav-child (injected at runtime by
+   admin-v2.js / vendor-v2.js).
+   ===================================================================== */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-group.v2-is-pinned {
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--v2-primary, #1F4FD6) 8%, transparent) 0%,
+        color-mix(in srgb, var(--v2-primary, #1F4FD6) 4%, transparent) 100%);
+    border: 1px solid color-mix(in srgb, var(--v2-primary, #1F4FD6) 18%, transparent);
+    border-radius: 10px;
+    padding: 4px 4px 6px;
+    margin: 6px 4px 10px;
+    position: relative;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-group.v2-is-pinned .v2-ctx-group-head {
+    color: var(--v2-primary, #1F4FD6);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    /* Logical padding so the inline-start side (where the pin icon
+       sits via inset-inline-start: 8px) gets the extra 26px in BOTH
+       LTR and RTL — without this RTL renders the icon over the text. */
+    padding: 6px 10px;
+    padding-inline-start: 26px;
+    position: relative;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-group.v2-is-pinned .v2-ctx-group-head::before {
+    content: '';
+    position: absolute;
+    inset-inline-start: 8px;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    transform: translateY(-50%);
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M9 4h6v6.8a4 4 0 0 0 1 2.6l1 1.1a1 1 0 0 1-.7 1.7H13v5a1 1 0 0 1-2 0v-5H7.7a1 1 0 0 1-.7-1.7l1-1.1a4 4 0 0 0 1-2.6Z'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M9 4h6v6.8a4 4 0 0 0 1 2.6l1 1.1a1 1 0 0 1-.7 1.7H13v5a1 1 0 0 1-2 0v-5H7.7a1 1 0 0 1-.7-1.7l1-1.1a4 4 0 0 0 1-2.6Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* (Earlier we force-displayed children in the pinned section with
+   display: block !important. That blocked the chevron toggle from
+   collapsing the cloned submenu. Now we let the standard
+   .v2-is-collapsed rule control visibility, and applyExpanded() syncs
+   the original + cloned children container together so clicking the
+   chevron in the pin section also collapses the cloned submenu.) */
+
+/* Pin button injected on submenu children — sits as the LAST flex
+   sibling inside .v2-nav-child (after the dot, label, and count badge)
+   so it never overlaps the count. Fades in on row hover; stays visible
+   when on. */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn-child {
+    position: static;
+    transform: none;
+    margin-inline-start: 2px;
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-nav-child:hover .v2-pin-btn-child,
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-btn-child.v2-is-on {
+    opacity: 1;
+}
+/* Parent-context caption shown above pinned submenu children so the
+   user can tell two identically-named children (e.g. "All" under
+   Orders vs. "All" under Products) apart in the pin group. */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-parent-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--v2-primary, #1F4FD6);
+    padding: 8px 10px 4px;
+    margin-top: 6px;
+    opacity: 0.85;
+}
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-pin-parent-label:first-child {
+    margin-top: 0;
+    padding-top: 4px;
+}
+/* Parents that have a dropdown (.v2-has-children): keep their pin
+   button visible while the user is hovering EITHER the parent row OR
+   the matching .v2-nav-children container right beneath it. Lets the
+   user pin the parent while still exploring its child rows. */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout)
+    .v2-nav-item.v2-has-children:has(+ .v2-nav-children:hover) .v2-pin-btn {
+    opacity: 1;
+}
+/* Inside the pinned section, hovering ANYWHERE on the section reveals
+   every pin button in it — so users can easily click the pin on a
+   parent dropdown header (which isn't pinned itself, just shown
+   because some of its children are) to either pin the whole parent
+   or unpin individual children. */
+:is(.app-v2 > .v2-ctxpanel, .v2-rail-flyout) .v2-ctx-group.v2-is-pinned:hover .v2-pin-btn {
+    opacity: 1 !important;
+}
+
+/* =====================================================================
+   POS page (vendor POS index) — viewport-bounded sections at lg+
+   ----------------------------------------------------------------------
+   At ≥992px the page is two columns (col-lg-7 products, col-lg-5
+   billing). Bound both outer cards to the v2 main column height so each
+   section scrolls internally and the page itself never scrolls. Below
+   lg the columns stack, the rules don't apply, and natural page scroll
+   resumes — by design, mobile/tab uses normal flow.
+
+   v2 main column height = 100vh − header(60px) − .v2-main vertical
+   padding(20+24=44px) = 100vh − 104px.
+   ===================================================================== */
+@media (min-width: 992px) {
+    body.v2-active .content > .row > .col-lg-7 > .card.card-body:has(> #items),
+    body.v2-active .content > .row > .col-lg-5 > .card.billing-section-wrap {
+        height: calc(100vh - var(--v2-header-h, 60px) - 44px);
+    }
+    /* Right card body fills the remaining card height and scrolls. */
+    body.v2-active .billing-section-wrap > .card-body.overflow-y-auto {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+    /* Left card #items grows to fill leftover space; the inner
+       .pos-item-wrap then becomes the scrollable region (overriding
+       its fixed 100vh-350px max-height which can overshoot the outer
+       card on shorter viewports). */
+    body.v2-active .col-lg-7 > .card.card-body:has(> #items) > #items {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+    body.v2-active .col-lg-7 > .card.card-body:has(> #items) > #items > .pos-item-wrap {
+        max-block-size: 100% !important;
+        block-size: 100%;
+        /* Keep product cards at their natural width/height — without this,
+           grid's default align-content: stretch expands the rows when the
+           container is taller than content, making cards taller than the
+           original sizing. */
+        align-content: start;
+    }
+}

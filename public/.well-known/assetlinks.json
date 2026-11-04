@@ -1,0 +1,14 @@
+[
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.sixamtech.sixvalley",
+            "sha256_cert_fingerprints": [
+                "CA:2E:F7:1B:D0:D9:1F:A9:48:1E:5A:C6:19:7D:0C:F0:1C:AD:67:39:BA:41:58:21:10:41:07:9D:DE:99:36:11"
+            ]
+        }
+    }
+]

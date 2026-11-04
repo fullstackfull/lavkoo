@@ -1,0 +1,162 @@
+.dashed-hr {
+    border-bottom: 2px dashed #dddddd;
+    display: block;
+    margin: 10px 0;
+}
+
+@page {
+    size: auto;
+    margin: 0 15px !important;
+}
+
+@media print {
+    * {
+        color: #000000 !important;
+        font-weight: 500 !important;
+    }
+
+    h2, h3, h4, h5, h6 {
+        font-weight: 700 !important;
+    }
+
+    .table {
+        width: 100%;
+        margin-bottom: 1rem;
+        color: #000000;
+        border-collapse: collapse;
+    }
+
+    .table td, .table th {
+        padding: .75rem;
+        vertical-align: top;
+        border-top: 1px solid #000000
+    }
+
+    .table thead th {
+        vertical-align: bottom;
+        border-bottom: 1px solid #000000
+    }
+
+    .table tbody + tbody {
+        border-top: 1px solid #000000
+    }
+
+    .table-sm td, .table-sm th {
+        padding: .3rem
+    }
+
+    .table-bordered {
+        border: 1px solid #000000
+    }
+
+    .table-bordered td, .table-bordered th {
+        border: 1px solid #000000
+    }
+
+    .table-bordered thead td, .table-bordered thead th {
+        border-bottom-width: 1px
+    }
+
+    .text-left {
+        text-align: left !important;
+    }
+
+    .text-right {
+        text-align: right !important;
+    }
+
+    .pl--0 {
+        padding-left: 0 !important;
+    }
+
+    .pr--0 {
+        padding-right: 0 !important;
+    }
+}
+
+.font-size-20px {
+    font-size: 20px !important;
+}
+
+.font-size-16px {
+    font-size: 16px !important;
+}
+
+.width-363px {
+    width: 363px
+}
+
+.line-height-1 {
+    line-height: 1
+}
+
+.font-weight-lighter {
+    font-weight: lighter;
+}
+
+.color-black {
+    color: black !important;
+}
+
+.width-99 {
+    width: calc(100% - 1px) !important
+}
+
+.width-100 {
+    width: 100%;
+}
+
+.text-dark {
+    color: #303030 !important;
+}
+
+.text-body {
+    color: #6D6F73 !important;
+}
+
+.fs-12 {
+    font-size: 12px !important;
+}
+
+table tr td {
+    vertical-align: middle;
+    padding: 5px !important;
+}
+
+.td-p-1 tr td{
+    padding: 5px !important;
+}
+
+.text-start {
+    text-align: start !important;
+}
+.text-end {
+    text-align: end !important;
+}
+
+.overflow-wrap-anywhere {
+    overflow-wrap: anywhere !important;
+}
+
+.pos-logo {
+    width: 24px;
+    height: 24px;
+    max-width: 100%;
+    -o-object-fit: contain;
+    object-fit: contain;
+}
+
+.text-nowrap {
+    white-space: nowrap !important;
+}
+.text-wrap {
+    white-space: normal !important;
+}
+
+.d-inline-block{
+    display: inline-block !important;
+}
+
+.mb-10px {
+    margin-bottom: 10px !important;
+}

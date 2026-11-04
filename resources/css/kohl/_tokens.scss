@@ -1,0 +1,232 @@
+/* ============================================================================
+   Kohl — token layer
+   ----------------------------------------------------------------------------
+   Three tiers, and the rule that makes them worth having:
+
+     primitive  a raw value. Never referenced by a component.
+     semantic   a role: surface, accent, danger, space-4. Themes resolve here.
+     component  a part: --k-table-row-hover. Falls back to a semantic.
+
+   A component may only read semantic or component tokens. The moment a
+   component references a primitive (or a hex literal) the theme stops being
+   changeable in one place, which is the state this codebase is in today:
+   294,796 lines of CSS with exactly one dynamic value in it.
+   ========================================================================= */
+
+:root {
+    /* ---- primitives: colour ------------------------------------------- */
+    --k-violet-50:  #f2f0ff;
+    --k-violet-100: #e5e1ff;
+    --k-violet-300: #b3a8f5;
+    --k-violet-500: #6d5ae6;
+    --k-violet-600: #5b48d4;
+    --k-violet-700: #4a39b0;
+
+    --k-gold-100: #f5ecdd;
+    --k-gold-400: #c9a46a;
+    --k-gold-500: #b08d57;
+    --k-gold-600: #8f7043;
+
+    --k-slate-0:   #ffffff;
+    --k-slate-25:  #fbfbfd;
+    --k-slate-50:  #f5f6f9;
+    --k-slate-100: #eceef4;
+    --k-slate-200: #dfe3ec;
+    --k-slate-300: #c6ccda;
+    --k-slate-400: #9aa2b4;
+    --k-slate-500: #6f7889;
+    --k-slate-600: #515a69;
+    --k-slate-700: #3a4250;
+    --k-slate-800: #262d39;
+    --k-slate-900: #171c25;
+    --k-slate-950: #0f131a;
+
+    --k-green-100: #dcf3e7;
+    --k-green-500: #1f9d61;
+    --k-green-700: #167045;
+
+    --k-amber-100: #fdf0d8;
+    --k-amber-500: #c98a12;
+    --k-amber-700: #8a5f0f;
+
+    --k-red-100: #fbe4e2;
+    --k-red-500: #d64a3f;
+    --k-red-700: #a8322a;
+
+    --k-blue-100: #dfeafb;
+    --k-blue-500: #2f7ed8;
+
+    /* ---- primitives: dimension ---------------------------------------- */
+    /* A 4px base. Every gap, pad and inset in Kohl is one of these. */
+    --k-size-0:  0;
+    --k-size-1:  4px;
+    --k-size-2:  8px;
+    --k-size-3:  12px;
+    --k-size-4:  16px;
+    --k-size-5:  20px;
+    --k-size-6:  24px;
+    --k-size-8:  32px;
+    --k-size-10: 40px;
+    --k-size-12: 48px;
+    --k-size-16: 64px;
+
+    --k-radius-sm: 4px;
+    --k-radius-md: 8px;
+    --k-radius-lg: 12px;
+    --k-radius-pill: 999px;
+
+    /* ---- primitives: type --------------------------------------------- */
+    --k-font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    --k-font-ar: 'Inter', 'Noto Sans Arabic', 'Segoe UI', Tahoma, sans-serif;
+    --k-font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+    --k-font-display: 'Cormorant Garamond', 'Playfair Display', Georgia, serif;
+
+    --k-text-xs:  11px;
+    --k-text-sm:  12.5px;
+    --k-text-md:  14px;
+    --k-text-lg:  16px;
+    --k-text-xl:  20px;
+    --k-text-2xl: 26px;
+    --k-text-3xl: 34px;
+
+    --k-weight-regular: 400;
+    --k-weight-medium: 500;
+    --k-weight-semibold: 600;
+    --k-weight-bold: 700;
+
+    --k-leading-tight: 1.2;
+    --k-leading-normal: 1.5;
+    --k-leading-loose: 1.7;
+
+    /* ---- primitives: depth & motion ------------------------------------ */
+    --k-shadow-1: 0 1px 2px rgba(16, 20, 28, .06);
+    --k-shadow-2: 0 4px 14px -6px rgba(16, 20, 28, .14);
+    --k-shadow-3: 0 18px 44px -20px rgba(16, 20, 28, .28);
+
+    --k-ease: cubic-bezier(.22, .61, .36, 1);
+    --k-duration-fast: 120ms;
+    --k-duration-base: 200ms;
+    --k-duration-slow: 320ms;
+
+    --k-z-sticky: 100;
+    --k-z-drawer: 1050;
+    --k-z-modal: 1060;
+    --k-z-toast: 1080;
+    --k-z-palette: 1090;
+
+    /* ---- semantic: light ----------------------------------------------- */
+    /* Redefined wholesale under dark. Components read only these. */
+    --k-canvas:        var(--k-slate-50);
+    --k-surface:       var(--k-slate-0);
+    --k-surface-sunk:  var(--k-slate-100);
+    --k-surface-raised: var(--k-slate-0);
+    --k-overlay:       rgba(15, 19, 26, .48);
+
+    --k-border:        var(--k-slate-200);
+    --k-border-strong: var(--k-slate-300);
+
+    --k-text:          var(--k-slate-900);
+    --k-text-muted:    var(--k-slate-500);
+    --k-text-subtle:   var(--k-slate-400);
+    --k-text-inverse:  var(--k-slate-0);
+
+    --k-accent:          var(--k-violet-500);
+    --k-accent-hover:    var(--k-violet-600);
+    --k-accent-soft:     var(--k-violet-50);
+    --k-accent-contrast: var(--k-slate-0);
+
+    /* Status is deliberately not derived from the accent: a merchant may rebrand
+       the accent to anything, and "paid" must not become "danger" as a result. */
+    --k-success:      var(--k-green-500);
+    --k-success-soft: var(--k-green-100);
+    --k-success-text: #146c44;
+    --k-warning:      var(--k-amber-500);
+    --k-warning-soft: var(--k-amber-100);
+    --k-warning-text: var(--k-amber-700);
+    --k-danger:       var(--k-red-500);
+    --k-danger-soft:  var(--k-red-100);
+    --k-danger-text:  var(--k-red-700);
+    --k-info:         var(--k-blue-500);
+    --k-info-soft:    var(--k-blue-100);
+
+    --k-focus-ring: 0 0 0 3px color-mix(in srgb, var(--k-accent) 32%, transparent);
+}
+
+/* Dark resolves at the semantic tier only. Three states are covered: an explicit
+   dark choice, an explicit light choice (which must beat a dark OS), and the
+   unstamped default where only the OS preference is known. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-k-theme="light"]) {
+        --k-canvas:        var(--k-slate-950);
+        --k-surface:       var(--k-slate-900);
+        --k-surface-sunk:  var(--k-slate-800);
+        --k-surface-raised: var(--k-slate-800);
+        --k-overlay:       rgba(0, 0, 0, .62);
+
+        --k-border:        #2b323e;
+        --k-border-strong: #3c4552;
+
+        --k-text:          #e7eaf0;
+        --k-text-muted:    #a3acbb;
+        --k-text-subtle:   #7d8697;
+        --k-text-inverse:  var(--k-slate-950);
+
+        --k-accent:          var(--k-violet-300);
+        --k-accent-hover:    #c6bdfa;
+        --k-accent-soft:     #241f45;
+        --k-accent-contrast: var(--k-slate-950);
+
+        --k-success:      #4ec78c;
+        --k-success-soft: #15311f;
+        --k-success-text: #7ddcae;
+        --k-warning:      #e0ad4d;
+        --k-warning-soft: #2f2617;
+        --k-warning-text: #f0c877;
+        --k-danger:       #ea7f74;
+        --k-danger-soft:  #331e1c;
+        --k-danger-text:  #f3a79e;
+        --k-info:         #6fa8e8;
+        --k-info-soft:    #16263a;
+
+        --k-shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+        --k-shadow-2: 0 4px 14px -6px rgba(0, 0, 0, .55);
+        --k-shadow-3: 0 18px 44px -20px rgba(0, 0, 0, .7);
+    }
+}
+
+:root[data-k-theme="dark"] {
+    --k-canvas:        var(--k-slate-950);
+    --k-surface:       var(--k-slate-900);
+    --k-surface-sunk:  var(--k-slate-800);
+    --k-surface-raised: var(--k-slate-800);
+    --k-overlay:       rgba(0, 0, 0, .62);
+
+    --k-border:        #2b323e;
+    --k-border-strong: #3c4552;
+
+    --k-text:          #e7eaf0;
+    --k-text-muted:    #a3acbb;
+    --k-text-subtle:   #7d8697;
+    --k-text-inverse:  var(--k-slate-950);
+
+    --k-accent:          var(--k-violet-300);
+    --k-accent-hover:    #c6bdfa;
+    --k-accent-soft:     #241f45;
+    --k-accent-contrast: var(--k-slate-950);
+
+    --k-success:      #4ec78c;
+    --k-success-soft: #15311f;
+    --k-success-text: #7ddcae;
+    --k-warning:      #e0ad4d;
+    --k-warning-soft: #2f2617;
+    --k-warning-text: #f0c877;
+    --k-danger:       #ea7f74;
+    --k-danger-soft:  #331e1c;
+    --k-danger-text:  #f3a79e;
+    --k-info:         #6fa8e8;
+    --k-info-soft:    #16263a;
+
+    --k-shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+    --k-shadow-2: 0 4px 14px -6px rgba(0, 0, 0, .55);
+    --k-shadow-3: 0 18px 44px -20px rgba(0, 0, 0, .7);
+}

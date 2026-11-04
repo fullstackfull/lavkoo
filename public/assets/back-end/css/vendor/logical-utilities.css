@@ -1,0 +1,71 @@
+/* ============================================================================
+   Logical direction utilities for the SELLER (vendor) panel.
+
+   Why this file exists
+   --------------------
+   The vendor panel is served by Bootstrap 4.5, which predates the logical
+   utilities (ms-/me-/ps-/pe-). 6Valley hand-added a scattered few — ms-5, ps-2,
+   pe-3, text-start, text-end — so the set looked available while most of it was
+   missing, and three of the classes that DID exist were physical despite their
+   logical names:
+
+       .me-3        margin-right: 1rem      (bootstrap.min.css)
+       .float-start float: left             (custom.css)
+       .float-end   float: right            (custom.css)
+
+   A seller writing me-3 to mean "end" therefore got no mirroring at all in
+   Arabic — the class read as correct and behaved as wrong.
+
+   Safety
+   ------
+   In a left-to-right document margin-inline-start IS margin-left and
+   margin-inline-end IS margin-right, so nothing an English store sees changes.
+   Only the RTL rendering differs, which is the entire point.
+
+   ms-5 is deliberately NOT redefined here: 6Valley set it to 2rem rather than
+   Bootstrap's 3rem, and overriding it would silently move existing layouts.
+
+   Load order: this file must come AFTER bootstrap.min.css and custom.css so the
+   corrections win.
+   ============================================================================ */
+
+/* -- margin: inline start ------------------------------------------------- */
+.ms-0 { margin-inline-start: 0 !important; }
+.ms-1 { margin-inline-start: 0.25rem !important; }
+.ms-2 { margin-inline-start: 0.5rem !important; }
+.ms-3 { margin-inline-start: 1rem !important; }
+.ms-4 { margin-inline-start: 1.5rem !important; }
+.ms-auto { margin-inline-start: auto !important; }
+
+/* -- margin: inline end --------------------------------------------------- */
+.me-0 { margin-inline-end: 0 !important; }
+.me-1 { margin-inline-end: 0.25rem !important; }
+.me-2 { margin-inline-end: 0.5rem !important; }
+.me-3 { margin-inline-end: 1rem !important; }   /* was margin-right — did not mirror */
+.me-4 { margin-inline-end: 1.5rem !important; }
+.me-5 { margin-inline-end: 3rem !important; }
+.me-auto { margin-inline-end: auto !important; }
+
+/* -- padding: inline start ------------------------------------------------ */
+.ps-0 { padding-inline-start: 0 !important; }
+.ps-1 { padding-inline-start: 0.25rem !important; }
+.ps-3 { padding-inline-start: 1rem !important; }
+.ps-4 { padding-inline-start: 1.5rem !important; }
+.ps-5 { padding-inline-start: 3rem !important; }
+
+/* -- padding: inline end -------------------------------------------------- */
+.pe-0 { padding-inline-end: 0 !important; }
+.pe-1 { padding-inline-end: 0.25rem !important; }
+.pe-2 { padding-inline-end: 0.5rem !important; }
+.pe-4 { padding-inline-end: 1.5rem !important; }
+.pe-5 { padding-inline-end: 3rem !important; }
+
+/* -- float ----------------------------------------------------------------
+   Left as physical values with a [dir="rtl"] override rather than
+   float: inline-start/inline-end, which has thinner browser support than the
+   margin/padding logical properties this file relies on elsewhere.          */
+.float-start { float: left !important; }
+.float-end   { float: right !important; }
+
+[dir="rtl"] .float-start { float: right !important; }
+[dir="rtl"] .float-end   { float: left !important; }

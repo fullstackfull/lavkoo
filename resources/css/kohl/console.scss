@@ -1,0 +1,174 @@
+/* ============================================================================
+   Kohl Console — the admin and vendor skin.
+   ----------------------------------------------------------------------------
+   Entry point. Loads the shared token and base layers, then the component
+   tokens that make the console feel like an operator tool rather than a
+   storefront: denser spacing, a violet accent, flatter surfaces.
+
+   Loaded AFTER the legacy admin stylesheets so Kohl can take over surface by
+   surface. Nothing here restyles an existing selector — a page only changes
+   when it starts using a .k- class.
+   ========================================================================= */
+
+@import 'tokens';
+@import 'base';
+@import 'components';
+
+.k-console {
+    /* Component tokens: the console's own density, resolved from semantics. */
+    --k-console-rail-width: 60px;
+    --k-console-panel-width: 232px;
+    --k-console-header-height: 54px;
+
+    --k-control-height: 34px;
+    --k-control-height-sm: 28px;
+    --k-control-pad-inline: var(--k-size-3);
+
+    --k-table-row-height: 46px;
+    --k-table-row-hover: var(--k-surface-sunk);
+    --k-table-head-bg: var(--k-surface-sunk);
+
+    --k-card-pad: var(--k-size-5);
+    --k-card-radius: var(--k-radius-md);
+    --k-card-border: 1px solid var(--k-border);
+}
+
+/* Release version pinned to the sidebar foot. */
+.v2-version-badge {
+    padding: 8px 16px 12px;
+    font-size: 11px;
+    color: var(--k-text-muted);
+    font-variant-numeric: tabular-nums;
+    user-select: all;
+}
+
+/* Developer portal */
+.k-dev-snippet {
+    background: var(--k-surface-sunk);
+    border: 1px solid var(--k-border);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 0;
+    color: var(--k-text);
+}
+
+.k-dev-copy {
+    position: absolute;
+    inset-block-start: 6px;
+    inset-inline-end: 6px;
+}
+
+.k-dev-group {
+    border-block-end: 1px solid var(--k-border);
+    padding-block: 6px;
+}
+
+.k-dev-group > summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-block: 6px;
+    list-style: none;
+}
+
+.k-dev-group > summary::-webkit-details-marker { display: none; }
+
+.k-dev-group[open] > summary { color: var(--k-accent); }
+
+/* ============================================================================
+   Dark mode compatibility for the legacy admin.
+   ----------------------------------------------------------------------------
+   Bootstrap 5.3 themes its own components off [data-bs-theme="dark"], and the v2
+   shell has its own palette — but ~60% of this panel is hand-written CSS and
+   utility classes that hardcode white. Without this layer dark mode came out
+   half-applied: white cards with light text, and modals whose text vanished.
+
+   Scope is deliberately narrow: repaint the surfaces that hardcode a light
+   background or a dark foreground, and let everything else recalculate from
+   Bootstrap's own dark variables.
+   ========================================================================= */
+[data-bs-theme="dark"] {
+    /* Utility backgrounds the legacy markup leans on. */
+    .bg-white,
+    .bg-body,
+    .bg-section,
+    .bg-light {
+        background-color: var(--k-surface) !important;
+    }
+
+    /* Foreground utilities that assume a light surface. */
+    .text-dark,
+    .text-body,
+    .text-black {
+        color: var(--k-text) !important;
+    }
+    .text-muted,
+    .text-secondary {
+        color: var(--k-text-muted) !important;
+    }
+
+    /* Cards, tables and panels: Bootstrap handles most of it, these fill the gaps
+       where the legacy sheets set explicit colours. */
+    .card,
+    .modal-content,
+    .offcanvas,
+    .dropdown-menu {
+        background-color: var(--k-surface);
+        color: var(--k-text);
+        border-color: var(--k-border);
+    }
+
+    .card-header,
+    .card-footer,
+    .modal-header,
+    .modal-footer {
+        background-color: transparent;
+        border-color: var(--k-border);
+    }
+
+    hr,
+    .border,
+    .border-top,
+    .border-bottom,
+    .border-start,
+    .border-end {
+        border-color: var(--k-border) !important;
+    }
+
+    /* Form controls: keep typed text readable on the dark surface. */
+    .form-control,
+    .form-select,
+    .custom-select,
+    .select2-container--default .select2-selection--single,
+    .select2-container--default .select2-selection--multiple {
+        background-color: var(--k-canvas);
+        color: var(--k-text);
+        border-color: var(--k-border);
+    }
+    .form-control::placeholder { color: var(--k-text-muted); }
+    .select2-container--default .select2-selection--single .select2-selection__rendered { color: var(--k-text); }
+    .select2-dropdown {
+        background-color: var(--k-surface);
+        color: var(--k-text);
+        border-color: var(--k-border);
+    }
+
+    /* Tables: the legacy sheets paint striped rows white. */
+    .table {
+        --bs-table-bg: transparent;
+        --bs-table-color: var(--k-text);
+        color: var(--k-text);
+    }
+    .table > :not(caption) > * > * { border-color: var(--k-border); }
+
+    /* Sweetalert / toast surfaces used across the panel. */
+    .swal2-popup {
+        background-color: var(--k-surface);
+        color: var(--k-text);
+    }
+}

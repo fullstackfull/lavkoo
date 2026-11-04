@@ -1,0 +1,31 @@
+{
+    "name": "nwidart/taxmodule",
+    "description": "",
+    "authors": [
+        {
+            "name": "Nicolas Widart",
+            "email": "n.widart@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {
+
+            }
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\TaxModule\\": "",
+            "Modules\\TaxModule\\App\\": "app/",
+            "Modules\\TaxModule\\Database\\Factories\\": "database/factories/",
+            "Modules\\TaxModule\\Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\TaxModule\\Tests\\": "tests/"
+        }
+    }
+}

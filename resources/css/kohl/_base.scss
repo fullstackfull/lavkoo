@@ -1,0 +1,130 @@
+/* ============================================================================
+   Kohl — base layer
+   ----------------------------------------------------------------------------
+   Scoped to .k, never to bare elements. 1,407 existing templates rely on
+   Bootstrap's own resets; a global reset here would reformat all of them at
+   once. Everything Kohl styles opts in.
+
+   The direction rule: no selector in Kohl may use left/right. Physical
+   properties are what forced the current codebase into
+   `margin-{{ $dir === 'rtl' ? 'right' : 'left' }}` in a Blade layout, and into
+   59 templates whose ml-3 / text-left never flip at all. Logical properties
+   flip with `dir` at no cost, so RTL cannot regress component by component.
+   ========================================================================= */
+
+/* Colour and its ground are always set together.
+   Setting `color` alone here produced light text on the legacy light background
+   the moment dark mode was switched on — the page was unreadable, and the cause
+   was invisible in light mode. A token that paints text must also own what sits
+   behind it. */
+.k,
+.k-scope {
+    font-family: var(--k-font-ui);
+    font-size: var(--k-text-md);
+    line-height: var(--k-leading-normal);
+    color: var(--k-text);
+    background-color: var(--k-canvas);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+[dir="rtl"] .k,
+[dir="rtl"] .k-scope {
+    font-family: var(--k-font-ar);
+}
+
+.k *,
+.k *::before,
+.k *::after {
+    box-sizing: border-box;
+}
+
+/* ---- focus ------------------------------------------------------------- */
+/* Keyboard focus must always be visible. Mouse focus must not add noise. */
+.k :focus-visible {
+    outline: 2px solid var(--k-accent);
+    outline-offset: 2px;
+    border-radius: var(--k-radius-sm);
+}
+
+.k :focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* ---- headings & text --------------------------------------------------- */
+.k h1, .k h2, .k h3, .k h4, .k h5, .k h6 {
+    margin: 0;
+    font-weight: var(--k-weight-semibold);
+    line-height: var(--k-leading-tight);
+    color: var(--k-text);
+    text-wrap: balance;
+}
+
+.k p { margin: 0; }
+
+.k-text-muted  { color: var(--k-text-muted); }
+.k-text-subtle { color: var(--k-text-subtle); }
+
+/* Digits that sit in a column must line up, or a table of money is unreadable. */
+/* Money and IDs read left-to-right even in an RTL layout. `unicode-bidi: isolate`
+   does that on its own; forcing display:inline-block as well silently turned any
+   block element carrying this class inline, which collapsed stacked amount/status
+   cells onto one line. */
+.k-num {
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+    unicode-bidi: isolate;
+}
+
+.k-eyebrow {
+    font-size: var(--k-text-xs);
+    font-weight: var(--k-weight-semibold);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--k-text-subtle);
+}
+
+/* ---- media ------------------------------------------------------------- */
+.k img,
+.k svg,
+.k video {
+    max-width: 100%;
+    display: block;
+}
+
+/* Direction-carrying icons flip once, here, rather than per usage. */
+[dir="rtl"] .k-icon--directional {
+    transform: scaleX(-1);
+}
+
+/* ---- scroll containment ------------------------------------------------ */
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.k-scroll-x {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+}
+
+/* ---- visually hidden --------------------------------------------------- */
+.k-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ---- motion ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+    .k *,
+    .k *::before,
+    .k *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

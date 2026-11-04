@@ -1,0 +1,466 @@
+[
+    {
+        "key": "YWRtaW4vY29tcG9uZW50",
+        "uri": "admin/component",
+        "uri_count": 2,
+        "method": "GET",
+        "view": "layouts/admin/component",
+        "keywords": "Dropdown, Normal, 10, Items, 20, 30, 40, 50, Html, Select, Alabama, Wyoming, with, search, Multiple, Option, 01, 02, 03, 04, 05, 06, 07, Media, image description, admin, settings, authadminuserid, logout, Inputs, Input, FieldSwitch, Outside, Controllable, User, Name, name, doesnt, match, FieldPlain, Text, FieldTeaxtarea, 0100, FieldSelection, Selection, FieldCountry, picker, FieldPassword, Password, Wrong, selection, FieldSearch, Daterange, Custom, Time, range, Inside, Digital, Payment, Maintenance, Mode, FieldRadioCheckbox, Order, Notification, Type, Firebase, Manual, Hour, Min, Sec, Data, Radio, Checkbox, group, text, url, field, https6valley6amtechcomlogin, send test mail, Business, Model, 3rd, Party, You, have, to, setup, a, SMS, module, from, below, fist, active, this, feature, OTP, Setup, necessary, Configurations, Shipping Responsibility, enable preferred payment methods to make payments from customer app and website, change the shipping responsibility to Inhouse, change the shipping responsibility to Vendor Wise, admin will handle the shipping responsibilities when you choose inhouse shipping method, inhouse shipping, admin will handle the shipping responsibilities when you choose inhouse shipping method, vendors will handle the shipping responsibilities when you choose vendor wise shipping method, vendor wise shipping, vendors will handle the shipping responsibilities when you choose vendor wise shipping method, Reset, Submit, WhatsApp, Showhide, div, View, button, Provide, number, where, customer, can, chat, you, want to turn ON WhatsApp as social media chat option, want to turn OFF WhatsApp as social media chat option, if enabledWhatsApp chatting option will be available in the system, if enabledWhatsApp chatting option will be hidden from the system, Your, country, code, are, already, selected, based, on, your, Country, that, you, in, Information, page, whatsapp number, provide a WhatsApp number without country code, reset, save, Buttons, Primary, Place, Secondary, Outlined, Button, xs, Save, information, Check, New, Themes, Back, Language, reject, approve, refund, Icon, Badge, Large, Success, Warning, Danger, Info, Medium, Small, without, background, Tab, Menu, Other, Details, about, the, business, go, here, Additional, details, 1, General, Products, Orders, Customer, Vendors, Delivery, Men, Shipping, Method, Restriction, Priority, Invoice, Website, Refund, and, configurations, Product, management, Management, related, goes, Vendor, personnel, Methods, method, Restrictions, restriction, configuration, Settings, policy, EnglishEN, ArabicSA, BanglaBD, HindiIN, Toaster, Show, success, toast, error, warning, info, Tooltip, Top, Bottom, left, right, Supporting, line, lorem, ipsum, Line, multiline, Single, Images, 11, normal, Upload, Specialty, Image, Click, upload, or, drag, drop, JPG, JPEG, PNG, Gif, size, Max, 2, MB, 11, delete, 21, 21, 31, 31, 71, 71, view, Width, 260, x, 100, px, 325, modal, buttons, Textbox, align, change, new, restaurant, registration, icon, PNG, Less, Than, 1MB, Ratio, 31, File, file, Drag, Drop, here, Total, no, more, than, 10MB, Multple, Choose Image, Two, Modals, Modal, input, Send, Test, Mail, Insert, valid, email, addresser, get, mail, SMTP, is, configured, for, Mail, Please, test, ensure, receiving, correctly, ex, Address, send mail, System, Uploaded, Successfully, chosen, theme, successfully, uploaded, If, want, click, Active, ignore, Okay, Got, it, toggle, Turn, ON, PayPal, Lorem, dolor, sit, amet, consectetur, adipiscing, elit, Aliquam, odio, tellus, laoreet, cancel, yes, Want, FAQ, No, Yes, Delete, Notes, notes, For, address, simply, map, pick, perfect, LatLatitude, amp, LogLongitude, Value, add, multiple, currency, Currency, Setup, In, page, read, only, fields, data, database, installation, related, They, set, when, 1st, install, system, The, App, Debug, debugging, system, technical, issue, When, debug, mode, check, issues, then, Live, Dev, mode, Be, careful, anything, directly, connected, database, default, latest, version, app, forcefully, activate, users, proper, link, versions, Some, time, older, cant, work, properly, crash, start, app, This, section, may, help, user, update, features, their, Currently, payment, gateway, supported, Euro, Currency, at, least, one, support, euro, digital, properly, V3, Version, available, now, Must, ReCAPTCHA, must, version, Otherwise, reCAPTCHA, will, be, displayed, automatically, list of order wise shipping method, Search by topic, Tables, SL, Title, Duration, Cost, Status, action, want to Turn ON This Shipping Method, want to Turn OFF This Shipping Method, if you enable this shipping method will be shown in the user app and website for customer checkout, if you disable this shipping method will not be shown in the user app and website for customer checkout, edit, 1, order, wise, shipping, 56, 10000, Showing, To, Of, Records, 3, 4, 5, 6, 7, 8, category list, search by category name, 23, export, ID, category Image, priority, home category status, 294, Offcanvas, Our, Commitments, website, Company, Reliability, section, OffCanvas, Edit, FAQ, type Question, Question, type Answer, Answer, Message, New Message, though it is a demo site, our system automatically reset after one hour  that why you logged out, do not show again, click to view, general Settings"
+    },
+    {
+        "key": "YWRtaW4vY29tcG9uZW50LXNuaXBwZXRz",
+        "uri": "admin/component-snippets",
+        "uri_count": 2,
+        "method": "GET",
+        "view": "layouts/admin/component-snippets",
+        "keywords": "Dropdown, Show, live, alert, Html, CSS, JavaScript, componentsnippetscodeheader, componentsnippetscodecontainer, background, f8f9fa, padding, pre, margin, important, import, marked, from, httpscdnjsdelivrnetnpmmarkedlibmarkedesmjs, documentgetElementByIdcontentinnerHTML, markedparse, Marked, in, the, browsernnRendered, by, marked, general Settings"
+    },
+    {
+        "key": "YWRtaW4vZGFzaGJvYXJk",
+        "uri": "admin/dashboard",
+        "uri_count": 2,
+        "method": "GET",
+        "view": "admin-views/system/dashboard",
+        "keywords": "welcome, monitor your business analytics and statistics, business analytics, overall statistics, todays Statistics, this Months Statistics, hasstatistics type, sessionstatistics type, overall, selected, today, this month, admin wallet, user overview, total User, total customer, total vendor, total delivery man, hi, welcome to dashboard, total order, total Stores, total Products, total Customers, pending, confirmed, packaging, out for delivery, delivered, canceled, returned, failed to delivery, inhouse earning, commission earned, delivery charge earned, total tax collected, pending amount, order statistics, this Year, this Month, this Week, inhouse, vendor, earning statistics, commission, dashboard, Inhouse, customer, store, product, order, brand, business, Total Customer, Total Vendor, Total Delivery Man"
+    },
+    {
+        "key": "YWRtaW4vZGFzaGJvYXJkL2Vhcm5pbmctc3RhdGlzdGljcw==",
+        "uri": "admin/dashboard/earning-statistics",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/system/partials/earning-statistics",
+        "keywords": "earning statistics, this Year, this Month, this Week, inhouse, vendor, commission"
+    },
+    {
+        "key": "YWRtaW4vZGFzaGJvYXJkL29yZGVyLXN0YXRpc3RpY3M=",
+        "uri": "admin/dashboard/order-statistics",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/system/partials/order-statistics",
+        "keywords": "order statistics, this Year, this Month, this Week, inhouse, vendor"
+    },
+    {
+        "key": "YWRtaW4vcG9zL2NhbmNlbC1vcmRlcg==",
+        "uri": "admin/pos/cancel-order",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/pos/partials/_view-hold-orders",
+        "keywords": "SL, date, customer info, quantity, total amount, action, hascart name, countsessiongetcart name, getkeyadd to cart time, now, items, variation, qty, resume, cancel order, No Order Found"
+    },
+    {
+        "key": "YWRtaW4vcG9zL3ZpZXctaG9sZC1vcmRlcnM=",
+        "uri": "admin/pos/view-hold-orders",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/pos/partials/_view-hold-orders",
+        "keywords": "SL, date, customer info, quantity, total amount, action, hascart name, countsessiongetcart name, getkeyadd to cart time, now, items, variation, qty, resume, cancel order, No Order Found"
+    },
+    {
+        "key": "YWRtaW4vcHJvZmlsZS91cGRhdGUve2lkfQ==",
+        "uri": "admin/profile/update/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/profile/update-view",
+        "keywords": "Profile Information, dashboard, basic Information, password, requesttab, password, Click to upload, Or drag and drop, image, getStorageImagespathadminimage full url, typebackendprofile, datadefaultsrc, alt, full name, this will be displayed as your profile name, ex, ABC, phone Number, 123456789, email, you can login to your panel by using this email, want to update admin info, save Changes, change Password, new password, The password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one digit, one special character, and no spaces, enter new password, confirm password, enter confirm password, want to update admin password, profile Settings"
+    },
+    {
+        "key": "YWRtaW4vcHJvZHVjdHMvYWRk",
+        "uri": "admin/products/add",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/product/add/index",
+        "keywords": "Add New Product, reset, submit, add info from gallery, product name, ex, new Product, description, general setup, category, select category, sub Category, select Sub Category, sub Sub Category, select Sub Sub Category, brand, select Brand, product type, physical, digital, Author, Creator, Artist, Publishing House, delivery type, for Ready Product deliveries customers can pay  instantly download preuploaded digital products, For Ready After Sale deliveries customers pay first then admin uploads the digital products that become available to customers for download, ready After Sell, ready Product, product SKU, create a unique product code by clicking on the Generate Code button, generate code, unit, as, unit, search tags, add the product search tag for this product that customers can use to search quickly, enter tag, pricing  others, unit price, set the selling price for each unit of this product This Unit Price section would not be applied if you set a variation wise price, minimum order qty, set the minimum order quantity that customers must choose Otherwise the checkout process would not start, minimum order quantity, current stock qty, add the Stock Quantity of this product that will be visible to customers, quantity, discount Type, if Flat discount amount will be set as fixed amount If Percentage discount amount will be set as percentage, flat, percent, discount amount, add the discount amount in percentage or a fixed value here, ex, 5, tax amount, set the Tax Amount in percentage here, tax calculation, set the tax calculation method from here, select Include with product to combine product price and tax on the checkout, pick Exclude from product to display product price and tax amount separately, include with product, exclude with product, shipping cost, set the shipping cost for this product here Shipping cost will only be applicable if productwise shipping is enabled, shipping cost multiply with quantity, if enabled the shipping charge will increase with the product quantity, product variation setup, select colors, select attributes, choose attributes, File Type, product thumbnail, add your products thumbnail in, format within, Click, to, upload, or, drag, and, drop, colour wise product image, add colorwise product images here, must upload colour wise images first, Colour is shown in the image section top right, upload additional image, upload any additional images for this product from here, upload additional product images, Product Preview File, upload a suitable file for a short product preview, this preview will be common for all variations, Upload a short preview, Upload File, Format, image size, max, product video, add the YouTube video link here Only the YouTubeembedded link is supported, youtube video link, optional please provide embed link not direct link, seo section, add meta titles descriptions and images for products, this will help more people to find them on search engines and see the right details while sharing on other social platforms, meta Title, add the products title name taglines etc here, this title will be seen on Search Engine Results Pages and while sharing the products link on social platforms, character Limit, meta Description, write a short description of the InHouse shops product, this description will be seen on Search Engine Results Pages and while sharing the products link on social platforms, meta Image, add Meta Image in, which will be shown in search engine results, Click to upload, or drag and drop, Index, allow search engines to put this web page on their list or index and show it on search results, No Follow, instruct search engines not to follow links from this web page, No Image Index, prevents images from being listed or indexed by search engines, no index, disallow search engines to put this web page on their list or index and do not show it on search results, No Archive, instruct search engines not to display this webpages cached or saved version, No Snippet, instruct search engines not to show a summary or snippet of this webpages content in search results, max Snippet, determine the maximum length of a snippet or preview text of the webpage, max Video Preview, determine the maximum duration of a video preview that search engines will display, max Image Preview, determine the maximum size or dimensions of an image preview that search engines will display, large, medium, small, product Add, are you sure, want to add this product, yes, no, product added successfully, enter choice values, click to upload, Or drag and drop"
+    },
+    {
+        "key": "YWRtaW4vcHJvZHVjdHMvdXBkYXRlL3tpZH0=",
+        "uri": "admin/products/update/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/product/update/index",
+        "keywords": "product Edit, update  Publish, product name, ex, new Product, description, translatelanguagedescriptionproductdetails, general setup, category, select category, id, productcategory id, selected, sub Category, select Sub Category, sub Sub Category, select Sub Sub Category, brand, select Brand, brand id, product type, physical, digital, physical, digital, Author, Creator, Artist, Publishing House, delivery type, for Ready Product deliveries customers can pay  instantly download preuploaded digital products, For Ready After Sale deliveries customers pay first then admin uploads the digital products that become available to customers for download, ready After Sell, ready Product, digital product type, ready after sell, ready product, product SKU, create a unique product code by clicking on the Generate Code button, generate code, unit, as, unit, unit, search tags, add the product search tag for this product that customers can use to search quickly, enter tag, pricing  others, unit price, set the selling price for each unit of this product This Unit Price section would not be applied if you set a variation wise price, minimum order qty, set the minimum order quantity that customers must choose Otherwise the checkout process would not start, minimum order quantity, current stock qty, add the Stock Quantity of this product that will be visible to customers, quantity, discount Type, if Flat discount amount will be set as fixed amount If Percentage discount amount will be set as percentage, flat, percent, discount amount, add the discount amount in percentage or a fixed value here, ex, 5, tax amount, set the Tax Amount in percentage here, tax calculation, set the tax calculation method from here, select Include with product to combine product price and tax on the checkout, pick Exclude from product to display product price and tax amount separately, include with product, exclude with product, tax model, include, selected, exclude, shipping cost, set the shipping cost for this product here Shipping cost will only be applicable if productwise shipping is enabled, shipping cost multiply with quantity, if enabled the shipping charge will increase with the product quantity, product variation setup, select colors, checked, namecolors active, select attributes, choose attributes, id, json decodeproductattributes, true, choice options, json decodeproductchoice optionstrue, File Type, digital product file types, enter choice values, product thumbnail, add your products thumbnail in, format within, Click, to, upload, or, drag, and, drop, thumbnail full url, typebackendproduct, datadefaultsrc, alt, colour wise product image, add colorwise product images here, must upload colour wise images first, Colour is shown in the image section top right, upload additional image, upload any additional images for this product from here, upload additional product images, Upload Image, Product Preview File, upload a suitable file for a short product preview, this preview will be common for all variations, Upload a short preview, Upload File, productpreview file, Format, image size, max, product video, add the YouTube video link here Only the YouTubeembedded link is supported, youtube video link, optional please provide embed link not direct link, seo section, add meta titles descriptions and images for products, this will help more people to find them on search engines and see the right details while sharing on other social platforms, meta Title, add the products title name taglines etc here, this title will be seen on Search Engine Results Pages and while sharing the products link on social platforms, character Limit, meta Description, write a short description of the InHouse shops product, this description will be seen on Search Engine Results Pages and while sharing the products link on social platforms, write a short description of this shop product, meta Image, add Meta Image in, which will be shown in search engine results, Click to upload, or drag and drop, seoInfoimage full urlpath, productseoInfoimage full url, productmeta image full url, type, backendbanner, Index, allow search engines to put this web page on their list or index and show it on search results, No Follow, instruct search engines not to follow links from this web page, No Image Index, prevents images from being listed or indexed by search engines, seoInfoindex, noindex, classformcheckinput, radioinput, seoInfono follow, seoInfono image index, no index, disallow search engines to put this web page on their list or index and do not show it on search results, No Archive, instruct search engines not to display this webpages cached or saved version, No Snippet, instruct search engines not to show a summary or snippet of this webpages content in search results, seoInfono archive, seoInfono snippet, max Snippet, determine the maximum length of a snippet or preview text of the webpage, seoInfomax snippet, max Video Preview, determine the maximum duration of a video preview that search engines will display, seoInfomax video preview, max Image Preview, determine the maximum size or dimensions of an image preview that search engines will display, large, medium, small, seoInfomax image preview value, large, medium, small, are you sure, want to update this product, yes, no, product update successfully, click to upload, Or drag and drop"
+    },
+    {
+        "key": "YWRtaW4vYXR0cmlidXRlL3VwZGF0ZS97aWR9",
+        "uri": "admin/attribute/update/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/attribute/edit",
+        "keywords": "update attribute, attribute Name, enter Attribute Name, reset, update, attribute"
+    },
+    {
+        "key": "YWRtaW4vYnJhbmQvYWRkLW5ldw==",
+        "uri": "admin/brand/add-new",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/brand/add-new",
+        "keywords": "brand Setup, brand Name, ex, LUX, image alt text, apex Brand, image, size, Click to upload, or drag and drop, image format, image size, max, reset, submit, Business, Setup, Maintenance Mode, maintenance mode temporarily closes your online store to customers while the admin performs essential maintenance tasks, Basic Information, Company Name, the company name often serves as the primary identifier for your business as a legal entity, Email, a company email system often provides centralized management and archiving of business communications, Phone, a phone number provides customers and partners with a direct and immediate way to reach your business for urgent inquiries support needs or quick questions, Country, country name field when setting up a business is essential for a multitude of reasons touching upon legal operational financial and marketing aspects, Address, an address is legally required in every country and builds trust with your customers online, General Setup, general setup is the foundational step where you configure essential business details like your address legal information and basic operational settings, Currency Setup, currency setup lets you define the primary currency for your ecommerce store, select currency dropdown option helps to choose multiple currencies, currency position helps to choose the symbol position left or right, digit after decimal point indicates the zeros after the decimal point, Business Model Setup, Single Vendor, a single vendor ecommerce setup means one business or individual is selling their own products or services directly to customers through their online store, Multi Vendor, a multi vendor ecommerce setup is like an online shopping mall where multiple independent sellers can list and sell their products or services all on the same website, Payment Options, Cash On Delivery, cash on delivery means customers pay for their online order with cash when the delivery person brings it to their address, the delivery service then collects the payment and forwards it to your business, Digital Payment, digital payment lets customers pay online for their orders using methods like mobile wallets eg bkash nagad rocket creditdebit cards or internet banking before the product is shipped, the payment is processed electronically and transferred to your business account, Offline Payment, offline payment means customers complete their ecommerce order but pay for it through a method outside your website like direct bank transfer or inperson cash deposit, Copyright And Cookies Text, Copyright Text, company copyright text is a statement that claims legal ownership and protection of original content typically including the copyright symbol  the year of first publication and company name, this text informs others that the work is protected by copyright law and cannot be copied or used without permission, Cookies Text, a company cookies text is a short notification displayed on their website informing visitors that the site uses cookies to collect data and improve their experience, View Guideline, brand Add"
+    },
+    {
+        "key": "YWRtaW4vYnJhbmQvdXBkYXRlL3tpZH0=",
+        "uri": "admin/brand/update/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/brand/edit",
+        "keywords": "brand Update, brand Name, ex, LUX, image alt text, apex Brand, image, size, Click to upload, or, drag, and, drop, image format, image size, max, reset, update"
+    },
+    {
+        "key": "YWRtaW4vYmFubmVyL3VwZGF0ZS97aWR9",
+        "uri": "admin/banner/update/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/banner/edit",
+        "keywords": "banner update form, back, banner type, banner URL, enter url, resource type, product, category, shop, brand, Title, Enter banner title, Sub Title, Enter banner sub title, Button Text, Enter button text, background color, banner image, ratio, 41, Click, to, upload, or drag and drop, banner Image ratio is not same for all sections in website, please review the ratio before upload, update, banner"
+    },
+    {
+        "key": "YWRtaW4vY3VzdG9tLXJvbGUvdXBkYXRlL3tpZH0=",
+        "uri": "admin/custom-role/update/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/custom-role/edit",
+        "keywords": "role update, role name, ex, store, module permission, select all, reset, update, edit Role"
+    },
+    {
+        "key": "YWRtaW4vcmVwb3J0L2FkbWluLWVhcm5pbmc=",
+        "uri": "admin/report/admin-earning",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/report/admin-earning",
+        "keywords": "earning Reports, filter Data, select Date, this Year, this Month, this Week, today, custom Date, start date, end date, filter, total earnings, commission, in House, shipping, total In House Products, total Shop, statisticsTitletotal Earnings, payment Statistics, payments Amount, cash payments, digital payments, nbspnbspnbspnbspnbspnbsp, offline payments, wallet, total Earnings, export, SL, duration, inHouse Earning, commission Earning, earn From Shipping, deliveryman incentive, discount Given, VATTAX, refund Given, total Earning, action, admin Earning, vendor Earning, average Earning Value, image description, earning Statistics, cash Payments, digital payment, wallet payment, offline payment"
+    },
+    {
+        "key": "YWRtaW4vcmVwb3J0L3ZlbmRvci1lYXJuaW5n",
+        "uri": "admin/report/vendor-earning",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/report/seller-earning",
+        "keywords": "earning Reports, filter Data, select Date, this Year, this Month, this Week, today, custom Date, start, Date, end, filter, total Vendor, total Vendor Products, denied, pending Request, approved, total Earning, statisticsTitletotal Earningsaveragearray sumchartEarningStatisticscountchartEarningStatistics, vendor Wallet Status, wallet Amount, withdrawble Balance, pending Withdraws, already Withdrawn, export, SL, vendor Info, earn From Order, earn From Shipping, deliveryman incentive, commission Given, discount Given, tax Collected, refund Given, vendor not found, table earningshipping earn tablekeyamount, table earningdeliveryman incentive tablekeyamount, table earningcommission given tablekeyamount, table earningdiscount given tablekeyamount, table earningdiscount given bearer admin tablekeyamount, table earningtotal tax tablekeyamount, table earningtotal refund tablekeyamount, issetseller earnname, admin Earning, vendor Earning, average Earning Value, image description, earning Statistics"
+    },
+    {
+        "key": "YWRtaW4vcmVwb3J0L29yZGVy",
+        "uri": "admin/report/order",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/report/order-index",
+        "keywords": "order Report, filter Data, select Seller, all, inHouse, select Date, this Year, this Month, this Week, today, custom Date, start date, end date, filter, image, total Orders, canceled, this count is the summation of, failed to deliver, and, returned orders, ongoing, pending, confirmed, packaging, out for delivery orders, completed, this count is the summation of delivered orders, total Order Amount, due Amount, the ongoing order amount will be shown here, already Settled, after the order is delivered total order amount will be shown here, statisticsTitletotal settled amount, payment Statistics, payments, cash Payments, digital Payments, nbspnbspnbspnbspnbspnbsp, wallet, offline payments, search by order id, search, export, excel, Download PDF, SL, order ID, total Amount, product Discount, coupon Discount, shipping Charge, VATTAX, commission, deliveryman incentive, status, orderslinks, average Earning Value, image description, order Statistics, digital payment, cash payment, wallet payment"
+    },
+    {
+        "key": "YWRtaW4vcmVwb3J0L2FsbC1wcm9kdWN0",
+        "uri": "admin/report/all-product",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/report/all-product",
+        "keywords": "product Report, filter Data, select Seller, all, inhouse, select Date, this Year, this Month, this Week, today, custom Date, start date, end date, filter, total Product, rejected, pending, active, total Product Sale, total Discount Given, product wise discounted amount will be shown here, statisticsTitletotal productgetCurrencyfalse, search product name, export, SL, product Name, product Unit Price, total Amount Sold, total Quantity Sold, average Product Value, current Stock Amount, average Ratings, available, not available, setCurrencySymbolamount, usdToDefaultCurrencyamount, issetproductorderDetails0total sold amount, productorderDetails0total sold amount, issetproductorderDetails0product quantity, productorderDetails0product quantity, 1, currencyCode, getCurrencyCode, productslinks, all Products, product Stock, wish Listed Products, average Earning Value, image description, product Statistics"
+    },
+    {
+        "key": "YWRtaW4vcmVwb3J0L3ZlbmRvci1yZXBvcnQ=",
+        "uri": "admin/report/vendor-report",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/report/seller-product-sale",
+        "keywords": "vendor Reports, filter Data, select Vendor, all vendors, select Date, this Year, this Month, this Week, today, custom Date, start date, end date, filter, products, total Orders, canceled, this count is the summation of, failed to deliver, and, returned orders, ongoing, pending, confirmed, packaging, out for delivery orders, completed, this count is the summation of delivered orders, total Deliveryman, statisticsTitletotal order amount, total Shop Earnings, total Vendor, search by vendor info, export, requestdate type, seller idrequestseller idfromrequestfrom, torequestto, searchrequestsearch, SL, vendorInfo, total Order, commission, refund Rate, action, not found, orderslinks, average Earning Value, image description, order statistics, vendor product sale Report"
+    },
+    {
+        "key": "YWRtaW4vdHJhbnNhY3Rpb24vb3JkZXItdHJhbnNhY3Rpb24tbGlzdA==",
+        "uri": "admin/transaction/order-transaction-list",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/transaction/order-list",
+        "keywords": "transaction report, filter Data, select status, all status, disburse, hold, select seller, all, inhouse, id, seller id, selected, select customer, all customer, customer id, select date, this Year, this Month, this Week, today, custom Date, start date, end date, filter, total Orders, in House Orders, vendor Orders, total Products, in House Products, vendor Products, total Stores, statisticsTitletotal order amount, payment Statistics, completed payments, cash payments, digital payments, nbspnbspnbspnbspnbspnbsp, wallet, offline payments, total Transactions, search by orders id, download PDF, export, SL, order id, shop name, customer name, total product amount, product discount, coupon discount, discounted amount, VATTAX, shipping charge, order amount, delivered by, deliveryman incentive, admin discount, vendor discount, admin commission, admin net income, vendor net income, payment method, payment Status, action, not found, guest customer, transactionorderdiscount amount, transactionorderextra discount, order Transactions, expense Transactions, refund Transactions, average Earning Value, image description, order Statistics, digital payment, cash payment, wallet payment"
+    },
+    {
+        "key": "YWRtaW4vdHJhbnNhY3Rpb24vZXhwZW5zZS10cmFuc2FjdGlvbi1saXN0",
+        "uri": "admin/transaction/expense-transaction-list",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/transaction/expense-list",
+        "keywords": "transaction report, filter Data, select Date, this year, this month, this week, today, custom date, start, Date, end, filter, total Expense, free delivery, coupon discount will be shown here, free Delivery, coupon Discount, discount on purchase and first delivery coupon amount will be shown here, statisticsTitle, total expense amount, total Transactions, search by Order ID or Transaction ID, download PDF, requestsearchdate typerequestdate type, fromrequestfrom, torequestto, classbtn, btnoutlineprimary, textnowrap, export, requestsearch, date typerequestdate type, SL, XID, transaction Date, order ID, expense Amount, expense Type, action, Free Delivery Promotion, order Transactions, expense Transactions, refund Transactions, image description, expense Statistics, expense transaction"
+    },
+    {
+        "key": "YWRtaW4vdHJhbnNhY3Rpb24vd2FsbGV0LWJvbnVz",
+        "uri": "admin/transaction/wallet-bonus",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/transaction/wallet-bonus",
+        "keywords": "transaction report, how it works, Wallet, bonus, is, only, applicable, when, a, customer, add, fund, to, wallet, via, outside, payment, gateway, Customer, will, get, extra, amount, his, her, additionally, with, the, he, she, added, from, other, gateways, The, be, deduct, admin, consider, as, expense, search data, all stores, stores one, stores two, all customers, customer one, customer two, custom date, this month, this year, start date, end date, reset, filter, total transactions, search, expense type, fixed, recurring, download PDF, export, excel, SL, transaction ID, transaction date, order ID, expense amount, action, 1, 21423355, 15, May, 2020, 930, am, 100234, 68793, Free, Delivery, order Transactions, expense Transactions, refund Transactions, search product name"
+    },
+    {
+        "key": "YWRtaW4vc3RvY2svcHJvZHVjdC1zdG9jaw==",
+        "uri": "admin/stock/product-stock",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/report/product-stock",
+        "keywords": "product Report, filter Data, all, inHouse, all category, stock sort by low to high, stock sort by high to low, filter, total Products, search Product Name, export, requestsort, category id, requestcategory id, seller id, requestseller id, search, requestsearch, SL, product Name, last Updated Stock, current Stock, status, inStock, out of Stock, soon Stock Out, datacurrent stock, productslinks, all Products, product Stock, wish Listed Products, image description"
+    },
+    {
+        "key": "YWRtaW4vc3RvY2svcHJvZHVjdC1pbi13aXNobGlzdA==",
+        "uri": "admin/stock/product-in-wishlist",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/report/product-in-wishlist",
+        "keywords": "product Report, filter Data, all, inHouse, wishlist sort by low to high, wishlist sort by high to low, filter, total Products, search Product Name, export, seller id, sortsort, searchsearch, SL, product Name, date, total in Wishlist, productslinks, all Products, product Stock, wish Listed Products, image description"
+    },
+    {
+        "key": "YWRtaW4vc3VwcG9ydC10aWNrZXQvc2luZ2xlLXRpY2tldC97aWR9",
+        "uri": "admin/support-ticket/single-ticket/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/support-ticket/singleView",
+        "keywords": "support ticket, not found, priority, values, as, key, message, leave a Message, write your message here, default, send Reply, support Ticket"
+    },
+    {
+        "key": "YWRtaW4vbW9zdC1kZW1hbmRlZA==",
+        "uri": "admin/most-demanded",
+        "uri_count": 2,
+        "method": "GET",
+        "view": "admin-views/theme-features/most-demanded/view",
+        "keywords": "most demanded, products, select Product, banner, ratio, 4, 1, Click, to, upload, or, drag, and, drop, reset, submit, most demanded table, search by product name, SL, product, published, action, no product found, Want to Turn ON Most Demanded Product Status, Want to Turn OFF Most Demanded Product Status, if enabled this most demanded product will be available on the website and customer app, if disabled this most demanded product will be hidden from the website and customer app, turn on, turn off, mostDemandedproductstatus, 1, edit, delete, are you sure delete this most demanded product, you will not be able to revert this, image description"
+    },
+    {
+        "key": "YWRtaW4vbW9zdC1kZW1hbmRlZC91cGRhdGUve2lkfQ==",
+        "uri": "admin/most-demanded/update/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/theme-features/most-demanded/edit",
+        "keywords": "edit most demanded, products, select Product, product id, productid, selected, banner, ratio, 4, 1, Click, to, upload, or, drag, and, drop, banner full urltype, backendbasic, datadefaultsrc, alt, reset, submit"
+    },
+    {
+        "key": "YWRtaW4vc3lzdGVtLXNldHVwL2FwcC1zZXR0aW5ncw==",
+        "uri": "admin/system-setup/app-settings",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/system-setup/apps-settings",
+        "keywords": "system Setup, in this page you can setup latest version app forcefully activate for the users, please input proper data for the app link  versions, some time older version app can not work properly and crash when start the app, this section may help user to get the update features in their app, customer app version control, here you setup your customer app version and app download url, for android, minimum user app version for force update, android, define the minimum Android app version for best user experience, if a user still do not have it they will be requested a force app update when they opens the app, ex, download URL for user app, Android, add the Android app download URL that will redirect users when they agree to update the app, for iOS, ios, define the minimum iOS app version for best user experience, download URL For user App, add the iOS app download URL that will redirect users when they agree to update the app, reset, save, vendor app version control, here you setup your vendor app version  app download url, minimum Vendor app version, define the minimum Android app version for best user experience, if a user still do not have it they will be requested a force app update when they opens the app, ex, 21, download URL For Vendor App, add the Android app download URL that will redirect users when they agree to update the app, define the minimum iOS app version for best user experience, add the iOS app download URL that will redirect users when they agree to update the app, delivery man app version control, here you setup your delivery man app version  app download url app download url, minimum Deliveryman App Version, download URL For Deliveryman App, what is app version, this app version means the minimum version of Vendor Deliveryman and Customer apps that are required for the update, it does not represent the Play Store or App Store version, app download link, the app download link is the URL that allows users to update the app by clicking the Update App button within the app itself, got it, Environment Settings, App Settings, Software Update, Language, Currency, Clean Database, app version control, the app version control setup provides the functionality to manage all application versions with the latest system updates, this section facilitates the management of the most recent systemcompatible app version and assists users in updating accordingly, this section provides the functionality to manage the versions for which forced app updates will be implemented and to configure the download url for your android applications, For iOS, this section provides the functionality to manage the versions for which forced app updates will be implemented and to configure the download url for your ios applications, minimum version for force update, a minimum version for force update refers to the lowest app version that your system will no longer support requiring users on that version or older to update to a newer version to continue using the app, View Guideline, app settings"
+    },
+    {
+        "key": "YWRtaW4vc3lzdGVtLXNldHVwL2xhbmd1YWdlL3RyYW5zbGF0ZS97bGFuZ30=",
+        "uri": "admin/system-setup/language/translate/{lang}",
+        "uri_count": 5,
+        "method": "GET",
+        "view": "admin-views/system-setup/language/translate",
+        "keywords": "View, Translations, Back, to, Language, Setup, After change or type, translated value, or click, Auto Translate, button, make sure you click, Save Button, to save the changes, Content, Table, Search language, Translate All, SL, key, value, auto translate, update, Loading, Your file has been successfully translated, warning, are you sure want to start auto translation, Continue, cancel, demo, All new message are translated, Translating may take up to, minutes, hour, please do not close the browser or this page, in Progress, translating all the content may take some time, if you encounter any issues during the translation process please contact your administrator, your, messages successfully translated, all messages are in translated, messageGroup, 1, datamessage, showing, To, of, entries, filtered, total entries, no data found, no matching data found, search, show, first, last, next, previous, lang, datapagelength, datainfo, datainfoempty, datainfofiltered, dataemptytable, datazerorecords, datasearch, datalengthmenu, datapaginatefirst, datapaginatelast, datapaginatenext, datapaginateprevious, language Translate, key translated successfully, all translated successfully, text updated successfully"
+    },
+    {
+        "key": "YWRtaW4vc3lzdGVtLXNldHVwL2xvZ2luLXNldHRpbmdzL2N1c3RvbWVyLWxvZ2luLXNldHVw",
+        "uri": "admin/system-setup/login-settings/customer-login-setup",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/system-setup/login-settings/customer-login-setup",
+        "keywords": "customer login, Login Setup, set up the login options for customer access to the system, choose how to login, the option you select customer will have the option to login customer app  websites, at least one login method must remain active for the customer, otherwise they will be unable to log in to the system, Manual Login, by enabling manual login customers will get the option to create an account and log in using the necessary credentials  password in the app  website, OTP Login, by enabling manual login  with otp login customers can log in using their phone number without password to enable this feature, configure sms Setup, Here, Social Media Login, with social login customers can log in using social media accounts to enable this feature, configure social media setup, here, social media login setup, connect 3rd party login system from here, at least one login method must remain active for the  customer otherwise they will be unable to log in to the system, google login is currently disabled from configure 3rd party social login options, Google, enabling google login customers can log in to the site using their existing gmail credentials, facebook login is currently disabled from configure 3rd party social login options, Facebook, enabling facebook login customers can log in to the site using their existing facebook credentials, apple login is currently disabled from configure 3rd party social login options, Apple, enabling apple login customers can log in to the site using their existing apple  login credentials only for apple devices, Verification, the option you select from below will need to verify by customer from customer appwebsite, at least one login option must remain active for verification otherwise you will be unable to select  save, Email Verification, Phone Number Verification, if phone number verification is on customers must verify, their phone number with an otp to complete the signup process, reset, save information, Aet up google configuration first, It looks like your sms configuration is not set up yet to enable the otp system please set up the sms configuration first, Go to google configuration, Set up facebook configuration first, It looks like your facebook login configuration is not set up yet to enable the facebook login option please set up the facebook configuration first, Go, to, Configuration, Set up apple configuration first, It looks like your apple id login configuration is not set up yet to enable the apple id login option please set up the apple id configuration first, Customer Login, OTP  Login Attempts, login Url, within this login section you can specify the login methods available to customers, due to the dependencies of some options on thirdparty configurations it is recommended to verify these configurations before making your choices, when logging in for the first time customers will need to verify their phone number or email address, in this setup you can choose the method they will use to complete this verification, View Guideline, Login Settings, no login option selected, please select at least one login option, ok, please select at least one between Google or Facebook, please select at least one between Google or Facebook or Apple"
+    },
+    {
+        "key": "YWRtaW4vc3lzdGVtLXNldHVwL2xvZ2luLXNldHRpbmdzL290cC1zZXR1cA==",
+        "uri": "admin/system-setup/login-settings/otp-setup",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/system-setup/login-settings/otp-setup",
+        "keywords": "OTP  Login Attempts, OTP Setup, manage the settings for how many times a user can try to enter the otp, maximum OTP Hit, set how many times a user can hit the wrong OTPs, after reaching this limit the user will be blocked for a time, ex, OTP Resend Time, sec, we suggest using a minimum of 60 seconds to resend otp time for firebase auth, set the time for requesting a new OTP, ex, 5, temporary Block Time, Within this time users can not make OTP requests again, 120, Login Setup, manage the settings for how many times a user can try to log in to the system, maximum login hit, set the maximum unsuccessful login attempts users can make using wrong passwords, after reaching this limit they will be blocked for a time, temporary login block time, set a time duration during which users cannot log in after reaching the Maximum Login Hit limit, reset, save information, Customer Login, login Url, OTP  login attempts, OTP setup, this otp setup section is to manage customer otp attempts, use this section to set the maximum number of tries the time before a resend is allowed and the duration of a temporary block after too many failed attempts, this login setup section is to manage the login attempts, use this section to set the maximum login attempts and the duration of a temporary block after too many failed attempts, View Guideline"
+    },
+    {
+        "key": "YWRtaW4vc3lzdGVtLXNldHVwL2xvZ2luLXNldHRpbmdzL2xvZ2luLXVybC1zZXR1cA==",
+        "uri": "admin/system-setup/login-settings/login-url-setup",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/system-setup/login-settings/login-url-setup",
+        "keywords": "Login Url, set up the urls that users should follow to access the login pages for the necessary sites, Admin Login Page, access the admin login page by this url, save, Employee Login Page, access the employee login page by this url, Customer Login, OTP  Login Attempts, login Url, Login Page, this login page setup helps locate the login pages for the admin and employee panels allowing them to access their respective areas following those admin  employee login page urls, View Guideline, login Url Setup"
+    },
+    {
+        "key": "YWRtaW4vc3lzdGVtLXNldHVwL2VtYWlsLXRlbXBsYXRlcy9pbmRleA==",
+        "uri": "admin/system-setup/email-templates/index",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "email-templates/mail-tester",
+        "keywords": "test Mail, Mail Configuration Check, Dear, Sir, Mam, this is a test email to confirm that mail configuration is working correctly, if you received this message it means everything is set up properly, thank you, best regards, phone, Email, mail configuration check"
+    },
+    {
+        "key": "YWRtaW4vc3lzdGVtLXNldHVwL2ZpbGUtbWFuYWdlci9pbmRleA==",
+        "uri": "admin/system-setup/file-manager/index",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/file-manager/index",
+        "keywords": "file manager, local storage, s3 storage, currently you are using local storage if you want to use 3rd party storage need to setup connection with, 3rd Party Storage, 1, looplast, Search with item name, add Image, add ZIP, No items found, allItemListlinks, Recently Added 10 Items, SL, Icon, File Name, File Type, File Size, Uploaded, Action, View, Download, Item, Items, folderItemencodePath, folderItemtotalFolders, folderItemtotalFiles, 10, Copy Path, File Upload, Instructions, upload file must be zip file format in and click save information, without click upload the items are not uploaded to your server and can not see the items in your gallery, Select a file or, Drag  Drop, here, Select File, Progress, cancel, Upload, Image Upload, upload file must be JPEG JPG GIF PNG WBEP file format in and click save information, Choose Image, Click, to, upload, or, drag, and, drop, Local Storage, local storage refers to the main server where your website is hosted, it is used to store product images and other media files directly on your server allowing you to manage and access them without relying on external storage services, 3rdparty storage, 3rdparty storage means you keep your product pictures on a different online storage place like google cloud or amazon s3 instead of directly on servers, this can help your website load images faster for customers, Public Folder, the public folder makes some of your files and folders viewable by anyone online even if they dont have an account, add image option, admin can add images one by one or use multiple image uploads to add many pictures at the same time, this is how you put photos on your website for people to see, add zip file option, the add zip file option allows you to upload multiple files such as images or documents in a compressed zip archive, this can significantly speed up the process of adding several items to your platform at once saving you time and effort, View Guideline, gallery, file path copied successfully"
+    },
+    {
+        "key": "YWRtaW4vdGhpcmQtcGFydHkvb2ZmbGluZS1wYXltZW50LW1ldGhvZC9hZGQ=",
+        "uri": "admin/third-party/offline-payment-method/add",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/third-party/offline-payment-method/add-view",
+        "keywords": "add Offline Payment Method, Back to Offline Payment Mathods, Section view, payment information, choose your preferred payment method such as bank mobile wallet digital cards etc, that customers will choose from and add relevant input fields for the payment method, add new field, payment method name, ex, bkash, input field Name, bank Name, input data, AVC bank, delete, Information Required From Customer, add relevant input fields for customers to fillup after completing the offline payment, you can add multiple input fields  place holders and define them as Is Required so customers cannot complete offline payment without adding that information, payment By, placeholder, enter name, is required, reset, Save, Information, create your custom offline payment method, for a personalised payment experience, how does offline payment method work, step, add, Payment Information, click, Add New Field, for more information, according to your payment method, Required Information from Customer, that you need to verify according to your payment method, mark the check box if the field is required, submit, to save the changes, important note, you can add one or more offline payment methods for your customers, when a customer chooses the Offline, Payment during checkout and chooses their favorite payment method they must fillup all the required information to confirm payment, later admin will review the offline payment manually to confirm order by changing the Order  Payment Status from order details page, to review offline payment Go to Order Details page  view Payment Information  Match the payment information, the twoinone benefits of Offline Payment Method Feature, get paid from customers, introduce more convenient payment methods for customersEnjoy, got it"
+    },
+    {
+        "key": "YWRtaW4vdGhpcmQtcGFydHkvb2ZmbGluZS1wYXltZW50LW1ldGhvZC91cGRhdGUve2lkfQ==",
+        "uri": "admin/third-party/offline-payment-method/update/{id}",
+        "uri_count": 5,
+        "method": "GET",
+        "view": "admin-views/third-party/offline-payment-method/update-view",
+        "keywords": "edit Offline Payment Method, Back to Offline Payment Mathods, payment information, choose your preferred payment method such as bank mobile wallet digital cards etc, that customers will choose from and add relevant input fields for the payment method, add new field, payment method name, ex, bkash, input field Name, bank Name, input data, AVC bank, delete, required information from Customer, add relevant input fields for customers to fillup after completing the offline payment, you can add multiple input fields  place holders and define them as Is Required so customers cannot complete offline payment without adding that information, payment By, place Holder, enter name, is required, reset, update Information, digital payment, offline payment, placeholder"
+    },
+    {
+        "key": "YWRtaW4vdGhpcmQtcGFydHkvZmlyZWJhc2UtY29uZmlndXJhdGlvbi9zZXR1cA==",
+        "uri": "admin/third-party/firebase-configuration/setup",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/third-party/firebase-configuration/index",
+        "keywords": "firebase, you need to configuration firebase, to send notifications properly you can setup notification text from, notification, page, to operate firebase otp through your sms system setup otp from, customer login, Firebase Configuration, here fill up the following data  setup the firebase to work properly the notifications of your system, where to get this information, service account content, Type about the description, Api Key, Ex, Auth Domain, Project ID, Storage Bucket, Messaging Sender ID, App ID, Measurement ID, Reset, Save information, Instructions, for configuring otp in the firebase you must create a firebase project first, if you have not created any project for your application yet please create a project first, Now go the, Firebase console, and follow the instructions below, go to your firebase project, navigate to the build menu from the left sidebar and select authentication, get started the project and go to the signin method tab, from the sign in providers section select the phone option, ensure to enable the method phone and press save, got it, configuration, authentication, Configuration, firebase configuration for push notification send refers to the process of setting up and integrating your application web android ios or other supported platforms with firebase cloud messaging fcm to enable the sending of push notifications to users, completing firebase configuration requires obtaining the necessary information and credentials from your firebase project setup and associating this system with that project, View Guideline, Firebase Auth"
+    },
+    {
+        "key": "YWRtaW4vdGhpcmQtcGFydHkvYW5hbHl0aWNzLWluZGV4",
+        "uri": "admin/third-party/analytics-index",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/third-party/analytics/index",
+        "keywords": "Marketing Tool, in this page you can add credentials to show your analytics on the platform make sure fill with proper data other wise you can not see the analytics properly, Google Analytics, to know more click, how it works, View, turn on google analytics, turn off google analytics, are you sure to turn on the google analytics, enable this option to make the marketing tool available for website utilization, are you sure to turn off the google analytics, disable this option to make the marketing tool unavailable for website utilization, turn on, turn off, is active, 1, checked, datamodaltypeinputchangeform, datamodalformgoogleanalyticsstatusform, dataonimage, dataoffimage, dataontitle, dataofftitle, dataonmessage, dataoffmessage, dataonbuttontext, dataoffbuttontext, Google Analytics Measurement ID, Enter the GA Measurement ID, googleAnalyticsscript id, save, Google Tag Manager, view, turn on google tag manager, turn off google tag manager, are you sure to turn on the google tag manager, are you sure to turn off the google tag manager, datamodalformgoogletagmanagerstatusform, Google Tag Manager Container ID, enter the GTM Container ID, googleTagManagerscript id, LinkedIn Insight Tag, turn on linkedin insight, turn off linkedin insight, are you sure to turn on the linkedin insight, are you sure to turn off the linkedin insight, datamodalformlinkedininsightstatusform, Linkedin insight tag id, Enter Linkedin insight tag id, linkedinInsightscript id, Meta Pixel, turn on meta pixel, turn off meta pixel, are you sure to turn on the meta pixel, are you sure to turn off the meta pixel, datamodalformmetapixelstatusform, Meta Pixel ID, Enter the Meta Pixel ID, metaPixelscript id, Pinterest Pixel, turn on pinterest pixel, turn off pinterest pixel, are you sure to turn on the pinterest pixel, are you sure to turn off the pinterest pixel, datamodalformpinteresttagstatusform, Pinterest Tag ID, Enter the Pinterest Tag ID, pinterestTagscript id, Snapchat Pixel, turn on Snapchat Pixel, Turn Off Snapchat Pixel, are you sure to turn on the Snapchat pixel, are you sure to turn off the Snapchat pixel, datamodalformsnapchattagstatusform, Snap Pixel ID, Enter the Snap Pixel ID, snapchatTagscript id, TikTok Pixel, Turn ON Tiktok Pixel, Turn OFF Tiktok Pixel, are you sure to turn on the Tiktok pixel, datamodalformtiktoktagstatusform, TikTok Pixel ID, Enter the TikTok Pixel ID, tiktokTagscript id, X, Twitter, Pixel, turn on twitter pixel, turn off twitter pixel, are you sure to turn on the Twitter pixel, datamodalformtwittertagstatusform, Pixel ID, Enter the Pixel ID, twitterTagscript id, step by step guide, open the advertising manager or platform you want to integrate eg meta ads snapchat ads google analytics, locate and copy the necessary tracking ids from their respective settings, turn on the toggle for the platform you want to activate, paste the code into the input box and click submit, if you no longer want to track a platforms analytics turn the toggle off anytime, how to get the google analytics measurement id, to find your google analytics measurement id log into your google analytics account, go to admin and then data streams, select your web data stream and your measurement id will be displayed, copy it, where to use the google analytics measurement id, open the marketing tools feature in your admin panel and follow the steps, navigate to the google analytics measurement id section under marketing tools, turn on the toggle button, paste your google analytics measurement id into the input box and click submit, how to get the google tag manager container id, log into google tag manager, open the container you wish to use, the container id will be displayed in the top section of the container page after you open the admin tab, typically it comes in the format gtmxxxxxx, where to use the google tag manager container id, go to the marketing tools section in your admin panel and complete the steps, navigate to the google tag manager container id section under marketing tools, paste your google tag manager container id into the input box and click submit, how to get the linkedin partner id, to find your linkedin partner id go to your ad account in campaign manager, in the left menu click data and then sources, next click on insight tag, after that select the i will use a tag manager dropdown and copy your partner id from the box provided, where to use the linkedin partner id, open the marketing tools feature in your admin panel and follow the directions, go to the linkedin partner id section under marketing tools, paste your linkedin partner id into the input box and click submit, how to get the meta pixel id, to get your meta pixel id log into your meta business manager account, go to the events manager select your desired business account and find data sources, your pixel id will be shown in the detailed section of the property you select, simply copy the pixel id from there, where to use the meta pixel id, find the marketing tools feature from your admin panel and follow the instructions, navigate to the meta pixel id section under the marketing tools feature, paste your meta pixel id into the input box and click submit, how to get the pinterest tag id, to get your pinterest tag id log in to your pinterest ads manager, go to conversions management interface and then click tag manager from the left navigation bar where you will find your tag id, copy it from there, where to use the pinterest tag id, go to the pinterest tag id section under marketing tools, paste your pinterest tag id into the input box and click submit, how to get the snapchat pixel id, to get your snapchat pixel id log in to your snapchat ads manager, click on business in the top bar and select business details from the dropdown menu, from the left hand menu go to the pixels section, if you have already created a pixel select it from the available list, your pixel id will be displayed at the top of the page copy it by clicking on it, where to use the snapchat pixel id, go to the snapchat pixel id section under marketing tools, paste your snapchat pixel id into the input box and click submit, how to get the tiktok pixel id, from the tiktok business account click on tools in the menu and select events, access the events manager by clicking on connect data sources in the top right corner, from the popup choose the web option and click next, now create your pixel by selecting manual setup, to find your pixel id go to data sources in the lefthand menu where you can view and copy your pixel id, where to use the tiktok pixel id, navigate to the tiktok pixel id section under marketing tools, paste your tiktok pixel id into the input box and click submit, how to get the x twitter pixel id, to get your x twitter pixel id log in to your twitter ads account, from the top navigation click on tools and select events manager, once in the events manager create your pixel id by clicking on add event source, choose the install with pixel code option and press save, your pixel id will then be generated and you can copy it from the interface, where to use the x twitter pixel id, navigate to the x twitter pixel id section under marketing tools, paste your x twitter pixel id into the input box and click submit, Marketing Tools, marketing tools are software platforms or strategies used by businesses to plan execute manage and analyze their marketing efforts, purpose of setting up marketing tools for an ecommerce system, attracting potential customers acquisition, engaging and converting visitors, retaining and engaging existing customers, analyzing performance and optimizing strategies, currently in the system  google analytics google tag manager linkedin insight tag meta pixel pinterest pixel snapchat pixel tiktok pixel xtwitter pixel are available as option of the marketing tools, View Guideline, analytics Script"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3Mvd2Vic2l0ZS1zZXR1cA==",
+        "uri": "admin/business-settings/website-setup",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/business-settings/website-setup",
+        "keywords": "business Setup, you can upload your business logo icons and other important files here, all changes will be saved and applied after you click the save information button, Websites  Panels, Setup your business logo and icons, Logo  Loader, here you can setup logos for web site header footer website favicon website page loader gif for better user experience, please use the suggested image  gif size ratio for better brand presentation in customer side, website header logo, it will show at website header left side, Click to upload, or drag and drop, jpg jpeg png gif image size, Max 1 MB, Mobile View, it will show at website header left side in mobile devices, Ratio, website footer logo, it will show at website footer left side, Website Favicon, it will show as a website favicon, Loading GIF, it will show when website load any page, Color Settings, select the primary  secondary colors for the website  panels, primary color used in website header sections  button secondary color used in button in websites panel sidebar color only used in panel sidebar menu background color primary light color are used in website cards  sections, for the panel sidebar color must use any dark shade color for better text visibility, Primary Color, 1455AC, Secondary Color, F58300, panel sidebar color, 073B74, primary light color, footer app download button, configure the link for the app download button here, apple store download link, Allow the option  enter the download link for your app on the apple store, want to Turn ON the App Store button, want to Turn OFF the App Store button, if disabled the App Store button will be hidden from the website footer, if enabled everyone can see the App Store button in the website footer, google play store download link, Allow the option  enter the download link for your app on the google play store, want to Turn ON the Google Play Store button, want to Turn OFF the Google Play Store button, if disabled the Google Play Store button will be hidden from the website footer, if enabled everyone can see the Google Play Store button in the website footer, reset, General, Website Setup, Vendors, Products, Delivery Men, Customer, Orders, Refund, Shipping Method, Delivery Restriction, Invoice, website setup, websites  panels, website is like a storefront  its what customers see when they visit online, they browse products read descriptions and place orders there, the panel is like a back room or office, its where as the shop owner they manage everything behind the scenes  adding new products processing orders checking sales and setting up things like shipping and payments, logo  loader, a logo is like the unique sign outside the physical store  its the visual symbol that helps people instantly recognize your brand, header logo, the header logo is the small version of the brands main image that usually sits at the very top of every page on online shops, think of it as a shops little signature that is always visible helping customers remember who they are browsing with as they move around the website, footer logo, the footer logo is just a small version of the brands picture that is often seen down there, It like a little final stamp at the end of the page a subtle reminder of the brand as customers finish browsing, favicon, the favicon is that tiny little picture or icon that appears right next to the name of your website in that browser tab, loading GIF, the loading gif is that little moving picture or animation you see during that waiting time, it could be a spinning circle bouncing dots or something else, the loader is that little spinning animation or image sometimes seen while a web page is loading like when browsing products, color settings, primary color, the primary color is like the main color chosen to use everywhere  on buttons links and important parts of the website, its the color that stands out the most and helps people quickly recognize the brands style and what is important on the page, secondary color, the secondary color is like its helpful supporting actor, it is another color used alongside the main color to add variety highlight important things like buttons or special offers and make the website look more interesting and visually appealing without overpowering primary brand identity, the panel sidebar color simply refers to the color of that leftside menu area, primary light color, the primary light color is a brighter lighter version of that main color, its often used for things that should stand out but still feel connected to your main brand color  like buttons you want people to click highlights or accents that make your website feel lively and easy to navigate for customers, the footer app download button is a button usually found at the very bottom of every page on the website in the footer, it is a clear invitation for customers to download the app from places like the google play store or apple app store, View Guideline, ex, save information"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3MvcHJvZHVjdC1zZXR0aW5ncw==",
+        "uri": "admin/business-settings/product-settings",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/business-settings/product-settings",
+        "keywords": "business Setup, General Setup, Manage digital products and brands visibility preferences for the shops, Sell Digital Product, if this option is enabled vendors can sell digital products such as software ebooks activation keys jpg png etc in their shops, want to Turn ON Digital Product, want to Turn OFF Digital Product, if enabled vendors can sell digital products in their shops, if disabled vendors can not sell digital products in their shops, turn on, turn off, to add new digital product for your shop visit, Add New Product, page, show brand, if enabled customers can see brands and they can browse and search for products from each brand inside any shop, Do You Want to Show Brands, Do You Want to Hide Brands, If enabled customers can see brands and they can browse and search for products from each brand inside any shop, if disabled brand section will be hidden from the customer app and website, you can manage all brands from this page, Brand List, need Product Approval, choose in which cases need approval for the vendor products, new Product, if you checked, New Product, vendors need admin approval to add new product to their shop, you can see all the request from, new products request, Update Product Wise Shipping Cost, vendors will need approval to update shipping costs for each product, vendors need approval from the admin before their updated shipping cost is applied, shipping cost updates require admin approval before going live, Reorder Level, Reorder Level Amount, Set the stock limit for the reorder level vendors can see all products that need to be restocked in a section when they reach this reorder level, ex, Set the stock limit for the reorder level, reset, save information, General, Website Setup, Vendors, Products, Delivery Men, Customer, Orders, Refund, Shipping Method, Delivery Restriction, Invoice, products, general setup, after enabling the sell digital product feature one can easily offer and sell downloadable goods like ebooks software music videos or templates to customers, expand the online store beyond physical items and tap into a new market of digital products, showing the brand name on your product pages helps customers know who makes the item, this builds trust and provides important information for their purchase decisions, need product approval, new product approval, if enabled vendors must get approval from the admin before their new products are shown online, update Productwise shipping cost, if enabled vendors must get admin approval before their updated shipping cost is applied, reorder level, the reorder level also called reorder point is the minimum stock level for a product, when inventory goes below this level the system will show an alert and mark the product as Low Stock, this helps make sure you restock before running out, View Guideline, product settings"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3MvY3VzdG9tZXItc2V0dGluZ3M=",
+        "uri": "admin/business-settings/customer-settings",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/customer/customer-settings",
+        "keywords": "business Setup, Customer Wallet, for these wallet settings customers can get the refund to the wallet and also can use their wallet money to pay for any order, want to Turn ON Customer Wallet, want to Turn OFF Customer Wallet, if enabled customers can have the wallet option on their account and use it while placing orders and getting refunds, if disabled customer wallet option will be hidden from their account, add funds to wallet, enabling the option customers will be able to add funds to the wallet through the available payment method, status, want to Turn ON Add Fund to Wallet option, want to Turn OFF Add Fund to Wallet option, if enabled customers can add money to their wallet, if disabled customers would not be able to add money to their wallet, minimum Add Amount, ex, maximum Add Amount, Customer Loyalty Point, in this settings admin can set the rules for the customers for earning and use the loyalty points, want to Turn ON Loyalty Point, want to Turn OFF Loyalty Point, if enabled the loyalty point option will be available to the customers account, if disabled loyalty point option will be hidden from the customers account, Equivalent Points Needed to Redeem, minimum Point Required To Convert, this point is the required amount which is needed to convert the point to the wallet balance, Earn Loyalty Point on Each Order, setup loyalty point percentage earned by customer based on order amount, Earning Percentage, customer referral earning settings, Customers will receive this wallet balance rewards for sharing their referral code, want to Turn ON Referral And Earning option, want to Turn OFF Referral And Earning option, if enabled customers will receive rewards for each successful referral, if disabled customers will not receive rewards for successful referral, earnings to Each Referral, must turn on add fund to wallet option otherwise customer can not receive the reward amount, reset, save information, General, Website Setup, Vendors, Products, Delivery Men, Customer, Orders, Refund, Shipping Method, Delivery Restriction, Invoice, customer wallet, when the wallet feature is enabled customers can use their wallet balance to pay for orders, refunds can also be sent directly to the wallet of customer for easy use in future purchases, if this option is enabled customers can add money to their wallet using digital payment methods like bank transfer mobile wallets etc, minimum add Amount, the smallest amount a customer can add to their wallet at one time, maximum add Amount, the highest amount a customer can add in one transaction or within a set time, this helps control risk and manage wallet usage, customer loyalty point, this setting lets the admin define how many loyalty points are equal to 1 unit currency, Ex 1 if the system default currency is dollar, it helps customers understand the value of their points when they want to convert them to wallet money, customer referral earning settings allow you to specify the wallet balance reward that customers will receive for successfully sharing their unique referral code with new customers who then make a purchase, this setting allows the admin to set the amount in default currency that a referring customer will earn, the reward is added to their wallet when someone they refer places and completes their first order on the platform, View Guideline, customer settings"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3MvcmVmdW5kLXNldHVw",
+        "uri": "admin/business-settings/refund-setup",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/business-settings/refund-setup",
+        "keywords": "refund, Refund Order, now refund amount going to customer wallet automatically, to change setup, click here, Refund Order Validity, Days, enabling the option customers will be able to add funds to the wallet through the available payment method, ex, add refunds to wallet, enabling the option refund amount will be added to the wallet automatically, status, want to Turn ON Refund to Wallet option, want to Turn OFF Refund to Wallet option, if enabled Admin can return the refund amount directly to the customers, if disabled Admin needs to return the refund manually, reset, save information, General, Website Setup, Vendors, Products, Delivery Men, Customer, Orders, Refund, Shipping Method, Delivery Restriction, Invoice, when you refund an order for a customer in dhaka the money will automatically go back into their customer wallet, if you had like to manage these settings or explore different refunds go for click here, refund order validity days means you can set how many days after ordering that customers can ask for a refund, add refund amount to wallet status indicates whether the system is currently set to automatically credit refunded amounts to the customers wallet, View Guideline, Refund Setup"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3Mvc2hpcHBpbmctbWV0aG9kL3VwZGF0ZS97aWR9",
+        "uri": "admin/business-settings/shipping-method/update/{id}",
+        "uri_count": 5,
+        "method": "GET",
+        "view": "admin-views/shipping-method/update-view",
+        "keywords": "shipping method update, title, Shipping duration, ex, 4 to 6 days, Shipping cost, 10, reset, Update, shipping method"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3MvcGF5bWVudC1tZXRob2QvcGF5bWVudC1vcHRpb24=",
+        "uri": "admin/business-settings/payment-method/payment-option",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/third-party/payment-method/payment-option",
+        "keywords": "business Setup, payment methods, cash on delivery, if enabled the cash on delivery option will be available on the system Customers can use COD as a payment option, want to Turn ON the Cash On Delivery option, want to Turn OFF the Cash On Delivery option, if enabled customers can select Cash on Delivery as a payment method during checkout, if disabled the Cash on Delivery payment method will be hidden from the checkout page, turn on, turn off, digital payment, if enabled customers can choose digital payment options during the checkout process, want to Turn ON the Digital Payment option, want to Turn OFF the Digital Payment option, if enabled customers can select Digital Payment during checkout, if disabled Digital Payment options will be hidden from the checkout page, offline payment, offline Payment allows customers to use external payment methods, They must share payment details with the vendor afterward, Admin can set whether customers can make offline payments by enablingdisabling this button, want to Turn ON the Offline Payment option, want to Turn OFF the Offline Payment option, if enabled customers can pay through external payment methods, if disabled customers have to use the system added payment gateways, save, You must active at least one method, you can not turn off all payment methods at a time, must active at least 1 payment methods for smooth order payment system, okay, got it, You, must, active, one, of, digital, payment, methods, go to 3rd party payment methods, Go to Offline Payment Methods, payment options"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3MvaW5ob3VzZS1zaG9wL3NldHVw",
+        "uri": "admin/business-settings/inhouse-shop/setup",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/inhouse-shop/setup",
+        "keywords": "Inhouse Shop, Order Setup, here you setup order amount and conditions for your customer, minimum order amount, set a certain amount below that customer can not place any order, ex, free Delivery Over Amount, set the minimum order value required for free delivery, reset, save information, Shop Settings, Others, order setup, the management of order settings for your shop can be accessed within the other setup section, View Guideline, inhouse shop"
+    },
+    {
+        "key": "YWRtaW4vc2VvLXNldHRpbmdzL3JvYm90LXR4dA==",
+        "uri": "admin/seo-settings/robot-txt",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/seo-settings/robot-txt",
+        "keywords": "SEO Settings, The robotstxt editor lets you tell search engines which parts of your website they should or should not crawl, Please note, This feature is disabled for demo, Robotstxt Editor, control search engine crawlers access to specific pages on a website, view URL, the robotstxt editor lets you tell search engines which parts of your website they should or should not crawl, please note, this feature is disabled for demo, the system will automatically generate a robottxt for your site, you do not have to create it manually, but you can edit or modify this robotstxt, demo, Type Content Here, reset, save information, Webmaster Tools, Robotstxt, Sitemap, Robots Meta Content, 404 Logs, Empty File"
+    },
+    {
+        "key": "YWRtaW4vc2VvLXNldHRpbmdzL3JvYm90cy1tZXRhLWNvbnRlbnQvcGFnZS1jb250ZW50LXZpZXc=",
+        "uri": "admin/seo-settings/robots-meta-content/page-content-view",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "admin-views/seo-settings/robots-meta-content-view",
+        "keywords": "SEO Settings, Robots Meta Content  OG Meta Content, optimize your Websites performance indexing status and search visibility, Learn more, Back to list, Meta Title, maximum 120 characters, ideal 60 characters, meta description, maximum 220 characters, ideal 160 characters, meta image, Click, to, upload, or, drag, and, drop, meta image full urlpath, datadefaultsrc, alt, jpg jpeg pnggif image size, Max 2 MB, canonical URL, enter url, Learn, how, get, it, learn more, index, allow search engines to put this web page on their list or index and show it on search results, no Follow, instruct search engines not to follow links from this web page, No Image Index, prevents images from being listed or indexed by search engines, no index, disallow search engines to put this web page on their list or index and do not show it on search results, No Archive, instruct search engines not to display this webpages cached or saved version, No Snippet, instruct search engines not to show a summary or snippet of this webpages content in search results, max Snippet, determine the maximum length of a snippet or preview text of the webpage, max Video Preview, determine the maximum duration of a video preview that search engines will display, max Image Preview, determine the maximum size or dimensions of an image preview that search engines will display, large, medium, small, reset, submit, Webmaster Tools, Robotstxt, Sitemap, Robots Meta Content, 404 Logs"
+    },
+    {
+        "key": "YWRtaW4vcGFnZXMtYW5kLW1lZGlhL2xpc3Q=",
+        "uri": "admin/pages-and-media/list",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/pages-and-media/list",
+        "keywords": "Pages  Media Setup, in this page you can add edit and status on or off your business related pages, business page list, search by name, Add New Page, SL, Page Name, Availability, action, Default, want to Turn ON, Status, want to Turn OFF, If, enabled, this, page, will, be, available, throughout, the, user, section, disabled, unavailable, turn on, turn off, this page is not available on website please turn on the status, businessPageslug, want to delete this page, are you sure want to the page, it will be permanently deleted from your database, No, Yes Delete, Page Setup, FAQ, features Section, Our Commitments, theme fashion, default, this section provides information regarding the existing business pages within the system, furthermore you have the option to create additional pages to meet specific system requirements, please note that certain essential system pages cannot be deactivated or deleted and only their content is editable, new business page setup, to create new business pages that meet specific system requirements follow the below procedure, go to the add new page section, set the page availability status to on, upload the desired title background image, input the page title and description content using the provided text editor, finally save all the information to add the new page to the list making it accessible on the website, View Guideline, this status button is not updatable because this page was created by default"
+    },
+    {
+        "key": "YWRtaW4vcGFnZXMtYW5kLW1lZGlhL2FkZA==",
+        "uri": "admin/pages-and-media/add",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/pages-and-media/add",
+        "keywords": "add new business page, in tis page you can create a new business pages, to view the page live click on view url, Page Availability, if you turn of the availability status this page will not show in the customer app and website, status, Title Background Image, upload, Click to upload, or drag and drop, Image size, Page Title, type page title, Page Description, reset, save information, Add, Page Setup"
+    },
+    {
+        "key": "YWRtaW4vcGFnZXMtYW5kLW1lZGlhL3VwZGF0ZQ==",
+        "uri": "admin/pages-and-media/update",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/pages-and-media/update",
+        "keywords": "Update, in tis page you can create a new business pages, to view the page live click on view url, this page is not available on website please turn on the status, View URL, Page Availability, if you turn of the availability status this page will not show in the customer app and website, status, this status button is not updatable because this page was created by default, Title Background Image, upload, Click to upload, or drag and drop, Image size, Page Title, type page title, Page Description, businessPagedescription, reset, save information, Page Setup"
+    },
+    {
+        "key": "YWRtaW4vcGFnZXMtYW5kLW1lZGlhL2NvbXBhbnktcmVsaWFiaWxpdHk=",
+        "uri": "admin/pages-and-media/company-reliability",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/pages-and-media/company-reliability/index",
+        "keywords": "pages, by this section you can grab the customer trust that will increase you revenue, Our Commitments, this page you can setup you website company reliability section, Section Preview, show this card, as, key, value, status, 1, checked, Upload Icon, image, Click to upload, or, drag, and, drop, required, ratio, Title, type your title text, 0100, reset, save information, Page Setup, FAQ, features Section, theme fashion, default, Company Reliability, this section allows you to add promotional content intended to inform customers about your company strengths and values, by incorporating icons and relevant text you can effectively highlight key aspects of your companys reliability to your customer, the information configured in the various cards to highlight key aspects of the company can be reviewed in this section preview, View Guideline, company Reliability"
+    },
+    {
+        "key": "YWRtaW4vYnVzaW5lc3Mtc2V0dGluZ3MvYW5ub3VuY2VtZW50",
+        "uri": "admin/business-settings/announcement",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "admin-views/business-settings/website-announcement",
+        "keywords": "announcement setup, announcement Setup, active, inactive, background color, text color, text, publish, announcement"
+    },
+    {
+        "key": "YWRtaW4vcmVmdW5kLXNlY3Rpb24vcmVmdW5kL2RldGFpbHMve2lkfQ==",
+        "uri": "admin/refund-section/refund/details/{id}",
+        "uri_count": 5,
+        "method": "GET",
+        "view": "admin-views/refund/details",
+        "keywords": "refund details, refund summary, refund id, refund requested date, refund status, payment method, order details, view details, product details, reject, approve, refund, product name not found, variation, download, QTY, total price, total discount, coupon discount, total tax, subtotal, refundable amount, refund reason by customer, seller, col12, collg4, colsm6, colmd6, vendor info, shop name, no data found, email address, phone number, deliveryman info, name, image, no delivery man assigned, refund status changed log, SL, changed by, Date, status, approved  rejected note, image description, no data to show, refund reject, rejection note, close, want to reject this refund request, submit, refund approve, approval note, want to approve this refund request, once you refund that refund request, then you would not able change any status, cash, digitally paid, customer wallet, payment info, please enter the payment information according to your chosen payment method, without a proper payment infoyou cannot change the Refund Status, ex, want to refund this refund request, please write the reject reason, please write the approve reason"
+    },
+    {
+        "key": "YWRtaW4vYmxvZy9hZGQ=",
+        "uri": "admin/blog/add",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "blog::admin-views/blog/create",
+        "keywords": ""
+    },
+    {
+        "key": "YWRtaW4vYmxvZy9lZGl0",
+        "uri": "admin/blog/edit",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "blog::admin-views/blog/edit",
+        "keywords": ""
+    },
+    {
+        "key": "YWRtaW4vYmxvZy9kcmFmdC1lZGl0L3tpZH0=",
+        "uri": "admin/blog/draft-edit/{id}",
+        "uri_count": 4,
+        "method": "GET",
+        "view": "blog::admin-views/blog/draft-edit",
+        "keywords": ""
+    },
+    {
+        "key": "YWRtaW4vYmxvZy9hcHAtZG93bmxvYWQtc2V0dXA=",
+        "uri": "admin/blog/app-download-setup",
+        "uri_count": 3,
+        "method": "GET",
+        "view": "blog::admin-views/blog/app-download-setup",
+        "keywords": ""
+    }
+]

@@ -1,0 +1,46 @@
+//Responsive
+$breakpoints: (
+  "xxs": 375px,
+  "xs": 420px,
+  "sm": 575px,
+  "md": 767px,
+  "lg": 991px,
+  "xl": 1199px,
+  "xxl": 1399px,
+  "xxxl": 1440px
+);
+// Max-width mixin
+@mixin max($size) {
+  $value: map-get($breakpoints, $size);
+  @if $value {
+    @media (max-width: #{$value}) {
+      @content;
+    }
+  } @else {
+    @warn "Breakpoint `#{$size}` not found!";
+  }
+}
+// Min-width mixin
+@mixin min($size) {
+  $value: map-get($breakpoints, $size);
+  @if $value {
+    @media (min-width: #{$value}) {
+      @content;
+    }
+  } @else {
+    @warn "Breakpoint `#{$size}` not found!";
+  }
+}
+// Range mixin (min + max)
+@mixin between($min-size, $max-size) {
+  $min: map-get($breakpoints, $min-size);
+  $max: map-get($breakpoints, $max-size);
+
+  @if $min and $max {
+    @media (min-width: #{$min}) and (max-width: #{$max}) {
+      @content;
+    }
+  } @else {
+    @warn "Breakpoint(s) `#{$min-size}` or `#{$max-size}` not found!";
+  }
+}

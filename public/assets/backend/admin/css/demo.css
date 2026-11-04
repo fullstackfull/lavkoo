@@ -1,0 +1,75 @@
+.__announcement-bar {
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    text-align: center;
+    color: #fff;
+    position: fixed;
+    width: 100%;
+    left: 0;
+    top: 0;
+    z-index: 99;
+    will-change: transform;
+    transition: transform .3s ease;
+}
+
+body.demo {
+    transition: padding-top .3s ease;
+}
+
+body.page-scrolled .__announcement-bar {
+    transform: translateY(-100%);
+}
+
+.__announcement-bar .wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    padding-block: 5px;
+    min-height: 50px;
+    column-gap: 10px;
+    row-gap: 10px;
+    font-weight: 600;
+}
+
+.__announcement-bar .wrapper .click {
+    color: #fff !important;
+    font-weight: 700;
+}
+
+
+body:not(.page-scrolled).demo {
+    padding-top: 50px;
+}
+
+.demo aside.aside,
+.demo .navbar-fixed {
+    transition: .3s ease-in all;
+}
+
+body:not(.page-scrolled).demo aside.aside,
+body:not(.page-scrolled).demo .navbar-fixed {
+    top: 50px;
+}
+
+@media screen and (max-width: 486px) {
+    body:not(.page-scrolled).demo aside.aside,
+    body:not(.page-scrolled).demo .navbar-fixed {
+        top: 90px;
+    }
+    body:not(.page-scrolled).demo {
+        padding-top: 90px;
+    }
+}
+
+/* Hide the tooltip on hover for mailto and tel links */
+a[href^="mailto:"],
+a[href^="tel:"] {
+    pointer-events: none; /* Disable click events */
+}
+a[href^="mailto:"]::after,
+a[href^="tel:"]::after {
+    content: ''; /* Empty content */
+    display: none; /* Hide the tooltip */
+}

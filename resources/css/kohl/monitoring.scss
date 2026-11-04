@@ -1,0 +1,903 @@
+/*
+ | Monitoring — the operations centre.
+ |
+ | Built on the console design system's tokens rather than beside it, so the area inherits light
+ | and dark, RTL, and every colour decision the rest of the panel already made. Nothing here
+ | invents a palette; the state colours are the system's semantic ones.
+ |
+ | The one principle in the layout: density without noise. There are hundreds of numbers in this
+ | area, so the page leads with a verdict, then a summary, then detail behind a click — never two
+ | hundred metrics competing for the same screen.
+ */
+
+@use 'tokens';
+
+.mon {
+    --mon-gap: var(--k-size-3, 12px);
+
+    /* State colours, mapped once. Every dot, pill, card border and chip reads from these, so a
+       state can never be drawn green in one place and amber in another. */
+    --mon-healthy: var(--k-success, #1f9d55);
+    --mon-degraded: var(--k-warning, #d98d1a);
+    --mon-critical: var(--k-danger, #d64545);
+    --mon-unknown: var(--k-text-muted, #6b7a8d);
+    --mon-muted: var(--k-border-strong, #9aa7b6);
+}
+
+/* ── Range picker ──────────────────────────────────────────────────────────── */
+.mon-range {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .1));
+}
+.mon-range__option {
+    padding: 5px 10px;
+    border-radius: var(--k-radius-sm, 6px);
+    font-size: var(--k-text-xs, 12px);
+    color: var(--k-text-muted);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.mon-range__option:hover { color: var(--k-text); text-decoration: none; }
+.mon-range__option.is-active {
+    background: var(--k-surface, #fff);
+    color: var(--k-text);
+    font-weight: var(--k-weight-medium, 500);
+    box-shadow: var(--k-shadow-1, 0 1px 2px rgba(0, 0, 0, .08));
+}
+
+/* ── Status header ─────────────────────────────────────────────────────────── */
+.mon-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: clamp(12px, 3vw, 32px);
+    padding: 16px 20px;
+    margin-block-end: var(--k-size-4, 16px);
+    border-radius: var(--k-radius-lg, 12px);
+    border: 1px solid var(--k-border, rgba(128, 138, 157, .25));
+    background: var(--k-surface, #fff);
+    border-inline-start: 4px solid var(--mon-unknown);
+}
+.mon-status[data-state="healthy"] { border-inline-start-color: var(--mon-healthy); }
+.mon-status[data-state="degraded"] { border-inline-start-color: var(--mon-degraded); }
+.mon-status[data-state="critical"] { border-inline-start-color: var(--mon-critical); }
+.mon-status[data-state="maintenance"] { border-inline-start-color: var(--mon-muted); }
+
+.mon-status__verdict { display: flex; align-items: center; gap: 12px; min-inline-size: 0; }
+.mon-status__verdict strong {
+    display: block;
+    font-size: var(--k-text-lg, 18px);
+    text-transform: capitalize;
+    line-height: 1.2;
+}
+.mon-status__verdict small { display: block; color: var(--k-text-muted); font-size: var(--k-text-xs, 12px); }
+
+.mon-status__dot {
+    inline-size: 12px;
+    block-size: 12px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    background: var(--mon-unknown);
+}
+.mon-status[data-state="healthy"] .mon-status__dot {
+    background: var(--mon-healthy);
+    /* A quiet pulse only while things are fine: an animation on a critical banner competes with
+       the reading it is wrapped around. */
+    animation: mon-breathe 2.6s ease-in-out infinite;
+}
+.mon-status[data-state="degraded"] .mon-status__dot { background: var(--mon-degraded); }
+.mon-status[data-state="critical"] .mon-status__dot { background: var(--mon-critical); }
+
+/* The ring reads as the healthy colour in whichever theme is on: hardcoding the light-theme
+   green left it illegible against a dark surface. */
+@keyframes mon-breathe {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--k-success) 45%, transparent); }
+    50% { box-shadow: 0 0 0 6px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .mon-status__dot { animation: none !important; }
+}
+
+.mon-status__score { display: flex; flex-direction: column; line-height: 1.1; }
+.mon-status__score .k-num { font-size: clamp(24px, 4vw, 34px); font-weight: var(--k-weight-bold, 700); }
+.mon-status__score i { font-style: normal; font-size: var(--k-text-sm, 14px); color: var(--k-text-muted); }
+.mon-status__score small { color: var(--k-text-muted); font-size: var(--k-text-xs, 12px); margin-block-start: 2px; }
+
+.mon-status__self { display: flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
+
+.mon-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 99px;
+    font-size: var(--k-text-xs, 12px);
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .1));
+    color: var(--k-text-muted);
+    white-space: nowrap;
+}
+.mon-chip::before {
+    content: "";
+    inline-size: 7px;
+    block-size: 7px;
+    border-radius: 50%;
+    background: var(--mon-unknown);
+}
+.mon-chip[data-state="ok"]::before { background: var(--mon-healthy); }
+.mon-chip[data-state="stale"]::before,
+.mon-chip[data-state="warning"]::before { background: var(--mon-degraded); }
+.mon-chip[data-state="off"]::before,
+.mon-chip[data-state="no_data"]::before { background: var(--mon-critical); }
+.mon-chip--quiet::before { display: none; }
+
+/* ── Shell: rail + main ────────────────────────────────────────────────────── */
+.mon-shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: var(--k-size-4, 16px); align-items: start; }
+
+.mon-rail {
+    position: sticky;
+    top: 12px;
+    border-radius: var(--k-radius-lg, 12px);
+    border: 1px solid var(--k-border);
+    background: var(--k-surface);
+    overflow: hidden;
+}
+.mon-rail__toggle { display: none; }
+.mon-rail__body { max-block-size: calc(100vh - 120px); overflow-y: auto; padding: 8px; }
+.mon-rail__group { padding-block: 6px; }
+.mon-rail__group + .mon-rail__group { border-block-start: 1px solid var(--k-border); }
+/* A section with no panel behind it yet. Dimmed rather than hidden: an operator looking for
+   "backups" should see that it exists and is not built, not that it is missing. */
+.mon-rail__link.is-unbuilt { opacity: .5; }
+.mon-rail__link.is-unbuilt:hover { opacity: .75; }
+
+.mon-rail__group-title {
+    display: block;
+    padding: 6px 10px 4px;
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--k-text-muted);
+}
+.mon-rail__link {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px;
+    border-radius: var(--k-radius-sm, 6px);
+    font-size: var(--k-text-sm, 13px);
+    color: var(--k-text);
+    text-decoration: none;
+}
+.mon-rail__link:hover { background: var(--k-surface-sunk); text-decoration: none; color: var(--k-text); }
+.mon-rail__link.is-active { background: var(--k-accent-soft, rgba(59, 91, 219, .12)); color: var(--k-accent, #3b5bdb); font-weight: var(--k-weight-medium); }
+.mon-rail__link svg { flex: 0 0 auto; opacity: .75; }
+
+.mon-main { min-inline-size: 0; display: flex; flex-direction: column; gap: var(--k-size-4, 16px); }
+.mon-heading { font-size: var(--k-text-md, 15px); font-weight: var(--k-weight-bold, 700); margin: 4px 0 0; }
+
+/* ── Attention list ────────────────────────────────────────────────────────── */
+.mon-attention { display: flex; flex-direction: column; gap: 8px; }
+.mon-attention__item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--k-radius-md, 8px);
+    border: 1px solid var(--k-border);
+    border-inline-start: 3px solid var(--mon-unknown);
+    background: var(--k-surface);
+    color: var(--k-text);
+    text-decoration: none;
+}
+.mon-attention__item:hover { text-decoration: none; color: var(--k-text); border-color: var(--k-border-strong); }
+.mon-attention__item--critical { border-inline-start-color: var(--mon-critical); }
+.mon-attention__item--warning { border-inline-start-color: var(--mon-degraded); }
+.mon-attention__item--info { border-inline-start-color: var(--mon-muted); }
+.mon-attention__body { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.mon-attention__body strong { font-size: var(--k-text-sm, 14px); }
+.mon-attention__body small { color: var(--k-text-muted); font-size: var(--k-text-xs, 12px); }
+.mon-attention__body code {
+    margin-block-start: 4px;
+    font-size: 11px;
+    color: var(--k-text-muted);
+    background: var(--k-surface-sunk);
+    padding: 4px 7px;
+    border-radius: 5px;
+    overflow-wrap: anywhere;
+}
+
+/* ── Service cards ─────────────────────────────────────────────────────────── */
+.mon-cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.mon-card {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 13px 14px;
+    border-radius: var(--k-radius-md, 8px);
+    border: 1px solid var(--k-border);
+    border-block-start: 3px solid var(--mon-unknown);
+    background: var(--k-surface);
+    color: var(--k-text);
+    text-decoration: none;
+    transition: border-color .15s ease, transform .15s ease;
+}
+.mon-card:hover { text-decoration: none; color: var(--k-text); transform: translateY(-1px); border-color: var(--k-border-strong); }
+.mon-card--healthy { border-block-start-color: var(--mon-healthy); }
+.mon-card--degraded { border-block-start-color: var(--mon-degraded); }
+.mon-card--critical { border-block-start-color: var(--mon-critical); }
+.mon-card--no_data,
+.mon-card--not_configured,
+.mon-card--not_supported,
+.mon-card--unavailable { border-block-start-color: var(--mon-muted); }
+
+.mon-card__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.mon-card__label { font-size: var(--k-text-sm, 13px); font-weight: var(--k-weight-medium); }
+.mon-card__state { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--k-text-muted); }
+.mon-card--healthy .mon-card__state { color: var(--mon-healthy); }
+.mon-card--degraded .mon-card__state { color: var(--mon-degraded); }
+.mon-card--critical .mon-card__state { color: var(--mon-critical); }
+.mon-card__value { font-size: 21px; font-weight: var(--k-weight-bold); line-height: 1.15; }
+.mon-card__value i { font-style: normal; font-size: 12px; color: var(--k-text-muted); font-weight: 400; }
+.mon-card__metric { font-size: 11px; color: var(--k-text-muted); }
+.mon-card__detail { font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+.mon-card__foot,
+.mon-card__source { font-size: 10px; color: var(--k-text-muted); opacity: .8; margin-block-start: 2px; }
+
+/* ── Metrics ───────────────────────────────────────────────────────────────── */
+.mon-metric { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; }
+.mon-metric + .mon-metric { border-block-start: 1px solid var(--k-border); }
+.mon-metric__label { font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+.mon-metric__hint {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 14px;
+    block-size: 14px;
+    border-radius: 50%;
+    background: var(--k-surface-sunk);
+    font-size: 9px;
+    cursor: help;
+}
+.mon-metric__value { font-size: 18px; font-weight: var(--k-weight-bold); }
+.mon-metric__value i { font-style: normal; font-size: 11px; color: var(--k-text-muted); font-weight: 400; margin-inline-start: 3px; }
+/* An unavailable metric never looks like a number. It reads as a state, in muted type, so a glance
+   down a column can tell measured from unmeasured without reading a word. */
+.mon-metric__state {
+    display: inline-block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--k-text-muted);
+    padding: 2px 7px;
+    border: 1px dashed var(--k-border-strong);
+    border-radius: 5px;
+    inline-size: fit-content;
+}
+.mon-metric--warning .mon-metric__state { color: var(--mon-degraded); border-color: var(--mon-degraded); }
+.mon-metric__note { font-size: 11px; color: var(--k-text-muted); }
+.mon-metric__source { font-size: 10px; color: var(--k-text-muted); opacity: .7; }
+.mon-metric__remedy { margin-block-start: 4px; }
+.mon-metric__remedy summary { font-size: 11px; color: var(--k-accent); cursor: pointer; }
+.mon-metric__remedy code {
+    display: block;
+    margin-block-start: 5px;
+    padding: 7px 9px;
+    border-radius: 5px;
+    background: var(--k-surface-sunk);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.mon-grid { display: grid; gap: 0 24px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+
+/* ── Service map ───────────────────────────────────────────────────────────── */
+.mon-map { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding-block: 4px; }
+.mon-map__tier { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+.mon-map__node {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: 99px;
+    border: 1px solid var(--k-border);
+    background: var(--k-surface);
+    font-size: var(--k-text-xs, 12px);
+    white-space: nowrap;
+}
+.mon-map__dot { inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--mon-unknown); }
+.mon-map__node--healthy .mon-map__dot { background: var(--mon-healthy); }
+.mon-map__node--degraded .mon-map__dot { background: var(--mon-degraded); }
+.mon-map__node--critical .mon-map__dot { background: var(--mon-critical); }
+.mon-map__node--unavailable,
+.mon-map__node--no_data,
+.mon-map__node--not_configured { opacity: .55; }
+.mon-map__arrow { flex: 0 0 auto; inline-size: 18px; block-size: 1px; background: var(--k-border-strong); }
+
+/* ── Tables, pills, notes ──────────────────────────────────────────────────── */
+.mon-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 11px;
+    background: var(--k-surface-sunk);
+    color: var(--k-text-muted);
+}
+.mon-pill--critical { background: rgba(214, 69, 69, .14); color: var(--mon-critical); }
+.mon-pill--major, .mon-pill--warning { background: rgba(217, 141, 26, .16); color: var(--mon-degraded); }
+.mon-pill--minor, .mon-pill--info { background: rgba(128, 138, 157, .14); }
+.mon-pill--ok, .mon-pill--healthy, .mon-pill--success { background: rgba(31, 157, 85, .14); color: var(--mon-healthy); }
+
+.mon-row--muted td { opacity: .62; }
+.mon-note { font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); margin: 10px 0 0; }
+.mon-note--critical { color: var(--mon-critical); }
+.mon-pre {
+    max-block-size: 420px;
+    overflow: auto;
+    font-size: 11px;
+    background: var(--k-surface-sunk);
+    padding: 10px;
+    border-radius: 6px;
+    margin-block-start: 6px;
+}
+
+.mon-events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.mon-events__item {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 7px 0;
+    font-size: var(--k-text-xs, 12px);
+    border-block-end: 1px solid var(--k-border);
+}
+.mon-events__item:last-child { border-block-end: 0; }
+.mon-events__time { color: var(--k-text-muted); flex: 0 0 auto; }
+.mon-events__type {
+    flex: 0 0 auto;
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: .06em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--k-surface-sunk);
+    color: var(--k-text-muted);
+}
+.mon-events__item--critical .mon-events__type { background: rgba(214, 69, 69, .14); color: var(--mon-critical); }
+.mon-events__item--warning .mon-events__type { background: rgba(217, 141, 26, .16); color: var(--mon-degraded); }
+.mon-events__item--success .mon-events__type { background: rgba(31, 157, 85, .14); color: var(--mon-healthy); }
+
+/* ── Chart ─────────────────────────────────────────────────────────────────── */
+.mon-chart { inline-size: 100%; block-size: 180px; }
+.mon-chart svg { inline-size: 100%; block-size: 100%; overflow: visible; }
+.mon-chart__area { fill: var(--k-accent, #3b5bdb); opacity: .12; }
+.mon-chart__line { fill: none; stroke: var(--k-accent, #3b5bdb); stroke-width: 1.6; stroke-linejoin: round; }
+.mon-chart__errors { fill: none; stroke: var(--mon-critical); stroke-width: 1.4; }
+.mon-chart__axis { stroke: var(--k-border); stroke-width: 1; }
+.mon-chart__label { fill: var(--k-text-muted); font-size: 9px; }
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+    .mon-shell { grid-template-columns: 1fr; }
+    .mon-rail { position: static; }
+    .mon-rail__toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        inline-size: 100%;
+        padding: 11px 14px;
+        border: 0;
+        background: transparent;
+        color: var(--k-text);
+        font-weight: var(--k-weight-medium);
+        font-size: var(--k-text-sm, 14px);
+    }
+    .mon-rail__body { display: none; max-block-size: none; }
+    .mon-rail.is-open .mon-rail__body { display: block; }
+    .mon-status__self { margin-inline-start: 0; inline-size: 100%; }
+}
+
+@media (max-width: 640px) {
+    .mon-status { gap: 14px; }
+    .mon-cards { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    .mon-range { inline-size: 100%; }
+    .mon-range__option { flex: 1; text-align: center; }
+}
+
+/* ── Trace waterfall ───────────────────────────────────────────────────────── */
+/*
+ | The traces section needs one thing no other section does: a bar whose position carries meaning.
+ | A span's offset and length ARE the finding — "the 410ms query started 90ms in" — so the row has
+ | to be a track with an absolutely-placed bar on it, which no existing class does.
+ |
+ | Positions arrive from the panel as percentages and are written as inline logical properties
+ | (inset-inline-start / inline-size), so the same numbers read left-to-right in English and
+ | right-to-left in Arabic without a second set of styles.
+ |
+ | Kinds get their own hues rather than the state palette: a database span is not "healthy" or
+ | "critical", it is a category, and reusing the semantic colours here would teach the eye the
+ | wrong thing. Failure is drawn on top of the kind colour instead of replacing it.
+ */
+.mon-waterfall {
+    --mon-kind-db: #3b5bdb;
+    --mon-kind-cache: #7048e8;
+    --mon-kind-http: #0c8599;
+    --mon-kind-queue: #ae3ec9;
+    --mon-kind-view: #1f9d55;
+    --mon-kind-middleware: #868e96;
+    --mon-kind-controller: #2b8a3e;
+    --mon-kind-auth: #d6336c;
+    --mon-kind-app: #adb5bd;
+
+    display: flex;
+    flex-direction: column;
+    margin-block-start: 6px;
+}
+
+.mon-waterfall__axis {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: var(--k-text-xs, 12px);
+    color: var(--k-text-muted);
+    padding-block-end: 4px;
+    border-block-end: 1px solid var(--k-border);
+}
+
+.mon-waterfall__row {
+    display: grid;
+    grid-template-columns: minmax(120px, 240px) minmax(0, 1fr) 84px;
+    gap: 8px;
+    align-items: center;
+    padding-block: 3px;
+    border-block-end: 1px solid var(--k-border);
+    font-size: var(--k-text-xs, 12px);
+}
+.mon-waterfall__row:last-child { border-block-end: 0; }
+.mon-waterfall__row:hover { background: var(--k-surface-sunk); }
+
+.mon-waterfall__label { display: flex; align-items: center; gap: 6px; min-inline-size: 0; }
+.mon-waterfall__label .k-truncate { min-inline-size: 0; }
+
+/* The kind tag and the legend swatch take their background from the same custom properties as the
+   bars, so a colour is defined once per kind and cannot drift between the three places it appears. */
+.mon-waterfall__kind {
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    border-radius: var(--k-radius-sm, 4px);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #fff;
+}
+
+.mon-waterfall__swatch {
+    display: inline-block;
+    inline-size: 9px;
+    block-size: 9px;
+    border-radius: 2px;
+    flex: 0 0 auto;
+}
+
+.mon-waterfall__track {
+    position: relative;
+    display: block;
+    block-size: 12px;
+    border-radius: var(--k-radius-sm, 4px);
+    background: var(--k-surface-sunk);
+    overflow: hidden;
+}
+
+.mon-waterfall__bar {
+    position: absolute;
+    inset-block: 0;
+    border-radius: var(--k-radius-sm, 4px);
+    background: var(--mon-kind-app);
+}
+/* A failed span keeps its kind colour and gains an outline: losing the colour would hide which
+   kind of work failed, which is the first thing anybody asks. */
+.mon-waterfall__bar.is-failed { box-shadow: inset 0 0 0 2px var(--mon-critical); }
+
+.mon-waterfall__bar--db { background: var(--mon-kind-db); }
+.mon-waterfall__bar--cache { background: var(--mon-kind-cache); }
+.mon-waterfall__bar--http { background: var(--mon-kind-http); }
+.mon-waterfall__bar--queue { background: var(--mon-kind-queue); }
+.mon-waterfall__bar--view { background: var(--mon-kind-view); }
+.mon-waterfall__bar--middleware { background: var(--mon-kind-middleware); }
+.mon-waterfall__bar--controller { background: var(--mon-kind-controller); }
+.mon-waterfall__bar--auth { background: var(--mon-kind-auth); }
+.mon-waterfall__bar--app { background: var(--mon-kind-app); }
+
+.mon-waterfall__ms { text-align: end; color: var(--k-text-muted); white-space: nowrap; }
+.mon-waterfall__ms i { font-style: normal; color: var(--mon-degraded); }
+
+.mon-waterfall__attrs {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-block-end: 4px;
+    padding-inline-start: 12px;
+}
+.mon-waterfall__attrs code {
+    font-size: 10px;
+    color: var(--k-text-muted);
+    background: var(--k-surface-sunk);
+    padding: 1px 5px;
+    border-radius: var(--k-radius-sm, 4px);
+    max-inline-size: 100%;
+    overflow-wrap: anywhere;
+}
+
+/* The by-kind split: one bar that adds up to the whole request, above the waterfall that explains
+   it. Segments are inline-size percentages so the row reverses correctly in RTL. */
+.mon-waterfall-split {
+    /* Repeated rather than inherited: this bar sits outside .mon-waterfall in the markup, and the
+       kind colours have to resolve on both. */
+    --mon-kind-db: #3b5bdb;
+    --mon-kind-cache: #7048e8;
+    --mon-kind-http: #0c8599;
+    --mon-kind-app: #adb5bd;
+
+    display: flex;
+    inline-size: 100%;
+    block-size: 16px;
+    margin-block-start: 8px;
+    border-radius: var(--k-radius-sm, 4px);
+    overflow: hidden;
+    background: var(--k-surface-sunk);
+}
+.mon-waterfall-split__part { display: block; block-size: 100%; }
+
+.mon-waterfall-split__legend {
+    --mon-kind-db: #3b5bdb;
+    --mon-kind-cache: #7048e8;
+    --mon-kind-http: #0c8599;
+    --mon-kind-app: #adb5bd;
+
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 4px 18px;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    font-size: var(--k-text-xs, 12px);
+}
+/* The remainder's caption drops to its own line rather than squeezing the label column: the
+   millisecond figure and its share have to stay side by side to be read as one reading. */
+.mon-waterfall-split__key { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.mon-waterfall-split__key span:nth-child(2) { flex: 1 1 auto; min-inline-size: 0; }
+.mon-waterfall-split__key small { flex-basis: 100%; color: var(--k-text-muted); font-size: 10px; }
+.mon-waterfall-split__key i { font-style: normal; color: var(--k-text-muted); margin-inline-start: 4px; }
+
+@media (max-width: 640px) {
+    /* The label column is the first thing to give way: a span name can be truncated, but a bar
+       narrower than its own offset stops carrying any meaning at all. */
+    .mon-waterfall__row { grid-template-columns: minmax(90px, 130px) minmax(0, 1fr) 64px; }
+}
+
+/* ── Scheduler status pills ────────────────────────────────────────────────────
+   A scheduled task has six states and the pill palette above distinguishes four,
+   so three are added rather than letting two states share a colour on the one page
+   where telling them apart is the diagnosis.
+
+   The fill carries the distinction that matters. `failed` stays filled red — the
+   task ran and broke. `missed` is an outline: it never ran at all, and the fix for
+   that is in the crontab rather than in the command. `unknown` is outlined for the
+   same reason — an absent reading is not a state, and it must not look like one. */
+.mon-pill--running { background: var(--k-info-soft, rgba(59, 91, 219, .12)); color: var(--k-info, #3b5bdb); }
+.mon-pill--missed {
+    background: transparent;
+    color: var(--mon-critical);
+    /* Outline rather than a border: it draws inside the pill, so an outlined pill and
+       a filled one keep identical metrics and the column does not jog between rows. */
+    outline: 1px dashed currentColor;
+    outline-offset: -1px;
+}
+.mon-pill--unknown {
+    background: transparent;
+    color: var(--k-text-muted);
+    outline: 1px dashed var(--k-border-strong);
+    outline-offset: -1px;
+}
+
+/* ── Per-core utilisation bars ─────────────────────────────────────────────────
+   The server section needs one thing no existing class provides: a row per core
+   whose bar length is the reading itself. A column of eight percentages hides the
+   shape that matters — one core pinned while the rest idle, which the average on
+   the card above cannot express.
+
+   .mon-waterfall__* is the nearest existing pattern and is deliberately not
+   reused: its bars carry a start offset as well as a length, so borrowing them
+   here would produce a bar whose position means nothing.
+
+   Sized in logical properties so the fill grows from the inline start and the row
+   reads correctly in Arabic without a second rule. */
+.mon-cores { display: grid; gap: 6px; }
+.mon-cores__row {
+    display: grid;
+    grid-template-columns: minmax(56px, auto) minmax(0, 1fr) 56px;
+    align-items: center;
+    gap: 10px;
+}
+.mon-cores__label { font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+.mon-cores__track {
+    block-size: 8px;
+    border-radius: 4px;
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .1));
+    overflow: hidden;
+}
+.mon-cores__fill { display: block; block-size: 100%; border-radius: 4px; background: var(--k-accent, #3b5bdb); }
+/* The two thresholds are the configured cpu_warning / cpu_critical, so a core reads
+   the same colour here as the same figure does anywhere else on the dashboard. */
+.mon-cores__fill--busy { background: var(--mon-degraded); }
+.mon-cores__fill--saturated { background: var(--mon-critical); }
+.mon-cores__value { text-align: end; font-size: var(--k-text-xs, 12px); }
+
+/* ── Fullness bar ──────────────────────────────────────────────────────────── */
+/*
+   The storage section needs one thing no existing class provides: a percentage
+   whose bar IS the headline of the card rather than a detail inside it. A
+   filesystem at 92% and one at 12% render as the same handful of characters in
+   .mon-grid, and the whole point of this section is that those two are not the
+   same news.
+
+   .mon-cores__* is the nearest existing pattern and is deliberately not reused:
+   it is a compact one-line-per-core row whose label column is far too narrow for
+   a mount point, and its bar carries no thresholds. Here the two configured
+   thresholds are drawn ON the track, so a bar is read against the line it is
+   about to cross rather than against nothing.
+
+   Colours come from the same --mon-* state variables as every card, dot and
+   pill, so 92% reads the same red here as the same figure does anywhere else.
+
+   Sized in logical properties so the fill grows from the inline start and the
+   threshold marks sit correctly in Arabic without a second set of rules. */
+.mon-usage { display: flex; flex-direction: column; gap: 6px; margin-block-start: 12px; }
+.mon-usage__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mon-usage__value { font-size: clamp(22px, 3vw, 28px); font-weight: var(--k-weight-bold, 700); line-height: 1.1; }
+.mon-usage__value i { font-style: normal; font-size: 13px; color: var(--k-text-muted); font-weight: 400; margin-inline-start: 2px; }
+.mon-usage__caption { font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); text-align: end; flex: 1 1 auto; min-inline-size: 0; }
+
+.mon-usage__track {
+    position: relative;
+    display: block;
+    block-size: 12px;
+    border-radius: 6px;
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .1));
+    overflow: hidden;
+}
+.mon-usage__fill { display: block; block-size: 100%; border-radius: 6px; background: var(--k-accent, #3b5bdb); }
+/* The two thresholds are the configured disk_warning / disk_critical, so a filesystem
+   reads the same colour here as the same figure does on the overview card. */
+.mon-usage__fill--healthy { background: var(--mon-healthy); }
+.mon-usage__fill--degraded { background: var(--mon-degraded); }
+.mon-usage__fill--critical { background: var(--mon-critical); }
+
+/* A reading with no configured threshold behind it — device utilisation — keeps the
+   neutral fill: colouring it would teach the eye a state no alert rule shares. */
+.mon-usage__fill--unscored { background: var(--k-accent, #3b5bdb); }
+
+.mon-usage--degraded .mon-usage__value { color: var(--mon-degraded); }
+.mon-usage--critical .mon-usage__value { color: var(--mon-critical); }
+
+.mon-usage__mark { position: absolute; inset-block: 0; inline-size: 1px; background: var(--k-text-muted); opacity: .45; }
+.mon-usage__mark--critical { inline-size: 2px; opacity: .7; }
+
+/* ── Share-of-total bar ────────────────────────────────────────────────────────
+   The live section needs one thing no existing class provides: a single bar that
+   IS the distribution — status classes, platforms, devices — whose segments add
+   up to the window, so the proportion is read rather than worked out from four
+   numbers in a column.
+
+   .mon-waterfall-split__* is the nearest existing pattern and is deliberately not
+   reused: its segment colours are kinds of work (db, cache, http), so borrowing
+   them would teach the same blue to mean "database time" on one page and "2xx" on
+   the next.
+
+   Two palettes, because the two kinds of split are not the same claim. A status
+   class carries a verdict, so it takes the same --mon-* state colours as every
+   card, dot and pill: green 2xx, amber 4xx, red 5xx, and neutral 3xx because a
+   redirect is not a fault. A platform or a device carries no verdict at all, so
+   it takes a neutral ramp — colouring a device green would invent a judgement
+   the data does not make. The ramp is the palette already used by the waterfall
+   kinds, so the area stays one set of colours.
+
+   Sized in logical properties so segments grow from the inline start and the bar
+   reverses correctly in Arabic without a second set of rules. */
+.mon-split {
+    display: flex;
+    inline-size: 100%;
+    block-size: 14px;
+    border-radius: var(--k-radius-sm, 4px);
+    overflow: hidden;
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .1));
+}
+.mon-split__part { display: block; block-size: 100%; }
+
+/* Shape only. The colour comes from the same --part modifiers the bar uses, which are
+   defined below so a swatch can never fall back to the neutral default it starts from. */
+.mon-split__swatch {
+    inline-size: 9px;
+    block-size: 9px;
+    flex: 0 0 auto;
+    border-radius: 2px;
+    background: var(--k-border-strong);
+}
+
+.mon-split__part--2xx { background: var(--mon-healthy); }
+.mon-split__part--3xx { background: var(--mon-unknown); }
+.mon-split__part--4xx { background: var(--mon-degraded); }
+.mon-split__part--5xx { background: var(--mon-critical); }
+
+/* Ordered for separation rather than by taste: the first two are what a two-value split
+   gets, and the console's accent is already violet, so the purple in the waterfall palette
+   cannot be second or desktop and bot arrive as the same bar. */
+/* Four of these five were raw hex with no dark variant while the first read the accent, so the
+   same chart was half themed and half not. Each is now derived from a token, which keeps the
+   separation the ordering above is for while following the theme. */
+.mon-split__part--a { background: var(--k-accent); }
+.mon-split__part--b { background: var(--k-info); }
+.mon-split__part--c { background: var(--k-text-muted); }
+.mon-split__part--d { background: color-mix(in srgb, var(--k-accent) 65%, var(--k-violet-700, #5f3dc4)); }
+.mon-split__part--e { background: var(--k-border); }
+
+.mon-split__legend {
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 4px 18px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    font-size: var(--k-text-xs, 12px);
+}
+.mon-split__key { display: flex; align-items: center; gap: 8px; min-inline-size: 0; }
+.mon-split__key span:nth-child(2) { flex: 1 1 auto; min-inline-size: 0; }
+.mon-split__key i { font-style: normal; color: var(--k-text-muted); margin-inline-start: 4px; }
+
+/* ── Log centre ────────────────────────────────────────────────────────────────
+   The logs section needs a row shape nothing else here provides: a fixed level
+   column, a fixed time column, and a message that wraps under neither of them —
+   with a stack trace that opens in place. `.k-table` cannot do it, because a
+   table row cannot hold an expanded <pre> without either a colspan cell that
+   breaks the column rhythm or a second row that breaks the zebra.
+
+   Density is the point. An operator scans this list for the one line that is not
+   like the others, so the level is a coloured block at a fixed position and the
+   eye can run straight down it. Colours are the state palette already defined on
+   `.mon`, never a new one: an error line here has to be the same red as a
+   critical card on the overview.
+
+   Columns are logical (grid, no floats, no directional padding), so the level
+   block stays on the reading edge in Arabic as it does in English. */
+.mon-log__levels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px var(--k-size-4, 16px) 0;
+}
+.mon-log__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--k-border);
+    border-radius: 999px;
+    font-size: var(--k-text-xs, 12px);
+    color: var(--k-text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    background: var(--k-surface);
+}
+.mon-log__chip:hover { text-decoration: none; color: var(--k-text); border-color: var(--k-border-strong); }
+.mon-log__chip i { font-style: normal; color: var(--k-text-muted); }
+.mon-log__chip.is-active {
+    border-color: currentColor;
+    color: var(--k-text);
+    font-weight: var(--k-weight-medium);
+}
+/* The chip carries its level's colour whether or not it is selected: the count beside
+   "emergency" has to read as serious before anybody clicks it. */
+.mon-log__chip--emergency,
+.mon-log__chip--alert,
+.mon-log__chip--critical,
+.mon-log__chip--error { color: var(--mon-critical); }
+.mon-log__chip--warning { color: var(--mon-degraded); }
+.mon-log__chip--notice,
+.mon-log__chip--info { color: var(--k-accent, #3b5bdb); }
+
+.mon-log { list-style: none; margin: 0; padding: 0; }
+
+.mon-log__day {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px var(--k-size-4, 16px);
+    background: var(--k-surface-sunk);
+    border-block: 1px solid var(--k-border);
+    font-size: var(--k-text-xs, 12px);
+    font-weight: var(--k-weight-medium);
+}
+.mon-log__day small { color: var(--k-text-muted); font-weight: 400; }
+
+.mon-log__row {
+    display: grid;
+    grid-template-columns: 78px 62px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 7px var(--k-size-4, 16px);
+    border-block-end: 1px solid var(--k-border);
+    /* Carried by every row, transparent until a severity fills it: a border that only exists on
+       error rows would shift those rows two pixels and make the column jog as you scroll. */
+    border-inline-start: 2px solid transparent;
+    font-size: var(--k-text-xs, 12px);
+}
+.mon-log__row:last-child { border-block-end: 0; }
+.mon-log__row:hover { background: var(--k-surface-sunk); }
+/* A rule on the reading edge rather than a tinted row: a hundred tinted rows is a wall, one rule
+   per severity is an edge the eye can run down. Logical, so it stays beside the level block in
+   Arabic instead of ending up across the row from it. */
+.mon-log__row--critical { border-inline-start-color: var(--mon-critical); }
+.mon-log__row--warning { border-inline-start-color: var(--mon-degraded); }
+
+.mon-log__level {
+    text-align: center;
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: .06em;
+    padding: 3px 4px;
+    border-radius: var(--k-radius-sm, 4px);
+    background: var(--k-surface-sunk);
+    color: var(--k-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mon-log__level--emergency,
+.mon-log__level--alert,
+.mon-log__level--critical { background: var(--mon-critical); color: #fff; }
+.mon-log__level--error { background: rgba(214, 69, 69, .16); color: var(--mon-critical); }
+.mon-log__level--warning { background: rgba(217, 141, 26, .18); color: var(--mon-degraded); }
+.mon-log__level--notice,
+.mon-log__level--info { background: rgba(59, 91, 219, .12); color: var(--k-accent, #3b5bdb); }
+
+.mon-log__time { color: var(--k-text-muted); white-space: nowrap; padding-block-start: 2px; }
+
+.mon-log__body { min-inline-size: 0; display: flex; flex-direction: column; gap: 3px; }
+/* The message keeps its own line breaks and wraps anywhere: a logged path or a serialised
+   payload has no spaces to break on, and one of those must not push the page sideways. */
+.mon-log__message {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--k-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    line-height: 1.45;
+}
+.mon-log__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.mon-log__channel,
+.mon-log__flag {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--k-text-muted);
+}
+.mon-log__flag { color: var(--mon-degraded); }
+.mon-log__meta code {
+    font-size: 10px;
+    color: var(--k-text-muted);
+    background: var(--k-surface-sunk);
+    padding: 1px 5px;
+    border-radius: var(--k-radius-sm, 4px);
+    overflow-wrap: anywhere;
+}
+.mon-log__trace summary { font-size: 11px; color: var(--k-accent); cursor: pointer; }
+
+@media (max-width: 640px) {
+    /* The time column is the first to go: the day header above already carries the date,
+       and a wrapped message is still readable where a squeezed one is not. */
+    .mon-log__row { grid-template-columns: 66px minmax(0, 1fr); }
+    .mon-log__time { grid-column: 2; padding-block-start: 0; }
+}

@@ -1,0 +1,285 @@
+/*
+ * Category landing header — the category banner and its sub-category strip.
+ * Consumes the storefront's own tokens (--base / --title-clr / --border1 and the
+ * published theme's --theme-border-radius) so a merchant's theme keeps driving
+ * the look. Direction-agnostic: the strip scrolls with the document direction.
+ */
+
+.category-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.category-header__banner {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--theme-border-radius, 10px);
+    line-height: 0;
+}
+
+.category-header__banner img {
+    width: 100%;
+    aspect-ratio: 4 / 1;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+}
+
+.category-header__banner:hover img {
+    transform: scale(1.02);
+}
+
+.category-header__banner-copy {
+    position: absolute;
+    inset-inline-start: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    max-width: min(90%, 34rem);
+    padding: 1rem 1.25rem;
+    line-height: 1.4;
+    color: #fff;
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.45);
+}
+
+.category-header__banner-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.category-header__banner-subtitle {
+    font-size: 0.875rem;
+    opacity: 0.9;
+}
+
+.category-header__subs {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+}
+
+.category-header__subs::-webkit-scrollbar {
+    height: 4px;
+}
+
+.category-header__subs::-webkit-scrollbar-thumb {
+    background: var(--border1, #dfe0e5);
+    border-radius: 4px;
+}
+
+.category-header__sub {
+    flex: 0 0 auto;
+    width: 7.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0.5rem;
+    border: 1px solid var(--border1, #dfe0e5);
+    border-radius: var(--theme-border-radius, 10px);
+    background: #fff;
+    text-decoration: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.category-header__sub:hover {
+    border-color: var(--base, var(--primary-clr, #1455ac));
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+    transform: translateY(-2px);
+}
+
+.category-header__sub-img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    border-radius: calc(var(--theme-border-radius, 10px) - 2px);
+    background: var(--bg-section1, #f6f6f6);
+}
+
+.category-header__sub-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.category-header__sub-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: center;
+    color: var(--title-clr, #262d34);
+}
+
+@media (min-width: 768px) {
+    .category-header__sub {
+        width: 8.75rem;
+    }
+
+    .category-header__banner-title {
+        font-size: 1.5rem;
+    }
+}
+
+/* Banner grid — the home promo grid and a category's section banners.
+   `full` takes the row, `half` shares it with the next half, and the sliders
+   pool into one rotating full-width slot. */
+.banner-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.banner-grid__item {
+    flex: 1 1 100%;
+    overflow: hidden;
+    border-radius: var(--theme-border-radius, 10px);
+    line-height: 0;
+}
+
+/* No flex-grow: a half stays half even when it has no partner on its row,
+   which is what the placement guide promises and what a merchant who picked
+   "half" expects while they are still adding the second banner. */
+.banner-grid__item--half {
+    flex: 0 1 calc(50% - 0.5rem);
+    min-width: calc(50% - 0.5rem);
+}
+
+.banner-grid__item img,
+.banner-grid__slide img {
+    width: 100%;
+    aspect-ratio: 4 / 1;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+}
+
+.banner-grid__item:hover img {
+    transform: scale(1.02);
+}
+
+.banner-grid__slider {
+    position: relative;
+}
+
+.banner-grid__slider .owl-nav button.owl-prev,
+.banner-grid__slider .owl-nav button.owl-next {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+    font-size: 1.25rem;
+    line-height: 1;
+    color: var(--title-clr, #262d34);
+}
+
+.banner-grid__slider .owl-nav button.owl-prev { inset-inline-start: 0.75rem; }
+.banner-grid__slider .owl-nav button.owl-next { inset-inline-end: 0.75rem; }
+
+.banner-grid__slider .owl-dots {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0.5rem;
+    text-align: center;
+}
+
+/* Phones: a half tile is still too small to read, so every tile takes the row. */
+@media (max-width: 575.98px) {
+    .banner-grid__item--half {
+        flex-basis: 100%;
+        min-width: 100%;
+    }
+
+    .banner-grid__slider .owl-nav {
+        display: none;
+    }
+}
+
+/* Brand page filter chips — the categories a brand's products actually live in. */
+.brand-header__filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+}
+
+.brand-header__chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4rem 0.85rem;
+    border: 1px solid var(--border1, #dfe0e5);
+    border-radius: 999px;
+    background: #fff;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--title-clr, #262d34);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.brand-header__chip:hover {
+    border-color: var(--base, var(--primary-clr, #1455ac));
+    color: var(--base, var(--primary-clr, #1455ac));
+}
+
+.brand-header__chip--active {
+    background: var(--base, var(--primary-clr, #1455ac));
+    border-color: var(--base, var(--primary-clr, #1455ac));
+    color: #fff;
+}
+
+.brand-header__chip-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: var(--bg-section1, #f6f6f6);
+    font-size: 0.6875rem;
+    color: var(--title-semidark, #7f8185);
+}
+
+.brand-header__chip--active .brand-header__chip-count {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
+
+@media (max-width: 575.98px) {
+    .brand-header__filters {
+        flex-wrap: nowrap;
+    }
+}
+
+/* A sub-category with no artwork of its own gets a letter chip rather than a grey
+   placeholder: a row of identical placeholders reads as "the icons are broken". */
+.category-header__sub-img.is-letter {
+    display: grid;
+    place-items: center;
+    background: linear-gradient(140deg, var(--web-primary, #673ab7), var(--web-secondary, #26abf2));
+}
+
+.category-header__sub-img.is-letter span {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+}

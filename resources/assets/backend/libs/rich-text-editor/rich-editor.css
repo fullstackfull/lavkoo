@@ -1,0 +1,113 @@
+.rich-editor-html-content table {
+    color: var(--bs-dark);
+    max-width: 100% !important;
+}
+
+.rich-editor-html-content table thead {
+    block-size: 50px;
+}
+
+.rich-editor-html-content table thead th {
+    vertical-align: middle;
+}
+
+.rich-editor-html-content.thead-light table th {
+    color: var(--bs-dark);
+    background-color: #f7faff;
+    border-color: rgba(1, 119, 205, 0.1);
+}
+
+.rich-editor-html-content table {
+    width: 100%;
+    margin-bottom: 1rem;
+    color: #677788;
+}
+
+.rich-editor-html-content table td,
+.rich-editor-html-content table th {
+    padding: 0.75rem;
+    vertical-align: top;
+    border-top: 0.0625rem solid rgba(231, 234, 243, 0.7);
+}
+
+.rich-editor-html-content table thead th {
+    vertical-align: bottom;
+    border-bottom: 0.125rem solid rgba(231, 234, 243, 0.7);
+}
+
+.rich-editor-html-content table tbody + tbody {
+    border-top: 0.125rem solid rgba(231, 234, 243, 0.7);
+}
+
+.rich-editor-html-content table {
+    border: 0.0625rem solid rgba(231, 234, 243, 0.7);
+}
+
+.rich-editor-html-content table td,
+.rich-editor-html-content table th {
+    border: 0.0625rem solid rgba(231, 234, 243, 0.7);
+}
+
+.rich-editor-html-content table thead td,
+.rich-editor-html-content table thead th {
+    border-bottom-width: 0.125rem;
+}
+
+.rich-editor-html-content li[data-list="bullet"] {
+    list-style-type: disc !important;
+}
+
+.rich-editor-html-content li[data-list="unchecked"] {
+    list-style-type: square !important;
+}
+
+.rich-editor-html-content iframe.ql-video {
+    aspect-ratio: 16/9;
+    width: 100%;
+    max-width: 800px;
+}
+
+@media (max-width: 575.98px) {
+    .rich-editor-html-content table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (max-width: 767px) {
+    .rich-editor-html-content table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (max-width: 991px) {
+    .rich-editor-html-content table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (max-width: 1199px) {
+    .rich-editor-html-content table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (max-width: 1399px) {
+    .rich-editor-html-content table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}

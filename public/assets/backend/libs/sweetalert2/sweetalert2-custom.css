@@ -1,0 +1,28 @@
+div:where(.swal2-icon) {
+    width: 4em !important;
+    height: 4em !important;
+}
+
+div:where(.swal2-container) h2:where(.swal2-title) {
+    --swal2-title-padding: 0.5em 1em 0 1em;
+    font-size: 1.25em !important;
+}
+
+div:where(.swal2-container) div:where(.swal2-html-container) {
+    font-size: .9em !important;
+}
+
+div:where(.swal2-container) button:where(.swal2-styled):where(.swal2-confirm),
+div:where(.swal2-container) button:where(.swal2-styled):where(.swal2-cancel) {
+    font-size: 1em !important;
+    line-height: 1em !important;
+    min-width: 100px !important;
+}
+
+div:where(.swal2-container) div:where(.swal2-popup) {
+    --swal2-padding: 1.85em;
+}
+
+div:where(.swal2-icon) {
+    margin: .25em auto .6em !important;
+}

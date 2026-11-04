@@ -1,0 +1,505 @@
+/*
+ | Developer Portal.
+ |
+ | A reference is read, not admired. Everything here serves scanning: a monospaced path a developer
+ | can match against their own code, a method badge that identifies a row before the eye reaches
+ | the text, and a strict single accent so that the only colour on the page means something —
+ | breaking, deprecated, failing. A portal that colours everything has told the reader nothing.
+ |
+ | Built on the console tokens like every other area, so it inherits light and dark, RTL and the
+ | panel's existing palette without restating any of it.
+ */
+
+@use 'tokens';
+
+.dev {
+    --dev-gap: var(--k-size-3, 12px);
+    --dev-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+    /* HTTP methods carry meaning before anything is read, so they are the one place a fixed
+       palette is justified: green reads, blue writes, amber changes, red removes. */
+    --dev-get: var(--k-success, #1f9d55);
+    --dev-post: var(--k-info, #2f6fd0);
+    --dev-put: var(--k-warning, #d98d1a);
+    --dev-patch: var(--k-warning, #d98d1a);
+    --dev-delete: var(--k-danger, #d64545);
+}
+
+/* ── Surface bar ───────────────────────────────────────────────────────────── */
+.dev-surface {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-size-5, 20px);
+    padding: var(--k-size-4, 16px) var(--k-size-5, 20px);
+    margin-bottom: var(--dev-gap);
+    border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    border-radius: var(--k-radius-lg, 12px);
+    background: var(--k-surface, #fff);
+}
+.dev-surface__figure {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+
+    .k-num { font-size: var(--k-text-xl, 22px); font-weight: 700; }
+    small { font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+}
+.dev-surface__figure--warn .k-num { color: var(--k-warning, #d98d1a); }
+.dev-surface__meta {
+    margin-inline-start: auto;
+    text-align: end;
+
+    strong { display: block; font-family: var(--dev-mono); font-size: var(--k-text-sm, 13px); }
+    small { font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+}
+
+/* ── Layout ────────────────────────────────────────────────────────────────── */
+.dev-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: var(--k-size-4, 16px);
+    align-items: start;
+}
+@media (max-width: 991px) {
+    .dev-layout { grid-template-columns: minmax(0, 1fr); }
+    .dev-rail { position: static; max-height: none; }
+}
+
+.dev-rail {
+    position: sticky;
+    top: var(--k-size-4, 16px);
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    padding: var(--k-size-2, 8px);
+    border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    border-radius: var(--k-radius-lg, 12px);
+    background: var(--k-surface, #fff);
+}
+.dev-rail__group + .dev-rail__group { margin-top: var(--k-size-3, 12px); }
+.dev-rail__label {
+    display: block;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--k-text-muted);
+}
+.dev-rail__item {
+    display: block;
+    padding: 6px 10px;
+    border-radius: var(--k-radius-sm, 6px);
+    font-size: var(--k-text-sm, 13px);
+    color: var(--k-text, inherit);
+    text-decoration: none;
+
+    &:hover { background: var(--k-surface-sunk, rgba(128, 138, 157, .1)); text-decoration: none; }
+    &.is-active { background: var(--k-accent-soft, rgba(47, 111, 208, .12)); font-weight: 600; }
+    /* Present but unavailable: visibly there, plainly not clickable. Hiding it would leave a
+       developer wondering where the section went. */
+    &.is-unavailable { opacity: .45; cursor: not-allowed; }
+}
+
+.dev-body > * + * { margin-top: var(--dev-gap); }
+
+/* ── Endpoint rows ─────────────────────────────────────────────────────────── */
+.dev-row {
+    display: grid;
+    grid-template-columns: 62px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--k-size-3, 12px);
+    padding: 10px var(--k-size-3, 12px);
+    border-radius: var(--k-radius-md, 8px);
+    color: inherit;
+    text-decoration: none;
+
+    &:hover { background: var(--k-surface-sunk, rgba(128, 138, 157, .08)); text-decoration: none; }
+    & + & { border-top: 1px solid var(--k-border, rgba(128, 138, 157, .14)); }
+}
+@media (max-width: 767px) {
+    .dev-row { grid-template-columns: 62px minmax(0, 1fr); }
+    .dev-row__tags, .dev-row__health { grid-column: 2; }
+}
+.dev-row__path {
+    min-width: 0;
+
+    code {
+        display: block;
+        font-family: var(--dev-mono);
+        font-size: var(--k-text-sm, 13px);
+        overflow-wrap: anywhere;
+    }
+    small { display: block; font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+}
+.dev-row__tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dev-row__limit {
+    font-family: var(--dev-mono);
+    font-size: 11px;
+    color: var(--k-text-muted);
+}
+.dev-row__health {
+    min-width: 96px;
+    text-align: end;
+
+    strong { display: block; font-size: var(--k-text-sm, 13px); }
+    small { font-size: 11px; color: var(--k-text-muted); }
+
+    &[data-state='failing'] strong { color: var(--k-danger, #d64545); }
+    &[data-state='degraded'] strong { color: var(--k-warning, #d98d1a); }
+}
+
+.dev-method {
+    display: inline-block;
+    min-width: 54px;
+    padding: 3px 6px;
+    border-radius: var(--k-radius-sm, 6px);
+    font-family: var(--dev-mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    color: #fff;
+    background: var(--k-text-muted);
+
+    &--get { background: var(--dev-get); }
+    &--post { background: var(--dev-post); }
+    &--put, &--patch { background: var(--dev-put); }
+    &--delete { background: var(--dev-delete); }
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────────── */
+.dev-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--k-size-2, 8px);
+    margin-bottom: var(--dev-gap);
+}
+.dev-filters__search {
+    position: relative;
+    flex: 1 1 240px;
+
+    i { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); color: var(--k-text-muted); }
+    input {
+        width: 100%;
+        padding: 7px 12px 7px 30px;
+        border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+        border-radius: var(--k-radius-md, 8px);
+        background: var(--k-surface, #fff);
+        color: inherit;
+    }
+}
+.dev-filters__select {
+    padding: 7px 10px;
+    border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface, #fff);
+    color: inherit;
+    font-size: var(--k-text-sm, 13px);
+}
+
+.dev-listhead {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: var(--k-size-2, 8px);
+    margin-bottom: var(--k-size-2, 8px);
+    border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .14));
+    font-size: var(--k-text-sm, 13px);
+}
+.dev-pager { display: flex; justify-content: center; gap: var(--k-size-2, 8px); padding-top: var(--k-size-3, 12px); }
+
+/* ── Shared blocks ─────────────────────────────────────────────────────────── */
+.dev-grid { display: grid; gap: var(--dev-gap); }
+.dev-grid--2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.dev-grid--3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+.dev-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: var(--k-size-3, 12px);
+
+    .k-num { font-size: var(--k-text-lg, 18px); font-weight: 700; }
+    i { font-style: normal; font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+    small { display: block; font-size: 11px; color: var(--k-text-muted); }
+}
+
+.dev-list {
+    margin: 0 0 var(--k-size-3, 12px);
+    padding: 0;
+    list-style: none;
+
+    li {
+        display: flex;
+        align-items: center;
+        gap: var(--k-size-2, 8px);
+        padding: 5px 0;
+        font-size: var(--k-text-sm, 13px);
+    }
+    li > span:first-child { flex: 1 1 auto; min-width: 0; }
+    li > strong { flex: 0 0 auto; }
+}
+.dev-list--bars .dev-bar {
+    flex: 0 0 90px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .16));
+    overflow: hidden;
+
+    i { display: block; height: 100%; background: var(--k-accent, #2f6fd0); }
+}
+
+.dev-score {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin-bottom: var(--k-size-3, 12px);
+
+    .k-num { font-size: 34px; font-weight: 700; line-height: 1; }
+    i { font-style: normal; color: var(--k-text-muted); }
+
+    /* A quality score is only useful if a bad one looks bad. */
+    &[data-score^='1'], &[data-score^='2'], &[data-score^='3'] .k-num { color: var(--k-danger, #d64545); }
+}
+
+.dev-code {
+    margin: var(--k-size-2, 8px) 0;
+    padding: var(--k-size-3, 12px);
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .1));
+    font-family: var(--dev-mono);
+    font-size: var(--k-text-xs, 12px);
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+}
+.dev-note { font-size: var(--k-text-sm, 13px); color: var(--k-text-muted); }
+/* A row of links out to the section holding the evidence behind the numbers above. */
+.dev-note--links { display: flex; flex-wrap: wrap; gap: var(--k-size-2, 8px); align-items: center;
+    a { color: var(--k-accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+}
+.dev-muted { color: var(--k-text-muted); }
+.dev-warn { color: var(--k-warning, #d98d1a); font-size: var(--k-text-sm, 13px); }
+.dev-subhead { margin: var(--k-size-4, 16px) 0 var(--k-size-2, 8px); font-size: var(--k-text-sm, 13px); font-weight: 600; }
+
+.dev-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--k-text-sm, 13px);
+
+    th {
+        padding: 6px 8px;
+        text-align: start;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: var(--k-text-muted);
+        border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    }
+    td { padding: 7px 8px; border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .12)); }
+    code { font-family: var(--dev-mono); font-size: var(--k-text-xs, 12px); }
+}
+.dev-table--tight td { padding: 4px 8px; }
+
+.dev-change {
+    display: flex;
+    gap: var(--k-size-3, 12px);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .12));
+
+    code { display: block; font-family: var(--dev-mono); font-size: var(--k-text-xs, 12px); }
+    small { display: block; font-size: var(--k-text-xs, 12px); color: var(--k-text-muted); }
+}
+.dev-change__badge {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    padding: 2px 7px;
+    border-radius: var(--k-radius-sm, 6px);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: var(--k-surface-sunk, rgba(128, 138, 157, .14));
+    color: var(--k-text-muted);
+}
+.dev-change--breaking .dev-change__badge { background: var(--k-danger, #d64545); color: #fff; }
+.dev-change--warning .dev-change__badge { background: var(--k-warning, #d98d1a); color: #fff; }
+
+.dev-callout {
+    padding: var(--k-size-3, 12px) var(--k-size-4, 16px);
+    margin-bottom: var(--dev-gap);
+    border-inline-start: 3px solid var(--k-warning, #d98d1a);
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface-sunk, rgba(217, 141, 26, .08));
+    font-size: var(--k-text-sm, 13px);
+
+    p { margin: 4px 0 0; }
+}
+
+/* ── Endpoint page ─────────────────────────────────────────────────────────── */
+.dev-back { display: inline-block; margin-bottom: var(--k-size-2, 8px); font-size: var(--k-text-sm, 13px); }
+.dev-endpoint-head { margin-bottom: var(--dev-gap); }
+.dev-endpoint-head__signature { display: flex; align-items: center; gap: var(--k-size-2, 8px); flex-wrap: wrap; }
+.dev-endpoint-head__path {
+    font-family: var(--dev-mono);
+    font-size: var(--k-text-lg, 18px);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+.dev-endpoint-head__summary { margin: 6px 0 0; font-size: var(--k-text-md, 15px); }
+.dev-endpoint-head__tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--k-size-2, 8px); }
+
+.dev-tabs { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: var(--k-size-2, 8px); }
+.dev-tabs__tab {
+    padding: 5px 12px;
+    border: 0;
+    border-radius: var(--k-radius-sm, 6px);
+    background: transparent;
+    color: var(--k-text-muted);
+    font-size: var(--k-text-sm, 13px);
+    cursor: pointer;
+
+    &.is-active { background: var(--k-surface-sunk, rgba(128, 138, 157, .14)); color: var(--k-text); font-weight: 600; }
+}
+.dev-tabs__panel { display: none; position: relative; }
+.dev-tabs__panel.is-active { display: block; }
+.dev-copy {
+    position: absolute;
+    inset-inline-end: 8px;
+    top: 14px;
+    z-index: 1;
+    padding: 3px 9px;
+    border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    border-radius: var(--k-radius-sm, 6px);
+    background: var(--k-surface, #fff);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.dev-related {
+    display: flex;
+    align-items: center;
+    gap: var(--k-size-2, 8px);
+    padding: 6px 0;
+    color: inherit;
+    text-decoration: none;
+
+    code { font-family: var(--dev-mono); font-size: var(--k-text-xs, 12px); }
+    &:hover { text-decoration: none; opacity: .8; }
+}
+
+.dev-details {
+    margin-top: var(--k-size-2, 8px);
+    font-size: var(--k-text-sm, 13px);
+
+    summary { cursor: pointer; color: var(--k-text-muted); }
+    code { font-family: var(--dev-mono); font-size: var(--k-text-xs, 12px); }
+}
+
+.dev-scheme {
+    padding: var(--k-size-3, 12px) 0;
+    border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .12));
+
+    p { margin: 4px 0 0; font-size: var(--k-text-sm, 13px); color: var(--k-text-muted); }
+}
+.dev-scheme__head { display: flex; align-items: center; gap: var(--k-size-2, 8px); flex-wrap: wrap; }
+
+.dev-limit {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: var(--k-size-3, 12px);
+    padding: var(--k-size-3, 12px) 0;
+    border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .12));
+
+    .k-num { font-size: var(--k-text-xl, 22px); font-weight: 700; }
+    small { display: block; font-size: 11px; color: var(--k-text-muted); }
+    ul { margin: 4px 0 0; padding: 0; list-style: none; }
+    li { font-size: var(--k-text-xs, 12px); }
+    code { font-family: var(--dev-mono); }
+}
+
+.dev-deprecation { padding: var(--k-size-2, 8px) 0; border-bottom: 1px solid var(--k-border, rgba(128, 138, 157, .12)); }
+.dev-deprecation__detail {
+    padding: 0 var(--k-size-3, 12px) var(--k-size-2, 8px) 76px;
+    font-size: var(--k-text-sm, 13px);
+
+    p { margin: 2px 0; }
+    code { font-family: var(--dev-mono); }
+}
+
+.dev-steps {
+    margin: 0;
+    padding-inline-start: var(--k-size-5, 20px);
+
+    li + li { margin-top: var(--k-size-4, 16px); }
+    h4 { margin: 0 0 4px; font-size: var(--k-text-md, 15px); }
+    p { margin: 0; font-size: var(--k-text-sm, 13px); color: var(--k-text-muted); }
+}
+
+.dev-downloads { display: flex; flex-wrap: wrap; gap: var(--k-size-2, 8px); margin: var(--k-size-2, 8px) 0; }
+.dev-inline-form { display: flex; gap: var(--k-size-2, 8px); margin-top: var(--k-size-2, 8px); }
+.dev-inline-form input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    border-radius: var(--k-radius-md, 8px);
+    background: var(--k-surface, #fff);
+    color: inherit;
+}
+
+/* ── The console ───────────────────────────────────────────────────────────────
+   The one part of the portal that acts rather than describes, so it is styled to
+   look like a control panel and not like the reference around it: the tier label
+   and the refusal are the loud parts, and the send button is deliberately not the
+   first thing the eye lands on. */
+.dev-console {
+    display: flex;
+    flex-direction: column;
+    gap: var(--k-size-3, 12px);
+}
+.dev-console__row {
+    display: flex;
+    align-items: center;
+    gap: var(--k-size-2, 8px);
+    flex-wrap: wrap;
+}
+.dev-console__path { font-size: var(--k-text-sm, 13px); word-break: break-all; }
+.dev-console__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--k-size-2, 8px);
+}
+.dev-console__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: var(--k-text-sm, 13px);
+
+    > span { color: var(--k-text-muted); }
+    i { font-style: normal; color: var(--k-danger, #d64550); }
+
+    input, select {
+        padding: 6px 10px;
+        border: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+        border-radius: var(--k-radius-md, 8px);
+        background: var(--k-surface, #fff);
+        color: inherit;
+        min-width: 0;
+    }
+}
+.dev-console__send { align-self: flex-start; margin-top: var(--k-size-3, 12px); }
+/* A write says so beside the button, in the colour the rest of the panel uses for
+   "this changes something", rather than only in a dialog after the click. */
+.dev-console__tier:not(:empty) {
+    display: inline-block;
+    margin-inline-start: var(--k-size-2, 8px);
+    color: var(--k-warning-text, #8a5a00);
+    font-size: var(--k-text-sm, 13px);
+}
+.dev-console__result {
+    border-top: 1px solid var(--k-border, rgba(128, 138, 157, .22));
+    padding-top: var(--k-size-3, 12px);
+
+    pre { max-height: 420px; overflow: auto; }
+}

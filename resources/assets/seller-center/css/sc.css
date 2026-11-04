@@ -1,0 +1,1347 @@
+/* ============================================================================
+   SELLER CENTER — shell, components, table, filters, states.
+
+   One implementation of each pattern. A module-local table, filter, badge,
+   drawer or modal is a defect (handoff 05, 13 §cross-wave rule 1).
+
+   Loaded after tokens.css, which owns every value used here. No hex literal
+   and no raw px font-size belongs in this file.
+   Reference: design_handoff_seller_center/02,03,04,05,06,10,11
+   ============================================================================ */
+
+/* ── reset scoped to the shell ───────────────────────────────────────────── */
+.sc *,
+.sc *::before,
+.sc *::after { box-sizing: border-box; }
+
+.sc {
+    margin: 0;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.sc h1, .sc h2, .sc h3, .sc h4, .sc h5, .sc h6 {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    letter-spacing: -0.01em;
+    margin: 0;
+}
+
+.sc a { color: var(--color-accent); text-decoration: none; }
+.sc a:hover { color: var(--color-accent-300); }
+.sc button { font: inherit; color: inherit; }
+.sc [hidden] { display: none !important; }
+
+.sc ::-webkit-scrollbar { width: 10px; height: 10px; }
+.sc ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--color-text) 14%, transparent);
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+}
+.sc ::-webkit-scrollbar-track { background: transparent; }
+
+/* Arabic: looser leading, no uppercase, no tracking (handoff 10 B4). */
+.sc[lang="ar"] { line-height: 1.7; }
+.sc[lang="ar"] h1, .sc[lang="ar"] h2, .sc[lang="ar"] h3,
+.sc[lang="ar"] h4, .sc[lang="ar"] h5 { line-height: 1.35; }
+.sc[lang="ar"] .sc-eyebrow,
+.sc[lang="ar"] .sc-card__label,
+.sc[lang="ar"] .sc-group-label,
+.sc[lang="ar"] .sc-panel__head,
+.sc[lang="ar"] .sc-section__title,
+.sc[lang="ar"] .sc-table thead th { text-transform: none; letter-spacing: 0; }
+
+/* Identifiers, codes and figures read LTR inside Arabic (handoff 10 B3). */
+.sc-code, .sc .sc-id { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
+/* A timestamp is a code, not prose: "25 Aug 05:05" set loose inside an Arabic line is reordered by
+   the bidirectional algorithm into a date that does not exist (handoff 10 B3). */
+.sc-ts { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
+.sc-num, .sc .num, .sc-money { font-variant-numeric: tabular-nums; }
+
+/* ── utility ─────────────────────────────────────────────────────────────── */
+.sc-dim { color: var(--sc-dim); }
+.sc-muted { color: var(--sc-muted); }
+.sc-spacer { flex: 1 1 auto; min-width: 0; }
+.sc-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sc-visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* =========================================================================
+   1 · TOP BAR — 52px (handoff 02 §1)
+   ========================================================================= */
+.sc-topbar {
+    height: var(--shell-topbar-h);
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 14px;
+    background: var(--sc-rail);
+    border-bottom: 1px solid var(--sc-line);
+}
+
+.sc-store {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    min-width: 0;
+    overflow: hidden;
+    background: none;
+    border: 0;
+    padding: 3px 5px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+}
+.sc-store:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+.sc-store__mark {
+    width: 26px; height: 26px; flex: none;
+    border-radius: 6px;
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent);
+    font-size: 12px;
+    display: grid; place-items: center;
+}
+.sc-store__lines { min-width: 0; text-align: start; }
+.sc-store__name { font-family: var(--font-heading); font-size: 13px; }
+.sc-store__meta { font-size: 10.5px; color: var(--sc-muted); }
+
+.sc-search-trigger {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 520px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    background: color-mix(in srgb, var(--color-text) 5%, transparent);
+    border: 1px solid var(--sc-line);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+}
+.sc-search-trigger:hover { border-color: color-mix(in srgb, var(--color-text) 30%, transparent); }
+.sc-search-trigger__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--sc-muted);
+    text-align: start;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sc-kbd {
+    /* A shortcut is a code, not prose: it reads left-to-right in Arabic too (handoff 10 B3). */
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-size: 10.5px;
+    padding: 1px 4px;
+    border: 1px solid var(--sc-line);
+    border-radius: var(--radius-sm);
+    color: var(--sc-muted);
+    font-family: inherit;
+    flex: none;
+}
+
+/* =========================================================================
+   2 · ICON RAIL — 58px (handoff 02 §2)
+   ========================================================================= */
+.sc-body { flex: 1 1 auto; display: flex; min-height: 0; }
+
+.sc-rail {
+    width: var(--shell-rail-w);
+    flex: none;
+    background: var(--sc-rail);
+    border-inline-end: 1px solid var(--sc-line);
+    padding: 8px 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+.sc-rail__item {
+    position: relative;
+    width: 40px;
+    height: 38px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border: 0;
+    background: transparent;
+    border-radius: var(--radius-md);
+    color: color-mix(in srgb, var(--color-text) 70%, transparent);
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.sc-rail__item:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+.sc-rail__item.is-active {
+    background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+    color: var(--color-accent-200);
+}
+.sc-rail__item.is-active::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 22px;
+    background: var(--color-accent);
+    border-radius: 0 2px 2px 0;
+}
+/* Only critical and high produce a rail dot (handoff 02 §2). */
+.sc-rail__dot {
+    position: absolute;
+    top: 5px;
+    inset-inline-end: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+.sc-rail__dot--critical { background: var(--st-critical); }
+.sc-rail__dot--high { background: var(--st-high); }
+
+/* =========================================================================
+   3 · SECTION PANEL — 206px (handoff 02 §3)
+   ========================================================================= */
+.sc-panel {
+    width: var(--shell-panel-w);
+    flex: none;
+    background: var(--sc-panel);
+    border-inline-end: 1px solid var(--sc-line);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.sc-panel__head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--sc-muted);
+    padding: 14px 14px 8px;
+}
+.sc-panel__items { display: flex; flex-direction: column; gap: 1px; padding: 0 6px 12px; }
+.sc-panel__item {
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    color: var(--sc-dim);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.sc-panel__item:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); color: var(--color-text); }
+.sc-panel__item.is-active {
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+    color: var(--color-accent-200);
+}
+.sc-panel__label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-panel__foot {
+    margin-top: auto;
+    border-top: 1px solid var(--sc-line-soft);
+    padding: 8px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+/* Count badge — only when the number changes what the seller does (handoff 06 §6). */
+.sc-count {
+    flex: none;
+    font-size: 10.5px;
+    font-weight: 500;
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-text) 9%, transparent);
+    color: var(--sc-muted);
+    font-variant-numeric: tabular-nums;
+}
+.sc-count--critical { background: color-mix(in srgb, var(--st-critical) 18%, transparent); color: var(--st-critical); }
+.sc-count--high     { background: color-mix(in srgb, var(--st-high) 18%, transparent);     color: var(--st-high); }
+.sc-count--medium   { background: color-mix(in srgb, var(--st-medium) 18%, transparent);   color: var(--st-medium); }
+.sc-count--good     { background: color-mix(in srgb, var(--st-good) 18%, transparent);     color: var(--st-good); }
+
+/* Rail flyout — the collapsed-panel affordance (handoff 02 §3). */
+.sc-flyout {
+    position: fixed;
+    z-index: var(--z-popover);
+    width: var(--shell-panel-w);
+    max-height: 70vh;
+    overflow-y: auto;
+    background: var(--sc-panel);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    animation: sc-fade var(--dur-fast) var(--ease);
+}
+
+/* =========================================================================
+   4 · MAIN REGION + PAGE HEADER (handoff 02 §4)
+   ========================================================================= */
+.sc-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sc-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+
+.sc-page-header {
+    flex: none;
+    padding: 16px var(--shell-gutter) 12px;
+    border-bottom: 1px solid var(--sc-line-soft);
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+}
+.sc-page-header__titles { min-width: 0; }
+.sc-eyebrow {
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 500;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--sc-muted);
+    margin-bottom: 3px;
+}
+.sc-page-title { font-size: 19px; line-height: 1.12; }
+.sc-page-sub { font-size: 12px; color: var(--sc-muted); margin-top: 3px; }
+.sc-page-header__actions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+.sc-breadcrumb { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--sc-muted); margin-bottom: 3px; }
+.sc-breadcrumb__sep { opacity: .6; }
+.sc-breadcrumb__current { color: var(--sc-dim); }
+
+/* Tab row under a page title, sharing the header's bottom border. */
+.sc-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 var(--shell-gutter);
+    border-bottom: 1px solid var(--sc-line-soft);
+    overflow-x: auto;
+    flex: none;
+}
+.sc-tabs--inline { border-bottom: 0; padding: 0; margin-top: 6px; }
+.sc-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 11px;
+    font-size: 12.5px;
+    color: var(--sc-muted);
+    border: 0;
+    background: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.sc-tab:hover { color: var(--color-text); }
+.sc-tab.is-active { color: var(--color-text); border-bottom-color: var(--color-accent); }
+
+/* =========================================================================
+   5 · BUTTONS (handoff 04 §1–2)
+   ========================================================================= */
+.sc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 30px;
+    padding: var(--space-2) calc(var(--space-3) * 1.2);
+    font-size: 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.sc-btn--sm { height: 26px; font-size: 11.5px; }
+.sc-btn--lg { height: 36px; font-size: 14px; }
+.sc-btn--block { width: 100%; }
+
+/* Primary is an accent outline on transparent — never a filled button. */
+.sc-btn--primary { color: var(--color-accent); border-color: var(--color-accent); }
+.sc-btn--primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+.sc-btn--primary:active { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+
+.sc-btn--secondary { border-color: var(--sc-line); }
+.sc-btn--secondary:hover { background: var(--sc-hover); }
+.sc-btn--secondary:active { background: var(--sc-hover-strong); }
+
+.sc-btn--ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.sc-btn--ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.sc-btn--ghost:active { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
+
+.sc-btn--danger { color: var(--st-critical); border-color: var(--st-critical); }
+.sc-btn--danger:hover { background: color-mix(in srgb, var(--st-critical) 12%, transparent); }
+
+.sc-btn:disabled, .sc-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.sc-btn.is-loading { pointer-events: none; opacity: .7; }
+
+.sc-icon-btn {
+    width: 28px; height: 28px;
+    display: inline-grid; place-items: center;
+    border: 0; background: transparent; color: inherit;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    flex: none;
+    transition: background var(--dur-fast) var(--ease);
+}
+.sc-icon-btn:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+.sc-icon-btn--topbar { width: 30px; height: 30px; }
+.sc-icon-btn--mobile { width: 36px; height: 36px; }
+.sc-icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Unread indicator on the bell. */
+.sc-icon-btn { position: relative; }
+.sc-icon-btn__dot {
+    position: absolute; top: 3px; inset-inline-end: 3px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--color-accent);
+}
+.sc-icon-btn__dot--critical { background: var(--st-critical); }
+
+/* Spinner used by loading buttons and busy rows. */
+.sc-spinner {
+    width: 12px; height: 12px; flex: none;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: sc-spin .7s linear infinite;
+}
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+
+/* =========================================================================
+   6 · SEGMENTED CONTROL (handoff 02 §1, 04)
+   ========================================================================= */
+.sc-seg {
+    display: inline-flex;
+    height: 28px;
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    flex: none;
+}
+.sc-seg--md { height: 30px; }
+.sc-seg__opt {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 9px;
+    font-size: 11.5px;
+    color: var(--sc-dim);
+    cursor: pointer;
+    background: none;
+    border: 0;
+    white-space: nowrap;
+}
+.sc-seg__opt + .sc-seg__opt { border-inline-start: 1px solid var(--color-divider); }
+.sc-seg__opt:hover { background: var(--sc-hover); }
+.sc-seg__opt.is-active { color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+
+/* =========================================================================
+   7 · FORM CONTROLS (handoff 04 §3–11, 11 §4)
+   ========================================================================= */
+.sc-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sc-label { font-size: 12px; color: var(--sc-muted); }
+.sc-label__req { color: var(--st-high); }
+.sc-help { font-size: 11px; color: var(--sc-muted); }
+.sc-error { font-size: 11px; color: var(--st-critical); }
+
+.sc-input, .sc-select, .sc-textarea {
+    width: 100%;
+    height: 30px;
+    padding: 6px 10px;
+    font-size: 12.5px;
+    font-family: inherit;
+    color: var(--color-text);
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    transition: border-color var(--dur-fast) var(--ease);
+}
+.sc-input--lg, .sc-select--lg { height: 36px; font-size: 14px; }
+.sc-textarea { height: auto; min-height: 90px; resize: vertical; line-height: 1.5; }
+.sc-input:hover, .sc-select:hover, .sc-textarea:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.sc-input:focus, .sc-select:focus, .sc-textarea:focus {
+    border-color: var(--color-accent);
+    outline: 2px solid var(--color-accent);
+    outline-offset: 0;
+}
+.sc-input.is-invalid, .sc-select.is-invalid, .sc-textarea.is-invalid { border-color: var(--st-critical); }
+.sc-input:disabled, .sc-select:disabled, .sc-textarea:disabled { opacity: .45; cursor: not-allowed; }
+.sc-input[readonly] { border-color: transparent; background: transparent; color: var(--sc-dim); }
+.sc-input--num { text-align: end; font-variant-numeric: tabular-nums; }
+.sc-select { appearance: none; padding-inline-end: 26px; background-repeat: no-repeat; }
+
+/* Currency suffix sits outside the value (handoff 04 §3). */
+.sc-input-group { position: relative; display: flex; align-items: center; }
+.sc-input-group__suffix {
+    position: absolute; inset-inline-end: 10px;
+    font-size: 11px; color: var(--sc-muted); pointer-events: none;
+}
+.sc-input-group__suffix ~ .sc-input { padding-inline-end: 44px; }
+
+.sc-search {
+    position: relative;
+    width: 240px;
+    max-width: 100%;
+    flex: none;
+}
+.sc-search__glyph {
+    position: absolute;
+    inset-inline-start: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--sc-muted);
+    pointer-events: none;
+    display: grid;
+    place-items: center;
+}
+.sc-search .sc-input { padding-inline-start: 28px; }
+.sc-search__clear { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); }
+
+.sc-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; cursor: pointer; }
+.sc-check input[type="checkbox"], .sc-check input[type="radio"] {
+    width: 16px; height: 16px; margin: 0; flex: none;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+}
+.sc-check input[type="checkbox"] { border-radius: 4px; }
+
+.sc-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; }
+.sc-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.sc-toggle__track {
+    width: 36px; height: 20px; flex: none;
+    border-radius: 10px;
+    background: var(--color-neutral-800);
+    position: relative;
+    transition: background var(--dur-fast) var(--ease);
+}
+.sc-toggle__track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    inset-inline-start: 2px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--color-neutral-400);
+    transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.sc-toggle input:checked + .sc-toggle__track { background: color-mix(in srgb, var(--color-accent) 40%, transparent); }
+.sc-toggle input:checked + .sc-toggle__track::after {
+    background: var(--color-accent-200);
+    transform: translateX(16px);
+}
+.sc[dir="rtl"] .sc-toggle input:checked + .sc-toggle__track::after { transform: translateX(-16px); }
+.sc-toggle input:focus-visible + .sc-toggle__track { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.sc-toggle input:disabled + .sc-toggle__track { opacity: .45; }
+
+/* Error summary above a form (handoff 11 §4). */
+.sc-error-summary {
+    border: 1px solid var(--st-critical-bd);
+    background: var(--st-critical-bg);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    font-size: 12.5px;
+}
+.sc-error-summary a { color: var(--st-critical); text-decoration: underline; }
+
+/* =========================================================================
+   8 · STATUS, SEVERITY, CHIPS (handoff 04 §13–15, 06)
+   ========================================================================= */
+.sc-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+.sc-badge--critical { background: var(--st-critical-bg); border-color: var(--st-critical-bd); color: var(--st-critical); }
+.sc-badge--high     { background: var(--st-high-bg);     border-color: var(--st-high-bd);     color: var(--st-high); }
+.sc-badge--medium   { background: var(--st-medium-bg);   border-color: var(--st-medium-bd);   color: var(--st-medium); }
+.sc-badge--good     { background: var(--st-good-bg);     border-color: var(--st-good-bd);     color: var(--st-good); }
+.sc-badge--neutral  { background: color-mix(in srgb, var(--st-neutral) 14%, transparent); border-color: color-mix(in srgb, var(--st-neutral) 34%, transparent); color: var(--st-neutral); }
+.sc-badge--info     { background: color-mix(in srgb, var(--st-info) 14%, transparent);    border-color: color-mix(in srgb, var(--st-info) 34%, transparent);    color: var(--st-info); }
+.sc-badge--unknown  { background: color-mix(in srgb, var(--color-neutral-600) 14%, transparent); border-color: color-mix(in srgb, var(--color-neutral-600) 34%, transparent); color: var(--color-neutral-600); }
+
+.sc-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+.sc-dot--critical { background: var(--st-critical); }
+.sc-dot--high     { background: var(--st-high); }
+.sc-dot--medium   { background: var(--st-medium); }
+.sc-dot--good     { background: var(--st-good); }
+.sc-dot--neutral  { background: var(--st-neutral); }
+.sc-dot--info     { background: var(--st-info); }
+.sc-dot--unknown  { background: var(--color-neutral-600); }
+.sc-dot--hollow   { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+
+.sc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 7px;
+    font-size: 11.5px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-accent) 13%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 34%, transparent);
+    color: var(--color-text);
+    white-space: nowrap;
+}
+.sc-chip:hover { background: color-mix(in srgb, var(--color-accent) 17%, transparent); }
+.sc-chip__key { color: var(--sc-muted); }
+.sc-chip__x { display: inline-grid; place-items: center; cursor: pointer; border: 0; background: none; color: var(--sc-muted); padding: 0; }
+.sc-chip__x:hover { color: var(--color-text); }
+.sc-chip--critical { background: var(--st-critical-bg); border-color: var(--st-critical-bd); }
+.sc-chip--high     { background: var(--st-high-bg);     border-color: var(--st-high-bd); }
+.sc-chip--invalid  { border-color: var(--st-critical); }
+
+/* =========================================================================
+   9 · CARDS, STAT STRIPS, KPI (handoff 04 §28, 40; 07)
+   ========================================================================= */
+.sc-card {
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    min-width: 0;
+}
+.sc-card__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--sc-line-soft);
+}
+.sc-card__title { font-size: 14px; line-height: 1.2; }
+.sc-card__context { font-size: 11px; color: var(--sc-muted); }
+.sc-card__label {
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--sc-muted);
+}
+.sc-card__body { padding: 14px 16px; }
+.sc-card--side .sc-card__body { padding: 12px 14px; }
+.sc-card--flush .sc-card__body { padding: 0; }
+
+.sc-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    border-bottom: 1px solid var(--sc-line-soft);
+    flex: none;
+}
+.sc-kpi { padding: 12px 16px; border-inline-end: 1px solid var(--sc-line-soft); min-width: 0; }
+.sc-kpi:last-child { border-inline-end: 0; }
+.sc-kpi__label { font-size: 11px; color: var(--sc-muted); }
+.sc-kpi__value { font-size: 20px; line-height: 1.1; font-family: var(--font-heading); font-variant-numeric: tabular-nums; }
+.sc-kpi__unit { font-size: 11px; color: var(--sc-muted); margin-inline-start: 4px; }
+.sc-kpi__delta { display: flex; align-items: center; gap: 4px; font-size: 11px; margin-top: 2px; }
+.sc-kpi__delta--good { color: var(--st-good); }
+.sc-kpi__delta--bad { color: var(--st-high); }
+.sc-kpi__delta--none { color: var(--sc-muted); }
+
+.sc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+.sc-stat { background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 12px 16px; min-width: 0; }
+.sc-stat__label { font-size: 11px; color: var(--sc-muted); }
+.sc-stat__value { font-size: 20px; line-height: 1.1; font-family: var(--font-heading); font-variant-numeric: tabular-nums; }
+.sc-stat__value--critical { color: var(--st-critical); }
+.sc-stat__value--high { color: var(--st-high); }
+.sc-stat__note { font-size: 11px; color: var(--sc-muted); }
+
+.sc-bignum { font-size: 24px; line-height: 1; font-family: var(--font-heading); font-variant-numeric: tabular-nums; }
+
+/* =========================================================================
+   10 · ALERTS, EMPTY, SKELETON, PROGRESS, HEALTH (handoff 04 §25–32)
+   ========================================================================= */
+.sc-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 14px;
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    border-inline-start: 2px solid var(--st-neutral);
+}
+.sc-alert--critical { border-inline-start-color: var(--st-critical); }
+.sc-alert--high     { border-inline-start-color: var(--st-high); }
+.sc-alert--medium   { border-inline-start-color: var(--st-medium); }
+.sc-alert--good     { border-inline-start-color: var(--st-good); }
+.sc-alert--info     { border-inline-start-color: var(--st-info); }
+.sc-alert__glyph { flex: none; margin-top: 1px; }
+.sc-alert--critical .sc-alert__glyph { color: var(--st-critical); }
+.sc-alert--high .sc-alert__glyph { color: var(--st-high); }
+.sc-alert--medium .sc-alert__glyph { color: var(--st-medium); }
+.sc-alert--good .sc-alert__glyph { color: var(--st-good); }
+.sc-alert--info .sc-alert__glyph { color: var(--st-info); }
+.sc-alert__body { flex: 1 1 auto; min-width: 0; }
+.sc-alert__title { font-size: 13.5px; font-family: var(--font-heading); }
+.sc-alert__text { font-size: 12.5px; color: var(--sc-dim); }
+.sc-alert--compact { padding: 8px 11px; }
+.sc-alert--compact .sc-alert__text { font-size: 11.5px; }
+.sc-alert--compact.sc-alert--high { background: var(--st-high-bg); }
+.sc-alert--compact.sc-alert--critical { background: var(--st-critical-bg); }
+
+.sc-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    max-width: 440px;
+    margin: 40px auto;
+    padding: 0 20px;
+}
+.sc-empty__glyph { color: var(--sc-muted); }
+.sc-empty__glyph--good { color: var(--st-good); }
+.sc-empty__title { font-size: 16px; }
+.sc-empty__text { font-size: 12.5px; color: var(--sc-dim); }
+.sc-empty__actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; justify-content: center; }
+
+.sc-skeleton {
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    animation: sc-shimmer 1.4s ease-in-out infinite;
+}
+
+.sc-progress { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--color-text) 9%, transparent); overflow: hidden; }
+.sc-progress__fill { height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 300ms linear; }
+.sc-progress__fill--good { background: var(--st-good); }
+.sc-progress__fill--high { background: var(--st-high); }
+.sc-progress__fill--medium { background: var(--st-medium); }
+.sc-progress__fill--critical { background: var(--st-critical); }
+.sc-progress--indeterminate .sc-progress__fill { width: 40%; animation: sc-indeterminate 1.2s ease-in-out infinite; }
+@keyframes sc-indeterminate { 0% { margin-inline-start: -40%; } 100% { margin-inline-start: 100%; } }
+
+.sc-health { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 4px 0; }
+.sc-health__label { flex: 1 1 auto; min-width: 0; }
+.sc-health__state { font-size: 11px; }
+.sc-health__count { font-size: 11px; color: var(--sc-muted); font-variant-numeric: tabular-nums; }
+
+/* =========================================================================
+   11 · TIMELINE, ACTIVITY, STEPPER (handoff 04 §30, 34, 35)
+   ========================================================================= */
+.sc-timeline { display: flex; flex-direction: column; }
+.sc-tl { display: flex; gap: 11px; min-height: 34px; }
+.sc-tl__time { width: 44px; flex: none; font-size: 10.5px; color: var(--sc-muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.sc-tl__rail { width: 9px; flex: none; display: flex; flex-direction: column; align-items: center; }
+.sc-tl__dot { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-top: 5px; background: var(--st-neutral); }
+.sc-tl__dot--info { background: var(--st-info); }
+.sc-tl__dot--good { background: var(--st-good); }
+.sc-tl__dot--high { background: var(--st-high); }
+.sc-tl__dot--critical { background: var(--st-critical); }
+.sc-tl__dot--future { background: var(--color-neutral-700); }
+.sc-tl__line { flex: 1 1 auto; width: 1px; background: var(--sc-line); margin: 3px 0; }
+.sc-tl:last-child .sc-tl__line { display: none; }
+.sc-tl__body { flex: 1 1 auto; min-width: 0; padding-bottom: 10px; }
+.sc-tl__text { font-size: 12.5px; }
+.sc-tl__meta { font-size: 10.5px; color: var(--sc-muted); }
+
+.sc-activity { display: flex; gap: 8px; padding: 5px 0; align-items: flex-start; }
+.sc-activity__glyph { flex: none; margin-top: 2px; }
+.sc-activity__text { font-size: 12px; }
+.sc-activity__meta { font-size: 10.5px; color: var(--sc-muted); }
+
+.sc-stepper { display: flex; align-items: center; gap: 0; }
+.sc-step { display: flex; align-items: center; gap: 7px; }
+.sc-step__circle {
+    width: 20px; height: 20px; flex: none;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 11px;
+    border: 1px solid var(--color-neutral-700);
+    color: var(--sc-muted);
+}
+.sc-step.is-current .sc-step__circle { border-color: var(--color-accent); color: var(--color-accent); }
+.sc-step.is-current .sc-step__label { color: var(--color-text); }
+.sc-step.is-done .sc-step__circle { border-color: var(--st-good); color: var(--st-good); }
+.sc-step.is-error .sc-step__circle { border-color: var(--st-critical); color: var(--st-critical); }
+.sc-step__label { font-size: 12.5px; color: var(--sc-muted); }
+.sc-step__connector { width: 40px; height: 1px; background: var(--sc-line); margin: 0 8px; flex: none; }
+
+/* =========================================================================
+   12 · TABLE (handoff 05 A)
+   ========================================================================= */
+.sc-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px var(--shell-gutter);
+    flex-wrap: wrap;
+    flex: none;
+    position: relative;
+}
+.sc-toolbar__count { font-size: 11.5px; color: var(--sc-muted); }
+.sc-toolbar__note { font-size: 11.5px; color: var(--sc-muted); width: 100%; }
+
+.sc-table-wrap { overflow-x: auto; }
+.sc-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+
+.sc-table thead th {
+    height: var(--row-head-h);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--sc-muted);
+    text-align: start;
+    padding: 0 var(--space-2);
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky-head);
+    background: var(--color-bg);
+    white-space: nowrap;
+}
+/* Nocturne's fading rule, painted on the row rather than per cell. */
+.sc-table thead tr {
+    background-image: linear-gradient(to right, transparent, var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent);
+    background-size: 100% 1px;
+    background-repeat: no-repeat;
+    background-position: bottom;
+}
+.sc-table tbody tr {
+    background-image: linear-gradient(to right, transparent, color-mix(in srgb, var(--color-text) 8%, transparent) 48px, color-mix(in srgb, var(--color-text) 8%, transparent) calc(100% - 48px), transparent);
+    background-size: 100% 1px;
+    background-repeat: no-repeat;
+    background-position: bottom;
+    transition: background-color var(--dur-fast) var(--ease);
+}
+.sc-table tbody td {
+    height: var(--row-h);
+    padding: var(--row-pad-block) var(--space-2);
+    font-size: 12.5px;
+    vertical-align: middle;
+}
+.sc-table th:first-child, .sc-table td:first-child { padding-inline-start: var(--shell-gutter); }
+.sc-table th:last-child, .sc-table td:last-child { padding-inline-end: var(--shell-gutter); }
+.sc-card .sc-table th:first-child, .sc-card .sc-table td:first-child { padding-inline-start: 16px; }
+.sc-card .sc-table th:last-child, .sc-card .sc-table td:last-child { padding-inline-end: 16px; }
+
+.sc-table tbody tr:hover { background-color: var(--sc-hover); }
+.sc-table tbody tr.is-selected,
+.sc-table tbody tr.is-selected:hover { background-color: var(--sc-sel); }
+.sc-table tbody tr.is-clickable { cursor: pointer; }
+.sc-table tbody tr.is-busy { opacity: .5; pointer-events: none; }
+
+.sc-table .sc-cell--num { text-align: end; font-variant-numeric: tabular-nums; }
+.sc-table .sc-cell--select { width: 26px; }
+.sc-table .sc-cell--action { text-align: end; white-space: nowrap; }
+.sc-subline { font-size: 10.5px; color: var(--sc-muted); }
+
+.sc-th-sort { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; padding: 0; }
+.sc-th-sort:hover { color: var(--color-text); }
+.sc-th-sort.is-active { color: var(--color-text); }
+
+/* Refetch dim — never blank the table (handoff 05 A7). */
+.sc-table-region { position: relative; }
+.sc-table-region.is-refetching .sc-table tbody { opacity: .5; pointer-events: none; }
+.sc-refetch-bar { height: 2px; background: color-mix(in srgb, var(--color-accent) 25%, transparent); overflow: hidden; }
+.sc-refetch-bar::after {
+    content: ""; display: block; height: 100%; width: 40%;
+    background: var(--color-accent);
+    animation: sc-indeterminate 1.2s ease-in-out infinite;
+}
+
+.sc-pager {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 40px;
+    padding: 0 var(--shell-gutter);
+    border-top: 1px solid var(--sc-line-soft);
+    font-size: 12px;
+    color: var(--sc-muted);
+    flex: none;
+}
+.sc-pager .sc-select { width: auto; height: 26px; font-size: 11.5px; }
+
+.sc-bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px var(--shell-gutter);
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+    font-size: 12.5px;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-bulk-bar);
+    flex: none;
+}
+.sc-bulk-bar__divider { width: 1px; height: 16px; background: color-mix(in srgb, var(--color-accent) 28%, transparent); }
+
+/* Expandable rows — ledger, transactions, webhook deliveries only. */
+.sc-expand-row > td { background: var(--color-surface); padding: 10px 16px; }
+.sc-caret { transition: transform var(--dur-fast) var(--ease); display: inline-flex; }
+.sc-caret.is-open { transform: rotate(90deg); }
+.sc[dir="rtl"] .sc-caret { transform: rotate(180deg); }
+.sc[dir="rtl"] .sc-caret.is-open { transform: rotate(90deg); }
+
+/* Column chooser + filter panel share the dropdown skin. */
+.sc-menu {
+    position: absolute;
+    z-index: var(--z-popover);
+    min-width: 200px;
+    max-height: 340px;
+    overflow-y: auto;
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    padding: 4px;
+}
+.sc-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 8px;
+    font-size: 12.5px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 0;
+    background: none;
+    width: 100%;
+    text-align: start;
+    color: inherit;
+}
+.sc-menu__item:hover { background: var(--sc-hover); }
+.sc-menu__item--danger { color: var(--st-critical); }
+.sc-menu__sep { height: 1px; background: var(--sc-line-soft); margin: 4px 0; }
+.sc-menu__group { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--sc-muted); padding: 8px 8px 4px; }
+.sc-menu--filter { width: 280px; }
+
+/* =========================================================================
+   13 · DRAWER, MODAL, PALETTE, NOTIFICATIONS, TOASTS (handoff 04 §20–24, 02 §5–6)
+   ========================================================================= */
+.sc-scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--sc-scrim);
+    animation: sc-fade var(--dur-scrim) var(--ease);
+}
+.sc-scrim--drawer { z-index: var(--z-drawer); }
+.sc-scrim--modal { z-index: var(--z-modal); }
+.sc-scrim--palette { z-index: var(--z-palette); }
+
+.sc-drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    width: min(var(--shell-drawer-w), 100%);
+    background: var(--color-bg);
+    box-shadow: var(--shadow-lg);
+    z-index: var(--z-drawer);
+    display: flex;
+    flex-direction: column;
+    animation: sc-slide var(--dur-panel) var(--ease);
+}
+.sc[dir="rtl"] .sc-drawer { animation-name: sc-slide-rtl; }
+@keyframes sc-slide-rtl { from { transform: translateX(-24px); opacity: 0 } to { transform: none; opacity: 1 } }
+.sc-drawer__head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--sc-line-soft); flex: none; }
+.sc-drawer__title { font-size: 15px; line-height: 1.2; }
+.sc-drawer__body { flex: 1 1 auto; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.sc-drawer__foot { display: flex; align-items: center; gap: 8px; padding: 11px 16px; border-top: 1px solid var(--sc-line-soft); flex: none; }
+
+.sc-modal {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    pointer-events: none;
+}
+.sc-modal__panel {
+    width: min(440px, 100%);
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    pointer-events: auto;
+    animation: sc-rise var(--dur-scrim) var(--ease);
+}
+.sc-modal__panel--form { width: min(640px, 100%); }
+@keyframes sc-rise { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+.sc-modal__title { font-size: 20px; }
+.sc-modal__body { font-size: 14px; color: var(--sc-dim); }
+.sc-modal__actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.sc-palette {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-palette);
+    display: flex;
+    justify-content: center;
+    padding: 76px 20px 20px;
+    pointer-events: none;
+}
+.sc-palette__panel {
+    width: min(var(--shell-palette-w), 92%);
+    max-height: 70vh;
+    background: var(--color-bg);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    pointer-events: auto;
+    animation: sc-fade .1s var(--ease);
+}
+.sc-palette__input-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--sc-line-soft); }
+.sc-palette__input { flex: 1 1 auto; min-width: 0; background: none; border: 0; outline: none; font-size: 14px; color: var(--color-text); font-family: inherit; }
+.sc-palette__results { overflow-y: auto; padding-bottom: 6px; }
+.sc-group-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--sc-muted); padding: 8px 14px 4px; }
+.sc-palette__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: inherit;
+}
+.sc-palette__row.is-active { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.sc-palette__row-meta { font-size: 11px; color: var(--sc-muted); margin-inline-start: auto; }
+.sc-palette__foot { border-top: 1px solid var(--sc-line-soft); padding: 7px 14px; font-size: 11px; color: var(--sc-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+
+.sc-notifications {
+    position: fixed;
+    z-index: var(--z-popover);
+    width: min(400px, calc(100vw - 24px));
+    max-height: 70vh;
+    background: var(--color-bg);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.sc-notifications__head { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--sc-line-soft); }
+.sc-notifications__list { overflow-y: auto; }
+.sc-notification { display: flex; gap: 9px; padding: 9px 14px; align-items: flex-start; }
+.sc-notification.is-unread { background: color-mix(in srgb, var(--color-accent) 7%, transparent); }
+.sc-notification__title { font-size: 12.5px; }
+.sc-notification__meta { font-size: 11px; color: var(--sc-muted); }
+
+.sc-toasts {
+    position: fixed;
+    inset-block-end: 16px;
+    inset-inline-end: 16px;
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+.sc-toast {
+    width: min(380px, 92vw);
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-md);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    font-size: 12.5px;
+    pointer-events: auto;
+    animation: sc-toast-in var(--dur-scrim) var(--ease);
+}
+@keyframes sc-toast-in { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+.sc-toast--success .sc-toast__glyph { color: var(--st-good); }
+.sc-toast--info .sc-toast__glyph { color: var(--st-info); }
+.sc-toast--warning .sc-toast__glyph { color: var(--st-high); }
+.sc-toast--error .sc-toast__glyph { color: var(--st-critical); }
+.sc-toast__body { flex: 1 1 auto; min-width: 0; }
+
+.sc-tooltip {
+    position: fixed;
+    z-index: var(--z-popover);
+    background: var(--color-surface);
+    border: 1px solid var(--sc-line);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    font-size: 11.5px;
+    padding: 4px 7px;
+    pointer-events: none;
+    max-width: 260px;
+}
+
+/* =========================================================================
+   14 · SECTION HEADER + ISSUE CARD (handoff 04 §37, 07.2)
+   ========================================================================= */
+.sc-section { margin-bottom: 16px; }
+.sc-section__head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sc-section__mark { width: 3px; height: 14px; border-radius: 1px; background: var(--st-neutral); flex: none; }
+.sc-section__mark--critical { background: var(--st-critical); }
+.sc-section__mark--high { background: var(--st-high); }
+.sc-section__mark--medium { background: var(--st-medium); }
+.sc-section__mark--good { background: var(--st-good); }
+.sc-section__mark--info { background: var(--st-info); }
+.sc-section__title { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--sc-dim); }
+.sc-section__summary { font-size: 11px; color: var(--sc-muted); }
+
+.sc-issue {
+    display: flex;
+    gap: 12px;
+    padding: 11px 14px;
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    border-inline-start: 2px solid var(--st-neutral);
+}
+.sc-issue--critical { border-inline-start-color: var(--st-critical); }
+.sc-issue--high { border-inline-start-color: var(--st-high); }
+.sc-issue--medium { border-inline-start-color: var(--st-medium); }
+.sc-issue--low { border-inline-start-color: var(--st-neutral); }
+.sc-issue__glyph { flex: none; margin-top: 1px; }
+.sc-issue--critical .sc-issue__glyph { color: var(--st-critical); }
+.sc-issue--high .sc-issue__glyph { color: var(--st-high); }
+.sc-issue--medium .sc-issue__glyph { color: var(--st-medium); }
+.sc-issue__main { flex: 1 1 auto; min-width: 0; }
+.sc-issue__title { font-size: 13.5px; font-family: var(--font-heading); }
+.sc-issue__body { font-size: 12.5px; color: var(--sc-dim); margin-top: 2px; }
+.sc-issue__meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: var(--sc-muted); margin-top: 6px; }
+.sc-issue__meta-item { display: inline-flex; align-items: center; gap: 4px; }
+.sc-issue__actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.sc-issue--new { animation: sc-flash 1s var(--ease); }
+@keyframes sc-flash { 0%, 100% { border-inline-start-color: var(--st-critical) } 50% { border-inline-start-color: var(--color-accent) } }
+
+.sc-auto-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+    border: 1px solid var(--sc-line-soft);
+    border-radius: var(--radius-md);
+    font-size: 12.5px;
+}
+.sc-auto-row__glyph { color: var(--st-good); flex: none; }
+
+/* =========================================================================
+   15 · LAYOUT GRIDS + PAGE BODY (handoff 03 §6)
+   ========================================================================= */
+.sc-page { padding: 14px var(--shell-gutter) 24px; }
+.sc-grid-home { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 14px; align-items: start; }
+.sc-grid-tower { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+.sc-grid-detail { display: grid; grid-template-columns: minmax(0, 1fr) var(--shell-context-w); gap: 16px; align-items: start; }
+.sc-grid-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+/* A builder is a form on the left and what it would do on the right (handoff 08 A2). */
+.sc-grid-builder { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.sc-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+/* Cards laid out by their own minimum width, never a fixed column count (handoff 08 A5). */
+.sc-grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.sc-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.sc-stack--tight { gap: 8px; }
+.sc-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sc-context { position: sticky; top: 0; }
+.sc-info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.sc-info__label { font-size: 11px; color: var(--sc-muted); }
+.sc-info__value { font-size: 12.5px; }
+/* One record inside a drawer or a side panel: text on the left, its one action on the right. */
+.sc-panel-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--color-surface);
+    border-radius: var(--radius-sm);
+}
+/* A form's actions stay reachable without scrolling back up a long builder. */
+.sc-form-footer {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 8px;
+    padding: 10px var(--shell-gutter);
+    background: var(--color-bg);
+    border-top: 1px solid var(--color-divider);
+}
+
+/* =========================================================================
+   16 · RESPONSIVE (handoff 10 A)
+   ========================================================================= */
+@media (max-width: 1439px) {
+    .sc-col--xl { display: none; }
+}
+@media (max-width: 1199px) {
+    .sc-col--lg { display: none; }
+    .sc-panel { display: none; }
+    .sc-grid-home, .sc-grid-tower, .sc-grid-detail, .sc-grid-builder { grid-template-columns: minmax(0, 1fr); }
+    .sc-context { position: static; }
+}
+@media (max-width: 1099px) {
+    .sc-search-trigger__label { font-size: 12px; }
+}
+@media (max-width: 1023px) {
+    .sc-col--md { display: none; }
+    .sc-rail { display: none; }
+    .sc-topbar .sc-seg { display: none; }
+}
+@media (max-width: 767px) {
+    .sc-col--sm { display: none; }
+    .sc-search-trigger { flex: none; width: 30px; padding: 0; justify-content: center; }
+    .sc-search-trigger__label, .sc-search-trigger .sc-kbd { display: none; }
+    .sc-page, .sc-toolbar, .sc-pager, .sc-page-header { padding-inline: 14px; }
+    .sc-table th:first-child, .sc-table td:first-child { padding-inline-start: 14px; }
+    .sc-table th:last-child, .sc-table td:last-child { padding-inline-end: 14px; }
+    .sc-page-header { flex-direction: column; align-items: stretch; gap: 10px; }
+    .sc-page-header__actions { flex-wrap: wrap; }
+    .sc-hide-mobile { display: none !important; }
+    .sc-main { padding-bottom: 56px; }
+    .sc-drawer { width: 100%; }
+    .sc-palette { padding: 0; }
+    .sc-palette__panel { width: 100%; max-height: 100%; height: 100%; border-radius: 0; }
+    /* Cards, not a shrunken table (handoff 05 A9). */
+    .sc-table-wrap--cards .sc-table { display: none; }
+    .sc-cards { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
+}
+@media (min-width: 768px) {
+    .sc-cards { display: none; }
+    .sc-mobile-nav { display: none; }
+}
+
+/* Mobile bottom tab bar (handoff 02 §7). */
+.sc-mobile-nav {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    height: 56px;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--sc-rail);
+    border-top: 1px solid var(--sc-line);
+    display: flex;
+    z-index: var(--z-bulk-bar);
+}
+.sc-mobile-nav__item {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10.5px;
+    color: var(--sc-muted);
+    border-top: 2px solid transparent;
+}
+.sc-mobile-nav__item.is-active { color: var(--color-accent); border-top-color: var(--color-accent); }
+
+/* Mobile drawer nav. */
+.sc-nav-drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: min(300px, 86%);
+    background: var(--sc-panel);
+    z-index: var(--z-drawer);
+    overflow-y: auto;
+    animation: sc-slide-start var(--dur-panel) var(--ease);
+    box-shadow: var(--shadow-lg);
+}
+@keyframes sc-slide-start { from { transform: translateX(-24px); opacity: 0 } to { transform: none; opacity: 1 } }
+.sc[dir="rtl"] .sc-nav-drawer { animation-name: sc-slide; }
+
+/* Mobile card list rendering of a table row. */
+.sc-entity-card {
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 11px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.sc-entity-card__top { display: flex; align-items: baseline; gap: 8px; }
+.sc-entity-card__title { font-size: 13px; font-family: var(--font-heading); flex: 1 1 auto; min-width: 0; }
+.sc-entity-card__figure { font-size: 13px; font-variant-numeric: tabular-nums; }
+.sc-entity-card__meta { font-size: 11.5px; color: var(--sc-muted); }
+.sc-entity-card__actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.sc-entity-card .sc-btn { min-height: 44px; }
+
+@media (pointer: coarse) {
+    .sc-table .sc-btn, .sc-entity-card .sc-btn { min-height: 44px; }
+}
+
+/* =========================================================================
+   17 · CHART (handoff 04 §29)
+   ========================================================================= */
+.sc-chart { display: block; width: 100%; }
+.sc-chart__grid { stroke: color-mix(in srgb, var(--color-text) 7%, transparent); stroke-width: 1; }
+.sc-chart__base { stroke: color-mix(in srgb, var(--color-text) 13%, transparent); stroke-width: 1; }
+.sc-chart__line { fill: none; stroke: var(--color-accent); stroke-width: 2; }
+.sc-chart__compare { fill: none; stroke: var(--color-neutral-700); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.sc-chart__end { fill: var(--color-accent); }
+.sc-chart__label { font-size: 10.5px; fill: var(--sc-muted); }
+.sc-legend { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--sc-muted); }
+.sc-legend__swatch { width: 14px; height: 2px; display: inline-block; background: var(--color-accent); }
+.sc-legend__swatch--compare { background: var(--color-neutral-700); }
+
+/* =========================================================================
+   18 · FILE UPLOAD (handoff 04 §33)
+   ========================================================================= */
+.sc-upload {
+    border: 1px dashed var(--sc-line);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+.sc-upload.is-dragover { border-color: var(--color-accent); background: var(--sc-sel); }
+.sc-upload__prompt { font-size: 12.5px; }
+.sc-upload__hint { font-size: 11px; color: var(--sc-muted); }
+.sc-upload-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 12.5px; }
+
+/* =========================================================================
+   19 · PERMISSION / OFFLINE / STALE STRIPS (handoff 11 §1, §7)
+   ========================================================================= */
+.sc-permission {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    max-width: 440px;
+    margin: 60px auto;
+    padding: 0 20px;
+}
+.sc-strip {
+    padding: 7px var(--shell-gutter);
+    font-size: 11.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+}
+.sc-strip--offline { background: var(--st-high-bg); color: var(--st-high); }
+.sc-strip--stale { color: var(--sc-muted); }
+.sc-view-only { display: inline-flex; }
+
+@media print {
+    .sc-rail, .sc-panel, .sc-topbar, .sc-toolbar, .sc-pager, .sc-mobile-nav { display: none !important; }
+    .sc { height: auto; overflow: visible; }
+}
