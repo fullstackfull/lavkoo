@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Providers;
+
+use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderRegistry;
+use App\Services\Fulfillment\Support\CurrencyRateSource;
+use App\Services\Fulfillment\Support\StoreCurrencyRateSource;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\ServiceProvider;
+
+/**
+ * Wiring for the multi-provider fulfillment integration (M5AZN, Torod Point).
+ *
+ * Nothing here switches the integration on: outbound traffic needs FULFILLMENT_INTEGRATIONS_ENABLED and a
+ * provider's own enabled flag, and without them the feature is inert.
+ */
+class FulfillmentServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->app->bind(CurrencyRateSource::class, StoreCurrencyRateSource::class);
+        $this->app->singleton(ProviderRegistry::class);
+        $this->app->singleton(ProviderConnectionManager::class);
+    }
+
+    public function boot(): void
+    {
+        // Providers retry webhooks, so the ceiling is generous; it exists to bound abuse of the endpoint,
+        // not to throttle legitimate traffic. Keyed by IP so one noisy caller cannot starve the rest.
+        RateLimiter::for('fulfillment-webhooks', static fn (Request $request): Limit => Limit::perMinute(600)->by($request->ip()));
+    }
+}

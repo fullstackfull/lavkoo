@@ -194,6 +194,12 @@ class Order extends Model
         return $this->hasMany(OrderDetail::class)->orderBy('seller_id', 'ASC');
     }
 
+    /** The provider-side children of this order (M5AZN / Torod Point shipments). */
+    public function providerFulfillments(): HasMany
+    {
+        return $this->hasMany(ProviderFulfillment::class, 'order_id');
+    }
+
     public function seller(): BelongsTo
     {
         return $this->belongsTo(Seller::class);

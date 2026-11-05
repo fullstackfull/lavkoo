@@ -18,6 +18,7 @@ return [
     App\Providers\SellerCenterServiceProvider::class,
     App\Providers\MonitoringServiceProvider::class,
     App\Providers\AnalyticsServiceProvider::class,
+    App\Providers\FulfillmentServiceProvider::class,
 
     // Third-party packages
     Intervention\Image\ImageServiceProvider::class,

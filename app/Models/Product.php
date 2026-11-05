@@ -195,6 +195,11 @@ class Product extends Model
         return $this->barcode ?: $this->code;
     }
 
+    public function providerMappings(): HasMany
+    {
+        return $this->hasMany(ProviderProductMapping::class, 'product_id');
+    }
+
     public function translations(): MorphMany
     {
         return $this->morphMany('App\Models\Translation', 'translationable');
