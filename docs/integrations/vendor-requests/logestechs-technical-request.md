@@ -65,6 +65,30 @@ personal data redacted) wherever a sample is requested, or an OpenAPI/Postman co
 19. The **error response format** for the v5 API (envelope, codes), and your versioning/deprecation policy.
 20. A technical contact for integration issues and expected response time.
 
+## E. Points that came out of our integration review
+
+21. **Identifiers across the two APIs:** are the `cityId` / `regionId` returned by Lastmile v2 (`/addresses/cities`)
+    the *same values* the Fulfillment v5 `receiverAddress` expects? If not, where do we get the v5 ids?
+22. **`villageId`:** the Add Order sample includes it. Is it **required**, or is `{cityId, regionId, addressLine1}`
+    enough for a warehouse order? What is returned when it is missing?
+23. **Link between the warehouse order and its last-mile package:** the Lastmile webhook and *Get Package Status* identify
+    the **package** (`barcode`, `packageId`). Do they also carry the warehouse order's **`invoiceNumber`**? (The
+    `GET /guests/packages/status` response we have is `{cost, cod, status, notes, id}` — no invoice number.) Without
+    it, we learn the package barcode only from the first webhook and have to trust it on first sight.
+24. **`cod`:** is the `cod` in the Lastmile webhook and in *Get Package Status* exactly the cash-on-delivery amount we
+    sent in Add Order (and `0` when prepaid), or does it include fees? We cross-check it before accepting a
+    "delivered"/"cancelled" claim, so we need to know.
+25. **Webhook payload keys:** the document and the examples differ in letter case (`barcode` vs `Barcode`, `Notes`, `Cod`).
+    Which is the real casing? Is `time` epoch milliseconds in UTC? Is a missing field sent as `null` or omitted?
+26. **Air waybill:** `POST /guests/{companyId}/packages/pdf` returns a URL (the sample is an S3 bucket). Which host(s)
+    can it be on, and how long does the URL stay valid? (We only redirect an administrator to `amazonaws.com` and
+    `logestechs.com` hosts.)
+27. **Cancellation of a warehouse order before its package exists** (item 14 above) and of a *package* (documented):
+    when a package is cancelled, is the warehouse order cancelled and the stock released automatically?
+28. **Package status words:** please confirm the final list and which are terminal. We apply `DELIVERED_TO_RECIPIENT`,
+    `CANCELLED`, `RETURNED…` only after confirming them with *Get Package Status*; a status we do not recognise is
+    shown on the shipment and changes nothing.
+
 ## What we will do with the answers
 
 * Verify the response field maps and switch on **automatic stock synchronisation** (every 30 minutes, or faster if

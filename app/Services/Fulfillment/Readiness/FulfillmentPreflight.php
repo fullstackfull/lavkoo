@@ -9,6 +9,7 @@ use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -71,9 +72,9 @@ class FulfillmentPreflight
     }
 
     /** @return list<PreflightCheck> */
-    public function run(bool $allowProduction = false, bool $allowLive = false): array
+    public function run(bool $allowProduction = false, bool $allowLive = false, ?Request $request = null): array
     {
-        return [...$this->safety($allowProduction, $allowLive), ...$this->schema(), ...$this->runtime()];
+        return [...$this->safety($allowProduction, $allowLive), ...$this->schema(), ...$this->runtime($request)];
     }
 
     /** @return list<PreflightCheck> */
@@ -91,8 +92,10 @@ class FulfillmentPreflight
         };
 
         foreach (ProviderCode::cases() as $provider) {
-            $config = $this->connections->config($provider);
-            $live = config('fulfillment.enabled') && $config->enabled && $config->bool('dispatch_enabled') && !$config->bool('dry_run', true);
+            // Before the first migrate there is no settings table at all: nothing can be switched on yet, and this must say so
+            // rather than crash on the query.
+            $config = $this->settingsReady() ? $this->connections->config($provider) : null;
+            $live = $config !== null && config('fulfillment.enabled') && $config->enabled && $config->bool('dispatch_enabled') && !$config->bool('dry_run', true);
             $checks[] = $live && !$allowLive
                 ? $this->fail('safety', "{$provider->value} dispatch", 'LIVE dispatch is on: a staging validation must never send real orders. Turn off "Send orders" or turn on "Dry run" (or pass --allow-live if this is a deliberate go-live check).')
                 : $this->pass('safety', "{$provider->value} dispatch", $live ? 'live (allowed by --allow-live)' : 'off or dry-run');
@@ -137,6 +140,7 @@ class FulfillmentPreflight
             default => $this->fail('schema', 'fulfillment tables', 'only ' . count($existing) . ' of ' . count(self::OWN_TABLES) . ' exist (' . implode(', ', array_diff(self::OWN_TABLES, $existing)) . ' missing): a partial migration. Roll back and re-run.'),
         };
 
+        $checks[] = $this->integrationSettings();
         $checks[] = $this->laterColumns();
 
         $recorded = Schema::hasTable('migrations') ? DB::table('migrations')->whereIn('migration', self::MIGRATIONS)->pluck('migration')->all() : [];
@@ -151,8 +155,12 @@ class FulfillmentPreflight
         return $checks;
     }
 
-    /** @return list<PreflightCheck> */
-    public function runtime(): array
+    /**
+     * @param Request|null $request the web request the checks are shown from, when there is one (the Integration Center):
+     *                              some facts, such as the client address the application sees, exist only in a request
+     * @return list<PreflightCheck>
+     */
+    public function runtime(?Request $request = null): array
     {
         $checks = [];
         $enabled = (bool) config('fulfillment.enabled');
@@ -183,8 +191,13 @@ class FulfillmentPreflight
             ? $this->warn('runtime', 'cache', "driver '{$cache}' does not share locks between processes: the scheduler's overlap protection cannot work. Use file, database or redis.")
             : $this->pass('runtime', 'cache', "driver '{$cache}'");
 
+        $checks[] = $this->clientAddress($request);
         $checks[] = $this->heartbeat($enabled);
         $checks[] = $this->trackingFreshness($enabled);
+
+        if (!$this->settingsReady()) {
+            return $checks;
+        }
 
         foreach (ProviderCode::cases() as $provider) {
             $config = $this->connections->config($provider);
@@ -233,6 +246,31 @@ class FulfillmentPreflight
      * A webhook that never arrives and a status poll that returns nothing look exactly alike from the outside: an open
      * shipment that simply never moves. This is the one place that notices.
      */
+    /**
+     * The webhook rate limit and the optional IP allow-list use the client address the application sees. Behind a proxy that
+     * is not trusted that is the proxy's address, for every caller: one shared rate-limit bucket, and an allow-list that
+     * can never match.
+     */
+    private function clientAddress(?Request $request): PreflightCheck
+    {
+        if ($request === null) {
+            return $this->pass('runtime', 'client address', 'checked from the Integration Center (it needs a web request)');
+        }
+
+        $forwarded = $request->headers->get('X-Forwarded-For');
+        $remote = (string) $request->server->get('REMOTE_ADDR');
+
+        return $forwarded !== null && $request->ip() === $remote
+            ? $this->warn('runtime', 'client address', "this request came with X-Forwarded-For ({$forwarded}) but the application sees {$remote}: no proxy is trusted, so every webhook caller shares one rate-limit bucket and an IP allow-list cannot match. Set the trusted proxies (app/Http/Middleware/TrustProxies.php).")
+            : $this->pass('runtime', 'client address', 'the application sees ' . (string) $request->ip() . ($forwarded === null ? ' (a direct connection)' : ' (the real client, through a trusted proxy)'));
+    }
+
+    /** The provider settings live in a table the feature's own migration creates. */
+    private function settingsReady(): bool
+    {
+        return Schema::hasTable('integration_settings');
+    }
+
     private function trackingFreshness(bool $enabled): PreflightCheck
     {
         if (!$enabled || !Schema::hasTable('provider_fulfillments')) {
@@ -251,6 +289,25 @@ class FulfillmentPreflight
         return $stale === 0
             ? $this->pass('runtime', 'shipment tracking', "every open shipment has heard from its provider within {$hours} hours")
             : $this->warn('runtime', 'shipment tracking', "{$stale} open shipment(s) have had no update from their provider for over {$hours} hours. Check the webhook configuration and the status poll (M5AZN has no webhook: its tracking depends on the poll and a verified order field map).");
+    }
+
+    /**
+     * `integration_settings` comes with the installation dump and is shared with the platform's other integrations; our
+     * migration only creates it when it is absent. A table of a different shape would break the settings screens.
+     */
+    private function integrationSettings(): PreflightCheck
+    {
+        if (!$this->settingsReady()) {
+            return $this->pass('schema', 'integration_settings', 'not present yet: the migration creates it (the installation dump normally carries it)');
+        }
+
+        $required = ['id', 'provider', 'name', 'enabled', 'base_url', 'credentials', 'settings'];
+        $present = array_map(static fn (array $column): string => strtolower((string) $column['name']), Schema::getColumns('integration_settings'));
+        $missing = array_values(array_diff($required, $present));
+
+        return $missing === []
+            ? $this->pass('schema', 'integration_settings', 'has the columns the provider settings use')
+            : $this->fail('schema', 'integration_settings', 'missing columns: ' . implode(', ', $missing) . '. The settings screens need them; the migration does not alter an existing table.');
     }
 
     private function laterColumns(): PreflightCheck
@@ -313,7 +370,9 @@ class FulfillmentPreflight
                 : $this->fail('schema', 'storage engine', implode(', ', $notInnoDb) . ' is not InnoDB: row locks and transactions - which duplicate prevention relies on - do nothing on it. Convert to InnoDB first.');
 
             $collation = DB::table('information_schema.tables')->where('table_schema', $connection->getDatabaseName())->where('table_name', 'orders')->value('table_collation');
-            $checks[] = $this->pass('schema', 'collation', 'orders: ' . (string) $collation . ' (the integration joins on integer ids only)');
+            $checks[] = $collation === null
+                ? $this->pass('schema', 'collation', 'not checked: the orders table is missing (reported above)')
+                : $this->pass('schema', 'collation', 'orders: ' . (string) $collation . ' (the integration joins on integer ids only)');
         } else {
             $checks[] = $this->warn('schema', 'server version', "{$driver} {$version}: not MySQL, so engine and collation were not checked. Production runs MySQL.");
         }

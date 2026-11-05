@@ -40,14 +40,14 @@ class IntegrationCenterController extends Controller
     ) {
     }
 
-    public function index(): View
+    public function index(Request $request): View
     {
         $cards = collect(ProviderCode::cases())->map(fn (ProviderCode $code): array => $this->card($code));
 
         return view('admin-views.fulfillment.index', [
             'cards' => $cards,
             'globallyEnabled' => $this->connections->isGloballyEnabled(),
-            'systemChecks' => $this->preflight->runtime(),
+            'systemChecks' => $this->preflight->runtime(request: $request),
         ]);
     }
 

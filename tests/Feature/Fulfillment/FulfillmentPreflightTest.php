@@ -7,6 +7,7 @@ use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
 use App\Services\Fulfillment\Readiness\FulfillmentPreflight;
 use App\Services\Fulfillment\Readiness\PreflightCheck;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -89,6 +90,64 @@ class FulfillmentPreflightTest extends FulfillmentTestCase
         $this->assertSame(PreflightCheck::FAIL, $check->status);
         $this->assertStringContainsString('provider_fulfillments.cancel_blocked_reason', $check->detail);
         $this->assertStringContainsString('roll that one migration back', $check->detail);
+    }
+
+    public function test_a_database_with_none_of_the_feature_tables_is_reported_not_crashed_on(): void
+    {
+        foreach ([
+            'product_provider_changes', 'provider_city_aliases', 'provider_cities', 'provider_price_changes', 'provider_catalog_items',
+            'provider_product_mappings', 'provider_sync_states', 'provider_api_logs', 'provider_fulfillment_events',
+            'provider_fulfillment_items', 'provider_fulfillments', 'integration_settings',
+        ] as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        $checks = $this->report();
+
+        $this->assertSame(PreflightCheck::PASS, $this->find($checks, 'torod_point dispatch')->status, 'nothing can be live before there is a settings table');
+        $this->assertSame(PreflightCheck::PASS, $this->find($checks, 'fulfillment tables')->status);
+        $this->assertSame([], array_filter($checks, static fn (PreflightCheck $check): bool => str_contains($check->name, 'credentials')));
+    }
+
+    public function test_the_client_address_check_spots_a_proxy_that_is_not_trusted(): void
+    {
+        $find = fn (Request $request): PreflightCheck => $this->find(app(FulfillmentPreflight::class)->runtime($request), 'client address');
+
+        $direct = Request::create('/admin/fulfillment-providers', 'GET', server: ['REMOTE_ADDR' => '203.0.113.9']);
+        $this->assertSame(PreflightCheck::PASS, $find($direct)->status);
+
+        $behindUntrustedProxy = Request::create('/admin/fulfillment-providers', 'GET', server: ['REMOTE_ADDR' => '10.0.0.5', 'HTTP_X_FORWARDED_FOR' => '198.51.100.20']);
+        $check = $find($behindUntrustedProxy);
+        $this->assertSame(PreflightCheck::WARN, $check->status);
+        $this->assertStringContainsString('no proxy is trusted', $check->detail);
+
+        Request::setTrustedProxies(['10.0.0.5'], Request::HEADER_X_FORWARDED_FOR);
+        try {
+            $behindTrustedProxy = Request::create('/admin/fulfillment-providers', 'GET', server: ['REMOTE_ADDR' => '10.0.0.5', 'HTTP_X_FORWARDED_FOR' => '198.51.100.20']);
+            $this->assertSame(PreflightCheck::PASS, $find($behindTrustedProxy)->status);
+            $this->assertStringContainsString('198.51.100.20', $find($behindTrustedProxy)->detail);
+        } finally {
+            Request::setTrustedProxies([], Request::HEADER_X_FORWARDED_FOR);
+        }
+    }
+
+    public function test_the_command_line_run_says_the_client_address_is_checked_elsewhere(): void
+    {
+        $check = $this->find($this->report(), 'client address');
+
+        $this->assertSame(PreflightCheck::PASS, $check->status);
+        $this->assertStringContainsString('Integration Center', $check->detail);
+    }
+
+    public function test_a_shared_settings_table_of_a_different_shape_is_reported(): void
+    {
+        $this->assertSame(PreflightCheck::PASS, $this->find($this->report(), 'integration_settings')->status);
+
+        Schema::table('integration_settings', fn ($table) => $table->dropColumn('credentials'));
+
+        $check = $this->find($this->report(), 'integration_settings');
+        $this->assertSame(PreflightCheck::FAIL, $check->status);
+        $this->assertStringContainsString('credentials', $check->detail);
     }
 
     public function test_a_half_applied_migration_fails(): void
