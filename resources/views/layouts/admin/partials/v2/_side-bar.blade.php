@@ -1001,6 +1001,12 @@
                         <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('Other_Configuration') }}</span></span>
                         <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="other-config" aria-label="Pin"></button></div>
                     </a>
+                    @if (Route::has('admin.fulfillment-providers.index'))
+                        <a class="v2-nav-item {{ Request::is('admin/fulfillment-providers*') ? 'v2-is-active' : '' }}" data-item="fulfillment-providers" href="{{ route('admin.fulfillment-providers.index') }}">
+                            <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('Fulfillment_Providers') }}</span></span>
+                            <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="fulfillment-providers" aria-label="Pin"></button></div>
+                        </a>
+                    @endif
                 </div>
             @endif
 

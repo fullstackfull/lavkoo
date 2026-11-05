@@ -1,0 +1,48 @@
+<?php
+
+use App\Http\Controllers\Admin\Fulfillment\IntegrationCenterController;
+use App\Http\Controllers\Admin\Fulfillment\M5aznProductsController;
+use App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController;
+use App\Http\Controllers\Admin\Fulfillment\TorodMatchingController;
+use Illuminate\Support\Facades\Route;
+
+/*
+| Fulfillment providers (M5AZN, Torod Point) — Integration Center and its pages.
+|
+| Same guard as the other third-party settings: an authenticated admin with the `3rd_party_setup` module.
+| Credentials are write-only on these screens; no response ever carries a stored secret.
+*/
+Route::group([
+    'prefix' => 'admin/fulfillment-providers',
+    'as' => 'admin.fulfillment-providers.',
+    'middleware' => ['admin', 'actch:admin_panel', 'module:3rd_party_setup'],
+], function () {
+    Route::get('/', [IntegrationCenterController::class, 'index'])->name('index');
+
+    Route::get('fulfillments', [ProviderFulfillmentController::class, 'index'])->name('fulfillments.index');
+    Route::get('fulfillments/{id}', [ProviderFulfillmentController::class, 'show'])->whereNumber('id')->name('fulfillments.show');
+    Route::post('fulfillments/{id}/{action}', [ProviderFulfillmentController::class, 'action'])->whereNumber('id')->name('fulfillments.action');
+    Route::get('fulfillments/{id}/label', [ProviderFulfillmentController::class, 'label'])->whereNumber('id')->name('fulfillments.label');
+    Route::get('logs', [ProviderFulfillmentController::class, 'logs'])->name('logs');
+
+    Route::get('m5azn/products', [M5aznProductsController::class, 'index'])->name('m5azn.products');
+    Route::post('m5azn/products/import-all', [M5aznProductsController::class, 'importAll'])->name('m5azn.import-all');
+    Route::post('m5azn/products/{item}/import', [M5aznProductsController::class, 'import'])->whereNumber('item')->name('m5azn.import');
+
+    Route::get('torod-point/matching', [TorodMatchingController::class, 'index'])->name('torod.matching');
+    Route::post('torod-point/matching/approve', [TorodMatchingController::class, 'approve'])->name('torod.approve');
+    Route::post('torod-point/matching/{mapping}/retire', [TorodMatchingController::class, 'retire'])->whereNumber('mapping')->name('torod.retire');
+    Route::post('torod-point/matching/stock', [TorodMatchingController::class, 'stock'])->name('torod.stock');
+    Route::post('torod-point/matching/push', [TorodMatchingController::class, 'push'])->name('torod.push');
+    Route::post('torod-point/cities/alias', [TorodMatchingController::class, 'alias'])->name('torod.alias');
+    Route::get('torod-point/cities/search', [TorodMatchingController::class, 'citySearch'])->name('torod.cities.search');
+    Route::get('torod-point/products/search', [TorodMatchingController::class, 'productSearch'])->name('torod.products.search');
+
+    Route::get('{provider}', [IntegrationCenterController::class, 'show'])->whereIn('provider', ['m5azn', 'torod-point'])->name('show');
+    Route::post('{provider}', [IntegrationCenterController::class, 'update'])->whereIn('provider', ['m5azn', 'torod-point'])->name('update');
+    Route::post('{provider}/test', [IntegrationCenterController::class, 'test'])->whereIn('provider', ['m5azn', 'torod-point'])->name('test');
+    Route::post('{provider}/webhook-secret', [IntegrationCenterController::class, 'rotateSecret'])->whereIn('provider', ['m5azn', 'torod-point'])->name('rotate-secret');
+    Route::post('{provider}/sync/{task}', [IntegrationCenterController::class, 'sync'])->whereIn('provider', ['m5azn', 'torod-point'])->name('sync');
+    Route::post('{provider}/field-map/{capability}/sample', [IntegrationCenterController::class, 'fieldMapSample'])->whereIn('provider', ['m5azn', 'torod-point'])->name('field-map.sample');
+    Route::post('{provider}/field-map/{capability}', [IntegrationCenterController::class, 'fieldMapSave'])->whereIn('provider', ['m5azn', 'torod-point'])->name('field-map.save');
+});

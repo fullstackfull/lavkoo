@@ -1153,6 +1153,8 @@
                         @endif
                     </div>
                 </div>
+                @include('admin-views.order._fulfillments-card', ['order' => $order])
+
                 @php($billing=$order['billing_address_data'])
 
                 <div class="card">

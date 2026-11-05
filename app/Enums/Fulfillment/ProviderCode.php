@@ -17,6 +17,17 @@ enum ProviderCode: string
         return array_map(static fn (self $code): string => $code->value, self::cases());
     }
 
+    /** URL form of a provider code: 'torod_point' ⇄ 'torod-point'. */
+    public static function fromSlug(string $slug): ?self
+    {
+        return self::tryFrom(str_replace('-', '_', $slug));
+    }
+
+    public function slug(): string
+    {
+        return str_replace('_', '-', $this->value);
+    }
+
     public static function isKnown(?string $value): bool
     {
         return $value !== null && self::tryFrom($value) !== null;

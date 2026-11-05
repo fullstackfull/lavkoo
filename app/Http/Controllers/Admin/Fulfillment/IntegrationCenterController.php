@@ -1,0 +1,236 @@
+<?php
+
+namespace App\Http\Controllers\Admin\Fulfillment;
+
+use App\Contracts\Repositories\CategoryRepositoryInterface;
+use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\ProviderCode;
+use App\Http\Controllers\Controller;
+use App\Models\ProviderApiLog;
+use App\Models\ProviderFulfillment;
+use App\Models\ProviderSyncState;
+use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\FieldMapDefinitions;
+use App\Services\Fulfillment\FieldMapStore;
+use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderRegistry;
+use App\Services\Fulfillment\ProviderSettingsForm;
+use App\Services\Fulfillment\ProviderSyncService;
+use App\Services\Fulfillment\Support\FieldMap;
+use Devrabiul\ToastMagic\Facades\ToastMagic;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+
+/** The Integration Center: every fulfillment provider's connection, switches, health and operational logs in one place. */
+class IntegrationCenterController extends Controller
+{
+    public function __construct(
+        private readonly ProviderRegistry $registry,
+        private readonly ProviderConnectionManager $connections,
+        private readonly ProviderSettingsForm $form,
+        private readonly FieldMapStore $fieldMaps,
+        private readonly FieldMapDefinitions $definitions,
+        private readonly ProviderSyncService $sync,
+        private readonly CategoryRepositoryInterface $categories,
+    ) {
+    }
+
+    public function index(): View
+    {
+        $cards = collect(ProviderCode::cases())->map(fn (ProviderCode $code): array => $this->card($code));
+
+        return view('admin-views.fulfillment.index', [
+            'cards' => $cards,
+            'globallyEnabled' => $this->connections->isGloballyEnabled(),
+        ]);
+    }
+
+    public function show(string $provider): View
+    {
+        $code = $this->resolve($provider);
+        $config = $this->connections->config($code);
+        $maps = [];
+        foreach ($this->definitions->for($code) as $capability => $definition) {
+            $stored = $this->fieldMaps->get($code, $capability);
+            $maps[$capability] = $definition + ['stored' => $stored];
+        }
+
+        return view('admin-views.fulfillment.provider', [
+            'card' => $this->card($code),
+            'code' => $code,
+            'config' => $config,
+            'secrets' => $config->toDisplayArray()['secrets_configured'],
+            'defaults' => $this->registry->defaultSettings($code),
+            'maps' => $maps,
+            'webhookUrls' => $this->webhookUrls($code, $config->secret('webhook_secret')),
+            'revealedSecret' => session('webhook_secret_once'),
+            'recentLogs' => ProviderApiLog::where('provider', $code->value)->latest('id')->limit(15)->get(),
+            'statuses' => ['pending', 'confirmed', 'processing', 'out_for_delivery'],
+            'defaultCompanyId' => config('fulfillment.providers.' . $code->value . '.default_company_id'),
+            'importCategories' => $code === ProviderCode::M5azn ? $this->categories->getListWhere(filters: ['position' => 0], dataLimit: 'all') : collect(),
+        ]);
+    }
+
+    public function update(Request $request, string $provider): RedirectResponse
+    {
+        $code = $this->resolve($provider);
+        $request->validate($this->form->rules($code));
+
+        $data = $this->form->extract($code, $request, $this->connections->config($code));
+        $this->connections->save($code, $data['enabled'], $data['baseUrl'], $data['settings'], $data['secrets'], $data['clearSecrets']);
+
+        ToastMagic::success(translate('settings_saved_successfully'));
+
+        return redirect()->route('admin.fulfillment-providers.show', $code->slug());
+    }
+
+    public function test(string $provider): RedirectResponse
+    {
+        $code = $this->resolve($provider);
+
+        try {
+            $result = $this->registry->adapter($code)->testConnection();
+        } catch (ProviderUnavailableException $exception) {
+            ToastMagic::warning($exception->getMessage());
+
+            return back();
+        }
+
+        $result->ok ? ToastMagic::success(translate('connection_test_passed') . ': ' . $result->message) : ToastMagic::error(translate('connection_test_failed') . ': ' . $result->message);
+
+        return back();
+    }
+
+    public function rotateSecret(string $provider): RedirectResponse
+    {
+        $code = $this->resolve($provider);
+        $secret = $this->connections->rotateWebhookSecret($code);
+
+        ToastMagic::success(translate('webhook_secret_generated_copy_the_urls_now'));
+
+        return redirect()->route('admin.fulfillment-providers.show', $code->slug())->with('webhook_secret_once', $secret);
+    }
+
+    public function sync(string $provider, string $task): RedirectResponse
+    {
+        $code = $this->resolve($provider);
+        abort_unless(in_array($task, [ProviderSyncService::PRODUCTS, ProviderSyncService::INVENTORY, ProviderSyncService::CITIES], true), 404);
+
+        $result = $this->sync->run($code, [$task])[$task];
+        $ok = (bool) ($result['ok'] ?? false);
+        $detail = $ok ? json_encode($result['stats'] ?? $result['count'] ?? []) : (string) ($result['error'] ?? '');
+        $ok ? ToastMagic::success(translate('sync_completed') . ' ' . $detail) : ToastMagic::warning(translate('sync_did_not_run') . ': ' . $detail);
+
+        return back();
+    }
+
+    /** POST …/field-map/{capability}/sample — a read-only look at what the provider really returns. */
+    public function fieldMapSample(string $provider, string $capability): JsonResponse
+    {
+        $code = $this->resolve($provider);
+        abort_unless($this->definitions->has($code, $capability), 404);
+
+        try {
+            $adapter = $this->registry->adapter($code);
+            abort_unless(method_exists($adapter, 'sample'), 404);
+
+            return response()->json($adapter->sample($capability));
+        } catch (ProviderUnavailableException $exception) {
+            return response()->json(['ok' => false, 'error' => $exception->getMessage()], 409);
+        }
+    }
+
+    /** POST …/field-map/{capability} — save the map; with `verify`, check it against a FRESH sample fetched here. */
+    public function fieldMapSave(Request $request, string $provider, string $capability): RedirectResponse
+    {
+        $code = $this->resolve($provider);
+        abort_unless($this->definitions->has($code, $capability), 404);
+        $definition = $this->definitions->for($code)[$capability];
+
+        $validated = $request->validate([
+            'paths' => ['nullable', 'array'],
+            'paths.*' => ['nullable', 'string', 'max:120', 'regex:/^[A-Za-z0-9_.\-\[\]]*$/'],
+            'items_path' => ['nullable', 'string', 'max:120', 'regex:/^[A-Za-z0-9_.\-]*$/'],
+        ]);
+
+        $paths = array_intersect_key((array) ($validated['paths'] ?? []), array_flip($definition['fields']));
+        $this->fieldMaps->save($code, $capability, $paths, $validated['items_path'] ?? null);
+
+        if (!$request->boolean('verify')) {
+            ToastMagic::success(translate('field_map_saved_not_verified'));
+
+            return back();
+        }
+
+        try {
+            $sample = $this->registry->adapter($code)->sample($capability);
+        } catch (ProviderUnavailableException $exception) {
+            ToastMagic::warning($exception->getMessage());
+
+            return back();
+        }
+
+        $items = $sample['ok'] ? FieldMap::extractItems(['data' => $sample['items']], 'data') ?? [] : [];
+        $problems = $this->fieldMaps->verify($code, $capability, $items, $definition['required']);
+        $problems === []
+            ? ToastMagic::success(translate('field_map_verified'))
+            : ToastMagic::error(translate('field_map_not_verified') . ': ' . implode(', ', $problems));
+
+        return back();
+    }
+
+    /** @return array<string, mixed> */
+    private function card(ProviderCode $code): array
+    {
+        $config = $this->connections->config($code);
+        $readiness = $this->registry->adapter($code)->readiness();
+        $states = ProviderSyncState::where('provider', $code->value)->get()->keyBy('capability');
+        $byStatus = ProviderFulfillment::where('provider', $code->value)->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status');
+
+        return [
+            'code' => $code,
+            'slug' => $code->slug(),
+            'label' => $code->label(),
+            'role' => config('fulfillment.providers.' . $code->value . '.role'),
+            'enabled' => $config->enabled,
+            'dispatchEnabled' => $config->bool('dispatch_enabled'),
+            'dryRun' => $config->bool('dry_run', true),
+            'goLiveAt' => $config->get('go_live_at'),
+            'baseUrl' => $config->baseUrl,
+            'companyId' => $config->string('company_id'),
+            'readiness' => $readiness,
+            'documented' => (array) config('fulfillment.providers.' . $code->value . '.documented'),
+            'states' => $states,
+            'open' => (int) collect(FulfillmentStatus::activeValues())->sum(static fn (string $status): int => (int) ($byStatus[$status] ?? 0)),
+            'held' => (int) ($byStatus[FulfillmentStatus::Held->value] ?? 0),
+            'failed' => (int) ($byStatus[FulfillmentStatus::Failed->value] ?? 0),
+            'unknown' => (int) ($byStatus[FulfillmentStatus::ReconcilePending->value] ?? 0),
+            'lastError' => $states->filter(static fn ($state): bool => $state->last_error !== null)->sortByDesc('last_failure_at')->first(),
+            'webhookConfigured' => $config->hasSecret('webhook_secret'),
+        ];
+    }
+
+    /** @return array<string, string> type => URL; the secret is masked unless it was just generated */
+    private function webhookUrls(ProviderCode $code, ?string $secret): array
+    {
+        if ($code !== ProviderCode::TorodPoint || $secret === null) {
+            return [];
+        }
+
+        $reveal = (string) session('webhook_secret_once', '');
+        $shown = $reveal !== '' ? $reveal : '••••••••' . substr($secret, -4);
+        $urls = [];
+        foreach (['lastmile', 'fulfillment'] as $type) {
+            $urls[$type] = url("/api/fulfillment-webhooks/{$code->slug()}/{$shown}/{$type}");
+        }
+
+        return $urls;
+    }
+
+    private function resolve(string $provider): ProviderCode
+    {
+        return ProviderCode::fromSlug($provider) ?? abort(404);
+    }
+}

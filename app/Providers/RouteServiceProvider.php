@@ -57,6 +57,7 @@ class RouteServiceProvider extends ServiceProvider
         //$this->mapUpdateRoutes();
 
         $this->mapBetaAdminRoutes();
+        $this->mapFulfillmentAdminRoutes();
         $this->mapBetaVendorRoutes();
         $this->mapSellerCenterRoutes();
         $this->mapBetaWebRoutes();
@@ -176,6 +177,14 @@ class RouteServiceProvider extends ServiceProvider
             ->namespace($this->namespace)
             ->group(base_path('routes/admin/routes.php'));
     }
+    /** Integration Center and the M5AZN / Torod Point admin pages. */
+    protected function mapFulfillmentAdminRoutes(): void
+    {
+        Route::middleware('web')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/admin/fulfillment.php'));
+    }
+
     protected function mapBetaVendorRoutes(): void
     {
         Route::middleware('web')
