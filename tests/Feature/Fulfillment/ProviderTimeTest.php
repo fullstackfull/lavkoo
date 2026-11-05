@@ -63,4 +63,35 @@ class ProviderTimeTest extends TorodTestCase
         $this->assertSame('Asia/Riyadh', $converted->getTimezone()->getName());
         $this->assertSame('2026-03-01 12:00:00', $converted->format('Y-m-d H:i:s'));
     }
+
+    /** The production situation: config/app.php says Asia/Dhaka, the merchant's own setting says otherwise and wins at runtime. */
+    public function test_the_zone_in_force_not_the_configured_one_decides_how_instants_are_stored(): void
+    {
+        config(['app.timezone' => 'Asia/Dhaka']);
+        date_default_timezone_set('Asia/Kuwait');
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['status' => FulfillmentStatus::Submitted])->save();
+        $tracker = app(ShipmentTracker::class);
+        $outForDelivery = Carbon::parse('2026-03-01 09:00:00', 'UTC');
+        $delivered = Carbon::parse('2026-03-01 10:00:00', 'UTC');
+
+        $tracker->applyProviderStatus($fulfillment->id, FulfillmentStatus::OutForDelivery, $outForDelivery, 'webhook', 'OUT_FOR_DELIVERY');
+        $this->assertSame($outForDelivery->getTimestamp(), $fulfillment->fresh()->last_event_at->getTimestamp(), 'the instant round-trips even though the two zones differ');
+
+        $outcome = $tracker->applyProviderStatus($fulfillment->id, FulfillmentStatus::Delivered, $delivered, 'webhook', 'DELIVERED_TO_RECIPIENT');
+
+        $this->assertNotSame('ignored_stale', $outcome, 'a genuinely later event is not refused as stale');
+        $this->assertSame(FulfillmentStatus::Delivered, $fulfillment->fresh()->status);
+        $this->assertSame($delivered->getTimestamp(), $fulfillment->fresh()->delivered_at->getTimestamp());
+    }
+
+    public function test_milliseconds_use_the_zone_in_force_too(): void
+    {
+        config(['app.timezone' => 'Asia/Dhaka']);
+        date_default_timezone_set('Asia/Kuwait');
+
+        $converted = \App\Services\Fulfillment\Support\AppTime::fromMilliseconds(Carbon::parse('2026-03-01 09:00:00', 'UTC')->getTimestamp() * 1000);
+
+        $this->assertSame('Asia/Kuwait', $converted->getTimezone()->getName());
+    }
 }

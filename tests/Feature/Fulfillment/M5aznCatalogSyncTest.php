@@ -240,6 +240,63 @@ class M5aznCatalogSyncTest extends M5aznTestCase
         $this->assertSame(7, (int) DB::table('products')->where('id', 1)->value('current_stock'), '10 at the provider minus 3 sold and not yet handed over');
     }
 
+    /** Stock 10 at M5AZN, one order of 3 in the given condition: what the store should show after a sync. */
+    private function storeStockAfterSyncWithOrder(array $orderOverrides, ?callable $shape = null): int
+    {
+        $this->makeProduct(1, ProviderCode::M5azn, ['current_stock' => 7]);
+        $this->mapProduct(1, '1947201');
+        $this->makeOrder(100, $orderOverrides);
+        $this->addLine(100, 1, 3, 60, ProviderCode::M5azn);
+        $shape !== null && $shape();
+        $this->verifyMap('inventory', ['id' => 'id', 'stock' => 'quantity'], [['id' => 1, 'quantity' => 5]], itemsPath: 'data');
+        Http::fake([
+            self::BASE . '/api/v1/auth/login' => $this->loginResponse(),
+            self::BASE . '/api/v1/products/qty-changed*' => Http::response(['data' => [['id' => 1947201, 'quantity' => 10]]]),
+        ]);
+
+        $this->adapter()->syncInventory();
+
+        return (int) DB::table('products')->where('id', 1)->value('current_stock');
+    }
+
+    public function test_units_in_an_order_that_has_not_been_routed_yet_stay_reserved(): void
+    {
+        // A cash-on-delivery order waiting to be confirmed: the store already took 3 at checkout.
+        $stock = $this->storeStockAfterSyncWithOrder(['order_status' => 'pending', 'payment_method' => 'cash_on_delivery', 'payment_status' => 'unpaid']);
+
+        $this->assertSame(7, $stock, 'a sync must not hand the 3 back to the next customer');
+    }
+
+    public function test_units_in_a_shipment_the_provider_refused_stay_reserved_until_a_person_resolves_it(): void
+    {
+        $stock = $this->storeStockAfterSyncWithOrder([], function (): void {
+            app(\App\Services\Fulfillment\FulfillmentRouter::class)->route(100);
+            \App\Models\ProviderFulfillment::query()->update(['status' => \App\Enums\Fulfillment\FulfillmentStatus::Failed]);
+        });
+
+        $this->assertSame(7, $stock);
+    }
+
+    public function test_units_the_provider_already_holds_are_the_providers_to_count(): void
+    {
+        $stock = $this->storeStockAfterSyncWithOrder([], function (): void {
+            app(\App\Services\Fulfillment\FulfillmentRouter::class)->route(100);
+            \App\Models\ProviderFulfillment::query()->update(['status' => \App\Enums\Fulfillment\FulfillmentStatus::Submitted]);
+        });
+
+        $this->assertSame(10, $stock, 'M5AZN\'s own number already reflects an order it accepted');
+    }
+
+    public function test_units_in_a_cancelled_order_are_not_reserved(): void
+    {
+        $this->assertSame(10, $this->storeStockAfterSyncWithOrder(['order_status' => 'canceled']));
+    }
+
+    public function test_units_in_a_delivered_order_are_not_reserved(): void
+    {
+        $this->assertSame(10, $this->storeStockAfterSyncWithOrder(['order_status' => 'delivered']));
+    }
+
     public function test_syncing_the_same_numbers_twice_changes_nothing_the_second_time(): void
     {
         $this->makeProduct(1, ProviderCode::M5azn, ['current_stock' => 1]);

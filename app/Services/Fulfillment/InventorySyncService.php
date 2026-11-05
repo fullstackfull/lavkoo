@@ -6,6 +6,7 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
+use App\Models\ProviderFulfillmentItem;
 use App\Models\ProviderProductMapping;
 use App\Models\StockMovement;
 use App\Services\Marketplace\InventoryService;
@@ -15,8 +16,8 @@ use Illuminate\Support\Facades\DB;
  * Brings the storefront's stock in line with a provider's real stock — for products whose stock the
  * provider owns, and only from a source that has been verified.
  *
- * Available to sell = what the provider reports, minus what we have already sold to customers but not yet
- * handed to the provider (pending / held / in-flight dispatches). Without that subtraction a sync landing
+ * Available to sell = what the provider reports, minus what we have already sold to customers but the provider
+ * has not taken on yet (unrouted, pending, held, in-flight, failed). Without that subtraction a sync landing
  * between "order placed" and "order accepted" would put the stock back up and oversell it.
  *
  * Stock and price changes go through one locked write per product, log a stock movement, and are
@@ -26,7 +27,7 @@ class InventorySyncService
 {
     private const NOT_YET_WITH_PROVIDER = [
         FulfillmentStatus::Pending, FulfillmentStatus::Held, FulfillmentStatus::Dispatching,
-        FulfillmentStatus::ReconcilePending, FulfillmentStatus::RetryWait, FulfillmentStatus::DryRun,
+        FulfillmentStatus::ReconcilePending, FulfillmentStatus::RetryWait, FulfillmentStatus::DryRun, FulfillmentStatus::Failed,
     ];
 
     public function __construct(private readonly InventoryService $inventory)
@@ -73,15 +74,28 @@ class InventorySyncService
         return $stats;
     }
 
-    /** Units sold to customers for this product/variant that the provider has not accepted yet. */
+    /**
+     * Units sold to customers, on orders still open, that the provider has not taken on yet.
+     *
+     * That is every non-cancelled provider line whose shipment has not been accepted: lines of an order that
+     * has not been routed at all (a cash-on-delivery order waiting to be confirmed is the normal case), and lines
+     * in a pending / held / in-flight / dry-run / failed shipment. A line the provider already holds is the
+     * provider's to count in its own stock. Leaving the unrouted ones out would let a sync put stock back up
+     * that a customer has already bought, oversell it, and then have a cancellation restore it a second time.
+     */
     public function reservedNotYetWithProvider(ProviderCode $provider, int $productId, string $variantKey): int
     {
         return (int) DB::table('provider_fulfillment_items as items')
-            ->join('provider_fulfillments as pf', 'pf.id', '=', 'items.provider_fulfillment_id')
+            ->join('orders', 'orders.id', '=', 'items.order_id')
+            ->leftJoin('provider_fulfillments as pf', 'pf.id', '=', 'items.provider_fulfillment_id')
             ->where('items.provider', $provider->value)
             ->where('items.product_id', $productId)
             ->where('items.variant_key', $variantKey)
-            ->whereIn('pf.status', array_map(static fn (FulfillmentStatus $status): string => $status->value, self::NOT_YET_WITH_PROVIDER))
+            ->where('items.status', '!=', ProviderFulfillmentItem::STATUS_CANCELLED)
+            ->whereNotIn('orders.order_status', OrderEligibility::FINISHED_STATUSES)
+            ->where(static fn ($query) => $query
+                ->whereNull('items.provider_fulfillment_id')
+                ->orWhereIn('pf.status', array_map(static fn (FulfillmentStatus $status): string => $status->value, self::NOT_YET_WITH_PROVIDER)))
             ->sum('items.quantity');
     }
 
