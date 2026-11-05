@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\Fulfillment\IntegrationCenterController;
+use App\Http\Controllers\Admin\Fulfillment\LiveVerificationController;
 use App\Http\Controllers\Admin\Fulfillment\M5aznProductsController;
 use App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController;
 use App\Http\Controllers\Admin\Fulfillment\TorodMatchingController;
@@ -46,6 +47,9 @@ Route::group([
     Route::post('{provider}/test', [IntegrationCenterController::class, 'test'])->whereIn('provider', ['m5azn', 'torod-point'])->middleware('throttle:10,1')->name('test');
     Route::post('{provider}/webhook-secret', [IntegrationCenterController::class, 'rotateSecret'])->whereIn('provider', ['m5azn', 'torod-point'])->name('rotate-secret');
     Route::post('{provider}/sync/{task}', [IntegrationCenterController::class, 'sync'])->whereIn('provider', ['m5azn', 'torod-point'])->middleware('throttle:6,1')->name('sync');
+    // Read-only questions to the provider (products, order list, stock): each run asks about ten things, so a few runs a minute is plenty.
+    Route::post('{provider}/verification', [LiveVerificationController::class, 'run'])->whereIn('provider', ['m5azn', 'torod-point'])->middleware('throttle:3,1')->name('verification.run');
+    Route::get('{provider}/verification/{run}', [LiveVerificationController::class, 'download'])->whereIn('provider', ['m5azn', 'torod-point'])->where('run', '[A-Za-z0-9_]+')->name('verification.download');
     Route::post('{provider}/field-map/{capability}/sample', [IntegrationCenterController::class, 'fieldMapSample'])->whereIn('provider', ['m5azn', 'torod-point'])->middleware('throttle:10,1')->name('field-map.sample');
     Route::post('{provider}/field-map/{capability}', [IntegrationCenterController::class, 'fieldMapSave'])->whereIn('provider', ['m5azn', 'torod-point'])->name('field-map.save');
 });

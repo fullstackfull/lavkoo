@@ -30,6 +30,7 @@ use App\Services\Fulfillment\Support\HttpResult;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use App\Services\Fulfillment\Support\StoredFieldMap;
 use Illuminate\Support\Arr;
@@ -499,7 +500,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
 
         return [
             'ok' => true,
-            'items' => SecretRedactor::redact($items),
+            'items' => PiiRedactor::redact(SecretRedactor::redact($items), strict: $capability === M5aznFieldMaps::ORDERS),
             'proposal' => $this->fieldMaps->propose($items, M5aznFieldMaps::CANDIDATES[$capability] ?? []),
             'items_path' => $stored->itemsPath,
         ];

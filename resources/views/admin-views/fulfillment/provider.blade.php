@@ -115,6 +115,8 @@
                     </div>
                 </form>
 
+                @include('admin-views.fulfillment.partials._live-verification')
+
                 @if (!$isM5azn)
                     <x-k.card :title="translate('webhooks')" class="mb-3">
                         <p class="fs-12 text-muted">{{ translate('torod_webhooks_help') }}</p>

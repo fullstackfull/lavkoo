@@ -20,6 +20,7 @@ final class ProviderSyncRecorder
     public const WEBHOOKS = 'webhooks';
     public const CITIES = 'cities';
     public const RECONCILIATION = 'reconciliation';
+    public const LIVE_VERIFICATION = 'live_verification';
 
     /** Not a provider: the per-minute sweep's heartbeat is recorded under this owner so a stopped scheduler is visible. */
     public const SYSTEM = 'system';

@@ -35,6 +35,7 @@ use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -618,7 +619,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         return [
             'ok' => true,
-            'items' => SecretRedactor::redact($items),
+            'items' => PiiRedactor::redact(SecretRedactor::redact($items), strict: $capability === TorodFieldMaps::ORDERS),
             'proposal' => $this->fieldMaps->propose($items, TorodFieldMaps::CANDIDATES[$capability] ?? []),
             'items_path' => $stored->itemsPath,
         ];

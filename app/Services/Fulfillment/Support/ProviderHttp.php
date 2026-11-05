@@ -165,11 +165,11 @@ class ProviderHttp
     ): void {
         try {
             $maxBytes = (int) config('fulfillment.logs.max_body_bytes', 8192);
-            $request = SecretRedactor::redact(array_filter([
+            $request = PiiRedactor::redact(SecretRedactor::redact(array_filter([
                 'headers' => $headers,
                 'query' => $query,
                 'body' => $json,
-            ], static fn ($value): bool => $value !== [] && $value !== null));
+            ], static fn ($value): bool => $value !== [] && $value !== null)));
 
             if (strlen((string) json_encode($request)) > $maxBytes * 2) {
                 $request = ['_truncated' => SecretRedactor::truncate((string) json_encode($request), $maxBytes)];
@@ -185,12 +185,12 @@ class ProviderHttp
                 'request_summary' => $request === [] ? null : $request,
                 'response_status' => $result->status,
                 'response_summary' => SecretRedactor::truncate(
-                    SecretRedactor::redactString(json_encode(SecretRedactor::redact($result->json ?? $result->body)) ?: ''),
+                    SecretRedactor::redactString(json_encode(PiiRedactor::redact(SecretRedactor::redact($result->json ?? PiiRedactor::redactText($result->body)))) ?: ''),
                     $maxBytes,
                 ),
                 'success' => $result->ok(),
                 'error_class' => $result->ok() ? null : $result->kind,
-                'error_message' => $result->ok() ? null : SecretRedactor::truncate($result->message(), 500),
+                'error_message' => $result->ok() ? null : SecretRedactor::truncate(PiiRedactor::redactText($result->message()), 500),
                 'duration_ms' => $result->durationMs,
             ]);
         } catch (Throwable $exception) {

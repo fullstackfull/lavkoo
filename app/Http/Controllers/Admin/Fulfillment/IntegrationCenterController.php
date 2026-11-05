@@ -19,6 +19,7 @@ use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\ProviderSettingsForm;
 use App\Services\Fulfillment\ProviderSyncService;
 use App\Services\Fulfillment\Support\FieldMap;
+use App\Services\Fulfillment\Verification\EvidenceStore;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -37,6 +38,7 @@ class IntegrationCenterController extends Controller
         private readonly ProviderSyncService $sync,
         private readonly CategoryRepositoryInterface $categories,
         private readonly FulfillmentPreflight $preflight,
+        private readonly EvidenceStore $evidence,
     ) {
     }
 
@@ -64,6 +66,8 @@ class IntegrationCenterController extends Controller
         return view('admin-views.fulfillment.provider', [
             'card' => $this->card($code),
             'integrationMode' => $this->connections->mode(),
+            'verificationRuns' => $this->evidence->recent($code->value),
+            'latestVerification' => ($latest = $this->evidence->recent($code->value, 1)[0] ?? null) === null ? null : $this->evidence->find($code->value, $latest['run_id']),
             'code' => $code,
             'config' => $config,
             'secrets' => $config->toDisplayArray()['secrets_configured'],
