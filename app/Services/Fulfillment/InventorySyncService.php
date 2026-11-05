@@ -115,7 +115,8 @@ class InventorySyncService
             $found = false;
             foreach ($variations as &$variation) {
                 if (($variation['type'] ?? null) === $mapping->variant_key) {
-                    $variation['qty'] = $available;
+                    // A variant without a price is not for sale; the provider having stock of it must not make it free.
+                    $variation['qty'] = (float) ($variation['price'] ?? 0) > 0 ? $available : 0;
                     $found = true;
                 }
             }

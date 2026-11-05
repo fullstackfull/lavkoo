@@ -71,6 +71,7 @@ class ProviderConnectionManager
     }
 
     /**
+     * @param string|null $baseUrl null keeps the stored address; an empty string resets it to the provider's default
      * @param array<string, mixed> $settings non-secret values to merge over the stored ones
      * @param array<string, string|null> $secrets only non-empty values replace a stored secret
      * @param list<string> $clearSecrets secrets to wipe explicitly
@@ -114,7 +115,7 @@ class ProviderConnectionManager
 
             $row->name = config('fulfillment.providers.' . $provider->value . '.label', $provider->value);
             $row->enabled = $enabled;
-            $row->base_url = $baseUrl !== null && $baseUrl !== '' ? rtrim($baseUrl, '/') : null;
+            $row->base_url = $baseUrl === null ? $row->base_url : ($baseUrl === '' ? null : rtrim($baseUrl, '/'));
             $row->settings = $merged;
             $row->credentials = $credentials === [] ? null : Crypt::encryptString(json_encode($credentials, JSON_THROW_ON_ERROR));
             $row->save();

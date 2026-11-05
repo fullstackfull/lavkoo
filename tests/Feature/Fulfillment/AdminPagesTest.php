@@ -19,6 +19,7 @@ use App\Models\ProviderProductMapping;
 use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 
 class AdminPagesTest extends AdminPagesTestCase
@@ -166,6 +167,61 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->assertStringNotContainsString('evil', app(ProviderConnectionManager::class)->config(ProviderCode::M5azn)->baseUrl);
         $this->assertStringNotContainsString('evil', app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->string('lastmile_base_url'));
         $this->assertSame('714', app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->string('company_id'), 'a refused save changes nothing');
+    }
+
+    public function test_a_failed_save_does_not_copy_credentials_into_the_session(): void
+    {
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), [
+            'company_id' => 'not a number',
+            'fulfillment_username' => 'wh-user', 'fulfillment_password' => 'wh-pass-secret', 'lastmile_email' => 'lm@secret.test', 'lastmile_password' => 'lm-pass-secret',
+        ])->assertSessionHasErrors('company_id');
+
+        $flashed = (array) session()->getOldInput();
+        $this->assertArrayHasKey('company_id', $flashed, 'ordinary fields are still flashed so the form can be corrected');
+        foreach (['fulfillment_username', 'fulfillment_password', 'lastmile_email', 'lastmile_password'] as $secret) {
+            $this->assertArrayNotHasKey($secret, $flashed, "{$secret} must never be written to the session store");
+        }
+    }
+
+    public function test_the_base_url_is_kept_unless_the_form_says_otherwise(): void
+    {
+        $manager = app(ProviderConnectionManager::class);
+        $this->post(route('admin.fulfillment-providers.update', 'm5azn'), ['enabled' => 1, 'base_url' => 'https://staging.m5azn.com/api'])->assertSessionHasNoErrors();
+        $this->assertSame('https://staging.m5azn.com/api', $manager->config(ProviderCode::M5azn)->baseUrl);
+
+        $manager->rotateWebhookSecret(ProviderCode::M5azn);
+        $this->assertSame('https://staging.m5azn.com/api', $manager->config(ProviderCode::M5azn)->baseUrl, 'rotating the webhook secret must not wipe the address');
+
+        $this->post(route('admin.fulfillment-providers.update', 'm5azn'), ['enabled' => 1, 'base_url' => ''])->assertSessionHasNoErrors();
+        $this->assertSame(config('fulfillment.providers.m5azn.default_base_url'), $manager->config(ProviderCode::M5azn)->baseUrl, 'a blank field resets to the provider default');
+    }
+
+    public function test_the_webhook_allow_list_must_be_addresses_or_cidr_ranges(): void
+    {
+        foreach (['203.0.113.7, not-an-ip', '203.0.113.0/33', '2001:db8::/129', '203.0.113.0/abc'] as $bad) {
+            $this->post(route('admin.fulfillment-providers.update', 'torod-point'), ['enabled' => 1, 'webhook_ip_allowlist' => $bad])->assertSessionHasErrors('webhook_ip_allowlist');
+        }
+
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), ['enabled' => 1, 'webhook_ip_allowlist' => '203.0.113.7, 198.51.100.0/24, 2001:db8::/32'])
+            ->assertSessionHasNoErrors();
+    }
+
+    public function test_the_air_waybill_download_is_a_post_and_a_link_cannot_trigger_it(): void
+    {
+        $shipment = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Submitted, ['provider_reference' => 'WH-1', 'provider_secondary_reference' => 'KSA1']);
+
+        $this->get('/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/label')->assertStatus(405);
+    }
+
+    public function test_provider_calls_from_the_admin_are_rate_limited(): void
+    {
+        Http::fake();
+
+        foreach (range(1, 10) as $ignored) {
+            $this->post(route('admin.fulfillment-providers.test', 'm5azn'))->assertRedirect();
+        }
+
+        $this->post(route('admin.fulfillment-providers.test', 'm5azn'))->assertStatus(429);
     }
 
     public function test_sync_intervals_and_product_types_are_validated_and_saved(): void

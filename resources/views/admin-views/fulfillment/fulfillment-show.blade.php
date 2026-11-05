@@ -15,7 +15,10 @@
             <x-slot:actions>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.fulfillment-providers.fulfillments.index') }}">{{ translate('back') }}</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.orders.details', ['id' => $fulfillment->order_id]) }}">{{ translate('View_Order_Details') }} #{{ $fulfillment->order_id }}</a>
-                @if ($canLabel)<a class="btn btn-outline-primary btn-sm" href="{{ route('admin.fulfillment-providers.fulfillments.label', $fulfillment->id) }}">{{ translate('download_awb') }}</a>@endif
+                @if ($canLabel)
+                    <form method="POST" action="{{ route('admin.fulfillment-providers.fulfillments.label', $fulfillment->id) }}" class="d-inline">@csrf
+                        <button class="btn btn-outline-primary btn-sm" type="submit">{{ translate('download_awb') }}</button></form>
+                @endif
             </x-slot:actions>
         </x-k.page-header>
 

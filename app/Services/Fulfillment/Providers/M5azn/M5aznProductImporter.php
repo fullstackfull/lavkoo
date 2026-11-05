@@ -16,6 +16,7 @@ use App\Services\Fulfillment\InventorySyncService;
 use App\Services\Fulfillment\ProductProviderAssignmentService;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\Support\FieldMap;
+use App\Services\Fulfillment\Support\HtmlSanitizer;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\Fulfillment\Support\RemoteImageFetcher;
@@ -231,7 +232,7 @@ class M5aznProductImporter
             'brand_id' => null,
             'unit' => 'pc',
             'product_type' => 'physical',
-            'details' => $map->string($payload, 'description') ?? '',
+            'details' => HtmlSanitizer::clean($map->string($payload, 'description')),
             'colors' => json_encode([]),
             'choice_options' => json_encode($choiceOptions),
             'variation' => json_encode($variation),
@@ -306,7 +307,8 @@ class M5aznProductImporter
         foreach ($variants as $variant) {
             $label = $this->variantValue($map, $variant, 'name') ?? $this->variantValue($map, $variant, 'sku');
             $price = $this->price($this->variantNumber($map, $variant, 'retail_price'));
-            $quantity = (int) ($this->variantValue($map, $variant, 'stock', number: true) ?? 0);
+            // A variant with no price would be sold for nothing. It is imported as out of stock, and stock sync keeps it so.
+            $quantity = $price === null ? 0 : (int) ($this->variantValue($map, $variant, 'stock', number: true) ?? 0);
             $options[] = (string) $label;
             $variation[] = ['type' => str_replace(' ', '', (string) $label), 'price' => $price ?? 0, 'sku' => (string) $this->variantValue($map, $variant, 'sku'), 'qty' => $quantity];
             $total += $quantity;

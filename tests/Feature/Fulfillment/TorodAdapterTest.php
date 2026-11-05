@@ -439,6 +439,27 @@ class TorodAdapterTest extends TorodTestCase
         $this->assertNull($this->adapter()->labelUrl($fulfillment));
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('foreignLabelHosts')]
+    public function test_an_air_waybill_url_on_a_host_the_provider_does_not_use_is_not_handed_out(string $url): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['provider_secondary_reference' => 'KSA1'])->save();
+        Http::fake([self::V2 . '/guests/714/packages/pdf' => Http::response(['url' => $url])]);
+
+        $this->assertNull($this->adapter()->labelUrl($fulfillment));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function foreignLabelHosts(): iterable
+    {
+        yield 'another site' => ['https://evil.example/awb.pdf'];
+        yield 'look-alike suffix' => ['https://notamazonaws.com/awb.pdf'];
+        yield 'look-alike prefix' => ['https://amazonaws.com.evil.example/awb.pdf'];
+        yield 'credentials in the url' => ['https://x.s3.amazonaws.com@evil.example/awb.pdf'];
+        yield 'plain http' => ['http://x.s3.amazonaws.com/awb.pdf'];
+        yield 'internal address' => ['https://169.254.169.254/latest/meta-data'];
+    }
+
     public function test_no_label_is_available_before_the_package_barcode_is_known(): void
     {
         $this->assertNull($this->adapter()->labelUrl($this->torodFulfillment()));

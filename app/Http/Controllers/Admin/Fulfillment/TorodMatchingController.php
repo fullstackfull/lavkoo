@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Fulfillment;
 
+use App\Services\Fulfillment\Support\SafeToast;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\ProviderCode;
@@ -100,7 +101,7 @@ class TorodMatchingController extends Controller
                 approvedBy: auth('admin')->id(),
             );
         } catch (InvalidArgumentException $exception) {
-            ToastMagic::error($exception->getMessage());
+            SafeToast::error('', $exception->getMessage());
 
             return back();
         }
@@ -110,7 +111,7 @@ class TorodMatchingController extends Controller
 
         if ($request->boolean('assign_to_provider')) {
             $result = $this->assignments->assign((int) $data['product_id'], ProviderCode::TorodPoint->value, 'admin', auth('admin')->id(), 'matched_to_warehouse_product');
-            $result->ok ? ToastMagic::success(translate('product_assigned_to_provider')) : ToastMagic::warning($result->message());
+            $result->ok ? ToastMagic::success(translate('product_assigned_to_provider')) : SafeToast::warning('', $result->message());
         }
 
         return back();
@@ -122,7 +123,7 @@ class TorodMatchingController extends Controller
             $this->mappings->retire($mapping);
             ToastMagic::success(translate('mapping_retired'));
         } catch (InvalidArgumentException $exception) {
-            ToastMagic::error($exception->getMessage());
+            SafeToast::error('', $exception->getMessage());
         }
 
         return back();
@@ -172,17 +173,17 @@ class TorodMatchingController extends Controller
         try {
             $result = $this->adapter->pushProducts($ids, auth('admin')->id());
         } catch (ProviderUnavailableException $exception) {
-            ToastMagic::warning($exception->getMessage());
+            SafeToast::warning('', $exception->getMessage());
 
             return back();
         }
 
         if (!$result['ok']) {
-            ToastMagic::error((string) ($result['error'] ?? translate('push_failed')));
+            SafeToast::error('', (string) ($result['error'] ?? translate('push_failed')));
         } elseif ($result['dry_run'] ?? false) {
-            ToastMagic::info(translate('push_dry_run_nothing_sent') . ' ' . count($result['preview'] ?? []));
+            SafeToast::info(translate('push_dry_run_nothing_sent'), (string) count($result['preview'] ?? []));
         } else {
-            ToastMagic::success(translate('products_pushed') . ' ' . ($result['pushed'] ?? 0));
+            SafeToast::success(translate('products_pushed'), (string) ($result['pushed'] ?? 0));
         }
 
         return back();

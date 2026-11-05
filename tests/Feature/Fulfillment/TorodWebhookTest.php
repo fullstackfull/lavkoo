@@ -10,6 +10,7 @@ use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
 use App\Services\Fulfillment\FulfillmentRecovery;
 use App\Services\Fulfillment\WebhookEventProcessor;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -141,6 +142,71 @@ class TorodWebhookTest extends TorodTestCase
 
         $this->assertSame(EventOutcome::REJECTED_UNVERIFIED, $result['outcome']);
         $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+    }
+
+    public function test_a_payload_pairing_our_invoice_with_someone_elses_package_cannot_confirm_our_shipment(): void
+    {
+        $fulfillment = $this->submitted(['provider_secondary_reference' => 'KSA-OURS']);
+        Http::fake([self::V2 . '/guests/packages/status*' => fn (Request $request) => str_contains($request->url(), 'KSA-OTHER')
+            ? Http::response(['status' => 'DELIVERED_TO_RECIPIENT', 'cod' => 0])
+            : Http::response(['status' => 'OUT_FOR_DELIVERY', 'cod' => 0])]);
+
+        $result = $this->receive('lastmile', $this->lastmilePayload('DELIVERED_TO_RECIPIENT', barcode: 'KSA-OTHER'));
+
+        $this->assertSame(EventOutcome::RECEIVED, $result['outcome'], 'the claim waits: OUR package is still out for delivery');
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+        $this->assertSame('KSA-OURS', $fulfillment->fresh()->provider_secondary_reference, 'we keep the barcode we already had');
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'KSA-OTHER'));
+    }
+
+    public function test_a_package_barcode_is_not_learned_from_an_event_whose_cash_is_not_ours(): void
+    {
+        $fulfillment = $this->submitted();
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->lastmilePayload('DELIVERED_TO_RECIPIENT', barcode: 'KSA-FOREIGN', extra: ['cod' => 55]));
+
+        $this->assertNull($fulfillment->fresh()->provider_secondary_reference, 'a prepaid shipment does not adopt a package that collects 55');
+        $this->assertSame(EventOutcome::RECEIVED, $result['outcome'], 'and with no package of ours to ask about, a delivered claim waits');
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+        Http::assertNothingSent();
+    }
+
+    public function test_an_event_whose_references_point_at_two_different_shipments_is_left_unmatched(): void
+    {
+        $first = $this->submitted(['provider_secondary_reference' => 'KSA-A']);
+        $second = $this->torodFulfillment(orderId: 101);
+        $second->forceFill(['status' => FulfillmentStatus::Submitted, 'provider_reference' => 'O002', 'submitted_at' => now()])->save();
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->lastmilePayload('OUT_FOR_DELIVERY', barcode: 'KSA-A', extra: ['invoiceNumber' => '101-TP1']));
+
+        $this->assertSame(EventOutcome::IGNORED_UNMATCHED, $result['outcome']);
+        $this->assertSame(FulfillmentStatus::Submitted, $first->fresh()->status);
+        $this->assertSame(FulfillmentStatus::Submitted, $second->fresh()->status);
+    }
+
+    public function test_a_package_reporting_different_cash_than_we_asked_for_does_not_confirm_a_claim(): void
+    {
+        $fulfillment = $this->submitted(['provider_secondary_reference' => 'KSA100422577363']);
+        Http::fake([self::V2 . '/guests/packages/status*' => Http::response(['status' => 'DELIVERED_TO_RECIPIENT', 'cod' => 99])]);
+
+        $result = $this->receive('lastmile', $this->lastmilePayload('DELIVERED_TO_RECIPIENT'));
+
+        $this->assertSame(EventOutcome::REJECTED_UNVERIFIED, $result['outcome']);
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+    }
+
+    public function test_payload_keys_are_read_whatever_their_casing(): void
+    {
+        $fulfillment = $this->submitted();
+        Http::fake();
+
+        $result = $this->receive('lastmile', ['PackageId' => 1, 'NewStatus' => 'OUT_FOR_DELIVERY', 'Barcode' => 'KSA100422577363', 'Cod' => 0, 'InvoiceNumber' => '100-TP1', 'Time' => (int) (microtime(true) * 1000)]);
+
+        $this->assertSame(EventOutcome::APPLIED, $result['outcome']);
+        $this->assertSame(FulfillmentStatus::OutForDelivery, $fulfillment->fresh()->status);
+        $this->assertSame('KSA100422577363', $fulfillment->fresh()->provider_secondary_reference);
     }
 
     public function test_when_the_provider_cannot_be_asked_the_claim_waits_and_is_applied_once_it_can_be_confirmed(): void

@@ -62,6 +62,9 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     private const STOCK_FRESH_HOURS = 6;
     private const PAGE_SIZE = 100;
     private const MAX_PAGES = 50;
+
+    /** Hosts the air waybill may be served from. */
+    private const LABEL_HOST_SUFFIXES = ['amazonaws.com', 'logestechs.com'];
     private const RECONCILE_PAGES = 3;
 
     public function __construct(
@@ -299,7 +302,25 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         $result = $this->lastmile->airWaybill([$barcode], $fulfillment->id);
         $url = $result->ok() ? $result->get('url') : null;
 
-        return is_string($url) && str_starts_with($url, 'https://') ? $url : null;
+        return is_string($url) && $this->isLabelHost($url) ? $url : null;
+    }
+
+    /** The air waybill is served from the provider's own storage (the docs show an S3 bucket); the administrator is only ever sent there. */
+    private function isLabelHost(string $url): bool
+    {
+        $parts = parse_url($url);
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        if (($parts['scheme'] ?? '') !== 'https' || isset($parts['user']) || isset($parts['pass']) || $host === '') {
+            return false;
+        }
+
+        foreach (self::LABEL_HOST_SUFFIXES as $suffix) {
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -349,23 +370,25 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         };
     }
 
+    /**
+     * The shipment an event is about, found by the references it carries. When two references point at DIFFERENT shipments
+     * the event is not about either of them: it is left unmatched instead of being given to whichever reference is tried first.
+     */
     public function locateFulfillment(NormalizedEvent $event): ?ProviderFulfillment
     {
         $query = ProviderFulfillment::where('provider', $this->code()->value);
 
-        if ($event->type === 'lastmile') {
-            $barcode = $event->reference('barcode');
-            $invoice = $event->reference('invoice');
+        [$first, $second] = $event->type === 'lastmile'
+            ? [
+                $event->reference('barcode') !== null ? (clone $query)->where('provider_secondary_reference', $event->reference('barcode'))->first() : null,
+                $event->reference('invoice') !== null ? (clone $query)->where('reference', $event->reference('invoice'))->first() : null,
+            ]
+            : [
+                $event->reference('barcode') !== null ? (clone $query)->where('provider_reference', $event->reference('barcode'))->first() : null,
+                $event->reference('package_barcode') !== null ? (clone $query)->where('provider_secondary_reference', $event->reference('package_barcode'))->first() : null,
+            ];
 
-            return ($barcode !== null ? (clone $query)->where('provider_secondary_reference', $barcode)->first() : null)
-                ?? ($invoice !== null ? (clone $query)->where('reference', $invoice)->first() : null);
-        }
-
-        $barcode = $event->reference('barcode');
-        $package = $event->reference('package_barcode');
-
-        return ($barcode !== null ? (clone $query)->where('provider_reference', $barcode)->first() : null)
-            ?? ($package !== null ? (clone $query)->where('provider_secondary_reference', $package)->first() : null);
+        return $first !== null && $second !== null && $first->id !== $second->id ? null : ($first ?? $second);
     }
 
     public function learnReferences(ProviderFulfillment $fulfillment, NormalizedEvent $event): void
@@ -375,7 +398,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         if ($event->type === 'lastmile') {
             $barcode = $event->reference('barcode');
-            if ($barcode !== null && $fulfillment->provider_secondary_reference === null) {
+            if ($barcode !== null && $fulfillment->provider_secondary_reference === null && $this->describesThisShipment($fulfillment, $event)) {
                 $update['provider_secondary_reference'] = $barcode;
                 $update['tracking_number'] = $fulfillment->tracking_number ?? $barcode;
                 if ($template !== '' && $fulfillment->tracking_url === null) {
@@ -421,14 +444,25 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return true;
         }
 
+        // The package asked about is the one WE hold for this shipment, never the one the payload names: a payload that
+        // pairs our invoice number with someone else's delivered package must not confirm our shipment as delivered.
+        $barcode = $fulfillment->provider_secondary_reference;
+        if ($barcode === null) {
+            return null;
+        }
+
         try {
-            $result = $this->lastmile->packageStatus((string) $event->reference('barcode'));
+            $result = $this->lastmile->packageStatus($barcode);
         } catch (ProviderUnavailableException) {
             return null;
         }
 
         if (!$result->ok()) {
             return $result->kind === HttpResult::REJECTED ? false : null;
+        }
+
+        if (!$this->cashMatches($fulfillment, $result->get('cod'))) {
+            return false;
         }
 
         $actual = strtoupper((string) $result->get('status'));
@@ -443,6 +477,28 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         $claimedStatus = TorodStatusMap::map($claimed);
 
         return $actualStatus !== null && $claimedStatus !== null && $actualStatus->rank() >= $claimedStatus->rank() ? true : null;
+    }
+
+    /**
+     * Is this Lastmile event plausibly about OUR shipment? It must name our invoice number when it names one at all, and the
+     * cash it says is collected must be the cash we asked for. Learning a package barcode from an event is trust on first use;
+     * this is the check that stops one shipment adopting another's barcode.
+     */
+    private function describesThisShipment(ProviderFulfillment $fulfillment, NormalizedEvent $event): bool
+    {
+        $invoice = $event->reference('invoice');
+
+        return ($invoice === null || $invoice === $fulfillment->reference) && $this->cashMatches($fulfillment, $event->reference('cod'));
+    }
+
+    /** A package that reports a different cash-on-delivery amount than the one we sent is not our package. An absent amount proves nothing. */
+    private function cashMatches(ProviderFulfillment $fulfillment, mixed $reported): bool
+    {
+        if (!is_numeric($reported)) {
+            return true;
+        }
+
+        return abs((float) $reported - (float) $fulfillment->cod_amount) <= 0.01;
     }
 
     // ---- catalog, stock, cities, product push --------------------------------------------------------
@@ -732,23 +788,25 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     /** @param array<array-key, mixed> $payload */
     private function normalizeLastmile(array $payload): ?NormalizedEvent
     {
-        $status = $payload['newStatus'] ?? null;
+        $payload = $this->withLowerCaseKeys($payload);
+        $status = $payload['newstatus'] ?? null;
         $barcode = $payload['barcode'] ?? null;
         if (!is_string($status) || $status === '' || !is_scalar($barcode) || (string) $barcode === '') {
             return null;
         }
 
         $occurredAt = $this->occurredAt($payload['time'] ?? null);
-        $postponed = $payload['postponedDeliveryDate'] ?? $payload['postponedDate'] ?? null;
-        $proof = array_slice(array_values(array_filter((array) ($payload['attachmentUrls'] ?? []), static fn ($url): bool => is_string($url) && str_starts_with($url, 'https://'))), 0, 5);
+        $postponed = $payload['postponeddeliverydate'] ?? $payload['postponeddate'] ?? null;
+        $proof = array_slice(array_values(array_filter((array) ($payload['attachmenturls'] ?? []), static fn ($url): bool => is_string($url) && str_starts_with($url, 'https://'))), 0, 5);
 
         return new NormalizedEvent(
             type: 'lastmile',
             dedupeKey: hash('sha256', implode('|', ['torod_point', 'lastmile', (string) $barcode, $status, (string) ($payload['time'] ?? ''), (string) $postponed])),
             references: [
                 'barcode' => (string) $barcode,
-                'package_id' => isset($payload['packageId']) ? (string) $payload['packageId'] : null,
-                'invoice' => isset($payload['invoiceNumber']) ? (string) $payload['invoiceNumber'] : null,
+                'package_id' => isset($payload['packageid']) ? (string) $payload['packageid'] : null,
+                'invoice' => isset($payload['invoicenumber']) ? (string) $payload['invoicenumber'] : null,
+                'cod' => isset($payload['cod']) && is_numeric($payload['cod']) ? (string) $payload['cod'] : null,
             ],
             providerStatus: $status,
             occurredAt: $occurredAt,
@@ -764,13 +822,14 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     /** @param array<array-key, mixed> $payload */
     private function normalizeFulfillment(array $payload): ?NormalizedEvent
     {
+        $payload = $this->withLowerCaseKeys($payload);
         $status = $payload['status'] ?? null;
         $barcode = $payload['barcode'] ?? null;
         if (!is_string($status) || $status === '' || !is_scalar($barcode) || (string) $barcode === '') {
             return null;
         }
 
-        $package = isset($payload['packageBarcode']) && is_scalar($payload['packageBarcode']) && (string) $payload['packageBarcode'] !== '' ? (string) $payload['packageBarcode'] : null;
+        $package = isset($payload['packagebarcode']) && is_scalar($payload['packagebarcode']) && (string) $payload['packagebarcode'] !== '' ? (string) $payload['packagebarcode'] : null;
 
         return new NormalizedEvent(
             type: 'fulfillment',
@@ -781,6 +840,18 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             informational: true,
             warehouseStatus: $status,
         );
+    }
+
+    /**
+     * The webhook documents give field names in one casing and the examples in another; reading them case-insensitively
+     * means a provider that capitalises a key does not turn every delivery into "invalid payload".
+     *
+     * @param array<array-key, mixed> $payload
+     * @return array<array-key, mixed>
+     */
+    private function withLowerCaseKeys(array $payload): array
+    {
+        return array_change_key_case($payload, CASE_LOWER);
     }
 
     /** Epoch milliseconds → time, clamped so a skewed provider clock cannot pin a shipment to the future. */

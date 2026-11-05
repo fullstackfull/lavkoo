@@ -137,6 +137,8 @@ return Application::configure(basePath: dirname(__DIR__))
     // `Artisan::starting`, which a web request never reaches.
     ->withSchedule(fn (\Illuminate\Console\Scheduling\Schedule $schedule) => \App\Console\ScheduleDefinition::define($schedule))
     ->withExceptions(function (Exceptions $exceptions) {
-        // You can customize exception handling here if needed
+        // Provider credentials posted by the Integration Center. A failed validation flashes the submitted input to the
+        // session store; these must never be part of it. (App\Exceptions\Handler is not the handler in use.)
+        $exceptions->dontFlash(['fulfillment_username', 'fulfillment_password', 'lastmile_email', 'lastmile_password']);
     })
     ->create();

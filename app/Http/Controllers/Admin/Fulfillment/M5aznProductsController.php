@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Fulfillment;
 
+use App\Services\Fulfillment\Support\SafeToast;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Http\Controllers\Controller;
 use App\Models\ProviderCatalogItem;
@@ -84,7 +85,7 @@ class M5aznProductsController extends Controller
     public function importAll(): RedirectResponse
     {
         $stats = $this->importer->importPending(actorId: auth('admin')->id());
-        ToastMagic::success(translate('import_finished') . ' ' . json_encode($stats));
+        SafeToast::success(translate('import_finished'), json_encode($stats));
 
         return back();
     }
@@ -93,8 +94,8 @@ class M5aznProductsController extends Controller
     {
         match (true) {
             $result->succeeded() => ToastMagic::success(translate($result->outcome === ImportResult::IMPORTED ? 'product_imported' : 'product_updated')),
-            $result->outcome === ImportResult::NEEDS_REVIEW => ToastMagic::warning(translate('import_needs_review') . ': ' . $result->reason),
-            default => ToastMagic::error(translate('import_blocked') . ': ' . $result->reason),
+            $result->outcome === ImportResult::NEEDS_REVIEW => SafeToast::warning(translate('import_needs_review'), $result->reason),
+            default => SafeToast::error(translate('import_blocked'), $result->reason),
         };
     }
 }

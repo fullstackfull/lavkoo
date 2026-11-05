@@ -8,6 +8,7 @@ use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\WebhookEventProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
  * Inbound provider webhooks: POST /api/fulfillment-webhooks/{provider}/{secret}/{type}
@@ -15,7 +16,7 @@ use Illuminate\Http\Request;
  * The providers' webhooks carry no signature, so the endpoint is authenticated by a per-provider secret
  * that lives in the URL (LogesTechs can only be given a URL) or, where a provider can set headers, in
  * `Authorization: Bearer` / `X-Webhook-Secret`. The secret is compared in constant time, an optional IP
- * allow-list narrows who may call, and the request is refused unless integrations are switched on, the
+ * allow-list (addresses or CIDR ranges, IPv4 or IPv6) narrows who may call, and the request is refused unless integrations are switched on, the
  * provider is enabled, and its webhooks are enabled. Every failure is the same flat 401: nothing about
  * what was wrong is revealed.
  *
@@ -76,8 +77,8 @@ class FulfillmentWebhookController extends Controller
             return false;
         }
 
-        $allowList = array_filter(array_map('trim', explode(',', $config->string('webhook_ip_allowlist'))));
+        $allowList = array_values(array_filter(array_map('trim', explode(',', $config->string('webhook_ip_allowlist')))));
 
-        return $allowList === [] || in_array((string) $request->ip(), $allowList, true);
+        return $allowList === [] || IpUtils::checkIp((string) $request->ip(), $allowList);
     }
 }

@@ -80,6 +80,17 @@ class WebhookEndpointTest extends TorodTestCase
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.8'])->postJson($this->url(), $this->lastmilePayload('OUT_FOR_DELIVERY'))->assertOk();
     }
 
+    public function test_the_allow_list_accepts_cidr_ranges_and_ipv6(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['webhook_ip_allowlist' => '203.0.113.0/24, 2001:db8::/32', 'webhooks_enabled' => true, 'company_id' => '714']);
+        $payload = $this->lastmilePayload('OUT_FOR_DELIVERY');
+
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.200'])->postJson($this->url(), $payload)->assertOk();
+        $this->withServerVariables(['REMOTE_ADDR' => '2001:db8:abcd::1'])->postJson($this->url(), $this->lastmilePayload('OUT_FOR_DELIVERY', time: 1700000000001))->assertOk();
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.114.1'])->postJson($this->url(), $payload)->assertStatus(401);
+        $this->withServerVariables(['REMOTE_ADDR' => '2001:db9::1'])->postJson($this->url(), $payload)->assertStatus(401);
+    }
+
     public function test_bad_payloads_and_unknown_things_are_refused_cleanly(): void
     {
         $this->postJson($this->url(), [])->assertStatus(422);

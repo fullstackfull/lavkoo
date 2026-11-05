@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Fulfillment;
 
+use App\Services\Fulfillment\Support\SafeToast;
 use App\Contracts\Repositories\CategoryRepositoryInterface;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
@@ -96,12 +97,12 @@ class IntegrationCenterController extends Controller
         try {
             $result = $this->registry->adapter($code)->testConnection();
         } catch (ProviderUnavailableException $exception) {
-            ToastMagic::warning($exception->getMessage());
+            SafeToast::warning('', $exception->getMessage());
 
             return back();
         }
 
-        $result->ok ? ToastMagic::success(translate('connection_test_passed') . ': ' . $result->message) : ToastMagic::error(translate('connection_test_failed') . ': ' . $result->message);
+        $result->ok ? SafeToast::success(translate('connection_test_passed'), $result->message) : SafeToast::error(translate('connection_test_failed'), $result->message);
 
         return back();
     }
@@ -124,7 +125,7 @@ class IntegrationCenterController extends Controller
         $result = $this->sync->run($code, [$task])[$task];
         $ok = (bool) ($result['ok'] ?? false);
         $detail = $ok ? json_encode($result['stats'] ?? $result['count'] ?? []) : (string) ($result['error'] ?? '');
-        $ok ? ToastMagic::success(translate('sync_completed') . ' ' . $detail) : ToastMagic::warning(translate('sync_did_not_run') . ': ' . $detail);
+        $ok ? SafeToast::success(translate('sync_completed'), $detail) : SafeToast::warning(translate('sync_did_not_run'), $detail);
 
         return back();
     }
@@ -170,7 +171,7 @@ class IntegrationCenterController extends Controller
         try {
             $sample = $this->registry->adapter($code)->sample($capability);
         } catch (ProviderUnavailableException $exception) {
-            ToastMagic::warning($exception->getMessage());
+            SafeToast::warning('', $exception->getMessage());
 
             return back();
         }
@@ -179,7 +180,7 @@ class IntegrationCenterController extends Controller
         $problems = $this->fieldMaps->verify($code, $capability, $items, $definition['required']);
         $problems === []
             ? ToastMagic::success(translate('field_map_verified'))
-            : ToastMagic::error(translate('field_map_not_verified') . ': ' . implode(', ', $problems));
+            : SafeToast::error(translate('field_map_not_verified'), implode(', ', $problems));
 
         return back();
     }

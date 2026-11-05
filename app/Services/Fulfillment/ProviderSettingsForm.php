@@ -94,12 +94,12 @@ class ProviderSettingsForm
                 $fail('The tracking URL must be an https URL containing {tracking}.');
             }
         }];
+        $rules['webhook_ip_allowlist'] = ['nullable', 'string', 'max:500', $this->ipAllowListRule()];
         $rules['price_policy'] = ['nullable', 'in:store_controlled,supplier_retail'];
         $rules['phone_format'] = ['nullable', 'in:international_00,local'];
         $rules['cost_source'] = ['nullable', 'in:omit,shipping_fee,items_total'];
         $rules['status_map'] = ['nullable', 'json', $this->statusMapRule()];
         $rules['product_defaults'] = ['nullable', 'json', $this->productDefaultsRule()];
-        $rules['webhook_ip_allowlist'] = ['nullable', 'regex:/^[0-9a-fA-F:.,\s]*$/', 'max:500'];
 
         return array_intersect_key($rules, array_flip(array_merge(
             ['enabled', 'base_url', 'clear_secrets', 'clear_secrets.*'],
@@ -153,11 +153,30 @@ class ProviderSettingsForm
 
         return [
             'enabled' => $request->boolean('enabled'),
-            'baseUrl' => $request->filled('base_url') ? (string) $request->input('base_url') : null,
+            // A field that was submitted blank means "use the provider's default"; a field that was not submitted means "leave it".
+            'baseUrl' => $request->has('base_url') ? trim((string) $request->input('base_url')) : null,
             'settings' => $settings,
             'secrets' => $secrets,
             'clearSecrets' => array_values((array) $request->input('clear_secrets', [])),
         ];
+    }
+
+    /** Every entry of the comma separated allow-list is an IP address or a CIDR range: a typo must not silently open or close the endpoint. */
+    private function ipAllowListRule(): Closure
+    {
+        return static function (string $attribute, mixed $value, Closure $fail): void {
+            foreach (array_filter(array_map('trim', explode(',', (string) $value))) as $entry) {
+                [$address, $prefix] = array_pad(explode('/', $entry, 2), 2, null);
+                $isV6 = str_contains((string) $address, ':');
+                $validAddress = filter_var($address, FILTER_VALIDATE_IP) !== false;
+                $validPrefix = $prefix === null || (ctype_digit($prefix) && (int) $prefix <= ($isV6 ? 128 : 32));
+                if (!$validAddress || !$validPrefix) {
+                    $fail("'{$entry}' is not an IP address or a CIDR range.");
+
+                    return;
+                }
+            }
+        };
     }
 
     private function providerHost(ProviderCode $provider): Closure

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Fulfillment;
 
+use App\Services\Fulfillment\Support\SafeToast;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Http\Controllers\Controller;
@@ -97,7 +98,7 @@ class ProviderFulfillmentController extends Controller
                 ToastMagic::success(translate('action_done'));
             }
         } catch (InvalidArgumentException|ProviderUnavailableException $exception) {
-            ToastMagic::error($exception->getMessage());
+            SafeToast::error('', $exception->getMessage());
         }
 
         return back();
@@ -130,7 +131,7 @@ class ProviderFulfillmentController extends Controller
         try {
             $url = $adapter instanceof ProvidesShippingLabel ? $adapter->labelUrl($fulfillment) : null;
         } catch (ProviderUnavailableException $exception) {
-            ToastMagic::warning($exception->getMessage());
+            SafeToast::warning('', $exception->getMessage());
 
             return back();
         }
