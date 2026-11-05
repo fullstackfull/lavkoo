@@ -93,6 +93,29 @@ class M5aznProductImporter
     }
 
     /**
+     * Bring every staged item up to date: new ones become products, already-imported ones get their stock
+     * and supplier cost refreshed. Idempotent — running it twice does the same work once.
+     *
+     * @return array{imported: int, updated: int, needs_review: int, blocked: int}
+     */
+    public function importPending(int $limit = 500, ?int $actorId = null): array
+    {
+        $stats = ['imported' => 0, 'updated' => 0, 'needs_review' => 0, 'blocked' => 0];
+
+        $ids = ProviderCatalogItem::where('provider', ProviderCode::M5azn->value)
+            ->whereIn('status', [ProviderCatalogItem::STATUS_NEW, ProviderCatalogItem::STATUS_IMPORTED])
+            ->orderBy('id')
+            ->limit($limit)
+            ->pluck('id');
+
+        foreach ($ids as $id) {
+            $stats[$this->import((int) $id, $actorId)->outcome]++;
+        }
+
+        return $stats;
+    }
+
+    /**
      * @param array<array-key, mixed> $payload
      * @param list<array<array-key, mixed>> $variants
      */

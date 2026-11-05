@@ -51,6 +51,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapApiv2Routes();
         $this->mapApiv3Routes();
         $this->mapDeliverySyriaRoutes();
+        $this->mapFulfillmentWebhookRoutes();
 
         //$this->mapInstallRoutes();
         //$this->mapUpdateRoutes();
@@ -126,6 +127,17 @@ class RouteServiceProvider extends ServiceProvider
             ->middleware('api')
             ->namespace($this->namespace)
             ->group(base_path('routes/rest_api/delivery_syria.php'));
+    }
+
+    /**
+     * Provider fulfillment webhooks. Under the `api` prefix but outside the `api` middleware group —
+     * see routes/rest_api/fulfillment_webhooks.php for why.
+     */
+    protected function mapFulfillmentWebhookRoutes(): void
+    {
+        Route::prefix('api')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/rest_api/fulfillment_webhooks.php'));
     }
 
     /**
