@@ -51,7 +51,7 @@ final readonly class SubmissionResult
             providerReference: $providerReference,
             providerInternalId: $providerInternalId,
             secondaryReference: $secondaryReference,
-            trackingNumber: $trackingNumber ?? $providerReference,
+            trackingNumber: $trackingNumber,
             trackingUrl: $trackingUrl,
             providerStatus: $providerStatus,
             providerCost: $providerCost,

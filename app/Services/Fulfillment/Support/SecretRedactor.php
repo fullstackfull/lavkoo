@@ -16,6 +16,7 @@ final class SecretRedactor
     /** Any key containing one of these (case-insensitive, punctuation ignored) is fully redacted. */
     private const SECRET_FRAGMENTS = [
         'password', 'passwd', 'secret', 'authorization', 'accesstoken', 'refreshtoken', 'apikey', 'bearer',
+        'privatekey', 'credential', 'signature',
     ];
 
     private const SECRET_EXACT = ['token', 'key', 'pass', 'pwd', 'jwt', 'username'];
@@ -94,7 +95,8 @@ final class SecretRedactor
 
     private static function isSecretKey(string $normalized): bool
     {
-        if (in_array($normalized, self::SECRET_EXACT, true)) {
+        // "token", "api_token", "auth_token", "csrf-token"… but not "token_expires_at".
+        if (in_array($normalized, self::SECRET_EXACT, true) || str_ends_with($normalized, 'token')) {
             return true;
         }
 

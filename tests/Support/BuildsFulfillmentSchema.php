@@ -39,6 +39,7 @@ trait BuildsFulfillmentSchema
 
         Schema::create('products', function (Blueprint $t) {
             $t->unsignedBigInteger('id')->primary();
+            $t->unsignedBigInteger('shop_id')->nullable();
             $t->string('name')->nullable();
             $t->string('slug')->nullable();
             $t->string('code')->nullable();
@@ -46,11 +47,63 @@ trait BuildsFulfillmentSchema
             $t->string('added_by')->default('admin');
             $t->unsignedBigInteger('user_id')->nullable();
             $t->string('product_type')->default('physical');
+            $t->string('digital_product_type')->nullable();
+            $t->string('digital_file_ready')->nullable();
+            $t->text('digital_product_file_types')->nullable();
+            $t->text('digital_product_extensions')->nullable();
+            $t->text('category_ids')->nullable();
+            $t->unsignedBigInteger('category_id')->nullable();
+            $t->unsignedBigInteger('sub_category_id')->nullable();
+            $t->unsignedBigInteger('sub_sub_category_id')->nullable();
+            $t->unsignedBigInteger('brand_id')->nullable();
+            $t->string('unit')->nullable();
+            $t->longText('details')->nullable();
+            $t->text('colors')->nullable();
+            $t->text('choice_options')->nullable();
+            $t->text('attributes')->nullable();
             $t->decimal('unit_price', 40, 20)->default(0);
             $t->decimal('purchase_price', 40, 20)->default(0);
+            $t->decimal('tax', 40, 20)->default(0);
+            $t->string('tax_type')->nullable();
+            $t->string('tax_model')->nullable();
+            $t->decimal('discount', 40, 20)->default(0);
+            $t->string('discount_type')->nullable();
             $t->integer('current_stock')->default(0);
+            $t->integer('minimum_order_qty')->default(1);
+            $t->string('video_provider')->nullable();
+            $t->string('video_url')->nullable();
             $t->longText('variation')->nullable();
             $t->integer('status')->default(1);
+            $t->integer('request_status')->default(1);
+            $t->decimal('shipping_cost', 40, 20)->default(0);
+            $t->integer('multiply_qty')->default(0);
+            $t->text('color_image')->nullable();
+            $t->longText('images')->nullable();
+            $t->string('thumbnail')->nullable();
+            $t->string('thumbnail_storage_type')->nullable();
+            $t->string('meta_title')->nullable();
+            $t->timestamps();
+        });
+
+        Schema::create('shops', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('seller_id')->nullable();
+            $t->string('author_type')->default('admin');
+            $t->string('name')->nullable();
+            $t->timestamps();
+        });
+        \Illuminate\Support\Facades\DB::table('shops')->insert(['id' => 1, 'author_type' => 'admin', 'name' => 'In-house shop']);
+
+        Schema::create('admins', function (Blueprint $t) {
+            $t->id();
+            $t->string('name')->nullable();
+            $t->timestamps();
+        });
+        \Illuminate\Support\Facades\DB::table('admins')->insert(['id' => 1, 'name' => 'Admin']);
+
+        Schema::create('attributes', function (Blueprint $t) {
+            $t->id();
+            $t->string('name');
             $t->timestamps();
         });
 
