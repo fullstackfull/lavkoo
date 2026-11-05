@@ -51,6 +51,7 @@
 
                     <x-k.card :title="translate('dispatch_controls')" class="mb-3">
                         <div class="alert alert-info fs-12 py-2">{{ translate('dispatch_controls_help') }}</div>
+                        @include('admin-views.fulfillment.partials._go-live')
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="form-check form-switch">

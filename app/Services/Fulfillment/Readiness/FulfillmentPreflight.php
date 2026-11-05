@@ -229,7 +229,7 @@ class FulfillmentPreflight
             return $this->pass('runtime', 'scheduler heartbeat', $enabled ? 'not available until migrated' : 'not expected while the kill switch is off');
         }
 
-        $state = ProviderSyncState::where('provider', ProviderSyncRecorder::SYSTEM)->where('capability', ProviderSyncRecorder::SWEEP)->first();
+        $state = ProviderSyncState::forCapability(ProviderSyncRecorder::SYSTEM, ProviderSyncRecorder::SWEEP);
         if ($state === null || $state->last_attempt_at === null) {
             return $this->warn('runtime', 'scheduler heartbeat', 'the per-minute sweep (fulfillment:recover) has never run. Is the schedule:run cron installed?');
         }
@@ -245,10 +245,6 @@ class FulfillmentPreflight
         };
     }
 
-    /**
-     * A webhook that never arrives and a status poll that returns nothing look exactly alike from the outside: an open
-     * shipment that simply never moves. This is the one place that notices.
-     */
     /**
      * The webhook rate limit and the optional IP allow-list use the client address the application sees. Behind a proxy that
      * is not trusted that is the proxy's address, for every caller: one shared rate-limit bucket, and an allow-list that
@@ -274,6 +270,10 @@ class FulfillmentPreflight
         return Schema::hasTable('integration_settings');
     }
 
+    /**
+     * A webhook that never arrives and a status poll that returns nothing look exactly alike from the outside: an open
+     * shipment that simply never moves. This is the one place that notices.
+     */
     private function trackingFreshness(bool $enabled): PreflightCheck
     {
         if (!$enabled || !Schema::hasTable('provider_fulfillments')) {

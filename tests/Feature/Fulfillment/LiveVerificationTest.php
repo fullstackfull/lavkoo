@@ -250,6 +250,10 @@ class LiveVerificationTest extends AdminPagesTestCase
         Http::assertNothingSent();
         $this->assertSame(8, $run->summary()[CheckResult::SKIPPED]);
         $this->assertStringContainsString('email', $run->checks[0]->summary);
+
+        $state = ProviderSyncState::where('provider', 'm5azn')->where('capability', 'live_verification')->firstOrFail();
+        $this->assertNull($state->last_success_at, 'a run that asked nothing must not count as a successful verification');
+        $this->assertNotNull($state->last_failure_at);
     }
 
     public function test_a_refused_login_is_a_failure_with_a_plain_reason_and_no_token_in_it(): void

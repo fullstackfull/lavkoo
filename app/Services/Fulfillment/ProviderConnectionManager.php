@@ -87,6 +87,7 @@ class ProviderConnectionManager
      * @param array<string, mixed> $settings non-secret values to merge over the stored ones
      * @param array<string, string|null> $secrets only non-empty values replace a stored secret
      * @param list<string> $clearSecrets secrets to wipe explicitly
+     * @param array<string, mixed> $auditContext extra facts for the audit entry of this change (for example a gate that was overridden)
      */
     public function save(
         ProviderCode $provider,
@@ -95,8 +96,9 @@ class ProviderConnectionManager
         array $settings,
         array $secrets = [],
         array $clearSecrets = [],
+        array $auditContext = [],
     ): void {
-        DB::transaction(function () use ($provider, $enabled, $baseUrl, $settings, $secrets, $clearSecrets): void {
+        DB::transaction(function () use ($provider, $enabled, $baseUrl, $settings, $secrets, $clearSecrets, $auditContext): void {
             $row = IntegrationSetting::where('provider', $provider->value)->lockForUpdate()->first()
                 ?? new IntegrationSetting(['provider' => $provider->value]);
 
@@ -137,7 +139,7 @@ class ProviderConnectionManager
                 subject: ['type' => 'integration_setting', 'id' => $row->id],
                 before: ['enabled' => $before->enabled, 'settings' => $this->auditableSettings($before->settings())],
                 after: ['enabled' => $enabled, 'settings' => $this->auditableSettings($merged)],
-                context: ['provider' => $provider->value, 'secrets_changed' => $changedSecrets],
+                context: ['provider' => $provider->value, 'secrets_changed' => $changedSecrets] + $auditContext,
             );
         });
     }
@@ -198,8 +200,8 @@ class ProviderConnectionManager
      */
     private function applyGoLive(bool $wasEnabled, array $before, array $after, bool $enabled): array
     {
-        $wasLive = $this->isLive($wasEnabled, $before);
-        $willBeLive = $this->isLive($enabled, $after);
+        $wasLive = self::isLive($wasEnabled, $before);
+        $willBeLive = self::isLive($enabled, $after);
 
         if ($willBeLive && !$wasLive) {
             $after['go_live_at'] = now()->toDateTimeString();
@@ -210,8 +212,13 @@ class ProviderConnectionManager
         return $after;
     }
 
-    /** @param array<string, mixed> $settings */
-    private function isLive(bool $enabled, array $settings): bool
+    /**
+     * Would orders be sent without a person approving each one? Needs the provider on, sending on, automatic sending on, and
+     * dry run off: the one definition the go-live timestamp and the go-live checklist both use.
+     *
+     * @param array<string, mixed> $settings
+     */
+    public static function isLive(bool $enabled, array $settings): bool
     {
         return $enabled
             && filter_var($settings['dispatch_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)

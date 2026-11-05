@@ -24,4 +24,9 @@ class ProviderSyncState extends Model
         'cursor' => 'array',
         'stats' => 'array',
     ];
+
+    public static function forCapability(string $provider, string $capability): ?self
+    {
+        return self::where('provider', $provider)->where('capability', $capability)->first();
+    }
 }

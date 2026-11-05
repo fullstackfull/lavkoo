@@ -171,9 +171,12 @@ class LiveVerification
         $summary = $run->summary();
         $failed = array_map(static fn (CheckResult $check): string => $check->id, array_filter($run->checks, static fn (CheckResult $check): bool => $check->status === CheckResult::FAIL));
 
-        $run->failed()
-            ? $this->sync->failed($provider->value, ProviderSyncRecorder::LIVE_VERIFICATION, count($failed) . ' check(s) failed: ' . implode(', ', $failed))
-            : $this->sync->succeeded($provider->value, ProviderSyncRecorder::LIVE_VERIFICATION, ['run_id' => $run->id] + $summary);
+        // A run in which nothing was actually answered (every check skipped) proves nothing, so it never counts as a success.
+        match (true) {
+            $run->failed() => $this->sync->failed($provider->value, ProviderSyncRecorder::LIVE_VERIFICATION, count($failed) . ' check(s) failed: ' . implode(', ', $failed)),
+            $summary[CheckResult::PASS] === 0 => $this->sync->failed($provider->value, ProviderSyncRecorder::LIVE_VERIFICATION, 'nothing was verified: no check passed'),
+            default => $this->sync->succeeded($provider->value, ProviderSyncRecorder::LIVE_VERIFICATION, ['run_id' => $run->id] + $summary),
+        };
     }
 
     /** @return array<string, mixed> */

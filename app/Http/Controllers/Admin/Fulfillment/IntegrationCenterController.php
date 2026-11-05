@@ -15,6 +15,8 @@ use App\Services\Fulfillment\FieldMapDefinitions;
 use App\Services\Fulfillment\FieldMapStore;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\Readiness\FulfillmentPreflight;
+use App\Services\Fulfillment\Readiness\GoLiveItem;
+use App\Services\Fulfillment\Readiness\GoLiveReadiness;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\ProviderSettingsForm;
 use App\Services\Fulfillment\ProviderSyncService;
@@ -39,6 +41,7 @@ class IntegrationCenterController extends Controller
         private readonly CategoryRepositoryInterface $categories,
         private readonly FulfillmentPreflight $preflight,
         private readonly EvidenceStore $evidence,
+        private readonly GoLiveReadiness $goLive,
     ) {
     }
 
@@ -66,6 +69,7 @@ class IntegrationCenterController extends Controller
         return view('admin-views.fulfillment.provider', [
             'card' => $this->card($code),
             'integrationMode' => $this->connections->mode(),
+            'goLive' => $this->goLive->report($code),
             'verificationRuns' => $this->evidence->recent($code->value),
             'latestVerification' => ($latest = $this->evidence->recent($code->value, 1)[0] ?? null) === null ? null : $this->evidence->find($code->value, $latest['run_id']),
             'code' => $code,
@@ -87,10 +91,14 @@ class IntegrationCenterController extends Controller
         $code = $this->resolve($provider);
         $request->validate($this->form->rules($code));
 
-        $data = $this->form->extract($code, $request, $this->connections->config($code));
-        $this->connections->save($code, $data['enabled'], $data['baseUrl'], $data['settings'], $data['secrets'], $data['clearSecrets']);
+        $current = $this->connections->config($code);
+        $data = $this->form->extract($code, $request, $current);
+        $admission = $this->goLive->admit($code, $current, $data['enabled'], $data['settings'], override: $request->boolean('go_live_override'));
+        $this->connections->save($code, $data['enabled'], $data['baseUrl'], $admission->settings, $data['secrets'], $data['clearSecrets'], $admission->auditContext());
 
-        ToastMagic::success(translate('settings_saved_successfully'));
+        $admission->wasBlocked()
+            ? SafeToast::warning(translate('settings_saved_automatic_sending_not_turned_on'), $this->labels($admission->blocked))
+            : ToastMagic::success(translate('settings_saved_successfully'));
 
         return redirect()->route('admin.fulfillment-providers.show', $code->slug());
     }
@@ -238,6 +246,12 @@ class IntegrationCenterController extends Controller
         }
 
         return $urls;
+    }
+
+    /** @param list<GoLiveItem> $items */
+    private function labels(array $items): string
+    {
+        return implode(', ', array_map(static fn (GoLiveItem $item): string => translate($item->labelKey()), $items));
     }
 
     private function resolve(string $provider): ProviderCode

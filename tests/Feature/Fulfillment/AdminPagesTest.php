@@ -138,12 +138,13 @@ class AdminPagesTest extends AdminPagesTestCase
 
     public function test_saving_the_provider_form_stores_the_automatic_sending_switch(): void
     {
-        $post = fn (string $value) => $this->post(route('admin.fulfillment-providers.update', 'torod-point'), ['enabled' => 1, 'dispatch_enabled' => 1, 'auto_dispatch' => $value, 'dry_run' => 0, 'company_id' => '714']);
+        $post = fn (string $value, array $extra = []) => $this->post(route('admin.fulfillment-providers.update', 'torod-point'), ['enabled' => 1, 'dispatch_enabled' => 1, 'auto_dispatch' => $value, 'dry_run' => 0, 'company_id' => '714'] + $extra);
 
         $post('0')->assertRedirect();
         $this->assertFalse(app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->bool('auto_dispatch'));
 
-        $post('1')->assertRedirect();
+        // Whether the switch may be turned on is the go-live checklist's decision (GoLiveReadinessTest); this proves the form carries it.
+        $post('1', ['go_live_override' => 1])->assertRedirect();
         $this->assertTrue(app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->bool('auto_dispatch'));
     }
 
