@@ -11,6 +11,18 @@ final class EvidenceStore
 {
     private const RUN_ID = '/^(m5azn|torod_point)_\d{8}_\d{6}_[a-f0-9]{8}$/';
 
+    private const DENY_RULES = <<<'HTACCESS'
+# Verification evidence is read in the admin panel only; the web server never serves it directly.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
+
+HTACCESS;
+
     public function newRunId(string $provider): string
     {
         return $provider . '_' . gmdate('Ymd_His') . '_' . bin2hex(random_bytes(4));
@@ -22,6 +34,7 @@ final class EvidenceStore
         if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
             throw new \RuntimeException('The evidence directory could not be created.');
         }
+        $this->denyDirectWebAccess();
 
         $path = $directory . '/' . $run->id . '.json';
         file_put_contents($path, json_encode($run->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
@@ -65,6 +78,18 @@ final class EvidenceStore
         $path = $this->directory($provider) . '/' . $runId . '.json';
 
         return is_file($path) ? $path : null;
+    }
+
+    /**
+     * This platform can be served from the application's root directory instead of public/, and there any existing file is handed to
+     * whoever asks for its address. The evidence is read through the admin panel only, so the web server is told never to serve it.
+     */
+    private function denyDirectWebAccess(): void
+    {
+        $rules = dirname($this->directory('x')) . '/.htaccess';
+        if (!is_file($rules)) {
+            file_put_contents($rules, self::DENY_RULES);
+        }
     }
 
     private function directory(string $provider): string

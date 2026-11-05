@@ -6,6 +6,7 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Http\Controllers\Controller;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\Support\SafeToast;
+use App\Services\Fulfillment\Verification\CheckContext;
 use App\Services\Fulfillment\Verification\EvidenceStore;
 use App\Services\Fulfillment\Verification\LiveVerification;
 use Illuminate\Http\RedirectResponse;
@@ -15,8 +16,6 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 /** Runs the read-only checks against a provider from the provider's page, and hands out the evidence they leave. */
 class LiveVerificationController extends Controller
 {
-    private const MAX_SKUS = 20;
-
     public function __construct(
         private readonly LiveVerification $verification,
         private readonly EvidenceStore $evidence,
@@ -27,7 +26,7 @@ class LiveVerificationController extends Controller
     {
         $code = ProviderCode::fromSlug($provider) ?? abort(404);
         $validated = $request->validate(['skus' => ['nullable', 'string', 'max:300', 'regex:/^[A-Za-z0-9,._\- ]*$/']]);
-        $skus = array_slice(array_values(array_unique(array_filter(array_map('trim', explode(',', (string) ($validated['skus'] ?? '')))))), 0, self::MAX_SKUS);
+        $skus = CheckContext::parseSkus((string) ($validated['skus'] ?? ''));
 
         try {
             $run = $this->verification->run($code, ['skus' => $skus]);

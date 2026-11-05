@@ -240,6 +240,60 @@ class LiveVerificationTest extends AdminPagesTestCase
         $this->assertSame([], app(EvidenceStore::class)->recent('m5azn'));
     }
 
+    public function test_the_shell_command_runs_the_same_checks_prints_a_table_and_names_the_evidence_file(): void
+    {
+        $this->fakeM5azn();
+
+        $this->artisan('fulfillment:verify', ['provider' => 'm5azn'])
+            ->expectsOutputToContain('M-7')
+            ->expectsOutputToContain('8 passed, 0 to look at, 0 failed, 0 skipped.')
+            ->expectsOutputToContain('storage/app/fulfillment-evidence/m5azn/m5azn_')
+            ->assertExitCode(0);
+
+        $this->assertCount(1, app(EvidenceStore::class)->recent('m5azn'));
+        Http::assertNotSent(static fn (Request $request): bool => $request->method() !== 'GET' && !str_ends_with($request->url(), '/api/v1/auth/login'));
+    }
+
+    public function test_the_shell_command_accepts_the_url_form_of_a_provider_and_passes_the_counted_skus_on(): void
+    {
+        $this->fakeTorod();
+
+        $this->artisan('fulfillment:verify', ['provider' => 'torod-point', '--skus' => '13221, 13222, 13221'])->assertExitCode(0);
+
+        $run = app(EvidenceStore::class)->find('torod_point', app(EvidenceStore::class)->recent('torod_point')[0]['run_id']);
+        $comparison = collect($run['checks'])->firstWhere('id', 'T-2')['findings']['stock_comparison'];
+        $this->assertSame(['13221', '13222'], array_column($comparison, 'sku'), 'a repeated SKU is compared once');
+    }
+
+    public function test_the_shell_command_fails_when_a_check_fails_and_refuses_what_it_does_not_know(): void
+    {
+        Http::fake([self::M5 . '/*' => Http::response(['message' => 'Invalid credentials'], 401)]);
+
+        $this->artisan('fulfillment:verify', ['provider' => 'm5azn'])->assertExitCode(1);
+        $this->artisan('fulfillment:verify', ['provider' => 'dhl'])->expectsOutputToContain('must be m5azn or torod_point')->assertExitCode(2);
+    }
+
+    public function test_the_shell_command_says_so_and_sends_nothing_while_the_integration_is_switched_off(): void
+    {
+        Http::fake();
+        config(['fulfillment.enabled' => false]);
+
+        $this->artisan('fulfillment:verify', ['provider' => 'm5azn'])->expectsOutputToContain('switched off')->assertExitCode(1);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_the_evidence_directory_tells_the_web_server_never_to_serve_it(): void
+    {
+        $this->fakeM5azn();
+
+        $this->verify(ProviderCode::M5azn);
+
+        $rules = (string) file_get_contents(storage_path('app/fulfillment-evidence/.htaccess'));
+        $this->assertStringContainsString('Require all denied', $rules);
+        $this->assertStringContainsString('Deny from all', $rules, 'and the older Apache syntax, for a host that still runs 2.2');
+    }
+
     public function test_without_saved_credentials_every_check_is_skipped_and_nothing_is_sent(): void
     {
         Http::fake();
