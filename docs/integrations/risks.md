@@ -32,19 +32,22 @@ real systems.
 * **Database** — both migrations are additive, idempotent and reversible on SQLite and MySQL 8.0; the integration's own
   tables, unique keys, row locks, JSON, decimals and `timestamp(3)` behave on a real MySQL 8.0.
 
-## Not verified — needs staging with the real dump and the real providers
+## Not verified — needs the live server (the pilot deployment) and the real providers
 
 1. **The core store schema.** `products`, `orders` and `order_details` come from the proprietary installation dump, which
    is not in the repository. Tests use a minimal schema *inferred* from the models and the code that writes them
    (`tests/Support/BuildsFulfillmentSchema.php`). The hooks that touch checkout — the ownership snapshot right after the
    `order_details` insert in `OrderManager`, the post-commit routing hook, the status hook in `OrderRepository`, the
    status guards in five controllers, the checkout cash-on-delivery guard, the extra `fulfillments` key on customer API
-   responses — must be exercised on a staging copy restored from the real dump. See
-   [staging-validation.md](staging-validation.md). **Do not run the migrations on production first.**
+   responses — must be exercised against the real schema. The pilot procedure checks the live schema read-only
+   (`fulfillment:compatibility`) **before** the migrations, behind a verified backup, and keeps everything switched off until
+   it has passed: [pilot-deployment.md](pilot-deployment.md). There is no staging server by decision; the older
+   [staging-validation.md](staging-validation.md) describes the same checks on a restored copy.
 2. **Live provider behaviour.** No credentials were used and, by design, no real order or stock change was made. Response
-   schemas the documents do not publish are *assumed* only in test fixtures. See the [live verification
-   checklists](live-verification/README.md): every field map must be verified from a real sample and a dry-run order run
-   end to end.
+   schemas the documents do not publish are *assumed* only in test fixtures. The read-only live verification
+   (`fulfillment:verify`, or the provider page) records the real *shapes* with no credential and no personal data; the order-creation
+   response can only be recorded by the first controlled test order ([plan](controlled-test-orders.md)). See the [live verification
+   checklists](live-verification/README.md): every field map must be verified from a real sample.
 3. **Torod Point stock.** No documented inventory endpoint and no documented stock field in the product list
    ([gap analysis](torod-inventory-gap-analysis.md)). Stock stays manual and labelled until LogesTechs confirms; nothing
    simulates warehouse stock. **This is why "automatic inventory synchronization" cannot be delivered today.**
@@ -56,8 +59,9 @@ real systems.
    or on an operator closing the shipment. M5AZN cannot cancel through the API.
 6. **Torod Point webhook authenticity.** Unsigned; the secret in the URL is the only credential. Terminal claims are
    confirmed with the provider; the first event for a package is trusted on first sight.
-7. **Deployment facts we cannot see.** Trusted proxies (the webhook rate limit and any allow-list depend on them), the
-   production `APP_KEY` (SEC-2), the Zender secret rotation (SEC-1), the queue worker and cron configuration.
+7. **Deployment facts we cannot see.** Whether the web server's document root is `public/` or the application root (SEC-13), trusted
+   proxies (`TRUSTED_PROXIES`; the webhook rate limit and any allow-list depend on them), the production `APP_KEY` (SEC-2), the Zender
+   secret rotation (SEC-1), the queue worker and cron configuration, and whether the platform has migrations of its own pending.
 8. **Payment changes after dispatch.** Once a shipment is accepted, a later payment or refund on the parent order is **not**
    propagated to the provider (neither provider documents an update call). Handled by an operator with the provider.
 9. **Imported-product freshness.** M5AZN imports are polled (default 30 min, minimum 5). The delay between selecting a

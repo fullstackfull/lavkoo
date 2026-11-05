@@ -19,10 +19,12 @@ Other documents: [capability matrix](capability-matrix.md) · [M5AZN](m5azn.md) 
 [cash on delivery](cod.md) · [operations: deployment, queues, webhooks, go-live, rollback, runbook](operations.md) ·
 [risks and open questions](risks.md).
 
-**Production readiness (start here before any rollout):** [**GO / NO-GO readiness report**](readiness-report.md) ·
-[staging validation on a restored copy of the real database](staging-validation.md) ·
+**Rolling it out (start here):** [**pilot deployment on the existing server**](pilot-deployment.md) — the exact procedure,
+the gates that need your approval, the rollback for every phase and the remaining blockers ·
+[controlled test orders](controlled-test-orders.md) · [GO / NO-GO readiness report](readiness-report.md) ·
 [live verification checklists](live-verification/README.md) ([M5AZN](live-verification/m5azn.md),
 [Torod Point](live-verification/torod-point.md)) · [security findings](security-findings.md) ·
+[staging validation on a restored copy](staging-validation.md) (optional; superseded by the pilot procedure) ·
 [M5AZN import workflow](m5azn-import-workflow.md) · [Torod inventory gap analysis](torod-inventory-gap-analysis.md) ·
 vendor requests: [M5AZN](vendor-requests/m5azn-technical-request.md), [LogesTechs](vendor-requests/logestechs-technical-request.md).
 
@@ -60,9 +62,13 @@ parent order: FulfillmentAggregator derives one status (read-only — it never w
 
 ### Safety nets
 
-* **Three independent off-switches**, all must be on before anything is sent: `FULFILLMENT_INTEGRATIONS_ENABLED`
-  (environment), the provider's **Integration enabled**, and its **Send orders**. **Dry run** records what would be
-  sent without sending it. Both providers ship switched off.
+* **Independent switches, all of which must be on before anything is sent:** `FULFILLMENT_INTEGRATIONS_ENABLED` and
+  `FULFILLMENT_EXTERNAL_WRITES_ENABLED` (environment; with the second off the integration is **read-only**: the transport
+  refuses every request that is not a read or a sign-in), the provider's **Integration enabled** and **Send orders**, and
+  **Dry run** off. **Send automatically** is a fifth, separate switch: while it is off, a due order waits for a person to
+  *Release* it, which sends that one order. A dry run records the exact request it would have sent (shown on the shipment
+  page) and sends nothing. Everything ships off, and *Send automatically* can only be turned on when the go-live checklist
+  on the provider page is met (or knowingly overridden, on the audit trail).
 * **No duplicate orders:** unique `(order, provider, generation)`, unique SHA-256 idempotency key, a database claim
   token before any request, a job that never retries itself (`tries = 1`), and a mandatory reconcile-before-resend
   for any outcome that might have reached the provider.
@@ -70,8 +76,10 @@ parent order: FulfillmentAggregator derives one status (read-only — it never w
   tests assert that a mixed order produces exactly one request per provider containing only that provider's lines.
 * **Webhooks:** de-duplicated by a unique key, the secret compared in constant time, terminal claims
   (`delivered`/`cancelled`) confirmed against the provider before being believed, unmatched events retried.
-* **Secrets:** credentials are encrypted at rest (`integration_settings.credentials`), write-only in the admin UI
-  (a blank field keeps the stored value), and redacted from logs and API-log rows.
+* **Secrets and personal data:** credentials are encrypted at rest (`integration_settings.credentials`), write-only in the admin UI
+  (a blank field keeps the stored value), and redacted from logs and API-log rows; names, phones, e-mail and street addresses
+  are removed from the API log, from verification evidence and from the exception text written to the log files. (The shipment
+  and its events, like the order itself, keep the data they need to ship: see [security findings](security-findings.md#sec-16--personal-data-where-this-integration-keeps-it-and-where-it-does-not).)
 * **Parent order status** is never moved by a provider event. An order cannot be marked *delivered* — from the admin
   panel, the vendor panel, either seller API endpoint or the delivery-man app — while a provider shipment is unfinished;
   a closed order with provider lines cannot be reopened, and orders with provider lines cannot be edited; warehouse
@@ -80,7 +88,8 @@ parent order: FulfillmentAggregator derives one status (read-only — it never w
   is no longer allowed is held. Cash on delivery is not offered for a basket that would split cash between collectors.
 * **Cancellation is a recorded request**, set only when the provider acknowledges it, retried with a backoff, one caller at
   a time, and surfaced for a person when the provider refuses or cannot cancel.
-* **Readiness check:** `php artisan fulfillment:preflight` (read-only) and *Integration Center → System checks*.
+* **Readiness checks:** `php artisan fulfillment:preflight` and `fulfillment:compatibility` (both read-only), *Integration Center → System
+  checks*, and the provider page's *Before automatic sending* checklist. `php artisan fulfillment:verify <provider>` runs the read-only live checks.
 
 ## Tables (all new)
 

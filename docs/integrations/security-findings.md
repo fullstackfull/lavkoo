@@ -152,9 +152,11 @@ outside this change; whoever owns them should validate guest ids the same way.
 
 ## SEC-12 — Environment facts to know (INFO)
 
-* **No trusted proxies are configured** (`app/Http/Middleware/TrustProxies.php`). Behind a CDN or reverse proxy the
-  application sees the proxy's address: the webhook rate limit becomes one shared bucket and an IP allow-list can never
-  match. Set the proxies per environment (see [operations](operations.md#1-deploy-nothing-is-sent-until-you-switch-it-on), item 6).
+* **No proxy is trusted unless `TRUSTED_PROXIES` is set.** `bootstrap/app.php` wires the framework's `TrustProxies`
+  middleware, which reads `config/trustedproxy.php`; `app/Http/Middleware/TrustProxies.php` is never used, so editing it has
+  no effect. Behind a CDN or reverse proxy the application then sees the proxy's address: the webhook rate limit becomes one
+  shared bucket and an IP allow-list can never match. Set `TRUSTED_PROXIES` (see [operations](operations.md#1-deploy-nothing-is-sent-until-you-switch-it-on), item 6);
+  *Integration Center → System checks → client address* tells you whether it worked.
 * `App\Exceptions\Handler` is unused (dead code); `app/Http/Controllers/DeliverySyriaWebhookController.php` (root
   namespace) is not routed — the routed one is `Api\DeliverySyriaWebhookController`.
 * Webhook secrets in URL paths appear in web-server access logs (SEC-3).
@@ -167,3 +169,61 @@ outside this change; whoever owns them should validate guest ids the same way.
 | Torod's order reference is read through an optional configured path, otherwise from a short list of likely fields | The Add Order response is undocumented | A 2xx without a readable reference is *outcome unknown* and never re-sent; the path is set from the T-9 sample ([checklist](live-verification/torod-point.md)) |
 | Field-map screens accept any path; sample payloads are shown to admins | Admin-only, `3rd_party_setup` module | Samples are redacted before storage/display; numeric bounds are applied where values are used |
 | Supplier product names are stored as given | Escaped at output by the storefront | Descriptions (the HTML-bearing field) are sanitised |
+
+---
+
+# Findings from preparing the pilot deployment (second look at the platform, not at the integration)
+
+These are properties of the existing platform found while working out how to deploy safely onto it. None is used by the
+integration and none is fixed here (they are outside the change), but each affects how the pilot is run, and each needs an owner decision.
+
+## SEC-13 — The whole application directory may be web-served (pre-existing, HIGH until checked)
+
+`index.php` at the repository root defines `DOMAIN_POINTED_DIRECTORY = 'root'` and the root `.htaccess` hands any existing file to
+the browser; it only denies `.env`. If the site's document root is the application root rather than `public/`, then
+`storage/logs/laravel.log`, `storage/app/**` (KYC documents), `composer.json`, `.git/`, `config/system-addons.php` and
+`public/assets/back-end/Apple-AuthKey.p8` are downloadable by anyone who asks for their address.
+**Check** with the loop in [pilot-deployment §0](pilot-deployment.md#0-look-at-the-server-first-read-only); every path must answer 403 or 404.
+**Fix** by pointing the document root at `public/`, or by denying everything except `index.php`, `public/` and `storage/app/public`.
+What this project does about it: backups and the deployment package are kept **outside** the tree (the scripts refuse
+otherwise), and the verification-evidence directory ships an `.htaccess` that denies direct access (Apache).
+
+## SEC-14 — One-time passwords are constant (pre-existing, HIGH)
+
+`config('app.mode')` is never defined, so the code paths that check for `'live'` are dead and every verification code is `123456`
+(six digits) or `1234` (four). Anyone who knows a customer's phone number can pass phone verification. Unrelated to this integration;
+needs a fix by whoever owns the authentication code, or a conscious decision to accept it.
+
+## SEC-15 — Secrets committed to the repository (pre-existing, rotate whatever is real)
+
+* Four tracked ECDSA private-key files (`Apple-AuthKey.p8` and `Apple-AuthKey (copy).txt`, each under `public/assets/back-end/` and
+  `resources/assets/back-end/`); the two under `public/` are web-served.
+* The licence purchase key and buyer name in `config/system-addons.php`, which the platform rewrites after each licence check.
+* Three public maintenance routes (`/diag-write-xk29`, `/find-img-xk29`, `/run-fix-xk29`) guarded only by literal query keys in
+  `routes/web/routes.php`: they write test files, chmod `storage/app/public` recursively, search the project tree and run `storage:link`.
+* A Firebase web `apiKey` in `firebase-messaging-sw.js` (public by design for Firebase web, but part of the project's identity).
+* `POST /activation-check` is unauthenticated and rewrites licence state.
+
+This project adds a check (`scripts/ci/leak-guard.php`, run by CI) so that **nothing new** of this kind is committed: it refuses a
+change that adds a credential, key, token, environment file, database dump, evidence file, or what looks like a real person's phone number
+or e-mail address, and it never prints what it matched.
+
+## SEC-16 — Personal data: where this integration keeps it, and where it does not
+
+An earlier revision of this documentation said only masked phone numbers and e-mail addresses were stored. That was too broad. The accurate
+position:
+
+| Place | Holds | Why |
+|---|---|---|
+| `provider_fulfillments`, `provider_fulfillment_items` | order reference, amounts, provider references, status; no name, phone or address column. `last_error_message` is the provider's own error text (credentials removed, personal data **not**: it can echo what was sent) | these are our own order facts |
+| `provider_fulfillments.meta` (a dry run's *payload preview*) | the request that would have been sent: name, address and items as they are on the order, **phone and e-mail masked** | shown to the administrator so an order is never approved blind; it is data the order already holds |
+| `provider_fulfillment_events.payload` | the provider's webhook body as received (credentials redacted) | the status history and the webhook de-duplication ledger; a provider's body may carry the receiver's name and phone |
+| `provider_api_logs` | request and response **with names, phones, e-mail addresses, street addresses and notes removed**; credentials and tokens removed | support evidence; retention 60 days |
+| `storage/app/fulfillment-evidence/` | the **shape** of each provider answer; every string that could identify a person removed (strict mode for order lists) | the record the field maps are finalised from; denied to the web server; not tracked by git |
+| Log files (`storage/logs`) | exception messages with credentials, tokens, e-mail addresses and phone numbers masked and shortened (`PiiRedactor::scrub`) | a provider's error text may echo what was sent |
+| `integration_settings.credentials` | provider credentials, **encrypted** with `APP_KEY` | see SEC-2 |
+
+What this integration does **not** control: the platform's own debug writers (OTP and phone numbers in `ZenderOtpService`, parcel bodies in
+`DeliverySyriaService`, gateway callbacks) and `laravel.log` truncation (hourly for non-local requests). Because this is a pharmacy, order lines
+tied to a customer are health-adjacent: backups and exports of the database are personal data and must be handled that way (the backup
+scripts keep them outside the web root, mode 700, never in GitHub).

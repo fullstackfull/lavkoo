@@ -18,10 +18,16 @@ answer unlocks in the integration.
 | **2 — live writes** | Create / cancel a test order, push a product, anything that changes state at the provider. | **Explicit written authorization** (template below) naming provider, environment, the exact calls, the test data, a time window and a rollback. Sandbox if the vendor has one; otherwise a test product/customer and an immediate cancel, with the vendor told in advance so no goods move. |
 | **3 — real dispatch** | The integration sends real customer orders. | Go-live decision in the [readiness report](../readiness-report.md) — never as part of verification. |
 
-No Level 2 call is made by this repository, by the tests, by a scheduled job or by the Integration Center's *Test
-connection* button (which performs only the documented login / a read call). `FULFILLMENT_INTEGRATIONS_ENABLED` stays
-`false` everywhere except while a person is deliberately running a Level 1 or an authorized Level 2 session; the
-Integration Center's *Send orders* stays off and *Dry run* stays on throughout.
+No Level 2 call is made by this repository, by the tests, by a scheduled job, by `fulfillment:verify`, by the Integration Center's
+*Run the read-only checks* or by its *Test connection* button (which perform only the documented login and read calls). The transport
+enforces this: with `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` (the default) no order, product, stock or cancellation request can
+leave the server whatever is switched on in the admin panel, and an operation that is not classified as a read is treated as a write.
+
+On the pilot server the levels map to the [pilot deployment](../pilot-deployment.md) like this: **Level 1** is phase 6 (the
+integration on, writes off, *Send orders* off, *Dry run* on) and can be run from the provider page or with
+`php artisan fulfillment:verify m5azn|torod_point`; **Level 2** is phase 8, the [controlled test orders](../controlled-test-orders.md)
+(a dry-run rehearsal, then one order released by a person), and needs the authorisation below; **Level 3** is phase 9.
+Between sessions, set `FULFILLMENT_EXTERNAL_WRITES_ENABLED` back to `false`.
 
 ### Authorization template (copy into the ticket / email before any Level 2 call)
 

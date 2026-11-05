@@ -5,18 +5,28 @@
 fulfillment integration. **Not done, by instruction:** merge, deploy, production migration, real order dispatch, any
 live write call to a provider. No live call of any kind was made.
 
+> **Update — pilot-server phase.** The existing production server is the pilot environment, and no staging server will be built.
+> The deployment procedure, its approval gates, the rollback for every phase and the remaining blockers are in
+> [**pilot-deployment.md**](pilot-deployment.md); the plan for the first real orders is [controlled-test-orders.md](controlled-test-orders.md).
+> This report's decisions and blockers below are updated to that model. Still **not done, by instruction**: merge, deployment,
+> migration of the live database, any call to a provider, any real order. The new code in this phase is tooling and safety:
+> the transport-level write guard, the per-order approval gate, the go-live checklist, a read-only compatibility check, the
+> overlay deployment with drift detection and rollback, the backup/restore scripts, the read-only live verification, PII
+> redaction and a repository leak guard.
+
 ---
 
 ## 1. Verdict
 
 | Decision | Verdict | One-line reason |
 |---|---|---|
-| **A. Start staging validation on a restored copy of the real database** ([guide](staging-validation.md)) | **GO** | The procedure, the read-only preflight and the scenario list exist and were exercised on a real MySQL 8.0 |
-| **B. Start read-only (Level 1) live verification with each provider** ([checklists](live-verification/README.md)) | **GO**, once the store owner enters credentials | Read calls only; every write is behind a written authorization |
-| **C. Merge PR #1** | **NOT YET** | CI is green, but the hooks that touch checkout and the one-column change to `products` have never run on the real schema (**B1**) |
-| **D. Enable real order dispatch (per provider)** | **NO-GO** | Blockers B1–B5 below; provider response schemas that decide correctness are not known (B2, B3) |
+| **A. Deploy PR #1 to the existing pilot server with everything switched off** ([runbook](pilot-deployment.md)) | **READY — awaiting your Gate A** | The package, backup, drift check, additive migrations and per-file rollback exist and were rehearsed; the code is dormant until the migration and the `.env` lines exist. Needs server access and a verified, off-server backup first |
+| **B. Read-only (Level 1) live verification with each provider** | **READY — awaiting credentials and your Gate B** | From the provider page or `php artisan fulfillment:verify`; reads and sign-in only, proven by tests even with writes enabled |
+| **C. Controlled test orders** ([plan](controlled-test-orders.md)) | **NOT YET** | Needs B passed, the provider told in writing, your **Gate C** per provider. A test order cannot be undone from here (M5AZN has no cancel call; Torod no warehouse-order cancel) |
+| **D. Turn automatic sending on (per provider)** | **NO-GO until the checklist is met** | The provider page derives the checklist from real state: one order accepted by the provider and one status update understood are required (B2, B3) |
 | **E. "Select on M5AZN → appears in Pharmacy KSA automatically"** | **CONDITIONAL GO** | Built, idempotent and tested; needs the catalogue field map verified from a real sample (B2) and one observation (M-3) |
 | **F. "Automatic Torod Point inventory synchronization"** | **NO-GO — external dependency** | LogesTechs documents no stock field and no inventory endpoint (B7); stock stays manual and labelled; nothing is simulated |
+| **G. Merge PR #1** | **Not requested** | Independent of A–D: the package is built from the branch. Your decision, after A has been seen to work |
 
 Everything a repository can prove has been proven. What is left needs the real database, the real providers, or business
 decisions — none of which can be produced from here.
@@ -30,7 +40,7 @@ decisions — none of which can be produced from here.
 | 1 | Independent code review of checkout, payment, inventory, fulfillment, webhook, order-status changes; fix defects | **Done** — three independent reviews plus a re-read of every change; every finding reproduced before it was fixed; 28 defects fixed with tests (§3) | §3, [security-findings](security-findings.md) |
 | 2 | Verify the M5AZN import workflow; polling reliability; document delays | **Done in code and tests; one live observation open** — pull is complete, fair and tunable; delay documented | §4, [m5azn-import-workflow](m5azn-import-workflow.md) |
 | 3 | Torod inventory: exactly what is missing; technical request; do not simulate | **Done** | §5, [gap analysis](torod-inventory-gap-analysis.md), [request](vendor-requests/logestechs-technical-request.md) |
-| 4 | Safe staging procedure on a restored copy of the real schema, compatibility checks, migrations | **Procedure + read-only tooling done; not yet run on the real dump** (it is not in the repository) | [staging-validation](staging-validation.md), `fulfillment:preflight` |
+| 4 | Safe deployment and compatibility check against the real schema (now: **on the existing pilot server**, no staging server by decision) | **Procedure and tooling done and rehearsed; not run on the real server or database** (neither is reachable from here): backup + proof of restore, overlay with drift detection and rollback, read-only schema check, additive migrations by path | [pilot-deployment](pilot-deployment.md) |
 | 5 | Validate routing, duplicates, payment allocation, shipping, VAT, refunds, COD, cancellations, tracking; single and mixed | **Done in tests** (≈ 150 scenario and engine tests, plus unit tests of the state machine and the cash allocator); refunds and payment changes **after** dispatch are not propagated to a provider (N5) | §6 |
 | 6 | CI workflow; investigate the full-suite failure | **Done** — workflow green; the failure is unrelated and now explained (§7) | `.github/workflows/ci.yml` |
 | 7 | Admin routes without authentication | **Found real and critical; fixed** (SEC-1) with a route-audit test | [security-findings](security-findings.md) |
@@ -152,13 +162,14 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 
 | ID | Blocker | Blocks | How it clears | Owner |
 |---|---|---|---|---|
-| **B1** | **Not run on the real database.** `orders`, `order_details`, `products` come from a dump not in the repository; tests use an inferred schema. The checkout hooks, status guards and the `products` column are unproven on the real schema/data/triggers | C, D | [staging-validation.md](staging-validation.md) sections 1–10 signed off | DBA + engineer |
+| **B1** | **Not run on the real database.** `orders`, `order_details`, `products` come from a dump not in the repository; tests use an inferred schema. The checkout hooks, status guards and the `products` column are unproven on the real schema/data/triggers | A (the code is dormant until migrated, so this does not stop A), C, D | [pilot-deployment](pilot-deployment.md) phases 3–5: `fulfillment:compatibility` read-only **before** the migration, behind a verified backup; smoke test after | You (access) + engineer |
 | **B2** | **M5AZN: response schemas unknown.** No import, stock follow or status polling without verified field maps; the order reference path, status vocabulary, duplicate-`id` behaviour and the *Supply/Import → list* behaviour are unverified | D (M5AZN), E | [M-1 … M-13](live-verification/m5azn.md); M5AZN's [answers](vendor-requests/m5azn-technical-request.md) | Store owner + M5AZN |
 | **B3** | **Torod: order response and duplicate behaviour unknown.** Order reference path, `invoiceNumber` duplicate behaviour, v2/v5 city id equivalence, `villageId` requirement; COD collection-method values if COD is taken | D (Torod) | [T-1 … T-13](live-verification/torod-point.md); LogesTechs' [answers](vendor-requests/logestechs-technical-request.md) | Store owner + LogesTechs |
 | **B4** | **Deployment security actions** (we cannot see production): confirm production's `APP_KEY` is not the example key in `.env.example` (SEC-2); rotate the Zender secret and review its message log (SEC-1) | D | Checklists in [security-findings](security-findings.md) | Store owner / ops |
-| **B5** | **Runtime wiring on the target host** not rehearsed: worker under a process manager with `retry_after` 180, cron `schedule:run`, a real cache driver, **trusted proxies** (client IP), heartbeat green | D | [staging-validation §8](staging-validation.md#8-queue-scheduler-and-recovery-rehearsal); preflight + Integration Center *System checks* all PASS | Ops |
+| **B5** | **Runtime wiring on the target host** not known: how the queue runs (it must include the `fulfillment` queue), the cron `schedule:run` line, a real cache driver, `retry_after` 180, **trusted proxies** (client IP), the document root (SEC-13) | C, D | [pilot-deployment §0 and §4](pilot-deployment.md); preflight, *System checks* and the go-live checklist's *Scheduler running* / *Queue worker keeping up* all met | Ops |
 | **B6** | **Business decisions for cash on delivery**: is COD taken for provider items at all; keep mixed-collection blocked (recommended) or verify it per provider; who collects at M5AZN and how it is settled | D, only if COD is offered | Decide; then M-12 / T-9c | Store owner |
-| **B7** | **Torod stock**: LogesTechs must state which field is available-to-sell (or provide an inventory endpoint) | F only | T-1b with physical counts + written answer | LogesTechs |
+| **B7** | **Torod stock**: LogesTechs must state which field is available-to-sell (or provide an inventory endpoint) | F only | T-1b with physical counts (`fulfillment:verify torod_point --skus=…`) + written answer | LogesTechs |
+| **B8** | **Access and inputs for the pilot**: shell access on the server, the phase-0 answers, the production database name, a maintenance window, an off-server place for the backup, both providers' credentials, written authorisation and test products for the controlled orders | A, B, C | The table in [pilot-deployment §11](pilot-deployment.md#11-blockers-and-decisions) | You |
 
 ### Non-blockers (tracked; none prevents the decisions above)
 
@@ -194,9 +205,13 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 
 ## 10. Recommended next steps, in order
 
-1. **You** (or the DBA): restore a scrubbed copy of the real database on staging and run [staging-validation](staging-validation.md) → clears B1. (≈ half a day.)
-2. **You**: enter M5AZN and Torod credentials on staging; run the **Level 1** checks (read-only) and record the evidence → B2, B3 (read part). Send the two vendor requests today — their answers are the longest lead time.
-3. **You**: decide B6 (COD policy) and confirm B4.
-4. **Authorize, separately and in writing**, the Level 2 calls (one test order per provider, immediate cancel) using the template → rest of B2, B3. Tell me when, and I will help run and read them.
-5. Ops rehearsal on staging (B5), then the [go-live checklist](operations.md#6-go-live-checklist-in-this-order-one-provider-at-a-time) — one provider at a time, dry-run first.
-6. Merge PR #1 after step 1 passes. LogesTechs' stock answer (B7) unlocks automatic inventory whenever it arrives; nothing else waits on it.
+1. **You**: answer the phase-0 questions and the access items of [pilot-deployment §11](pilot-deployment.md#11-blockers-and-decisions); decide D1 (`APP_KEY`) before any
+   real credential is typed. Send the two vendor requests now — their answers are the longest lead time.
+2. **You**: take the backup (`scripts/deploy/backup.sh`, then `verify-backup.sh`), copy it off the server, and approve **Gate A** for a window.
+3. **Deploy with everything off** (phase 4), read-only checks before and after, smoke test (phase 5). Nothing is sent: no provider is contacted and none can be.
+4. **You**: enter credentials; approve **Gate B**; run the read-only checks (`fulfillment:verify m5azn`, `torod_point`); finalise the field
+   maps from the evidence → B2, B3 (read part), B7 (with the hand count).
+5. **Authorise, separately and in writing, per provider**, the controlled test order ([plan](controlled-test-orders.md), **Gate C**): a dry-run
+   rehearsal that shows the exact request, then one order released by a person. This produces the two proofs the checklist needs.
+6. When the provider page's *Before automatic sending* checklist is met, decide **Gate D** per provider; decide B6 (COD policy) first if COD is offered.
+7. Merge PR #1 when you are satisfied with step 3 — it is not a precondition of any step above.

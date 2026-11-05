@@ -1,26 +1,34 @@
 # Operations: deployment, queues, scheduler, webhooks, reconciliation, go-live, rollback, runbook
 
-> Read [staging-validation.md](staging-validation.md) first: **nothing here is run on production until it has run
-> cleanly on a staging copy restored from the real database.** `php artisan fulfillment:preflight` is the read-only
-> readiness check used throughout (the same runtime checks are shown on *Integration Center → System checks*).
+> The step-by-step procedure for the existing (pilot) server — backup, reversible overlay deployment, read-only
+> compatibility check, additive migrations, gates and rollback — is [**pilot-deployment.md**](pilot-deployment.md); read it first.
+> This document is the reference for what each setting, process and screen does. `php artisan fulfillment:preflight` is the
+> read-only readiness check used throughout (the same runtime checks are shown on *Integration Center → System checks*).
 
 ## 1. Deploy (nothing is sent until you switch it on)
 
-1. **Back up the database.** Never run `php artisan migrate` on an empty database (CLAUDE.md): restore the dump first,
-   then migrate. Run `php artisan fulfillment:preflight` before **and** after migrating.
-2. Deploy the code, then:
+1. **Back up the database and the files** (`scripts/deploy/backup.sh`, then `verify-backup.sh`) and prove the dump loads. Never
+   run `php artisan migrate` on an empty database (CLAUDE.md): restore the dump first, then migrate. Run
+   `php artisan fulfillment:preflight --allow-production-read-only` before **and** after migrating.
+2. Deploy the code (the overlay: `scripts/deploy/deploy.php`, which detects drift on files that differ from what the release was
+   built against and keeps a per-file rollback), then run **only our two migrations, by path**:
    ```bash
-   php artisan migrate --force      # two additive migrations; no existing table is altered or dropped
-   php artisan optimize:clear
+   php artisan migrate --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php \
+                       --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php
+   php artisan optimize:clear       # never config:cache, route:cache or optimize on this platform
    php artisan queue:restart
    ```
-   The only change to an existing table is **one nullable column and its index on `products`** (`fulfillment_provider`).
-   `queue:restart` matters: long-running workers cache a "has the migration run?" check.
+   Never a bare `migrate` here: the platform has about 300 migrations of its own, one of which rebuilds 35 large tables, and
+   whatever is pending on the server is a separate change. The confirmation prompt appears only when `APP_ENV=production`; add
+   `--force` only in a non-interactive shell. The only change to an existing table is **one nullable column and its index on
+   `products`** (`fulfillment_provider`). `queue:restart` matters: long-running workers cache a "has the migration run?" check.
 3. **Environment** (`.env`; see `.env.example`):
 
    | Variable | Value | Why |
    |---|---|---|
-   | `FULFILLMENT_INTEGRATIONS_ENABLED` | `false` until go-live | the global kill switch: no outbound provider call of any kind while off |
+   | `FULFILLMENT_INTEGRATIONS_ENABLED` | `false` until the read-only phase | the global kill switch: no outbound provider call of any kind while off |
+   | `FULFILLMENT_EXTERNAL_WRITES_ENABLED` | `false` until an authorised test window or go-live | with it off the integration is **read-only**: the transport refuses every request that is not a read or a sign-in, whatever the admin panel says |
+   | `TRUSTED_PROXIES` | empty, or the proxy addresses | which `X-Forwarded-*` headers are believed (item 6 below) |
    | `QUEUE_CONNECTION` | `database` or `redis` | `sync` is *correct* (the sweep does the work) but slow; a real queue is recommended |
    | `QUEUE_RETRY_AFTER` | `180` | must exceed the longest job (120 s); `config/queue.php` defaults to 90 |
    | `FULFILLMENT_QUEUE` / `FULFILLMENT_QUEUE_CONNECTION` | `fulfillment` / (default) | where the jobs go |
@@ -67,10 +75,12 @@
    Sweeps are bounded (`limit` 100–200 per run) and **rotate**: each run resumes after where the previous one stopped,
    so rows that cannot progress (a paused order, a switched-off provider) can never starve the ones behind them.
 6. **Trusted proxies.** The webhook rate limit (600 / minute per client IP) and the optional IP allow-list use the
-   client address Laravel sees. `app/Http/Middleware/TrustProxies.php` ships with **no trusted proxies**: behind a CDN
-   or a reverse proxy the application sees the *proxy's* address, so every caller shares one rate-limit bucket and an
-   allow-list can never match. Set the proxies for your environment, then confirm on *Integration Center → System
-   checks → client address*.
+   client address Laravel sees. `bootstrap/app.php` wires the *framework's* `TrustProxies` middleware (the class in
+   `app/Http/Middleware/TrustProxies.php` is never used, so editing it does nothing), and that middleware reads
+   `config/trustedproxy.php`: set `TRUSTED_PROXIES` in `.env` to the proxy addresses or CIDR ranges (`*` only if the
+   application is reachable solely through the proxy). Empty, the default, trusts none: behind a CDN or a reverse proxy the
+   application then sees the *proxy's* address, so every caller shares one rate-limit bucket and an allow-list can never
+   match. Confirm on *Integration Center → System checks → client address*.
 
 ## 2. Enter credentials
 
@@ -126,21 +136,28 @@ It is **never** re-sent automatically:
 
 ## 6. Go-live checklist (in this order, one provider at a time)
 
-1. Staging validation signed off ([staging-validation.md](staging-validation.md), section 10).
-2. Live verification ([live-verification](live-verification/README.md)) recorded for that provider, maps verified.
-3. Credentials saved; **Test connection** passes. `php artisan fulfillment:preflight` on production with
-   `--allow-production-read-only` shows no FAIL (it only reads metadata).
-4. Turn **Integration enabled** on and leave **Send orders** off, or on with **Dry run**. Place a test order and read the
-   recorded request on the shipment page and in *API logs*.
-5. Set `FULFILLMENT_INTEGRATIONS_ENABLED=true`, **Send orders** on, **Dry run** off. The moment dispatch becomes live is
-   recorded as the provider's *go-live* time: orders placed **before** it are held (`hold_before_go_live`) and never sent
-   by themselves — release the ones you want sent, one by one.
+The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-deployment.md); in short:
+
+1. Deployed with everything off; `php artisan fulfillment:preflight --allow-production-read-only` and
+   `fulfillment:compatibility --allow-production-read-only` show no FAIL (they only read).
+2. Credentials saved; **Test connection** passes; read-only live verification recorded for that provider
+   (`php artisan fulfillment:verify <provider>`), field maps verified ([live-verification](live-verification/README.md)).
+3. **Controlled phase** ([controlled-test-orders.md](controlled-test-orders.md)): *Send orders* on, *Dry run* on, *Send automatically*
+   off. A test order records the exact request on the shipment page. Then, in an authorised window only,
+   `FULFILLMENT_EXTERNAL_WRITES_ENABLED=true`, **Dry run** off, and a person presses **Release for dispatch** on that one shipment.
+4. The provider page's **Before automatic sending** checklist is derived from what really happened (a recent passing verification,
+   verified maps, mapped products, a running scheduler and queue, one order accepted by the provider, one status update received and
+   understood). **Send automatically** is refused while an item is unmet; an administrator may go ahead with the override
+   checkbox, which writes the unmet items and the person to the audit log.
+5. The moment automatic sending becomes live is recorded as the provider's *go-live* time: orders placed **before** it are held
+   (`hold_before_go_live`) and never swept out by the switch — release the ones you want sent, one by one.
 6. Watch *Integration Center* (open / held / failed / outcome-unknown / attention) and the API logs for the first real orders.
 
 ## 7. Rollback
 
-* **Stop sending, instantly, no deploy:** untick *Send orders* (or *Integration enabled*) for a provider, or set
-  `FULFILLMENT_INTEGRATIONS_ENABLED=false`. Queued work waits; nothing is lost or failed.
+* **Stop sending, instantly, no deploy:** untick *Send automatically* (every due order then waits for a person), or *Send orders*
+  (or *Integration enabled*) for a provider, or set `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` (read-only) or
+  `FULFILLMENT_INTEGRATIONS_ENABLED=false` (off). Queued work waits; nothing is lost or failed.
 * **Return a product to in-house:** product form → Fulfillment provider → *In-house / Default* (blocked while orders for
   it are in flight with the provider; finish or cancel them first).
 * **Remove the feature:** disable the integrations, confirm with `php artisan migrate:status` that these two migrations are
@@ -148,6 +165,9 @@ It is **never** re-sent automatically:
   nullable column, so rollback drops exactly those and no store data. **The authoritative rollback is restoring the
   pre-migration backup.** Shipments already accepted by a provider are not recalled by either — handle those with the provider.
 * **Code rollback** while the tables exist is safe: the previous release ignores the new tables and the nullable column.
+  The overlay deployment undoes itself file by file: `php deploy.php rollback --backup-dir=<the directory apply printed>`
+  restores every replaced file, removes every added one and takes back only the language keys the release added.
+  The full table of rollbacks for every phase is in [pilot-deployment.md](pilot-deployment.md#10-rollback-for-every-phase).
 
 ## 8. Runbook
 
@@ -166,5 +186,7 @@ It is **never** re-sent automatically:
 | System checks: *scheduler heartbeat* FAIL | `schedule:run` has stopped | Check cron; nothing is dispatched or reconciled meanwhile |
 | System checks: *shipment tracking* WARN | Open shipments heard nothing for 48 h | Check the webhook setup and the poll (M5AZN: a verified orders map) |
 
-Structured logs never contain credentials, tokens, passwords or customer phone numbers; API-log rows are pruned after
-60 days.
+Log files and the API log never contain credentials or tokens, and the personal data a provider's error text or an exception
+message may echo back (names, phone numbers, e-mail addresses) is removed before it is written (`PiiRedactor::scrub`). API-log
+rows are redacted of personal data as well, and pruned after 60 days. What the integration *does* keep about a customer, and
+where, is in [security-findings SEC-16](security-findings.md#sec-16--personal-data-where-this-integration-keeps-it-and-where-it-does-not).

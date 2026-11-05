@@ -1,5 +1,12 @@
 # Staging validation on a restored copy of the real database
 
+> **Superseded for this project.** The existing production server is the pilot environment, and no staging server will be
+> built. The procedure to follow is [**pilot-deployment.md**](pilot-deployment.md): full backup, read-only compatibility
+> check against the live schema, a reversible overlay deployment with everything switched off, then reads, then controlled
+> test orders. This document is kept for anyone who prefers to rehearse on a restored copy first; its mechanical steps were
+> rehearsed (see the appendix) and the tools it names (`fulfillment:preflight`, `fulfillment:compatibility`,
+> `fulfillment:outbound-audit`, `fulfillment:sanitization-plan`) work the same on a copy. **Nothing here is required** for the pilot.
+
 **Purpose.** Prove, on a throwaway copy of the real Pharmacy KSA database, that the fulfillment integration is
 compatible with the real schema and data, that its migrations apply and roll back cleanly, and that every order
 scenario behaves as designed — **before** anything touches production.
@@ -66,7 +73,7 @@ be able to reach a real provider, a payment gateway or a customer's phone.
   APP_DEBUG=false
   APP_KEY=<a NEW key: php artisan key:generate --show>   # never the example key from .env.example
   DB_DATABASE=pharmacyksa_staging
-  MAIL_MAILER=log
+  MAIL_DRIVER=log                     # this platform reads MAIL_DRIVER (config/mail.php); MAIL_MAILER is read nowhere
   FULFILLMENT_INTEGRATIONS_ENABLED=false
   FULFILLMENT_ALLOW_MIXED_COD=false
   QUEUE_CONNECTION=database           # or redis, as in production
@@ -156,8 +163,12 @@ exactly `cash_on_delivery` as COD).
 
 ```bash
 php artisan migrate:status                 # note the last migration BEFORE ours
-php artisan migrate --pretend              # read the SQL: two migrations, additive only
-php artisan migrate                        # asks for confirmation in staging; --force only in non-interactive CI
+# Run ONLY our two migrations, by path. A bare `migrate` would also run every platform migration that is pending on the
+# copy (one of them rebuilds 35 large tables to DECIMAL(40,20)), which is a different change that needs its own rehearsal.
+M1=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php
+M2=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php
+php artisan migrate --pretend --path=$M1 --path=$M2    # read the SQL: additive only
+php artisan migrate --path=$M1 --path=$M2              # the confirmation prompt appears ONLY when APP_ENV=production; --force is for a non-interactive shell
 php artisan migrate:status                 # both of ours: Ran
 php artisan fulfillment:preflight          # schema section: all PASS; 'migrations': both applied
 ```
@@ -182,10 +193,10 @@ data preservation on SQLite and on MySQL 8.0.
 Rehearse the way back before you need it.
 
 1. **Verify the order first:** `php artisan migrate:status` — our two migrations must be the **last two** that ran.
-2. `php artisan migrate:rollback --step=2` — drops the 11 new tables and the one column; `integration_settings` and all
-   store data are untouched.
+2. `php artisan migrate:rollback --force --path=$M2 --path=$M1` — drops the 11 new tables and the one column;
+   `integration_settings` and all store data are untouched. (`--step=2` is correct only if ours really are the last two.)
 3. `php artisan fulfillment:preflight` → back to *"not migrated yet"* with no FAIL.
-4. `php artisan migrate` again (idempotent) and compare row counts of the core tables with step 1: they must be identical.
+4. The two migrations again, by path (idempotent), and compare row counts of the core tables with step 1: they must be identical.
 5. The authoritative rollback is always **restore the pre-migration backup** — the `down()` methods are the convenience.
 
 Note what a rollback does *not* undo: provider shipments already accepted by a provider (handle those with the provider),
