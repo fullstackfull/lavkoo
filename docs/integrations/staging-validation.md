@@ -202,6 +202,15 @@ Prepare: two M5AZN products and two Torod Point products (assign via the product
 data is fine), one in-house product. Set both providers **Integration enabled = on, Send orders = on, Dry run = on**, and
 `FULFILLMENT_INTEGRATIONS_ENABLED=true` **only after** the preflight shows no live-dispatch FAIL (dry-run is not live).
 
+> **What can leave the staging host while the kill switch is on.** *Dispatch in Dry run sends nothing.* But a provider that
+> is enabled and has credentials also runs its **scheduled read-only calls**: product/stock sync (`product_sync_enabled`,
+> `inventory_sync_enabled`), the weekly city refresh, and the status poll for shipments that carry a provider reference.
+> Those are Level 1 calls. If you do not want any provider traffic during this exercise, switch those sync options off
+> (or do not enter credentials until the live-verification step) — an unconfigured provider holds orders with
+> `hold_provider_not_ready`, which is itself a scenario worth seeing. **Never** link a real-looking Torod package barcode
+> to a staging shipment while the kill switch is on and credentials are present: *Cancel* on such a shipment is a live
+> (write) call to LogesTechs.
+
 | # | Scenario | Expected on staging | Automated counterpart |
 |---|---|---|---|
 | 1 | Prepaid order, Torod items only | one shipment `…-TP1`, status *Dry-run*, cash 0, total = items + shipping | `OrderScenarioMatrixTest` |
@@ -216,7 +225,7 @@ data is fine), one in-house product. Set both providers **Integration enabled = 
 | 10 | Mark an order *Delivered* in admin, vendor panel, seller API, delivery-man app while a shipment is open | refused with the same reason on every path | `StatusAndCheckoutGuardsTest` |
 | 11 | Reopen a cancelled order that has provider lines | refused | same |
 | 12 | Cancel the order before dispatch | each shipment cancelled locally; nothing sent | `CancellationTest` |
-| 13 | Cancel the order after a (dry-run → manually linked) shipment is *submitted* | cancel request recorded **only** if the provider acknowledges; M5AZN → *blocked*, shipment shows the manual-cancel instructions and the order becomes *attention required* | `CancellationTest` |
+| 13 | Cancel the order after a shipment is *submitted* (link a made-up reference to an **M5AZN** shipment: *Link an existing provider order*) | M5AZN cannot cancel through its API and makes no network call → the cancellation is *blocked*, the shipment shows the manual-cancel instructions and the order becomes *attention required*; *Mark cancelled by hand* closes it. (Do this with M5AZN, or with the kill switch off — see the box above.) | `CancellationTest` |
 | 14 | Change the dispatch window (set *Send orders* off) and place orders | shipments are **held** (`hold_provider_disabled`), the sweep releases them when it is turned back on | `DispatcherTest` |
 | 15 | Customer order page / API | provider **names never appear**; one shipment row per provider; *delivered* only when all required shipments are | `OrderGuardAndStorefrontTest` |
 
