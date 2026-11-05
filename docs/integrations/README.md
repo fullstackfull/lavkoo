@@ -16,8 +16,15 @@ attempts and API history.
 > exists.
 
 Other documents: [capability matrix](capability-matrix.md) · [M5AZN](m5azn.md) · [Torod Point](torod-point.md) ·
-[cash on delivery](cod.md) · [operations: deployment, go-live, rollback, runbook](operations.md) ·
+[cash on delivery](cod.md) · [operations: deployment, queues, webhooks, go-live, rollback, runbook](operations.md) ·
 [risks and open questions](risks.md).
+
+**Production readiness (start here before any rollout):** [**GO / NO-GO readiness report**](readiness-report.md) ·
+[staging validation on a restored copy of the real database](staging-validation.md) ·
+[live verification checklists](live-verification/README.md) ([M5AZN](live-verification/m5azn.md),
+[Torod Point](live-verification/torod-point.md)) · [security findings](security-findings.md) ·
+[M5AZN import workflow](m5azn-import-workflow.md) · [Torod inventory gap analysis](torod-inventory-gap-analysis.md) ·
+vendor requests: [M5AZN](vendor-requests/m5azn-technical-request.md), [LogesTechs](vendor-requests/logestechs-technical-request.md).
 
 ## Where things are
 
@@ -65,8 +72,15 @@ parent order: FulfillmentAggregator derives one status (read-only — it never w
   (`delivered`/`cancelled`) confirmed against the provider before being believed, unmatched events retried.
 * **Secrets:** credentials are encrypted at rest (`integration_settings.credentials`), write-only in the admin UI
   (a blank field keeps the stored value), and redacted from logs and API-log rows.
-* **Parent order status** is never moved by a provider event. An order cannot be marked *delivered* by an admin while
-  a provider shipment is unfinished; warehouse packing is progress, never delivery.
+* **Parent order status** is never moved by a provider event. An order cannot be marked *delivered* — from the admin
+  panel, the vendor panel, either seller API endpoint or the delivery-man app — while a provider shipment is unfinished;
+  a closed order with provider lines cannot be reopened, and orders with provider lines cannot be edited; warehouse
+  packing is progress, never delivery.
+* **Money is re-assessed before every send:** an order paid (or part-paid) after routing is sent as paid; a cash split that
+  is no longer allowed is held. Cash on delivery is not offered for a basket that would split cash between collectors.
+* **Cancellation is a recorded request**, set only when the provider acknowledges it, retried with a backoff, one caller at
+  a time, and surfaced for a person when the provider refuses or cannot cancel.
+* **Readiness check:** `php artisan fulfillment:preflight` (read-only) and *Integration Center → System checks*.
 
 ## Tables (all new)
 
@@ -81,7 +95,10 @@ types cannot be assumed. Integrity to `orders` / `products` is by indexed id.
 
 ## Tests
 
-`php vendor/bin/phpunit tests/Unit/Fulfillment tests/Feature/Fulfillment` — all provider traffic is mocked
-(`Http::fake` with `Http::preventStrayRequests()`), no test can reach a real provider. The core store tables
+`php vendor/bin/phpunit` (whole suite, SQLite) or, against a real MySQL 8 whose name contains `test`,
+`DB_CONNECTION=mysql DB_DATABASE=… vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/Fulfillment tests/Feature/Security`
+(`phpunit.xml` pins SQLite and overrides the environment; `phpunit.mysql.xml` leaves the database to the environment) —
+all provider traffic is mocked (`Http::fake` with `Http::preventStrayRequests()`), no test can reach a real provider.
+CI runs both. The core store tables
 (`products`, `orders`, `order_details`…) are an **inferred minimal schema** in `tests/Support/BuildsFulfillmentSchema.php`
 because the installation dump is not in the repository; see [risks](risks.md).
