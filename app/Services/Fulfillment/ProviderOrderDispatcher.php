@@ -39,6 +39,7 @@ class ProviderOrderDispatcher
     /** Holds that clear themselves once the underlying setting or data is fixed; the sweep retries them. */
     public const AUTO_RELEASABLE = [
         HoldReason::PROVIDER_DISABLED,
+        HoldReason::EXTERNAL_WRITES_DISABLED,
         HoldReason::PROVIDER_NOT_READY,
         HoldReason::ACKNOWLEDGEMENT_REQUIRED,
         HoldReason::MAPPING_MISSING,
@@ -174,6 +175,19 @@ class ProviderOrderDispatcher
     {
         if (!$this->connections->isGloballyEnabled() || !$config->enabled || !$config->bool('dispatch_enabled')) {
             return [HoldReason::PROVIDER_DISABLED, null];
+        }
+
+        // A dry run is computed locally and sends nothing, so it is allowed on a host that may not write. A real send is not:
+        // it is held (not failed, not retried in a loop) until the environment allows writes.
+        if (!$config->bool('dry_run', true) && !$this->connections->externalWritesEnabled()) {
+            return [HoldReason::EXTERNAL_WRITES_DISABLED, null];
+        }
+
+        // "Send orders" is not "send them by themselves". Until an operator has verified the provider and switched automatic
+        // sending on, an order that is due waits here for a person to release it, which sends that one order at once. A dry
+        // run needs no approval: nothing leaves the host.
+        if (!$manual && !$config->bool('dry_run', true) && !$config->bool('auto_dispatch', false)) {
+            return [HoldReason::AWAITING_APPROVAL, null];
         }
 
         $readiness = $adapter->readiness();

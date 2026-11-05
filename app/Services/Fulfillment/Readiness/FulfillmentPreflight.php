@@ -3,9 +3,11 @@
 namespace App\Services\Fulfillment\Readiness;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\IntegrationMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderSyncState;
+use App\Services\Fulfillment\Readiness\Compatibility\CompatibilitySpec;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
@@ -33,18 +35,6 @@ class FulfillmentPreflight
     /** The longest a fulfillment job may run (DispatchProviderFulfillment / Reconcile: 120 s). */
     private const LONGEST_JOB_SECONDS = 120;
 
-    /** Core tables and the columns the integration needs from them. */
-    private const CORE_COLUMNS = [
-        'orders' => ['id', 'customer_id', 'is_guest', 'order_status', 'payment_status', 'payment_method', 'order_amount', 'paid_amount', 'shipping_cost', 'shipping_address_data', 'order_type', 'order_note', 'is_pause', 'seller_id', 'seller_is', 'created_at', 'updated_at'],
-        'order_details' => ['id', 'order_id', 'product_id', 'seller_id', 'product_details', 'qty', 'price', 'discount', 'tax', 'tax_model', 'variant', 'variation', 'delivery_status'],
-        'products' => ['id', 'name', 'slug', 'code', 'barcode', 'added_by', 'user_id', 'shop_id', 'product_type', 'category_ids', 'category_id', 'sub_category_id', 'sub_sub_category_id', 'brand_id', 'unit', 'details', 'colors', 'choice_options', 'attributes', 'variation', 'unit_price', 'purchase_price', 'tax', 'tax_type', 'tax_model', 'discount', 'discount_type', 'current_stock', 'minimum_order_qty', 'video_provider', 'status', 'request_status', 'shipping_cost', 'multiply_qty', 'color_image', 'images', 'thumbnail', 'thumbnail_storage_type', 'meta_title'],
-        'business_settings' => ['id', 'type', 'value'],
-        'currencies' => ['id', 'code', 'exchange_rate'],
-        'admins' => ['id', 'admin_role_id'],
-        'admin_roles' => ['id', 'module_access', 'status'],
-        'categories' => ['id', 'name', 'parent_id', 'position'],
-    ];
-
     private const OWN_TABLES = [
         'provider_fulfillments', 'provider_fulfillment_items', 'provider_fulfillment_events', 'provider_api_logs',
         'provider_sync_states', 'provider_product_mappings', 'provider_catalog_items', 'provider_price_changes',
@@ -60,7 +50,7 @@ class FulfillmentPreflight
         'provider_catalog_items' => ['imported_hash'],
     ];
 
-    private const MIGRATIONS = [
+    public const MIGRATIONS = [
         '2026_11_05_100000_create_provider_fulfillment_tables',
         '2026_11_05_100100_add_fulfillment_provider_to_products_table',
     ];
@@ -101,6 +91,8 @@ class FulfillmentPreflight
                 : $this->pass('safety', "{$provider->value} dispatch", $live ? 'live (allowed by --allow-live)' : 'off or dry-run');
         }
 
+        $checks[] = $this->externalWrites($allowLive);
+
         $example = $this->exampleAppKey();
         $isExample = $example !== null && hash_equals($example, (string) config('app.key'));
         $checks[] = match (true) {
@@ -117,7 +109,7 @@ class FulfillmentPreflight
     {
         $checks = [];
 
-        foreach (self::CORE_COLUMNS as $table => $columns) {
+        foreach (CompatibilitySpec::requiredColumns() as $table => $columns) {
             if (!Schema::hasTable($table)) {
                 $checks[] = $this->fail('schema', $table, 'table is missing - restore the installation dump before migrating');
                 continue;
@@ -164,9 +156,11 @@ class FulfillmentPreflight
     {
         $checks = [];
         $enabled = (bool) config('fulfillment.enabled');
-        $checks[] = $enabled
-            ? $this->warn('runtime', 'kill switch', 'FULFILLMENT_INTEGRATIONS_ENABLED is ON: providers can be called when they are enabled.')
-            : $this->pass('runtime', 'kill switch', 'FULFILLMENT_INTEGRATIONS_ENABLED is off: no provider is called, queued work waits.');
+        $checks[] = match ($this->connections->mode()) {
+            IntegrationMode::Off => $this->pass('runtime', 'kill switch', 'FULFILLMENT_INTEGRATIONS_ENABLED is off: no provider is called, queued work waits.'),
+            IntegrationMode::ReadOnly => $this->warn('runtime', 'kill switch', 'FULFILLMENT_INTEGRATIONS_ENABLED is ON in read-only mode: enabled providers can be read; nothing can be created, changed or cancelled there.'),
+            IntegrationMode::Live => $this->warn('runtime', 'kill switch', 'FULFILLMENT_INTEGRATIONS_ENABLED and FULFILLMENT_EXTERNAL_WRITES_ENABLED are both ON (live): enabled providers can receive orders.'),
+        };
 
         $connectionName = (string) (config('fulfillment.queue.connection') ?: config('queue.default'));
         $driver = (string) config("queue.connections.{$connectionName}.driver", $connectionName);
@@ -220,6 +214,15 @@ class FulfillmentPreflight
         return $checks;
     }
 
+    private function externalWrites(bool $allowLive): PreflightCheck
+    {
+        return match (true) {
+            (bool) config('fulfillment.external_writes_enabled') && !$allowLive => $this->fail('safety', 'external writes', 'FULFILLMENT_EXTERNAL_WRITES_ENABLED is ON: this host may create, change and cancel orders and products at the providers (even while the kill switch is off, turning it on would allow them at once). A staging validation must keep it off, or pass --allow-live for a deliberate go-live check.'),
+            (bool) config('fulfillment.external_writes_enabled') => $this->warn('safety', 'external writes', 'ON (allowed by --allow-live): this host may create, change and cancel orders and products at the providers.'),
+            default => $this->pass('safety', 'external writes', 'off: nothing can be created, changed or cancelled at a provider from this host; reads are allowed only while the integration is switched on.'),
+        };
+    }
+
     private function heartbeat(bool $enabled): PreflightCheck
     {
         if (!$enabled || !Schema::hasTable('provider_sync_states')) {
@@ -261,7 +264,7 @@ class FulfillmentPreflight
         $remote = (string) $request->server->get('REMOTE_ADDR');
 
         return $forwarded !== null && $request->ip() === $remote
-            ? $this->warn('runtime', 'client address', "this request came with X-Forwarded-For ({$forwarded}) but the application sees {$remote}: no proxy is trusted, so every webhook caller shares one rate-limit bucket and an IP allow-list cannot match. Set the trusted proxies (app/Http/Middleware/TrustProxies.php).")
+            ? $this->warn('runtime', 'client address', "this request came with X-Forwarded-For ({$forwarded}) but the application sees {$remote}: no proxy is trusted, so every webhook caller shares one rate-limit bucket and an IP allow-list cannot match. Set TRUSTED_PROXIES in the environment (config/trustedproxy.php).")
             : $this->pass('runtime', 'client address', 'the application sees ' . (string) $request->ip() . ($forwarded === null ? ' (a direct connection)' : ' (the real client, through a trusted proxy)'));
     }
 

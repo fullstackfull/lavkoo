@@ -45,6 +45,8 @@ abstract class FulfillmentTestCase extends TestCase
 
         config([
             'fulfillment.enabled' => true,
+            // Tests exercise real sends against faked HTTP; ExternalWriteGuardTest proves what happens when this is off.
+            'fulfillment.external_writes_enabled' => true,
             'fulfillment.currency' => 'SAR',
             'fulfillment.cod.allow_mixed' => false,
             'queue.default' => 'database',
@@ -103,7 +105,7 @@ abstract class FulfillmentTestCase extends TestCase
             provider: $provider,
             enabled: true,
             baseUrl: null,
-            settings: $settings + ['dispatch_enabled' => true, 'dry_run' => false],
+            settings: $settings + ['dispatch_enabled' => true, 'auto_dispatch' => true, 'dry_run' => false],
             secrets: $secrets,
         );
     }

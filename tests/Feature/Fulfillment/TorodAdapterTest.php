@@ -8,6 +8,7 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderProductMapping;
 use App\Services\Fulfillment\Data\CapabilityState;
 use App\Services\Fulfillment\Data\SubmissionResult;
+use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodCityResolver;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -416,6 +417,104 @@ class TorodAdapterTest extends TorodTestCase
 
         $this->assertSame('refused', $result->outcome);
         $this->assertStringContainsString('already picked', (string) $result->message);
+    }
+
+    // ---- external writes off: the adapter's real write paths ---------------------------------------
+
+    private function assertRefusedAsExternalWrite(callable $attempt): void
+    {
+        try {
+            $attempt();
+            $this->fail('a write was attempted while external writes are off');
+        } catch (ProviderUnavailableException $exception) {
+            $this->assertStringContainsString('FULFILLMENT_EXTERNAL_WRITES_ENABLED', $exception->getMessage());
+        }
+    }
+
+    public function test_with_external_writes_off_a_warehouse_order_is_refused_and_nothing_is_sent(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+
+        $this->assertRefusedAsExternalWrite(fn () => $this->adapter()->submit($fulfillment));
+
+        Http::assertNothingSent();
+    }
+
+    public function test_with_external_writes_off_a_package_cancellation_is_refused_and_nothing_is_sent(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['provider_secondary_reference' => 'KSA100422577363'])->save();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+
+        $this->assertRefusedAsExternalWrite(fn () => $this->adapter()->cancel($fulfillment));
+
+        Http::assertNothingSent();
+    }
+
+    public function test_with_external_writes_off_a_product_push_is_refused_but_its_dry_run_preview_still_works(): void
+    {
+        $this->torodFulfillment();
+        $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'company_id' => '714', 'dry_run' => false]);
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+
+        $this->assertRefusedAsExternalWrite(fn () => $this->adapter()->pushProducts([1]));
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'company_id' => '714', 'dry_run' => true]);
+        $preview = $this->adapter()->pushProducts([1]);
+
+        $this->assertTrue($preview['ok']);
+        $this->assertTrue($preview['dry_run']);
+        Http::assertNothingSent();
+    }
+
+    public function test_with_external_writes_off_reads_and_the_air_waybill_lookup_still_work(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['provider_secondary_reference' => 'KSA100453706880'])->save();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake([
+            self::V2 . '/guests/packages/status*' => Http::response(['status' => 'OUT_FOR_DELIVERY', 'cod' => 0]),
+            self::V2 . '/guests/714/packages/pdf' => Http::response(['url' => 'https://elasticbeanstalk-eu-central-1.s3.amazonaws.com/awb.pdf']),
+            self::V5 . '/public/fulfillment/product*' => Http::response(['data' => []]),
+        ]);
+
+        $this->assertSame('OUT_FOR_DELIVERY', $this->adapter()->fetchStatus($fulfillment)?->providerStatus);
+        $this->assertNotNull($this->adapter()->labelUrl($fulfillment));
+        $this->assertTrue($this->adapter()->testConnection()->ok);
+    }
+
+    public function test_the_capability_report_marks_every_writing_capability_off_while_external_writes_are_off(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'company_id' => '714', 'dry_run' => false]);
+        config(['fulfillment.external_writes_enabled' => false]);
+
+        $report = $this->adapter()->readiness();
+
+        foreach (['dispatch', 'product_push', 'cancel_package'] as $writing) {
+            $this->assertSame(CapabilityState::READY_DISABLED, $report->capability($writing)->state, $writing);
+            $this->assertSame('external_writes_off', $report->capability($writing)->reason, $writing);
+        }
+        $this->assertFalse($report->canUse('dispatch'));
+        foreach (['connection', 'product_catalog', 'cities', 'package_status', 'air_waybill', 'status_poll'] as $reading) {
+            $this->assertNotSame('external_writes_off', $report->capability($reading)->reason, $reading);
+        }
+        $this->assertTrue($report->canUse('cities'));
+        $this->assertTrue($report->canUse('package_status'));
+    }
+
+    public function test_the_same_capabilities_are_enabled_when_external_writes_are_on(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'company_id' => '714', 'dry_run' => false]);
+
+        $report = $this->adapter()->readiness();
+
+        foreach (['dispatch', 'product_push', 'cancel_package'] as $writing) {
+            $this->assertSame(CapabilityState::ENABLED, $report->capability($writing)->state, $writing);
+        }
     }
 
     public function test_the_air_waybill_comes_from_the_documented_pdf_endpoint(): void

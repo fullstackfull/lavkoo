@@ -11,12 +11,7 @@
             </x-slot:actions>
         </x-k.page-header>
 
-        @unless ($globallyEnabled)
-            <div class="alert alert-warning d-flex gap-2 align-items-start" role="alert">
-                <i class="fi fi-rr-triangle-warning mt-1"></i>
-                <span>{{ translate('fulfillment_integrations_disabled_by_environment') }}</span>
-            </div>
-        @endunless
+        @include('admin-views.fulfillment.partials._integration-mode')
 
         @php($attention = collect($systemChecks)->filter(fn ($check) => $check->status !== 'pass'))
         <x-k.card :title="translate('system_checks')" class="mb-3">
@@ -44,6 +39,10 @@
                                 <x-k.badge tone="neutral">{{ translate('dispatch_off') }}</x-k.badge>
                             @elseif ($card['dryRun'])
                                 <x-k.badge tone="warning">{{ translate('dispatch_dry_run') }}</x-k.badge>
+                            @elseif ($card['writesBlocked'])
+                                <x-k.badge tone="info">{{ translate('dispatch_blocked_read_only') }}</x-k.badge>
+                            @elseif (!$card['autoDispatch'])
+                                <x-k.badge tone="info">{{ translate('dispatch_manual_approval') }}</x-k.badge>
                             @else
                                 <x-k.badge tone="success">{{ translate('dispatch_live') }}</x-k.badge>
                             @endif

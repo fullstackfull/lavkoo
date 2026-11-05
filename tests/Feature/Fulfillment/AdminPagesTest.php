@@ -82,6 +82,71 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->get(route('admin.fulfillment-providers.index'))->assertOk()->assertSee('FULFILLMENT_INTEGRATIONS_ENABLED');
     }
 
+    public function test_every_provider_page_states_the_mode_of_this_server(): void
+    {
+        $pages = [route('admin.fulfillment-providers.index'), route('admin.fulfillment-providers.show', 'm5azn'), route('admin.fulfillment-providers.show', 'torod-point')];
+
+        foreach ([[false, false, 'integration_mode_off'], [true, false, 'integration_mode_read_only'], [true, true, 'integration_mode_live']] as [$enabled, $writes, $key]) {
+            config(['fulfillment.enabled' => $enabled, 'fulfillment.external_writes_enabled' => $writes]);
+
+            foreach ($pages as $url) {
+                $html = $this->get($url)->assertOk()->getContent();
+
+                $this->assertStringContainsString(e(translate($key)), $html, "{$url} in {$key}");
+                $this->assertStringContainsString(e(translate('integration_mode_help_' . substr($key, strlen('integration_mode_')))), $html, "{$url} help in {$key}");
+            }
+        }
+    }
+
+    public function test_a_provider_switched_to_live_is_shown_as_blocked_on_a_read_only_server(): void
+    {
+        config(['fulfillment.enabled' => true, 'fulfillment.external_writes_enabled' => false]);
+        $html = $this->get(route('admin.fulfillment-providers.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString(e(translate('dispatch_blocked_read_only')), $html);
+        $this->assertStringNotContainsString(e(translate('dispatch_live')), $html);
+
+        config(['fulfillment.external_writes_enabled' => true]);
+        $html = $this->get(route('admin.fulfillment-providers.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString(e(translate('dispatch_live')), $html);
+        $this->assertStringNotContainsString(e(translate('dispatch_blocked_read_only')), $html);
+    }
+
+    public function test_automatic_sending_is_a_visible_switch_that_is_off_until_someone_turns_it_on(): void
+    {
+        config(['fulfillment.enabled' => true, 'fulfillment.external_writes_enabled' => true]);
+        $this->enableProvider(ProviderCode::M5azn, ['auto_dispatch' => false]);
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'company_id' => '714']);
+        foreach (['m5azn', 'torod-point'] as $slug) {
+            $html = $this->get(route('admin.fulfillment-providers.show', $slug))->assertOk()->getContent();
+
+            $this->assertStringContainsString('name="auto_dispatch"', $html, $slug);
+            $this->assertStringContainsString(e(translate('send_automatically_help')), $html, $slug);
+            $this->assertStringNotContainsString('id="auto_dispatch" name="auto_dispatch" value="1" checked', $html, "{$slug}: the switch shows off when it is off");
+        }
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'company_id' => '714']);
+        $this->assertStringContainsString(e(translate('dispatch_manual_approval')), $this->get(route('admin.fulfillment-providers.index'))->assertOk()->getContent());
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => true, 'company_id' => '714']);
+        $this->enableProvider(ProviderCode::M5azn, ['auto_dispatch' => true]);
+        $html = $this->get(route('admin.fulfillment-providers.index'))->assertOk()->getContent();
+        $this->assertStringContainsString(e(translate('dispatch_live')), $html);
+        $this->assertStringNotContainsString(e(translate('dispatch_manual_approval')), $html);
+    }
+
+    public function test_saving_the_provider_form_stores_the_automatic_sending_switch(): void
+    {
+        $post = fn (string $value) => $this->post(route('admin.fulfillment-providers.update', 'torod-point'), ['enabled' => 1, 'dispatch_enabled' => 1, 'auto_dispatch' => $value, 'dry_run' => 0, 'company_id' => '714']);
+
+        $post('0')->assertRedirect();
+        $this->assertFalse(app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->bool('auto_dispatch'));
+
+        $post('1')->assertRedirect();
+        $this->assertTrue(app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->bool('auto_dispatch'));
+    }
+
     public function test_provider_settings_pages_render_with_masked_credentials(): void
     {
         foreach (['m5azn', 'torod-point'] as $slug) {

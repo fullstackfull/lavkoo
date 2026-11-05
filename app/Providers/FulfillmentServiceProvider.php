@@ -4,9 +4,11 @@ namespace App\Providers;
 
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderRegistry;
+use App\Services\Fulfillment\Readiness\Compatibility\MigrationsSection;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\Fulfillment\Support\StoreCurrencyRateSource;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -24,6 +26,10 @@ class FulfillmentServiceProvider extends ServiceProvider
         $this->app->bind(CurrencyRateSource::class, StoreCurrencyRateSource::class);
         $this->app->singleton(ProviderRegistry::class);
         $this->app->singleton(ProviderConnectionManager::class);
+
+        // The compatibility check must list the migrations `php artisan migrate` would run, module paths included: those are
+        // registered on the shared 'migrator' instance, not on a Migrator the container would build by itself.
+        $this->app->when(MigrationsSection::class)->needs(Migrator::class)->give(fn () => $this->app->make('migrator'));
     }
 
     public function boot(): void

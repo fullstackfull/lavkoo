@@ -146,7 +146,7 @@
 
                     @if (in_array($status, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed], true))
                         <form method="POST" action="{{ $action('release') }}" class="mb-2">@csrf
-                            <button class="btn btn-primary btn-sm w-100" type="submit">{{ translate('release_for_dispatch') }}</button></form>
+                            <button class="btn btn-primary btn-sm w-100" type="submit">{{ translate($fulfillment->hold_reason === \App\Enums\Fulfillment\HoldReason::AWAITING_APPROVAL ? 'approve_and_send' : 'release_for_dispatch') }}</button></form>
                     @endif
 
                     @if ($accepted && $open)

@@ -85,6 +85,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     {
         return [
             'dispatch_enabled' => false,
+            'auto_dispatch' => false,
             'dry_run' => true,
             'go_live_at' => null,
             'product_sync_enabled' => false,
@@ -135,9 +136,9 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         $capabilities = [
             'connection' => $this->state('connection', $credentials, $global, true),
-            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled')),
+            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled'), $this->connections->externalWritesEnabled()),
             'product_catalog' => $this->state('product_catalog', $credentials, $global, $config->bool('product_sync_enabled')),
-            'product_push' => $this->state('product_push', $credentials, $global, $config->bool('push_products_enabled')),
+            'product_push' => $this->state('product_push', $credentials, $global, $config->bool('push_products_enabled'), $this->connections->externalWritesEnabled()),
             'inventory_sync' => match (true) {
                 !$credentials => new CapabilityState('inventory_sync', CapabilityState::NEEDS_CONFIGURATION, 'credentials_missing'),
                 !$stockMapped => new CapabilityState('inventory_sync', CapabilityState::UNVERIFIED, 'torod_stock_field_unverified'),
@@ -147,7 +148,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             'cities' => $this->state('cities', $companyId, $global, true),
             'package_status' => $this->state('package_status', $companyId, $global, true),
             'air_waybill' => $this->state('air_waybill', $companyId, $global, true),
-            'cancel_package' => $this->state('cancel_package', $companyId && $lastmileCredentials, $global, true),
+            'cancel_package' => $this->state('cancel_package', $companyId && $lastmileCredentials, $global, true, $this->connections->externalWritesEnabled()),
             'webhooks' => $this->state('webhooks', $config->hasSecret('webhook_secret'), $global, $config->bool('webhooks_enabled')),
             'status_poll' => $this->state('status_poll', $companyId, $global, true),
             'inventory_endpoint' => new CapabilityState('inventory_endpoint', CapabilityState::UNDOCUMENTED, 'torod_no_inventory_endpoint'),
@@ -890,10 +891,12 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         return ['ok' => false, 'error' => $message];
     }
 
-    private function state(string $key, bool $configured, bool $global, bool $switchedOn): CapabilityState
+    /** @param bool $writes false for a capability that writes to the provider while this host may not write */
+    private function state(string $key, bool $configured, bool $global, bool $switchedOn, bool $writes = true): CapabilityState
     {
         return match (true) {
             !$configured => new CapabilityState($key, CapabilityState::NEEDS_CONFIGURATION, 'credentials_missing'),
+            !$writes => new CapabilityState($key, CapabilityState::READY_DISABLED, 'external_writes_off'),
             $global && $switchedOn => new CapabilityState($key, CapabilityState::ENABLED),
             default => new CapabilityState($key, CapabilityState::READY_DISABLED),
         };

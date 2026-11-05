@@ -16,7 +16,8 @@ use Throwable;
  * The only way this integration reaches the network.
  *
  * Responsibilities, in order of importance:
- *  1. Refuse to send anything while integrations are switched off (the global kill switch).
+ *  1. Refuse to send anything while integrations are switched off (the global kill switch), and refuse every WRITE
+ *     (an operation that creates or changes something at a provider) while external writes are off.
  *  2. Never retry a WRITE. A request that timed out after it was sent may have been accepted; whether it
  *     can be repeated is for the state machine to decide from provider references, not for a retry loop.
  *     Reads may be retried a couple of times.
@@ -48,6 +49,13 @@ class ProviderHttp
         }
 
         $method = strtoupper($method);
+
+        // Below every other switch: while external writes are off, nothing that could create or change something at a
+        // provider leaves this host. Unknown operations and unexpected methods count as writes (see ExternalOperations).
+        if (!config('fulfillment.external_writes_enabled', false) && ExternalOperations::isWrite($operation, $method)) {
+            throw new ProviderUnavailableException("External write operations are disabled on this host (FULFILLMENT_EXTERNAL_WRITES_ENABLED is off); '{$operation}' was not sent.");
+        }
+
         $isRead = in_array($method, ['GET', 'HEAD'], true);
         $correlationId = (string) Str::uuid();
         $started = hrtime(true);

@@ -20,6 +20,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.fulfillment.partials._integration-mode')
+
         @if ($errors->any())
             <div class="alert alert-danger"><ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
         @endif
@@ -55,6 +57,14 @@
                                     <input type="hidden" name="dispatch_enabled" value="0">
                                     <input class="form-check-input" type="checkbox" role="switch" id="dispatch_enabled" name="dispatch_enabled" value="1" @checked($config->bool('dispatch_enabled'))>
                                     <label class="form-check-label" for="dispatch_enabled">{{ translate('send_orders_to_provider') }}</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input type="hidden" name="auto_dispatch" value="0">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="auto_dispatch" name="auto_dispatch" value="1" @checked($config->bool('auto_dispatch'))>
+                                    <label class="form-check-label" for="auto_dispatch">{{ translate('send_automatically') }}</label>
+                                    <div class="fs-12 text-muted">{{ translate('send_automatically_help') }}</div>
                                 </div>
                             </div>
                             <div class="col-md-6">

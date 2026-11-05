@@ -71,6 +71,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
     {
         return [
             'dispatch_enabled' => false,
+            'auto_dispatch' => false,
             'dry_run' => true,
             'go_live_at' => null,
             'product_sync_enabled' => false,
@@ -127,7 +128,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
             'catalog_sync' => $this->state('catalog_sync', $credentials, $global, $config->bool('product_sync_enabled')),
             'catalog_import' => $this->gated('catalog_import', $credentials && $global && $config->bool('import_enabled') && $config->get('default_category_id') !== null, $catalogMap->verified, 'field_map_unverified', $credentials),
             'inventory_sync' => $this->gated('inventory_sync', $credentials && $global && $config->bool('inventory_sync_enabled'), $inventoryMap->verified, 'field_map_unverified', $credentials),
-            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled')),
+            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled'), $this->connections->externalWritesEnabled()),
             'status_poll' => $this->gated('status_poll', $credentials && $global && (array) $config->get('status_map', []) !== [], $ordersMap->verified, 'field_map_unverified', $credentials),
             'cancel' => new CapabilityState('cancel', CapabilityState::UNDOCUMENTED, 'm5azn_no_cancel_endpoint'),
             'webhooks' => new CapabilityState('webhooks', CapabilityState::UNDOCUMENTED, 'm5azn_no_webhooks'),
@@ -570,10 +571,12 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
         return ['ok' => false, 'error' => $message];
     }
 
-    private function state(string $key, bool $credentials, bool $global, bool $switchedOn): CapabilityState
+    /** @param bool $writes false for a capability that writes to the provider while this host may not write */
+    private function state(string $key, bool $credentials, bool $global, bool $switchedOn, bool $writes = true): CapabilityState
     {
         return match (true) {
             !$credentials => new CapabilityState($key, CapabilityState::NEEDS_CONFIGURATION, 'credentials_missing'),
+            !$writes => new CapabilityState($key, CapabilityState::READY_DISABLED, 'external_writes_off'),
             $global && $switchedOn => new CapabilityState($key, CapabilityState::ENABLED),
             default => new CapabilityState($key, CapabilityState::READY_DISABLED),
         };

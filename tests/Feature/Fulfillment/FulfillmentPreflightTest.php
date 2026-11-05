@@ -131,6 +131,38 @@ class FulfillmentPreflightTest extends FulfillmentTestCase
         }
     }
 
+    public function test_the_proxies_named_in_the_environment_are_the_ones_the_wired_middleware_trusts(): void
+    {
+        $behindProxy = static fn (): Request => Request::create('/x', 'GET', server: ['REMOTE_ADDR' => '10.0.0.5', 'HTTP_X_FORWARDED_FOR' => '198.51.100.20']);
+        $clientSeenBy = static function (Request $request): string {
+            (new \Illuminate\Http\Middleware\TrustProxies())->handle($request, static fn (Request $passed) => response('ok'));
+
+            return (string) $request->ip();
+        };
+
+        try {
+            config(['trustedproxy.proxies' => null]);
+            $this->assertSame('10.0.0.5', $clientSeenBy($behindProxy()), 'nothing is trusted by default');
+
+            config(['trustedproxy.proxies' => '10.0.0.4, 10.0.0.5']);
+            $this->assertSame('198.51.100.20', $clientSeenBy($behindProxy()));
+
+            config(['trustedproxy.proxies' => '10.0.0.99']);
+            $this->assertSame('10.0.0.5', $clientSeenBy($behindProxy()), 'a proxy that is not listed is not believed');
+        } finally {
+            Request::setTrustedProxies([], Request::HEADER_X_FORWARDED_FOR);
+        }
+    }
+
+    public function test_the_application_wires_the_framework_proxy_middleware_not_the_unused_class_in_app(): void
+    {
+        $bootstrap = (string) file_get_contents(base_path('bootstrap/app.php'));
+
+        $this->assertStringContainsString('use Illuminate\Http\Middleware\TrustProxies;', $bootstrap);
+        $this->assertStringNotContainsString('App\Http\Middleware\TrustProxies', $bootstrap);
+        $this->assertStringContainsString("env('TRUSTED_PROXIES')", (string) file_get_contents(base_path('config/trustedproxy.php')));
+    }
+
     public function test_the_command_line_run_says_the_client_address_is_checked_elsewhere(): void
     {
         $check = $this->find($this->report(), 'client address');
@@ -188,6 +220,35 @@ class FulfillmentPreflightTest extends FulfillmentTestCase
         $this->enableProvider(ProviderCode::TorodPoint, ['dispatch_enabled' => true, 'dry_run' => false]);
 
         $this->assertSame(PreflightCheck::PASS, $this->find($this->report(), 'torod_point dispatch')->status);
+    }
+
+    public function test_enabled_external_writes_fail_the_safety_check_unless_the_operator_allows_them(): void
+    {
+        config(['fulfillment.external_writes_enabled' => true]);
+        $this->assertSame(PreflightCheck::FAIL, $this->find($this->report(), 'external writes')->status);
+        $this->assertSame(PreflightCheck::WARN, $this->find($this->report(allowLive: true), 'external writes')->status);
+
+        config(['fulfillment.enabled' => false]);
+        $this->assertSame(PreflightCheck::FAIL, $this->find($this->report(), 'external writes')->status, 'a latent write permission is still a failure');
+
+        config(['fulfillment.external_writes_enabled' => false]);
+        $this->assertSame(PreflightCheck::PASS, $this->find($this->report(), 'external writes')->status);
+    }
+
+    public function test_the_kill_switch_check_names_the_mode(): void
+    {
+        config(['fulfillment.enabled' => false, 'fulfillment.external_writes_enabled' => false]);
+        $off = $this->find($this->report(), 'kill switch');
+        config(['fulfillment.enabled' => true, 'fulfillment.external_writes_enabled' => false]);
+        $readOnly = $this->find($this->report(), 'kill switch');
+        config(['fulfillment.enabled' => true, 'fulfillment.external_writes_enabled' => true]);
+        $live = $this->find($this->report(), 'kill switch');
+
+        $this->assertSame(PreflightCheck::PASS, $off->status);
+        $this->assertSame(PreflightCheck::WARN, $readOnly->status);
+        $this->assertStringContainsString('read-only', $readOnly->detail);
+        $this->assertSame(PreflightCheck::WARN, $live->status);
+        $this->assertStringContainsString('EXTERNAL_WRITES_ENABLED', $live->detail);
     }
 
     public function test_the_example_app_key_is_flagged_and_is_a_failure_in_production(): void
@@ -284,7 +345,7 @@ class FulfillmentPreflightTest extends FulfillmentTestCase
 
     public function test_the_command_succeeds_on_a_healthy_environment(): void
     {
-        config(['fulfillment.queue.connection' => 'sync']);
+        config(['fulfillment.queue.connection' => 'sync', 'fulfillment.external_writes_enabled' => false]);
 
         $this->artisan('fulfillment:preflight')->assertSuccessful();
     }

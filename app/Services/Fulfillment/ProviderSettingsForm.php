@@ -20,7 +20,7 @@ class ProviderSettingsForm
     /** @var array<string, array<string, list<string>>> */
     private const FIELDS = [
         'm5azn' => [
-            'bool' => ['dispatch_enabled', 'dry_run', 'product_sync_enabled', 'inventory_sync_enabled', 'import_enabled', 'publish_on_import', 'update_content_on_sync', 'cod_supported', 'cod_verified'],
+            'bool' => ['dispatch_enabled', 'auto_dispatch', 'dry_run', 'product_sync_enabled', 'inventory_sync_enabled', 'import_enabled', 'publish_on_import', 'update_content_on_sync', 'cod_supported', 'cod_verified'],
             'string' => ['platform_name', 'country_code', 'country_name', 'language', 'device', 'api_version', 'app_version', 'catalog_product_type', 'catalog_category_id', 'catalog_brand_id', 'order_response_reference_path', 'tracking_url_template', 'price_policy'],
             'int' => ['default_category_id', 'min_margin_percent', 'product_sync_interval_minutes', 'inventory_sync_interval_minutes'],
             'list' => ['dispatch_order_statuses'],
@@ -28,7 +28,7 @@ class ProviderSettingsForm
             'secrets' => ['email', 'password'],
         ],
         'torod_point' => [
-            'bool' => ['dispatch_enabled', 'dry_run', 'product_sync_enabled', 'inventory_sync_enabled', 'push_products_enabled', 'webhooks_enabled', 'cod_supported', 'cod_verified', 'verify_terminal_webhooks'],
+            'bool' => ['dispatch_enabled', 'auto_dispatch', 'dry_run', 'product_sync_enabled', 'inventory_sync_enabled', 'push_products_enabled', 'webhooks_enabled', 'cod_supported', 'cod_verified', 'verify_terminal_webhooks'],
             'string' => ['company_id', 'lastmile_base_url', 'phone_format', 'cod_collection_method', 'cost_source', 'tracking_url_template', 'webhook_ip_allowlist', 'order_response_reference_path'],
             'int' => ['product_sync_interval_minutes', 'inventory_sync_interval_minutes'],
             'number' => ['default_weight_kg'],

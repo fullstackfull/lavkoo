@@ -372,6 +372,35 @@ class M5aznAdapterTest extends M5aznTestCase
         $this->assertTrue($report->canUse('dispatch'));
     }
 
+    public function test_with_external_writes_off_an_order_is_refused_and_never_reaches_m5azn(): void
+    {
+        $fulfillment = $this->fulfillment();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse()]);
+
+        try {
+            $this->adapter()->submit($fulfillment);
+            $this->fail('an order was attempted while external writes are off');
+        } catch (ProviderUnavailableException $exception) {
+            $this->assertStringContainsString('FULFILLMENT_EXTERNAL_WRITES_ENABLED', $exception->getMessage());
+        }
+
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/api/v1/orders'));
+        $this->assertSame(0, ProviderApiLog::where('operation', 'create_order')->count());
+    }
+
+    public function test_with_external_writes_off_dispatch_is_reported_ready_but_disabled_and_reads_stay_available(): void
+    {
+        config(['fulfillment.external_writes_enabled' => false]);
+
+        $report = $this->adapter()->readiness();
+
+        $this->assertSame(CapabilityState::READY_DISABLED, $report->capability('dispatch')->state);
+        $this->assertSame('external_writes_off', $report->capability('dispatch')->reason);
+        $this->assertFalse($report->canUse('dispatch'));
+        $this->assertTrue($report->canUse('catalog_sync'));
+    }
+
     public function test_dispatch_is_not_ready_without_credentials(): void
     {
         app(ProviderConnectionManager::class)->save(ProviderCode::M5azn, true, null, [], [], ['email', 'password']);

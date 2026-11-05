@@ -9,6 +9,8 @@ namespace App\Enums\Fulfillment;
 final class HoldReason
 {
     public const PROVIDER_DISABLED = 'hold_provider_disabled';
+    public const EXTERNAL_WRITES_DISABLED = 'hold_external_writes_disabled';
+    public const AWAITING_APPROVAL = 'hold_awaiting_approval';
     public const PROVIDER_NOT_READY = 'hold_provider_not_ready';
     public const BEFORE_GO_LIVE = 'hold_before_go_live';
     public const MAPPING_MISSING = 'hold_mapping_missing';

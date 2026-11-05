@@ -22,6 +22,14 @@ return [
     'enabled' => (bool) env('FULFILLMENT_INTEGRATIONS_ENABLED', false),
 
     /*
+    | Second, independent environment switch: may anything be WRITTEN to a provider (an order, a product, a
+    | cancellation)? Off by default, and it is enforced by the transport itself, below every other switch: with it
+    | off the integration is READ-ONLY (logins and reads only) however the admin panel is configured. A staging copy of
+    | production must keep this off. Turn it on only for a deliberate go-live. See docs/integrations/operations.md.
+    */
+    'external_writes_enabled' => (bool) env('FULFILLMENT_EXTERNAL_WRITES_ENABLED', false),
+
+    /*
     | Parent-order currency the providers are paid/collect in. The store is KSA-only; amounts sent to a
     | provider are converted from the platform's stored base currency to this code.
     */

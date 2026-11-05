@@ -46,7 +46,7 @@ class IntegrationCenterController extends Controller
 
         return view('admin-views.fulfillment.index', [
             'cards' => $cards,
-            'globallyEnabled' => $this->connections->isGloballyEnabled(),
+            'integrationMode' => $this->connections->mode(),
             'systemChecks' => $this->preflight->runtime(request: $request),
         ]);
     }
@@ -63,6 +63,7 @@ class IntegrationCenterController extends Controller
 
         return view('admin-views.fulfillment.provider', [
             'card' => $this->card($code),
+            'integrationMode' => $this->connections->mode(),
             'code' => $code,
             'config' => $config,
             'secrets' => $config->toDisplayArray()['secrets_configured'],
@@ -200,7 +201,9 @@ class IntegrationCenterController extends Controller
             'role' => config('fulfillment.providers.' . $code->value . '.role'),
             'enabled' => $config->enabled,
             'dispatchEnabled' => $config->bool('dispatch_enabled'),
+            'autoDispatch' => $config->bool('auto_dispatch'),
             'dryRun' => $config->bool('dry_run', true),
+            'writesBlocked' => !$this->connections->externalWritesEnabled(),
             'goLiveAt' => $config->get('go_live_at'),
             'baseUrl' => $config->baseUrl,
             'companyId' => $config->string('company_id'),

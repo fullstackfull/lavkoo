@@ -2,6 +2,7 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Enums\Fulfillment\IntegrationMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\IntegrationSetting;
 use App\Services\AuditLogger;
@@ -42,6 +43,17 @@ class ProviderConnectionManager
     public function isGloballyEnabled(): bool
     {
         return (bool) config('fulfillment.enabled', false);
+    }
+
+    /** May anything be WRITTEN to a provider from this host? Off unless FULFILLMENT_EXTERNAL_WRITES_ENABLED is on. */
+    public function externalWritesEnabled(): bool
+    {
+        return $this->isGloballyEnabled() && (bool) config('fulfillment.external_writes_enabled', false);
+    }
+
+    public function mode(): IntegrationMode
+    {
+        return IntegrationMode::resolve($this->isGloballyEnabled(), (bool) config('fulfillment.external_writes_enabled', false));
     }
 
     /** May any outbound call be made for this provider right now? */
@@ -176,8 +188,9 @@ class ProviderConnectionManager
     }
 
     /**
-     * `go_live_at` records the moment outbound dispatch last became live (enabled and not dry-run).
-     * Orders placed before it are held rather than shipped retroactively when an operator flips the switch.
+     * `go_live_at` records the moment AUTOMATIC outbound dispatch last became live (enabled, not dry-run, and automatic sending on).
+     * Orders placed before it are held rather than shipped retroactively when an operator flips the switch; an order that waited
+     * for approval during the controlled phase is never swept out by the switch, an operator sends it or leaves it.
      *
      * @param array<string, mixed> $before
      * @param array<string, mixed> $after
@@ -202,6 +215,7 @@ class ProviderConnectionManager
     {
         return $enabled
             && filter_var($settings['dispatch_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            && filter_var($settings['auto_dispatch'] ?? false, FILTER_VALIDATE_BOOLEAN)
             && !filter_var($settings['dry_run'] ?? true, FILTER_VALIDATE_BOOLEAN);
     }
 
