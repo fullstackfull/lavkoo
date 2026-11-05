@@ -2,7 +2,9 @@
 #
 # A full backup of the Pharmacy KSA application and its database, taken BEFORE a deployment.
 #
-#   scripts/deploy/backup.sh --app=/path/to/app [--to=/dir/outside/the/web/root] [--db-only | --files-only] [--no-vendor] [--no-uploads]
+#   bash backup.sh --app=/path/to/app [--to=/dir/outside/the/web/root] [--db-only | --files-only] [--no-vendor] [--no-uploads]
+#
+# It needs mysql-defaults.php beside it (the deployment package keeps both in tools/). It writes only into --to.
 #
 # Writes one directory:  db.sql.gz  files.tar.gz  row-counts.txt  SHA256SUMS  RESTORE.txt
 # and prints where it is. The output of this script is not secret. The BACKUP is: it holds the .env file and customer data, so it
@@ -39,11 +41,22 @@ for argument in "$@"; do
 done
 
 fail() { echo "backup: $*" >&2; exit 1; }
+[ "$DO_DB" = 1 ] || [ "$DO_FILES" = 1 ] || { echo "backup: --db-only and --files-only together would back up nothing; use one of them, or neither for both." >&2; exit 2; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "'$1' is not available on this server. $2"; }
 
-APP="$(cd "$APP" 2>/dev/null && pwd)" || fail "--app is not a directory."
+# An absolute path with no `.`, `..` or links in it, for a directory that may not exist yet.
+absolute_path() {
+  local path="$1" rest=""
+  if realpath -m / >/dev/null 2>&1; then realpath -m -- "$path"; return; fi
+  case "$path" in /*) ;; *) path="$PWD/$path" ;; esac
+  while [ ! -e "$path" ] && [ "$path" != "/" ]; do rest="/$(basename "$path")$rest"; path="$(dirname "$path")"; done
+  printf '%s%s\n' "$(cd "$path" && pwd -P)" "$rest"
+}
+
+APP="$(cd "$APP" 2>/dev/null && pwd -P)" || fail "--app is not a directory."
 [ -f "$APP/artisan" ] && [ -f "$APP/.env" ] || fail "$APP does not look like the application (no artisan and .env)."
 [ -n "$TO" ] || TO="$(dirname "$APP")/pharmacy-backups"
+TO="$(absolute_path "$TO")"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 DEST="$TO/$STAMP"
 case "$DEST/" in "$APP"/*) [ "$ALLOW_INSIDE_APP" = 1 ] || fail "the backup directory $DEST is inside the application tree, which may be served to the web. Use --to=<a directory outside it>." ;; esac
@@ -58,10 +71,8 @@ if [ "$DO_DB" = 1 ]; then
   need mysql ""
 fi
 
-mkdir -p "$DEST"
-chmod 700 "$TO" "$DEST"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; rmdir "$DEST" 2>/dev/null || true' EXIT
 DEFAULTS="$WORK/client.cnf"
 
 DB_NAME=""
@@ -70,6 +81,9 @@ if [ "$DO_DB" = 1 ]; then
   DB_NAME="$(printf '%s\n' "$FACTS" | sed -n 's/^DB_DATABASE=//p')"
   mysql --defaults-extra-file="$DEFAULTS" -N -e "SELECT 1" "$DB_NAME" >/dev/null 2>&1 || fail "cannot connect to database '$DB_NAME' with the settings in .env."
 fi
+
+mkdir -p "$DEST"
+chmod 700 "$TO" "$DEST"
 
 # Enough room? Compression is not predictable, so require half of the uncompressed size.
 DB_KB=0
@@ -136,5 +150,7 @@ chmod 600 "$DEST"/* 2>/dev/null || true
 
 echo
 echo "Backup complete: $DEST"
-( cd "$DEST" && ls -l --time-style=+ db.sql.gz files.tar.gz row-counts.txt SHA256SUMS RESTORE.txt 2>/dev/null | awk '{print "  " $5 "  " $6}' )
+for name in db.sql.gz files.tar.gz row-counts.txt SHA256SUMS RESTORE.txt; do
+  if [ -f "$DEST/$name" ]; then printf '  %s  %s\n' "$(wc -c < "$DEST/$name" | tr -d ' ')" "$name"; fi
+done
 echo "Keep it off GitHub and off third-party storage: it contains .env and customer data."

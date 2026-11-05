@@ -12,7 +12,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request makes the older run pointless. A push to a branch is different: each one is scanned for secrets
+  # from its own previous tip, so cancelling one would leave its commits unread.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PHP_EXTENSIONS: curl, dom, fileinfo, gd, intl, json, libxml, mbstring, mysqli, openssl, pdo_mysql, pdo_sqlite, sqlite3, zip, bcmath, exif
@@ -139,16 +141,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The pull request's own head, not GitHub's temporary merge of it into the target branch: the package must say exactly
+          # which commit was reviewed, and its content must not change because the target branch moved.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           coverage: none
-      - name: Build the overlay against the branch this pull request targets
-        run: |
-          BASE="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
-          php scripts/deploy/build-overlay.php --base="$BASE" --head=HEAD --out=build/overlay --archive
-          (cd build && sha256sum overlay.tar.gz > overlay.tar.gz.sha256)
+      - name: Build the overlay from what the server runs to this pull request
+        env:
+          # The commit the pilot server's code corresponds to. After a deployment, set the repository variable PILOT_BASELINE to the
+          # `head` recorded in the deployed package's MANIFEST.json, so the next package holds only what is new.
+          BASELINE: ${{ vars.PILOT_BASELINE || '34dce65' }}
+          RELEASE: ${{ github.event.pull_request.head.sha }}
+        run: php scripts/deploy/build-overlay.php --base="$BASELINE" --head="$RELEASE" --out=build/overlay --archive
       - uses: actions/upload-artifact@v4
         with:
           name: pilot-overlay-${{ github.event.pull_request.head.sha }}

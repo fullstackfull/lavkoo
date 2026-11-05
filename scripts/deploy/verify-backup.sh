@@ -3,7 +3,7 @@
 # Proves a backup made by backup.sh can be restored, WITHOUT touching the live database: the dump is loaded into a scratch
 # database that this script creates and drops again, and its row counts are compared with the ones taken at backup time.
 #
-#   scripts/deploy/verify-backup.sh --backup=/path/to/the/backup/directory --app=/path/to/app
+#   bash verify-backup.sh --backup=/path/to/the/backup/directory --app=/path/to/app
 #
 # It needs the MySQL account in .env to be allowed to CREATE and DROP databases. Many hosting plans do not allow that; then import
 # db.sql.gz into a new, empty database with phpMyAdmin and compare the counts in row-counts.txt by hand.
@@ -18,7 +18,7 @@ for argument in "$@"; do
   case "$argument" in
     --backup=*) BACKUP="${argument#*=}" ;;
     --app=*) APP="${argument#*=}" ;;
-    -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "verify-backup: unknown option $argument" >&2; exit 2 ;;
   esac
 done
