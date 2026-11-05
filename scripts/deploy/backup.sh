@@ -12,8 +12,9 @@
 #
 # Nothing here changes the application or the database: the dump is taken in a single consistent read (--single-transaction).
 
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
+trap 'echo "backup: stopped unexpectedly at line $LINENO (status $?)." >&2' ERR
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(pwd)"
@@ -48,6 +49,9 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "'$1' is not available on this 
 absolute_path() {
   local path="$1" rest=""
   if realpath -m / >/dev/null 2>&1; then realpath -m -- "$path"; return; fi
+  # Without GNU realpath a `..` after a missing component cannot be resolved, and a destination that climbs back into the application
+  # must not pass the check below.
+  case "/$path/" in */../*) echo "backup: this server's realpath cannot resolve '..' in --to; write the destination without '..'." >&2; exit 2 ;; esac
   case "$path" in /*) ;; *) path="$PWD/$path" ;; esac
   while [ ! -e "$path" ] && [ "$path" != "/" ]; do rest="/$(basename "$path")$rest"; path="$(dirname "$path")"; done
   printf '%s%s\n' "$(cd "$path" && pwd -P)" "$rest"
@@ -71,8 +75,19 @@ if [ "$DO_DB" = 1 ]; then
   need mysql ""
 fi
 
+# The option file with the database password lives in a private temporary directory. A normal exit and SIGTERM/SIGHUP remove it; a SIGKILL
+# (the out-of-memory killer) cannot, so after one look for $TMPDIR/tmp.*/client.cnf and delete it.
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"; rmdir "$DEST" 2>/dev/null || true' EXIT
+MADE=0
+DONE=0
+finish() {
+  rm -rf "$WORK"
+  if [ "$MADE" = 1 ] && [ "$DONE" != 1 ]; then
+    rm -rf "$DEST"
+    echo "backup: the unfinished backup in $DEST was removed, so nothing partial is left beside a real one." >&2
+  fi
+}
+trap finish EXIT
 DEFAULTS="$WORK/client.cnf"
 
 DB_NAME=""
@@ -82,8 +97,15 @@ if [ "$DO_DB" = 1 ]; then
   mysql --defaults-extra-file="$DEFAULTS" -N -e "SELECT 1" "$DB_NAME" >/dev/null 2>&1 || fail "cannot connect to database '$DB_NAME' with the settings in .env."
 fi
 
-mkdir -p "$DEST"
-chmod 700 "$TO" "$DEST"
+# umask 077: a directory this run creates is private; one that was already there keeps its mode. Only the dated directory is ever removed
+# if the run does not finish, and only if this run made it.
+mkdir -p "$TO"
+mkdir "$DEST" || fail "$DEST already exists; wait a second and run again."
+MADE=1
+chmod 700 "$DEST"
+if [ "$ALLOW_INSIDE_APP" != 1 ]; then
+  case "$(cd "$DEST" && pwd -P)/" in "$APP"/*) fail "the backup directory resolves to a place inside the application tree, which may be served to the web. Use --to=<a directory outside it>." ;; esac
+fi
 
 # Enough room? Compression is not predictable, so require half of the uncompressed size.
 DB_KB=0
@@ -91,7 +113,9 @@ if [ "$DO_DB" = 1 ]; then
   DB_KB="$(mysql --defaults-extra-file="$DEFAULTS" -N -e "SELECT COALESCE(ROUND(SUM(data_length+index_length)/1024),0) FROM information_schema.tables WHERE table_schema='$DB_NAME'" 2>/dev/null || echo 0)"
 fi
 FILES_KB=0
-[ "$DO_FILES" = 1 ] && FILES_KB="$(du -sk "$APP" 2>/dev/null | cut -f1)"
+# Only an estimate: a directory that cannot be read, or a cache file that vanishes while it is counted, must not stop the backup.
+[ "$DO_FILES" = 1 ] && { FILES_KB="$(du -sk "$APP" 2>/dev/null | cut -f1)" || true; }
+case "$FILES_KB" in ''|*[!0-9]*) FILES_KB=0 ;; esac
 FREE_KB="$(df -Pk "$TO" | awk 'NR==2 {print $4}')"
 NEEDED_KB=$(( (DB_KB + FILES_KB) / 2 ))
 if [ "$FREE_KB" -lt "$NEEDED_KB" ] && [ "$FORCE_LOW_DISK" = 0 ]; then
@@ -147,6 +171,7 @@ FILES (the deployment script has its own rollback, php deploy.php rollback; use 
   The archive contains .env and storage/: restoring it over a running site also restores those.
 RESTORE
 chmod 600 "$DEST"/* 2>/dev/null || true
+DONE=1
 
 echo
 echo "Backup complete: $DEST"

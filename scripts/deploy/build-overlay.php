@@ -52,6 +52,7 @@ function build(array $argv): int
         $base = git($repo, ['rev-parse', '--verify', $options['base'] . '^{commit}']);
         $head = git($repo, ['rev-parse', '--verify', $options['head'] . '^{commit}']);
         $changes = changes($repo, $base, $head);
+        assertScriptsAreTheOnesInTheRelease($repo, $head);
         $out = rtrim((string) $options['out'], '/');
         if (is_dir($out) && array_diff(scandir($out) ?: [], ['.', '..']) !== []) {
             throw new RuntimeException("{$out} already holds files, and a package must hold only this build. Use a new or empty directory.");
@@ -117,7 +118,9 @@ function changes(string $repo, string $base, string $head): array
         if (isDevOnly($path)) {
             continue;
         }
-        if (in_array($path, ['composer.json', 'composer.lock', 'package.json', 'package-lock.json'], true)) {
+        if (preg_match('/[\x00-\x1F\x7F\\\\]/', $path) === 1) {
+            $problems[] = json_encode($path, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . ' has a control character or a backslash in its name, which neither a checksum list nor a shell command can carry safely. Rename it.';
+        } elseif (in_array($path, ['composer.json', 'composer.lock', 'package.json', 'package-lock.json'], true)) {
             $problems[] = "{$path} changes: the dependency list differs, so the release needs `composer install` (or an npm build) that an overlay does not do.";
         } elseif (!in_array($top, SHIPPED_TOP_LEVEL, true)) {
             $problems[] = "{$path} changes, and an overlay does not deploy anything outside " . implode(', ', SHIPPED_TOP_LEVEL) . '. Deploy it by hand, deliberately.';
@@ -127,6 +130,8 @@ function changes(string $repo, string $base, string $head): array
             $problems[] = "{$path} is " . ($change['mode'] === '120000' ? 'a symbolic link' : 'a submodule') . ', which an overlay cannot install faithfully. Set it up by hand.';
         } elseif ($status === 'M' && $change['blob'] === $change['previous_blob']) {
             $problems[] = "{$path} changes only its file mode, which an overlay does not apply. Set it by hand.";
+        } elseif ($status === 'M' && $change['previous_mode'] !== $change['mode']) {
+            $problems[] = "{$path} changes its file mode as well as its content, and an overlay gives a mode only to a file it adds: the file would keep its old mode. Set the mode by hand, or make the change in two releases.";
         } elseif (!in_array($status, ['A', 'M'], true)) {
             $problems[] = "{$path} has the change type '{$status}', which an overlay does not handle.";
         } else {
@@ -149,7 +154,7 @@ function changes(string $repo, string $base, string $head): array
 /**
  * `git diff --raw -z`: ":oldmode newmode oldblob newblob status" and the path, each ended by a NUL.
  *
- * @return list<array{status: string, path: string, mode: string, blob: string, previous_blob: string}>
+ * @return list<array{status: string, path: string, mode: string, previous_mode: string, blob: string, previous_blob: string}>
  */
 function rawChanges(string $output): array
 {
@@ -157,10 +162,34 @@ function rawChanges(string $output): array
     $changes = [];
     for ($index = 0; isset($fields[$index + 1]) && $fields[$index] !== ''; $index += 2) {
         [$previousMode, $mode, $previousBlob, $blob, $status] = explode(' ', ltrim($fields[$index], ':'));
-        $changes[] = ['status' => $status[0], 'path' => $fields[$index + 1], 'mode' => $mode, 'blob' => $blob, 'previous_blob' => $previousBlob];
+        $changes[] = ['status' => $status[0], 'path' => $fields[$index + 1], 'mode' => $mode, 'previous_mode' => $previousMode, 'blob' => $blob, 'previous_blob' => $previousBlob];
     }
 
     return $changes;
+}
+
+/**
+ * deploy.php and the backup tools in the package are copied from the checkout this builder runs from, not read from the release. When the
+ * release carries its own copy and it differs, the package would hold scripts nobody reviewed together with the files it ships: build
+ * again from a checkout of the release.
+ */
+function assertScriptsAreTheOnesInTheRelease(string $repo, string $head): void
+{
+    $different = [];
+    foreach (['deploy.php', ...TOOLS] as $script) {
+        try {
+            $inRelease = git($repo, ['show', "{$head}:scripts/deploy/{$script}"], trim: false);
+        } catch (RuntimeException) {
+            continue;
+        }
+        if ($inRelease !== file_get_contents(__DIR__ . '/' . $script)) {
+            $different[] = $script;
+        }
+    }
+
+    if ($different !== []) {
+        throw new RuntimeException('the package would carry ' . implode(', ', $different) . ' from the checkout this builder runs from (' . __DIR__ . "), and the release {$head} has a different version of " . (count($different) === 1 ? 'it' : 'them') . ". Check out {$head} and build again.");
+    }
 }
 
 function isDevOnly(string $path): bool

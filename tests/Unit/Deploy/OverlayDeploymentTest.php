@@ -161,6 +161,48 @@ class OverlayDeploymentTest extends TestCase
         $this->assertStringContainsString('app/Utils/OrderManager.php changes only its file mode', $mode->getErrorOutput());
     }
 
+    public function test_a_file_that_changes_its_mode_and_its_content_is_refused_because_the_server_would_keep_the_old_mode(): void
+    {
+        file_put_contents($this->repo . '/app/Utils/OrderManager.php', "<?php\nfunction order() { return 'changed and made executable'; }\n");
+        chmod($this->repo . '/app/Utils/OrderManager.php', 0755);
+        $this->git(['add', '-A']);
+        $this->git(['commit', '-q', '-m', 'content and mode']);
+
+        $build = $this->build();
+
+        $this->assertSame(1, $build->getExitCode());
+        $this->assertStringContainsString('app/Utils/OrderManager.php changes its file mode as well as its content', $build->getErrorOutput());
+        $this->assertFileDoesNotExist($this->overlay . '/MANIFEST.json');
+    }
+
+    public function test_a_file_name_a_checksum_list_cannot_carry_is_refused(): void
+    {
+        $this->commit(["app/odd\nname.php" => "<?php\n", 'app/back\\slash.php' => "<?php\n"], 'odd names');
+
+        $build = $this->build();
+
+        $this->assertSame(1, $build->getExitCode());
+        $this->assertStringContainsString('has a control character or a backslash in its name', $build->getErrorOutput());
+        $this->assertSame(2, substr_count($build->getErrorOutput(), 'has a control character or a backslash'), 'both names are reported');
+    }
+
+    public function test_a_package_never_carries_scripts_that_differ_from_the_ones_in_the_release(): void
+    {
+        $scripts = dirname(__DIR__, 3) . '/scripts/deploy';
+        $this->commit(['scripts/deploy/deploy.php' => "<?php\n// a different deploy.php, committed with the release\n", 'app/Utils/OrderManager.php' => "<?php\nfunction order() { return 'release'; }\n"], 'release with its own deploy.php');
+
+        $different = $this->build();
+
+        $this->assertSame(1, $different->getExitCode());
+        $this->assertStringContainsString('would carry deploy.php from the checkout this builder runs from', $different->getErrorOutput());
+        $this->assertFileDoesNotExist($this->overlay . '/deploy.php');
+
+        $this->commit(['scripts/deploy/deploy.php' => (string) file_get_contents($scripts . '/deploy.php'), 'app/Utils/OrderManager.php' => "<?php\nfunction order() { return 'second release'; }\n"], 'the same deploy.php');
+        $same = $this->build();
+
+        $this->assertSame(0, $same->getExitCode(), $same->getErrorOutput());
+    }
+
     public function test_the_archive_comes_with_the_checksum_to_check_the_download_against(): void
     {
         if (!class_exists(\PharData::class)) {
@@ -428,6 +470,7 @@ class OverlayDeploymentTest extends TestCase
         $this->assertSame(2, $full->getExitCode(), $full->getOutput());
         $this->assertStringContainsString('is the disk full', $full->getOutput());
         $this->assertStringContainsString('every change it had made was taken back', $full->getOutput());
+        $this->assertStringContainsString('optimize:clear', $full->getOutput(), 'and it says what to do next, as a rollback does');
         $this->assertSame($before, $this->treeHash($this->live), 'the tree is exactly as it was: no truncated file, no half-written temporary file, no stray directory');
         $this->assertArrayHasKey('rolled_back_at', (array) json_decode((string) file_get_contents($this->backups . '/applied.json'), true), 'the record says it was taken back, so it blocks nothing');
     }
@@ -685,6 +728,282 @@ class OverlayDeploymentTest extends TestCase
         $this->assertStringNotContainsString('SECRET-SENTINEL-DO-NOT-PRINT', $output);
     }
 
+
+    // ── a rollback is only as good as what it restores from ──────────────────────────────────────────────────
+
+    public function test_a_rollback_whose_saved_originals_are_gone_restores_nothing_and_says_so_even_with_force(): void
+    {
+        $this->release();
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        $deployed = $this->treeHash($this->live);
+        (new Process(['rm', '-rf', $this->backups . '/files']))->run();
+
+        foreach ([[], ['--force']] as $extra) {
+            $rollback = $this->deploy('rollback', ['--backup-dir=' . $this->backups, ...$extra], withApp: false);
+
+            $this->assertSame(1, $rollback->getExitCode(), $rollback->getOutput());
+            $this->assertStringContainsString('the saved original', $rollback->getOutput());
+            $this->assertStringNotContainsString('restored to what they were', $rollback->getOutput());
+            $this->assertSame($deployed, $this->treeHash($this->live), 'no live file was replaced by an empty one');
+        }
+        $this->assertArrayNotHasKey('rolled_back_at', (array) json_decode((string) file_get_contents($this->backups . '/applied.json'), true), 'and the record still says it can be taken back');
+    }
+
+    public function test_a_rollback_will_not_write_a_saved_original_that_no_longer_matches_what_was_saved(): void
+    {
+        $this->release();
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        file_put_contents($this->backups . '/files/app/Utils/OrderManager.php', "<?php\n// truncated by a partial copy back from off-server storage\n");
+        $deployed = $this->treeHash($this->live);
+
+        $rollback = $this->deploy('rollback', ['--backup-dir=' . $this->backups], withApp: false);
+
+        $this->assertSame(1, $rollback->getExitCode());
+        $this->assertStringContainsString('app/Utils/OrderManager.php: the saved original', $rollback->getOutput());
+        $this->assertSame($deployed, $this->treeHash($this->live));
+    }
+
+    public function test_a_deployment_record_cut_off_while_it_was_written_ends_in_a_message_not_a_php_fatal(): void
+    {
+        $this->release();
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        $deployed = $this->treeHash($this->live);
+
+        foreach (['{"complete": tru' => 'cannot be read', '{}' => 'is not a record this deploy.php wrote'] as $contents => $message) {
+            file_put_contents($this->backups . '/applied.json', $contents);
+
+            $rollback = $this->deploy('rollback', ['--backup-dir=' . $this->backups], withApp: false);
+
+            $this->assertSame(2, $rollback->getExitCode(), $contents);
+            $this->assertStringContainsString($message, $rollback->getOutput(), $contents);
+            $this->assertStringNotContainsString('Fatal error', $rollback->getOutput() . $rollback->getErrorOutput(), $contents);
+            $this->assertStringNotContainsString('Uncaught', $rollback->getOutput() . $rollback->getErrorOutput(), $contents);
+            $this->assertSame($deployed, $this->treeHash($this->live));
+        }
+    }
+
+    /** @return array<string, array{string, mixed}> */
+    public static function recordsThatNameWhatTheyShouldNot(): array
+    {
+        return [
+            'a directory outside the application' => ['created_directories', ['/tmp/outside-the-application']],
+            'a directory that climbs out' => ['created_directories', ['__APP__/../elsewhere']],
+            'the environment file' => ['files', [['path' => '.env', 'existed' => false, 'sha256_before' => null, 'sha256_after' => 'x', 'merge' => null, 'strategy' => 'replace']]],
+            'a path that climbs out' => ['files', [['path' => 'app/../../etc/passwd', 'existed' => false, 'sha256_before' => null, 'sha256_after' => 'x', 'merge' => null, 'strategy' => 'replace']]],
+            'an entry that is not one' => ['files', ['not an entry']],
+        ];
+    }
+
+    /** @dataProvider recordsThatNameWhatTheyShouldNot */
+    #[\PHPUnit\Framework\Attributes\DataProvider('recordsThatNameWhatTheyShouldNot')]
+    public function test_a_rollback_acts_only_on_a_record_that_names_paths_a_release_may_touch(string $field, mixed $value): void
+    {
+        $this->release();
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        $outside = $this->work . '/outside-the-application';
+        mkdir($outside);
+        $journal = (array) json_decode((string) file_get_contents($this->backups . '/applied.json'), true);
+        $journal[$field] = json_decode(str_replace('__APP__', $this->live, (string) json_encode($value)), true);
+        if ($field === 'created_directories') {
+            $journal[$field][] = $outside;
+        }
+        file_put_contents($this->backups . '/applied.json', json_encode($journal));
+        $deployed = $this->treeHash($this->live);
+
+        $rollback = $this->deploy('rollback', ['--backup-dir=' . $this->backups], withApp: false);
+
+        $this->assertSame(2, $rollback->getExitCode(), $rollback->getOutput());
+        $this->assertSame($deployed, $this->treeHash($this->live));
+        $this->assertDirectoryExists($outside, 'a directory outside the application is never removed');
+    }
+
+    public function test_when_the_automatic_undo_fails_too_the_operator_is_told_the_tree_is_half_updated_and_how_to_take_it_back(): void
+    {
+        $this->release();
+        mkdir($this->backups, 0700, true);
+        $deploy = $this->deployLibrary();
+        $journal = new \AppliedJournal(path: $this->backups . '/applied.json', app: $this->live);
+        (new \ReflectionProperty($journal, 'files'))->setValue($journal, ['an entry that cannot be undone']);
+
+        ob_start();
+        $code = (new \ReflectionMethod($deploy, 'stopped'))->invoke($deploy, new \RuntimeException('disk full'), $journal, $this->backups, $this->live);
+        $output = (string) ob_get_clean();
+
+        $this->assertSame(2, $code);
+        $this->assertStringContainsString('disk full', $output);
+        $this->assertStringContainsString('Taking the changes back failed too', $output);
+        $this->assertStringContainsString('half-updated', $output);
+        $this->assertStringContainsString('rollback --backup-dir=' . $this->backups, $output, 'the command that takes it back is printed');
+        $this->assertStringNotContainsString('as it was before', $output);
+    }
+
+    // ── the guards that stop a second deployment landing on a half-updated tree ────────────────────────────
+
+    public function test_an_unfinished_deployment_blocks_the_next_one_whatever_characters_the_backup_path_holds(): void
+    {
+        $this->requireFileSizeLimit();
+        $this->release(['app/Utils/OrderManager.php' => "<?php\n// " . str_repeat('x', 300_000) . "\nfunction order() { return 'release'; }\n"]);
+        $this->backups = $this->work . '/live/bk [2026] *?/first';
+        $this->applyWithFileSizeLimit(kilobytes: 100);
+
+        $second = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->work . '/live/bk [2026] *?/second']);
+        $same = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(2, $second->getExitCode(), $second->getOutput());
+        $this->assertStringContainsString('did not finish and was not rolled back', $second->getOutput());
+        $this->assertStringContainsString("rollback '--backup-dir=" . $this->backups . "'", $second->getOutput(), 'the command can be pasted: a path with spaces is quoted');
+        $this->assertSame(2, $same->getExitCode(), 'the same, non-empty directory is refused too');
+        $this->assertStringContainsString('is not empty', $same->getOutput());
+    }
+
+    public function test_a_backup_directory_that_holds_only_a_dot_file_is_not_empty(): void
+    {
+        $this->release();
+        mkdir($this->backups, 0700, true);
+        file_put_contents($this->backups . '/.hidden', 'x');
+
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(2, $apply->getExitCode());
+        $this->assertStringContainsString('is not empty', $apply->getOutput());
+    }
+
+    public function test_a_record_that_cannot_be_read_counts_as_a_deployment_that_did_not_finish(): void
+    {
+        $this->release();
+        mkdir($this->work . '/live/old', 0700, true);
+        file_put_contents($this->work . '/live/old/applied.json', '{"complete": tru');
+
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(2, $apply->getExitCode(), $apply->getOutput());
+        $this->assertStringContainsString('A deployment recorded in ' . $this->work . '/live/old did not finish', $apply->getOutput());
+    }
+
+    // ── what the deployment creates ────────────────────────────────────────────────────────────────────────
+
+    public function test_directories_the_deployment_creates_do_not_depend_on_the_umask_of_whoever_runs_it(): void
+    {
+        $this->release();
+
+        $apply = new Process(['bash', '-c', 'umask 077; php "$@"', 'deploy', $this->overlay . '/deploy.php', 'apply', '--app=' . $this->live, '--package=' . $this->overlay, '--yes', '--backup-dir=' . $this->backups]);
+        $apply->run();
+
+        $this->assertSame(0, $apply->getExitCode(), $apply->getOutput());
+        $parent = fileperms($this->live . '/app/Services') & 0777;
+        foreach (['/app/Services/Fulfillment', '/database', '/database/migrations'] as $created) {
+            $this->assertSame($parent, fileperms($this->live . $created) & 0777, "{$created} is as readable as the directory it was made in, not 0700");
+        }
+    }
+
+    public function test_a_chain_of_new_directories_all_take_the_owner_of_the_directory_they_were_made_in(): void
+    {
+        if (!function_exists('posix_geteuid') || posix_geteuid() !== 0) {
+            $this->markTestSkipped('Only root can give files to another user.');
+        }
+        $this->release(['app/Services/Fulfillment/Sub/Deep/Thing.php' => "<?php\nclass Thing {}\n"]);
+        foreach (['/app', '/app/Services', '/database'] as $path) {
+            @mkdir($this->live . $path, 0755, true);
+            chown($this->live . $path, 33);
+            chgrp($this->live . $path, 33);
+        }
+
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        clearstatcache();
+        foreach (['/app/Services/Fulfillment', '/app/Services/Fulfillment/Sub', '/app/Services/Fulfillment/Sub/Deep', '/app/Services/Fulfillment/Sub/Deep/Thing.php', '/database/migrations', '/database/migrations/2026_11_05_100000_create_thing.php'] as $created) {
+            $this->assertSame(33, fileowner($this->live . $created), "{$created} belongs to the web user, however deep the chain");
+        }
+    }
+
+    // ── a rollback puts the replaced files back before it removes the ones the release added ──────────────
+
+    public function test_a_rollback_restores_what_it_replaced_before_it_deletes_what_it_added(): void
+    {
+        if ((new Process(['strace', '-V']))->run() !== 0) {
+            $this->markTestSkipped('strace is not available.');
+        }
+        $this->release();
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        $trace = $this->work . '/trace.txt';
+
+        $process = new Process(['strace', '-f', '-qq', '-e', 'trace=unlink,unlinkat,rename,renameat,renameat2', '-o', $trace, 'php', $this->overlay . '/deploy.php', 'rollback', '--backup-dir=' . $this->backups]);
+        $process->run();
+
+        $this->assertSame(0, $process->getExitCode(), $process->getOutput() . $process->getErrorOutput());
+        $lines = file($trace, FILE_IGNORE_NEW_LINES);
+        $firstRestore = $firstDelete = null;
+        foreach ($lines as $number => $line) {
+            if ($firstRestore === null && preg_match('/rename(at2?)?\(.*"[^"]*\/app\/Utils\/OrderManager\.php"/', $line) === 1) {
+                $firstRestore = $number;
+            }
+            if ($firstDelete === null && preg_match('/unlink(at)?\(.*"[^"]*\/app\/Services\/Fulfillment\/New\.php"/', $line) === 1) {
+                $firstDelete = $number;
+            }
+        }
+        $this->assertNotNull($firstRestore, 'the replaced file was put back');
+        $this->assertNotNull($firstDelete, 'the added file was removed');
+        $this->assertLessThan($firstDelete, $firstRestore, 'a request in flight never meets a replaced file whose new class is already gone');
+    }
+
+    // ── a language file is data: whatever it does when it is loaded stays out of the report ───────────────
+
+    /** @return array<string, array{string, string}> */
+    public static function languageFilesThatDoMoreThanReturnAnArray(): array
+    {
+        return [
+            'one that ends the process' => ["<?php\nexit;\n", 'ended the process'],
+            'one that exits with a status' => ["<?php\nexit(3);\n", 'ended the process'],
+            'one that prints before it returns' => ["<?php\necho 'SECRET-SENTINEL-ECHO';\nreturn ['a' => 'b'];\n", 'prints text'],
+            'one with text before the php tag' => ["SECRET-SENTINEL-PRINT\n<?php\nreturn ['a' => 'b'];\n", 'prints text'],
+            'one with a byte-order mark' => ["\xEF\xBB\xBF<?php\nreturn ['a' => 'b'];\n", 'prints text'],
+        ];
+    }
+
+    /** @dataProvider languageFilesThatDoMoreThanReturnAnArray */
+    #[\PHPUnit\Framework\Attributes\DataProvider('languageFilesThatDoMoreThanReturnAnArray')]
+    public function test_a_language_file_that_prints_or_exits_when_loaded_cannot_hide_a_failure_or_leak_into_the_report(string $contents, string $message): void
+    {
+        $this->release();
+        $this->put($this->live . '/resources/lang/en/new-messages.php', $contents);
+        $before = $this->treeHash($this->live);
+
+        $verify = $this->deploy('verify', ['--json']);
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        foreach ([$verify, $apply] as $process) {
+            $this->assertNotSame(0, $process->getExitCode(), 'a file that ends the run must not look like success: ' . $process->getOutput());
+            $this->assertStringNotContainsString('SECRET-SENTINEL', $process->getOutput() . $process->getErrorOutput());
+            $this->assertStringContainsString($message, $process->getOutput() . $process->getErrorOutput());
+        }
+        $this->assertSame($before, $this->treeHash($this->live));
+        $this->assertDirectoryDoesNotExist($this->backups);
+    }
+
+    // ── the output contract ──────────────────────────────────────────────────────────────────────────────────
+
+    public function test_with_json_an_error_in_the_options_goes_where_every_other_error_goes(): void
+    {
+        $this->release();
+
+        $process = $this->deploy('verify', ['--json', '--bogus']);
+
+        $this->assertSame(2, $process->getExitCode());
+        $this->assertSame('', $process->getOutput(), 'stdout holds only JSON');
+        $this->assertStringContainsString('Unknown option --bogus', $process->getErrorOutput());
+    }
+
+    public function test_without_the_posix_extension_it_says_that_owners_cannot_be_kept(): void
+    {
+        $this->release();
+
+        $process = new Process(['php', '-d', 'disable_functions=posix_geteuid', $this->overlay . '/deploy.php', 'verify', '--app=' . $this->live, '--package=' . $this->overlay]);
+        $process->run();
+
+        $this->assertStringContainsString('[warn]', $process->getOutput());
+        $this->assertStringContainsString('posix', $process->getOutput());
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────────────────
 
     /**
@@ -705,6 +1024,22 @@ class OverlayDeploymentTest extends TestCase
 
         $process = $this->build($archive ? ['--archive'] : []);
         $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput() . $process->getOutput());
+    }
+
+    /** deploy.php as a library: its classes without the line that runs it (the tool is a script, and tests reach inside it only here). */
+    private function deployLibrary(): object
+    {
+        if (!class_exists('Deploy', false)) {
+            $source = (string) file_get_contents(dirname(__DIR__, 3) . '/scripts/deploy/deploy.php');
+            $source = preg_replace(['/^#!.*\n/', '/^exit\(\(new Deploy\(\)\)->run\(\$argv\)\);\n/m'], '', $source, -1, $replaced);
+            $this->assertSame(2, $replaced, 'the shebang and the line that runs the tool were found');
+            $file = sys_get_temp_dir() . '/deploy-library-' . bin2hex(random_bytes(4)) . '.php';
+            file_put_contents($file, $source);
+            require $file;
+            unlink($file);
+        }
+
+        return new \Deploy();
     }
 
     /** @param list<string> $extra */

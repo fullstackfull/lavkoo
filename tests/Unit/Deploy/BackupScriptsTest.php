@@ -38,14 +38,21 @@ class BackupScriptsTest extends TestCase
         file_put_contents($this->app . '/.env', "DB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_DATABASE=pharmacy\nDB_USERNAME=shop\nDB_PASSWORD=" . self::PASSWORD . "\n");
 
         $this->stub('mysql', <<<'BASH'
+            [ -n "${STUB_LOG:-}" ] && echo "mysql $*" >> "$STUB_LOG"
             case "$*" in
               *"SELECT 1"*) [ -n "${STUB_DB_DOWN:-}" ] && exit 1; echo 1 ;;
               *"SUM(data_length"*) echo 100 ;;
+              *"@@datadir"*) echo "${STUB_DATADIR:-/nonexistent}" ;;
+              *"information_schema.events"*) echo "${STUB_EVENTS:-0}" ;;
               *"COUNT("*) echo 7 ;;
             esac
             BASH);
         $this->stub('mysqldump', <<<'BASH'
             if [ "${1:-}" = "--help" ]; then echo "--no-tablespaces --column-statistics --set-gtid-purged"; exit 0; fi
+            case "${STUB_DUMP:-}" in
+              fails) printf -- '-- MySQL dump\n-- a partial table\n'; exit 2 ;;
+              truncated) printf -- '-- MySQL dump\n-- a partial table\n'; exit 0 ;;
+            esac
             printf -- '-- MySQL dump\n-- Dump completed on 2026-11-05 10:00:00\n'
             BASH);
     }
@@ -96,6 +103,18 @@ class BackupScriptsTest extends TestCase
         $directory = $this->theBackupDirectory($this->work . '/backups');
         array_map(fn (string $name) => $this->assertFileExists($directory . '/' . $name), $made);
         array_map(fn (string $name) => $this->assertFileDoesNotExist($directory . '/' . $name), $notMade);
+    }
+
+    public function test_a_backup_directory_that_was_already_there_keeps_its_mode_and_only_the_new_backup_is_made_private(): void
+    {
+        mkdir($this->work . '/shared-backups', 0755);
+
+        $backup = $this->backup(['--to=' . $this->work . '/shared-backups', '--db-only']);
+
+        $this->assertSame(0, $backup->getExitCode(), $backup->getOutput() . $backup->getErrorOutput());
+        clearstatcache();
+        $this->assertSame(0755, fileperms($this->work . '/shared-backups') & 0777, 'a shared directory is not ours to lock');
+        $this->assertSame(0700, fileperms($this->theBackupDirectory($this->work . '/shared-backups')) & 0777);
     }
 
     public function test_asking_for_neither_the_database_nor_the_files_is_a_mistake_not_an_empty_backup(): void
@@ -150,6 +169,71 @@ class BackupScriptsTest extends TestCase
         $this->assertSame([], glob($this->work . '/backups/*') ?: [], 'an empty, dated directory would look like a backup');
     }
 
+    /** @return array<string, array{string}> */
+    public static function dumpsThatGoWrong(): array
+    {
+        return ['a dump that fails half-way' => ['fails'], 'a dump that is cut short without an error' => ['truncated']];
+    }
+
+    /** @dataProvider dumpsThatGoWrong */
+    #[\PHPUnit\Framework\Attributes\DataProvider('dumpsThatGoWrong')]
+    public function test_a_backup_that_does_not_finish_leaves_nothing_partial_beside_a_real_one(string $failure): void
+    {
+        $backup = $this->backup(['--to=' . $this->work . '/backups', '--db-only'], environment: ['STUB_DUMP' => $failure]);
+
+        $this->assertSame(1, $backup->getExitCode(), $backup->getOutput() . $backup->getErrorOutput());
+        $this->assertSame([], glob($this->work . '/backups/*') ?: [], 'a truncated db.sql.gz next to a real backup name would be mistaken for a backup');
+        $this->assertStringContainsString('was removed', $backup->getErrorOutput());
+    }
+
+    public function test_a_second_backup_in_the_same_second_never_removes_the_first(): void
+    {
+        $first = $this->backup(['--to=' . $this->work . '/backups', '--db-only']);
+        $directory = $this->theBackupDirectory($this->work . '/backups');
+
+        $clash = $this->execute(['bash', '-c', 'date() { echo ' . basename($directory) . '; }; export -f date; bash "$@"', 'backup', dirname(__DIR__, 3) . '/scripts/deploy/backup.sh', '--app=' . $this->app, '--to=' . $this->work . '/backups', '--db-only']);
+
+        $this->assertSame(0, $first->getExitCode());
+        $this->assertSame(1, $clash->getExitCode(), $clash->getOutput() . $clash->getErrorOutput());
+        $this->assertStringContainsString('already exists', $clash->getErrorOutput());
+        $this->assertFileExists($directory . '/db.sql.gz', 'the backup that was already there is untouched');
+        $this->assertStringNotContainsString('was removed', $clash->getErrorOutput());
+    }
+
+    public function test_a_tree_du_cannot_fully_read_does_not_stop_the_backup_silently(): void
+    {
+        $real = trim((string) shell_exec('command -v du'));
+        $this->stub('du', 'case "$1" in -sk) exit 1 ;; *) exec ' . escapeshellarg($real) . ' "$@" ;; esac');
+
+        $backup = $this->backup(['--to=' . $this->work . '/backups']);
+
+        $this->assertSame(0, $backup->getExitCode(), 'the size is only an estimate: ' . $backup->getOutput() . $backup->getErrorOutput());
+        $this->assertStringContainsString('Backup complete', $backup->getOutput());
+    }
+
+    public function test_a_failure_nobody_planned_for_still_says_where_it_happened(): void
+    {
+        $this->stub('tar', 'exit 7');
+
+        $backup = $this->backup(['--to=' . $this->work . '/backups', '--files-only']);
+
+        $this->assertSame(1, $backup->getExitCode());
+        $this->assertNotSame('', trim($backup->getErrorOutput()), 'a script that stops must say why');
+    }
+
+    public function test_without_gnu_realpath_a_destination_that_climbs_back_into_the_application_is_refused(): void
+    {
+        $this->stub('realpath', 'exit 1');
+
+        $climbing = $this->backup(['--to=' . $this->app . '/../zz/../app/x', '--db-only']);
+        $honest = $this->backup(['--to=' . $this->work . '/backups', '--db-only']);
+
+        $this->assertSame(2, $climbing->getExitCode(), $climbing->getOutput() . $climbing->getErrorOutput());
+        $this->assertStringContainsString("cannot resolve '..'", $climbing->getErrorOutput());
+        $this->assertDirectoryDoesNotExist($this->app . '/x', 'nothing was written into the application');
+        $this->assertSame(0, $honest->getExitCode(), 'a plain destination still works without GNU realpath: ' . $honest->getOutput() . $honest->getErrorOutput());
+    }
+
     public function test_a_damaged_backup_is_detected_by_its_checksum(): void
     {
         $this->backup(['--to=' . $this->work . '/backups']);
@@ -162,13 +246,61 @@ class BackupScriptsTest extends TestCase
         $this->assertStringContainsString('the backup is damaged', $verify->getErrorOutput());
     }
 
+    public function test_the_default_check_of_a_backup_only_reads_it_and_says_that_it_is_not_a_restore_test(): void
+    {
+        $this->backup(['--to=' . $this->work . '/backups']);
+        $directory = $this->theBackupDirectory($this->work . '/backups');
+        $log = $this->work . '/mysql.log';
+
+        $verify = $this->execute(['bash', dirname(__DIR__, 3) . '/scripts/deploy/verify-backup.sh', '--backup=' . $directory, '--app=' . $this->app], environment: ['STUB_LOG' => $log]);
+
+        $this->assertSame(0, $verify->getExitCode(), $verify->getErrorOutput());
+        $this->assertStringContainsString('NOT a restore test', $verify->getOutput());
+        $this->assertFileDoesNotExist($log, 'the live database server was not asked anything');
+    }
+
+    public function test_the_default_check_finds_a_dump_that_was_cut_short(): void
+    {
+        $this->backup(['--to=' . $this->work . '/backups', '--db-only']);
+        $directory = $this->theBackupDirectory($this->work . '/backups');
+        $this->execute(['bash', '-c', 'printf "%s\n" "-- MySQL dump" "-- but no completion line" | gzip > "$0/db.sql.gz" && cd "$0" && sha256sum db.sql.gz row-counts.txt > SHA256SUMS', $directory]);
+
+        $verify = $this->execute(['bash', dirname(__DIR__, 3) . '/scripts/deploy/verify-backup.sh', '--backup=' . $directory, '--app=' . $this->app]);
+
+        $this->assertSame(1, $verify->getExitCode(), $verify->getOutput());
+        $this->assertStringContainsString('truncated', $verify->getErrorOutput());
+    }
+
+    public function test_a_restore_test_refuses_when_the_datas_disk_cannot_hold_a_second_copy_and_when_events_would_run_in_the_scratch_database(): void
+    {
+        $this->backup(['--to=' . $this->work . '/backups']);
+        $directory = $this->theBackupDirectory($this->work . '/backups');
+        mkdir($this->work . '/datadir');
+        $this->stub('df', 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/x 10 9 1 90%% /\n"');
+        $verify = fn (array $extra, array $environment = []): Process => $this->execute(['bash', dirname(__DIR__, 3) . '/scripts/deploy/verify-backup.sh', '--backup=' . $directory, '--app=' . $this->app, '--restore-test', ...$extra], environment: ['STUB_DATADIR' => $this->work . '/datadir'] + $environment);
+
+        $noRoom = $verify([]);
+        $this->assertSame(1, $noRoom->getExitCode(), $noRoom->getOutput() . $noRoom->getErrorOutput());
+        $this->assertStringContainsString("free in MySQL's data directory", $noRoom->getErrorOutput());
+        $this->assertStringNotContainsString('Loading the dump', $noRoom->getOutput(), 'nothing was loaded into the live server');
+
+        $events = $verify(['--force-low-disk'], ['STUB_EVENTS' => '2']);
+        $this->assertSame(1, $events->getExitCode(), $events->getOutput() . $events->getErrorOutput());
+        $this->assertStringContainsString('scheduled event', $events->getErrorOutput());
+        $this->assertStringNotContainsString('Loading the dump', $events->getOutput());
+
+        $allowed = $verify(['--force-low-disk', '--allow-events'], ['STUB_EVENTS' => '2']);
+        $this->assertSame(0, $allowed->getExitCode(), $allowed->getOutput() . $allowed->getErrorOutput());
+        $this->assertStringContainsString('The backup restores, and its row counts match.', $allowed->getOutput());
+    }
+
     public function test_the_help_texts_stop_before_the_first_command(): void
     {
         foreach (['backup.sh', 'verify-backup.sh'] as $script) {
             $help = $this->execute(['bash', dirname(__DIR__, 3) . '/scripts/deploy/' . $script, '--help']);
 
             $this->assertSame(0, $help->getExitCode());
-            $this->assertStringNotContainsString('set -euo pipefail', $help->getOutput(), $script);
+            $this->assertStringNotContainsString('set -', $help->getOutput(), $script);
             $this->assertStringContainsString('bash ', $help->getOutput(), "{$script} is run with bash from the package");
         }
     }

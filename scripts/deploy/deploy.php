@@ -44,6 +44,10 @@ final class Deploy
 
     private const SILENT_STATES = ['CLEAN', 'NEW', 'ALREADY_APPLIED', 'MERGE'];
 
+    private const AFTER_RESTORE = 'Now run php artisan optimize:clear, reset OPcache (reload PHP-FPM or restart the web server) and, if a queue worker runs, php artisan queue:restart. The database is untouched by this script.';
+
+    private static bool $readingLanguageFile = false;
+
     private bool $json = false;
 
     private string $self = 'deploy.php';
@@ -53,10 +57,11 @@ final class Deploy
     {
         $this->self = (string) (realpath($argv[0] ?? '') ?: ($argv[0] ?? 'deploy.php'));
         $command = $argv[1] ?? '';
+        // Known before the options are read, so that a mistake in them is reported the same way as every other error.
+        $this->json = in_array('--json', array_slice($argv, 2), true);
 
         try {
             $options = $this->options(array_slice($argv, 2));
-            $this->json = isset($options['json']);
 
             return match ($command) {
                 'verify' => $this->verifyCommand($options),
@@ -66,6 +71,10 @@ final class Deploy
             };
         } catch (RuntimeException $exception) {
             $this->say('error', $exception->getMessage());
+
+            return 2;
+        } catch (JsonException $exception) {
+            $this->say('error', "A file this tool reads is damaged ({$exception->getMessage()}). Nothing was changed.");
 
             return 2;
         }
@@ -233,17 +242,17 @@ final class Deploy
 
         $backup = $this->backupDirectory($app, $options);
         $journal = new AppliedJournal(path: $backup . '/applied.json', app: $app);
-        $this->keepManifest($package, $backup);
 
         try {
+            $this->keepManifest($package, $backup);
             $this->applyFiles($app, $package, $report['files'], $backup, $journal);
+            $journal->complete();
         } catch (Throwable $failure) {
             return $this->stopped($failure, $journal, $backup, $app);
         }
-        $journal->complete();
 
         $this->say('ok', $journal->fileCount() . " file(s) written. The originals are in {$backup}");
-        $this->say('next', "To undo: php {$this->self} rollback --backup-dir={$backup}");
+        $this->say('next', "To undo: php {$this->shellWord($this->self)} rollback {$this->shellWord('--backup-dir=' . $backup)}");
 
         return 0;
     }
@@ -259,21 +268,40 @@ final class Deploy
     /** `apply` could not finish: take back whatever it had written, and say plainly where that leaves the application. */
     private function stopped(Throwable $failure, AppliedJournal $journal, string $backup, string $app): int
     {
-        $this->say('error', $failure instanceof RuntimeException ? $failure->getMessage() : 'Unexpected ' . $failure::class . ' in ' . basename($failure->getFile()) . ':' . $failure->getLine() . '.');
+        $this->say('error', $this->describe($failure));
 
-        $problems = $this->undo($journal->document(), $backup, $app, force: false);
+        try {
+            $problems = $this->undo($journal->document(), $backup, $app, force: false);
+            if ($problems === []) {
+                AppliedJournal::markRolledBack($backup . '/applied.json');
+            }
+        } catch (Throwable $undoFailure) {
+            $problems = ['Taking the changes back failed too: ' . $this->describe($undoFailure)];
+        }
+
         if ($problems === []) {
-            AppliedJournal::markRolledBack($backup . '/applied.json');
             $this->say('error', 'The deployment was stopped and every change it had made was taken back: the application is as it was before.');
+            $this->say('next', self::AFTER_RESTORE);
 
             return 2;
         }
 
         array_map(fn (string $problem) => $this->say('error', $problem), $problems);
         $this->say('error', 'The deployment was stopped part-way and could not be taken back automatically: the application is half-updated. Keep it in maintenance mode.');
-        $this->say('next', "To take every change back: php {$this->self} rollback --backup-dir={$backup}");
+        $this->say('next', "To take every change back: php {$this->shellWord($this->self)} rollback {$this->shellWord('--backup-dir=' . $backup)}");
 
         return 2;
+    }
+
+    private function describe(Throwable $failure): string
+    {
+        return $failure instanceof RuntimeException ? $failure->getMessage() : 'Unexpected ' . $failure::class . ' in ' . basename($failure->getFile()) . ':' . $failure->getLine() . '.';
+    }
+
+    /** A word that can be pasted into a shell: quoted only when it has to be. */
+    private function shellWord(string $value): string
+    {
+        return preg_match('#^[A-Za-z0-9_@%+=:,./-]+$#', $value) === 1 ? $value : escapeshellarg($value);
     }
 
     /** @param list<array<string, string>> $files the verify report's files */
@@ -295,7 +323,10 @@ final class Deploy
             $merge = $entry['strategy'] === 'merge_language_keys' && $before !== null ? $this->mergedLanguage($target, $package . '/files/' . $entry['path']) : null;
             $content = $merge['content'] ?? (string) file_get_contents($package . '/files/' . $entry['path']);
 
-            $journal->directoriesCreated($this->makeDirectories(dirname($target), $app));
+            // Recorded before they are made: a deployment cut off between the two leaves a record that names them.
+            $missing = $this->missingDirectories(dirname($target), $app);
+            $journal->directoriesCreated($missing);
+            $this->createDirectories($missing);
             $journal->aboutToWrite([
                 'path' => $entry['path'], 'strategy' => $entry['strategy'], 'existed' => $before !== null, 'sha256_before' => $before, 'sha256_after' => hash('sha256', $content),
                 'merge' => $merge === null ? null : ['added' => $merge['added'], 'replaced' => $merge['replaced']],
@@ -358,16 +389,46 @@ final class Deploy
     /** @return array<string, string> */
     private function languageArray(string $path): array
     {
+        $this->watchForAFileThatEndsTheProcess();
+        ob_start();
+        self::$readingLanguageFile = true;
         try {
             $array = (static fn (string $file): mixed => include $file)($path);
+            $printed = (string) ob_get_contents();
         } catch (Throwable) {
             throw new RuntimeException("{$path} cannot be read as PHP (the site may have been writing it when it was cut off); the language merge was not attempted.");
+        } finally {
+            self::$readingLanguageFile = false;
+            ob_end_clean();
+        }
+        if ($printed !== '') {
+            throw new RuntimeException("{$path} prints text when it is loaded (a byte-order mark, or text before <?php); the language merge was not attempted.");
         }
         if (!is_array($array)) {
             throw new RuntimeException("{$path} does not return an array; the language merge was not attempted.");
         }
 
         return $array;
+    }
+
+    /** A language file that calls exit would end this run with a success status and no report: say so, and fail. */
+    private function watchForAFileThatEndsTheProcess(): void
+    {
+        static $watching = false;
+        if ($watching) {
+            return;
+        }
+        $watching = true;
+
+        register_shutdown_function(static function (): void {
+            if (self::$readingLanguageFile) {
+                while (ob_get_level() > 0) {
+                    ob_end_clean();
+                }
+                fwrite(STDERR, "[error] A language file ended the process while it was being read. Nothing was changed by this step; look at the file and run again.\n");
+                exit(2);
+            }
+        });
     }
 
     /** What translate() stores for a key nobody has translated: the same transformation as app/Utils/language.php. */
@@ -390,7 +451,7 @@ final class Deploy
             throw new RuntimeException('--backup-dir must be the directory `apply` printed (it holds applied.json).');
         }
 
-        $applied = json_decode((string) file_get_contents($appliedFile), true, 512, JSON_THROW_ON_ERROR);
+        $applied = $this->readJournal($appliedFile);
         if (isset($applied['rolled_back_at'])) {
             $this->say('info', 'This deployment was already rolled back: nothing to do.');
 
@@ -400,7 +461,8 @@ final class Deploy
             $this->say('info', 'This deployment did not finish. Everything it had written, or was about to write, is taken back.');
         }
 
-        $app = isset($options['app']) ? $this->app($options) : (string) $applied['app'];
+        $app = isset($options['app']) ? $this->app($options) : $applied['app'];
+        $this->assertJournalIsSafe($applied, $app, $backup);
         $problems = $this->undo($applied, $backup, $app, isset($options['force']));
         if ($problems !== []) {
             array_map(fn (string $problem) => $this->say('error', $problem), $problems);
@@ -410,9 +472,47 @@ final class Deploy
         AppliedJournal::markRolledBack($appliedFile);
 
         $this->say('ok', count($applied['files']) . ' file(s) restored to what they were before the deployment.');
-        $this->say('next', 'Now run php artisan optimize:clear, reset OPcache (reload PHP-FPM or restart the web server) and, if a queue worker runs, php artisan queue:restart. The database is untouched by this script.');
+        $this->say('next', self::AFTER_RESTORE);
 
         return 0;
+    }
+
+    /**
+     * What `apply` recorded, or why it cannot be trusted: a record cut off while it was written (a power cut between the write and the
+     * rename) must end in a message that says what to do by hand, not in a PHP fatal.
+     *
+     * @return array{app: string, complete: bool, files: list<array<string, mixed>>, created_directories: list<string>}&array<string, mixed>
+     */
+    private function readJournal(string $file): array
+    {
+        try {
+            $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw new RuntimeException("{$file} cannot be read (it was cut off while it was being written). Nothing was changed. Take the deployment back by hand: copy the files kept under " . dirname($file) . '/files/ back over the application, and delete the files the release added (the MANIFEST.json beside it lists them).');
+        }
+
+        if (!is_array($document) || !is_string($document['app'] ?? null) || !is_bool($document['complete'] ?? null) || !is_array($document['files'] ?? null) || !is_array($document['created_directories'] ?? null)) {
+            throw new RuntimeException("{$file} is not a record this deploy.php wrote. Nothing was changed.");
+        }
+
+        return $document;
+    }
+
+    /** The record names what rollback will write over and delete: every path in it must be one a release may touch, and every directory one inside the application. */
+    private function assertJournalIsSafe(array $applied, string $app, string $backup): void
+    {
+        foreach ($applied['files'] as $file) {
+            $complete = is_array($file) && is_string($file['path'] ?? null) && is_bool($file['existed'] ?? null) && array_key_exists('sha256_before', $file) && array_key_exists('merge', $file);
+            if (!$complete) {
+                throw new RuntimeException("The record in {$backup}/applied.json has an entry this deploy.php did not write. Nothing was changed.");
+            }
+            $this->assertSafePath($file['path']);
+        }
+        foreach ($applied['created_directories'] as $directory) {
+            if (!is_string($directory) || !str_starts_with($directory, $app . '/') || str_contains($directory, '..')) {
+                throw new RuntimeException("The record in {$backup}/applied.json names a directory outside the application: " . (is_string($directory) ? $directory : 'not a path') . '. Nothing was changed.');
+            }
+        }
     }
 
     /**
@@ -431,27 +531,45 @@ final class Deploy
             if ($file['merge'] === null && is_file($target) && !in_array(hash_file('sha256', $target), $known, true) && !$force) {
                 $problems[] = "{$file['path']} was changed after the deployment; its current version would be lost (use --force to restore the original anyway).";
             }
+            // Not even --force writes an empty or different file over a live one: without its saved original there is nothing to put back.
+            if ($file['merge'] === null && $file['existed'] && !$this->savedOriginalIsIntact($backup, $file)) {
+                $problems[] = "{$file['path']}: the saved original in {$backup}/files is missing or damaged, so nothing was restored. Put this file back by hand from your own backup of the application.";
+            }
         }
         if ($problems !== []) {
             return $problems;
         }
 
-        foreach ($applied['files'] as $file) {
+        // The order `apply` wrote in, reversed: the files the release replaced are put back before the files it added are removed,
+        // so a request in flight never finds a replaced file asking for a class that is already gone.
+        foreach (array_reverse($applied['files']) as $file) {
             $target = $app . '/' . $file['path'];
-            if ($file['merge'] !== null) {
-                $this->undoLanguageMerge($target, $file['merge']);
-            } elseif ($file['existed']) {
-                $this->writeAtomically($target, (string) file_get_contents($backup . '/files/' . $file['path']), null);
-            } elseif (is_file($target)) {
-                unlink($target);
+            try {
+                if ($file['merge'] !== null) {
+                    $this->undoLanguageMerge($target, $file['merge']);
+                } elseif ($file['existed']) {
+                    $this->writeAtomically($target, (string) file_get_contents($backup . '/files/' . $file['path']), null);
+                } elseif (is_file($target)) {
+                    unlink($target);
+                }
+                $this->removeLeftoverTemporaries(dirname($target));
+            } catch (Throwable $failure) {
+                $problems[] = "{$file['path']} could not be taken back: " . $this->describe($failure);
             }
-            $this->removeLeftoverTemporaries(dirname($target));
         }
         foreach (array_reverse($applied['created_directories']) as $directory) {
             @rmdir($directory);
         }
 
-        return [];
+        return $problems;
+    }
+
+    /** @param array<string, mixed> $file a journal entry for a file that existed before the deployment */
+    private function savedOriginalIsIntact(string $backup, array $file): bool
+    {
+        $copy = $backup . '/files/' . $file['path'];
+
+        return is_string($file['sha256_before'] ?? null) && is_file($copy) && hash_file('sha256', $copy) === $file['sha256_before'];
     }
 
     /** A write that was cut off can leave its temporary file beside the target. */
@@ -524,11 +642,11 @@ final class Deploy
         if (str_starts_with($root . '/', $app . '/') && !isset($options['allow-backup-inside-app'])) {
             throw new RuntimeException("The backup directory {$root} is inside the application tree, which may be served to the web. Choose a directory outside it.");
         }
-        if (is_dir($root) && glob($root . '/*') !== []) {
+        if (is_dir($root) && $this->entries($root) !== []) {
             throw new RuntimeException("The backup directory {$root} is not empty; refusing to mix two deployments.");
         }
         foreach ($this->unfinishedDeployments(dirname($root)) as $unfinished) {
-            throw new RuntimeException("A deployment recorded in {$unfinished} did not finish and was not rolled back, so the application may be half-updated. Take it back first: php {$this->self} rollback --backup-dir={$unfinished}");
+            throw new RuntimeException("A deployment recorded in {$unfinished} did not finish and was not rolled back, so the application may be half-updated. Take it back first: php {$this->shellWord($this->self)} rollback {$this->shellWord('--backup-dir=' . $unfinished)}");
         }
         if (!is_dir($root) && !mkdir($root, 0700, true) && !is_dir($root)) {
             throw new RuntimeException("Could not create {$root}.");
@@ -537,13 +655,39 @@ final class Deploy
         return $root;
     }
 
-    /** @return list<string> the backup directories beside this one whose deployment was cut off and never rolled back */
+    /**
+     * Every entry of a directory, dot files included. Not glob(): its pattern syntax reads a `[` or a `*` in a path as a pattern, and it
+     * never lists a name that starts with a dot.
+     *
+     * @return list<string>
+     */
+    private function entries(string $directory): array
+    {
+        $names = scandir($directory);
+        if ($names === false) {
+            throw new RuntimeException("Could not read {$directory}.");
+        }
+
+        return array_values(array_diff($names, ['.', '..']));
+    }
+
+    /**
+     * The backup directories beside this one whose deployment was cut off and never rolled back. A record that cannot be read counts as
+     * one that did not finish: nobody can say what that deployment did.
+     *
+     * @return list<string>
+     */
     private function unfinishedDeployments(string $directory): array
     {
         $unfinished = [];
-        foreach (glob($directory . '/*/applied.json') ?: [] as $journal) {
+        foreach (is_dir($directory) ? $this->entries($directory) : [] as $name) {
+            $journal = "{$directory}/{$name}/applied.json";
+            if (!is_file($journal)) {
+                continue;
+            }
+
             $document = json_decode((string) file_get_contents($journal), true);
-            if (is_array($document) && ($document['complete'] ?? true) === false && !isset($document['rolled_back_at'])) {
+            if (!is_array($document) || (($document['complete'] ?? false) !== true && !isset($document['rolled_back_at']))) {
                 $unfinished[] = dirname($journal);
             }
         }
@@ -646,23 +790,34 @@ final class Deploy
         return is_writable($directory);
     }
 
-    /** @return list<string> the directories that did not exist and were created */
-    private function makeDirectories(string $directory, string $root): array
+    /** @return list<string> the directories between $root and $directory that do not exist yet, outermost first */
+    private function missingDirectories(string $directory, string $root): array
     {
-        $created = [];
         $missing = [];
         for ($path = $directory; !is_dir($path) && str_starts_with($path, $root); $path = dirname($path)) {
             array_unshift($missing, $path);
         }
+
+        return $missing;
+    }
+
+    /** @param list<string> $missing outermost first */
+    private function createDirectories(array $missing): void
+    {
         foreach ($missing as $path) {
             if (!mkdir($path, 0755) && !is_dir($path)) {
                 throw new RuntimeException("Could not create {$path}.");
             }
+            // The mode follows the directory it is made in, not the umask of whoever runs this: a directory the web server cannot enter
+            // would hide every file the release puts in it.
+            chmod($path, fileperms(dirname($path)) & 02777);
             $this->copyOwnership(dirname($path), $path);
-            $created[] = $path;
         }
+    }
 
-        return $created;
+    private function makeDirectories(string $directory, string $root): void
+    {
+        $this->createDirectories($this->missingDirectories($directory, $root));
     }
 
     private function writeAtomically(string $target, string $content, ?int $mode): void
@@ -688,6 +843,8 @@ final class Deploy
      */
     private function copyOwnership(string $from, string $to): void
     {
+        // PHP remembers the owner it saw: after the first directory of a chain was given away, the next one would still read the old owner.
+        clearstatcache();
         $owner = fileowner($from);
         $group = filegroup($from);
         if ($owner !== false && $owner !== fileowner($to) && function_exists('posix_geteuid') && posix_geteuid() === 0) {
@@ -700,8 +857,14 @@ final class Deploy
 
     private function noteOwnership(string $app): void
     {
+        if (!function_exists('posix_geteuid')) {
+            $this->say('warn', "PHP's posix extension is not available, so the owner and group of the files this script writes cannot be kept. Check afterwards that the language files are still writable by the web server's user.");
+
+            return;
+        }
+
         $owner = fileowner($app . '/artisan');
-        if (!function_exists('posix_geteuid') || $owner === false || $owner === posix_geteuid()) {
+        if ($owner === false || $owner === posix_geteuid()) {
             return;
         }
 
