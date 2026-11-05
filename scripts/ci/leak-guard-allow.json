@@ -1,0 +1,10 @@
+{
+    "allow": [
+        {
+            "rule": "jwt",
+            "path": "tests/Unit/Fulfillment/ResponseShapeTest.php",
+            "line": 105,
+            "reason": "A made-up token in a test of the redactor, in an early commit of pull request #1; a later commit of the same pull request builds it at run time instead. It was never a real credential."
+        }
+    ]
+}
