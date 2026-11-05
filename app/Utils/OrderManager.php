@@ -46,6 +46,8 @@ use App\Services\DeliverySyria\DeliverySyriaClient;
 use App\Services\DeliverySyria\DeliverySyriaRateCalculator;
 use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
+use App\Services\Fulfillment\FulfillmentHooks;
+use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
@@ -1295,6 +1297,22 @@ class OrderManager
 
             $orderDetailsId = DB::table('order_details')->insertGetId($orderDetails);
 
+            // Freeze who fulfils this line (M5AZN / Torod Point / in-house), here, inside the order
+            // transaction. A product with no provider — every existing one — writes nothing. A
+            // provider-owned product must be recorded or the order rolls back: it may not silently
+            // fall through to in-house handling.
+            app(OrderItemOwnershipSnapshotter::class)->capture(
+                orderId: $orderId,
+                orderDetailId: $orderDetailsId,
+                product: $product,
+                variant: $cartSingleItem['variant'],
+                quantity: $orderedQuantity,
+                unitPrice: (float) $cartSingleItem['price'],
+                netAmount: (float) $finalAmount,
+                lineTax: (float) $appliedTaxAmount,
+                taxModel: (string) $orderDetails['tax_model'],
+            );
+
             // Log the sale into the stock-movement history. TYPE_SALE was defined but never emitted, so
             // the movement ledger was missing its largest, most frequent movement and could never
             // reconcile against current_stock. Physical products only, and non-throwing — a missing log
@@ -1676,6 +1694,10 @@ class OrderManager
 
 
 
+
+// Provider fulfillment (M5AZN / Torod Point). The order and its ownership snapshots are committed; this
+// only asks the queue to route it. No provider call happens here — see FulfillmentHooks.
+app(FulfillmentHooks::class)->ordersPlaced(orderIds: $orderPlacedIds);
 
 /*
 |--------------------------------------------------------------------------

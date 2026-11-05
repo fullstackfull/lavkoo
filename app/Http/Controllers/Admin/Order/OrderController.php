@@ -16,6 +16,7 @@ use App\Events\RefundEvent;
 use App\Http\Requests\Admin\RefundStatusRequest;
 use App\Models\OrderEditHistory;
 use App\Services\CustomerWalletService;
+use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\OrderEditReturnAmountService;
 use App\Services\OrderEditService;
 use App\Services\ProductService;
@@ -675,6 +676,17 @@ class OrderController extends BaseController
                     ]);
                 }
             }
+        }
+        // Delivered means every provider shipment of this order is delivered. An order with no provider
+        // fulfillment (every existing order) is never blocked here.
+        $blockedReason = $request['order_status'] == 'delivered'
+            ? app(FulfillmentOrderGuard::class)->deliveryBlockedReason(orderId: (int) $order['id'])
+            : null;
+        if ($blockedReason) {
+            return response()->json([
+                'status' => 0,
+                'message' => $blockedReason,
+            ]);
         }
         $this->orderRepo->updateStockOnOrderStatusChange($request['id'], $request['order_status']);
         $this->orderRepo->update(id: $request['id'], data: ['order_status' => $request['order_status']]);
