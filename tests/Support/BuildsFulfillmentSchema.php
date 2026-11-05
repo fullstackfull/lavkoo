@@ -94,12 +94,51 @@ trait BuildsFulfillmentSchema
         });
         \Illuminate\Support\Facades\DB::table('shops')->insert(['id' => 1, 'author_type' => 'admin', 'name' => 'In-house shop']);
 
+        Schema::create('admin_roles', function (Blueprint $t) {
+            $t->id();
+            $t->string('name')->nullable();
+            $t->text('module_access')->nullable();
+            $t->boolean('status')->default(1);
+            $t->timestamps();
+        });
+        \Illuminate\Support\Facades\DB::table('admin_roles')->insert([
+            ['id' => 1, 'name' => 'Master Admin', 'module_access' => null, 'status' => 1],
+            ['id' => 2, 'name' => 'Catalog only', 'module_access' => json_encode(['catalog']), 'status' => 1],
+            ['id' => 3, 'name' => 'Third-party setup', 'module_access' => json_encode(['3rd_party_setup']), 'status' => 1],
+        ]);
+
         Schema::create('admins', function (Blueprint $t) {
             $t->id();
             $t->string('name')->nullable();
+            $t->string('email')->nullable();
+            $t->unsignedBigInteger('admin_role_id')->default(1);
+            $t->integer('status')->default(1);
             $t->timestamps();
         });
-        \Illuminate\Support\Facades\DB::table('admins')->insert(['id' => 1, 'name' => 'Admin']);
+        \Illuminate\Support\Facades\DB::table('admins')->insert([
+            ['id' => 1, 'name' => 'Admin', 'email' => 'master@example.test', 'admin_role_id' => 1],
+            ['id' => 2, 'name' => 'Catalog admin', 'email' => 'catalog@example.test', 'admin_role_id' => 2],
+            ['id' => 3, 'name' => 'Integrations admin', 'email' => 'integrations@example.test', 'admin_role_id' => 3],
+        ]);
+
+        Schema::create('categories', function (Blueprint $t) {
+            $t->id();
+            $t->string('name')->nullable();
+            $t->string('slug')->nullable();
+            $t->unsignedBigInteger('parent_id')->default(0);
+            $t->integer('position')->default(0);
+            $t->timestamps();
+        });
+
+        Schema::create('translations', function (Blueprint $t) {
+            $t->id();
+            $t->string('translationable_type');
+            $t->unsignedBigInteger('translationable_id');
+            $t->string('locale');
+            $t->string('key');
+            $t->text('value')->nullable();
+            $t->timestamps();
+        });
 
         Schema::create('attributes', function (Blueprint $t) {
             $t->id();

@@ -24,6 +24,9 @@ class OrderEligibility
     /** Order statuses that end the order: nothing may be dispatched for them, and pending work is cancelled. */
     public const CLOSED_STATUSES = ['canceled', 'failed', 'returned', 'refunded'];
 
+    /** Closed orders and delivered ones: nothing more will ever be dispatched for them. */
+    public const FINISHED_STATUSES = [...self::CLOSED_STATUSES, 'delivered'];
+
     public function check(?Order $order, ProviderConfig $provider): string
     {
         if ($order === null) {

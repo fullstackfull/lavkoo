@@ -50,20 +50,8 @@ class ProductProviderAssignmentService
                 return AssignmentResult::ok();
             }
 
-            if ($target !== null) {
-                if (($product->added_by ?? 'admin') !== 'admin') {
-                    return AssignmentResult::refused('fulfillment_vendor_product_not_allowed');
-                }
-                if (($product->product_type ?? 'physical') !== 'physical') {
-                    return AssignmentResult::refused('fulfillment_digital_product_not_allowed');
-                }
-                if (($missing = $this->variantsWithoutApprovedMapping($product, $target)) !== []) {
-                    return AssignmentResult::refused('fulfillment_mapping_required', implode(', ', $missing));
-                }
-            }
-
-            if ($current !== null && $this->activeOperations($productId, $current) > 0) {
-                return AssignmentResult::refused('fulfillment_active_operations_exist');
+            if (($refusal = $this->refusal($product, $current, $target)) !== null) {
+                return $refusal;
             }
 
             DB::table('products')->where('id', $productId)->update([
@@ -92,6 +80,32 @@ class ProductProviderAssignmentService
         });
     }
 
+    /**
+     * What the product form offers: "default" and each provider, and for every one that cannot be picked
+     * right now, the translation key of the reason. It asks the same question assign() does, so the form
+     * and the rule cannot disagree. A product that does not exist yet (the create form) cannot be matched
+     * to a provider's product, so no provider is selectable until it has been saved.
+     *
+     * @return array{current: string, choices: list<array{value: string, provider: ?ProviderCode, selectable: bool, reason: ?string}>}
+     */
+    public function choicesFor(?int $productId): array
+    {
+        $product = $productId === null ? null : DB::table('products')->where('id', $productId)->first();
+        $current = $this->normalize($product?->fulfillment_provider);
+
+        $choices = [];
+        foreach ([null, ...ProviderCode::cases()] as $candidate) {
+            $reason = match (true) {
+                $candidate === $current => null,
+                $product === null => $candidate === null ? null : 'fulfillment_save_product_first',
+                default => $this->refusal($product, $current, $candidate)?->reasonKey,
+            };
+            $choices[] = ['value' => $candidate?->value ?? 'default', 'provider' => $candidate, 'selectable' => $reason === null, 'reason' => $reason];
+        }
+
+        return ['current' => $current?->value ?? 'default', 'choices' => $choices];
+    }
+
     /** Orders for this product that still depend on the provider it has now. */
     public function activeOperations(int $productId, ProviderCode $provider): int
     {
@@ -100,7 +114,7 @@ class ProductProviderAssignmentService
             ->where('items.product_id', $productId)
             ->where('items.provider', $provider->value)
             ->where('items.status', ProviderFulfillmentItem::STATUS_UNROUTED)
-            ->whereNotIn('orders.order_status', OrderEligibility::CLOSED_STATUSES)
+            ->whereNotIn('orders.order_status', OrderEligibility::FINISHED_STATUSES)
             ->count();
 
         $inFlight = DB::table('provider_fulfillment_items as items')
@@ -111,6 +125,28 @@ class ProductProviderAssignmentService
             ->count();
 
         return $unrouted + $inFlight;
+    }
+
+    /** Why moving this product from $current to $target is not allowed, or null when it is. */
+    private function refusal(object $product, ?ProviderCode $current, ?ProviderCode $target): ?AssignmentResult
+    {
+        if ($target !== null) {
+            if (($product->added_by ?? 'admin') !== 'admin') {
+                return AssignmentResult::refused('fulfillment_vendor_product_not_allowed');
+            }
+            if (($product->product_type ?? 'physical') !== 'physical') {
+                return AssignmentResult::refused('fulfillment_digital_product_not_allowed');
+            }
+            if (($missing = $this->variantsWithoutApprovedMapping($product, $target)) !== []) {
+                return AssignmentResult::refused('fulfillment_mapping_required', implode(', ', $missing));
+            }
+        }
+
+        if ($current !== null && $this->activeOperations($product->id, $current) > 0) {
+            return AssignmentResult::refused('fulfillment_active_operations_exist');
+        }
+
+        return null;
     }
 
     /**
