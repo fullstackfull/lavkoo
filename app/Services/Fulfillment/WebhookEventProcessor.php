@@ -154,7 +154,7 @@ class WebhookEventProcessor
                 $query->where('outcome', EventOutcome::IGNORED_UNMATCHED)
                     ->orWhere(static fn ($waiting) => $waiting->where('outcome', EventOutcome::RECEIVED)->where('received_at', '<=', now()->subMinute()));
             })
-            ->orderBy('id')
+            ->orderByDesc('id')
             ->limit(200)
             ->pluck('id');
 

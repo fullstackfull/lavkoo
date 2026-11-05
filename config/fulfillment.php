@@ -42,6 +42,11 @@ return [
         'read_retry_delay_ms' => 400,
     ],
 
+    'tracking' => [
+        // An open shipment that has heard nothing from its provider for this long is reported by the readiness check.
+        'stale_hours' => 48,
+    ],
+
     'retry' => [
         'max_attempts' => 5,
         // Seconds to wait before attempt N+1 after a failure that is KNOWN not to have been accepted.

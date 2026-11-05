@@ -37,6 +37,9 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     /** Runs inside submit(), while the fulfillment is claimed: lets a test act in the middle of a send. */
     public ?\Closure $whileSubmitting = null;
 
+    /** @var \Closure(ProviderFulfillment): ?StatusSnapshot|null what a status poll returns; null result = the provider said nothing */
+    public ?\Closure $statusFor = null;
+
     public ?bool $confirmStatusAnswer = true;
 
     public PreflightResult|null $preflight = null;
@@ -112,7 +115,7 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
 
     public function fetchStatus(ProviderFulfillment $fulfillment): ?StatusSnapshot
     {
-        return null;
+        return $this->statusFor === null ? null : ($this->statusFor)($fulfillment);
     }
 
     public function mapStatus(string $providerStatus): ?FulfillmentStatus

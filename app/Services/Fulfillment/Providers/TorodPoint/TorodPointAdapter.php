@@ -687,7 +687,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         return match ($result->kind) {
             HttpResult::SUCCESS => $this->interpretAccepted($result, $config),
-            HttpResult::AUTH_ERROR => SubmissionResult::rejected('auth_error', $detail),
+            HttpResult::AUTH_ERROR => SubmissionResult::retryable('auth_error', $detail),
             HttpResult::RATE_LIMITED, HttpResult::NOT_SENT => SubmissionResult::retryable($result->kind, $detail),
             HttpResult::REJECTED => SubmissionResult::rejected('http_' . $result->status, $detail),
             default => SubmissionResult::ambiguous($result->kind . ($result->status ? '_' . $result->status : ''), $detail),

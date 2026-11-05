@@ -5,7 +5,9 @@ namespace App\Models;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -68,6 +70,16 @@ class ProviderFulfillment extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class, 'order_id');
+    }
+
+    /**
+     * Provider event times carry milliseconds (the column is timestamp(3)) and events can land within the same second. The
+     * model's default date format would drop the fraction when saving, so two events 400 ms apart would compare as equal and
+     * an older one could overwrite a newer one.
+     */
+    protected function lastEventAt(): Attribute
+    {
+        return Attribute::make(set: static fn (mixed $value): ?string => $value === null ? null : Carbon::parse($value)->format('Y-m-d H:i:s.v'));
     }
 
     public function items(): HasMany

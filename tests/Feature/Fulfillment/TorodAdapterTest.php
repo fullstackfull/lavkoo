@@ -209,8 +209,8 @@ class TorodAdapterTest extends TorodTestCase
     /** @return iterable<string, array{int, string}> */
     public static function outcomes(): iterable
     {
-        yield '401 bad credentials' => [401, SubmissionResult::REJECTED];
-        yield '403' => [403, SubmissionResult::REJECTED];
+        yield '401 bad credentials: the credential is wrong, not the order' => [401, SubmissionResult::RETRYABLE];
+        yield '403 likewise' => [403, SubmissionResult::RETRYABLE];
         yield '400' => [400, SubmissionResult::REJECTED];
         yield '422' => [422, SubmissionResult::REJECTED];
         yield '429' => [429, SubmissionResult::RETRYABLE];

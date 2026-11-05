@@ -12,6 +12,7 @@ use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Support\AppTime;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Carbon\CarbonInterface;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -73,11 +74,39 @@ class ShipmentTracker
     }
 
     /**
+     * A provider reported a status we do not know how to map. It is kept visible (the shipment shows it, and the history
+     * says it was not understood) instead of being dropped, once per distinct value so a poll does not repeat itself.
+     */
+    public function noteUnmappedStatus(int $fulfillmentId, string $providerStatus): void
+    {
+        DB::transaction(function () use ($fulfillmentId, $providerStatus): void {
+            $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
+            if ($fulfillment === null || $fulfillment->isTerminal() || $fulfillment->provider_status === $providerStatus) {
+                return;
+            }
+
+            $fulfillment->forceFill(['provider_status' => SecretRedactor::truncate($providerStatus, 100), 'last_received_at' => now()])->save();
+            $this->record($fulfillment->provider, 'poll', 'status', $fulfillment->id, $fulfillment->provider_reference, $providerStatus, null, null, EventOutcome::IGNORED_UNMAPPED, 'unmapped_provider_status');
+        });
+    }
+
+    /**
      * Record that the provider verifiably holds the order. Safe to call late and more than once: it
      * stores references the first time, and moves the status to `submitted` only from a state in which
      * we had not yet seen acceptance — it never drags an already-progressed shipment backwards.
      */
     public function recordAcceptance(int $fulfillmentId, SubmissionResult $result): void
+    {
+        try {
+            $this->storeAcceptance($fulfillmentId, $result);
+        } catch (UniqueConstraintViolationException) {
+            // The provider handed back a reference another shipment already carries. The provider DOES hold this order, so it is
+            // neither failed nor re-sent; a person has to untangle which reference belongs to which shipment.
+            $this->flagForAttention($fulfillmentId, 'duplicate_provider_reference', 'The provider accepted this shipment but returned a reference that another shipment already carries (' . $result->providerReference . '). Check both shipments in the provider dashboard.');
+        }
+    }
+
+    private function storeAcceptance(int $fulfillmentId, SubmissionResult $result): void
     {
         DB::transaction(function () use ($fulfillmentId, $result): void {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
@@ -110,6 +139,18 @@ class ShipmentTracker
 
             $this->record($fulfillment->provider, 'system', 'dispatch', $fulfillment->id, $result->providerReference, $result->providerStatus, $fulfillment->status->value, null, EventOutcome::APPLIED, 'accepted_by_provider');
         });
+    }
+
+    /** The shipment needs a person, whatever else it is doing: it keeps its references and moves to needs_attention. */
+    private function flagForAttention(int $fulfillmentId, string $code, string $message): void
+    {
+        $this->simpleTransition($fulfillmentId, FulfillmentStatus::NeedsAttention, [
+            'last_error_code' => $code,
+            'last_error_message' => SecretRedactor::truncate(SecretRedactor::redactString($message), 1000),
+            'claim_token' => null,
+            'next_attempt_at' => null,
+            'submitted_at' => now(),
+        ], 'attention:' . $code);
     }
 
     /** Idempotent: re-holding for the same reason (a sweep re-checking) writes nothing and logs nothing. */

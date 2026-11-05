@@ -2,7 +2,9 @@
 
 namespace App\Services\Fulfillment\Readiness;
 
+use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Models\ProviderFulfillment;
 use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderRegistry;
@@ -182,6 +184,7 @@ class FulfillmentPreflight
             : $this->pass('runtime', 'cache', "driver '{$cache}'");
 
         $checks[] = $this->heartbeat($enabled);
+        $checks[] = $this->trackingFreshness($enabled);
 
         foreach (ProviderCode::cases() as $provider) {
             $config = $this->connections->config($provider);
@@ -224,6 +227,30 @@ class FulfillmentPreflight
             $failing => $this->warn('runtime', 'scheduler heartbeat', 'the sweep is running but its last run reported failures: ' . (string) $state->last_error),
             default => $this->pass('runtime', 'scheduler heartbeat', 'last sweep ' . (int) $age . ' minute(s) ago'),
         };
+    }
+
+    /**
+     * A webhook that never arrives and a status poll that returns nothing look exactly alike from the outside: an open
+     * shipment that simply never moves. This is the one place that notices.
+     */
+    private function trackingFreshness(bool $enabled): PreflightCheck
+    {
+        if (!$enabled || !Schema::hasTable('provider_fulfillments')) {
+            return $this->pass('runtime', 'shipment tracking', 'not applicable until migrated and switched on');
+        }
+
+        $hours = (int) config('fulfillment.tracking.stale_hours', 48);
+        $cutoff = now()->subHours($hours);
+        $stale = ProviderFulfillment::query()
+            ->whereNotIn('status', [...FulfillmentStatus::preSubmissionValues(), ...FulfillmentStatus::terminalValues()])
+            ->where(static fn ($query) => $query
+                ->where('last_received_at', '<', $cutoff)
+                ->orWhere(static fn ($never) => $never->whereNull('last_received_at')->where('submitted_at', '<', $cutoff)))
+            ->count();
+
+        return $stale === 0
+            ? $this->pass('runtime', 'shipment tracking', "every open shipment has heard from its provider within {$hours} hours")
+            : $this->warn('runtime', 'shipment tracking', "{$stale} open shipment(s) have had no update from their provider for over {$hours} hours. Check the webhook configuration and the status poll (M5AZN has no webhook: its tracking depends on the poll and a verified order field map).");
     }
 
     private function laterColumns(): PreflightCheck

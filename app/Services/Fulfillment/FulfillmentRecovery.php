@@ -7,9 +7,11 @@ use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
+use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\SecretRedactor;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -49,14 +51,11 @@ class FulfillmentRecovery
             $statuses = array_merge($statuses, $this->connections->config($provider)->list('dispatch_order_statuses'));
         }
 
-        $orderIds = DB::table('provider_fulfillment_items as items')
+        $orderIds = $this->rotatingIds('route', 'items.order_id', $limit, static fn () => DB::table('provider_fulfillment_items as items')
             ->join('orders', 'orders.id', '=', 'items.order_id')
             ->where('items.status', ProviderFulfillmentItem::STATUS_UNROUTED)
             ->whereIn('orders.order_status', array_values(array_unique($statuses)))
-            ->distinct()
-            ->orderBy('items.order_id')
-            ->limit($limit)
-            ->pluck('items.order_id');
+            ->distinct());
 
         $created = 0;
         foreach ($orderIds as $orderId) {
@@ -125,7 +124,7 @@ class FulfillmentRecovery
     /** Pending, due retries, and holds whose cause may have been fixed. */
     public function dispatchDue(int $limit = 100): int
     {
-        $ids = ProviderFulfillment::query()
+        $ids = $this->rotatingIds('dispatch', 'id', $limit, static fn () => ProviderFulfillment::query()
             ->where(static function ($query): void {
                 $query->where('status', FulfillmentStatus::Pending->value)
                     ->orWhere(static function ($retry): void {
@@ -135,10 +134,7 @@ class FulfillmentRecovery
                     ->orWhere(static function ($held): void {
                         $held->where('status', FulfillmentStatus::Held->value)->whereIn('hold_reason', ProviderOrderDispatcher::AUTO_RELEASABLE);
                     });
-            })
-            ->orderBy('id')
-            ->limit($limit)
-            ->pluck('id');
+            }));
 
         foreach ($ids as $id) {
             $this->inlineOrQueue(
@@ -223,6 +219,7 @@ class FulfillmentRecovery
                 ->whereIn('status', [
                     FulfillmentStatus::Submitted->value, FulfillmentStatus::Processing->value, FulfillmentStatus::InTransit->value,
                     FulfillmentStatus::OutForDelivery->value, FulfillmentStatus::DeliveryPostponed->value, FulfillmentStatus::DeliveryFailed->value,
+                    FulfillmentStatus::PartiallyDelivered->value, FulfillmentStatus::NeedsAttention->value,
                 ])
                 ->whereNotNull('provider_reference')
                 ->where(static fn ($query) => $query->whereNull('last_synced_at')->orWhere('last_synced_at', '<', now()->subMinutes(30)))
@@ -243,9 +240,15 @@ class FulfillmentRecovery
                 DB::table('provider_fulfillments')->where('id', $fulfillment->id)->update(['last_synced_at' => now()]);
                 $polled++;
 
-                $status = $snapshot === null ? null : $adapter->mapStatus($snapshot->providerStatus);
-                if ($snapshot !== null && $status !== null) {
+                if ($snapshot === null) {
+                    continue;
+                }
+
+                $status = $adapter->mapStatus($snapshot->providerStatus);
+                if ($status !== null) {
                     $this->tracker->applyProviderStatus($fulfillment->id, $status, $snapshot->observedAt, 'poll', $snapshot->providerStatus);
+                } else {
+                    $this->tracker->noteUnmappedStatus($fulfillment->id, $snapshot->providerStatus);
                 }
             }
 
@@ -297,6 +300,33 @@ class FulfillmentRecovery
 
             return -1;
         }
+    }
+
+    /**
+     * Up to `$limit` ids of the rows a sweep looks at, resuming after where the previous run stopped and wrapping round.
+     *
+     * A fixed "first N by id" would let N rows that cannot progress (an order that is paused, a provider switched off, a
+     * hold nobody fixed) be re-read every minute and starve every row behind them. Rotating means each row is reached
+     * within ceil(rows / limit) runs however many are stuck.
+     *
+     * @param callable(): mixed $query builds a fresh query each call (query builders are mutable)
+     * @return Collection<int, int>
+     */
+    private function rotatingIds(string $sweep, string $column, int $limit, callable $query): Collection
+    {
+        $state = ProviderSyncState::firstOrNew(['provider' => ProviderSyncRecorder::SYSTEM, 'capability' => 'cursor:' . $sweep]);
+        $after = (int) ($state->cursor['after'] ?? 0);
+
+        $ids = $query()->where($column, '>', $after)->orderBy($column)->limit($limit)->pluck($column)->map(static fn ($id): int => (int) $id);
+        if ($ids->count() < $limit) {
+            $ids = $ids->merge($query()->where($column, '<=', $after)->orderBy($column)->limit($limit - $ids->count())->pluck($column)->map(static fn ($id): int => (int) $id));
+        }
+
+        if ($ids->isNotEmpty()) {
+            $state->forceFill(['cursor' => ['after' => $ids->last()]])->save();
+        }
+
+        return $ids->unique()->values();
     }
 
     private function inlineOrQueue(callable $inline, callable $queued): void
