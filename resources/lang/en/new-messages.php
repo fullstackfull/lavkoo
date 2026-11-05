@@ -8895,4 +8895,8 @@ return [
 	'catalog_product_type_help' => 'Comma-separated: local, global, ali_express, digital. Add every type you supply from, or products of the others never appear.',
 	'order_with_provider_items_cannot_be_edited' => 'This order contains items fulfilled by a delivery partner (M5AZN / Torod Point) and cannot be edited. Cancel it and place a new order instead.',
 	'provider_product_cannot_be_added_to_existing_order' => 'A product fulfilled by a delivery partner cannot be added to an existing order.',
+	'system_checks' => 'System checks',
+	'system_checks_all_passed' => 'Queue, scheduler, cache and credentials all look healthy.',
+	'check_status_warn' => 'Warning',
+	'check_status_fail' => 'Failure',
 ];

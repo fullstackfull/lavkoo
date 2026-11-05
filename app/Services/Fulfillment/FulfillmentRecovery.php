@@ -9,6 +9,7 @@ use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -234,19 +235,48 @@ class FulfillmentRecovery
         return $polled;
     }
 
-    /** @return array<string, int> */
+    /**
+     * Every sweep, each isolated from the others. A sweep that throws (one bad order, a database hiccup) is logged
+     * and reported as -1, and the rest still run: otherwise a single poison order would stop dispatching,
+     * reconciliation and cancellation for everyone, every minute, until someone noticed. The heartbeat
+     * records the run either way, so a scheduler that stopped is visible in the Integration Center.
+     *
+     * @return array<string, int> sweep name => items handled, or -1 when that sweep failed
+     */
     public function runAll(): array
     {
-        return [
-            'closed_unrouted_items' => $this->closeUnroutedItemsOfClosedOrders(),
-            'routed' => $this->routeEligibleOrders(),
-            'money_holds_released' => $this->reevaluateMoneyHolds(),
-            'cancelled_for_closed_orders' => $this->cancelForClosedOrders(),
-            'stuck_recovered' => $this->recoverStuckDispatching(),
-            'dispatched' => $this->dispatchDue(),
-            'reconciled' => $this->reconcileDue(),
-            'unmatched_events_retried' => $this->retryUnmatchedEvents(),
-        ];
+        $counts = [];
+        foreach ([
+            'closed_unrouted_items' => fn (): int => $this->closeUnroutedItemsOfClosedOrders(),
+            'routed' => fn (): int => $this->routeEligibleOrders(),
+            'money_holds_released' => fn (): int => $this->reevaluateMoneyHolds(),
+            'cancelled_for_closed_orders' => fn (): int => $this->cancelForClosedOrders(),
+            'stuck_recovered' => fn (): int => $this->recoverStuckDispatching(),
+            'dispatched' => fn (): int => $this->dispatchDue(),
+            'reconciled' => fn (): int => $this->reconcileDue(),
+            'unmatched_events_retried' => fn (): int => $this->retryUnmatchedEvents(),
+        ] as $name => $sweep) {
+            $counts[$name] = $this->isolated($name, $sweep);
+        }
+
+        $failed = array_keys(array_filter($counts, static fn (int $handled): bool => $handled < 0));
+        $failed === []
+            ? $this->sync->succeeded(ProviderSyncRecorder::SYSTEM, ProviderSyncRecorder::SWEEP, $counts)
+            : $this->sync->failed(ProviderSyncRecorder::SYSTEM, ProviderSyncRecorder::SWEEP, 'Sweeps failed: ' . implode(', ', $failed));
+
+        return $counts;
+    }
+
+    /** @param callable(): int $sweep */
+    private function isolated(string $name, callable $sweep): int
+    {
+        try {
+            return $sweep();
+        } catch (Throwable $exception) {
+            Log::error('Fulfillment sweep failed; the other sweeps continue.', ['sweep' => $name, 'error' => SecretRedactor::redactString($exception->getMessage())]);
+
+            return -1;
+        }
     }
 
     private function inlineOrQueue(callable $inline, callable $queued): void

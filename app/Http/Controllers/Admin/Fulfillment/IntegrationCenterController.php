@@ -13,6 +13,7 @@ use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\FieldMapDefinitions;
 use App\Services\Fulfillment\FieldMapStore;
 use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\Readiness\FulfillmentPreflight;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\ProviderSettingsForm;
 use App\Services\Fulfillment\ProviderSyncService;
@@ -34,6 +35,7 @@ class IntegrationCenterController extends Controller
         private readonly FieldMapDefinitions $definitions,
         private readonly ProviderSyncService $sync,
         private readonly CategoryRepositoryInterface $categories,
+        private readonly FulfillmentPreflight $preflight,
     ) {
     }
 
@@ -44,6 +46,7 @@ class IntegrationCenterController extends Controller
         return view('admin-views.fulfillment.index', [
             'cards' => $cards,
             'globallyEnabled' => $this->connections->isGloballyEnabled(),
+            'systemChecks' => $this->preflight->runtime(),
         ]);
     }
 

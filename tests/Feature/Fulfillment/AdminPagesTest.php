@@ -63,6 +63,17 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->assertNoSecretLeaks($html);
     }
 
+    public function test_the_integration_center_surfaces_system_problems_before_they_cost_orders(): void
+    {
+        config(['fulfillment.enabled' => true, 'queue.connections.database.retry_after' => 90]);
+
+        $html = $this->get(route('admin.fulfillment-providers.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('System checks', $html);
+        $this->assertStringContainsString('retry_after', $html);
+        $this->assertStringContainsString('scheduler heartbeat', $html, 'a scheduler that never ran is called out');
+    }
+
     public function test_the_integration_center_says_when_the_environment_switch_is_off(): void
     {
         config(['fulfillment.enabled' => false]);

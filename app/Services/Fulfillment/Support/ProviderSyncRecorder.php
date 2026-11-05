@@ -21,6 +21,10 @@ final class ProviderSyncRecorder
     public const CITIES = 'cities';
     public const RECONCILIATION = 'reconciliation';
 
+    /** Not a provider: the per-minute sweep's heartbeat is recorded under this owner so a stopped scheduler is visible. */
+    public const SYSTEM = 'system';
+    public const SWEEP = 'sweep';
+
     public function attempted(string $provider, string $capability): void
     {
         $this->touch($provider, $capability, ['last_attempt_at' => now()]);

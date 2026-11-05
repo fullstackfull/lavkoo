@@ -18,6 +18,22 @@
             </div>
         @endunless
 
+        @php($attention = collect($systemChecks)->filter(fn ($check) => $check->status !== 'pass'))
+        <x-k.card :title="translate('system_checks')" class="mb-3">
+            @if ($attention->isEmpty())
+                <p class="fs-12 text-muted mb-0">{{ translate('system_checks_all_passed') }}</p>
+            @else
+                <ul class="list-unstyled mb-0 fs-12 d-flex flex-column gap-2">
+                    @foreach ($attention as $check)
+                        <li class="d-flex gap-2 align-items-start">
+                            <x-k.badge :tone="$check->status === 'fail' ? 'danger' : 'warning'">{{ translate('check_status_' . $check->status) }}</x-k.badge>
+                            <span><strong>{{ $check->name }}</strong> — {{ $check->detail }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </x-k.card>
+
         <div class="row g-3">
             @foreach ($cards as $card)
                 <div class="col-xl-6">

@@ -20,8 +20,8 @@ class FulfillmentRecoverCommand extends Command
         }
 
         $counts = $recovery->runAll();
-        $this->table(['sweep', 'handled'], array_map(static fn (string $sweep, int $count): array => [$sweep, $count], array_keys($counts), $counts));
+        $this->table(['sweep', 'handled'], array_map(static fn (string $sweep, int $count): array => [$sweep, $count < 0 ? 'FAILED (see log)' : $count], array_keys($counts), $counts));
 
-        return self::SUCCESS;
+        return min($counts) < 0 ? self::FAILURE : self::SUCCESS;
     }
 }
