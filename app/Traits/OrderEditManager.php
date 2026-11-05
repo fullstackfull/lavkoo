@@ -22,6 +22,7 @@ use App\Models\Seller;
 use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
+use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
@@ -471,6 +472,13 @@ trait OrderEditManager
 
     public function generateEditOrder(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
+        // Admin panel, vendor panel and seller API all save an edit through here. A provider-owned line cannot be
+        // edited (see FulfillmentOrderGuard::editBlockedReason), and this must hold before anything is written.
+        $providerBlock = app(FulfillmentOrderGuard::class)->editBlockedReason(orderId: (int) $order['id'], editedLines: $editedOrder);
+        if ($providerBlock !== null) {
+            return ['status' => 'error', 'message' => $providerBlock];
+        }
+
         $editOrderSummary = $this->generateEditOrderSummary(request: $request, order: $order, editedOrder: $editedOrder, data: $data);
 
         $orderData = $editOrderSummary['order_data'];

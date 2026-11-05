@@ -85,6 +85,73 @@ class OrderGuardAndStorefrontTest extends AdminPagesTestCase
         $this->assertNotNull($this->guard()->deliveryBlockedReason(100), 'a provider-owned line nobody has shipped is not a delivered order');
     }
 
+    public function test_an_order_with_provider_lines_cannot_be_edited_in_any_state(): void
+    {
+        foreach ([FulfillmentStatus::Held, FulfillmentStatus::Submitted, FulfillmentStatus::Delivered] as $index => $status) {
+            $orderId = 300 + $index;
+            $this->shipment($orderId, ProviderCode::M5azn, $status, [], productId: 20 + $index);
+
+            $this->assertNotNull($this->guard()->editBlockedReason($orderId), $status->value);
+        }
+    }
+
+    public function test_a_line_nobody_has_handed_over_yet_also_blocks_the_edit(): void
+    {
+        $this->makeProduct(1, ProviderCode::TorodPoint);
+        $this->makeOrder(100, ['order_status' => 'pending']);
+        $this->addLine(100, 1, 1, 50, ProviderCode::TorodPoint);
+
+        $this->assertNotNull($this->guard()->editBlockedReason(100));
+    }
+
+    public function test_an_in_house_order_stays_editable(): void
+    {
+        $this->makeProduct(1);
+        $this->makeOrder(100, ['order_status' => 'pending']);
+        $this->addLine(100, 1);
+
+        $this->assertNull($this->guard()->editBlockedReason(100, [['product_id' => 1, 'qty' => 3]]));
+    }
+
+    public function test_a_provider_product_cannot_be_added_to_an_in_house_order_by_an_edit(): void
+    {
+        $this->makeProduct(1);
+        $this->makeProduct(2, ProviderCode::M5azn);
+        $this->makeOrder(100, ['order_status' => 'confirmed']);
+        $this->addLine(100, 1);
+
+        $reason = $this->guard()->editBlockedReason(100, [['product_id' => 1], ['product_id' => 2]]);
+
+        $this->assertSame('A product fulfilled by a delivery partner cannot be added to an existing order.', $reason);
+    }
+
+    public function test_the_shared_edit_funnel_refuses_before_writing_anything(): void
+    {
+        $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Submitted);
+        $before = [DB::table('orders')->where('id', 100)->first(), DB::table('order_details')->where('order_id', 100)->get()->all()];
+        $editor = new class {
+            use \App\Traits\OrderEditManager;
+        };
+
+        $result = $editor->generateEditOrder(order: \App\Models\Order::findOrFail(100), editedOrder: [['product_id' => 1, 'qty' => 99, 'price' => 1]]);
+
+        $this->assertSame('error', $result['status']);
+        $this->assertStringContainsString('cannot be edited', $result['message']);
+        $this->assertEquals($before, [DB::table('orders')->where('id', 100)->first(), DB::table('order_details')->where('order_id', 100)->get()->all()], 'nothing was written');
+    }
+
+    public function test_the_editability_check_the_panels_use_refuses_a_provider_order(): void
+    {
+        $this->shipment(100, ProviderCode::M5azn, FulfillmentStatus::Held);
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'confirmed']);
+        DB::table('order_details')->where('order_id', 100)->update(['product_details' => json_encode(['id' => 1, 'product_type' => 'physical'])]);
+
+        $verdict = app(\App\Services\OrderEditService::class)->checkIsOrderEditable(\App\Models\Order::with('details')->findOrFail(100), 'admin');
+
+        $this->assertFalse($verdict['status']);
+        $this->assertStringContainsString('cannot be edited', $verdict['message']);
+    }
+
     public function test_the_admin_status_endpoint_asks_the_guard_only_for_the_delivered_transition(): void
     {
         $method = new \ReflectionMethod(\App\Http\Controllers\Admin\Order\OrderController::class, 'updateStatus');

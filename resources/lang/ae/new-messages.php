@@ -15483,4 +15483,6 @@ return [
 	'inventory_sync_interval_minutes' => 'الفاصل الزمني لمزامنة المخزون (بالدقائق)',
 	'sync_interval_help' => 'مدة التحقق من المزوّد. يفحص المجدول كل 5 دقائق، لذا أقصر فاصل هو 5 دقائق.',
 	'catalog_product_type_help' => 'مفصولة بفواصل: local, global, ali_express, digital. أضف كل نوع تورّد منه، وإلا لن تظهر منتجات الأنواع الأخرى.',
+	'order_with_provider_items_cannot_be_edited' => 'يحتوي هذا الطلب على منتجات يتولى تنفيذها شريك توصيل (M5AZN / تورود بوينت) ولا يمكن تعديله. ألغِ الطلب وأنشئ طلبًا جديدًا بدلًا من ذلك.',
+	'provider_product_cannot_be_added_to_existing_order' => 'لا يمكن إضافة منتج يتولى تنفيذه شريك توصيل إلى طلب قائم.',
 ];

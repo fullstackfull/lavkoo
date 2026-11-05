@@ -8893,4 +8893,6 @@ return [
 	'inventory_sync_interval_minutes' => 'Stock sync interval (minutes)',
 	'sync_interval_help' => 'How often the provider is checked. The scheduler looks every 5 minutes, so 5 is the shortest interval.',
 	'catalog_product_type_help' => 'Comma-separated: local, global, ali_express, digital. Add every type you supply from, or products of the others never appear.',
+	'order_with_provider_items_cannot_be_edited' => 'This order contains items fulfilled by a delivery partner (M5AZN / Torod Point) and cannot be edited. Cancel it and place a new order instead.',
+	'provider_product_cannot_be_added_to_existing_order' => 'A product fulfilled by a delivery partner cannot be added to an existing order.',
 ];

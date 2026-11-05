@@ -125,6 +125,15 @@ trait BuildsFulfillmentSchema
             ['id' => 3, 'name' => 'Integrations admin', 'email' => 'integrations@example.test', 'admin_role_id' => 3],
         ]);
 
+        Schema::create('storages', function (Blueprint $t) {
+            $t->id();
+            $t->string('data_type');
+            $t->unsignedBigInteger('data_id');
+            $t->string('key')->nullable();
+            $t->string('value')->nullable();
+            $t->timestamps();
+        });
+
         Schema::create('categories', function (Blueprint $t) {
             $t->id();
             $t->string('name')->nullable();
@@ -188,7 +197,6 @@ trait BuildsFulfillmentSchema
         });
     }
 
-    /** Run the feature's REAL migrations against the in-memory database. */
     /**
      * The default test database is an in-memory SQLite connection that starts empty. CI also runs these
      * tests on a real MySQL service, whose tables survive between tests, so it is emptied first - but only
@@ -209,6 +217,7 @@ trait BuildsFulfillmentSchema
         Schema::dropAllTables();
     }
 
+    /** Run the feature's REAL migrations against the in-memory database. */
     protected function runFulfillmentMigrations(): void
     {
         foreach ([

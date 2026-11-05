@@ -30,6 +30,7 @@ class FulfillmentRouter
         private readonly ProviderConnectionManager $connections,
         private readonly OrderEligibility $eligibility,
         private readonly CodPolicy $codPolicy,
+        private readonly ProviderOrderShare $shares,
         private readonly FulfillmentQueue $queue,
     ) {
     }
@@ -126,7 +127,7 @@ class FulfillmentRouter
                 'last_error_message' => null,
                 'payment_mode' => $plan->isCod && $cod > 0 ? PaymentMode::CashOnDelivery : PaymentMode::Prepaid,
                 'cod_amount' => $plan->isCod ? $cod : 0,
-                'total_amount' => $this->totalFor($plan->orderTotal, $fulfillment->items()->get(), $items),
+                'total_amount' => $this->shares->totalFor($plan->orderTotal, (int) $fulfillment->order_id, $fulfillment->items()->get(), $items),
             ])->save();
 
             $released = true;
@@ -155,7 +156,7 @@ class FulfillmentRouter
         $blocked = $plan->blockedReason;
         $cod = $plan->codByProvider[$provider->value] ?? 0.0;
         $itemsTotal = round((float) $items->sum('line_total'), 2);
-        $total = $this->totalFor($plan->orderTotal, $items, $allItems);
+        $total = $this->shares->totalFor($plan->orderTotal, $order->id, $items, $allItems);
 
         try {
             $fulfillment = DB::transaction(static function () use ($order, $provider, $generation, $itemIds, $blocked, $plan, $cod, $itemsTotal, $total): ProviderFulfillment {
@@ -187,30 +188,6 @@ class FulfillmentRouter
         ]);
 
         return $fulfillment;
-    }
-
-    /**
-     * This fulfillment's share of the parent order total, pro rata by shipped value, with the whole total
-     * going to a lone provider so the shares can never drift from what the customer paid.
-     *
-     * @param Collection<int, ProviderFulfillmentItem> $items
-     * @param Collection<int, ProviderFulfillmentItem> $allItems
-     */
-    private function totalFor(?float $orderTotal, Collection $items, Collection $allItems): ?float
-    {
-        if ($orderTotal === null) {
-            return null;
-        }
-
-        $inHouseExists = DB::table('order_details')->where('order_id', $items->first()?->order_id)->count() > $allItems->count();
-        $providerCount = $allItems->pluck('provider')->unique()->count();
-        if ($providerCount <= 1 && !$inHouseExists) {
-            return $orderTotal;
-        }
-
-        $allValue = (float) $allItems->sum('line_total');
-
-        return $allValue > 0 ? round($orderTotal * ((float) $items->sum('line_total') / $allValue), 2) : null;
     }
 
     /** A fulfillment for this order+provider that is not finished: new unrouted items must not start a second one. */
