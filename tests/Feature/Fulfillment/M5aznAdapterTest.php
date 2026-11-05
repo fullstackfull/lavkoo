@@ -311,6 +311,28 @@ class M5aznAdapterTest extends M5aznTestCase
         $this->assertSame(HoldReason::PHONE_INVALID, $this->adapter()->preflight($badPhone)->holdReason);
     }
 
+    public function test_cash_on_delivery_is_held_while_the_provider_is_marked_as_not_supporting_it(): void
+    {
+        $prepaid = $this->fulfillment();
+
+        $this->makeOrder(200, ['payment_method' => 'cash_on_delivery', 'payment_status' => 'unpaid', 'order_amount' => 75.5]);
+        $this->addLine(200, 1, 1, 70, ProviderCode::M5azn);
+        DB::table('provider_fulfillment_items')->where('order_id', 200)->update([
+            'external_product_id' => '1947201', 'external_sku' => 'VC1000', 'mapping_id' => ProviderProductMapping::first()->id,
+        ]);
+        app(FulfillmentRouter::class)->route(200);
+        $cod = $this->fulfillmentFor(200, ProviderCode::M5azn)->load('items');
+        $this->assertTrue($this->adapter()->preflight($cod)->ok, 'supported by default');
+
+        $connections = app(ProviderConnectionManager::class);
+        $connections->save(ProviderCode::M5azn, true, null, ['cod_supported' => false] + $connections->config(ProviderCode::M5azn)->settings());
+
+        $held = $this->adapter()->preflight($cod);
+        $this->assertFalse($held->ok);
+        $this->assertSame(HoldReason::PROVIDER_NOT_READY, $held->holdReason);
+        $this->assertTrue($this->adapter()->preflight($prepaid)->ok, 'prepaid orders are unaffected');
+    }
+
     public function test_a_mapping_that_is_no_longer_approved_holds_the_order(): void
     {
         $fulfillment = $this->fulfillment();

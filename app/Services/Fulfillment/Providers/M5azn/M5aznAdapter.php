@@ -4,6 +4,7 @@ namespace App\Services\Fulfillment\Providers\M5azn;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
+use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
 use App\Models\Order;
@@ -154,6 +155,10 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
     {
         $order = Order::find($fulfillment->order_id);
         $address = $order === null ? [] : $this->payloads->address($order);
+
+        if ($fulfillment->payment_mode === PaymentMode::CashOnDelivery && !$this->config()->bool('cod_supported', true)) {
+            return PreflightResult::hold(HoldReason::PROVIDER_NOT_READY, 'cod_supported');
+        }
 
         foreach ($fulfillment->items as $item) {
             if ($item->mapping_id === null || ($item->external_product_id ?? '') === '' || ($item->external_sku ?? '') === '') {
