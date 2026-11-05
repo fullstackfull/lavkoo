@@ -1,0 +1,256 @@
+<?php
+
+namespace App\Services\Fulfillment;
+
+use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\HoldReason;
+use App\Enums\Fulfillment\ProviderCode;
+use App\Models\ProviderFulfillment;
+use App\Models\ProviderFulfillmentItem;
+use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+/**
+ * The scheduled safety net behind every event-driven path.
+ *
+ * Hooks and queued jobs make things fast; these sweeps make them true. An order whose status changed
+ * through a code path that never fired a hook, a worker that died mid-request, a webhook that never
+ * arrived, a hold whose cause has been fixed — each is found by state in the database and brought
+ * forward. Every sweep is idempotent, so running it twice, or alongside the event-driven path, is safe.
+ *
+ * Under the `sync` queue driver there is no worker, so the sweep does the work itself; it runs in the
+ * scheduler's console process, never in a customer's request.
+ */
+class FulfillmentRecovery
+{
+    public function __construct(
+        private readonly ProviderRegistry $registry,
+        private readonly ProviderConnectionManager $connections,
+        private readonly FulfillmentRouter $router,
+        private readonly ProviderOrderDispatcher $dispatcher,
+        private readonly ReconciliationService $reconciliation,
+        private readonly FulfillmentCancellation $cancellation,
+        private readonly WebhookEventProcessor $events,
+        private readonly ShipmentTracker $tracker,
+        private readonly FulfillmentQueue $queue,
+        private readonly ProviderSyncRecorder $sync,
+    ) {
+    }
+
+    /** Route orders that have unrouted provider items and have become eligible. */
+    public function routeEligibleOrders(int $limit = 200): int
+    {
+        $statuses = (array) config('fulfillment.dispatch.order_statuses', ['confirmed', 'processing']);
+        foreach (ProviderCode::cases() as $provider) {
+            $statuses = array_merge($statuses, $this->connections->config($provider)->list('dispatch_order_statuses'));
+        }
+
+        $orderIds = DB::table('provider_fulfillment_items as items')
+            ->join('orders', 'orders.id', '=', 'items.order_id')
+            ->where('items.status', ProviderFulfillmentItem::STATUS_UNROUTED)
+            ->whereIn('orders.order_status', array_values(array_unique($statuses)))
+            ->distinct()
+            ->orderBy('items.order_id')
+            ->limit($limit)
+            ->pluck('items.order_id');
+
+        $created = 0;
+        foreach ($orderIds as $orderId) {
+            $created += count($this->router->route((int) $orderId));
+        }
+
+        return $created;
+    }
+
+    /** Items of orders that were cancelled before being routed will never ship: stop scanning them. */
+    public function closeUnroutedItemsOfClosedOrders(): int
+    {
+        $orderIds = DB::table('provider_fulfillment_items as items')
+            ->join('orders', 'orders.id', '=', 'items.order_id')
+            ->where('items.status', ProviderFulfillmentItem::STATUS_UNROUTED)
+            ->whereIn('orders.order_status', OrderEligibility::CLOSED_STATUSES)
+            ->distinct()
+            ->pluck('items.order_id');
+
+        return $orderIds->isEmpty() ? 0 : ProviderFulfillmentItem::whereIn('order_id', $orderIds)
+            ->where('status', ProviderFulfillmentItem::STATUS_UNROUTED)
+            ->update(['status' => ProviderFulfillmentItem::STATUS_CANCELLED]);
+    }
+
+    /** A cancelled parent order cancels its OWN provider fulfillments — each independently, nothing else. */
+    public function cancelForClosedOrders(int $limit = 100): int
+    {
+        $ids = DB::table('provider_fulfillments as pf')
+            ->join('orders', 'orders.id', '=', 'pf.order_id')
+            ->whereIn('orders.order_status', OrderEligibility::CLOSED_STATUSES)
+            ->whereIn('pf.status', FulfillmentStatus::activeValues())
+            ->whereNull(DB::raw("json_extract(pf.meta, '$.cancel_requested_at')"))
+            ->limit($limit)
+            ->pluck('pf.id');
+
+        foreach ($ids as $id) {
+            $this->inlineOrQueue(
+                fn () => $this->cancellation->cancel((int) $id),
+                fn () => $this->queue->dispatchCancel((int) $id),
+            );
+        }
+
+        return $ids->count();
+    }
+
+    /** Pending, due retries, and holds whose cause may have been fixed. */
+    public function dispatchDue(int $limit = 100): int
+    {
+        $ids = ProviderFulfillment::query()
+            ->where(static function ($query): void {
+                $query->where('status', FulfillmentStatus::Pending->value)
+                    ->orWhere(static function ($retry): void {
+                        $retry->where('status', FulfillmentStatus::RetryWait->value)
+                            ->where(static fn ($due) => $due->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()));
+                    })
+                    ->orWhere(static function ($held): void {
+                        $held->where('status', FulfillmentStatus::Held->value)->whereIn('hold_reason', ProviderOrderDispatcher::AUTO_RELEASABLE);
+                    });
+            })
+            ->orderBy('id')
+            ->limit($limit)
+            ->pluck('id');
+
+        foreach ($ids as $id) {
+            $this->inlineOrQueue(
+                fn () => $this->dispatcher->dispatch((int) $id),
+                fn () => $this->queue->dispatchFulfillment((int) $id),
+            );
+        }
+
+        return $ids->count();
+    }
+
+    /**
+     * A worker that claimed a fulfillment and never settled it (killed, timed out, crashed) may or may not
+     * have reached the provider. Unknown ⇒ reconcile; it is never simply re-sent.
+     */
+    public function recoverStuckDispatching(): int
+    {
+        $cutoff = now()->subMinutes((int) config('fulfillment.retry.stuck_dispatching_minutes', 10));
+        $stuck = ProviderFulfillment::where('status', FulfillmentStatus::Dispatching->value)->where('claimed_at', '<', $cutoff)->get();
+
+        foreach ($stuck as $fulfillment) {
+            $this->tracker->awaitReconciliation($fulfillment->id, 'worker_lost_mid_request', 'The worker holding this dispatch did not finish; the provider may or may not have received it.', now());
+        }
+
+        return $stuck->count();
+    }
+
+    public function reconcileDue(int $limit = 50): int
+    {
+        $ids = ProviderFulfillment::where('status', FulfillmentStatus::ReconcilePending->value)
+            ->where(static fn ($query) => $query->whereNull('last_error_code')->orWhere('last_error_code', '!=', 'manual_reconciliation_required'))
+            ->where(static fn ($query) => $query->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))
+            ->orderBy('id')
+            ->limit($limit)
+            ->pluck('id');
+
+        foreach ($ids as $id) {
+            $this->inlineOrQueue(
+                fn () => $this->reconciliation->reconcile((int) $id),
+                fn () => $this->queue->dispatchReconcile((int) $id),
+            );
+        }
+
+        return $ids->count();
+    }
+
+    /** Holds caused by money rules that may have been resolved since (a rate was added, the customer paid). */
+    public function reevaluateMoneyHolds(): int
+    {
+        $ids = ProviderFulfillment::where('status', FulfillmentStatus::Held->value)
+            ->whereIn('hold_reason', [HoldReason::MIXED_COD_BLOCKED, HoldReason::CURRENCY_UNCONVERTIBLE])
+            ->pluck('id');
+
+        $released = 0;
+        foreach ($ids as $id) {
+            $released += $this->router->reevaluateHold((int) $id) ? 1 : 0;
+        }
+
+        return $released;
+    }
+
+    public function retryUnmatchedEvents(): int
+    {
+        return $this->events->retryUnmatched();
+    }
+
+    /**
+     * Ask each provider where its open fulfillments stand, for the ones we have not heard about in a
+     * while — the net under a webhook that never arrived. Reads only.
+     */
+    public function pollOpenStatuses(int $perProvider = 50): int
+    {
+        $polled = 0;
+
+        foreach (ProviderCode::cases() as $code) {
+            if (!$this->connections->canCall($code)) {
+                continue;
+            }
+
+            $adapter = $this->registry->adapter($code);
+            $open = ProviderFulfillment::where('provider', $code->value)
+                ->whereIn('status', [
+                    FulfillmentStatus::Submitted->value, FulfillmentStatus::Processing->value, FulfillmentStatus::InTransit->value,
+                    FulfillmentStatus::OutForDelivery->value, FulfillmentStatus::DeliveryPostponed->value, FulfillmentStatus::DeliveryFailed->value,
+                ])
+                ->whereNotNull('provider_reference')
+                ->where(static fn ($query) => $query->whereNull('last_synced_at')->orWhere('last_synced_at', '<', now()->subMinutes(30)))
+                ->orderBy('last_synced_at')
+                ->limit($perProvider)
+                ->get();
+
+            foreach ($open as $fulfillment) {
+                try {
+                    $snapshot = $adapter->fetchStatus($fulfillment);
+                } catch (ProviderUnavailableException) {
+                    continue 2;
+                } catch (Throwable $exception) {
+                    Log::warning('Status poll failed.', ['fulfillment_id' => $fulfillment->id, 'error' => $exception->getMessage()]);
+                    continue;
+                }
+
+                DB::table('provider_fulfillments')->where('id', $fulfillment->id)->update(['last_synced_at' => now()]);
+                $polled++;
+
+                $status = $snapshot === null ? null : $adapter->mapStatus($snapshot->providerStatus);
+                if ($snapshot !== null && $status !== null) {
+                    $this->tracker->applyProviderStatus($fulfillment->id, $status, $snapshot->observedAt, 'poll', $snapshot->providerStatus);
+                }
+            }
+
+            $this->sync->reconciled($code->value);
+        }
+
+        return $polled;
+    }
+
+    /** @return array<string, int> */
+    public function runAll(): array
+    {
+        return [
+            'closed_unrouted_items' => $this->closeUnroutedItemsOfClosedOrders(),
+            'routed' => $this->routeEligibleOrders(),
+            'money_holds_released' => $this->reevaluateMoneyHolds(),
+            'cancelled_for_closed_orders' => $this->cancelForClosedOrders(),
+            'stuck_recovered' => $this->recoverStuckDispatching(),
+            'dispatched' => $this->dispatchDue(),
+            'reconciled' => $this->reconcileDue(),
+            'unmatched_events_retried' => $this->retryUnmatchedEvents(),
+        ];
+    }
+
+    private function inlineOrQueue(callable $inline, callable $queued): void
+    {
+        $this->queue->runsInline() ? $inline() : $queued();
+    }
+}
