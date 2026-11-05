@@ -269,6 +269,23 @@ Record, for each: order id, shipment ids, final statuses, and a screenshot of th
 Only after all gates pass does the readiness report's *real-database staging* blocker clear. Live provider verification
 is a **separate** step with its own authorization.
 
+## Appendix — the mechanical steps were rehearsed
+
+Sections 3, 5 and 6 were run with the real commands on a **MySQL 8.0.46** server against a synthetic stand-in for the
+restored copy (the core tables only — the real dump is not in the repository):
+
+| Step | Observed |
+|---|---|
+| `fulfillment:preflight` before migrating | core tables, id types, InnoDB and "not migrated yet" all PASS; the only FAILs were the queue tables the stand-in does not have |
+| `migrate` (the two migrations) | 423 ms and 28 ms on empty tables; preflight afterwards: all 11 tables present, columns up to date, both migrations applied, `products.fulfillment_provider` present |
+| `migrate:rollback --step=2 --pretend` | prints the 11 `drop table` statements and the column drop, executes nothing |
+| `migrate:rollback --step=2` | 11 tables and the one column gone; the store's own rows unchanged (2 products before and after) |
+| `migrate` again | applies cleanly; rows unchanged |
+
+`migrate:status` on that stand-in also listed an unrelated platform migration as *Pending* — the reason section 6 says to
+check that ours are the **last two that ran** before using `--step=2`. On the real copy the 300-odd platform
+migrations are already recorded, so only ours are pending.
+
 ## Appendix — what the automated suite does and does not prove
 
 * It runs the same suites on SQLite and on a real **MySQL 8.0** service (CI) against a minimal core schema **inferred**
