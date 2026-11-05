@@ -150,7 +150,7 @@ class CommandsTest extends M5aznTestCase
         $this->assertSame([['fulfillment', 5], ['default', 90]], \Illuminate\Support\Facades\DB::table('failed_jobs')->orderBy('id')->get()->map(static fn ($row): array => [$row->queue, (int) round(now()->diffInDays($row->failed_at, true))])->all());
     }
 
-    public function test_prune_clears_the_request_an_old_unreleased_dry_run_recorded_and_nothing_else(): void
+    public function test_prune_clears_the_request_a_dry_run_recorded_once_it_is_older_than_the_retention_whatever_became_of_the_shipment(): void
     {
         $request = ['payload_hash' => 'abc', 'payload_preview' => ['receiverName' => 'Sara Alharbi'], 'keep' => 'me'];
         $shipment = function (int $orderId, FulfillmentStatus $status, int $ageDays) use ($request): \App\Models\ProviderFulfillment {
@@ -166,13 +166,21 @@ class CommandsTest extends M5aznTestCase
         $oldDryRun = $shipment(100, FulfillmentStatus::DryRun, 90);
         $recentDryRun = $shipment(101, FulfillmentStatus::DryRun, 5);
         $oldHeld = $shipment(102, FulfillmentStatus::Held, 90);
+        $recentHeld = $shipment(103, FulfillmentStatus::Held, 5);
+        $oldDelivered = $shipment(104, FulfillmentStatus::Delivered, 90);
+        $oldWithoutRequest = $shipment(105, FulfillmentStatus::Held, 90);
+        $oldWithoutRequest->timestamps = false;
+        $oldWithoutRequest->forceFill(['meta' => ['keep' => 'me']])->save();
 
         $this->artisan('fulfillment:prune')->assertSuccessful();
 
         $this->assertSame(['keep' => 'me'], $oldDryRun->fresh()->meta);
         // MySQL's JSON type stores the keys of an object in its own order, so the content is compared, not the order.
         $this->assertEquals($request, $recentDryRun->fresh()->meta, 'a dry run that can still be released keeps its request');
-        $this->assertEquals($request, $oldHeld->fresh()->meta, 'only a dry run is ours to clear');
+        $this->assertEquals($request, $recentHeld->fresh()->meta, 'a request is kept for as long as the retention, whatever the shipment is');
+        $this->assertSame(['keep' => 'me'], $oldHeld->fresh()->meta, 'a shipment that left the dry run some way that did not take its request along loses it at the retention');
+        $this->assertSame(['keep' => 'me'], $oldDelivered->fresh()->meta);
+        $this->assertSame(['keep' => 'me'], $oldWithoutRequest->fresh()->meta, 'the rest of the record is never touched');
         $this->assertEqualsWithDelta(90, now()->diffInDays($oldDryRun->fresh()->updated_at, true), 1, 'pruning is not activity on the shipment');
     }
 

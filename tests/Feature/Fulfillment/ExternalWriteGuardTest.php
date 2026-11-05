@@ -432,6 +432,18 @@ class ExternalWriteGuardTest extends FulfillmentTestCase
         $this->assertSame(\App\Services\Fulfillment\Readiness\PreflightCheck::PASS, $clean->status);
     }
 
+    public function test_the_preflight_does_not_pass_the_switch_spelling_when_the_configuration_is_cached_and_the_env_file_is_not_read(): void
+    {
+        // The framework decides once, while it boots, whether a cached configuration was loaded, and remembers the answer in the container.
+        $this->app->instance('config_loaded_from_cache', true);
+
+        $check = collect(app(\App\Services\Fulfillment\Readiness\FulfillmentPreflight::class)->safety(allowProduction: true))->keyBy('name')->all()['switch spelling'];
+
+        $this->assertSame(\App\Services\Fulfillment\Readiness\PreflightCheck::WARN, $check->status);
+        $this->assertStringContainsString('configuration is cached', $check->detail);
+        $this->assertStringContainsString('optimize:clear', $check->detail);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────────────────────────────────
 
     /** @return array<string, mixed> config/fulfillment.php as it evaluates when the environment says `$raw` */

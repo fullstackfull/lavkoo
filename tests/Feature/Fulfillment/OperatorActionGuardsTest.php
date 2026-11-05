@@ -113,7 +113,7 @@ class OperatorActionGuardsTest extends FulfillmentTestCase
             {
             }
 
-            public function dispatch(int $fulfillmentId, bool $manual = false): string
+            public function dispatch(int $fulfillmentId, bool $manual = false, ?bool $expectDryRun = null): string
             {
                 throw new \RuntimeException("SQLSTATE[23000]: Duplicate entry 'sara@example.test' for key 'phone' (0551234567 / 0559876543)");
             }
@@ -139,7 +139,7 @@ class OperatorActionGuardsTest extends FulfillmentTestCase
             {
             }
 
-            public function dispatch(int $fulfillmentId, bool $manual = false): string
+            public function dispatch(int $fulfillmentId, bool $manual = false, ?bool $expectDryRun = null): string
             {
                 throw new \App\Services\Fulfillment\Exceptions\ProviderUnavailableException('Torod Point is switched off.');
             }

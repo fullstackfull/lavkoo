@@ -226,6 +226,11 @@ class FulfillmentPreflight
      */
     private function switchSpelling(): PreflightCheck
     {
+        // With the configuration cached the .env file is not read at all, so there is nothing here to look at (and the switches are frozen).
+        if (app()->configurationIsCached()) {
+            return $this->warn('safety', 'switch spelling', 'the configuration is cached, so .env is not read and the spelling of the switches cannot be checked (a cached configuration also freezes them). Run php artisan optimize:clear.');
+        }
+
         $odd = [];
         foreach (['FULFILLMENT_INTEGRATIONS_ENABLED', 'FULFILLMENT_EXTERNAL_WRITES_ENABLED', 'FULFILLMENT_ALLOW_MIXED_COD'] as $name) {
             $raw = env($name);

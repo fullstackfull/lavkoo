@@ -49,9 +49,10 @@ class OperatorActions
     /**
      * Held, dry-run or failed → pending, and sent now, bypassing the go-live cut-off. Never for a money hold.
      *
-     * @return string what the send came to: a SubmissionResult outcome, or ProviderOrderDispatcher::SKIPPED / UNAVAILABLE
+     * @param bool|null $expectDryRun what the button the person pressed said would happen; a changed setting refuses the send
+     * @return string what the send came to: a SubmissionResult outcome, or ProviderOrderDispatcher::SKIPPED / UNAVAILABLE / MODE_CHANGED
      */
-    public function release(int $fulfillmentId): string
+    public function release(int $fulfillmentId, ?bool $expectDryRun = null): string
     {
         $fulfillment = $this->find($fulfillmentId);
         if ($fulfillment->status === FulfillmentStatus::Held && in_array($fulfillment->hold_reason, self::HOLDS_RELEASED_BY_THEIR_CAUSE, true)) {
@@ -63,7 +64,7 @@ class OperatorActions
 
         $this->recordAudit('fulfillment.released', $fulfillment);
 
-        return $this->sendAtOnce($fulfillmentId);
+        return $this->sendAtOnce(fulfillmentId: $fulfillmentId, expectDryRun: $expectDryRun);
     }
 
     /**
@@ -80,7 +81,7 @@ class OperatorActions
 
         $this->recordAudit('fulfillment.confirmed_not_created', $fulfillment, ['reason' => $reason]);
 
-        return $this->sendAtOnce($fulfillmentId);
+        return $this->sendAtOnce(fulfillmentId: $fulfillmentId);
     }
 
     /** The operator found the order at the provider and supplies its reference. */
@@ -175,9 +176,9 @@ class OperatorActions
      * and nothing could tell the person what became of the order. The dispatcher's claim and settle keep the outcome in the
      * database either way, and a request that dies mid-send is recovered the way a crashed worker is.
      */
-    private function sendAtOnce(int $fulfillmentId): string
+    private function sendAtOnce(int $fulfillmentId, ?bool $expectDryRun = null): string
     {
-        return $this->withoutPersonalDataInFailures(fn (): string => $this->dispatcher->dispatch(fulfillmentId: $fulfillmentId, manual: true));
+        return $this->withoutPersonalDataInFailures(fn (): string => $this->dispatcher->dispatch(fulfillmentId: $fulfillmentId, manual: true, expectDryRun: $expectDryRun));
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
+use App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController;
 use App\Models\Admin;
 use App\Models\Order;
 use App\Models\Product;
@@ -17,11 +18,15 @@ use App\Models\ProviderFulfillment;
 use App\Models\ProviderPriceChange;
 use App\Models\ProviderProductMapping;
 use App\Models\ProviderSyncState;
+use App\Services\Fulfillment\Data\SubmissionResult;
+use App\Services\Fulfillment\OperatorActions;
 use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderOrderDispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Js;
+use Illuminate\Testing\TestResponse;
 
 class AdminPagesTest extends AdminPagesTestCase
 {
@@ -296,12 +301,24 @@ class AdminPagesTest extends AdminPagesTestCase
         Http::assertNothingSent();
     }
 
+    public function test_the_air_waybill_download_is_not_sent_while_the_integration_is_switched_off(): void
+    {
+        $shipment = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Submitted, ['provider_reference' => 'WH-1', 'provider_secondary_reference' => 'KSA1']);
+        app(ProviderConnectionManager::class)->save(provider: ProviderCode::TorodPoint, enabled: false, baseUrl: null, settings: ['company_id' => '714'], secrets: []);
+        Http::fake();
+
+        $this->post('/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/label')->assertRedirect();
+
+        Http::assertNothingSent();
+        $this->assertStringContainsString('disabled', implode(' ', $this->flashedToasts()), 'the person is told why there is no label');
+    }
+
     public function test_an_action_name_the_page_does_not_offer_is_not_routed_to_the_action_handler(): void
     {
         $shipment = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::CITY_UNMAPPED]);
 
         $this->assertSame('admin.fulfillment-providers.fulfillments.label', app('router')->getRoutes()->match(\Illuminate\Http\Request::create('/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/label', 'POST'))->getName());
-        foreach (\App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::ACTIONS as $action) {
+        foreach (ProviderFulfillmentController::ACTIONS as $action) {
             $this->assertSame('admin.fulfillment-providers.fulfillments.action', app('router')->getRoutes()->match(\Illuminate\Http\Request::create('/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/' . $action, 'POST'))->getName(), $action);
         }
     }
@@ -310,11 +327,44 @@ class AdminPagesTest extends AdminPagesTestCase
     {
         $sent = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Submitted, ['provider_reference' => 'WH-1']);
         $held = $this->shipment(101, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::CITY_UNMAPPED], productId: 2);
-        $skipped = new \ReflectionMethod(\App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::class, 'skippedSend');
-        $controller = app(\App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::class);
+        $skipped = new \ReflectionMethod(ProviderFulfillmentController::class, 'skippedSend');
+        $controller = app(ProviderFulfillmentController::class);
 
         $this->assertSame(['info', 'send_result_already_sent'], $skipped->invoke($controller, $sent->id));
         $this->assertSame(['warning', 'send_result_held'], $skipped->invoke($controller, $held->id));
+    }
+
+    public function test_a_send_that_was_skipped_never_claims_the_order_is_with_the_provider_unless_the_provider_gave_it_a_reference(): void
+    {
+        $skipped = new \ReflectionMethod(ProviderFulfillmentController::class, 'skippedSend');
+        $controller = app(ProviderFulfillmentController::class);
+        $says = fn (FulfillmentStatus $status, array $overrides = [], int $order = 100): array => $skipped->invoke($controller, $this->shipment($order, ProviderCode::TorodPoint, $status, $overrides, productId: $order)->id);
+
+        $this->assertSame(['warning', 'send_result_cancelled'], $says(FulfillmentStatus::Cancelled, [], 100), 'a shipment cancelled with its order was never sent');
+        $this->assertSame(['warning', 'send_result_cancelled'], $says(FulfillmentStatus::Cancelled, ['provider_reference' => 'WH-1'], 101));
+        $this->assertSame(['info', 'send_result_in_progress'], $says(FulfillmentStatus::Dispatching, ['claim_token' => 'token'], 102), 'another send is still on the wire');
+        $this->assertSame(['warning', 'send_result_unknown'], $says(FulfillmentStatus::ReconcilePending, [], 103), 'its outcome is unknown');
+        $this->assertSame(['warning', 'send_result_held'], $says(FulfillmentStatus::Submitted, [], 104), 'accepted but with no reference to show for it is not "already sent"');
+        $this->assertSame(['info', 'send_result_already_sent'], $says(FulfillmentStatus::Submitted, ['provider_secondary_reference' => 'KSA1'], 105));
+    }
+
+    public function test_a_retryable_answer_is_not_promised_a_retry_where_nothing_retries_by_itself(): void
+    {
+        $shipment = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::RetryWait);
+        $announce = new \ReflectionMethod(ProviderFulfillmentController::class, 'announceSend');
+        $controller = app(ProviderFulfillmentController::class);
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => false]);
+        $announce->invoke($controller, SubmissionResult::RETRYABLE, $shipment->id);
+        $manual = $this->flashedToasts();
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => true, 'dry_run' => false]);
+        $announce->invoke($controller, SubmissionResult::RETRYABLE, $shipment->id);
+
+        $this->assertContains(translate('send_result_retry_manual'), $manual);
+        $this->assertNotContains(translate('send_result_retry'), $manual);
+        $this->assertContains(translate('send_result_retry'), $this->flashedToasts());
+        $this->assertStringContainsString('not tried again by itself', translate('send_result_retry_manual'));
     }
 
     public function test_provider_calls_from_the_admin_are_rate_limited(): void
@@ -582,6 +632,36 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->assertStringContainsString(e(translate('record_dry_run_again')), $rehearsal);
         $this->assertStringNotContainsString(e(translate('release_for_dispatch')), $rehearsal);
         $this->assertStringNotContainsString($confirmation('send_order_confirmation'), $rehearsal, 'recording a rehearsal sends nothing, so there is nothing to confirm');
+    }
+
+    public function test_the_release_button_posts_the_mode_it_promised_and_the_controller_hands_it_to_the_send(): void
+    {
+        $held = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::AWAITING_APPROVAL]);
+        $field = static fn (string $mode): string => '<input type="hidden" name="mode" value="' . $mode . '">';
+        $page = fn (): string => $this->get(route('admin.fulfillment-providers.fulfillments.show', $held->id))->assertOk()->getContent();
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => false]);
+        $this->assertStringContainsString($field('send'), $page());
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => true]);
+        $this->assertStringContainsString($field('rehearse'), $page());
+
+        $received = [];
+        $this->mock(OperatorActions::class, function ($mock) use (&$received): void {
+            $mock->shouldReceive('release')->andReturnUsing(function (int $fulfillmentId, ?bool $expectDryRun = null) use (&$received): string {
+                $received[] = $expectDryRun;
+
+                return ProviderOrderDispatcher::MODE_CHANGED;
+            });
+        });
+        $release = fn (array $data): TestResponse => $this->post(route('admin.fulfillment-providers.fulfillments.action', ['id' => $held->id, 'action' => 'release']), $data);
+
+        $release(['mode' => 'rehearse'])->assertRedirect();
+        $this->assertContains(translate('send_result_setting_changed'), $this->flashedToasts(), 'a send the setting no longer allows says so');
+        $release(['mode' => 'send'])->assertRedirect();
+        $release([])->assertRedirect();
+        $release(['mode' => 'something else'])->assertSessionHasErrors('mode');
+
+        $this->assertSame([true, false, null], $received, 'rehearse is a dry run, send is a real one, and a form that says nothing promises nothing');
     }
 
     public function test_sending_again_after_an_unknown_answer_asks_for_confirmation_that_names_the_second_order(): void

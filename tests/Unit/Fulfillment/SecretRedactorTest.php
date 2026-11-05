@@ -44,6 +44,16 @@ class SecretRedactorTest extends TestCase
             'a password in a url' => ['fetching ' . self::urlWithPassword('admin', 's3cr3tvalue99'), 's3cr3tvalue99'],
             'a private key block' => [self::keyBlock('RSA PRIVATE KEY', 'MIIEowIBAAKCAQEAs3cr3tvalue99', closed: true), 's3cr3tvalue99'],
             'a private key block cut short' => [self::keyBlock('PRIVATE KEY', 'MIIEowIBAAKCAQEAs3cr3tvalue99', closed: false), 's3cr3tvalue99'],
+            'a private key block after the name of a private key' => ['private_key=' . self::keyBlock('PRIVATE KEY', "MIIEvQIBADANs3cr3tvalue99\nabcDEF+/xyz==", closed: true) . ' and more', 's3cr3tvalue99'],
+            'a private key block after the name of a secret' => ['secret: ' . self::keyBlock('PRIVATE KEY', 'MIIEowIBAAKCAQEAs3cr3tvalue99', closed: true), 's3cr3tvalue99'],
+            'a private key block in a json string' => [(string) json_encode(['private_key' => self::keyBlock('PRIVATE KEY', "MIIEvQIBADANs3cr3tvalue99\nabcDEF+/xyz==", closed: true), 'other' => 'x']), 's3cr3tvalue99'],
+            'a private key block in a json string with escaped slashes and letters' => [(string) json_encode(['key' => self::keyBlock('PRIVATE KEY', "MIIEvQIB/s3cr3tvalue99/abc+def==", closed: true)], JSON_HEX_TAG | JSON_HEX_AMP), 's3cr3tvalue99'],
+            'a pgp private key block' => [self::keyBlock('PGP PRIVATE KEY BLOCK', 'lQVYBFs3cr3tvalue99', closed: true), 's3cr3tvalue99'],
+            'a private key block longer than eight thousand characters' => [self::keyBlock('RSA PRIVATE KEY', str_repeat('QUJDREVGR0g', 1500) . 's3cr3tvalue99', closed: false), 's3cr3tvalue99'],
+            'a base64 credential with no digit, sign or padding' => ['request failed for Basic dXNlcjpwYXNz at host', 'dXNlcjpwYXNz'],
+            'a long lower-case basic credential' => ['sent Basic abcdefghijklmnop to host', 'abcdefghijklmnop'],
+            'a long lower-case token' => ['header was Token abcdefghijklmnopqrstuv', 'abcdefghijklmnopqrstuv'],
+            'a token of eighteen letters' => ['Token abcdefabcdefabcdef', 'abcdefabcdefabcdef'],
         ];
     }
 
@@ -60,6 +70,7 @@ class SecretRedactorTest extends TestCase
         return [
             ['Basic information about the order'], ['Token generation failed'], ['{"name":"Token Pharma 500mg"}'], ['Basic Care Cream 250ml'],
             ['Digest of the day'], ['the token was refreshed'], ['password reset requested'],
+            ['Basic Moisturizing lotion'], ['Digest compatibility check'], ['Basic Care Cream'], ['Token Pharma'], ['Basic hydration routine for dry skin'],
         ];
     }
 

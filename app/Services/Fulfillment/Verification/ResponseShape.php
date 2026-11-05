@@ -189,14 +189,20 @@ final class ResponseShape
         return $fields;
     }
 
-    /** @param array<string, mixed> $profile @return list<array{field: string, values: array<string, int>}>|null */
+    /**
+     * The words a status field takes. A value the redaction hid is counted (`hidden`), also when every value was hidden and there are no
+     * words to list: a gap in the vocabulary shows as a number, not as a field that looks complete.
+     *
+     * @param array<string, mixed> $profile
+     * @return list<array{field: string, values: array<string, int>, hidden?: int}>|null
+     */
     private static function statuses(array $profile, string $prefix = '', int $depth = 0): ?array
     {
         $fields = [];
         foreach ($profile['keys'] ?? [] as $name => $child) {
             $path = $prefix === '' ? (string) $name : $prefix . '.' . $name;
-            if (preg_match(self::STATUS_KEY, (string) $name) === 1 && isset($child['values'])) {
-                $fields[] = ['field' => $path, 'values' => $child['values']];
+            if (preg_match(self::STATUS_KEY, (string) $name) === 1 && (isset($child['values']) || isset($child['redacted']))) {
+                $fields[] = ['field' => $path, 'values' => $child['values'] ?? []] + (isset($child['redacted']) ? ['hidden' => $child['redacted']] : []);
             } elseif ($depth < 2 && self::is($child, 'object')) {
                 array_push($fields, ...(self::statuses($child, $path, $depth + 1) ?? []));
             }

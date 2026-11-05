@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\SkipsUntilMigrated;
-use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Models\ProviderApiLog;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
@@ -39,13 +38,17 @@ class FulfillmentPruneCommand extends Command
         return self::SUCCESS;
     }
 
-    /** A dry run nobody released does not keep the request it recorded (receiver, address, note) for ever. */
+    /**
+     * A request a dry run recorded (receiver, address, note) does not outlive the retention, whatever became of the shipment: a dry run
+     * nobody released, and a shipment that left that state some way that should have taken it along.
+     */
     private function pruneForgottenDryRuns(\DateTimeInterface $before): int
     {
         $recorded = array_flip(['payload_preview', 'payload_hash']);
         $cleared = 0;
 
-        ProviderFulfillment::where('status', FulfillmentStatus::DryRun->value)->where('updated_at', '<', $before)->whereNotNull('meta')
+        ProviderFulfillment::where('updated_at', '<', $before)
+            ->where(static fn ($query) => $query->whereNotNull('meta->payload_preview')->orWhereNotNull('meta->payload_hash'))
             ->chunkById(100, function ($shipments) use ($recorded, &$cleared): void {
                 foreach ($shipments as $shipment) {
                     $meta = (array) $shipment->meta;

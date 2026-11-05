@@ -41,10 +41,11 @@ class LiveVerificationTest extends AdminPagesTestCase
         return $encode(['typ' => 'JWT']) . '.' . $encode(['sub' => '1', 'exp' => time() + 86400 * 300]) . '.signature-signature';
     }
 
-    private function fakeM5azn(): void
+    /** @param array<string, mixed> $overrides answers that replace the default one for the same URL pattern */
+    private function fakeM5azn(array $overrides = []): void
     {
         $person = ['name' => 'Sara Alharbi', 'phone' => '0551234567', 'email' => 'sara@example.test'];
-        Http::fake([
+        Http::fake($overrides + [
             self::M5 . '/api/v1/auth/login' => Http::response(['data' => ['accessToken' => $this->jwt(), 'userId' => 59653]]),
             self::M5 . '/api/v1/products/qty-changed*' => Http::response(['data' => [['id' => 1947201, 'quantity' => 38, 'changed_at' => '2026-11-05T10:00:00Z']]]),
             self::M5 . '/api/v1/products*' => Http::response(['data' => [['id' => 1947201, 'name' => 'Vitamin C', 'sku' => 'VC1000', 'quantity' => 40, 'price' => 19.0], ['id' => 313658, 'name' => 'Sanitizer', 'sku' => 'HS500', 'quantity' => 8, 'price' => 9.0]], 'meta' => ['total' => 2, 'page' => 1]]),
@@ -363,6 +364,21 @@ class LiveVerificationTest extends AdminPagesTestCase
         $this->assertStringContainsString('refused the credentials', $this->byId($run)['M-1']->summary);
         $this->assertTrue($run->failed());
         $this->assertNotNull(ProviderSyncState::where('provider', 'm5azn')->where('capability', 'live_verification')->value('last_failure_at'));
+    }
+
+    public function test_status_values_that_were_hidden_make_the_order_list_a_warning_that_says_what_to_do(): void
+    {
+        $this->fakeM5azn([self::M5 . '/api/v1/orders' => Http::response(['data' => [
+            ['id' => 777, 'status' => 'Delivered to Sara Alharbi and left at the door today'], ['id' => 778, 'status' => 'processing'],
+        ]])]);
+
+        $check = $this->byId($this->verify(ProviderCode::M5azn))['M-7'];
+
+        $this->assertSame(CheckResult::WARN, $check->status, $check->summary);
+        $this->assertStringContainsString('1 status value(s) were hidden', $check->summary);
+        $this->assertStringContainsString('type them into the status map', $check->summary);
+        $this->assertSame([['field' => 'status', 'values' => ['processing' => 1], 'hidden' => 1]], $check->findings['status_fields']);
+        $this->assertStringNotContainsString('Sara Alharbi', (string) json_encode($check->findings));
     }
 
     public function test_an_empty_list_is_a_warning_because_there_is_nothing_to_record_a_schema_from(): void

@@ -156,6 +156,7 @@
 
                     @if (in_array($status, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed], true))
                         <form method="POST" action="{{ $action('release') }}" class="mb-2" @if ($sendsForReal) onsubmit="return confirm(@js(translate('send_order_confirmation')))" @endif>@csrf
+                            <input type="hidden" name="mode" value="{{ $sendsForReal ? \App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::MODE_SEND : \App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::MODE_REHEARSE }}">
                             <button class="btn btn-primary btn-sm w-100" type="submit">{{ translate(match (true) {
                                 !$sendsForReal => 'record_dry_run_again',
                                 $fulfillment->hold_reason === \App\Enums\Fulfillment\HoldReason::AWAITING_APPROVAL => 'approve_and_send',

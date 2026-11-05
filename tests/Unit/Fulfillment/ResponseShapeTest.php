@@ -185,6 +185,34 @@ class ResponseShapeTest extends TestCase
         $this->assertArrayNotHasKey('numeric', $profile['keys']['data']['items']['keys']['contact_no'], 'a number that may be a phone number is not summed');
     }
 
+    public function test_status_values_the_redaction_hid_are_counted_so_a_gap_in_the_vocabulary_shows(): void
+    {
+        $orders = [['status' => 'Delivered to Sara Alharbi and left at the door today'], ['status' => 'قيد التوصيل للعميل'], ['status' => 'Another sentence that is far too long to be a status word']];
+
+        $findings = ResponseShape::findings(ResponseShape::profile(['data' => $orders], strict: true));
+
+        $this->assertSame([['field' => 'status', 'values' => ['قيد التوصيل للعميل' => 1], 'hidden' => 2]], $findings['status_fields']);
+    }
+
+    public function test_a_status_field_whose_values_were_all_hidden_is_still_listed_with_its_count(): void
+    {
+        $orders = [['status' => 'Delivered to Sara Alharbi and left at the door today'], ['status' => 'Handed to Khalid at the shop on the corner of the road']];
+
+        $findings = ResponseShape::findings(ResponseShape::profile(['data' => $orders], strict: true));
+
+        $this->assertSame([['field' => 'status', 'values' => [], 'hidden' => 2]], $findings['status_fields']);
+    }
+
+    public function test_status_phrases_of_up_to_three_words_survive_strict_mode_in_any_language_and_longer_ones_are_counted(): void
+    {
+        $orders = [['status' => 'Out for delivery'], ['status' => 'Picked up'], ['status' => 'قيد التوصيل للعميل'], ['status' => 'Out for delivery today'], ['status' => 'Ready for pick up'], ['status' => 'تم تسليم الطلب للعميل']];
+
+        $findings = ResponseShape::findings(ResponseShape::profile(['data' => $orders], strict: true));
+
+        $this->assertSame(['Out for delivery' => 1, 'Picked up' => 1, 'قيد التوصيل للعميل' => 1], $findings['status_fields'][0]['values']);
+        $this->assertSame(3, $findings['status_fields'][0]['hidden'], 'the three phrases of four words are not lost without a trace: the operator is told how many there were');
+    }
+
     public function test_the_status_vocabulary_of_an_order_list_is_recorded_in_any_language(): void
     {
         $orders = [['status' => 'تم التوصيل'], ['status' => 'قيد الشحن'], ['status' => 'Out for delivery']];

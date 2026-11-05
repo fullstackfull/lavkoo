@@ -158,6 +158,55 @@ class ApprovalGateTest extends FulfillmentTestCase
         $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
     }
 
+    public function test_a_send_that_is_not_the_one_the_page_promised_is_refused_before_anything_is_claimed_or_sent(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->dispatcher()->dispatch($fulfillment->id);
+        $this->assertSame(HoldReason::AWAITING_APPROVAL, $fulfillment->fresh()->hold_reason);
+
+        // The page said "nothing is sent" (a rehearsal), and the setting says otherwise by the time the button is pressed.
+        $refused = app(OperatorActions::class)->release($fulfillment->id, expectDryRun: true);
+
+        $this->assertSame(ProviderOrderDispatcher::MODE_CHANGED, $refused);
+        $this->assertSame([], $this->torod->calls, 'nothing reached the provider');
+        $fresh = $fulfillment->fresh();
+        $this->assertNull($fresh->claim_token, 'and nothing was claimed');
+        $this->assertSame(0, $fresh->attempts);
+        $this->assertNotSame(FulfillmentStatus::Dispatching, $fresh->status);
+    }
+
+    public function test_a_rehearsal_the_page_promised_is_refused_too_when_the_setting_has_become_a_real_send_and_the_other_way_round(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => true]);
+
+        $realSendPromised = $this->dispatcher()->dispatch($fulfillment->id, manual: true, expectDryRun: false);
+
+        $this->assertSame(ProviderOrderDispatcher::MODE_CHANGED, $realSendPromised);
+        $this->assertSame([], $this->torod->calls);
+        $this->assertSame(FulfillmentStatus::Pending, $fulfillment->fresh()->status);
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => false]);
+        $rehearsalPromised = $this->dispatcher()->dispatch($fulfillment->id, manual: true, expectDryRun: true);
+
+        $this->assertSame(ProviderOrderDispatcher::MODE_CHANGED, $rehearsalPromised);
+        $this->assertSame([], $this->torod->calls);
+        $this->assertSame(FulfillmentStatus::Pending, $fulfillment->fresh()->status);
+    }
+
+    public function test_a_send_that_is_what_the_page_promised_goes_ahead_and_so_does_one_that_promised_nothing(): void
+    {
+        $promised = $this->torodFulfillment(100);
+        $unpromised = $this->torodFulfillment(101);
+        $this->torod->submitQueue = [SubmissionResult::accepted('O-PROMISED'), SubmissionResult::accepted('O-UNPROMISED')];
+
+        $this->assertSame(SubmissionResult::ACCEPTED, $this->dispatcher()->dispatch($promised->id, manual: true, expectDryRun: false));
+        $this->assertSame(SubmissionResult::ACCEPTED, $this->dispatcher()->dispatch($unpromised->id, manual: true));
+
+        $this->assertCount(2, $this->torod->calls);
+        $this->assertSame([false, false], $this->torod->dryRunRequested);
+    }
+
     public function test_a_hold_a_person_does_not_answer_is_still_not_sent_by_a_manual_dispatch(): void
     {
         $fulfillment = $this->torodFulfillment();
@@ -243,7 +292,7 @@ class ApprovalGateTest extends FulfillmentTestCase
     /** @return iterable<string, array{string}> */
     public static function waysOutOfADryRun(): iterable
     {
-        foreach (['cancelLocally', 'hold', 'markFailed', 'scheduleRetry', 'awaitReconciliation'] as $way) {
+        foreach (['cancelLocally', 'hold', 'markFailed', 'scheduleRetry', 'awaitReconciliation', 'aProviderStatus', 'aProviderStatusThatNeedsAttention'] as $way) {
             yield $way => [$way];
         }
     }
@@ -262,9 +311,33 @@ class ApprovalGateTest extends FulfillmentTestCase
             'markFailed' => $tracker->markFailed($fulfillment->id, 'x', 'refused'),
             'scheduleRetry' => $tracker->scheduleRetry($fulfillment->id, 'x', 'busy', now()->addMinute()),
             'awaitReconciliation' => $tracker->awaitReconciliation($fulfillment->id, 'x', 'unknown', now()->addMinute()),
+            'aProviderStatus' => $tracker->applyProviderStatus($fulfillment->id, FulfillmentStatus::Delivered, now(), 'poll', 'DELIVERED'),
+            'aProviderStatusThatNeedsAttention' => $tracker->applyProviderStatus($fulfillment->id, FulfillmentStatus::NeedsAttention, now(), 'webhook', 'OPENED_ISSUE', attentionNote: 'look at it'),
         };
 
         $this->assertSame(['keep' => 'me'], $fulfillment->fresh()->meta, $way);
+    }
+
+    public function test_a_claim_given_back_takes_the_recorded_request_along(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['status' => FulfillmentStatus::Dispatching, 'claim_token' => 'token-1', 'attempts' => 1, 'meta' => ['payload_preview' => ['receiverName' => 'Sara Alharbi'], 'payload_hash' => 'abc', 'keep' => 'me']])->save();
+
+        app(ShipmentTracker::class)->unclaim($fulfillment->id, 'token-1');
+
+        $this->assertSame(FulfillmentStatus::Pending, $fulfillment->fresh()->status);
+        $this->assertSame(['keep' => 'me'], $fulfillment->fresh()->meta);
+    }
+
+    public function test_a_claim_given_back_leaves_alone_a_record_that_holds_no_request(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['status' => FulfillmentStatus::Dispatching, 'claim_token' => 'token-1', 'attempts' => 1, 'meta' => null])->save();
+
+        app(ShipmentTracker::class)->unclaim($fulfillment->id, 'token-1');
+
+        $this->assertSame(FulfillmentStatus::Pending, $fulfillment->fresh()->status);
+        $this->assertNull($fulfillment->fresh()->meta);
     }
 
     public function test_a_dry_run_recorded_again_keeps_its_request(): void

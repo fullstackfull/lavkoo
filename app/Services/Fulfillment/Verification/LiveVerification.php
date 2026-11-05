@@ -152,8 +152,11 @@ class LiveVerification
      */
     private function judge(VerificationCheck $check, array $findings): array
     {
+        $hidden = (int) array_sum(array_column($findings['status_fields'] ?? [], 'hidden'));
+        $hiddenNote = $hidden === 0 ? null : "{$hidden} status value(s) were hidden as personal data: read the status words in the provider's dashboard and type them into the status map";
+
         if (!$check->expectsList) {
-            return [CheckResult::PASS, 'Answered.'];
+            return $hiddenNote === null ? [CheckResult::PASS, 'Answered.'] : [CheckResult::WARN, "Answered; {$hiddenNote}."];
         }
         if (!array_key_exists('items_path', $findings)) {
             return [CheckResult::WARN, 'Answered, but no list of records was found in the response: set the items path of the field map by hand.'];
@@ -166,8 +169,11 @@ class LiveVerification
         if (isset($findings['stock_fields'])) {
             $parts[] = 'stock-like fields: ' . implode(', ', array_column($findings['stock_fields'], 'field'));
         }
+        if ($hiddenNote !== null) {
+            $parts[] = $hiddenNote;
+        }
 
-        return [CheckResult::PASS, implode('; ', $parts) . '.'];
+        return [$hiddenNote === null ? CheckResult::PASS : CheckResult::WARN, implode('; ', $parts) . '.'];
     }
 
     /**

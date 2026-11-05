@@ -422,6 +422,18 @@ class TorodWebhookTest extends TorodTestCase
         $this->assertSame(0, ProviderFulfillmentEvent::count());
     }
 
+    public function test_a_body_whose_values_are_nested_where_text_was_documented_is_read_as_far_as_it_can_be_and_never_breaks_the_receiver(): void
+    {
+        $fulfillment = $this->submitted();
+
+        foreach ([['time' => ['ms' => 1]], ['packageId' => ['nested' => 1]], ['invoiceNumber' => ['x']], ['postponedDeliveryDate' => ['y']], ['postponedDate' => ['y']], ['time' => ['ms' => 1], 'packageId' => ['a'], 'invoiceNumber' => ['b'], 'postponedDeliveryDate' => ['c'], 'notes' => ['d']]] as $extra) {
+            $received = $this->receive('lastmile', $this->lastmilePayload('OUT_FOR_DELIVERY', extra: $extra));
+
+            $this->assertContains($received['status'], ['accepted', 'duplicate'], json_encode($extra) . ' (a body that adds nothing the first one lacked is the same event)');
+        }
+        $this->assertNotNull($fulfillment->fresh()->provider_status);
+    }
+
     public function test_ingest_queues_processing_and_stores_a_redacted_payload(): void
     {
         $this->submitted();

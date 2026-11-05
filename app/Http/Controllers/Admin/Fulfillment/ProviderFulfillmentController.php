@@ -36,6 +36,11 @@ class ProviderFulfillmentController extends Controller
     /** Actions that tell the person what really happened, instead of the plain "Done". */
     private const ANNOUNCES_ITS_RESULT = ['release', 'confirm-not-created', 'cancel'];
 
+    /** What the Release button said would happen, posted with it: a real send, or a rehearsal that sends nothing. */
+    public const MODE_SEND = 'send';
+
+    public const MODE_REHEARSE = 'rehearse';
+
     public function __construct(
         private readonly OperatorActions $actions,
         private readonly ProviderRegistry $registry,
@@ -87,12 +92,13 @@ class ProviderFulfillmentController extends Controller
             'reason' => [in_array($action, self::NEEDS_REASON, true) ? 'required' : 'nullable', 'string', 'max:255'],
             'reference' => [$action === 'link' ? 'required' : 'nullable', 'string', 'max:120'],
             'tracking_number' => ['nullable', 'string', 'max:120'],
+            'mode' => ['nullable', 'in:' . self::MODE_SEND . ',' . self::MODE_REHEARSE],
         ]);
         $reason = (string) ($validated['reason'] ?? '');
 
         try {
             match ($action) {
-                'release' => $this->announceSend($this->actions->release($id), $id),
+                'release' => $this->announceSend($this->actions->release(fulfillmentId: $id, expectDryRun: isset($validated['mode']) ? $validated['mode'] === self::MODE_REHEARSE : null), $id),
                 'confirm-not-created' => $this->announceSend($this->actions->confirmNotCreated($id, $reason), $id),
                 'link' => $this->actions->linkReference($id, (string) $validated['reference'], $validated['tracking_number'] ?? null, $reason),
                 'mark-delivered' => $this->actions->markDelivered($id, $reason),
@@ -118,21 +124,41 @@ class ProviderFulfillmentController extends Controller
             SubmissionResult::ACCEPTED => ['success', 'send_result_accepted'],
             SubmissionResult::DRY_RUN => ['info', 'send_result_dry_run'],
             SubmissionResult::REJECTED => ['error', 'send_result_rejected'],
-            SubmissionResult::RETRYABLE => ['warning', 'send_result_retry'],
+            SubmissionResult::RETRYABLE => ['warning', $this->retriesByItself($id) ? 'send_result_retry' : 'send_result_retry_manual'],
             SubmissionResult::AMBIGUOUS => ['warning', 'send_result_unknown'],
             ProviderOrderDispatcher::UNAVAILABLE => ['warning', 'send_result_unavailable'],
+            ProviderOrderDispatcher::MODE_CHANGED => ['warning', 'send_result_setting_changed'],
             default => $this->skippedSend($id),
         };
 
         ToastMagic::{$tone}(translate($key));
     }
 
-    /** The send was skipped: either something else got there first (the order is with the provider already) or it is on hold. */
+    /**
+     * The send was skipped. What the person is told follows from what the shipment is now: "already with the provider" only where the
+     * provider gave it a reference, never for a shipment that was cancelled, and never for one whose send is still on the wire.
+     *
+     * @return array{0: string, 1: string} tone and translation key
+     */
     private function skippedSend(int $id): array
     {
-        return ProviderFulfillment::find($id)?->status->isAcceptedByProvider() === true
-            ? ['info', 'send_result_already_sent']
-            : ['warning', 'send_result_held'];
+        $fulfillment = ProviderFulfillment::find($id);
+
+        return match (true) {
+            $fulfillment?->status === FulfillmentStatus::Cancelled => ['warning', 'send_result_cancelled'],
+            $fulfillment?->status === FulfillmentStatus::Dispatching => ['info', 'send_result_in_progress'],
+            $fulfillment?->status === FulfillmentStatus::ReconcilePending => ['warning', 'send_result_unknown'],
+            $fulfillment?->status->isAcceptedByProvider() === true && ($fulfillment->provider_reference !== null || $fulfillment->provider_secondary_reference !== null) => ['info', 'send_result_already_sent'],
+            default => ['warning', 'send_result_held'],
+        };
+    }
+
+    /** A retryable answer is tried again by itself only where orders are sent automatically; otherwise it waits for a person to approve it again. */
+    private function retriesByItself(int $id): bool
+    {
+        $provider = ProviderFulfillment::find($id)?->providerCode();
+
+        return $provider !== null && $this->connections->config($provider)->bool('auto_dispatch', false);
     }
 
     /** Say what a cancel request really did: "requested" is not "cancelled", and some providers cannot cancel at all. */

@@ -17,7 +17,8 @@ namespace App\Services\Fulfillment\Support;
  * names a code) or is a short status word under a key that ends in status, state or stage (any language); a number is kept unless
  * it is long enough to be a phone number or a national id; and keys that name a person, a courier, a user or a place are hidden
  * whatever the value. A lone first name under a key it has no reason to suspect looks like any other word and is hidden only
- * because words that are not shaped like codes are.
+ * because a plain word, in capitals too, is not kept unless it holds a digit or an underscore or sits under a key that names a code,
+ * an enumeration or a status.
  *
  * It cannot recognise a name or a street address that sits under a key it has no reason to suspect, in free text. What it
  * promises is: contact details and credentials are removed by pattern everywhere, and names and addresses under the keys listed
@@ -53,8 +54,14 @@ final class PiiRedactor
         'surname', 'family', 'given', 'handle', 'supplier',
     ];
 
-    /** A key ending like this holds a code, not a person: kept (unless it also names a phone, an e-mail, an address or an identity). */
-    private const CODE_SUFFIXES = ['id', 'ids', 'sku', 'barcode', 'code', 'ean', 'upc', 'reference', 'ref', 'invoicenumber', 'tracking', 'trackingnumber', 'awb', 'status', 'type', 'method', 'mode', 'currency', 'unit', 'kind', 'channel'];
+    /**
+     * A key ending like this holds a code, not a person: kept (unless it also names a phone, an e-mail, an address or an identity), kept
+     * under a personal parent, and its value is not scanned for telephone numbers.
+     */
+    private const CODE_SUFFIXES = ['id', 'ids', 'sku', 'barcode', 'code', 'ean', 'upc', 'reference', 'ref', 'invoicenumber', 'tracking', 'trackingnumber', 'awb', 'status', 'type'];
+
+    /** A key ending like this holds an enumeration (a currency, a payment method): in strict mode a plain word under it is kept, and nowhere else is it a code. */
+    private const ENUMERATION_SUFFIXES = ['method', 'mode', 'currency', 'unit', 'kind', 'channel'];
 
     private const STILL_PERSONAL_IF_CODE_LIKE = ['phone', 'mobile', 'whatsapp', 'telephone', 'email', 'address', 'zip', 'postal', 'postcode', 'national', 'iqama', 'identity', 'passport', 'iban'];
 
@@ -62,15 +69,18 @@ final class PiiRedactor
     private const EMAIL = '/[\p{L}\p{N}._%+\-]{1,254}@[\p{L}\p{N}.\-]{1,255}\.\p{L}{2,24}/u';
 
     /**
-     * A run of digits with the separators people put in phone numbers (spaces of every kind, tabs, line breaks, dots, slashes,
-     * brackets and every dash); whether it IS a phone number is decided by isPhoneNumber(). The run is long enough to hold three
+     * A run of digits with the separators people put in phone numbers (spaces of every kind, tabs, line breaks, dots, slashes, brackets,
+     * every dash, and the invisible format characters a number can be split with: zero-width spaces and joiners, a soft hyphen);
+     * whether it IS a phone number is decided by isPhoneNumber(). The run is long enough to hold three
      * numbers written one after another, and bounded, so no input can make the scan slow.
      */
-    private const PHONE_CANDIDATE = '/(?<![A-Za-z0-9])\+?[0-9][0-9\s\p{Z}\p{Pd}\x{2212}.\/()]{7,60}[0-9](?![A-Za-z0-9])/u';
+    private const PHONE_CANDIDATE = '/(?<![A-Za-z0-9])\+?[0-9][0-9\s\p{Z}\p{Pd}\p{Cf}\x{2212}.\/()]{7,60}[0-9](?![A-Za-z0-9])/u';
 
     private const CODE_WORD = '/^[A-Za-z0-9_.:\-]{1,40}$/';
 
     private const STATUS_WORD = '/^[\p{L}\p{N} _.:\-]{1,30}$/u';
+
+    private const STATUS_ENUMERATION = '/^[\p{L}\p{N}_.:\-]{1,60}$/u';
 
     /** Arabic-Indic, Extended Arabic-Indic and full-width digits, folded to the ASCII digits the patterns look for. */
     private const DIGITS = [
@@ -224,22 +234,31 @@ final class PiiRedactor
             return $masked;
         }
 
-        // Anything that had a contact detail in it is not a code word, and neither is an address. A plain word is a code only when
-        // it is shaped like one or sits under a key that names one: "KSA100", "OUT_FOR_DELIVERY", "SAR", never "Khalid".
+        // Anything that had a contact detail in it is not a code word, and neither is an address. A plain word is a code only when it
+        // sits under a key that names a code, an enumeration or a status, or holds a digit or an underscore: "KSA100", "OUT_FOR_DELIVERY",
+        // "cod" under paymentMethod, never "Khalid" or "KHALID" under a key nobody expected.
+        $normal = self::normalise($key);
         $keep = $masked === $value && filter_var($masked, FILTER_VALIDATE_IP) === false
-            && ((preg_match(self::CODE_WORD, $masked) === 1 && ($code || self::isShapedLikeACode($masked))) || self::isStatusWord($key, $masked));
+            && ((preg_match(self::CODE_WORD, $masked) === 1 && ($code || self::endsLike($normal, self::ENUMERATION_SUFFIXES) || self::isStatusKey($normal) || self::hasIdentifierShape($masked)))
+                || self::isStatusWord($key, $masked));
 
         return $keep ? $masked : self::MASK;
     }
 
-    /** A short word under a key that ends in status, state or stage, in any language: it is the vocabulary a status map is made from, and what strict mode keeps. */
+    /**
+     * A word under a key that ends in status, state or stage, in any language: it is the vocabulary a status map is made from, and what
+     * strict mode keeps. One token may be long (the enumerations these APIs use run to fifty characters); a phrase is up to three words and
+     * thirty characters, because a courier's status often names the person ("Delivered to Sara"), and a longer one is hidden and counted.
+     */
     public static function isStatusWord(string $key, string $value): bool
     {
-        if (!self::isStatusKey(self::normalise($key))) {
+        if (!self::isStatusKey(self::normalise($key)) || preg_match('/\d{6,}/', $value) === 1) {
             return false;
         }
 
-        return preg_match(self::STATUS_WORD, $value) === 1 && substr_count($value, ' ') <= 2 && preg_match('/\d{6,}/', $value) !== 1;
+        return str_contains($value, ' ')
+            ? preg_match(self::STATUS_WORD, $value) === 1 && substr_count($value, ' ') <= 2
+            : preg_match(self::STATUS_ENUMERATION, $value) === 1;
     }
 
     /** `status`, `deliveryState`, `order_stage`, and the name or label of one (`status_name`): not `status_message` or `statusDescription`, which are free text. */
@@ -248,10 +267,10 @@ final class PiiRedactor
         return preg_match('/(status|state|stage)$/', $normal) === 1 || preg_match('/status(name|text|label|word|value)$/', $normal) === 1;
     }
 
-    /** All capitals, or holding a digit or an underscore: how identifiers, enumerations and currencies are written, and names are not. */
-    private static function isShapedLikeACode(string $value): bool
+    /** Holding a digit or an underscore: how identifiers and enumerations are written. A name is a plain word, in capitals too. */
+    private static function hasIdentifierShape(string $value): bool
     {
-        return preg_match('/[a-z]/', $value) !== 1 || preg_match('/[0-9_]/', $value) === 1;
+        return preg_match('/[0-9_]/', $value) === 1;
     }
 
     /** A number long enough to be a phone number or a national id is hidden in strict mode, unless it is a timestamp. */
@@ -268,14 +287,28 @@ final class PiiRedactor
     }
 
     /**
-     * Nine digits or more, once the ISO dates in the run are set aside: a telephone number, or several written one after another.
-     * There is no upper limit on purpose: two numbers next to each other, or one next to an order number, are more than fifteen digits.
+     * Nine to fifteen digits once the dates in the run are set aside: a telephone number. Past fifteen it is several numbers written
+     * one after another, or a number beside an order number, and counts when at least one group of digits is itself the length of a
+     * telephone number; a list of ids, of quantities or of long identifiers is left alone.
      */
     private static function isPhoneNumber(string $candidate): bool
     {
-        $withoutDates = preg_replace('/\d{4}[-\/.]\d{2}[-\/.]\d{2}/', ' ', $candidate) ?? $candidate;
+        $withoutDates = preg_replace('/(?<!\d)(?:19|20)\d{2}[-\/.](?:0[1-9]|1[0-2])[-\/.](?:0[1-9]|[12]\d|3[01])(?!\d)/', ' ', $candidate) ?? $candidate;
+        $digits = strlen(preg_replace('/\D/', '', $withoutDates) ?? '');
+        if ($digits < 9) {
+            return false;
+        }
+        if ($digits <= 15) {
+            return true;
+        }
 
-        return strlen(preg_replace('/\D/', '', $withoutDates) ?? '') >= 9;
+        foreach (preg_split('/\D+/', $withoutDates, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $group) {
+            if (strlen($group) >= 9 && strlen($group) <= 15) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function bounded(string $text): string
@@ -285,8 +318,13 @@ final class PiiRedactor
 
     private static function looksLikeACode(string $key): bool
     {
-        $normal = self::normalise($key);
-        foreach (self::CODE_SUFFIXES as $suffix) {
+        return self::endsLike(self::normalise($key), self::CODE_SUFFIXES);
+    }
+
+    /** @param list<string> $suffixes */
+    private static function endsLike(string $normal, array $suffixes): bool
+    {
+        foreach ($suffixes as $suffix) {
             if ($normal === $suffix || str_ends_with($normal, $suffix)) {
                 return true;
             }

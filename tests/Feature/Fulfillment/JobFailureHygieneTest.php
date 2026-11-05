@@ -63,7 +63,7 @@ class JobFailureHygieneTest extends FulfillmentTestCase
             ProviderOrderDispatcher::class => new class($fails) extends ProviderOrderDispatcher {
                 public function __construct(private readonly \Closure $fails) {}
 
-                public function dispatch(int $fulfillmentId, bool $manual = false): string
+                public function dispatch(int $fulfillmentId, bool $manual = false, ?bool $expectDryRun = null): string
                 {
                     ($this->fails)();
                 }

@@ -308,6 +308,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return null;
         }
 
+        $this->ensureCallable();
         $result = $this->lastmile->airWaybill([$barcode], $fulfillment->id);
         $url = $result->ok() ? $result->get('url') : null;
 
@@ -836,21 +837,21 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         }
 
         $occurredAt = $this->occurredAt($payload['time'] ?? null);
-        $postponed = $payload['postponeddeliverydate'] ?? $payload['postponeddate'] ?? null;
+        $postponed = $this->scalarText($payload['postponeddeliverydate'] ?? $payload['postponeddate'] ?? null);
 
         return new NormalizedEvent(
             type: 'lastmile',
-            dedupeKey: hash('sha256', implode('|', ['torod_point', 'lastmile', (string) $barcode, $status, (string) ($payload['time'] ?? ''), (string) $postponed])),
+            dedupeKey: hash('sha256', implode('|', ['torod_point', 'lastmile', (string) $barcode, $status, $this->scalarText($payload['time'] ?? null) ?? '', (string) $postponed])),
             references: [
                 'barcode' => (string) $barcode,
-                'package_id' => isset($payload['packageid']) ? (string) $payload['packageid'] : null,
-                'invoice' => isset($payload['invoicenumber']) ? (string) $payload['invoicenumber'] : null,
+                'package_id' => $this->scalarText($payload['packageid'] ?? null),
+                'invoice' => $this->scalarText($payload['invoicenumber'] ?? null),
                 'cod' => isset($payload['cod']) && is_numeric($payload['cod']) ? (string) $payload['cod'] : null,
             ],
             providerStatus: $status,
             occurredAt: $occurredAt,
             meta: array_filter([
-                'postponed_until' => is_scalar($postponed) ? (string) $postponed : null,
+                'postponed_until' => $postponed,
             ], static fn ($value): bool => $value !== null),
             note: isset($payload['notes']) && is_scalar($payload['notes']) ? mb_substr((string) $payload['notes'], 0, 250) : null,
         );
@@ -889,6 +890,12 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     private function withLowerCaseKeys(array $payload): array
     {
         return array_change_key_case($payload, CASE_LOWER);
+    }
+
+    /** A value the provider sent as text; a nested object or list where a string was documented is not a value. */
+    private function scalarText(mixed $value): ?string
+    {
+        return is_scalar($value) ? (string) $value : null;
     }
 
     /** Epoch milliseconds → time, clamped so a skewed provider clock cannot pin a shipment to the future. */

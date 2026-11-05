@@ -488,7 +488,7 @@ If anything is wrong: [section 10](#10-rollback-for-every-phase).
 of every answer: key names, types, counts, ranges, codes and status words. It is built to leave out credentials, tokens and
 personal data: a value under a key that names a person, a contact detail, an address or an identity is not recorded; nor is any text
 containing an e-mail address or a phone number; and sign-ins, order lists, order details and package status are recorded
-**strictly** (only codes, counts, ranges and short status words, in any language). The API log applies the same rules to anything
+**strictly** (only codes, counts, ranges and status words of up to three words, in any language; hidden status values are counted). The API log applies the same rules to anything
 about orders, packages and sign-ins. **It cannot recognise a name or an address under a key it has no reason to suspect**, so read a
 file before you share it. A file that cannot be written (a full disk, a permission) turns the run into a failure instead of
 quietly losing it.
@@ -516,7 +516,9 @@ confirmed it against a real answer**. That is what the evidence is for.
    | Torod Point | `products`, `orders` | id, name · invoice number, reference |
 
 3. M5AZN only: fill the **status map** (provider status word → shipment status) from the vocabulary the evidence shows; the order
-   poll is inactive until it exists and the `orders` map is verified.
+   poll is inactive until it exists and the `orders` map is verified. If the status field shows **hidden** values (the order-list check
+   warns "N status value(s) were hidden"), the evidence is missing words: read the status words in the M5AZN dashboard and type them
+   into the map yourself.
 4. Torod only: when the stock field is established (hand count + LogesTechs), tick **I confirm the stock field in the product list is
    the available quantity** (the moment is recorded). Without it stock stays unused.
 5. Keep the evidence: add the reviewed JSON files to the repository under `docs/integrations/recorded-schemas/<provider>/` through

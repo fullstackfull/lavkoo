@@ -60,6 +60,9 @@ class ProviderOrderDispatcher
     public const SKIPPED = 'skipped';
     public const UNAVAILABLE = 'unavailable';
 
+    /** A person asked for the send the page described, and the dry-run setting is no longer what that page showed: nothing was claimed or sent. */
+    public const MODE_CHANGED = 'mode_changed';
+
     public function __construct(
         private readonly ProviderRegistry $registry,
         private readonly ProviderConnectionManager $connections,
@@ -72,12 +75,16 @@ class ProviderOrderDispatcher
     ) {
     }
 
-    /** @return string SubmissionResult::* outcome, or self::SKIPPED / self::UNAVAILABLE */
-    public function dispatch(int $fulfillmentId, bool $manual = false): string
+    /**
+     * @param bool|null $expectDryRun what the person was told this send would be (true: nothing leaves the host); when the setting
+     *                                has changed since, the send is refused instead of being something other than what was asked
+     * @return string SubmissionResult::* outcome, or self::SKIPPED / self::UNAVAILABLE / self::MODE_CHANGED
+     */
+    public function dispatch(int $fulfillmentId, bool $manual = false, ?bool $expectDryRun = null): string
     {
-        $claim = $this->claim($fulfillmentId, $manual);
-        if ($claim === null) {
-            return self::SKIPPED;
+        $claim = $this->claim($fulfillmentId, $manual, $expectDryRun);
+        if ($claim === self::MODE_CHANGED || $claim === null) {
+            return $claim ?? self::SKIPPED;
         }
 
         [$id, $token, $dryRun] = $claim;
@@ -107,10 +114,10 @@ class ProviderOrderDispatcher
         return $result->outcome;
     }
 
-    /** @return array{0:int,1:string,2:bool}|null [fulfillment id, claim token, whether this send is a dry run: decided here, once] */
-    private function claim(int $fulfillmentId, bool $manual): ?array
+    /** @return array{0:int,1:string,2:bool}|string|null [fulfillment id, claim token, whether this send is a dry run: decided here, once], or MODE_CHANGED */
+    private function claim(int $fulfillmentId, bool $manual, ?bool $expectDryRun): array|string|null
     {
-        return DB::transaction(function () use ($fulfillmentId, $manual): ?array {
+        return DB::transaction(function () use ($fulfillmentId, $manual, $expectDryRun): array|string|null {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
             if ($fulfillment === null || !$this->isDispatchable($fulfillment, $manual)) {
                 return null;
@@ -151,6 +158,11 @@ class ProviderOrderDispatcher
                 return null;
             }
 
+            $dryRun = $config->bool('dry_run', true);
+            if ($expectDryRun !== null && $expectDryRun !== $dryRun) {
+                return self::MODE_CHANGED;
+            }
+
             $token = (string) Str::uuid();
             $fulfillment->forceFill([
                 'status' => FulfillmentStatus::Dispatching,
@@ -162,7 +174,7 @@ class ProviderOrderDispatcher
                 'hold_reason' => null,
             ])->save();
 
-            return [$fulfillment->id, $token, $config->bool('dry_run', true)];
+            return [$fulfillment->id, $token, $dryRun];
         });
     }
 

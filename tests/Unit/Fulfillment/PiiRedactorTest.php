@@ -174,8 +174,11 @@ class PiiRedactorTest extends TestCase
             'deliveryMan' => 'Khalid', 'deliveredTo' => 'Sara', 'handledBy' => 'Alharbi', 'signedBy' => 'Alharbi', 'captain' => 'Khalid',
             'supplier' => 'Khalid', 'surname' => 'Alharbi', 'family' => 'Alharbi', 'given' => 'Sara', 'name_en' => 'Khalid', 'nameAr' => 'خالد',
             'handle' => 'sara.alharbi', 'label' => 'Khalid', 'who' => 'Sara', 'greeting' => 'Hello',
+            // Capitals do not make a name a code: many courier systems write names that way.
+            'pickedBy' => 'OMAR', 'assignee' => 'AHMED', 'signatory' => 'SARA', 'rep' => 'ALHARBI', 'staff' => 'ALI', 'by' => 'SARA', 'representative' => 'MOHAMMED', 'deliveryPerson' => 'KHALID', 'receivedFrom' => 'SARA',
+            'serviceLevel' => 'EXPRESS',
         ];
-        $kept = ['currency' => 'SAR', 'shipmentType' => 'REGULAR', 'event' => 'order_created', 'zone' => 'RUH-12', 'paymentMethod' => 'cod', 'serviceLevel' => 'EXPRESS', 'branch' => 'RUH1'];
+        $kept = ['currency' => 'SAR', 'shipmentType' => 'REGULAR', 'event' => 'order_created', 'zone' => 'RUH-12', 'paymentMethod' => 'cod', 'branch' => 'RUH1', 'responsible' => 'KHALID2', 'orderMode' => 'DROPSHIP'];
 
         $redacted = PiiRedactor::redact($people + $kept, strict: true);
 
@@ -276,6 +279,81 @@ class PiiRedactorTest extends TestCase
         $this->assertSame(self::MASK, $redacted['label'], 'free text under another key is hidden');
     }
 
+    public function test_lists_of_ids_quantities_and_long_identifiers_are_not_mistaken_for_telephone_numbers(): void
+    {
+        foreach ([
+            'skipped ids 1421521 1421522 1421523', 'quantities 10 20 30 40 50 60 70 80 90 are invalid', 'Order 1234567890123456789 not found',
+            'tracking 20261105102315123 was created',
+        ] as $text) {
+            $this->assertSame($text, PiiRedactor::redactText($text), $text);
+        }
+    }
+
+    public function test_the_children_of_a_personal_parent_are_hidden_even_under_keys_that_name_an_enumeration(): void
+    {
+        $personal = ['receiver' => ['unit' => 'Flat 12 Tower 2', 'kind' => 'Sara', 'mode' => '0551234567', 'channel' => 'whatsapp:+966551234567', 'currency' => 'Sara Alharbi', 'method' => '0551234567']];
+
+        foreach ([false, true] as $strict) {
+            $redacted = PiiRedactor::redact($personal, $strict);
+
+            $this->assertSame(array_fill_keys(array_keys($personal['receiver']), self::MASK), $redacted['receiver'], 'strict: ' . var_export($strict, true));
+        }
+    }
+
+    public function test_a_telephone_number_under_a_key_that_names_an_enumeration_is_still_found_outside_a_personal_parent(): void
+    {
+        $redacted = PiiRedactor::redact(['paymentMode' => '0551234567', 'channel' => 'whatsapp:+966551234567', 'currency' => 'SAR']);
+
+        $this->assertSame(self::MASK, $redacted['paymentMode']);
+        $this->assertStringNotContainsString('966551234567', (string) $redacted['channel']);
+        $this->assertSame('SAR', $redacted['currency']);
+    }
+
+    public function test_a_status_enumeration_is_kept_under_a_status_key_and_a_phrase_only_up_to_three_words(): void
+    {
+        $kept = [
+            'status' => 'APPROVED_BY_CUSTOMER_CARE_AND_WAITING_FOR_DISPATCHER', 'newStatus' => 'MOVED_TO_SHELF_AND_OUT_OF_HANDLER_CUSTODY', 'orderState' => 'قيد التوصيل للعميل',
+            'deliveryStage' => 'Out for delivery', 'pickup_status' => 'Picked up', 'order_status_label' => 'In transit',
+        ];
+        // A courier's status often names the person it was handed to, so a longer phrase is hidden (and counted: see ResponseShape).
+        $hidden = [
+            'delivery_status' => 'Delivered to Sara Alharbi', 'currentStatus' => str_repeat('A', 70), 'status_message' => 'Delivered to Sara',
+            'sentenceStatus' => 'The courier called the customer on 0551234567', 'fourWordsStatus' => 'Out for delivery today', 'arabicStatus' => 'تم تسليم الطلب للعميل',
+            'threeLongWordsStatus' => 'Awaiting international clearance',
+        ];
+
+        $redacted = PiiRedactor::redact($kept + $hidden, strict: true);
+
+        foreach ($kept as $key => $value) {
+            $this->assertSame($value, $redacted[$key], $key);
+        }
+        foreach (array_keys($hidden) as $key) {
+            $this->assertSame(self::MASK, $redacted[$key], $key);
+        }
+    }
+
+    public function test_telephone_numbers_written_in_groups_of_two_to_four_digits_are_all_found(): void
+    {
+        $leaks = [];
+        foreach ([[4, 2, 4], [3, 4, 3], [2, 3, 2, 3], [4, 2, 3, 2], [3, 3, 2, 2, 2], [2, 4, 2, 4], [4, 4, 2], [2, 2, 2, 2, 2], [3, 2, 4, 3], [4, 3, 2, 2]] as $groupSizes) {
+            foreach (['-', '.', '/', ' ', "\u{2013}"] as $separator) {
+                foreach (['call ', 'call +966 ', 'tel: '] as $prefix) {
+                    $digits = '501234567890123';
+                    $groups = [];
+                    foreach ($groupSizes as $size) {
+                        $groups[] = substr($digits, array_sum(array_slice($groupSizes, 0, count($groups))), $size);
+                    }
+                    $text = $prefix . implode($separator, $groups);
+                    if (preg_match('/\d{3}/', PiiRedactor::redactText($text)) === 1) {
+                        $leaks[] = $text;
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], $leaks);
+    }
+
     public function test_a_date_beside_a_short_number_is_still_not_a_phone_number(): void
     {
         $text = 'between 2026-11-05 18 and 2026-11-06 07, order #4455';
@@ -316,7 +394,17 @@ class PiiRedactorTest extends TestCase
             'a non-breaking hyphen' => ["055\u{2011}123\u{2011}4567", ['4567']],
             'a narrow no-break space' => ["055\u{202F}123\u{202F}4567", ['4567']],
             'a thin space' => ["055\u{2009}123\u{2009}4567", ['4567']],
-            'a long digit run' => ['1234567890123456789', ['1234567890123456789']],
+            'grouped with a pair of digits in the middle' => ['call +966-5012-34-5678', ['5012-34-5678']],
+            'grouped 4-2-3' => ['+966 5010-35-099', ['5010-35-099']],
+            'groups of two and four' => ['50-0006-87-90', ['0006-87-90']],
+            'dots between groups' => ['50.2304.90.06', ['2304.90.06']],
+            'a group that looks like a date prefix' => ['call 0501-23-4567', ['0501-23-4567']],
+            'a number split by zero-width characters' => ["call 050\u{200B}123\u{200B}4567", ['4567']],
+            'a number split by a non-joiner' => ["call 0501\u{200C}234567", ['234567']],
+            'a number split by a soft hyphen' => ["call 05\u{00AD}01234567", ['01234567']],
+            'a number split by a word joiner' => ["call 0501234\u{2060}567", ['0501234']],
+            'a number split by an Arabic letter mark' => ["call 050\u{061C}1234567", ['1234567']],
+            'two numbers written in groups after a long dash' => ['055 123 4567 \u{2014} 0501234567', ['055 123 4567', '0501234567']],
         ];
     }
 

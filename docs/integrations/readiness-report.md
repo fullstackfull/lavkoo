@@ -97,7 +97,7 @@ real MySQL 8.0 (locally and in CI), the suites revealed: `fulfillment:preflight`
 `information_schema` columns) — the database it exists for; the guest-id coercion (SEC-11); and three test-harness
 assumptions (auto-increment, JSON key order). The preflight also crashed on a database that had never been migrated, the
 state it is run in first. After fixing, **all MySQL-targeted tests pass on MySQL 8.0.46 both with the platform's non-strict
-setting and under strict SQL mode**, and CI run #10 is green with all five jobs.
+setting and under strict SQL mode**, and the CI jobs for it are green.
 
 ---
 
@@ -148,7 +148,7 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 
 * **Workflow** `.github/workflows/ci.yml` on every pull request: PHP syntax sweep (8.2 and 8.3); the **full suite** on SQLite
   (8.2 and 8.3); the fulfillment, security and CI-proof suites on a **real MySQL 8 service** (≈ 9 minutes). Each job proves
-  which database it ran on (`CiDatabaseTest`). Run #10 (head `a6eac2c`): **success, 5/5 jobs**.
+  which database it ran on (`CiDatabaseTest`). The leak guard and the package build run as jobs of their own; the checks of the pull request show the current state.
 * **The failing test** `tests/Feature/ExampleTest` (`GET /`): it fails identically on the **untouched base commit** `34dce65`
   (verified in a worktree of the base): the storefront request middleware reads tables that come from the installation
   dump (`guest_users`, `business_settings`…), which is not in the repository, so the in-memory test database has none.
@@ -195,11 +195,11 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 
 | Evidence | Result |
 |---|---|
-| Full suite, SQLite | **639 tests, 3,030 assertions, 0 failures** (2 skipped: `ExampleTest` without the dump; the CI-database proof outside CI) |
-| MySQL 8.0.46, platform non-strict mode | fulfillment + security + CI-proof suites: **all pass** |
-| MySQL 8.0.46, **strict** SQL mode (temporary experiment, reverted) | **all pass** — nothing relies on non-strict coercion |
-| GitHub Actions run #10 (`a6eac2c`) | **success, 5/5 jobs** (SQLite 8.2/8.3, lint 8.2/8.3, real MySQL 8) |
-| Mutation checks | fixes for the webhook binding, millisecond ordering and sweep rotation were reverted one at a time and the tests confirmed to fail |
+| Full suite, SQLite | **1,329 tests, 7,787 assertions, 0 failures** (7 skipped: `ExampleTest` needs the installation dump, which is not in the repository; the CI-database proof only runs in CI; four checks that only mean something on MySQL; one that cannot run as root) |
+| MySQL 8, platform non-strict mode | the fulfillment, security and CI-proof suites: **1,116 tests, 6,927 assertions, 0 failures, 0 skipped** (the four MySQL-only checks run here) |
+| MySQL 8, **strict** SQL mode (an earlier experiment, reverted) | **all pass** — nothing relies on non-strict coercion |
+| GitHub Actions (every push; see the checks of the pull request) | SQLite on PHP 8.2 and 8.3, a syntax lint on both, the fulfillment and security suites on a real MySQL 8, the repository leak guard over every commit of the pull request, and the build of the deployment package from the pull request's head |
+| Adversarial review and mutation checks | three independent review rounds, the last aimed at what the previous round's fixes had changed, found defects in the order-sending path, the personal-data rules and the deployment tooling (26 in the last round, 57 in the one before, about a hundred earlier). Each was reproduced before it was fixed; each fix has a test, and the fixes of the last two rounds were **mutation-checked**: the fix is reverted, the test is confirmed to fail |
 | Real calls to a provider | **none** (`Http::preventStrayRequests()` in every test; nothing live was run) |
 | Production access | **none** |
 

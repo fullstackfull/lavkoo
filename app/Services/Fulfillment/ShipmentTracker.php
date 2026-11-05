@@ -127,7 +127,7 @@ class ShipmentTracker
                 'provider_secondary_reference' => $fulfillment->provider_secondary_reference ?? $result->secondaryReference,
                 'tracking_number' => $fulfillment->tracking_number ?? $result->trackingNumber,
                 'tracking_url' => $fulfillment->tracking_url ?? $result->trackingUrl,
-                'provider_status' => $fulfillment->provider_status ?? $result->providerStatus,
+                'provider_status' => $fulfillment->provider_status ?? self::statusColumn($result->providerStatus),
                 'provider_cost' => $fulfillment->provider_cost ?? $result->providerCost,
                 'claim_token' => null,
                 'next_attempt_at' => null,
@@ -191,7 +191,7 @@ class ShipmentTracker
                 'attempts' => max(0, $fulfillment->attempts - 1),
                 'claim_token' => null,
                 'claimed_at' => null,
-            ])->save();
+            ] + (($meta = $this->metaFor($fulfillment, FulfillmentStatus::Pending)) === null ? [] : ['meta' => $meta]))->save();
         });
     }
 
@@ -451,7 +451,7 @@ class ShipmentTracker
             'event_type' => $eventType,
             'provider_fulfillment_id' => $fulfillmentId,
             'external_reference' => $externalReference,
-            'provider_status' => $providerStatus === null ? null : PiiRedactor::scrubToFit($providerStatus, 100),
+            'provider_status' => self::statusColumn($providerStatus),
             'internal_status' => $internalStatus,
             'occurred_at' => AppTime::local($occurredAt),
             'received_at' => now(),
@@ -475,7 +475,7 @@ class ShipmentTracker
     ): void {
         $values = [
             'status' => $incoming,
-            'provider_status' => $providerStatus === null ? $fulfillment->provider_status : PiiRedactor::scrubToFit($providerStatus, 100),
+            'provider_status' => self::statusColumn($providerStatus) ?? $fulfillment->provider_status,
             'last_received_at' => now(),
             'last_event_at' => $this->newest($fulfillment->last_event_at, $occurredAt),
             'last_error_code' => null,
@@ -500,11 +500,33 @@ class ShipmentTracker
             default => null,
         };
 
-        if ($extra !== []) {
-            $values['meta'] = array_replace($fulfillment->meta ?? [], $extra);
+        if (($meta = $this->metaFor($fulfillment, $incoming, $extra)) !== null) {
+            $values['meta'] = $meta;
         }
 
         $fulfillment->forceFill($values)->save();
+    }
+
+    /**
+     * The shipment's meta once `$merge` is applied and the shipment has moved to `$status`; null when nothing changes. The request a dry
+     * run recorded describes an order that was never sent: it lives only while the shipment waits as a dry run, so every other status
+     * (released, held, failed, cancelled, a provider's word, a claim given back…) takes it along.
+     *
+     * @param array<string, mixed> $merge
+     * @return array<string, mixed>|null
+     */
+    private function metaFor(ProviderFulfillment $fulfillment, FulfillmentStatus $status, array $merge = []): ?array
+    {
+        $meta = $fulfillment->meta ?? [];
+        $forget = $status === FulfillmentStatus::DryRun ? [] : self::RECORDED_REQUEST;
+
+        return $merge === [] && array_intersect($forget, array_keys($meta)) === [] ? null : Arr::except(array_replace($meta, $merge), $forget);
+    }
+
+    /** A status word the provider sent: scrubbed like any provider text and cut to its column. */
+    private static function statusColumn(?string $providerStatus): ?string
+    {
+        return $providerStatus === null ? null : PiiRedactor::scrubToFit($providerStatus, 100);
     }
 
     /**
@@ -523,12 +545,8 @@ class ShipmentTracker
             }
 
             $values['status'] = $to;
-
-            // The request a dry run recorded describes an order that was never sent. It lives only while the shipment waits as a dry run:
-            // any other way out of that state (released, held, failed, cancelled…) takes it along.
-            $forget = $to === FulfillmentStatus::DryRun ? [] : self::RECORDED_REQUEST;
-            if ($meta !== [] || array_intersect($forget, array_keys($fulfillment->meta ?? [])) !== []) {
-                $values['meta'] = Arr::except(array_replace($fulfillment->meta ?? [], $meta), $forget);
+            if (($newMeta = $this->metaFor($fulfillment, $to, $meta)) !== null) {
+                $values['meta'] = $newMeta;
             }
             $fulfillment->forceFill($values)->save();
 

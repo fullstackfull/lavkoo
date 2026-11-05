@@ -5,6 +5,7 @@ namespace Tests\Feature\Fulfillment;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderFulfillmentEvent;
+use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\ShipmentTracker;
 use App\Services\Fulfillment\WebhookEventProcessor;
 
@@ -42,6 +43,21 @@ class StatusTextHygieneTest extends FulfillmentTestCase
             $this->assertStringNotContainsString('0551234567', (string) $words);
             $this->assertStringContainsString('Delivered to Sara', (string) $words);
         }
+    }
+
+    public function test_a_status_the_reconcile_pass_hands_over_is_stored_scrubbed_and_cut_to_its_column(): void
+    {
+        $shipment = $this->sentShipment();
+        $shipment->forceFill(['status' => FulfillmentStatus::ReconcilePending, 'provider_reference' => null, 'provider_status' => null])->save();
+
+        app(ShipmentTracker::class)->recordAcceptance($shipment->id, SubmissionResult::accepted(providerReference: 'O-100', providerStatus: self::WORDS . ' ' . str_repeat('x', 150)));
+
+        $stored = (string) $shipment->fresh()->provider_status;
+        $this->assertSame(FulfillmentStatus::Submitted, $shipment->fresh()->status);
+        $this->assertLessThanOrEqual(100, mb_strlen($stored));
+        $this->assertStringNotContainsString('0551234567', $stored);
+        $this->assertStringContainsString('Delivered to Sara', $stored);
+        $this->assertStringNotContainsString('0551234567', (string) ProviderFulfillmentEvent::where('provider_fulfillment_id', $shipment->id)->latest('id')->value('provider_status'));
     }
 
     public function test_a_status_a_webhook_carries_is_stored_without_contact_details_whatever_the_adapter_kept(): void
