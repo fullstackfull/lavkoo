@@ -83,7 +83,7 @@
                             </td>
                             <td><x-k.badge :tone="$mapping->status->value === 'approved' ? 'success' : 'neutral'">{{ translate('mapping_status_' . $mapping->status->value) }}</x-k.badge></td>
                             <td>@if ($mapping->status->value === 'approved')
-                                    <form method="POST" action="{{ route('admin.fulfillment-providers.torod.retire', $mapping->id) }}" onsubmit="return confirm('{{ translate('are_you_sure') }}')">@csrf
+                                    <form method="POST" action="{{ route('admin.fulfillment-providers.torod.retire', $mapping->id) }}" onsubmit="return confirm(@js(translate('are_you_sure')))">@csrf
                                         <button class="btn btn-outline-danger btn-sm" type="submit">{{ translate('retire') }}</button></form>@endif</td>
                         </tr>
                     @empty

@@ -55,6 +55,10 @@ class ProviderFulfillment extends Model
         'cancelled_at' => 'datetime',
         'returned_at' => 'datetime',
         'failed_at' => 'datetime',
+        'cancel_intent_at' => 'datetime',
+        'cancel_requested_at' => 'datetime',
+        'cancel_next_at' => 'datetime',
+        'cancel_attempts' => 'integer',
         'last_event_at' => 'datetime',
         'last_received_at' => 'datetime',
         'last_synced_at' => 'datetime',
@@ -87,13 +91,32 @@ class ProviderFulfillment extends Model
     }
 
     /**
-     * A cancellation is a REQUEST until the provider reports the shipment cancelled, so it is a flag
-     * beside the status rather than a status of its own: the status keeps following the provider's
-     * truth (a shipment already on the road keeps moving until the provider says otherwise).
+     * A cancellation is a REQUEST until the provider reports the shipment cancelled, so it lives beside the
+     * status rather than being one: the status keeps following the provider's truth (a shipment already on the
+     * road keeps moving until the provider says otherwise). This is true once the provider ACKNOWLEDGED it.
      */
     public function isCancelRequested(): bool
     {
-        return $this->metaValue('cancel_requested_at') !== null && !$this->status->isTerminal();
+        return $this->cancel_requested_at !== null && !$this->isTerminal();
+    }
+
+    /** Automatic cancellation cannot succeed (unsupported, refused, or kept failing): a person must act at the provider. */
+    public function isCancelBlocked(): bool
+    {
+        return $this->cancel_blocked_reason !== null && !$this->isTerminal();
+    }
+
+    /**
+     * Cancellation is wanted, the provider is known to hold the shipment, and it has not been asked yet (or the
+     * last ask failed and is waiting to be repeated).
+     */
+    public function wantsCancel(): bool
+    {
+        return $this->cancel_intent_at !== null
+            && $this->cancel_requested_at === null
+            && $this->cancel_blocked_reason === null
+            && $this->status->isAcceptedByProvider()
+            && !$this->isTerminal();
     }
 
     public function metaValue(string $key, mixed $default = null): mixed

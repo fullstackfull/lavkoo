@@ -119,7 +119,7 @@
                         @empty
                             <p class="text-muted fs-12">{{ translate('no_webhook_secret_yet') }}</p>
                         @endforelse
-                        <form method="POST" action="{{ route('admin.fulfillment-providers.rotate-secret', $card['slug']) }}" onsubmit="return confirm('{{ translate('rotate_webhook_secret_confirm') }}')">
+                        <form method="POST" action="{{ route('admin.fulfillment-providers.rotate-secret', $card['slug']) }}" onsubmit="return confirm(@js(translate('rotate_webhook_secret_confirm')))">
                             @csrf
                             <button class="btn btn-outline-primary btn-sm" type="submit">{{ translate($webhookUrls === [] ? 'generate_webhook_secret' : 'rotate_webhook_secret') }}</button>
                         </form>

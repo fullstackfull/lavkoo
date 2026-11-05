@@ -6,6 +6,8 @@ use App\Enums\Fulfillment\EventOutcome;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
+use App\Services\Fulfillment\Data\CancelLease;
+use App\Services\Fulfillment\Data\CancellationResult;
 use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Support\AppTime;
 use App\Services\Fulfillment\Support\SecretRedactor;
@@ -21,6 +23,9 @@ use Illuminate\Support\Facades\DB;
  */
 class ShipmentTracker
 {
+    /** How long one cancel attempt may take before another caller is allowed to try (a crashed caller loses it by itself). */
+    private const CANCEL_LEASE_SECONDS = 180;
+
     public function __construct(private readonly FulfillmentStateMachine $machine)
     {
     }
@@ -142,15 +147,85 @@ class ShipmentTracker
         });
     }
 
-    public function release(int $fulfillmentId, string $by): void
+    /**
+     * Held, dry-run or failed → pending. `$freshStart` also resets the attempt counters, in the same locked
+     * step, so a fulfillment that has since moved on is never touched.
+     *
+     * @return bool false when the fulfillment was not in a releasable state any more
+     */
+    public function release(int $fulfillmentId, string $by, bool $freshStart = false): bool
     {
-        $this->simpleTransition($fulfillmentId, FulfillmentStatus::Pending, [
+        return $this->simpleTransition($fulfillmentId, FulfillmentStatus::Pending, [
             'hold_reason' => null,
             'last_error_code' => null,
             'last_error_message' => null,
             'next_attempt_at' => null,
             'claim_token' => null,
-        ], 'released:' . $by, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed]);
+        ] + ($freshStart ? ['attempts' => 0, 'reconcile_attempts' => 0] : []), 'released:' . $by, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed]);
+    }
+
+    /**
+     * A person checked the provider's own dashboard and found no such order. Applies only while the fulfillment still
+     * awaits reconciliation and the provider has never given us a reference: with a reference the provider holds it,
+     * and sending again would create a second order.
+     *
+     * @return bool false when the situation changed under the person's feet
+     */
+    public function confirmNotCreated(int $fulfillmentId, string $reason): bool
+    {
+        return DB::transaction(function () use ($fulfillmentId, $reason): bool {
+            $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
+            if ($fulfillment === null || $fulfillment->status !== FulfillmentStatus::ReconcilePending
+                || $fulfillment->provider_reference !== null || $fulfillment->provider_secondary_reference !== null) {
+                return false;
+            }
+
+            $fulfillment->forceFill([
+                'status' => FulfillmentStatus::Pending,
+                'hold_reason' => null,
+                'last_error_code' => null,
+                'last_error_message' => null,
+                'next_attempt_at' => null,
+                'claim_token' => null,
+                'attempts' => 0,
+                'reconcile_attempts' => 0,
+            ])->save();
+            $this->record($fulfillment->provider, 'manual', 'reconcile', $fulfillment->id, null, null, FulfillmentStatus::Pending->value, null, EventOutcome::APPLIED, 'operator_confirmed_not_created: ' . $reason);
+
+            return true;
+        });
+    }
+
+    /**
+     * A person found the order at the provider and supplies its reference. Applies only while nobody holds the
+     * fulfillment (no worker is mid-send) and it has no outcome yet.
+     *
+     * @return bool false when the fulfillment already has an outcome or a worker holds it
+     * @throws \Illuminate\Database\UniqueConstraintViolationException when another shipment already carries this reference
+     */
+    public function linkProviderReference(int $fulfillmentId, string $reference, ?string $trackingNumber, string $reason): bool
+    {
+        return DB::transaction(function () use ($fulfillmentId, $reference, $trackingNumber, $reason): bool {
+            $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
+            if ($fulfillment === null || !in_array($fulfillment->status, [FulfillmentStatus::ReconcilePending, FulfillmentStatus::Failed, FulfillmentStatus::Held, FulfillmentStatus::Pending], true)) {
+                return false;
+            }
+
+            $fulfillment->forceFill([
+                'provider_reference' => $reference,
+                'tracking_number' => $trackingNumber,
+                'status' => FulfillmentStatus::Submitted,
+                'submitted_at' => now(),
+                'hold_reason' => null,
+                'last_error_code' => null,
+                'last_error_message' => null,
+                'next_attempt_at' => null,
+                'claim_token' => null,
+            ])->save();
+            $this->record($fulfillment->provider, 'manual', 'reconcile', $fulfillment->id, $reference, null, FulfillmentStatus::Submitted->value, null, EventOutcome::APPLIED, 'operator_linked_reference: ' . $reason);
+
+            return true;
+        });
     }
 
     public function markFailed(int $fulfillmentId, string $code, string $message): void
@@ -203,21 +278,108 @@ class ShipmentTracker
             'claim_token' => null,
             'next_attempt_at' => null,
             'hold_reason' => null,
-        ], 'cancelled_locally:' . $reason, [
-            FulfillmentStatus::Pending, FulfillmentStatus::Held, FulfillmentStatus::RetryWait,
-            FulfillmentStatus::DryRun, FulfillmentStatus::Failed,
-        ]);
+        ], 'cancelled_locally:' . $reason, array_values(array_filter(FulfillmentStatus::cases(), static fn (FulfillmentStatus $status): bool => $status->isCancellableLocally())));
     }
 
-    public function noteCancelRequested(int $fulfillmentId): void
+    /**
+     * Someone wants this shipment cancelled, but the provider cannot be asked yet because the outcome of the
+     * send is unknown. Written down once; honoured the moment the provider is known to hold the order.
+     */
+    public function noteCancelIntent(int $fulfillmentId): void
     {
         DB::transaction(function () use ($fulfillmentId): void {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
-            if ($fulfillment === null || $fulfillment->isTerminal()) {
+            if ($fulfillment === null || $fulfillment->isTerminal() || $fulfillment->cancel_intent_at !== null) {
                 return;
             }
-            $fulfillment->forceFill(['meta' => array_replace($fulfillment->meta ?? [], ['cancel_requested_at' => now()->toIso8601String()])])->save();
-            $this->record($fulfillment->provider, 'system', 'cancel', $fulfillment->id, $fulfillment->provider_reference, null, null, null, EventOutcome::APPLIED, 'cancel_requested');
+
+            $fulfillment->forceFill(['cancel_intent_at' => now()])->save();
+            $this->record($fulfillment->provider, 'system', 'cancel', $fulfillment->id, $fulfillment->provider_reference, null, null, null, EventOutcome::APPLIED, 'cancel_wanted_before_acceptance');
+        });
+    }
+
+    /**
+     * Take the right to ask the provider to cancel. Exactly one caller holds it at a time, so two workers (or a
+     * worker and an operator's click) can never both call the provider; a caller that crashes loses it by itself
+     * when the lease runs out. `$manual` is a person re-asking: it lifts a block and restarts the retry budget, but
+     * never overrides a request the provider already acknowledged or an attempt still in progress.
+     */
+    public function leaseCancelAttempt(int $fulfillmentId, bool $manual): CancelLease
+    {
+        return DB::transaction(function () use ($fulfillmentId, $manual): CancelLease {
+            $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
+
+            $refusal = match (true) {
+                $fulfillment === null, $fulfillment->isTerminal(), !$fulfillment->status->isAcceptedByProvider() => CancelLease::NOT_APPLICABLE,
+                $fulfillment->cancel_requested_at !== null => CancelLease::ALREADY_REQUESTED,
+                $fulfillment->cancel_blocked_reason !== null && !$manual => CancelLease::BLOCKED,
+                $fulfillment->cancel_next_at?->isFuture() === true => CancelLease::WAITING,
+                default => null,
+            };
+            if ($refusal !== null) {
+                return CancelLease::refused($refusal);
+            }
+
+            $attempts = $manual ? 1 : $fulfillment->cancel_attempts + 1;
+            $fulfillment->forceFill([
+                'cancel_intent_at' => $fulfillment->cancel_intent_at ?? now(),
+                'cancel_attempts' => $attempts,
+                'cancel_next_at' => now()->addSeconds(self::CANCEL_LEASE_SECONDS),
+                'cancel_blocked_reason' => null,
+            ])->save();
+
+            return CancelLease::granted($attempts);
+        });
+    }
+
+    /**
+     * Record what the provider answered to a cancel request. Only an acknowledgement ("requested") marks the
+     * request as made; a failed call is repeated at `$retryAt` (null = give up and block); a refusal or an
+     * unsupported cancel blocks automatic cancellation, which then needs a person at the provider.
+     */
+    public function settleCancelAttempt(int $fulfillmentId, CancellationResult $result, ?\DateTimeInterface $retryAt): void
+    {
+        DB::transaction(function () use ($fulfillmentId, $result, $retryAt): void {
+            $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
+            if ($fulfillment === null) {
+                return;
+            }
+
+            $summary = SecretRedactor::truncate(SecretRedactor::redactString($result->outcome . ($result->message ? ': ' . $result->message : '')), 500);
+            $fulfillment->forceFill(match (true) {
+                $result->outcome === CancellationResult::REQUESTED => ['cancel_requested_at' => now(), 'cancel_next_at' => null, 'cancel_blocked_reason' => null],
+                $result->outcome === CancellationResult::FAILED && $retryAt !== null => ['cancel_next_at' => $retryAt],
+                default => ['cancel_next_at' => null, 'cancel_blocked_reason' => $summary],
+            })->save();
+
+            $this->record(
+                provider: $fulfillment->provider,
+                source: 'system',
+                eventType: 'cancel',
+                fulfillmentId: $fulfillment->id,
+                externalReference: $fulfillment->provider_reference,
+                providerStatus: null,
+                internalStatus: null,
+                occurredAt: null,
+                outcome: $result->outcome === CancellationResult::REQUESTED ? EventOutcome::APPLIED : EventOutcome::FAILED,
+                note: $summary,
+            );
+        });
+    }
+
+    /** The provider could not be reached at all, so nothing was asked: give the attempt back and try again later. */
+    public function releaseCancelLease(int $fulfillmentId, \DateTimeInterface $retryAt): void
+    {
+        DB::transaction(function () use ($fulfillmentId, $retryAt): void {
+            $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
+            if ($fulfillment === null) {
+                return;
+            }
+
+            $fulfillment->forceFill([
+                'cancel_attempts' => max(0, $fulfillment->cancel_attempts - 1),
+                'cancel_next_at' => $retryAt,
+            ])->save();
         });
     }
 
@@ -302,18 +464,14 @@ class ShipmentTracker
      * @param array<string, mixed> $values
      * @param array<string, mixed> $meta
      */
-    private function simpleTransition(int $fulfillmentId, FulfillmentStatus $to, array $values, string $note, ?array $onlyFrom = null, array $meta = []): void
+    private function simpleTransition(int $fulfillmentId, FulfillmentStatus $to, array $values, string $note, ?array $onlyFrom = null, array $meta = []): bool
     {
-        DB::transaction(function () use ($fulfillmentId, $to, $values, $note, $onlyFrom, $meta): void {
+        return DB::transaction(function () use ($fulfillmentId, $to, $values, $note, $onlyFrom, $meta): bool {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
-            if ($fulfillment === null) {
-                return;
-            }
-            if ($onlyFrom !== null && !in_array($fulfillment->status, $onlyFrom, true)) {
-                return;
-            }
-            if ($fulfillment->status->isTerminal()) {
-                return;
+            if ($fulfillment === null
+                || ($onlyFrom !== null && !in_array($fulfillment->status, $onlyFrom, true))
+                || $fulfillment->status->isTerminal()) {
+                return false;
             }
 
             $values['status'] = $to;
@@ -323,6 +481,8 @@ class ShipmentTracker
             $fulfillment->forceFill($values)->save();
 
             $this->record($fulfillment->provider, 'system', 'state', $fulfillment->id, $fulfillment->provider_reference, null, $to->value, null, EventOutcome::APPLIED, $note);
+
+            return true;
         });
     }
 

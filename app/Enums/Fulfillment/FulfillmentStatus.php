@@ -59,6 +59,18 @@ enum FulfillmentStatus: string
         return !$this->isPreSubmission();
     }
 
+    /** Nothing reached the provider for certain, so a cancellation needs no call: the shipment is simply dropped. */
+    public function isCancellableLocally(): bool
+    {
+        return in_array($this, [self::Pending, self::Held, self::RetryWait, self::DryRun, self::Failed], true);
+    }
+
+    /** A send is (or may be) in flight: the provider cannot be asked to cancel what we cannot yet find there. */
+    public function isSendOutcomeUnknown(): bool
+    {
+        return in_array($this, [self::Dispatching, self::ReconcilePending], true);
+    }
+
     /**
      * Forward-progress rank used to refuse a LATE event that would move a shipment backwards when the
      * event carries no timestamp of its own. Sideways states (postponed/failed attempts) share a rank
@@ -87,18 +99,42 @@ enum FulfillmentStatus: string
     /** @return list<string> */
     public static function activeValues(): array
     {
-        return array_values(array_map(
-            static fn (self $status): string => $status->value,
-            array_filter(self::cases(), static fn (self $status): bool => $status->isActive()),
-        ));
+        return self::valuesWhere(static fn (self $status): bool => $status->isActive());
     }
 
     /** @return list<string> */
     public static function terminalValues(): array
     {
+        return self::valuesWhere(static fn (self $status): bool => $status->isTerminal());
+    }
+
+    /** @return list<string> */
+    public static function cancellableLocallyValues(): array
+    {
+        return self::valuesWhere(static fn (self $status): bool => $status->isCancellableLocally());
+    }
+
+    /** @return list<string> */
+    public static function sendOutcomeUnknownValues(): array
+    {
+        return self::valuesWhere(static fn (self $status): bool => $status->isSendOutcomeUnknown());
+    }
+
+    /** @return list<string> */
+    public static function preSubmissionValues(): array
+    {
+        return self::valuesWhere(static fn (self $status): bool => $status->isPreSubmission());
+    }
+
+    /**
+     * @param callable(self): bool $filter
+     * @return list<string>
+     */
+    private static function valuesWhere(callable $filter): array
+    {
         return array_values(array_map(
             static fn (self $status): string => $status->value,
-            array_filter(self::cases(), static fn (self $status): bool => $status->isTerminal()),
+            array_filter(self::cases(), $filter),
         ));
     }
 }

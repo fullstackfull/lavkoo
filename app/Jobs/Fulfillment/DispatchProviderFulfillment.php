@@ -7,7 +7,6 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -19,7 +18,7 @@ use Throwable;
  */
 class DispatchProviderFulfillment implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, OneAtATimePerFulfillment, Queueable, SerializesModels;
 
     public int $tries = 1;
 
@@ -27,12 +26,6 @@ class DispatchProviderFulfillment implements ShouldQueue
 
     public function __construct(public readonly int $fulfillmentId, public readonly bool $manual = false)
     {
-    }
-
-    /** @return list<object> */
-    public function middleware(): array
-    {
-        return [(new WithoutOverlapping('provider-fulfillment-' . $this->fulfillmentId))->dontRelease()->expireAfter(180)];
     }
 
     public function handle(ProviderOrderDispatcher $dispatcher): void

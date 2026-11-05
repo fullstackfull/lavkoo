@@ -79,6 +79,18 @@ class FulfillmentPreflightTest extends FulfillmentTestCase
         $this->assertStringContainsString('not added yet', $this->find($checks, 'products.fulfillment_provider')->detail);
     }
 
+    public function test_a_database_migrated_by_an_earlier_revision_of_the_feature_is_told_what_it_lacks(): void
+    {
+        $this->assertSame(PreflightCheck::PASS, $this->find($this->report(), 'fulfillment columns')->status);
+
+        Schema::table('provider_fulfillments', fn ($table) => $table->dropColumn('cancel_blocked_reason'));
+
+        $check = $this->find($this->report(), 'fulfillment columns');
+        $this->assertSame(PreflightCheck::FAIL, $check->status);
+        $this->assertStringContainsString('provider_fulfillments.cancel_blocked_reason', $check->detail);
+        $this->assertStringContainsString('roll that one migration back', $check->detail);
+    }
+
     public function test_a_half_applied_migration_fails(): void
     {
         Schema::dropIfExists('provider_cities');

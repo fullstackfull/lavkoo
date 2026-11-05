@@ -21,6 +21,18 @@
 
         <div class="row g-3">
             <div class="col-lg-8">
+                @if ($fulfillment->isCancelBlocked())
+                    <div class="alert alert-danger fs-12" role="alert">
+                        <strong>{{ translate('cancel_blocked_title') }}</strong>
+                        <div>{{ translate('cancel_blocked_help') }} {{ $fulfillment->cancel_blocked_reason }}</div>
+                    </div>
+                @elseif ($fulfillment->isCancelRequested())
+                    <div class="alert alert-warning fs-12" role="alert">{{ translate('cancel_requested_note') }}</div>
+                @elseif ($fulfillment->cancel_intent_at && $open)
+                    <div class="alert alert-info fs-12" role="alert">{{ translate('cancel_wanted_note') }}
+                        @if ($fulfillment->cancel_attempts > 0){{ translate('cancel_retrying_note') }}@endif</div>
+                @endif
+
                 <x-k.card :title="translate('shipment')" class="mb-3">
                     <dl class="row mb-0 fs-12">
                         <dt class="col-sm-4">{{ translate('status') }}</dt>
@@ -135,12 +147,13 @@
                     @endif
 
                     @if ($accepted && $open)
-                        <form method="POST" action="{{ $action('cancel') }}" class="mb-2" onsubmit="return confirm('{{ translate('cancel_at_provider_confirmation') }}')">@csrf
+                        <form method="POST" action="{{ $action('cancel') }}" class="mb-2" onsubmit="return confirm(@js(translate('cancel_at_provider_confirmation')))">@csrf
                             <button class="btn btn-outline-danger btn-sm w-100" type="submit">{{ translate('cancel_at_provider') }}</button></form>
                     @endif
 
                     @if ($status === FulfillmentStatus::Cancelled)
-                        <form method="POST" action="{{ $action('redispatch') }}" class="mb-2" onsubmit="return confirm('{{ translate('redispatch_confirmation') }}')">@csrf
+                        <form method="POST" action="{{ $action('redispatch') }}" class="mb-2" onsubmit="return confirm(@js(translate('redispatch_confirmation')))">@csrf
+                            <input class="form-control form-control-sm mb-1" name="reason" required maxlength="255" placeholder="{{ translate('confirm_original_cancelled_at_provider') }}">
                             <button class="btn btn-outline-primary btn-sm w-100" type="submit">{{ translate('redispatch_as_new_shipment') }}</button></form>
                     @endif
 
@@ -163,7 +176,7 @@
 
                     @if ($accepted && $open)
                         @foreach (['mark-delivered' => 'mark_delivered_by_hand', 'mark-cancelled' => 'mark_cancelled_by_hand'] as $name => $label)
-                            <form method="POST" action="{{ $action($name) }}" class="mb-2" onsubmit="return confirm('{{ translate('are_you_sure') }}')">@csrf
+                            <form method="POST" action="{{ $action($name) }}" class="mb-2" onsubmit="return confirm(@js(translate('are_you_sure')))">@csrf
                                 <input class="form-control form-control-sm mb-1" name="reason" required maxlength="255" placeholder="{{ translate('reason_recorded_in_audit_log') }}">
                                 <button class="btn btn-outline-secondary btn-sm w-100" type="submit">{{ translate($label) }}</button></form>
                         @endforeach

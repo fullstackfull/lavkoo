@@ -48,6 +48,15 @@ class FulfillmentPreflight
         'provider_cities', 'provider_city_aliases', 'product_provider_changes',
     ];
 
+    /**
+     * Columns added to the feature's own tables after its first revision. The feature ships as one unreleased migration that
+     * is edited in place, so a database migrated by an earlier revision of this branch has the tables but not these columns.
+     */
+    private const LATER_COLUMNS = [
+        'provider_fulfillments' => ['cancel_intent_at', 'cancel_requested_at', 'cancel_attempts', 'cancel_next_at', 'cancel_blocked_reason'],
+        'provider_catalog_items' => ['imported_hash'],
+    ];
+
     private const MIGRATIONS = [
         '2026_11_05_100000_create_provider_fulfillment_tables',
         '2026_11_05_100100_add_fulfillment_provider_to_products_table',
@@ -125,6 +134,8 @@ class FulfillmentPreflight
             count($existing) === count(self::OWN_TABLES) => $this->pass('schema', 'fulfillment tables', 'all ' . count($existing) . ' present'),
             default => $this->fail('schema', 'fulfillment tables', 'only ' . count($existing) . ' of ' . count(self::OWN_TABLES) . ' exist (' . implode(', ', array_diff(self::OWN_TABLES, $existing)) . ' missing): a partial migration. Roll back and re-run.'),
         };
+
+        $checks[] = $this->laterColumns();
 
         $recorded = Schema::hasTable('migrations') ? DB::table('migrations')->whereIn('migration', self::MIGRATIONS)->pluck('migration')->all() : [];
         $checks[] = count($recorded) === count(self::MIGRATIONS)
@@ -213,6 +224,20 @@ class FulfillmentPreflight
             $failing => $this->warn('runtime', 'scheduler heartbeat', 'the sweep is running but its last run reported failures: ' . (string) $state->last_error),
             default => $this->pass('runtime', 'scheduler heartbeat', 'last sweep ' . (int) $age . ' minute(s) ago'),
         };
+    }
+
+    private function laterColumns(): PreflightCheck
+    {
+        $missing = [];
+        foreach (self::LATER_COLUMNS as $table => $columns) {
+            if (Schema::hasTable($table)) {
+                array_push($missing, ...array_map(static fn (string $column): string => "{$table}.{$column}", array_filter($columns, static fn (string $column): bool => !Schema::hasColumn($table, $column))));
+            }
+        }
+
+        return $missing === []
+            ? $this->pass('schema', 'fulfillment columns', 'up to date')
+            : $this->fail('schema', 'fulfillment columns', 'missing ' . implode(', ', $missing) . ': this database was migrated by an earlier revision of the feature. On a throwaway or staging database roll that one migration back and migrate again; never edit a production schema by hand.');
     }
 
     private function idTypes(): PreflightCheck

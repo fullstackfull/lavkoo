@@ -81,14 +81,34 @@ class FulfillmentRecovery
             ->update(['status' => ProviderFulfillmentItem::STATUS_CANCELLED]);
     }
 
-    /** A cancelled parent order cancels its OWN provider fulfillments — each independently, nothing else. */
+    /**
+     * A cancelled parent order cancels its OWN provider fulfillments — each independently, nothing else. Also the
+     * retry path for every cancellation that is wanted but not done: a failed ask that is due again, an acceptance
+     * that arrived after the wish was noted, an ask the queue never delivered.
+     *
+     * A row only qualifies while there is something to do. One that is waiting for a send to resolve, was asked and is
+     * waiting for the provider to report, or needs a person is left out — otherwise a handful of such rows would fill the
+     * `limit` every minute and starve the ones that can still be cancelled.
+     */
     public function cancelForClosedOrders(int $limit = 100): int
     {
         $ids = DB::table('provider_fulfillments as pf')
             ->join('orders', 'orders.id', '=', 'pf.order_id')
-            ->whereIn('orders.order_status', OrderEligibility::CLOSED_STATUSES)
             ->whereIn('pf.status', FulfillmentStatus::activeValues())
-            ->whereNull(DB::raw("json_extract(pf.meta, '$.cancel_requested_at')"))
+            ->where(static fn ($wanted) => $wanted
+                ->whereIn('orders.order_status', OrderEligibility::CLOSED_STATUSES)
+                ->orWhereNotNull('pf.cancel_intent_at'))
+            ->where(static fn ($actionable) => $actionable
+                ->whereIn('pf.status', FulfillmentStatus::cancellableLocallyValues())
+                ->orWhere(static fn ($unknown) => $unknown
+                    ->whereIn('pf.status', FulfillmentStatus::sendOutcomeUnknownValues())
+                    ->whereNull('pf.cancel_intent_at'))
+                ->orWhere(static fn ($withProvider) => $withProvider
+                    ->whereNotIn('pf.status', FulfillmentStatus::preSubmissionValues())
+                    ->whereNull('pf.cancel_requested_at')
+                    ->whereNull('pf.cancel_blocked_reason')
+                    ->where(static fn ($due) => $due->whereNull('pf.cancel_next_at')->orWhere('pf.cancel_next_at', '<=', now()))))
+            ->orderBy('pf.id')
             ->limit($limit)
             ->pluck('pf.id');
 

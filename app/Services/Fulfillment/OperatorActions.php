@@ -2,12 +2,12 @@
 
 namespace App\Services\Fulfillment;
 
-use App\Enums\Fulfillment\EventOutcome;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\AuditLogger;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -17,12 +17,27 @@ use InvalidArgumentException;
  * These are the manual-recovery controls the dispatcher's own safety rules leave open on purpose: an
  * ambiguous submission is never re-sent automatically, so an operator who has CHECKED the provider's own
  * dashboard says so here, and the statement is recorded with who made it and why.
+ *
+ * Every change is made by the tracker under the row lock and only from the state the person was looking at: if a
+ * worker, a webhook or a reconciliation moved the fulfillment in the meantime, the action is refused instead of
+ * overwriting a fact that arrived later.
  */
 class OperatorActions
 {
+    /** The cancellation was handed to a queue worker; its result will show on the shipment. */
+    public const CANCEL_QUEUED = 'queued';
+
+    /** Holds that clear when their cause is fixed; a person pressing "release" would only send what the rule stopped. */
+    private const HOLDS_RELEASED_BY_THEIR_CAUSE = [
+        HoldReason::MIXED_COD_BLOCKED,
+        HoldReason::CURRENCY_UNCONVERTIBLE,
+        HoldReason::ALREADY_WITH_PROVIDER,
+    ];
+
     public function __construct(
         private readonly ShipmentTracker $tracker,
         private readonly FulfillmentQueue $queue,
+        private readonly FulfillmentCancellation $cancellation,
         private readonly AuditLogger $audit,
     ) {
     }
@@ -31,15 +46,13 @@ class OperatorActions
     public function release(int $fulfillmentId): void
     {
         $fulfillment = $this->find($fulfillmentId);
-        if ($fulfillment->status === FulfillmentStatus::Held && in_array($fulfillment->hold_reason, [HoldReason::MIXED_COD_BLOCKED, HoldReason::CURRENCY_UNCONVERTIBLE], true)) {
-            throw new InvalidArgumentException('A money hold is released by fixing its cause, not by an operator.');
+        if ($fulfillment->status === FulfillmentStatus::Held && in_array($fulfillment->hold_reason, self::HOLDS_RELEASED_BY_THEIR_CAUSE, true)) {
+            throw new InvalidArgumentException('This hold is released by fixing its cause, not by an operator.');
         }
-        if (!in_array($fulfillment->status, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed], true)) {
+        if (!$this->tracker->release($fulfillmentId, 'operator', freshStart: true)) {
             throw new InvalidArgumentException('Only a held, dry-run or failed fulfillment can be released.');
         }
 
-        $this->tracker->release($fulfillmentId, 'operator');
-        DB::table('provider_fulfillments')->where('id', $fulfillmentId)->update(['attempts' => 0, 'reconcile_attempts' => 0]);
         $this->recordAudit('fulfillment.released', $fulfillment);
         $this->queue->dispatchFulfillment($fulfillmentId, 0, true);
     }
@@ -48,22 +61,10 @@ class OperatorActions
     public function confirmNotCreated(int $fulfillmentId, string $reason): void
     {
         $fulfillment = $this->find($fulfillmentId);
-        if ($fulfillment->status !== FulfillmentStatus::ReconcilePending) {
-            throw new InvalidArgumentException('Only a fulfillment awaiting reconciliation can be confirmed as not created.');
+        if (!$this->tracker->confirmNotCreated($fulfillmentId, $reason)) {
+            throw new InvalidArgumentException('Only a fulfillment still awaiting reconciliation, with no provider reference, can be confirmed as not created.');
         }
 
-        DB::table('provider_fulfillments')->where('id', $fulfillmentId)->update([
-            'status' => FulfillmentStatus::Pending->value,
-            'hold_reason' => null,
-            'last_error_code' => null,
-            'last_error_message' => null,
-            'next_attempt_at' => null,
-            'claim_token' => null,
-            'attempts' => 0,
-            'reconcile_attempts' => 0,
-            'updated_at' => now(),
-        ]);
-        $this->tracker->record($fulfillment->provider, 'manual', 'reconcile', $fulfillmentId, null, null, FulfillmentStatus::Pending->value, null, EventOutcome::APPLIED, 'operator_confirmed_not_created: ' . $reason);
         $this->recordAudit('fulfillment.confirmed_not_created', $fulfillment, ['reason' => $reason]);
         $this->queue->dispatchFulfillment($fulfillmentId, 0, true);
     }
@@ -72,29 +73,22 @@ class OperatorActions
     public function linkReference(int $fulfillmentId, string $reference, ?string $trackingNumber, string $reason): void
     {
         $fulfillment = $this->find($fulfillmentId);
-        if (!in_array($fulfillment->status, [FulfillmentStatus::ReconcilePending, FulfillmentStatus::Failed, FulfillmentStatus::Held, FulfillmentStatus::Pending], true)) {
-            throw new InvalidArgumentException('This fulfillment already has an outcome.');
-        }
-        if (trim($reference) === '') {
+        $reference = trim($reference);
+        if ($reference === '') {
             throw new InvalidArgumentException('A provider reference is required.');
         }
 
-        DB::transaction(function () use ($fulfillmentId, $reference, $trackingNumber): void {
-            DB::table('provider_fulfillments')->where('id', $fulfillmentId)->update([
-                'provider_reference' => trim($reference),
-                'tracking_number' => $trackingNumber !== null && trim($trackingNumber) !== '' ? trim($trackingNumber) : null,
-                'status' => FulfillmentStatus::Submitted->value,
-                'submitted_at' => now(),
-                'hold_reason' => null,
-                'last_error_code' => null,
-                'last_error_message' => null,
-                'next_attempt_at' => null,
-                'claim_token' => null,
-                'updated_at' => now(),
-            ]);
-        });
-        $this->tracker->record($fulfillment->provider, 'manual', 'reconcile', $fulfillmentId, $reference, null, FulfillmentStatus::Submitted->value, null, EventOutcome::APPLIED, 'operator_linked_reference: ' . $reason);
+        try {
+            $linked = $this->tracker->linkProviderReference($fulfillmentId, $reference, $this->nullIfBlank($trackingNumber), $reason);
+        } catch (UniqueConstraintViolationException) {
+            throw new InvalidArgumentException('Another shipment already carries this provider reference.');
+        }
+        if (!$linked) {
+            throw new InvalidArgumentException('This fulfillment already has an outcome.');
+        }
+
         $this->recordAudit('fulfillment.reference_linked', $fulfillment, ['reference' => $reference, 'reason' => $reason]);
+        $this->cancellation->honourIntent($fulfillmentId);
     }
 
     /** Needed when a provider cannot report delivery itself (M5AZN documents no status webhook). */
@@ -108,26 +102,55 @@ class OperatorActions
         $this->applyManual($fulfillmentId, FulfillmentStatus::Cancelled, $reason, 'fulfillment.marked_cancelled');
     }
 
-    public function requestCancel(int $fulfillmentId): void
+    /**
+     * Ask for the shipment to be cancelled. Run on the spot when there is no queue worker (the `sync` driver), so the
+     * person sees the answer instead of a request that nothing will pick up.
+     *
+     * @return string a FulfillmentCancellation / CancelLease / CancellationResult outcome, or self::CANCEL_QUEUED
+     */
+    public function requestCancel(int $fulfillmentId): string
     {
         $fulfillment = $this->find($fulfillmentId);
         $this->recordAudit('fulfillment.cancel_requested', $fulfillment);
-        $this->queue->dispatchCancel($fulfillmentId);
+
+        if ($this->queue->runsInline()) {
+            return $this->cancellation->cancel(fulfillmentId: $fulfillmentId, manual: true);
+        }
+
+        $this->queue->dispatchCancel($fulfillmentId, manual: true);
+
+        return self::CANCEL_QUEUED;
     }
 
-    /** A cancelled fulfillment's items go back to unrouted, so routing creates generation + 1. */
-    public function redispatchAsNewGeneration(int $fulfillmentId): void
+    /**
+     * A cancelled fulfillment's items go back to unrouted, so routing creates generation + 1.
+     *
+     * The original is "cancelled" in OUR records; at the provider it may still be live (it is cancelled by hand when
+     * the provider cannot do it). Sending a replacement while the original still ships delivers the goods twice, so
+     * the person must say they checked.
+     */
+    public function redispatchAsNewGeneration(int $fulfillmentId, string $reason): void
     {
         $fulfillment = $this->find($fulfillmentId);
-        if ($fulfillment->status !== FulfillmentStatus::Cancelled) {
+
+        $released = DB::transaction(function () use ($fulfillmentId): bool {
+            $locked = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
+            if ($locked === null || $locked->status !== FulfillmentStatus::Cancelled) {
+                return false;
+            }
+
+            ProviderFulfillmentItem::where('provider_fulfillment_id', $fulfillmentId)->update([
+                'provider_fulfillment_id' => null,
+                'status' => ProviderFulfillmentItem::STATUS_UNROUTED,
+            ]);
+
+            return true;
+        });
+        if (!$released) {
             throw new InvalidArgumentException('Only a cancelled fulfillment can be re-dispatched as a new generation.');
         }
 
-        ProviderFulfillmentItem::where('provider_fulfillment_id', $fulfillmentId)->update([
-            'provider_fulfillment_id' => null,
-            'status' => ProviderFulfillmentItem::STATUS_UNROUTED,
-        ]);
-        $this->recordAudit('fulfillment.redispatched_new_generation', $fulfillment);
+        $this->recordAudit('fulfillment.redispatched_new_generation', $fulfillment, ['reason' => $reason]);
         $this->queue->dispatchRoute($fulfillment->order_id);
     }
 
@@ -145,6 +168,11 @@ class OperatorActions
     private function find(int $fulfillmentId): ProviderFulfillment
     {
         return ProviderFulfillment::findOrFail($fulfillmentId);
+    }
+
+    private function nullIfBlank(?string $value): ?string
+    {
+        return $value !== null && trim($value) !== '' ? trim($value) : null;
     }
 
     /** @param array<string, mixed> $context */

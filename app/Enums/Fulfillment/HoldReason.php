@@ -20,5 +20,6 @@ final class HoldReason
     public const ADDRESS_INCOMPLETE = 'hold_address_incomplete';
     public const PHONE_INVALID = 'hold_phone_invalid';
     public const ACKNOWLEDGEMENT_REQUIRED = 'hold_acknowledgement_required';
+    public const ALREADY_WITH_PROVIDER = 'hold_already_with_provider';
     public const MANUAL = 'hold_manual';
 }

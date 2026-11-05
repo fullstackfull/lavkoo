@@ -31,6 +31,12 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     /** @var list<SubmissionResult> results returned by reconcileSubmission() */
     public array $reconcileQueue = [];
 
+    /** @var list<CancellationResult|\Throwable> results (or failures) returned by cancel(), consumed in order */
+    public array $cancelQueue = [];
+
+    /** Runs inside submit(), while the fulfillment is claimed: lets a test act in the middle of a send. */
+    public ?\Closure $whileSubmitting = null;
+
     public ?bool $confirmStatusAnswer = true;
 
     public PreflightResult|null $preflight = null;
@@ -69,6 +75,9 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     public function submit(ProviderFulfillment $fulfillment): SubmissionResult
     {
         $this->calls[] = 'submit:' . $fulfillment->reference . ':' . $fulfillment->items->pluck('product_id')->sort()->implode(',');
+        if ($this->whileSubmitting !== null) {
+            ($this->whileSubmitting)($fulfillment);
+        }
 
         return array_shift($this->submitQueue) ?? SubmissionResult::accepted('REF-' . $fulfillment->reference);
     }
@@ -84,7 +93,12 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     {
         $this->calls[] = 'cancel:' . $fulfillment->reference;
 
-        return CancellationResult::requested();
+        $next = array_shift($this->cancelQueue);
+        if ($next instanceof \Throwable) {
+            throw $next;
+        }
+
+        return $next ?? CancellationResult::requested();
     }
 
     public function fetchStatus(ProviderFulfillment $fulfillment): ?StatusSnapshot

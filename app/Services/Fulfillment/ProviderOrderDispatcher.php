@@ -57,6 +57,7 @@ class ProviderOrderDispatcher
         private readonly ShipmentTracker $tracker,
         private readonly FulfillmentQueue $queue,
         private readonly ProviderSyncRecorder $sync,
+        private readonly FulfillmentCancellation $cancellation,
     ) {
     }
 
@@ -106,6 +107,12 @@ class ProviderOrderDispatcher
 
             $provider = $fulfillment->providerCode();
             if ($provider === null) {
+                return null;
+            }
+
+            if ($fulfillment->provider_reference !== null || $fulfillment->provider_secondary_reference !== null) {
+                $this->tracker->hold($fulfillment->id, HoldReason::ALREADY_WITH_PROVIDER, 'The provider already gave this shipment a reference; it is linked, never sent again.');
+
                 return null;
             }
 
@@ -188,6 +195,7 @@ class ProviderOrderDispatcher
         if ($result->isAccepted()) {
             $this->tracker->recordAcceptance($id, $result);
             $this->sync->succeeded($provider, ProviderSyncRecorder::ORDERS);
+            $this->cancellation->honourIntent($id);
 
             return;
         }

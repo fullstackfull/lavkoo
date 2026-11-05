@@ -297,6 +297,60 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->assertSame('WH-5551', $unknown->provider_reference);
     }
 
+    public function test_the_shipment_page_says_what_the_cancellation_has_reached(): void
+    {
+        $blocked = $this->shipment(100, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['provider_reference' => 'MZ-1', 'cancel_blocked_reason' => 'unsupported: Cancel it in the <b>M5AZN</b> dashboard']);
+        $requested = $this->shipment(101, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['provider_reference' => 'MZ-2', 'cancel_requested_at' => now()], productId: 2);
+        $wanted = $this->shipment(102, ProviderCode::M5azn, FulfillmentStatus::ReconcilePending, ['cancel_intent_at' => now()], productId: 3);
+        $plain = $this->shipment(103, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['provider_reference' => 'MZ-4'], productId: 4);
+        $page = fn (ProviderFulfillment $fulfillment): string => $this->get(route('admin.fulfillment-providers.fulfillments.show', $fulfillment->id))->assertOk()->getContent();
+
+        $blockedHtml = $page($blocked);
+        $this->assertStringContainsString('Automatic cancellation cannot finish', $blockedHtml);
+        $this->assertStringContainsString('Cancel it in the &lt;b&gt;M5AZN&lt;/b&gt; dashboard', $blockedHtml, 'provider text is escaped, never rendered as markup');
+        $this->assertStringContainsString('Cancellation requested.', $page($requested));
+        $this->assertStringContainsString('Cancellation is wanted and will be sent', $page($wanted));
+
+        $plainHtml = $page($plain);
+        foreach (['Automatic cancellation cannot finish', 'Cancellation requested.', 'Cancellation is wanted'] as $banner) {
+            $this->assertStringNotContainsString($banner, $plainHtml);
+        }
+    }
+
+    public function test_a_blocked_cancellation_appears_under_needs_attention(): void
+    {
+        $this->shipment(100, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['provider_reference' => 'MZ-1', 'cancel_blocked_reason' => 'unsupported'], productId: 1);
+        $this->shipment(101, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['provider_reference' => 'MZ-2'], productId: 2);
+
+        $html = $this->get(route('admin.fulfillment-providers.fulfillments.index', ['attention' => 1]))->getContent();
+
+        $this->assertStringContainsString('100-MZ1', $html);
+        $this->assertStringNotContainsString('101-MZ1', $html);
+    }
+
+    public function test_cancelling_at_a_provider_that_cannot_says_so_instead_of_reporting_success(): void
+    {
+        config(['queue.default' => 'sync']);
+        $shipment = $this->shipment(100, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['provider_reference' => 'MZ-1']);
+        $this->m5azn->cancelQueue = [\App\Services\Fulfillment\Data\CancellationResult::unsupported('M5AZN documents no cancel endpoint.')];
+
+        $this->post(route('admin.fulfillment-providers.fulfillments.action', ['id' => $shipment->id, 'action' => 'cancel']))->assertRedirect();
+
+        $this->assertTrue($shipment->refresh()->isCancelBlocked());
+        $this->assertNull($shipment->cancel_requested_at);
+    }
+
+    public function test_re_dispatching_a_cancelled_shipment_needs_a_stated_check_of_the_original(): void
+    {
+        $cancelled = $this->shipment(100, ProviderCode::M5azn, FulfillmentStatus::Cancelled);
+
+        $this->post(route('admin.fulfillment-providers.fulfillments.action', ['id' => $cancelled->id, 'action' => 'redispatch']), ['reason' => ''])->assertSessionHasErrors('reason');
+        $this->assertSame($cancelled->id, \App\Models\ProviderFulfillmentItem::where('order_id', 100)->first()->provider_fulfillment_id);
+
+        $this->post(route('admin.fulfillment-providers.fulfillments.action', ['id' => $cancelled->id, 'action' => 'redispatch']), ['reason' => 'M5AZN dashboard shows it cancelled'])->assertSessionHasNoErrors();
+        $this->assertNull(\App\Models\ProviderFulfillmentItem::where('order_id', 100)->first()->provider_fulfillment_id);
+    }
+
     public function test_an_unknown_operator_action_is_a_404(): void
     {
         $fulfillment = $this->shipment(100, ProviderCode::M5azn, FulfillmentStatus::Held);

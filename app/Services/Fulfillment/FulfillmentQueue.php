@@ -54,10 +54,10 @@ class FulfillmentQueue
         }
     }
 
-    public function dispatchCancel(int $fulfillmentId): void
+    public function dispatchCancel(int $fulfillmentId, bool $manual = false): void
     {
         if (!$this->runsInline()) {
-            $this->configure(CancelProviderFulfillment::dispatch($fulfillmentId));
+            $this->configure(CancelProviderFulfillment::dispatch($fulfillmentId, $manual));
         }
     }
 

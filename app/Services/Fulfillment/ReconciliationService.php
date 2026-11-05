@@ -25,6 +25,7 @@ class ReconciliationService
         private readonly ShipmentTracker $tracker,
         private readonly FulfillmentQueue $queue,
         private readonly ProviderSyncRecorder $sync,
+        private readonly FulfillmentCancellation $cancellation,
     ) {
     }
 
@@ -52,9 +53,7 @@ class ReconciliationService
 
         if ($result !== null && $result->isAccepted()) {
             $this->tracker->recordAcceptance($fulfillment->id, $result);
-            if (ProviderFulfillment::find($fulfillment->id)?->isCancelRequested()) {
-                $this->queue->dispatchCancel($fulfillment->id);
-            }
+            $this->cancellation->honourIntent($fulfillment->id);
 
             return 'accepted';
         }

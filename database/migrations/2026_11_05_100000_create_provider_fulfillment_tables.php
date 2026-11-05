@@ -77,6 +77,19 @@ return new class extends Migration
                 $table->string('last_error_code', 64)->nullable();
                 $table->text('last_error_message')->nullable();
 
+                // Cancellation is a request, not a status: the status keeps following what the provider reports.
+                //  - intent:    someone wants it cancelled (order closed, operator asked). Kept even while the
+                //               provider cannot be asked yet, and honoured the moment it can.
+                //  - requested: the provider ACKNOWLEDGED our cancel request. Set only on that answer.
+                //  - next_at:   the lease on an attempt in progress, or when a failed attempt may be repeated.
+                //  - blocked:   automatic cancellation cannot succeed (unsupported / refused / kept failing);
+                //               a person must act at the provider and then mark the shipment cancelled here.
+                $table->timestamp('cancel_intent_at')->nullable();
+                $table->timestamp('cancel_requested_at')->nullable();
+                $table->unsignedSmallInteger('cancel_attempts')->default(0);
+                $table->timestamp('cancel_next_at')->nullable();
+                $table->string('cancel_blocked_reason', 500)->nullable();
+
                 $table->timestamp('submitted_at')->nullable();
                 $table->timestamp('shipped_at')->nullable();
                 $table->timestamp('delivered_at')->nullable();

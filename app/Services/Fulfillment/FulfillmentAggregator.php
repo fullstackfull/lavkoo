@@ -6,6 +6,7 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Fulfillment\Data\FulfillmentSummary;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -60,12 +61,22 @@ class FulfillmentAggregator
         $notHandedOver = ProviderFulfillmentItem::where('order_id', $orderId)->where('status', ProviderFulfillmentItem::STATUS_UNROUTED)->exists();
 
         return new FulfillmentSummary(
-            status: self::statusFor($statuses),
+            status: $this->withBlockedCancellations(self::statusFor($statuses), $fulfillments),
             fulfillments: $fulfillments,
             mixed: $providers > 1 || ($providers >= 1 && $inHouse),
             allRequiredFinished: $fulfillments->isNotEmpty() && $unfinished === [] && !$notHandedOver,
             deliveryBlockedReason: $unfinished === [] && !$notHandedOver ? null : 'provider_shipments_not_delivered',
         );
+    }
+
+    /** A cancellation that cannot finish by itself needs a person, whatever else the order is doing. */
+    private function withBlockedCancellations(string $status, Collection $fulfillments): string
+    {
+        $finished = [self::DELIVERED, self::CANCELLED, self::RETURNED, self::PARTIALLY_RETURNED];
+
+        return !in_array($status, $finished, true) && $fulfillments->contains(static fn (ProviderFulfillment $fulfillment): bool => $fulfillment->isCancelBlocked())
+            ? self::ATTENTION_REQUIRED
+            : $status;
     }
 
     /**
