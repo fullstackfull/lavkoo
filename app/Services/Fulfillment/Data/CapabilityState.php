@@ -10,6 +10,7 @@ final readonly class CapabilityState
     public const NEEDS_CONFIGURATION = 'needs_configuration';
     public const UNVERIFIED = 'unverified';
     public const UNDOCUMENTED = 'undocumented';
+    public const NOT_USED = 'not_used';
 
     public function __construct(
         public string $key,

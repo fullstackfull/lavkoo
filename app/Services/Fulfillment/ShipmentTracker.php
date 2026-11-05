@@ -7,6 +7,7 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
 use App\Services\Fulfillment\Data\SubmissionResult;
+use App\Services\Fulfillment\Support\AppTime;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,8 @@ class ShipmentTracker
         array $extra = [],
         ?string $attentionNote = null,
     ): string {
+        $occurredAt = AppTime::local($occurredAt);
+
         return DB::transaction(function () use ($fulfillmentId, $incoming, $occurredAt, $source, $providerStatus, $event, $extra, $attentionNote): string {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
             if ($fulfillment === null) {
@@ -240,7 +243,7 @@ class ShipmentTracker
             'external_reference' => $externalReference,
             'provider_status' => $providerStatus,
             'internal_status' => $internalStatus,
-            'occurred_at' => $occurredAt,
+            'occurred_at' => AppTime::local($occurredAt),
             'received_at' => now(),
             'processed_at' => now(),
             'outcome' => $outcome,

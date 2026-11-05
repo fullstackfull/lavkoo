@@ -7,6 +7,7 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
 use App\Services\Fulfillment\Contracts\HandlesWebhooks;
+use App\Services\Fulfillment\Support\AppTime;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -61,7 +62,7 @@ class WebhookEventProcessor
                 'dedupe_key' => $normalized->dedupeKey,
                 'external_reference' => $normalized->reference('barcode'),
                 'provider_status' => $normalized->providerStatus,
-                'occurred_at' => $normalized->occurredAt,
+                'occurred_at' => AppTime::local($normalized->occurredAt),
                 'received_at' => now(),
                 'outcome' => EventOutcome::RECEIVED,
                 'payload' => SecretRedactor::redact($payload),
@@ -121,6 +122,13 @@ class WebhookEventProcessor
         if ($confirmed === false) {
             return $this->close($event, EventOutcome::REJECTED_UNVERIFIED, 'provider_contradicts_event', $fulfillment->id);
         }
+        if ($confirmed === null) {
+            // We tried to confirm it with the provider and could not. A claim we cannot check waits; it is
+            // never applied on trust, and the recovery sweep re-queues it.
+            $event->forceFill(['outcome_note' => 'verification_unavailable', 'provider_fulfillment_id' => $fulfillment->id])->save();
+
+            return EventOutcome::RECEIVED;
+        }
 
         return $this->tracker->applyProviderStatus(
             fulfillmentId: $fulfillment->id,
@@ -134,11 +142,18 @@ class WebhookEventProcessor
         );
     }
 
-    /** Re-queue young events that matched nothing: the reference that identifies them may be known by now. */
+    /**
+     * Re-run young events that are still waiting: ones that matched nothing (the reference that identifies
+     * them may be known by now) and ones waiting for the provider to confirm their claim.
+     */
     public function retryUnmatched(): int
     {
-        $ids = ProviderFulfillmentEvent::where('outcome', EventOutcome::IGNORED_UNMATCHED)
+        $ids = ProviderFulfillmentEvent::query()
             ->where('received_at', '>=', now()->subHours(self::UNMATCHED_RETRY_HOURS))
+            ->where(static function ($query): void {
+                $query->where('outcome', EventOutcome::IGNORED_UNMATCHED)
+                    ->orWhere(static fn ($waiting) => $waiting->where('outcome', EventOutcome::RECEIVED)->where('received_at', '<=', now()->subMinute()));
+            })
             ->orderBy('id')
             ->limit(200)
             ->pluck('id');
