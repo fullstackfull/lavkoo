@@ -5,12 +5,14 @@ use App\Http\Controllers\Admin\Fulfillment\LiveVerificationController;
 use App\Http\Controllers\Admin\Fulfillment\M5aznProductsController;
 use App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController;
 use App\Http\Controllers\Admin\Fulfillment\TorodMatchingController;
+use App\Http\Middleware\EnsureFulfillmentMigrated;
 use Illuminate\Support\Facades\Route;
 
 /*
 | Fulfillment providers (M5AZN, Torod Point) — Integration Center and its pages.
 |
-| Same guard as the other third-party settings: an authenticated admin with the `3rd_party_setup` module.
+| Same guard as the other third-party settings: an authenticated admin with the `3rd_party_setup` module. Until the two
+| migrations have run, every page explains that instead of failing on a missing table.
 | Credentials are write-only on these screens; no response ever carries a stored secret. Every POST that calls a
 | provider is rate limited, so a click-happy session, a script or a forged form cannot hammer a provider's API
 | (and lock the account out) from here.
@@ -18,7 +20,7 @@ use Illuminate\Support\Facades\Route;
 Route::group([
     'prefix' => 'admin/fulfillment-providers',
     'as' => 'admin.fulfillment-providers.',
-    'middleware' => ['admin', 'actch:admin_panel', 'module:3rd_party_setup'],
+    'middleware' => ['admin', 'actch:admin_panel', 'module:3rd_party_setup', EnsureFulfillmentMigrated::class],
 ], function () {
     Route::get('/', [IntegrationCenterController::class, 'index'])->name('index');
 

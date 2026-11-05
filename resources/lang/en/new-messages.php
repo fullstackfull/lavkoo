@@ -8656,6 +8656,8 @@ return [
 	'send_automatically_help' => 'Off: every order that is due waits for an operator to release it (Release for dispatch), which sends that one order. Turn this on only after the live verification and a controlled test order have succeeded.',
 	'dispatch_manual_approval' => 'Dispatch: each order needs approval',
 	'approve_and_send' => 'Approve and send this order',
+	'fulfillment_not_migrated' => 'The fulfillment tables have not been created yet',
+	'fulfillment_not_migrated_help' => 'The code is deployed, but its two migrations have not been run, so nothing on these pages can work yet and nothing has changed in the store. Run the two migrations below (only these, by path), then reload this page.',
 	'request_preview' => 'Request recorded by the dry run',
 	'request_preview_help' => 'Nothing was sent: this is the request that would be. Phone numbers and e-mail addresses are masked here. Check it; when it is right, turn Dry run off on the provider page and use Release for dispatch to send this order.',
 	'request_fingerprint' => 'Fingerprint of the request (SHA-256)',

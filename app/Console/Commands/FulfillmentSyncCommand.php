@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Console\Commands\Concerns\SkipsUntilMigrated;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderSyncService;
@@ -9,6 +10,8 @@ use Illuminate\Console\Command;
 
 class FulfillmentSyncCommand extends Command
 {
+    use SkipsUntilMigrated;
+
     protected $signature = 'fulfillment:sync
         {provider? : m5azn or torod_point (default: every enabled provider)}
         {--only=products,inventory : comma separated: products, inventory, cities}
@@ -21,6 +24,9 @@ class FulfillmentSyncCommand extends Command
         if (!config('fulfillment.enabled')) {
             $this->line('Fulfillment integrations are disabled; nothing to do.');
 
+            return self::SUCCESS;
+        }
+        if ($this->notMigratedYet()) {
             return self::SUCCESS;
         }
 
