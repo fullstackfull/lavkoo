@@ -5,7 +5,6 @@ namespace Tests\Feature\Fulfillment;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\MappingStatus;
-use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
 use App\Models\Admin;
@@ -144,7 +143,7 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->assertFalse(app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->bool('auto_dispatch'));
 
         // Whether the switch may be turned on is the go-live checklist's decision (GoLiveReadinessTest); this proves the form carries it.
-        $post('1', ['go_live_override' => 1])->assertRedirect();
+        $post('1', ['go_live_override' => 1, 'go_live_reason' => 'Proving that the form carries the switch.'])->assertRedirect();
         $this->assertTrue(app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->bool('auto_dispatch'));
     }
 
@@ -417,6 +416,17 @@ class AdminPagesTest extends AdminPagesTestCase
 
         $other = $this->get(route('admin.fulfillment-providers.fulfillments.show', $submitted->id))->assertOk()->getContent();
         $this->assertStringNotContainsString(e(translate('request_preview')), $other, 'a shipment that recorded no dry run has nothing to preview');
+    }
+
+    public function test_the_recorded_request_is_not_shown_for_a_shipment_that_was_sent_since(): void
+    {
+        $preview = ['invoiceNumber' => '100-TP1', 'receiverPhone' => '*******567'];
+        $sent = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Submitted, ['provider_reference' => 'O-1', 'meta' => ['payload_preview' => $preview, 'payload_hash' => str_repeat('cd', 32)]]);
+
+        $html = $this->get(route('admin.fulfillment-providers.fulfillments.show', $sent->id))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString(e(translate('request_preview')), $html, 'it says "Nothing was sent", which is no longer true');
+        $this->assertStringNotContainsString(str_repeat('cd', 32), $html);
     }
 
     public function test_an_operator_action_that_asserts_a_fact_needs_a_reason(): void

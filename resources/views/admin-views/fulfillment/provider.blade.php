@@ -30,6 +30,9 @@
             <div class="col-xl-8">
                 <form method="POST" action="{{ route('admin.fulfillment-providers.update', $card['slug']) }}" autocomplete="off">
                     @csrf
+                    @foreach (['enabled' => $config->enabled, 'dispatch_enabled' => $config->bool('dispatch_enabled'), 'dry_run' => $config->bool('dry_run', true), 'auto_dispatch' => $config->bool('auto_dispatch')] as $switch => $loaded)
+                        <input type="hidden" name="loaded_{{ $switch }}" value="{{ $loaded ? 1 : 0 }}">
+                    @endforeach
                     <x-k.card :title="translate('connection')" class="mb-3">
                         <div class="form-check form-switch mb-3">
                             <input class="form-check-input" type="checkbox" role="switch" id="enabled" name="enabled" value="1" @checked($config->enabled)>

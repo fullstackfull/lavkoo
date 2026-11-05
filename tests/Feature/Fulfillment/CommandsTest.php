@@ -120,6 +120,35 @@ class CommandsTest extends M5aznTestCase
         $this->assertSame(['y'], ProviderApiLog::pluck('operation')->all());
     }
 
+    public function test_prune_also_clears_old_provider_payloads_and_this_queues_old_failed_jobs_and_nothing_else(): void
+    {
+        $event = static fn (string $reference, $receivedAt): \App\Models\ProviderFulfillmentEvent => \App\Models\ProviderFulfillmentEvent::create([
+            'provider' => 'torod_point', 'source' => 'webhook', 'event_type' => 'lastmile', 'dedupe_key' => $reference, 'external_reference' => $reference,
+            'received_at' => $receivedAt, 'outcome' => 'received', 'payload' => ['notes' => 'ring the bell twice'],
+        ]);
+        $old = $event('old', now()->subDays(90));
+        $recent = $event('recent', now()->subDays(5));
+        \Illuminate\Support\Facades\Schema::create('failed_jobs', static function ($table): void {
+            $table->id();
+            $table->string('uuid')->nullable();
+            $table->text('connection');
+            $table->string('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at');
+        });
+        foreach ([['fulfillment', 90], ['fulfillment', 5], ['default', 90]] as [$queue, $age]) {
+            \Illuminate\Support\Facades\DB::table('failed_jobs')->insert(['uuid' => uniqid(), 'connection' => 'database', 'queue' => $queue, 'payload' => '{}', 'exception' => 'x', 'failed_at' => now()->subDays($age)]);
+        }
+
+        $this->artisan('fulfillment:prune')->assertSuccessful();
+
+        $this->assertNull($old->fresh()->payload, 'the raw text a provider sent is not kept past the retention');
+        $this->assertNotNull($old->fresh(), 'but the status history is');
+        $this->assertSame(['ring the bell twice'], $recent->fresh()->payload['notes'] === null ? [] : [$recent->fresh()->payload['notes']]);
+        $this->assertSame([['fulfillment', 5], ['default', 90]], \Illuminate\Support\Facades\DB::table('failed_jobs')->orderBy('id')->get()->map(static fn ($row): array => [$row->queue, (int) round(now()->diffInDays($row->failed_at, true))])->all());
+    }
+
     public function test_the_schedule_contains_the_recovery_poll_sync_and_prune_tasks(): void
     {
         $schedule = new \Illuminate\Console\Scheduling\Schedule();

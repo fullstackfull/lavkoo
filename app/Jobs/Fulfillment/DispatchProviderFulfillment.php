@@ -19,7 +19,7 @@ use App\Services\Fulfillment\Support\PiiRedactor;
  */
 class DispatchProviderFulfillment implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, OneAtATimePerFulfillment, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, OneAtATimePerFulfillment, Queueable, SerializesModels;
 
     public int $tries = 1;
 
@@ -31,7 +31,7 @@ class DispatchProviderFulfillment implements ShouldQueue
 
     public function handle(ProviderOrderDispatcher $dispatcher): void
     {
-        $dispatcher->dispatch(fulfillmentId: $this->fulfillmentId, manual: $this->manual);
+        $this->withoutPersonalDataInFailures(fn () => $dispatcher->dispatch(fulfillmentId: $this->fulfillmentId, manual: $this->manual));
     }
 
     public function failed(Throwable $exception): void

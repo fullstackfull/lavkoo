@@ -78,6 +78,24 @@ class FulfillmentPreflightTest extends FulfillmentTestCase
         $this->assertSame(PreflightCheck::PASS, $this->find($checks, 'fulfillment tables')->status);
         $this->assertStringContainsString('not migrated yet', $this->find($checks, 'fulfillment tables')->detail);
         $this->assertStringContainsString('not added yet', $this->find($checks, 'products.fulfillment_provider')->detail);
+        $this->assertStringContainsString('nullable and indexed', $this->find($checks, 'products.fulfillment_provider')->detail, 'the preview says what the migration will add, because --pretend cannot show it');
+    }
+
+    public function test_a_server_without_the_platforms_audit_table_is_warned_that_operator_actions_are_not_recorded(): void
+    {
+        $check = $this->find($this->report(), 'audit_logs');
+
+        $this->assertSame(PreflightCheck::WARN, $check->status, 'a warning, not a failure: the go-live override is also kept on the provider settings');
+        $this->assertStringContainsString('NOT recorded', $check->detail);
+    }
+
+    public function test_a_server_with_the_audit_table_passes_that_check(): void
+    {
+        Schema::create('audit_logs', static function ($table): void {
+            $table->id();
+        });
+
+        $this->assertSame(PreflightCheck::PASS, $this->find($this->report(), 'audit_logs')->status);
     }
 
     public function test_a_database_migrated_by_an_earlier_revision_of_the_feature_is_told_what_it_lacks(): void
@@ -264,6 +282,18 @@ class FulfillmentPreflightTest extends FulfillmentTestCase
 
         config(['app.key' => 'base64:' . base64_encode(random_bytes(32))]);
         $this->assertSame(PreflightCheck::PASS, $this->find($this->report(allowProduction: true), 'app key')->status);
+    }
+
+    public function test_an_app_key_that_cannot_be_compared_is_not_reported_as_fine(): void
+    {
+        $preflight = $this->app->make(FulfillmentPreflight::class, ['exampleEnvironmentFile' => base_path('no-such-example.env')]);
+        $this->app['env'] = 'production';
+
+        $check = collect($preflight->safety(allowProduction: true))->first(static fn (PreflightCheck $check): bool => $check->name === 'app key');
+
+        $this->assertSame(PreflightCheck::WARN, $check->status, 'a server without .env.example is the normal case: the check cannot say "differs"');
+        $this->assertStringContainsString('could not be compared', $check->detail);
+        $this->assertStringNotContainsString((string) config('app.key'), $check->detail . $check->name);
     }
 
     public function test_the_scheduler_heartbeat_distinguishes_never_fresh_late_and_stopped(): void

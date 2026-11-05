@@ -51,6 +51,12 @@ class ProviderConnectionManager
         return $this->isGloballyEnabled() && (bool) config('fulfillment.external_writes_enabled', false);
     }
 
+    /** May an order be submitted right now? A real one needs this host to be allowed to write; a dry run sends nothing. */
+    public function allowsSubmission(ProviderConfig $config): bool
+    {
+        return $config->bool('dry_run', true) || $this->externalWritesEnabled();
+    }
+
     public function mode(): IntegrationMode
     {
         return IntegrationMode::resolve($this->isGloballyEnabled(), (bool) config('fulfillment.external_writes_enabled', false));
@@ -83,6 +89,7 @@ class ProviderConnectionManager
     }
 
     /**
+     * @param bool|null $enabled null keeps the stored switch: a caller that only changes a map or a secret must not rewrite it from a stale read
      * @param string|null $baseUrl null keeps the stored address; an empty string resets it to the provider's default
      * @param array<string, mixed> $settings non-secret values to merge over the stored ones
      * @param array<string, string|null> $secrets only non-empty values replace a stored secret
@@ -91,7 +98,7 @@ class ProviderConnectionManager
      */
     public function save(
         ProviderCode $provider,
-        bool $enabled,
+        ?bool $enabled,
         ?string $baseUrl,
         array $settings,
         array $secrets = [],
@@ -103,6 +110,7 @@ class ProviderConnectionManager
                 ?? new IntegrationSetting(['provider' => $provider->value]);
 
             $before = $this->config($provider);
+            $enabled ??= $before->enabled;
 
             $merged = array_replace(
                 $this->registry->defaultSettings($provider),
@@ -174,7 +182,7 @@ class ProviderConnectionManager
         $secret = Str::random(48);
         $this->save(
             provider: $provider,
-            enabled: $this->config($provider)->enabled,
+            enabled: null,
             baseUrl: null,
             settings: [],
             secrets: ['webhook_secret' => $secret],

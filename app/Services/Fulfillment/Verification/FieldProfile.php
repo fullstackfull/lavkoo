@@ -8,8 +8,10 @@ use App\Services\Fulfillment\Support\PiiRedactor;
  * What one field looked like across everything a response held: its types, how often it was present, the range of its numbers, a
  * few examples, the code words it took. This is the "real response schema" the field maps are finalised from.
  *
- * Nothing that identifies a person is ever kept: an example is recorded only if PiiRedactor lets the value through for its key,
- * otherwise the field is marked `redacted` and only its type and presence are known. Numbers under personal keys are not summed.
+ * Nothing that identifies a person is ever kept: an example is recorded only if PiiRedactor lets the value through UNCHANGED for
+ * its key and for the keys above it (everything under `receiver` or `address` is personal), otherwise the field is marked `redacted`
+ * and only its type and presence are known. Numbers under personal keys are not summed. A key name that is itself a phone number
+ * or an e-mail address is not kept.
  */
 final class FieldProfile
 {
@@ -61,18 +63,18 @@ final class FieldProfile
     /** @var array<string, FieldProfile> */
     private array $keys = [];
 
-    public function add(mixed $value, string $key, bool $strict, int $depth = 0): void
+    public function add(mixed $value, string $key, bool $strict, int $depth = 0, bool $insidePersonal = false): void
     {
         $this->present++;
         $type = self::typeOf($value);
         $this->types[$type] = ($this->types[$type] ?? 0) + 1;
 
         match ($type) {
-            'integer', 'number' => $this->addNumber($value, $key, $strict),
-            'string' => $this->addString($value, $key, $strict),
+            'integer', 'number' => $this->addNumber($value, $key, $strict, $insidePersonal),
+            'string' => $this->addString($value, $key, $strict, $insidePersonal),
             'boolean' => $this->addCodeWord($value ? 'true' : 'false'),
-            'array' => $this->addList($value, $key, $strict, $depth),
-            'object' => $this->addObject($value, $strict, $depth),
+            'array' => $this->addList($value, $key, $strict, $depth, $insidePersonal),
+            'object' => $this->addObject($value, $key, $strict, $depth, $insidePersonal),
             default => null,
         };
     }
@@ -116,9 +118,9 @@ final class FieldProfile
         };
     }
 
-    private function addNumber(int|float $value, string $key, bool $strict): void
+    private function addNumber(int|float $value, string $key, bool $strict, bool $insidePersonal): void
     {
-        if ($this->masked($value, $key, $strict)) {
+        if ($this->masked($value, $key, $strict, $insidePersonal)) {
             return;
         }
 
@@ -130,16 +132,16 @@ final class FieldProfile
         $this->remember($value);
     }
 
-    private function addString(string $value, string $key, bool $strict): void
+    private function addString(string $value, string $key, bool $strict, bool $insidePersonal): void
     {
-        if ($this->masked($value, $key, $strict)) {
+        if ($this->masked($value, $key, $strict, $insidePersonal)) {
             return;
         }
 
         $length = mb_strlen($value);
         $this->shortest = $this->shortest === null ? $length : min($this->shortest, $length);
         $this->longest = $this->longest === null ? $length : max($this->longest, $length);
-        if (preg_match(self::CODE_WORD, $value) === 1) {
+        if (preg_match(self::CODE_WORD, $value) === 1 || PiiRedactor::isStatusWord($key, $value)) {
             $this->addCodeWord($value);
         }
         $this->remember(mb_substr($value, 0, self::EXAMPLE_LENGTH));
@@ -155,7 +157,7 @@ final class FieldProfile
     }
 
     /** @param array<array-key, mixed> $list */
-    private function addList(array $list, string $key, bool $strict, int $depth): void
+    private function addList(array $list, string $key, bool $strict, int $depth, bool $insidePersonal): void
     {
         $count = count($list);
         $this->listMin = $this->listMin === null ? $count : min($this->listMin, $count);
@@ -166,28 +168,32 @@ final class FieldProfile
 
         foreach (array_slice($list, 0, self::SAMPLE_ITEMS) as $element) {
             $this->items ??= new self();
-            $this->items->add($element, $key, $strict, $depth + 1);
+            $this->items->add($element, $key, $strict, $depth + 1, $insidePersonal);
         }
     }
 
     /** @param array<array-key, mixed> $object */
-    private function addObject(array $object, bool $strict, int $depth): void
+    private function addObject(array $object, string $key, bool $strict, int $depth, bool $insidePersonal): void
     {
         if ($depth >= self::MAX_DEPTH) {
             return;
         }
 
+        $personal = $insidePersonal || PiiRedactor::isPersonalKey($key, $strict);
         foreach (array_slice($object, 0, self::MAX_KEYS, true) as $name => $child) {
-            $this->keys[(string) $name] ??= new self();
-            $this->keys[(string) $name]->add($child, (string) $name, $strict, $depth + 1);
+            $shown = PiiRedactor::maskedKeyName((string) $name);
+            $this->keys[$shown] ??= new self();
+            $this->keys[$shown]->add($child, (string) $name, $strict, $depth + 1, $personal);
         }
     }
 
-    /** True when the value is personal data for its key: the field is then known only by type and presence. */
-    private function masked(mixed $value, string $key, bool $strict): bool
+    /**
+     * True when the redactor would change the value at all (hide it, or take a phone number or an e-mail address out of a longer
+     * text): the field is then known only by type and presence, and nothing of the original is kept as an example.
+     */
+    private function masked(mixed $value, string $key, bool $strict, bool $insidePersonal): bool
     {
-        $kept = PiiRedactor::redact([$key => $value], $strict)[$key] ?? null;
-        if ($kept === PiiRedactor::MASK) {
+        if (PiiRedactor::redactScalar($value, $key, $strict, $insidePersonal) !== $value) {
             $this->redacted = true;
 
             return true;

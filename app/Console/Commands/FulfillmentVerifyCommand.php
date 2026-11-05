@@ -9,6 +9,7 @@ use App\Services\Fulfillment\Verification\CheckResult;
 use App\Services\Fulfillment\Verification\EvidenceStore;
 use App\Services\Fulfillment\Verification\LiveVerification;
 use Illuminate\Console\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * The read-only live verification of the provider's page in the admin panel, from the shell: it asks the provider only to READ
@@ -41,12 +42,12 @@ class FulfillmentVerifyCommand extends Command
         }
 
         $this->table(['#', 'check', 'status', 'http', 'ms', 'result'], array_map(
-            static fn (CheckResult $check): array => [$check->id, $check->label, strtoupper($check->status), $check->httpStatus ?? '-', $check->durationMs, $check->summary],
+            static fn (CheckResult $check): array => [$check->id, $check->label, strtoupper($check->status), $check->httpStatus ?? '-', $check->durationMs, OutputFormatter::escape($check->summary)],
             $run->checks,
         ));
         $summary = $run->summary();
         $this->line("{$summary['pass']} passed, {$summary['warn']} to look at, {$summary['fail']} failed, {$summary['skipped']} skipped.");
-        $this->line('Evidence (the shape of each answer; no credential, no personal data): ' . $evidence->path($provider->value, $run->id));
+        $this->line('Evidence (the shape of each answer, built to hold no credential and no personal data; read it before sharing it): ' . OutputFormatter::escape((string) ($evidence->path($provider->value, $run->id) ?? 'not saved, see the EVIDENCE check')));
 
         return $run->failed() ? self::FAILURE : self::SUCCESS;
     }

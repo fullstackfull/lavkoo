@@ -180,7 +180,7 @@ class ProviderOrderDispatcher
 
         // A dry run is computed locally and sends nothing, so it is allowed on a host that may not write. A real send is not:
         // it is held (not failed, not retried in a loop) until the environment allows writes.
-        if (!$config->bool('dry_run', true) && !$this->connections->externalWritesEnabled()) {
+        if (!$this->connections->allowsSubmission($config)) {
             return [HoldReason::EXTERNAL_WRITES_DISABLED, null];
         }
 

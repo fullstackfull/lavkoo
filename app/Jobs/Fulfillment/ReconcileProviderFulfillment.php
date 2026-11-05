@@ -11,7 +11,7 @@ use Illuminate\Queue\SerializesModels;
 
 class ReconcileProviderFulfillment implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, OneAtATimePerFulfillment, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, OneAtATimePerFulfillment, Queueable, SerializesModels;
 
     public int $tries = 1;
 
@@ -23,6 +23,6 @@ class ReconcileProviderFulfillment implements ShouldQueue
 
     public function handle(ReconciliationService $reconciliation): void
     {
-        $reconciliation->reconcile($this->fulfillmentId);
+        $this->withoutPersonalDataInFailures(fn () => $reconciliation->reconcile($this->fulfillmentId));
     }
 }

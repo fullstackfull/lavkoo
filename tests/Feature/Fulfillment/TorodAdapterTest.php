@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Fulfillment;
 
+use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
@@ -9,6 +10,7 @@ use App\Models\ProviderProductMapping;
 use App\Services\Fulfillment\Data\CapabilityState;
 use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodCityResolver;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -265,6 +267,39 @@ class TorodAdapterTest extends TorodTestCase
         $this->assertSame(SubmissionResult::DRY_RUN, $result->outcome);
         $this->assertSame('invoiceNumber', array_key_last($result->meta['payload_preview']));
         $this->assertStringContainsString('*', $result->meta['payload_preview']['receiverPhone']);
+        Http::assertNothingSent();
+    }
+
+    public function test_a_rehearsal_is_recorded_through_the_dispatcher_while_external_writes_are_off(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => true, 'auto_dispatch' => false, 'company_id' => '714']);
+        $fulfillment = $this->torodFulfillment();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+
+        $outcome = app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $recorded = $fulfillment->fresh();
+        $this->assertSame(SubmissionResult::DRY_RUN, $outcome);
+        $this->assertSame(FulfillmentStatus::DryRun, $recorded->status, 'a held rehearsal would leave nothing to review');
+        $this->assertNotEmpty($recorded->meta['payload_preview']);
+        $this->assertTrue($this->adapter()->readiness()->canUse('dispatch'));
+        Http::assertNothingSent();
+    }
+
+    public function test_a_real_send_stays_held_while_external_writes_are_off(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => false, 'auto_dispatch' => true, 'company_id' => '714']);
+        $fulfillment = $this->torodFulfillment();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+
+        $outcome = app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $held = $fulfillment->fresh();
+        $this->assertSame(ProviderOrderDispatcher::SKIPPED, $outcome);
+        $this->assertSame(FulfillmentStatus::Held, $held->status);
+        $this->assertSame(HoldReason::EXTERNAL_WRITES_DISABLED, $held->hold_reason);
         Http::assertNothingSent();
     }
 

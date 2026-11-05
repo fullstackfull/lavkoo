@@ -267,7 +267,7 @@ class TorodWebhookTest extends TorodTestCase
         $this->assertSame(FulfillmentStatus::Delivered, $fulfillment->fresh()->status);
     }
 
-    public function test_postponed_and_failed_deliveries_keep_the_reason_and_date(): void
+    public function test_postponed_and_failed_deliveries_keep_the_date_and_status_but_not_the_couriers_free_text(): void
     {
         $fulfillment = $this->submitted();
         $now = (int) (microtime(true) * 1000);
@@ -276,21 +276,22 @@ class TorodWebhookTest extends TorodTestCase
         $postponed = $fulfillment->fresh();
         $this->assertSame(FulfillmentStatus::DeliveryPostponed, $postponed->status);
         $this->assertSame('2026-02-20T12:09:17.563Z', $postponed->metaValue('postponed_until'));
-        $this->assertSame('customer asked for tomorrow', $postponed->metaValue('last_note'));
+        $this->assertNull($postponed->metaValue('last_note'), 'nothing reads a courier\'s note, and it can name or describe the customer: it is not kept');
 
         $this->receive('lastmile', $this->lastmilePayload('FAILED', time: $now + 1000, extra: ['notes' => 'order refused']));
         $this->assertSame(FulfillmentStatus::DeliveryFailed, $fulfillment->fresh()->status);
-        $this->assertSame('order refused', $fulfillment->fresh()->metaValue('last_note'));
+        $this->assertNull($fulfillment->fresh()->metaValue('last_note'));
     }
 
-    public function test_proof_of_delivery_links_are_kept_only_if_https(): void
+    public function test_proof_of_delivery_links_are_not_kept_on_the_shipment(): void
     {
         $fulfillment = $this->submitted();
         Http::fake([self::V2 . '/guests/packages/status*' => Http::response(['status' => 'DELIVERED_TO_RECIPIENT'])]);
 
         $this->receive('lastmile', $this->lastmilePayload('DELIVERED_TO_RECIPIENT', extra: ['attachmentUrls' => ['https://bucket.example/proof.png', 'http://insecure.example/x.png', 'javascript:alert(1)']]));
 
-        $this->assertSame(['https://bucket.example/proof.png'], $fulfillment->fresh()->metaValue('proof_urls'));
+        $this->assertSame(FulfillmentStatus::Delivered, $fulfillment->fresh()->status);
+        $this->assertNull($fulfillment->fresh()->metaValue('proof_urls'), 'an image of the delivery can show a person, and nothing in the application opens it');
     }
 
     public function test_an_unmapped_status_is_recorded_raw_and_changes_nothing(): void

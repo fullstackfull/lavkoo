@@ -34,6 +34,7 @@ use App\Services\Fulfillment\Support\HttpResult;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use App\Services\Fulfillment\Support\RequestFingerprint;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
@@ -137,7 +138,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         $capabilities = [
             'connection' => $this->state('connection', $credentials, $global, true),
-            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled'), $this->connections->externalWritesEnabled()),
+            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled'), $this->connections->allowsSubmission($config)),
             'product_catalog' => $this->state('product_catalog', $credentials, $global, $config->bool('product_sync_enabled')),
             'product_push' => $this->state('product_push', $credentials, $global, $config->bool('push_products_enabled'), $this->connections->externalWritesEnabled()),
             'inventory_sync' => match (true) {
@@ -244,7 +245,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         if ($config->bool('dry_run', true)) {
             return SubmissionResult::dryRun([
-                'payload_hash' => hash('sha256', (string) json_encode($payload)),
+                'payload_hash' => RequestFingerprint::of($payload),
                 'payload_preview' => SecretRedactor::redact($payload),
             ]);
         }
@@ -799,7 +800,6 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         $occurredAt = $this->occurredAt($payload['time'] ?? null);
         $postponed = $payload['postponeddeliverydate'] ?? $payload['postponeddate'] ?? null;
-        $proof = array_slice(array_values(array_filter((array) ($payload['attachmenturls'] ?? []), static fn ($url): bool => is_string($url) && str_starts_with($url, 'https://'))), 0, 5);
 
         return new NormalizedEvent(
             type: 'lastmile',
@@ -814,8 +814,6 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             occurredAt: $occurredAt,
             meta: array_filter([
                 'postponed_until' => is_scalar($postponed) ? (string) $postponed : null,
-                'last_note' => isset($payload['notes']) && is_scalar($payload['notes']) ? mb_substr((string) $payload['notes'], 0, 250) : null,
-                'proof_urls' => $proof === [] ? null : $proof,
             ], static fn ($value): bool => $value !== null),
             note: isset($payload['notes']) && is_scalar($payload['notes']) ? mb_substr((string) $payload['notes'], 0, 250) : null,
         );

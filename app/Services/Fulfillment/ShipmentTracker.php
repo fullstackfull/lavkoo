@@ -10,9 +10,11 @@ use App\Services\Fulfillment\Data\CancelLease;
 use App\Services\Fulfillment\Data\CancellationResult;
 use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Support\AppTime;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,6 +28,9 @@ class ShipmentTracker
 {
     /** How long one cancel attempt may take before another caller is allowed to try (a crashed caller loses it by itself). */
     private const CANCEL_LEASE_SECONDS = 180;
+
+    /** What a dry run kept so a person could read the request before approving it; it describes a request that was never sent. */
+    private const RECORDED_REQUEST = ['payload_preview', 'payload_hash'];
 
     public function __construct(private readonly FulfillmentStateMachine $machine)
     {
@@ -52,7 +57,7 @@ class ShipmentTracker
         return DB::transaction(function () use ($fulfillmentId, $incoming, $occurredAt, $source, $providerStatus, $event, $extra, $attentionNote): string {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
             if ($fulfillment === null) {
-                return $this->finish($event, EventOutcome::IGNORED_UNMATCHED, 'fulfillment_missing', $source, null, $providerStatus, $incoming, $occurredAt);
+                return $this->finish($event, EventOutcome::IGNORED_UNMATCHED, 'fulfillment_missing', $source, null, null, $providerStatus, $incoming, $occurredAt);
             }
 
             $decision = $this->machine->decide($fulfillment->status, $incoming, $fulfillment->last_event_at, $occurredAt);
@@ -69,7 +74,7 @@ class ShipmentTracker
                 $fulfillment->forceFill(['last_received_at' => now()])->save();
             }
 
-            return $this->finish($event, $outcome, $decision, $source, $fulfillment->id, $providerStatus, $incoming, $occurredAt);
+            return $this->finish($event, $outcome, $decision, $source, $fulfillment->id, $fulfillment->provider, $providerStatus, $incoming, $occurredAt);
         });
     }
 
@@ -128,7 +133,7 @@ class ShipmentTracker
                 'last_error_message' => null,
                 'last_received_at' => now(),
                 'submitted_at' => $fulfillment->submitted_at ?? now(),
-                'meta' => array_replace($fulfillment->meta ?? [], $result->meta),
+                'meta' => Arr::except(array_replace($fulfillment->meta ?? [], $result->meta), self::RECORDED_REQUEST),
             ];
 
             if (in_array($fulfillment->status, [FulfillmentStatus::Dispatching, FulfillmentStatus::ReconcilePending, FulfillmentStatus::RetryWait, FulfillmentStatus::Pending], true)) {
@@ -146,7 +151,7 @@ class ShipmentTracker
     {
         $this->simpleTransition($fulfillmentId, FulfillmentStatus::NeedsAttention, [
             'last_error_code' => $code,
-            'last_error_message' => SecretRedactor::truncate(SecretRedactor::redactString($message), 1000),
+            'last_error_message' => PiiRedactor::scrub($message, 1000),
             'claim_token' => null,
             'next_attempt_at' => null,
             'submitted_at' => now(),
@@ -202,7 +207,7 @@ class ShipmentTracker
             'last_error_message' => null,
             'next_attempt_at' => null,
             'claim_token' => null,
-        ] + ($freshStart ? ['attempts' => 0, 'reconcile_attempts' => 0] : []), 'released:' . $by, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed]);
+        ] + ($freshStart ? ['attempts' => 0, 'reconcile_attempts' => 0] : []), 'released:' . $by, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed], forget: self::RECORDED_REQUEST);
     }
 
     /**
@@ -274,7 +279,7 @@ class ShipmentTracker
         $this->simpleTransition($fulfillmentId, FulfillmentStatus::Failed, [
             'failed_at' => now(),
             'last_error_code' => $code,
-            'last_error_message' => SecretRedactor::truncate(SecretRedactor::redactString($message), 1000),
+            'last_error_message' => PiiRedactor::scrub($message, 1000),
             'claim_token' => null,
             'next_attempt_at' => null,
         ], 'failed:' . $code);
@@ -284,7 +289,7 @@ class ShipmentTracker
     {
         $this->simpleTransition($fulfillmentId, FulfillmentStatus::RetryWait, [
             'last_error_code' => $code,
-            'last_error_message' => SecretRedactor::truncate(SecretRedactor::redactString($message), 1000),
+            'last_error_message' => PiiRedactor::scrub($message, 1000),
             'next_attempt_at' => $at,
             'claim_token' => null,
         ], 'retry:' . $code);
@@ -294,7 +299,7 @@ class ShipmentTracker
     {
         $this->simpleTransition($fulfillmentId, FulfillmentStatus::ReconcilePending, [
             'last_error_code' => $code,
-            'last_error_message' => SecretRedactor::truncate(SecretRedactor::redactString($message), 1000),
+            'last_error_message' => PiiRedactor::scrub($message, 1000),
             'next_attempt_at' => $nextCheck,
             'reconcile_attempts' => 0,
             'claim_token' => null,
@@ -386,7 +391,7 @@ class ShipmentTracker
                 return;
             }
 
-            $summary = SecretRedactor::truncate(SecretRedactor::redactString($result->outcome . ($result->message ? ': ' . $result->message : '')), 500);
+            $summary = PiiRedactor::scrub($result->outcome . ($result->message ? ': ' . $result->message : ''), 500);
             $fulfillment->forceFill(match (true) {
                 $result->outcome === CancellationResult::REQUESTED => ['cancel_requested_at' => now(), 'cancel_next_at' => null, 'cancel_blocked_reason' => null],
                 $result->outcome === CancellationResult::FAILED && $retryAt !== null => ['cancel_next_at' => $retryAt],
@@ -480,7 +485,7 @@ class ShipmentTracker
 
         if ($incoming === FulfillmentStatus::NeedsAttention) {
             $values['last_error_code'] = 'provider_attention';
-            $values['last_error_message'] = SecretRedactor::truncate($attentionNote ?? $providerStatus, 500);
+            $values['last_error_message'] = PiiRedactor::scrub((string) ($attentionNote ?? $providerStatus), 500);
         }
 
         $stamp = $occurredAt ?? now();
@@ -503,11 +508,12 @@ class ShipmentTracker
     /**
      * @param list<FulfillmentStatus>|null $onlyFrom
      * @param array<string, mixed> $values
-     * @param array<string, mixed> $meta
+     * @param array<string, mixed> $meta merged into the shipment's meta
+     * @param list<string> $forget meta keys removed in the same locked step
      */
-    private function simpleTransition(int $fulfillmentId, FulfillmentStatus $to, array $values, string $note, ?array $onlyFrom = null, array $meta = []): bool
+    private function simpleTransition(int $fulfillmentId, FulfillmentStatus $to, array $values, string $note, ?array $onlyFrom = null, array $meta = [], array $forget = []): bool
     {
-        return DB::transaction(function () use ($fulfillmentId, $to, $values, $note, $onlyFrom, $meta): bool {
+        return DB::transaction(function () use ($fulfillmentId, $to, $values, $note, $onlyFrom, $meta, $forget): bool {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
             if ($fulfillment === null
                 || ($onlyFrom !== null && !in_array($fulfillment->status, $onlyFrom, true))
@@ -516,8 +522,8 @@ class ShipmentTracker
             }
 
             $values['status'] = $to;
-            if ($meta !== []) {
-                $values['meta'] = array_replace($fulfillment->meta ?? [], $meta);
+            if ($meta !== [] || $forget !== []) {
+                $values['meta'] = Arr::except(array_replace($fulfillment->meta ?? [], $meta), $forget);
             }
             $fulfillment->forceFill($values)->save();
 
@@ -533,6 +539,7 @@ class ShipmentTracker
         string $note,
         string $source,
         ?int $fulfillmentId,
+        ?string $provider,
         ?string $providerStatus,
         FulfillmentStatus $incoming,
         ?CarbonInterface $occurredAt,
@@ -546,7 +553,7 @@ class ShipmentTracker
                 'processed_at' => now(),
             ])->save();
         } elseif ($fulfillmentId !== null) {
-            $this->record('', $source, 'status', $fulfillmentId, null, $providerStatus, $incoming->value, $occurredAt, $outcome, $note);
+            $this->record((string) $provider, $source, 'status', $fulfillmentId, null, $providerStatus, $incoming->value, $occurredAt, $outcome, $note);
         }
 
         return $outcome;

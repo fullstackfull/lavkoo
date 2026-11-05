@@ -165,11 +165,12 @@ class ProviderHttp
     ): void {
         try {
             $maxBytes = (int) config('fulfillment.logs.max_body_bytes', 8192);
+            $strict = ExternalOperations::describesPeople($operation);
             $request = PiiRedactor::redact(SecretRedactor::redact(array_filter([
                 'headers' => $headers,
                 'query' => $query,
                 'body' => $json,
-            ], static fn ($value): bool => $value !== [] && $value !== null)));
+            ], static fn ($value): bool => $value !== [] && $value !== null)), $strict);
 
             if (strlen((string) json_encode($request)) > $maxBytes * 2) {
                 $request = ['_truncated' => SecretRedactor::truncate((string) json_encode($request), $maxBytes)];
@@ -185,7 +186,7 @@ class ProviderHttp
                 'request_summary' => $request === [] ? null : $request,
                 'response_status' => $result->status,
                 'response_summary' => SecretRedactor::truncate(
-                    SecretRedactor::redactString(json_encode(PiiRedactor::redact(SecretRedactor::redact($result->json ?? PiiRedactor::redactText($result->body)))) ?: ''),
+                    SecretRedactor::redactString(json_encode(PiiRedactor::redact(SecretRedactor::redact($result->json ?? PiiRedactor::redactText($result->body)), $strict), JSON_INVALID_UTF8_SUBSTITUTE) ?: ''),
                     $maxBytes,
                 ),
                 'success' => $result->ok(),

@@ -36,6 +36,7 @@ final class M5aznChecks
                 operation: 'login',
                 request: ['method' => 'POST', 'path' => '/api/v1/auth/login'],
                 call: fn (CheckContext $context): HttpResult => $this->client->login(),
+                strict: true,
                 expectsList: false,
                 analyse: static fn (HttpResult $result): array => is_string($result->get('data.accessToken')) && $result->get('data.accessToken') !== ''
                     ? ['token_issued' => true]

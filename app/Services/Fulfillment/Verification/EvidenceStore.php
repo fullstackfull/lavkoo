@@ -28,6 +28,9 @@ HTACCESS;
         return $provider . '_' . gmdate('Ymd_His') . '_' . bin2hex(random_bytes(4));
     }
 
+    /**
+     * @throws \RuntimeException when the evidence could not be written; the caller records that, so a run is never counted as evidence it did not keep
+     */
     public function save(VerificationRun $run): string
     {
         $directory = $this->directory($run->provider);
@@ -36,8 +39,12 @@ HTACCESS;
         }
         $this->denyDirectWebAccess();
 
+        // Text the provider sent that is not valid UTF-8 is substituted, a number that cannot be written (INF) is zeroed: neither may turn the file into nothing.
+        $json = json_encode($run->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
         $path = $directory . '/' . $run->id . '.json';
-        file_put_contents($path, json_encode($run->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
+        if ($json === false || file_put_contents($path, $json . "\n") === false) {
+            throw new \RuntimeException('The evidence file could not be written.');
+        }
         chmod($path, 0640);
 
         return $path;

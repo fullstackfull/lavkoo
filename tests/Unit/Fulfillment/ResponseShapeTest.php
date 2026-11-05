@@ -135,4 +135,62 @@ class ResponseShapeTest extends TestCase
         $this->assertSame([1, 0], $item['n']['examples']);
         $this->assertSame(PiiRedactor::MASK, PiiRedactor::MASK);
     }
+
+    public function test_a_phone_number_or_an_email_inside_a_longer_text_is_not_kept_as_an_example(): void
+    {
+        $item = ['supplier' => 'Al Noor, call 0551234567', 'contact_line' => 'sales: sara@example.test', 'owner' => ['email' => 'sara@example.test', 'phone' => '0551234567'], 'sku' => 'A1'];
+
+        $json = json_encode(ResponseShape::profile(['data' => [$item]]), JSON_UNESCAPED_UNICODE);
+
+        foreach (['0551234567', 'sara@example.test', 'Al Noor'] as $leaked) {
+            $this->assertStringNotContainsString($leaked, $json, "'{$leaked}' reached the evidence");
+        }
+        $this->assertStringContainsString('A1', $json, 'what is not personal is kept');
+    }
+
+    public function test_a_login_answer_that_describes_an_account_keeps_no_name_in_strict_mode(): void
+    {
+        $login = ['data' => ['accessToken' => 'x', 'user' => ['name' => 'Sara Alharbi', 'email' => 'sara@example.test', 'phone' => '0551234567', 'role' => 'seller']]];
+
+        $json = json_encode(ResponseShape::profile($login, strict: true), JSON_UNESCAPED_UNICODE);
+
+        foreach (['Sara Alharbi', 'sara@example.test', '0551234567'] as $leaked) {
+            $this->assertStringNotContainsString($leaked, $json, "'{$leaked}' reached the evidence");
+        }
+    }
+
+    public function test_everything_under_a_receiver_stays_out_of_the_evidence_even_under_keys_nobody_has_seen(): void
+    {
+        $order = ['id' => 5, 'receiver' => ['name' => 'Sara Alharbi', 'line1' => 'King Fahd Rd 12, Olaya', 'district' => 'Olaya'], 'consignee' => ['title' => 'Mrs Sara'], 'status' => 'NEW'];
+
+        $json = json_encode(ResponseShape::profile(['data' => [$order]]), JSON_UNESCAPED_UNICODE);
+
+        foreach (['Sara', 'King Fahd', 'Olaya'] as $leaked) {
+            $this->assertStringNotContainsString($leaked, $json, "'{$leaked}' reached the evidence");
+        }
+        $this->assertStringContainsString('NEW', $json);
+    }
+
+    public function test_strict_evidence_holds_no_national_id_coordinates_ip_courier_or_phone_number_and_no_key_that_is_one(): void
+    {
+        $order = ['status' => 'NEW', 'national_id' => '1012345678', 'contact_no' => 966551234567, 'lat' => 24.7136, 'lng' => 46.6753, 'courier' => 'Khalid', 'ip' => '10.1.2.3'];
+
+        $profile = ResponseShape::profile(['data' => [$order, $order], '0551234567' => ['status' => 'X'], 'sara@example.test' => ['status' => 'Y']], strict: true);
+        $json = json_encode($profile, JSON_UNESCAPED_UNICODE);
+
+        foreach (['1012345678', '966551234567', '24.7136', '46.6753', 'Khalid', '10.1.2.3', '0551234567', 'sara@example.test'] as $leaked) {
+            $this->assertStringNotContainsString($leaked, $json, "'{$leaked}' reached the evidence");
+        }
+        $this->assertSame('NEW', array_key_first($profile['keys']['data']['items']['keys']['status']['values']));
+        $this->assertArrayNotHasKey('numeric', $profile['keys']['data']['items']['keys']['contact_no'], 'a number that may be a phone number is not summed');
+    }
+
+    public function test_the_status_vocabulary_of_an_order_list_is_recorded_in_any_language(): void
+    {
+        $orders = [['status' => 'تم التوصيل'], ['status' => 'قيد الشحن'], ['status' => 'Out for delivery']];
+
+        $findings = ResponseShape::findings(ResponseShape::profile(['data' => $orders], strict: true));
+
+        $this->assertSame(['تم التوصيل' => 1, 'قيد الشحن' => 1, 'Out for delivery' => 1], $findings['status_fields'][0]['values'] ?? null);
+    }
 }

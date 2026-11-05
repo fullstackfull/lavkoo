@@ -37,6 +37,7 @@ class OperatorActions
     public function __construct(
         private readonly ShipmentTracker $tracker,
         private readonly FulfillmentQueue $queue,
+        private readonly ProviderOrderDispatcher $dispatcher,
         private readonly FulfillmentCancellation $cancellation,
         private readonly AuditLogger $audit,
     ) {
@@ -54,7 +55,7 @@ class OperatorActions
         }
 
         $this->recordAudit('fulfillment.released', $fulfillment);
-        $this->queue->dispatchFulfillment($fulfillmentId, 0, true);
+        $this->sendAtOnce($fulfillmentId);
     }
 
     /** The operator confirmed in the provider's own dashboard that the order does NOT exist there. */
@@ -66,7 +67,7 @@ class OperatorActions
         }
 
         $this->recordAudit('fulfillment.confirmed_not_created', $fulfillment, ['reason' => $reason]);
-        $this->queue->dispatchFulfillment($fulfillmentId, 0, true);
+        $this->sendAtOnce($fulfillmentId);
     }
 
     /** The operator found the order at the provider and supplies its reference. */
@@ -152,6 +153,18 @@ class OperatorActions
 
         $this->recordAudit('fulfillment.redispatched_new_generation', $fulfillment, ['reason' => $reason]);
         $this->queue->dispatchRoute($fulfillment->order_id);
+    }
+
+    /**
+     * A person's "send this one" is manual: it is the approval the dispatcher otherwise waits for. Without a queue worker (the
+     * `sync` driver) nothing would pick the job up, and the next sweep, which is not manual, would hold the order again.
+     */
+    private function sendAtOnce(int $fulfillmentId): void
+    {
+        $this->queue->inlineOrQueue(
+            inline: fn () => $this->dispatcher->dispatch(fulfillmentId: $fulfillmentId, manual: true),
+            queued: fn () => $this->queue->dispatchFulfillment($fulfillmentId, 0, true),
+        );
     }
 
     private function applyManual(int $fulfillmentId, FulfillmentStatus $to, string $reason, string $action): void

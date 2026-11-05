@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 /** Re-evaluates one order after its status or payment changed. Idempotent: routing an order twice creates nothing twice. */
 class RouteOrderFulfillment implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, Queueable, SerializesModels;
 
     public int $tries = 2;
 
@@ -24,6 +24,6 @@ class RouteOrderFulfillment implements ShouldQueue
 
     public function handle(FulfillmentRouter $router): void
     {
-        $router->route($this->orderId);
+        $this->withoutPersonalDataInFailures(fn () => $router->route($this->orderId));
     }
 }

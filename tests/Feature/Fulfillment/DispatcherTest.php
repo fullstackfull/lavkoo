@@ -366,7 +366,9 @@ class DispatcherTest extends FulfillmentTestCase
         app(FulfillmentRecovery::class)->dispatchDue();
         $this->assertSame([], $this->torod->calls);
 
-        // ...an operator does, and only then does the manual dispatch bypass the cut-off.
+        // ...an operator does, and only then does the manual dispatch bypass the cut-off. (With a queue worker the release hands the
+        // send to it; ApprovalGateTest covers the sync driver, where the release sends at once.)
+        config(['queue.default' => 'database']);
         app(\App\Services\Fulfillment\OperatorActions::class)->release($fulfillment->id);
         $this->assertSame(FulfillmentStatus::Pending, $fulfillment->fresh()->status);
         $this->dispatcher()->dispatch($fulfillment->id, manual: true);

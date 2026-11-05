@@ -15,6 +15,7 @@ use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\Fulfillment\Providers\M5azn\M5aznAdapter;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
+use App\Services\Fulfillment\ShipmentTracker;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -102,6 +103,38 @@ class ApprovalGateTest extends FulfillmentTestCase
         $this->assertCount(1, $this->torod->calls);
     }
 
+    public function test_without_a_queue_worker_releasing_the_order_sends_it_on_the_spot(): void
+    {
+        config(['queue.default' => 'sync']);
+        $fulfillment = $this->torodFulfillment();
+        $this->dispatcher()->dispatch($fulfillment->id);
+        $this->torod->submitQueue = [SubmissionResult::accepted('O-SYNC')];
+
+        app(OperatorActions::class)->release($fulfillment->id);
+
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status, 'a release that only waits for the next sweep is held again by it');
+        $this->assertSame('O-SYNC', $fulfillment->fresh()->provider_reference);
+        $this->assertCount(1, $this->torod->calls);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_without_a_queue_worker_a_release_approves_only_the_order_the_person_chose(): void
+    {
+        config(['queue.default' => 'sync']);
+        $chosen = $this->torodFulfillment(100);
+        $other = $this->torodFulfillment(101);
+        $this->dispatcher()->dispatch($chosen->id);
+        $this->dispatcher()->dispatch($other->id);
+        $this->torod->submitQueue = [SubmissionResult::accepted('O-ONE')];
+
+        app(OperatorActions::class)->release($chosen->id);
+        app(FulfillmentRecovery::class)->dispatchDue();
+
+        $this->assertSame(FulfillmentStatus::Submitted, $chosen->fresh()->status);
+        $this->assertSame(HoldReason::AWAITING_APPROVAL, $other->fresh()->hold_reason);
+        $this->assertCount(1, $this->torod->calls);
+    }
+
     public function test_a_dry_run_needs_no_approval_because_nothing_leaves_the_host(): void
     {
         $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => true]);
@@ -129,11 +162,24 @@ class ApprovalGateTest extends FulfillmentTestCase
         $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => false]);
         $this->assertSame(FulfillmentStatus::DryRun, $fulfillment->fresh()->status, 'turning dry run off sends nothing either');
         app(OperatorActions::class)->release($fulfillment->id);
+        $this->assertArrayNotHasKey('payload_preview', $fulfillment->fresh()->meta ?? [], 'a request that was never sent is not kept once the shipment is released');
+        $this->assertArrayNotHasKey('payload_hash', $fulfillment->fresh()->meta ?? []);
         $this->dispatcher()->dispatch($fulfillment->id, manual: true);
 
         $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
         $this->assertSame('O-CHECKED', $fulfillment->fresh()->provider_reference);
         $this->assertCount(2, $this->torod->calls);
+    }
+
+    public function test_a_request_recorded_by_a_dry_run_does_not_outlive_the_order_being_accepted(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['status' => FulfillmentStatus::Pending, 'meta' => ['payload_preview' => ['receiverName' => 'x'], 'payload_hash' => 'abc', 'keep' => 'me']])->save();
+
+        app(ShipmentTracker::class)->recordAcceptance($fulfillment->id, SubmissionResult::accepted('O-1'));
+
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+        $this->assertSame(['keep' => 'me'], $fulfillment->fresh()->meta, 'the request describes an order that was never sent; the rest of the record is untouched');
     }
 
     public function test_with_automatic_sending_on_orders_go_out_by_themselves_as_before(): void

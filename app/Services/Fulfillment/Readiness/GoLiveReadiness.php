@@ -4,10 +4,10 @@ namespace App\Services\Fulfillment\Readiness;
 
 use App\Enums\Fulfillment\EventOutcome;
 use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
-use App\Models\ProviderProductMapping;
 use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\Data\CapabilityState;
 use App\Services\Fulfillment\FieldMapDefinitions;
@@ -29,8 +29,8 @@ use Illuminate\Support\Facades\Schema;
  * The controlled phase is what produces the proof: orders approved one at a time, one accepted by the provider, one status
  * update received and understood.
  *
- * Items that hold automatic sending back are UNMET; items that are only worth knowing are ADVISORY. An administrator may go
- * ahead with unmet items, but only knowingly and on the audit trail (see admit()).
+ * Items that hold automatic sending back are UNMET; items that are only worth knowing are ADVISORY. What a save does with the answer
+ * (hold automatic sending off, or let the master admin go ahead on the record) is ProviderSettingsSaver's.
  */
 class GoLiveReadiness
 {
@@ -78,25 +78,6 @@ class GoLiveReadiness
         ]);
     }
 
-    /**
-     * Automatic sending may only become live when its checklist is met, or when an administrator says, on the record, that
-     * it is going ahead anyway. Everything else they changed is saved either way: only `auto_dispatch` is taken back.
-     *
-     * @param array<string, mixed> $settings the settings about to be saved
-     */
-    public function admit(ProviderCode $provider, ProviderConfig $current, bool $enabled, array $settings, bool $override): GoLiveAdmission
-    {
-        $becomesLive = !ProviderConnectionManager::isLive($current->enabled, $current->settings())
-            && ProviderConnectionManager::isLive($enabled, $settings);
-        $unmet = $becomesLive ? $this->report($provider)->unmet() : [];
-
-        return match (true) {
-            $unmet === [] => new GoLiveAdmission(settings: $settings),
-            $override => new GoLiveAdmission(settings: $settings, overridden: array_map(static fn (GoLiveItem $item): string => $item->key, $unmet)),
-            default => new GoLiveAdmission(settings: array_replace($settings, ['auto_dispatch' => false]), blocked: $unmet),
-        };
-    }
-
     private function integrationOn(ProviderCode $provider): GoLiveItem
     {
         $evidence = match (true) {
@@ -134,10 +115,20 @@ class GoLiveReadiness
 
     private function productsReady(ProviderCode $provider): GoLiveItem
     {
-        $assigned = FulfillmentSchema::productColumnReady() ? DB::table('products')->where('fulfillment_provider', $provider->value)->count() : 0;
-        $approved = ProviderProductMapping::where('provider', $provider->value)->approved()->count();
+        $assigned = 0;
+        $mapped = 0;
+        if (FulfillmentSchema::productColumnReady()) {
+            $assigned = DB::table('products')->where('fulfillment_provider', $provider->value)->count();
+            $mapped = DB::table('products')
+                ->join('provider_product_mappings', 'provider_product_mappings.product_id', '=', 'products.id')
+                ->where('products.fulfillment_provider', $provider->value)
+                ->where('provider_product_mappings.provider', $provider->value)
+                ->where('provider_product_mappings.status', MappingStatus::Approved->value)
+                ->distinct()
+                ->count('products.id');
+        }
 
-        return $this->item('products_ready', $assigned > 0 && $approved > 0, "{$assigned} product(s) assigned, {$approved} approved mapping(s)");
+        return $this->item('products_ready', $mapped > 0, "{$assigned} product(s) assigned, {$mapped} of them with an approved mapping");
     }
 
     private function schedulerRunning(): GoLiveItem
@@ -181,17 +172,23 @@ class GoLiveReadiness
 
     private function firstOrderAccepted(ProviderCode $provider): GoLiveItem
     {
-        $accepted = ProviderFulfillment::where('provider', $provider->value)->whereNotNull('provider_reference')->whereNotNull('submitted_at')->count();
+        // The event the tracker writes when a provider's answer is read as an acceptance, at dispatch or when a lookup finds the order there.
+        // A reference an operator typed in to link a shipment by hand is a different event and is not proof that a request was accepted.
+        $accepted = ProviderFulfillmentEvent::where('provider', $provider->value)
+            ->where('event_type', 'dispatch')
+            ->where('outcome', EventOutcome::APPLIED)
+            ->where('outcome_note', 'accepted_by_provider')
+            ->distinct()
+            ->count('provider_fulfillment_id');
 
         return $this->item('first_order_accepted', $accepted > 0, "{$accepted} shipment(s) accepted by the provider");
     }
 
     private function trackingReceived(ProviderCode $provider): GoLiveItem
     {
-        $latest = ProviderFulfillmentEvent::where('provider', $provider->value)
+        $latest = ProviderFulfillmentEvent::whereIn('provider_fulfillment_id', ProviderFulfillment::where('provider', $provider->value)->select('id'))
             ->whereIn('source', ['webhook', 'poll'])
             ->whereIn('outcome', self::UNDERSTOOD_OUTCOMES)
-            ->whereNotNull('provider_fulfillment_id')
             ->max('received_at');
 
         return $this->item('tracking_received', $latest !== null, $latest === null ? 'none yet' : 'latest ' . Carbon::parse($latest)->diffForHumans());

@@ -55,9 +55,11 @@ class FulfillmentPreflight
         '2026_11_05_100100_add_fulfillment_provider_to_products_table',
     ];
 
+    /** @param string|null $exampleEnvironmentFile the file whose APP_KEY is public; the repository's own .env.example unless told otherwise */
     public function __construct(
         private readonly ProviderConnectionManager $connections,
         private readonly ProviderRegistry $registry,
+        private readonly ?string $exampleEnvironmentFile = null,
     ) {
     }
 
@@ -96,6 +98,7 @@ class FulfillmentPreflight
         $example = $this->exampleAppKey();
         $isExample = $example !== null && hash_equals($example, (string) config('app.key'));
         $checks[] = match (true) {
+            $example === null => $this->warn('safety', 'app key', 'could not be compared with the public example key: .env.example is not on this server (the deployment package does not carry it). Compare APP_KEY by hand, as the runbook describes.'),
             $isExample && app()->environment('production') => $this->fail('safety', 'app key', 'APP_KEY is the example key committed in .env.example: anyone with the repository can decrypt the stored credentials. Generate a new key and re-enter the credentials.'),
             $isExample => $this->warn('safety', 'app key', 'APP_KEY equals the example key in .env.example (fine for a throwaway test database; never for production).'),
             default => $this->pass('safety', 'app key', 'differs from the example key'),
@@ -140,9 +143,11 @@ class FulfillmentPreflight
             ? $this->pass('schema', 'migrations', 'both applied')
             : $this->pass('schema', 'migrations', count(self::MIGRATIONS) - count($recorded) . ' pending: ' . implode(', ', array_diff(self::MIGRATIONS, $recorded)));
 
+        // `migrate --pretend` cannot show this change (it answers every "does it exist?" with no), so this line is the preview.
         $checks[] = Schema::hasColumn('products', 'fulfillment_provider')
             ? $this->pass('schema', 'products.fulfillment_provider', 'present')
-            : $this->pass('schema', 'products.fulfillment_provider', 'not added yet (expected before the first migrate)');
+            : $this->pass('schema', 'products.fulfillment_provider', 'not added yet (expected before the first migrate): the migration adds it to products, nullable and indexed, so every existing product stays in-house');
+        $checks[] = $this->auditTrail();
 
         return $checks;
     }
@@ -313,6 +318,14 @@ class FulfillmentPreflight
             : $this->fail('schema', 'integration_settings', 'missing columns: ' . implode(', ', $missing) . '. The settings screens need them; the migration does not alter an existing table.');
     }
 
+    /** The platform's own audit table comes with the installation dump, not from a migration; without it nothing an operator does is recorded there. */
+    private function auditTrail(): PreflightCheck
+    {
+        return Schema::hasTable('audit_logs')
+            ? $this->pass('schema', 'audit_logs', 'present: operator actions (release, cancel, link, override) are written to the audit trail')
+            : $this->warn('schema', 'audit_logs', 'missing: operator actions (release, cancel, link, override) are NOT recorded in an audit trail on this server. The go-live override is still kept on the provider\'s settings. Decide whether that is acceptable before Gate C.');
+    }
+
     private function laterColumns(): PreflightCheck
     {
         $missing = [];
@@ -385,7 +398,7 @@ class FulfillmentPreflight
 
     private function exampleAppKey(): ?string
     {
-        $path = base_path('.env.example');
+        $path = $this->exampleEnvironmentFile ?? base_path('.env.example');
         if (!is_file($path)) {
             return null;
         }

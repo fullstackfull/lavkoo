@@ -118,6 +118,20 @@ class OperatorActionGuardsTest extends FulfillmentTestCase
         Queue::assertPushed(DispatchProviderFulfillment::class, static fn (DispatchProviderFulfillment $job): bool => $job->manual);
     }
 
+    public function test_without_a_queue_worker_confirming_not_created_sends_the_shipment_on_the_spot(): void
+    {
+        $shipment = $this->shipment(status: FulfillmentStatus::ReconcilePending, columns: ['attempts' => 1]);
+        config(['queue.default' => 'sync']);
+        $this->torod->submitQueue = [SubmissionResult::accepted('O-AFTER-CONFIRM')];
+
+        $this->actions()->confirmNotCreated($shipment->id, 'checked the provider dashboard, no such order');
+
+        $this->assertSame(FulfillmentStatus::Submitted, $shipment->refresh()->status);
+        $this->assertSame('O-AFTER-CONFIRM', $shipment->provider_reference);
+        $this->assertCount(1, array_filter($this->providerCalls(), static fn (string $call): bool => str_starts_with($call, 'submit:')));
+        Queue::assertNothingPushed();
+    }
+
     public function test_confirming_not_created_is_refused_when_the_provider_already_gave_a_reference(): void
     {
         $shipment = $this->shipment(status: FulfillmentStatus::ReconcilePending, columns: ['provider_reference' => 'ORDER-77']);

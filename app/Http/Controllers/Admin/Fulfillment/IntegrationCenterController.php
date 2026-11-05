@@ -16,9 +16,11 @@ use App\Services\Fulfillment\FieldMapStore;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\Readiness\FulfillmentPreflight;
 use App\Services\Fulfillment\Readiness\GoLiveItem;
+use App\Services\Fulfillment\Readiness\GoLiveOverride;
 use App\Services\Fulfillment\Readiness\GoLiveReadiness;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\ProviderSettingsForm;
+use App\Services\Fulfillment\ProviderSettingsSaver;
 use App\Services\Fulfillment\ProviderSyncService;
 use App\Services\Fulfillment\Support\FieldMap;
 use App\Services\Fulfillment\Verification\EvidenceStore;
@@ -26,6 +28,7 @@ use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 /** The Integration Center: every fulfillment provider's connection, switches, health and operational logs in one place. */
@@ -42,6 +45,7 @@ class IntegrationCenterController extends Controller
         private readonly FulfillmentPreflight $preflight,
         private readonly EvidenceStore $evidence,
         private readonly GoLiveReadiness $goLive,
+        private readonly ProviderSettingsSaver $saver,
     ) {
     }
 
@@ -70,6 +74,7 @@ class IntegrationCenterController extends Controller
             'card' => $this->card($code),
             'integrationMode' => $this->connections->mode(),
             'goLive' => $this->goLive->report($code),
+            'canOverrideGoLive' => $this->isMasterAdmin(),
             'verificationRuns' => $this->evidence->recent($code->value),
             'latestVerification' => ($latest = $this->evidence->recent($code->value, 1)[0] ?? null) === null ? null : $this->evidence->find($code->value, $latest['run_id']),
             'code' => $code,
@@ -89,12 +94,13 @@ class IntegrationCenterController extends Controller
     public function update(Request $request, string $provider): RedirectResponse
     {
         $code = $this->resolve($provider);
-        $request->validate($this->form->rules($code));
+        $request->validate($this->form->rules($code) + [
+            'go_live_override' => ['nullable', 'boolean'],
+            'go_live_reason' => ['nullable', 'required_if:go_live_override,1', 'string', 'min:10', 'max:500'],
+        ]);
 
-        $current = $this->connections->config($code);
-        $data = $this->form->extract($code, $request, $current);
-        $admission = $this->goLive->admit($code, $current, $data['enabled'], $data['settings'], override: $request->boolean('go_live_override'));
-        $this->connections->save($code, $data['enabled'], $data['baseUrl'], $admission->settings, $data['secrets'], $data['clearSecrets'], $admission->auditContext());
+        $data = $this->form->extract($code, $request, $this->connections->config($code));
+        $admission = $this->saver->save($code, $data, $this->override($request));
 
         $admission->wasBlocked()
             ? SafeToast::warning(translate('settings_saved_automatic_sending_not_turned_on'), $this->labels($admission->blocked))
@@ -246,6 +252,26 @@ class IntegrationCenterController extends Controller
         }
 
         return $urls;
+    }
+
+    /** Going ahead with unmet items is the master admin's decision, and it comes with a reason that is kept. */
+    private function override(Request $request): ?GoLiveOverride
+    {
+        if (!$request->boolean('go_live_override')) {
+            return null;
+        }
+        if (!$this->isMasterAdmin()) {
+            throw ValidationException::withMessages(['go_live_override' => translate('go_live_override_master_admin_only')]);
+        }
+
+        $admin = auth('admin')->user();
+
+        return new GoLiveOverride(adminId: $admin->id, adminName: (string) $admin->name, reason: trim((string) $request->input('go_live_reason')));
+    }
+
+    private function isMasterAdmin(): bool
+    {
+        return (int) auth('admin')->user()?->admin_role_id === 1;
     }
 
     /** @param list<GoLiveItem> $items */

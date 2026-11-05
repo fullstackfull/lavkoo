@@ -15,7 +15,7 @@ use Illuminate\Queue\SerializesModels;
  */
 class ProcessProviderEvent implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, Queueable, SerializesModels;
 
     public int $tries = 3;
 
@@ -30,6 +30,6 @@ class ProcessProviderEvent implements ShouldQueue
 
     public function handle(WebhookEventProcessor $processor): void
     {
-        $processor->process($this->eventId);
+        $this->withoutPersonalDataInFailures(fn () => $processor->process($this->eventId));
     }
 }

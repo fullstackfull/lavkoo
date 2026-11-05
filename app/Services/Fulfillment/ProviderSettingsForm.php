@@ -38,6 +38,13 @@ class ProviderSettingsForm
         ],
     ];
 
+    /**
+     * The switches that decide whether orders are sent. The page posts each one's value as it was when the page was opened
+     * (`loaded_<switch>`) next to the value now: a switch whose two values agree was not touched, so it keeps what is stored at this
+     * moment. A page left open from before an emergency stop therefore cannot switch sending back on by saving something else.
+     */
+    private const ARMING_SWITCHES = ['enabled', 'dispatch_enabled', 'dry_run', 'auto_dispatch'];
+
     /** Hosts a provider's API may live on (the documented servers). */
     private const ALLOWED_HOSTS = [
         'm5azn' => ['m5azn.com', 'm5azn.ae', 'm5azn.om'],
@@ -144,6 +151,12 @@ class ProviderSettingsForm
                 : null;
         }
 
+        foreach (array_diff(self::ARMING_SWITCHES, ['enabled']) as $switch) {
+            if ($this->untouched($request, $switch)) {
+                $settings[$switch] = $current->bool($switch, $switch === 'dry_run');
+            }
+        }
+
         $secrets = [];
         foreach ($fields['secrets'] as $field) {
             if ($request->filled($field)) {
@@ -152,13 +165,18 @@ class ProviderSettingsForm
         }
 
         return [
-            'enabled' => $request->boolean('enabled'),
+            'enabled' => $this->untouched($request, 'enabled') ? $current->enabled : $request->boolean('enabled'),
             // A field that was submitted blank means "use the provider's default"; a field that was not submitted means "leave it".
             'baseUrl' => $request->has('base_url') ? trim((string) $request->input('base_url')) : null,
             'settings' => $settings,
             'secrets' => $secrets,
             'clearSecrets' => array_values((array) $request->input('clear_secrets', [])),
         ];
+    }
+
+    private function untouched(Request $request, string $switch): bool
+    {
+        return $request->has("loaded_{$switch}") && $request->boolean($switch) === $request->boolean("loaded_{$switch}");
     }
 
     /** Every entry of the comma separated allow-list is an IP address or a CIDR range: a typo must not silently open or close the endpoint. */

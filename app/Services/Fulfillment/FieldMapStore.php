@@ -98,10 +98,9 @@ class FieldMapStore
     /** @param array<string, mixed> $maps */
     private function persist(ProviderCode $provider, array $maps): void
     {
-        $config = $this->connections->config($provider);
         $this->connections->save(
             provider: $provider,
-            enabled: $config->enabled,
+            enabled: null,
             baseUrl: null,
             settings: ['field_maps' => $maps],
         );

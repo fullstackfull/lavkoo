@@ -29,6 +29,7 @@ use App\Services\Fulfillment\Support\FieldMap;
 use App\Services\Fulfillment\Support\HttpResult;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use App\Services\Fulfillment\Support\RequestFingerprint;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
@@ -129,7 +130,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
             'catalog_sync' => $this->state('catalog_sync', $credentials, $global, $config->bool('product_sync_enabled')),
             'catalog_import' => $this->gated('catalog_import', $credentials && $global && $config->bool('import_enabled') && $config->get('default_category_id') !== null, $catalogMap->verified, 'field_map_unverified', $credentials),
             'inventory_sync' => $this->gated('inventory_sync', $credentials && $global && $config->bool('inventory_sync_enabled'), $inventoryMap->verified, 'field_map_unverified', $credentials),
-            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled'), $this->connections->externalWritesEnabled()),
+            'dispatch' => $this->state('dispatch', $credentials, $global, $config->bool('dispatch_enabled'), $this->connections->allowsSubmission($config)),
             'status_poll' => $this->gated('status_poll', $credentials && $global && (array) $config->get('status_map', []) !== [], $ordersMap->verified, 'field_map_unverified', $credentials),
             'cancel' => new CapabilityState('cancel', CapabilityState::UNDOCUMENTED, 'm5azn_no_cancel_endpoint'),
             'webhooks' => new CapabilityState('webhooks', CapabilityState::UNDOCUMENTED, 'm5azn_no_webhooks'),
@@ -212,7 +213,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
 
         if ($config->bool('dry_run', true)) {
             return SubmissionResult::dryRun([
-                'payload_hash' => hash('sha256', (string) json_encode($payload)),
+                'payload_hash' => RequestFingerprint::of($payload),
                 'payload_preview' => SecretRedactor::redact($payload),
             ]);
         }

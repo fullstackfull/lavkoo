@@ -50,6 +50,21 @@ final class ExternalOperations
         'lastmile_package_cancel' => [self::WRITE, ['PUT']],
     ];
 
+    /** Operations whose answers are catalogues or reference data (products, categories, cities): no person is in them. */
+    private const ABOUT_THINGS = [
+        'catalog_list', 'my_products', 'product_details', 'qty_changed', 'categories',
+        'fulfillment_product_list', 'fulfillment_product_categories', 'fulfillment_villages', 'fulfillment_product_upsert', 'lastmile_cities',
+    ];
+
+    /**
+     * Whether what goes to, or comes back from, this operation may describe a person: a login, an order, a package. Everything
+     * that is not a known catalogue or reference call does, so a new operation is redacted strictly until someone says otherwise.
+     */
+    public static function describesPeople(string $operation): bool
+    {
+        return !in_array($operation, self::ABOUT_THINGS, true);
+    }
+
     /** One of self::READ, self::AUTH or self::WRITE. Unknown operations and unexpected methods are WRITE. */
     public static function kindOf(string $operation, string $method): string
     {

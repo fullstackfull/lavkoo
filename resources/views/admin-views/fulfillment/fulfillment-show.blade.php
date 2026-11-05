@@ -93,7 +93,7 @@
                     </dl>
                 </x-k.card>
 
-                @if (!empty($fulfillment->meta['payload_preview']))
+                @if ($status === FulfillmentStatus::DryRun && !empty($fulfillment->meta['payload_preview']))
                     <x-k.card :title="translate('request_preview')" class="mb-3">
                         <p class="fs-12 text-muted">{{ translate('request_preview_help') }}</p>
                         <pre class="bg-light rounded p-2 mb-1 fs-11" style="max-height:320px;overflow:auto">{{ json_encode($fulfillment->meta['payload_preview'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</pre>

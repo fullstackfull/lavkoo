@@ -11,7 +11,7 @@ use Illuminate\Queue\SerializesModels;
 
 class CancelProviderFulfillment implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, OneAtATimePerFulfillment, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, OneAtATimePerFulfillment, Queueable, SerializesModels;
 
     public int $tries = 1;
 
@@ -23,6 +23,6 @@ class CancelProviderFulfillment implements ShouldQueue
 
     public function handle(FulfillmentCancellation $cancellation): void
     {
-        $cancellation->cancel(fulfillmentId: $this->fulfillmentId, manual: $this->manual);
+        $this->withoutPersonalDataInFailures(fn () => $cancellation->cancel(fulfillmentId: $this->fulfillmentId, manual: $this->manual));
     }
 }

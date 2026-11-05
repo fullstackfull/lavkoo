@@ -16,6 +16,9 @@ use Illuminate\Foundation\Bus\PendingDispatch;
  * checkout means a provider HTTP call inside the customer's request. So under `sync` this does nothing,
  * and the work is picked up by the scheduled sweeps (`fulfillment:route`, `fulfillment:recover`)
  * instead. A real queue is recommended; the scheduler alone is enough to be correct, just slower.
+ *
+ * A person's own action is the exception: they are waiting for the answer, and no sweep can stand in for
+ * their approval, so `inlineOrQueue()` runs it on the spot when there is no worker.
  */
 class FulfillmentQueue
 {
@@ -24,6 +27,12 @@ class FulfillmentQueue
         $connection = config('fulfillment.queue.connection') ?: config('queue.default');
 
         return $connection === 'sync' || config("queue.connections.{$connection}.driver") === 'sync';
+    }
+
+    /** Runs `$inline` on the spot when no worker will ever pick a job up (the `sync` driver), and `$queued` otherwise. */
+    public function inlineOrQueue(callable $inline, callable $queued): void
+    {
+        $this->runsInline() ? $inline() : $queued();
     }
 
     public function dispatchFulfillment(int $fulfillmentId, int $delaySeconds = 0, bool $manual = false): void

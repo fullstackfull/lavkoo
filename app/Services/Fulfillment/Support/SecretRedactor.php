@@ -39,12 +39,25 @@ final class SecretRedactor
         return is_string($data) ? self::redactString($data) : $data;
     }
 
+    /**
+     * Credentials written into free text: an exception message, a response body, a header line, a query string. A pattern that
+     * cannot run (it hit a limit) gives up the whole text rather than let it through.
+     */
     public static function redactString(string $text): string
     {
-        $text = preg_replace('/Bearer\s+[A-Za-z0-9\-._~+\/]+=*/i', 'Bearer ' . self::MASK, $text) ?? $text;
+        foreach ([
+            // A header line carries its whole value: `Authorization: Basic …`, `Cookie: a=b; c=d`, `X-Api-Key: …`.
+            '/\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)\s*[:=][^\r\n]*/i' => '$1: ' . self::MASK,
+            '/\b(Bearer|Basic|Token|Digest)\s+[A-Za-z0-9\-._~+\/]{6,}=*/i' => '$1 ' . self::MASK,
+            // `password=hunter2`, `api_key: abc`, `"secret":"…"` inside a message or a query string.
+            '/\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|signature)\b(["\']?\s*[=:]\s*["\']?)[^\s,;&"\'<>]+/i' => '$1$2' . self::MASK,
+            // JWT-shaped values (three base64url segments, the first starting "eyJ").
+            '/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/' => self::MASK,
+        ] as $pattern => $replacement) {
+            $text = preg_replace($pattern, $replacement, $text) ?? self::MASK;
+        }
 
-        // JWT-shaped values (three base64url segments, the first starting "eyJ").
-        return preg_replace('/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/', self::MASK, $text) ?? $text;
+        return $text;
     }
 
     public static function truncate(?string $text, int $maxBytes): ?string

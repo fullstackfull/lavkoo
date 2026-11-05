@@ -112,7 +112,7 @@ class FulfillmentRecovery
             ->pluck('pf.id');
 
         foreach ($ids as $id) {
-            $this->inlineOrQueue(
+            $this->queue->inlineOrQueue(
                 fn () => $this->cancellation->cancel((int) $id),
                 fn () => $this->queue->dispatchCancel((int) $id),
             );
@@ -137,7 +137,7 @@ class FulfillmentRecovery
             }));
 
         foreach ($ids as $id) {
-            $this->inlineOrQueue(
+            $this->queue->inlineOrQueue(
                 fn () => $this->dispatcher->dispatch((int) $id),
                 fn () => $this->queue->dispatchFulfillment((int) $id),
             );
@@ -172,7 +172,7 @@ class FulfillmentRecovery
             ->pluck('id');
 
         foreach ($ids as $id) {
-            $this->inlineOrQueue(
+            $this->queue->inlineOrQueue(
                 fn () => $this->reconciliation->reconcile((int) $id),
                 fn () => $this->queue->dispatchReconcile((int) $id),
             );
@@ -327,10 +327,5 @@ class FulfillmentRecovery
         }
 
         return $ids->unique()->values();
-    }
-
-    private function inlineOrQueue(callable $inline, callable $queued): void
-    {
-        $this->queue->runsInline() ? $inline() : $queued();
     }
 }

@@ -69,10 +69,24 @@ class LiveVerification
             durationMs: (int) round((hrtime(true) - $started) / 1_000_000),
             checks: $results,
         );
-        $this->evidence->save($run);
+        $run = $this->keep($run);
         $this->record($provider, $run);
 
         return $run;
+    }
+
+    /** The run, with a failed check added if its evidence could not be written: the provider was asked, but nothing was kept to read. */
+    private function keep(VerificationRun $run): VerificationRun
+    {
+        try {
+            $this->evidence->save($run);
+
+            return $run;
+        } catch (Throwable $exception) {
+            $failure = new CheckResult('EVIDENCE', 'verification_check_evidence_saved', 'evidence', CheckResult::FAIL, null, 0, 'The answers could not be written to storage/app/fulfillment-evidence (' . $exception::class . '): check that the web server\'s user can write there, then run the checks again.');
+
+            return new VerificationRun($run->id, $run->provider, $run->environment, $run->startedAt, $run->durationMs, [...$run->checks, $failure]);
+        }
     }
 
     /** @return list<VerificationCheck> */

@@ -294,6 +294,49 @@ class LiveVerificationTest extends AdminPagesTestCase
         $this->assertStringContainsString('Deny from all', $rules, 'and the older Apache syntax, for a host that still runs 2.2');
     }
 
+    public function test_a_run_whose_evidence_cannot_be_written_is_a_failed_run_not_a_silent_success(): void
+    {
+        $this->fakeM5azn();
+        // A file where the evidence directory must be: nothing can be written under it, on any filesystem and for any user.
+        File::ensureDirectoryExists(storage_path('app'));
+        file_put_contents(storage_path('app/fulfillment-evidence'), 'not a directory');
+
+        try {
+            $run = $this->verify(ProviderCode::M5azn);
+        } finally {
+            File::delete(storage_path('app/fulfillment-evidence'));
+        }
+
+        $evidence = $this->byId($run)['EVIDENCE'];
+        $this->assertSame(CheckResult::FAIL, $evidence->status);
+        $this->assertTrue($run->failed(), 'the provider was asked, but nothing was kept to read');
+        $this->assertSame('verification_check_evidence_saved', $evidence->label);
+        $this->assertStringContainsString('could not be written', $evidence->summary);
+        $state = ProviderSyncState::where('provider', 'm5azn')->where('capability', 'live_verification')->firstOrFail();
+        $this->assertNotNull($state->last_error, 'the card shows it as failed, not as a verification that passed');
+    }
+
+    public function test_a_number_that_cannot_be_written_cannot_turn_the_evidence_into_an_empty_file(): void
+    {
+        // Two huge stock figures: their sum overflows to INF, which JSON cannot hold.
+        $this->fakeTorod([self::V5 . '/public/fulfillment/product?page=1&*' => Http::response('{"data":[{"id":1,"sku":"A","stock":1.7e308},{"id":2,"sku":"B","stock":1.7e308}],"total":2}', 200, ['Content-Type' => 'application/json'])]);
+
+        $run = $this->verify(ProviderCode::TorodPoint);
+
+        $saved = app(EvidenceStore::class)->find('torod_point', $run->id);
+        $this->assertIsArray($saved, 'a file that decodes, not a single newline');
+        $this->assertSame($run->id, $saved['run_id']);
+    }
+
+    public function test_provider_text_cannot_style_the_terminal_through_the_shell_command(): void
+    {
+        $this->fakeTorod([self::V5 . '/public/fulfillment/order*' => Http::response(['message' => '<fg=red>pwned</> <options=bold>x</>'], 500)]);
+
+        $this->artisan('fulfillment:verify', ['provider' => 'torod_point'])
+            ->expectsOutputToContain('<fg=red>pwned</>')
+            ->assertExitCode(1);
+    }
+
     public function test_without_saved_credentials_every_check_is_skipped_and_nothing_is_sent(): void
     {
         Http::fake();

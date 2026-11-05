@@ -14,6 +14,7 @@ use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderOrderDispatcher;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -293,6 +294,39 @@ class M5aznAdapterTest extends M5aznTestCase
         $this->assertNotEmpty($result->meta['payload_hash']);
         $this->assertSame('*******567', $result->meta['payload_preview']['customer_info']['phone'], 'the stored preview masks the phone');
         $this->assertSame('s***@example.test', $result->meta['payload_preview']['customer_info']['email']);
+        Http::assertNothingSent();
+    }
+
+    public function test_a_rehearsal_is_recorded_through_the_dispatcher_while_external_writes_are_off(): void
+    {
+        $this->enableProvider(ProviderCode::M5azn, ['dry_run' => true, 'auto_dispatch' => false, 'dispatch_enabled' => true]);
+        $fulfillment = $this->fulfillment();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+
+        $outcome = app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $recorded = $fulfillment->fresh();
+        $this->assertSame(SubmissionResult::DRY_RUN, $outcome);
+        $this->assertSame(FulfillmentStatus::DryRun, $recorded->status, 'a held rehearsal would leave nothing to review');
+        $this->assertNotEmpty($recorded->meta['payload_preview']);
+        $this->assertTrue($this->adapter()->readiness()->canUse('dispatch'));
+        Http::assertNothingSent();
+    }
+
+    public function test_a_real_send_stays_held_while_external_writes_are_off(): void
+    {
+        $this->enableProvider(ProviderCode::M5azn, ['dry_run' => false, 'auto_dispatch' => true, 'dispatch_enabled' => true]);
+        $fulfillment = $this->fulfillment();
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+
+        $outcome = app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $held = $fulfillment->fresh();
+        $this->assertSame(ProviderOrderDispatcher::SKIPPED, $outcome);
+        $this->assertSame(FulfillmentStatus::Held, $held->status);
+        $this->assertSame(HoldReason::EXTERNAL_WRITES_DISABLED, $held->hold_reason);
         Http::assertNothingSent();
     }
 

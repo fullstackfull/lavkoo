@@ -47,7 +47,7 @@ final readonly class VerificationRun
             'duration_ms' => $this->durationMs,
             'summary' => $this->summary(),
             'checks' => array_map(static fn (CheckResult $check): array => $check->toArray(), $this->checks),
-            'note' => 'Read-only. Holds no credential, token, name, phone number, e-mail address, street address or note: a value under a personal key is replaced, and so is any string that looks like an e-mail address or a phone number. It records the SHAPE of what each provider answered, which is what a field map is finalised from.',
+            'note' => 'Read-only. Built to hold no credential and no personal data: a value under a key that names a person, a contact detail, an address or an identity is not recorded, nor is any text containing an e-mail address or a phone number, and order lists and logins are recorded strictly (codes, counts and status words only). It cannot recognise a name or an address under a key it has no reason to suspect, so a person must read it before it is shared. It records the SHAPE of what each provider answered, which is what a field map is finalised from.',
         ];
     }
 }
