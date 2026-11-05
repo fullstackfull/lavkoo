@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ZenderSetting;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
@@ -30,6 +31,14 @@ class ZenderSettingController extends Controller
         compact('settings')
     );
 }
+
+    public function toggleStatus(Request $request): RedirectResponse
+    {
+        $settings = ZenderSetting::first();
+        $settings?->forceFill(['enabled' => $request->boolean('enabled')])->save();
+
+        return back()->with('success', $settings ? 'Zender status updated.' : 'Zender settings not found.');
+    }
 
     public function update(Request $request)
     {
