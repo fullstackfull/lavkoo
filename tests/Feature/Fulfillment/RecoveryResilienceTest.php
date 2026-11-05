@@ -62,7 +62,7 @@ class RecoveryResilienceTest extends FulfillmentTestCase
         $heartbeat = ProviderSyncState::where('provider', 'system')->where('capability', 'sweep')->firstOrFail();
         $this->assertNotNull($heartbeat->last_success_at);
         $this->assertNull($heartbeat->last_error);
-        $this->assertSame(array_keys($counts), array_keys((array) $heartbeat->stats));
+        $this->assertEqualsCanonicalizing(array_keys($counts), array_keys((array) $heartbeat->stats), 'every sweep is reported (a JSON column does not keep key order)');
     }
 
     public function test_the_command_exits_non_zero_when_a_sweep_failed_so_monitoring_notices(): void

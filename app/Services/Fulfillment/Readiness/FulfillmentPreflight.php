@@ -301,7 +301,12 @@ class FulfillmentPreflight
                 ? $this->pass('schema', 'server version', $version)
                 : $this->warn('schema', 'server version', "{$version}: the integration is tested on MySQL 8.0; older servers lack some JSON behaviour it relies on.");
 
-            $engines = DB::table('information_schema.tables')->where('table_schema', $connection->getDatabaseName())->whereIn('table_name', ['orders', 'order_details', 'products'])->pluck('engine', 'table_name');
+            // MySQL 8 reports information_schema columns in upper case unless they are aliased, which breaks reading them by name.
+            $engines = DB::table('information_schema.tables')
+                ->where('table_schema', $connection->getDatabaseName())
+                ->whereIn('table_name', ['orders', 'order_details', 'products'])
+                ->get(['table_name as table_name', 'engine as engine'])
+                ->pluck('engine', 'table_name');
             $notInnoDb = $engines->filter(static fn ($engine): bool => strtolower((string) $engine) !== 'innodb')->keys()->all();
             $checks[] = $notInnoDb === []
                 ? $this->pass('schema', 'storage engine', 'orders, order_details, products are InnoDB (transactions and row locks work)')

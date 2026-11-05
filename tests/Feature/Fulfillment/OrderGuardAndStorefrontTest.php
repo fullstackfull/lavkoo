@@ -258,19 +258,27 @@ class OrderGuardAndStorefrontTest extends AdminPagesTestCase
     public function test_the_order_endpoint_returns_only_the_callers_own_shipments(): void
     {
         $this->makeProduct(1, ProviderCode::M5azn);
-        $this->makeOrder(100, ['customer_id' => 'guest-A', 'is_guest' => 1]);
+        $this->makeOrder(100, ['customer_id' => 7001, 'is_guest' => 1]);
         $this->addLine(100, 1, 1, 50, ProviderCode::M5azn);
         $this->shipment(100, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['tracking_number' => 'TRK-OWN']);
+        $this->makeOrder(101, ['customer_id' => 0, 'is_guest' => 1]);
+        $this->addLine(101, 1, 1, 50, ProviderCode::M5azn);
+        $this->shipment(101, ProviderCode::M5azn, FulfillmentStatus::InTransit, ['tracking_number' => 'TRK-WALKIN']);
         $this->withoutMiddleware();
         $this->useThrowawayPassportKeys();
 
-        $own = $this->getJson('/api/v1/customer/order/fulfillments?order_id=100&guest_id=guest-A');
+        $own = $this->getJson('/api/v1/customer/order/fulfillments?order_id=100&guest_id=7001');
         $own->assertOk()->assertJsonPath('fulfillments.shipments.0.tracking_number', 'TRK-OWN');
         $this->assertStringNotContainsString('m5azn', strtolower((string) $own->getContent()));
 
-        $this->getJson('/api/v1/customer/order/fulfillments?order_id=100&guest_id=guest-B')->assertNotFound();
+        $this->getJson('/api/v1/customer/order/fulfillments?order_id=100&guest_id=7002')->assertNotFound();
         $this->getJson('/api/v1/customer/order/fulfillments?order_id=100')->assertNotFound();
-        $this->getJson('/api/v1/customer/order/fulfillments?guest_id=guest-A')->assertStatus(403);
+        $this->getJson('/api/v1/customer/order/fulfillments?guest_id=7001')->assertStatus(403);
+
+        // A text guest id is 0 to MySQL, which would hand over an order stored with customer_id 0.
+        foreach (['abc', 'guest-A', '0', '-1', '7001abc', ''] as $notAGuestId) {
+            $this->getJson('/api/v1/customer/order/fulfillments?order_id=101&guest_id=' . $notAGuestId)->assertNotFound();
+        }
     }
 
     public function test_provider_rows_stay_out_of_every_table_the_storefront_already_reads(): void

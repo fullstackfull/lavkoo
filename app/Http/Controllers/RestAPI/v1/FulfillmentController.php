@@ -40,14 +40,18 @@ class FulfillmentController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        // Same ownership rule as getOrderById: an authenticated customer's own orders, or the guest's.
-        $order = Order::where('id', $request['order_id'])
-            ->where(function ($query) use ($request) {
-                auth('api')->check()
-                    ? $query->where('customer_id', auth('api')->id())
-                    : $query->where(['customer_id' => $request['guest_id'], 'is_guest' => 1]);
-            })
-            ->first(['id']);
+        // Same ownership rule as getOrderById: an authenticated customer's own orders, or the guest's. A guest id is a number: MySQL
+        // compares a numeric column with the text "abc" as 0, which would match an order stored with customer_id 0.
+        $guestId = $request['guest_id'];
+        $order = !auth('api')->check() && !(is_scalar($guestId) && ctype_digit((string) $guestId) && (int) $guestId > 0)
+            ? null
+            : Order::where('id', $request['order_id'])
+                ->where(function ($query) use ($request) {
+                    auth('api')->check()
+                        ? $query->where('customer_id', auth('api')->id())
+                        : $query->where(['customer_id' => (int) $request['guest_id'], 'is_guest' => 1]);
+                })
+                ->first(['id']);
 
         if (!$order) {
             return response()->json(['errors' => [['code' => 'order', 'message' => translate('not_found')]]], 404);

@@ -42,7 +42,7 @@ trait BuildsFulfillmentSchema
         });
 
         Schema::create('products', function (Blueprint $t) {
-            $t->unsignedBigInteger('id')->primary();
+            $t->id();
             $t->unsignedBigInteger('shop_id')->nullable();
             $t->string('name')->nullable();
             $t->string('slug')->nullable();
