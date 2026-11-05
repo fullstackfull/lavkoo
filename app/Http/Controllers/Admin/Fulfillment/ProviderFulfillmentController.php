@@ -11,9 +11,12 @@ use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Contracts\ProvidesShippingLabel;
 use App\Services\Fulfillment\Data\CancelLease;
 use App\Services\Fulfillment\Data\CancellationResult;
+use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\FulfillmentCancellation;
 use App\Services\Fulfillment\OperatorActions;
+use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\ShipmentTracker;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -25,15 +28,19 @@ use InvalidArgumentException;
 /** Every provider fulfillment in one place, with the recovery controls an operator needs. */
 class ProviderFulfillmentController extends Controller
 {
-    private const ACTIONS = ['release', 'confirm-not-created', 'link', 'mark-delivered', 'mark-cancelled', 'cancel', 'redispatch', 'refresh'];
+    public const ACTIONS = ['release', 'confirm-not-created', 'link', 'mark-delivered', 'mark-cancelled', 'cancel', 'redispatch', 'refresh'];
 
     /** Actions that assert something a person checked: they must say what and why. */
     private const NEEDS_REASON = ['confirm-not-created', 'link', 'mark-delivered', 'mark-cancelled', 'redispatch'];
+
+    /** Actions that tell the person what really happened, instead of the plain "Done". */
+    private const ANNOUNCES_ITS_RESULT = ['release', 'confirm-not-created', 'cancel'];
 
     public function __construct(
         private readonly OperatorActions $actions,
         private readonly ProviderRegistry $registry,
         private readonly ShipmentTracker $tracker,
+        private readonly ProviderConnectionManager $connections,
     ) {
     }
 
@@ -64,18 +71,18 @@ class ProviderFulfillmentController extends Controller
     public function show(int $id): View
     {
         $fulfillment = ProviderFulfillment::with(['items', 'events' => static fn ($query) => $query->latest('id')->limit(50)])->findOrFail($id);
+        $provider = $fulfillment->providerCode();
 
         return view('admin-views.fulfillment.fulfillment-show', [
             'fulfillment' => $fulfillment,
             'logs' => ProviderApiLog::where('provider_fulfillment_id', $id)->latest('id')->limit(20)->get(),
             'canLabel' => $this->registry->adapter($fulfillment->provider) instanceof ProvidesShippingLabel && $fulfillment->provider_secondary_reference !== null,
+            'sendsForReal' => $provider !== null && !$this->connections->config($provider)->bool('dry_run', true),
         ]);
     }
 
     public function action(Request $request, int $id, string $action): RedirectResponse
     {
-        abort_unless(in_array($action, self::ACTIONS, true), 404);
-
         $validated = $request->validate([
             'reason' => [in_array($action, self::NEEDS_REASON, true) ? 'required' : 'nullable', 'string', 'max:255'],
             'reference' => [$action === 'link' ? 'required' : 'nullable', 'string', 'max:120'],
@@ -85,8 +92,8 @@ class ProviderFulfillmentController extends Controller
 
         try {
             match ($action) {
-                'release' => $this->actions->release($id),
-                'confirm-not-created' => $this->actions->confirmNotCreated($id, $reason),
+                'release' => $this->announceSend($this->actions->release($id), $id),
+                'confirm-not-created' => $this->announceSend($this->actions->confirmNotCreated($id, $reason), $id),
                 'link' => $this->actions->linkReference($id, (string) $validated['reference'], $validated['tracking_number'] ?? null, $reason),
                 'mark-delivered' => $this->actions->markDelivered($id, $reason),
                 'mark-cancelled' => $this->actions->markCancelled($id, $reason),
@@ -94,7 +101,7 @@ class ProviderFulfillmentController extends Controller
                 'redispatch' => $this->actions->redispatchAsNewGeneration($id, $reason),
                 'refresh' => $this->refresh($id),
             };
-            if ($action !== 'cancel') {
+            if (!in_array($action, self::ANNOUNCES_ITS_RESULT, true)) {
                 ToastMagic::success(translate('action_done'));
             }
         } catch (InvalidArgumentException|ProviderUnavailableException $exception) {
@@ -102,6 +109,30 @@ class ProviderFulfillmentController extends Controller
         }
 
         return back();
+    }
+
+    /** Say what a send a person asked for really came to: "released" is not "accepted", and an unknown answer must not be sent again. */
+    private function announceSend(string $outcome, int $id): void
+    {
+        [$tone, $key] = match ($outcome) {
+            SubmissionResult::ACCEPTED => ['success', 'send_result_accepted'],
+            SubmissionResult::DRY_RUN => ['info', 'send_result_dry_run'],
+            SubmissionResult::REJECTED => ['error', 'send_result_rejected'],
+            SubmissionResult::RETRYABLE => ['warning', 'send_result_retry'],
+            SubmissionResult::AMBIGUOUS => ['warning', 'send_result_unknown'],
+            ProviderOrderDispatcher::UNAVAILABLE => ['warning', 'send_result_unavailable'],
+            default => $this->skippedSend($id),
+        };
+
+        ToastMagic::{$tone}(translate($key));
+    }
+
+    /** The send was skipped: either something else got there first (the order is with the provider already) or it is on hold. */
+    private function skippedSend(int $id): array
+    {
+        return ProviderFulfillment::find($id)?->status->isAcceptedByProvider() === true
+            ? ['info', 'send_result_already_sent']
+            : ['warning', 'send_result_held'];
     }
 
     /** Say what a cancel request really did: "requested" is not "cancelled", and some providers cannot cancel at all. */

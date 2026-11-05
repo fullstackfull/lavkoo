@@ -145,7 +145,7 @@ class M5aznAdapterTest extends M5aznTestCase
             self::BASE . '/api/v1/orders' => Http::response(['status' => 200, 'success' => true, 'data' => ['id' => 777001]]),
         ]);
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::ACCEPTED, $result->outcome);
         $this->assertSame('777001', $result->providerReference);
@@ -183,7 +183,7 @@ class M5aznAdapterTest extends M5aznTestCase
         $single = $this->fulfillmentFor(200, ProviderCode::M5azn)->load('items');
         Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse(), self::BASE . '/api/v1/orders' => Http::response(['success' => true, 'data' => ['id' => 5]])]);
 
-        $this->adapter()->submit($single);
+        $this->submitAsClaimed($this->adapter(), $single);
 
         Http::assertSent(fn (Request $request): bool => !str_ends_with($request->url(), '/orders')
             || ($request['payment_method'] === 'cod' && (float) $request['cod_amount'] === 75.5 && (float) $request['total'] === 75.5));
@@ -194,7 +194,7 @@ class M5aznAdapterTest extends M5aznTestCase
         $fulfillment = $this->fulfillment();
         Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse(), self::BASE . '/api/v1/orders' => Http::response(['status' => 200, 'success' => true, 'message' => 'ok'])]);
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::AMBIGUOUS, $result->outcome);
         $this->assertSame('no_reference_in_response', $result->errorCode);
@@ -206,7 +206,7 @@ class M5aznAdapterTest extends M5aznTestCase
         $fulfillment = $this->fulfillment();
         Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse(), self::BASE . '/api/v1/orders' => Http::response(['success' => true, 'result' => ['order_no' => 'M5-8891']])]);
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame('M5-8891', $result->providerReference);
     }
@@ -216,7 +216,7 @@ class M5aznAdapterTest extends M5aznTestCase
         $fulfillment = $this->fulfillment();
         Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse(), self::BASE . '/api/v1/orders' => Http::response(['success' => false, 'error' => true, 'message' => 'SKU not available'])]);
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::REJECTED, $result->outcome);
         $this->assertStringContainsString('SKU not available', (string) $result->message);
@@ -228,7 +228,7 @@ class M5aznAdapterTest extends M5aznTestCase
         $fulfillment = $this->fulfillment();
         Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse(), self::BASE . '/api/v1/orders' => Http::response(['message' => 'x'], $status)]);
 
-        $this->assertSame($expected, $this->adapter()->submit($fulfillment)->outcome, "HTTP {$status}");
+        $this->assertSame($expected, $this->submitAsClaimed($this->adapter(), $fulfillment)->outcome, "HTTP {$status}");
     }
 
     /** @return iterable<string, array{int, string}> */
@@ -244,6 +244,11 @@ class M5aznAdapterTest extends M5aznTestCase
         yield '504' => [504, SubmissionResult::AMBIGUOUS];
         yield '409 conflict may mean it exists' => [409, SubmissionResult::AMBIGUOUS];
         yield '408 request timeout' => [408, SubmissionResult::AMBIGUOUS];
+        yield '301: redirects are not followed, and an order-creating post that was redirected may have created the order' => [301, SubmissionResult::AMBIGUOUS];
+        yield '302' => [302, SubmissionResult::AMBIGUOUS];
+        yield '303 see other' => [303, SubmissionResult::AMBIGUOUS];
+        yield '307' => [307, SubmissionResult::AMBIGUOUS];
+        yield '308' => [308, SubmissionResult::AMBIGUOUS];
     }
 
     public function test_a_timeout_after_the_request_was_sent_is_ambiguous(): void
@@ -254,7 +259,7 @@ class M5aznAdapterTest extends M5aznTestCase
             self::BASE . '/api/v1/orders' => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 20001 milliseconds with 0 bytes received'),
         ]);
 
-        $this->assertSame(SubmissionResult::AMBIGUOUS, $this->adapter()->submit($fulfillment)->outcome);
+        $this->assertSame(SubmissionResult::AMBIGUOUS, $this->submitAsClaimed($this->adapter(), $fulfillment)->outcome);
     }
 
     public function test_a_connection_that_never_opened_is_safely_retryable(): void
@@ -265,7 +270,7 @@ class M5aznAdapterTest extends M5aznTestCase
             self::BASE . '/api/v1/orders' => fn () => throw new ConnectionException('cURL error 7: Failed to connect to m5azn.com port 443'),
         ]);
 
-        $this->assertSame(SubmissionResult::RETRYABLE, $this->adapter()->submit($fulfillment)->outcome);
+        $this->assertSame(SubmissionResult::RETRYABLE, $this->submitAsClaimed($this->adapter(), $fulfillment)->outcome);
     }
 
     public function test_a_write_is_never_retried_inside_the_http_layer(): void
@@ -276,7 +281,7 @@ class M5aznAdapterTest extends M5aznTestCase
             self::BASE . '/api/v1/orders' => Http::response(['message' => 'boom'], 500),
         ]);
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $orderCalls = Http::recorded(fn (Request $request): bool => $request->url() === self::BASE . '/api/v1/orders');
         $this->assertCount(1, $orderCalls);
@@ -288,13 +293,47 @@ class M5aznAdapterTest extends M5aznTestCase
         $fulfillment = $this->fulfillment();
         Http::fake();
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::DRY_RUN, $result->outcome);
         $this->assertNotEmpty($result->meta['payload_hash']);
         $this->assertSame('*******567', $result->meta['payload_preview']['customer_info']['phone'], 'the stored preview masks the phone');
         $this->assertSame('s***@example.test', $result->meta['payload_preview']['customer_info']['email']);
         Http::assertNothingSent();
+    }
+
+    public function test_a_phone_number_typed_into_the_address_is_masked_in_the_recorded_request_and_a_product_name_is_not_mangled(): void
+    {
+        $this->enableProvider(ProviderCode::M5azn, ['dry_run' => true, 'dispatch_enabled' => true]);
+        $fulfillment = $this->fulfillment(['shipping_address_data' => json_encode([
+            'contact_person_name' => 'Sara Alharbi', 'phone' => '0551234567', 'address' => 'King Fahd Rd 12, call 0501234567 / 0551111111', 'city' => 'الرياض', 'country' => 'SA', 'email' => 'sara@example.test',
+        ])]);
+        DB::table('provider_fulfillment_items')->where('provider_fulfillment_id', $fulfillment->id)->update(['name' => 'Basic Care Cream 250ml']);
+        Http::fake();
+
+        $preview = $this->submitAsClaimed($this->adapter(), $fulfillment->fresh())->meta['payload_preview'];
+
+        $this->assertStringNotContainsString('0501234567', json_encode($preview));
+        $this->assertStringNotContainsString('0551111111', json_encode($preview));
+        $this->assertStringContainsString('King Fahd Rd 12', json_encode($preview), 'the address is what the person approving it checks');
+        Http::assertNothingSent();
+    }
+
+    public function test_the_adapter_follows_the_mode_it_is_told_and_never_reads_the_dry_run_setting(): void
+    {
+        $fulfillment = $this->fulfillment();
+        Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse(), self::BASE . '/api/v1/orders' => Http::response(['success' => true, 'data' => ['id' => 'M-1']])]);
+
+        $rehearsal = $this->adapter()->submit($fulfillment, dryRun: true);
+
+        $this->assertSame(SubmissionResult::DRY_RUN, $rehearsal->outcome, 'the setting says live, the dispatcher decided on a rehearsal');
+        Http::assertNothingSent();
+
+        $this->enableProvider(ProviderCode::M5azn, ['dry_run' => true, 'dispatch_enabled' => true]);
+        $sent = $this->adapter()->submit($fulfillment, dryRun: false);
+
+        $this->assertNotSame(SubmissionResult::DRY_RUN, $sent->outcome, 'the setting says rehearse, the dispatcher decided on a real send');
+        Http::assertSent(static fn (Request $request): bool => str_ends_with($request->url(), '/api/v1/orders'));
     }
 
     public function test_a_rehearsal_is_recorded_through_the_dispatcher_while_external_writes_are_off(): void
@@ -413,7 +452,7 @@ class M5aznAdapterTest extends M5aznTestCase
         Http::fake([self::BASE . '/api/v1/auth/login' => $this->loginResponse()]);
 
         try {
-            $this->adapter()->submit($fulfillment);
+            $this->submitAsClaimed($this->adapter(), $fulfillment);
             $this->fail('an order was attempted while external writes are off');
         } catch (ProviderUnavailableException $exception) {
             $this->assertStringContainsString('FULFILLMENT_EXTERNAL_WRITES_ENABLED', $exception->getMessage());

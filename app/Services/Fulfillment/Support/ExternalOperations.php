@@ -45,8 +45,9 @@ final class ExternalOperations
         // Torod Point: Lastmile API v2
         'lastmile_cities' => [self::READ, ['GET']],
         'lastmile_package_status' => [self::READ, ['GET']],
-        // A POST, but it only asks for the URL of an air waybill that already exists: nothing changes at LogesTechs.
-        'lastmile_awb' => [self::READ, ['POST']],
+        // Documented as asking for the URL of an air waybill that already exists, but it is a POST and its effect at LogesTechs has
+        // not been observed. Read-only mode promises that nothing but GET requests and the sign-in leaves this host, so it waits with the writes.
+        'lastmile_awb' => [self::WRITE, ['POST']],
         'lastmile_package_cancel' => [self::WRITE, ['PUT']],
     ];
 

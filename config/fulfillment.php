@@ -18,8 +18,12 @@ return [
     /*
     | Global kill switch. When false, no outbound provider call of any kind is made — not dispatch,
     | not sync, not even a connection test — and queued work waits instead of failing.
+    |
+    | The three switches in this file are read with FILTER_VALIDATE_BOOLEAN, not a (bool) cast: the cast turns the usual ways of
+    | writing "off" (off, no, n, disabled, 0.0) into TRUE, so a person typing one of them in a hurry would switch the thing ON.
+    | Here only true, 1, on and yes mean on; anything else, a typo included, means off.
     */
-    'enabled' => (bool) env('FULFILLMENT_INTEGRATIONS_ENABLED', false),
+    'enabled' => filter_var(env('FULFILLMENT_INTEGRATIONS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 
     /*
     | Second, independent environment switch: may anything be WRITTEN to a provider (an order, a product, a
@@ -27,7 +31,7 @@ return [
     | off the integration is READ-ONLY (logins and reads only) however the admin panel is configured. A staging copy of
     | production must keep this off. Turn it on only for a deliberate go-live. See docs/integrations/operations.md.
     */
-    'external_writes_enabled' => (bool) env('FULFILLMENT_EXTERNAL_WRITES_ENABLED', false),
+    'external_writes_enabled' => filter_var(env('FULFILLMENT_EXTERNAL_WRITES_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 
     /*
     | Parent-order currency the providers are paid/collect in. The store is KSA-only; amounts sent to a
@@ -75,7 +79,7 @@ return [
         // A cash-on-delivery order whose collection would be split across more than one collector
         // (two providers, or a provider plus in-house delivery) is held unless this is true AND every
         // provider involved has `cod_verified` set in its settings. See docs/integrations/cod.md.
-        'allow_mixed' => (bool) env('FULFILLMENT_ALLOW_MIXED_COD', false),
+        'allow_mixed' => filter_var(env('FULFILLMENT_ALLOW_MIXED_COD', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'logs' => [

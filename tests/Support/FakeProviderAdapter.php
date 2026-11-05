@@ -50,6 +50,9 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     /** @var list<array{reference: string, payment_mode: string, cod_amount: float, total_amount: float}> what each submit() was asked to send */
     public array $submitted = [];
 
+    /** @var list<bool> the mode each submit() was told to use: the dispatcher's decision at the claim */
+    public array $dryRunRequested = [];
+
     public bool $dispatchUsable = true;
 
     public static function reset(): void
@@ -78,8 +81,9 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
         return $this->preflight ?? PreflightResult::passed();
     }
 
-    public function submit(ProviderFulfillment $fulfillment): SubmissionResult
+    public function submit(ProviderFulfillment $fulfillment, bool $dryRun): SubmissionResult
     {
+        $this->dryRunRequested[] = $dryRun;
         $this->calls[] = 'submit:' . $fulfillment->reference . ':' . $fulfillment->items->pluck('product_id')->sort()->implode(',');
         $this->submitted[] = [
             'reference' => $fulfillment->reference,
@@ -121,6 +125,11 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     public function mapStatus(string $providerStatus): ?FulfillmentStatus
     {
         return FulfillmentStatus::tryFrom(strtolower($providerStatus));
+    }
+
+    public function storablePayload(array $payload): array
+    {
+        return $payload;
     }
 
     public function normalizeWebhook(string $type, array $payload): ?NormalizedEvent

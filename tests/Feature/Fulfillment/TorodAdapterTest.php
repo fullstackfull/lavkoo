@@ -29,7 +29,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted();
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         Http::assertSent(function (Request $request): bool {
             return $request->url() === self::V5 . '/public/fulfillment/order'
@@ -45,7 +45,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted();
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         foreach (Http::recorded() as [$request]) {
             $this->assertStringNotContainsString('136', (string) ($request->header('company-id')[0] ?? ''));
@@ -58,7 +58,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment(['order_note' => 'Leave with the guard']);
         $this->fakeOrderAccepted();
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::ACCEPTED, $result->outcome);
         Http::assertSent(function (Request $request): bool {
@@ -86,7 +86,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted();
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         Http::assertSent(fn (Request $request): bool => count($request->data()['items']) === 1 && !str_contains(json_encode($request->data()), 'Product 2'));
     }
@@ -97,7 +97,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted();
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         Http::assertSent(fn (Request $request): bool => $request->data()['receiverPhone'] === '0551234567');
     }
@@ -108,7 +108,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment(['order_amount' => 100]);
         $this->fakeOrderAccepted();
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         Http::assertSent(fn (Request $request): bool => array_key_exists('cost', $request->data()));
     }
@@ -125,7 +125,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->fulfillmentFor(300, ProviderCode::TorodPoint)->load('items');
         $this->fakeOrderAccepted();
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         Http::assertSent(fn (Request $request): bool => $request->data()['shipmentType'] === 'COD'
             && $request->data()['codCollectionMethod'] === 'CASH' && $request->data()['cod'] === '72.50');
@@ -152,7 +152,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted();
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/ship/request') || str_contains($request->url(), 'apisv2'));
         $this->assertSame(CapabilityState::NOT_USED, $this->adapter()->readiness()->capability('lastmile_create_shipment')->state);
@@ -164,7 +164,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted($body);
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::ACCEPTED, $result->outcome);
         $this->assertSame($reference, $result->providerReference);
@@ -185,7 +185,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted(['message' => 'ok']);
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::AMBIGUOUS, $result->outcome);
         $this->assertSame('no_reference_in_response', $result->errorCode);
@@ -197,7 +197,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted(['order' => ['code' => 'WH-77'], 'id' => 5]);
 
-        $this->assertSame('WH-77', $this->adapter()->submit($fulfillment)->providerReference);
+        $this->assertSame('WH-77', $this->submitAsClaimed($this->adapter(), $fulfillment)->providerReference);
     }
 
     /** @dataProvider outcomes */
@@ -206,7 +206,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         Http::fake([self::V5 . '/public/fulfillment/order' => Http::response(['message' => 'x'], $status)]);
 
-        $this->assertSame($expected, $this->adapter()->submit($fulfillment)->outcome, "HTTP {$status}");
+        $this->assertSame($expected, $this->submitAsClaimed($this->adapter(), $fulfillment)->outcome, "HTTP {$status}");
     }
 
     /** @return iterable<string, array{int, string}> */
@@ -221,6 +221,11 @@ class TorodAdapterTest extends TorodTestCase
         yield '503' => [503, SubmissionResult::AMBIGUOUS];
         yield '504' => [504, SubmissionResult::AMBIGUOUS];
         yield '409' => [409, SubmissionResult::AMBIGUOUS];
+        yield '301: redirects are not followed, and an order-creating post that was redirected may have created the order' => [301, SubmissionResult::AMBIGUOUS];
+        yield '302' => [302, SubmissionResult::AMBIGUOUS];
+        yield '303 see other' => [303, SubmissionResult::AMBIGUOUS];
+        yield '307' => [307, SubmissionResult::AMBIGUOUS];
+        yield '308' => [308, SubmissionResult::AMBIGUOUS];
     }
 
     public function test_a_timeout_after_sending_is_ambiguous(): void
@@ -228,7 +233,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         Http::fake([self::V5 . '/public/fulfillment/order' => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 20000 milliseconds')]);
 
-        $this->assertSame(SubmissionResult::AMBIGUOUS, $this->adapter()->submit($fulfillment)->outcome);
+        $this->assertSame(SubmissionResult::AMBIGUOUS, $this->submitAsClaimed($this->adapter(), $fulfillment)->outcome);
     }
 
     public function test_a_connection_that_never_opened_is_safely_retryable(): void
@@ -236,7 +241,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         Http::fake([self::V5 . '/public/fulfillment/order' => fn () => throw new ConnectionException('cURL error 6: Could not resolve host: apisv5.logestechs.com')]);
 
-        $this->assertSame(SubmissionResult::RETRYABLE, $this->adapter()->submit($fulfillment)->outcome);
+        $this->assertSame(SubmissionResult::RETRYABLE, $this->submitAsClaimed($this->adapter(), $fulfillment)->outcome);
     }
 
     public function test_a_connect_phase_timeout_means_the_request_never_left(): void
@@ -244,7 +249,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         Http::fake([self::V5 . '/public/fulfillment/order' => fn () => throw new ConnectionException('cURL error 28: Connection timed out after 5001 milliseconds')]);
 
-        $this->assertSame(SubmissionResult::RETRYABLE, $this->adapter()->submit($fulfillment)->outcome);
+        $this->assertSame(SubmissionResult::RETRYABLE, $this->submitAsClaimed($this->adapter(), $fulfillment)->outcome);
     }
 
     public function test_a_write_is_never_retried_inside_the_http_layer(): void
@@ -252,7 +257,7 @@ class TorodAdapterTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         Http::fake([self::V5 . '/public/fulfillment/order' => Http::response('boom', 500)]);
 
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertCount(1, Http::recorded());
     }
@@ -262,12 +267,44 @@ class TorodAdapterTest extends TorodTestCase
         $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => true, 'company_id' => '714']);
         $fulfillment = $this->torodFulfillment();
 
-        $result = $this->adapter()->submit($fulfillment);
+        $result = $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $this->assertSame(SubmissionResult::DRY_RUN, $result->outcome);
         $this->assertSame('invoiceNumber', array_key_last($result->meta['payload_preview']));
         $this->assertStringContainsString('*', $result->meta['payload_preview']['receiverPhone']);
         Http::assertNothingSent();
+    }
+
+    public function test_a_phone_number_or_an_email_typed_into_a_free_text_field_is_masked_in_the_recorded_request(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => true, 'company_id' => '714']);
+        $fulfillment = $this->torodFulfillment(['order_note' => 'Call my brother on 0501234567 or write brother@example.test, ID 1012345678']);
+
+        $preview = $this->submitAsClaimed($this->adapter(), $fulfillment)->meta['payload_preview'];
+
+        foreach (['0501234567', 'brother@example.test', '1012345678'] as $contact) {
+            $this->assertStringNotContainsString($contact, json_encode($preview), $contact);
+        }
+        $this->assertStringContainsString('Call my brother on', (string) $preview['notes'], 'the rest of the note is what the person approving it reads');
+        $this->assertSame('100-TP1', $preview['invoiceNumber']);
+        $this->assertSame('13222', (string) $preview['items'][0]['sku'], 'a code is not mistaken for a telephone number');
+    }
+
+    public function test_the_adapter_follows_the_mode_it_is_told_and_never_reads_the_dry_run_setting(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->fakeOrderAccepted();
+
+        $rehearsal = $this->adapter()->submit($fulfillment, dryRun: true);
+
+        $this->assertSame(SubmissionResult::DRY_RUN, $rehearsal->outcome, 'the setting says live, the dispatcher decided on a rehearsal');
+        Http::assertNothingSent();
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => true, 'company_id' => '714']);
+        $sent = $this->adapter()->submit($fulfillment, dryRun: false);
+
+        $this->assertNotSame(SubmissionResult::DRY_RUN, $sent->outcome, 'the setting says rehearse, the dispatcher decided on a real send');
+        Http::assertSentCount(1);
     }
 
     public function test_a_rehearsal_is_recorded_through_the_dispatcher_while_external_writes_are_off(): void
@@ -309,14 +346,14 @@ class TorodAdapterTest extends TorodTestCase
         config(['fulfillment.enabled' => false]);
 
         $this->expectException(\App\Services\Fulfillment\Exceptions\ProviderUnavailableException::class);
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
     }
 
     public function test_logged_requests_never_contain_the_warehouse_credentials(): void
     {
         $fulfillment = $this->torodFulfillment();
         $this->fakeOrderAccepted();
-        $this->adapter()->submit($fulfillment);
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         $logged = json_encode(\App\Models\ProviderApiLog::all()->toArray());
 
@@ -429,6 +466,26 @@ class TorodAdapterTest extends TorodTestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_cancellation_is_not_sent_while_the_provider_is_switched_off_and_goes_through_once_it_is_back(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['provider_secondary_reference' => 'KSA100453706880'])->save();
+        Http::fake([self::V2 . '/guests/714/packages/KSA100453706880/cancel' => Http::response(['success' => true])]);
+        app(\App\Services\Fulfillment\ProviderConnectionManager::class)->save(provider: ProviderCode::TorodPoint, enabled: false, baseUrl: null, settings: ['company_id' => '714', 'dry_run' => false, 'dispatch_enabled' => true], secrets: []);
+
+        try {
+            $this->adapter()->cancel($fulfillment);
+            $this->fail('a cancellation left the host while Integration enabled was off');
+        } catch (ProviderUnavailableException) {
+            Http::assertNothingSent();
+        }
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['company_id' => '714']);
+
+        $this->assertSame('requested', $this->adapter()->cancel($fulfillment)->outcome);
+        Http::assertSentCount(1);
+    }
+
     public function test_a_package_is_cancelled_through_the_lastmile_api_with_our_company_id(): void
     {
         $fulfillment = $this->torodFulfillment();
@@ -472,7 +529,7 @@ class TorodAdapterTest extends TorodTestCase
         config(['fulfillment.external_writes_enabled' => false]);
         Http::fake();
 
-        $this->assertRefusedAsExternalWrite(fn () => $this->adapter()->submit($fulfillment));
+        $this->assertRefusedAsExternalWrite(fn () => $this->submitAsClaimed($this->adapter(), $fulfillment));
 
         Http::assertNothingSent();
     }
@@ -506,7 +563,7 @@ class TorodAdapterTest extends TorodTestCase
         Http::assertNothingSent();
     }
 
-    public function test_with_external_writes_off_reads_and_the_air_waybill_lookup_still_work(): void
+    public function test_with_external_writes_off_reads_still_work_but_the_air_waybill_post_is_held(): void
     {
         $fulfillment = $this->torodFulfillment();
         $fulfillment->forceFill(['provider_secondary_reference' => 'KSA100453706880'])->save();
@@ -518,8 +575,14 @@ class TorodAdapterTest extends TorodTestCase
         ]);
 
         $this->assertSame('OUT_FOR_DELIVERY', $this->adapter()->fetchStatus($fulfillment)?->providerStatus);
-        $this->assertNotNull($this->adapter()->labelUrl($fulfillment));
         $this->assertTrue($this->adapter()->testConnection()->ok);
+
+        try {
+            $this->adapter()->labelUrl($fulfillment);
+            $this->fail('the air waybill post left the host with external writes off');
+        } catch (ProviderUnavailableException) {
+            Http::assertNotSent(static fn (Request $request): bool => str_contains($request->url(), '/packages/pdf'));
+        }
     }
 
     public function test_the_capability_report_marks_every_writing_capability_off_while_external_writes_are_off(): void
@@ -529,12 +592,12 @@ class TorodAdapterTest extends TorodTestCase
 
         $report = $this->adapter()->readiness();
 
-        foreach (['dispatch', 'product_push', 'cancel_package'] as $writing) {
+        foreach (['dispatch', 'product_push', 'cancel_package', 'air_waybill'] as $writing) {
             $this->assertSame(CapabilityState::READY_DISABLED, $report->capability($writing)->state, $writing);
             $this->assertSame('external_writes_off', $report->capability($writing)->reason, $writing);
         }
         $this->assertFalse($report->canUse('dispatch'));
-        foreach (['connection', 'product_catalog', 'cities', 'package_status', 'air_waybill', 'status_poll'] as $reading) {
+        foreach (['connection', 'product_catalog', 'cities', 'package_status', 'status_poll'] as $reading) {
             $this->assertNotSame('external_writes_off', $report->capability($reading)->reason, $reading);
         }
         $this->assertTrue($report->canUse('cities'));
@@ -547,7 +610,7 @@ class TorodAdapterTest extends TorodTestCase
 
         $report = $this->adapter()->readiness();
 
-        foreach (['dispatch', 'product_push', 'cancel_package'] as $writing) {
+        foreach (['dispatch', 'product_push', 'cancel_package', 'air_waybill'] as $writing) {
             $this->assertSame(CapabilityState::ENABLED, $report->capability($writing)->state, $writing);
         }
     }

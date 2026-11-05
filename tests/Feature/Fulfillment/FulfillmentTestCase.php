@@ -6,6 +6,8 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
+use App\Services\Fulfillment\Contracts\ProviderAdapter;
+use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\FulfillmentSchema;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
@@ -108,6 +110,14 @@ abstract class FulfillmentTestCase extends TestCase
             settings: $settings + ['dispatch_enabled' => true, 'auto_dispatch' => true, 'dry_run' => false],
             secrets: $secrets,
         );
+    }
+
+    /** Sends the way the dispatcher does: the mode is whatever the provider's Dry run switch says at the moment the order is claimed. */
+    protected function submitAsClaimed(ProviderAdapter $adapter, ProviderFulfillment $fulfillment): SubmissionResult
+    {
+        $dryRun = app(ProviderConnectionManager::class)->config($adapter->code())->bool('dry_run', true);
+
+        return $adapter->submit($fulfillment, dryRun: $dryRun);
     }
 
     protected function makeProduct(int $id, ?ProviderCode $provider = null, array $overrides = []): int

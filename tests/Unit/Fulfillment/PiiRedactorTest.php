@@ -145,13 +145,120 @@ class PiiRedactorTest extends TestCase
         $this->assertSame(['courier' => self::MASK, 'createdBy' => self::MASK, 'user' => self::MASK, 'reach' => self::MASK, 'count' => 12, 'created_at' => 1699999999, 'order_id' => 123456789012, 'host' => self::MASK, 'weight' => 1.5, 'tracking' => 'KSA100422577363'], $redacted);
     }
 
-    public function test_a_key_that_is_a_phone_number_or_an_email_address_is_not_kept_as_a_key(): void
+    public function test_a_key_that_is_a_phone_number_or_an_email_address_is_not_kept_as_a_key_and_hiding_it_merges_nothing(): void
     {
         $redacted = PiiRedactor::redact(['data' => ['0551234567' => ['status' => 'NEW'], 'sara@example.test' => ['status' => 'OLD'], 'KSA100' => ['status' => 'KEPT']]]);
 
-        $this->assertSame([self::MASK, 'KSA100'], array_keys($redacted['data']));
+        $this->assertSame([self::MASK, self::MASK . '#2', 'KSA100'], array_keys($redacted['data']));
+        $this->assertSame(['NEW', 'OLD', 'KEPT'], array_column($redacted['data'], 'status'), 'two hidden keys are two entries, not one');
         $this->assertStringNotContainsString('0551234567', json_encode($redacted));
         $this->assertStringNotContainsString('sara@example.test', json_encode($redacted));
+    }
+
+    public function test_a_phone_number_that_php_turned_into_an_integer_key_is_not_kept_either(): void
+    {
+        $decoded = json_decode('{"966551234567": {"status": "A"}, "551234567": {"status": "B"}, "00966551234567": {"status": "C"}, "+966551234567": {"status": "D"}, "7": {"status": "E"}}', true);
+
+        foreach ([false, true] as $strict) {
+            $redacted = PiiRedactor::redact(['byPhone' => $decoded], $strict);
+
+            $this->assertSame([self::MASK, self::MASK . '#2', self::MASK . '#3', self::MASK . '#4', 7], array_keys($redacted['byPhone']), 'strict: ' . var_export($strict, true));
+            $this->assertStringNotContainsString('551234567', json_encode($redacted));
+        }
+    }
+
+    public function test_a_lone_name_under_a_key_nobody_expected_is_hidden_in_strict_mode_while_codes_and_enumerations_stay(): void
+    {
+        $people = [
+            'courierName' => 'Khalid', 'courier_name' => 'Khalid', 'riderName' => 'Sara', 'agentName' => 'Alharbi', 'deliveryAgent' => 'Khalid',
+            'deliveryMan' => 'Khalid', 'deliveredTo' => 'Sara', 'handledBy' => 'Alharbi', 'signedBy' => 'Alharbi', 'captain' => 'Khalid',
+            'supplier' => 'Khalid', 'surname' => 'Alharbi', 'family' => 'Alharbi', 'given' => 'Sara', 'name_en' => 'Khalid', 'nameAr' => 'خالد',
+            'handle' => 'sara.alharbi', 'label' => 'Khalid', 'who' => 'Sara', 'greeting' => 'Hello',
+        ];
+        $kept = ['currency' => 'SAR', 'shipmentType' => 'REGULAR', 'event' => 'order_created', 'zone' => 'RUH-12', 'paymentMethod' => 'cod', 'serviceLevel' => 'EXPRESS', 'branch' => 'RUH1'];
+
+        $redacted = PiiRedactor::redact($people + $kept, strict: true);
+
+        foreach (array_keys($people) as $key) {
+            $this->assertSame(self::MASK, $redacted[$key], $key);
+        }
+        foreach ($kept as $key => $value) {
+            $this->assertSame($value, $redacted[$key], $key);
+        }
+        $this->assertSame('Khalid', PiiRedactor::redact(['courierName' => 'Khalid'])['courierName'], 'a catalogue has no couriers, and the plain mode keeps what it cannot suspect');
+    }
+
+    public function test_a_key_that_names_a_person_hides_its_value_in_strict_mode_even_when_the_value_is_shaped_like_a_code(): void
+    {
+        $people = [
+            'nickName' => 'KHALID', 'vendorName' => 'ACME1', 'deliveredTo' => 'SARA2', 'handledBy' => 'KHALID', 'signedBy' => 'KHALID2', 'receivedBy' => 'SARA',
+            'captain' => 'KHALID', 'family' => 'ALHARBI', 'given' => 'SARA', 'handle' => 'sara_1', 'deliveryMan' => 'KHALID', 'rider' => 'KHALID_2',
+        ];
+
+        $strict = PiiRedactor::redact($people, strict: true);
+        $plain = PiiRedactor::redact($people);
+
+        foreach ($people as $key => $value) {
+            $this->assertSame(self::MASK, $strict[$key], $key);
+            $this->assertSame($value, $plain[$key], "{$key}: a catalogue has no couriers to hide");
+        }
+    }
+
+    public function test_only_a_key_that_ends_in_status_state_or_stage_makes_free_text_a_status_word(): void
+    {
+        $redacted = PiiRedactor::redact([
+            'status' => 'Delivered to Sara Alharbi', 'status_message' => 'Left with neighbour', 'statusDescription' => 'Ahmed', 'delivery_state' => 'تم التسليم إلى سارة الحربي',
+            'newStatus' => 'Out for delivery', 'orderStage' => 'Picked', 'status_long' => 'Waiting', 'currentStatus' => 'A status word that is far too long to be one',
+            'status_name' => 'In transit', 'statusLabel' => 'Out for delivery', 'statusText' => 'Delivered to Sara Alharbi',
+        ], strict: true);
+
+        $this->assertSame(self::MASK, $redacted['status'], 'four words are a sentence, not a status');
+        $this->assertSame(self::MASK, $redacted['status_message']);
+        $this->assertSame(self::MASK, $redacted['statusDescription']);
+        $this->assertSame(self::MASK, $redacted['delivery_state']);
+        $this->assertSame('Out for delivery', $redacted['newStatus']);
+        $this->assertSame('Picked', $redacted['orderStage']);
+        $this->assertSame(self::MASK, $redacted['status_long'], 'the key must END in status, state or stage');
+        $this->assertSame(self::MASK, $redacted['currentStatus']);
+        $this->assertSame('In transit', $redacted['status_name'], 'the name of a status is a status word, although most keys that end in name are people');
+        $this->assertSame('Out for delivery', $redacted['statusLabel']);
+        $this->assertSame(self::MASK, $redacted['statusText'], 'four words are a sentence');
+    }
+
+    public function test_postal_and_zip_codes_are_personal_even_though_they_end_in_code(): void
+    {
+        $postal = ['postal_code' => '12345-6789', 'zipCode' => '12345', 'postcode' => '12345', 'zip' => '12345', 'whatsappNumber' => '0551234567'];
+
+        foreach ([false, true] as $strict) {
+            foreach (PiiRedactor::redact($postal, $strict) as $key => $value) {
+                $this->assertSame(self::MASK, $value, $key . ' (strict: ' . var_export($strict, true) . ')');
+            }
+        }
+    }
+
+    public function test_timestamps_and_expiry_times_are_kept_in_strict_mode_although_they_are_as_long_as_a_phone_number(): void
+    {
+        $redacted = PiiRedactor::redact(['occurred_at' => 1730000000000, 'eta' => 1730000000, 'expires' => 1730000000, 'valid_until' => 1730000000, 'since' => 1730000000, 'reach' => 1730000000], strict: true);
+
+        $this->assertSame(['occurred_at' => 1730000000000, 'eta' => 1730000000, 'expires' => 1730000000, 'valid_until' => 1730000000, 'since' => 1730000000, 'reach' => self::MASK], $redacted);
+    }
+
+    public function test_contact_details_are_masked_in_a_request_shown_for_approval_while_names_addresses_and_codes_stay(): void
+    {
+        $request = [
+            'receiverName' => 'Sara Alharbi', 'receiverAddress' => ['addressLine1' => 'King Fahd Rd 12, call 0551234567', 'cityId' => 41125],
+            'notes' => 'Write to sara@example.test or call 0501234567', 'items' => [['sku' => '6281234567890', 'name' => 'Basic Care Cream', 'quantity' => 2]], 'trackingEmail' => 'x@y.test',
+        ];
+
+        $masked = PiiRedactor::maskContactDetails($request);
+
+        $this->assertSame('Sara Alharbi', $masked['receiverName']);
+        $this->assertSame('King Fahd Rd 12, call ' . self::MASK, $masked['receiverAddress']['addressLine1']);
+        $this->assertSame('Write to ' . self::MASK . ' or call ' . self::MASK, $masked['notes']);
+        $this->assertSame('6281234567890', $masked['items'][0]['sku'], 'a long barcode is a code, not a telephone number');
+        $this->assertSame('Basic Care Cream', $masked['items'][0]['name']);
+        $this->assertSame(self::MASK, $masked['trackingEmail'], 'an e-mail address is masked even under a key that ends like a code');
+        $this->assertSame(41125, $masked['receiverAddress']['cityId']);
     }
 
     public function test_a_status_word_in_any_language_survives_strict_mode_under_a_status_key_only(): void
@@ -169,6 +276,13 @@ class PiiRedactorTest extends TestCase
         $this->assertSame(self::MASK, $redacted['label'], 'free text under another key is hidden');
     }
 
+    public function test_a_date_beside_a_short_number_is_still_not_a_phone_number(): void
+    {
+        $text = 'between 2026-11-05 18 and 2026-11-06 07, order #4455';
+
+        $this->assertSame($text, PiiRedactor::redactText($text));
+    }
+
     /** @return array<string, array{string}> */
     public static function contactDetailsInEveryFormPeopleWriteThem(): array
     {
@@ -178,6 +292,46 @@ class PiiRedactorTest extends TestCase
             'Arabic-Indic digits' => ['٠٥٥١٢٣٤٥٦٧'], 'Arabic-Indic international' => ['+٩٦٦٥٥١٢٣٤٥٦٧'], 'Extended Arabic-Indic' => ['۰۵۵۱۲۳۴۵۶۷'],
             'full-width' => ['０５５１２３４５６７'], 'a unicode local part' => ['أحمد@example.com'], 'an IDN domain' => ['ahmed@مثال.com'], 'an ordinary address' => ['sara.alharbi+x@example.test'],
         ];
+    }
+
+    /** @return array<string, array{string, list<string>}> text, and every number in it that must be gone */
+    public static function numbersWrittenNextToEachOther(): array
+    {
+        return [
+            'two numbers with a space' => ['0501234567 0551234567', ['0501234567', '0551234567']],
+            'a slash' => ['0501234567/0551234567', ['0501234567', '0551234567']],
+            'a slash with spaces' => ['0501234567 / 0551234567', ['0501234567', '0551234567']],
+            'a dash' => ['0501234567 - 0551234567', ['0501234567', '0551234567']],
+            'international then local' => ['+966501234567 / 0551234567', ['966501234567', '0551234567']],
+            'twelve digits twice' => ['966501234567 966551234567', ['966501234567', '966551234567']],
+            'a number then a date' => ['0501234567 2026-11-05', ['0501234567']],
+            'a date then a number' => ['2026-11-05 0501234567', ['0501234567']],
+            'a number then an order number' => ['0501234567 / 100234', ['0501234567']],
+            'three numbers' => ['0501234567 0551234567 0561234567', ['0501234567', '0551234567', '0561234567']],
+            'a tab' => ["0501234567\t0551234567", ['0501234567', '0551234567']],
+            'a line break' => ["0501234567\n0551234567", ['0501234567', '0551234567']],
+            'an en dash' => ["0501234567 \u{2013} 0551234567", ['0501234567', '0551234567']],
+            'an em dash' => ["0501234567\u{2014}0551234567", ['0501234567', '0551234567']],
+            'a minus sign' => ["055\u{2212}123\u{2212}4567", ['4567']],
+            'a non-breaking hyphen' => ["055\u{2011}123\u{2011}4567", ['4567']],
+            'a narrow no-break space' => ["055\u{202F}123\u{202F}4567", ['4567']],
+            'a thin space' => ["055\u{2009}123\u{2009}4567", ['4567']],
+            'a long digit run' => ['1234567890123456789', ['1234567890123456789']],
+        ];
+    }
+
+    /**
+     * @param list<string> $gone
+     * @dataProvider numbersWrittenNextToEachOther
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('numbersWrittenNextToEachOther')]
+    public function test_every_number_in_a_run_of_numbers_is_masked_not_only_a_run_that_is_one_number(string $text, array $gone): void
+    {
+        foreach ([PiiRedactor::redactText($text), PiiRedactor::scrub($text)] as $masked) {
+            foreach ($gone as $number) {
+                $this->assertStringNotContainsString($number, $masked, $text);
+            }
+        }
     }
 
     /** @dataProvider contactDetailsInEveryFormPeopleWriteThem */

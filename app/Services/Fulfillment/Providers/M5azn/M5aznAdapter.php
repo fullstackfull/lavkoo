@@ -196,7 +196,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
         return PreflightResult::passed();
     }
 
-    public function submit(ProviderFulfillment $fulfillment): SubmissionResult
+    public function submit(ProviderFulfillment $fulfillment, bool $dryRun): SubmissionResult
     {
         $order = Order::find($fulfillment->order_id);
         if ($order === null) {
@@ -211,10 +211,10 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
             return SubmissionResult::rejected('payload_error', $exception::class . ': ' . $exception->getMessage());
         }
 
-        if ($config->bool('dry_run', true)) {
+        if ($dryRun) {
             return SubmissionResult::dryRun([
                 'payload_hash' => RequestFingerprint::of($payload),
-                'payload_preview' => SecretRedactor::redact($payload),
+                'payload_preview' => PiiRedactor::maskContactDetails(SecretRedactor::redact($payload)),
             ]);
         }
 

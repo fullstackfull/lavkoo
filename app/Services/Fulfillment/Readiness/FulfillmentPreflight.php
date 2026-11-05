@@ -94,6 +94,7 @@ class FulfillmentPreflight
         }
 
         $checks[] = $this->externalWrites($allowLive);
+        $checks[] = $this->switchSpelling();
 
         $example = $this->exampleAppKey();
         $isExample = $example !== null && hash_equals($example, (string) config('app.key'));
@@ -217,6 +218,25 @@ class FulfillmentPreflight
         }
 
         return $checks;
+    }
+
+    /**
+     * The environment switches are read as on only for true, 1, on or yes: any other spelling of "off" is off, and so is a typo.
+     * It is the safe direction, but a person who typed `disabled` or `ture` deserves to be told it was not read as they meant.
+     */
+    private function switchSpelling(): PreflightCheck
+    {
+        $odd = [];
+        foreach (['FULFILLMENT_INTEGRATIONS_ENABLED', 'FULFILLMENT_EXTERNAL_WRITES_ENABLED', 'FULFILLMENT_ALLOW_MIXED_COD'] as $name) {
+            $raw = env($name);
+            if (is_string($raw) && !in_array(strtolower(trim($raw)), ['', 'true', 'false', '1', '0', 'on', 'off', 'yes', 'no'], true)) {
+                $odd[] = $name;
+            }
+        }
+
+        return $odd === []
+            ? $this->pass('safety', 'switch spelling', 'the environment switches are written true or false')
+            : $this->warn('safety', 'switch spelling', implode(', ', $odd) . ' is not a recognised on/off value, so it is read as OFF. Write it true or false.');
     }
 
     private function externalWrites(bool $allowLive): PreflightCheck

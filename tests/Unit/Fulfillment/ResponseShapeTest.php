@@ -94,7 +94,7 @@ class ResponseShapeTest extends TestCase
         $this->assertStringContainsString('O0015030400001', $encoded, 'a parcel reference is kept');
         $this->assertStringContainsString('41125', $encoded, 'a city id is kept');
         $profile = ResponseShape::profile($order, strict: true);
-        $this->assertTrue($profile['keys']['data']['items']['keys']['receiverName']['redacted']);
+        $this->assertGreaterThanOrEqual(1, $profile['keys']['data']['items']['keys']['receiverName']['redacted'], 'the number of hidden values is recorded');
         $this->assertSame('string', $profile['keys']['data']['items']['keys']['receiverName']['types'], 'the field is known to exist and what type it is');
         $this->assertArrayNotHasKey('examples', $profile['keys']['data']['items']['keys']['receiverName']);
         $this->assertSame(['PICKED' => 1], $profile['keys']['data']['items']['keys']['status']['values']);

@@ -17,6 +17,7 @@ use App\Services\Fulfillment\Providers\M5azn\M5aznClient;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodFulfillmentClient;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodLastmileClient;
 use App\Services\Fulfillment\Support\ExternalOperations;
+use App\Services\Fulfillment\Support\HttpResult;
 use App\Services\Fulfillment\Support\ProviderHttp;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -69,15 +70,25 @@ class ExternalWriteGuardTest extends FulfillmentTestCase
         sort($writes);
 
         // A tripwire on purpose: adding a write means editing this list, which means someone decided it on purpose.
-        $this->assertSame(['create_order', 'fulfillment_order_create', 'fulfillment_product_upsert', 'lastmile_package_cancel'], $writes);
+        $this->assertSame(['create_order', 'fulfillment_order_create', 'fulfillment_product_upsert', 'lastmile_awb', 'lastmile_package_cancel'], $writes);
         $this->assertSame(['login'], ExternalOperations::operationsOfKind(ExternalOperations::AUTH));
     }
 
-    public function test_a_read_operation_may_only_use_get_except_the_air_waybill_lookup(): void
+    public function test_a_read_operation_may_only_use_get(): void
     {
         foreach (ExternalOperations::operationsOfKind(ExternalOperations::READ) as $operation) {
-            $expected = $operation === 'lastmile_awb' ? ['POST'] : ['GET'];
-            $this->assertSame($expected, ExternalOperations::methodsOf($operation), "{$operation} is registered as a read but allows a mutating method");
+            $this->assertSame(['GET'], ExternalOperations::methodsOf($operation), "{$operation} is registered as a read but allows a mutating method");
+        }
+    }
+
+    public function test_read_only_mode_lets_nothing_but_get_requests_and_the_sign_in_leave_the_host(): void
+    {
+        foreach (ExternalOperations::registered() as $operation) {
+            foreach (ExternalOperations::methodsOf($operation) as $method) {
+                $leavesInReadOnlyMode = !ExternalOperations::isWrite($operation, $method);
+                $expected = $method === 'GET' || $operation === 'login';
+                $this->assertSame($expected, $leavesInReadOnlyMode, "{$method} {$operation}");
+            }
         }
     }
 
@@ -87,6 +98,7 @@ class ExternalWriteGuardTest extends FulfillmentTestCase
         $this->assertTrue(ExternalOperations::isWrite('catalog_list', 'DELETE'));
         $this->assertTrue(ExternalOperations::isWrite('catalog_list', 'POST'));
         $this->assertTrue(ExternalOperations::isWrite('lastmile_awb', 'PUT'));
+        $this->assertTrue(ExternalOperations::isWrite('lastmile_awb', 'POST'));
         $this->assertTrue(ExternalOperations::isWrite('login', 'GET'));
         $this->assertFalse(ExternalOperations::isWrite('catalog_list', 'get'), 'method names are case-insensitive');
     }
@@ -171,7 +183,6 @@ class ExternalWriteGuardTest extends FulfillmentTestCase
             self::V5 . '/public/fulfillment/order*' => Http::response(['data' => []]),
             self::V2 . '/addresses/cities*' => Http::response([]),
             self::V2 . '/guests/packages/status*' => Http::response(['status' => 'CREATED']),
-            self::V2 . '/guests/714/packages/pdf' => Http::response(['data' => 'https://bucket.s3.amazonaws.com/awb.pdf']),
         ]);
 
         $results = [
@@ -180,13 +191,54 @@ class ExternalWriteGuardTest extends FulfillmentTestCase
             app(TorodFulfillmentClient::class)->listOrders(),
             app(TorodLastmileClient::class)->cities(),
             app(TorodLastmileClient::class)->packageStatus('KSA100422577363'),
-            app(TorodLastmileClient::class)->airWaybill(['KSA100422577363']),
         ];
 
         foreach ($results as $result) {
             $this->assertTrue($result->ok());
         }
-        $this->assertGreaterThanOrEqual(6, ProviderApiLog::count());
+        $this->assertGreaterThanOrEqual(5, ProviderApiLog::count());
+    }
+
+    public function test_the_air_waybill_post_is_held_with_the_writes_and_sent_when_they_are_on(): void
+    {
+        Http::fake([self::V2 . '/guests/714/packages/pdf' => Http::response(['url' => 'https://bucket.s3.amazonaws.com/awb.pdf'])]);
+
+        try {
+            app(TorodLastmileClient::class)->airWaybill(['KSA100422577363']);
+            $this->fail('the air waybill post was sent with external writes off');
+        } catch (ProviderUnavailableException) {
+            Http::assertNothingSent();
+        }
+
+        config(['fulfillment.external_writes_enabled' => true]);
+
+        $this->assertTrue(app(TorodLastmileClient::class)->airWaybill(['KSA100422577363'])->ok());
+        Http::assertSentCount(1);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('redirectStatuses')]
+    public function test_a_redirect_is_ambiguous_for_a_write_and_rejected_for_everything_else(int $status): void
+    {
+        config(['fulfillment.external_writes_enabled' => true]);
+        Http::fake(['*' => Http::response('', $status, ['Location' => 'https://elsewhere.example/thanks'])]);
+        $http = app(ProviderHttp::class);
+
+        $write = $http->send(provider: ProviderCode::M5azn, operation: 'create_order', method: 'POST', url: self::M5AZN . '/api/v1/orders');
+        $read = $http->send(provider: ProviderCode::M5azn, operation: 'catalog_list', method: 'GET', url: self::M5AZN . '/api/v1/products');
+        $signIn = $http->send(provider: ProviderCode::M5azn, operation: 'login', method: 'POST', url: self::M5AZN . '/api/v1/auth/login');
+
+        $this->assertSame(HttpResult::AMBIGUOUS, $write->kind, 'a write that was redirected may have been acted on');
+        $this->assertSame(HttpResult::REJECTED, $read->kind);
+        $this->assertSame(HttpResult::REJECTED, $signIn->kind);
+        Http::assertSentCount(3);
+    }
+
+    /** @return iterable<string, array{int}> */
+    public static function redirectStatuses(): iterable
+    {
+        foreach ([301, 302, 303, 307, 308] as $status) {
+            yield (string) $status => [$status];
+        }
     }
 
     public function test_an_unregistered_operation_or_an_unexpected_method_is_refused_by_the_transport(): void
@@ -336,7 +388,63 @@ class ExternalWriteGuardTest extends FulfillmentTestCase
         $this->assertSame(HoldReason::PROVIDER_DISABLED, $fulfillment->fresh()->hold_reason);
     }
 
+    // ── the environment switches fail closed ─────────────────────────────────────────────────────────────────────
+
+    /** @return array<string, array{string, string}> */
+    public static function theTwoEnvironmentSwitches(): array
+    {
+        return ['the kill switch' => ['FULFILLMENT_INTEGRATIONS_ENABLED', 'enabled'], 'the write switch' => ['FULFILLMENT_EXTERNAL_WRITES_ENABLED', 'external_writes_enabled']];
+    }
+
+    /** @dataProvider theTwoEnvironmentSwitches */
+    #[\PHPUnit\Framework\Attributes\DataProvider('theTwoEnvironmentSwitches')]
+    public function test_every_spelling_of_off_means_off_and_a_typo_never_switches_anything_on(string $variable, string $key): void
+    {
+        foreach (['off', 'OFF', 'no', 'n', 'disabled', 'none', '0.0', '0', 'false', 'garbage', 'tru', 'ture', ''] as $raw) {
+            $this->assertFalse($this->fulfillmentConfigWith($variable, $raw)[$key], "{$variable}={$raw} must not switch anything on");
+        }
+        foreach (['true', 'TRUE', '1', 'on', 'yes'] as $raw) {
+            $this->assertTrue($this->fulfillmentConfigWith($variable, $raw)[$key], "{$variable}={$raw}");
+        }
+    }
+
+    public function test_mixed_cash_collection_fails_closed_the_same_way(): void
+    {
+        foreach (['off', 'no', 'disabled', '0.0', 'garbage'] as $raw) {
+            $this->assertFalse($this->fulfillmentConfigWith('FULFILLMENT_ALLOW_MIXED_COD', $raw)['cod']['allow_mixed'], $raw);
+        }
+    }
+
+    public function test_the_preflight_says_when_a_switch_holds_something_that_is_not_an_on_off_value(): void
+    {
+        $preflight = fn (): array => collect(app(\App\Services\Fulfillment\Readiness\FulfillmentPreflight::class)->safety(allowProduction: true))->keyBy('name')->all();
+
+        $_SERVER['FULFILLMENT_EXTERNAL_WRITES_ENABLED'] = $_ENV['FULFILLMENT_EXTERNAL_WRITES_ENABLED'] = 'disabled';
+        try {
+            $odd = $preflight()['switch spelling'];
+        } finally {
+            unset($_SERVER['FULFILLMENT_EXTERNAL_WRITES_ENABLED'], $_ENV['FULFILLMENT_EXTERNAL_WRITES_ENABLED']);
+        }
+        $clean = $preflight()['switch spelling'];
+
+        $this->assertSame(\App\Services\Fulfillment\Readiness\PreflightCheck::WARN, $odd->status);
+        $this->assertStringContainsString('FULFILLMENT_EXTERNAL_WRITES_ENABLED', $odd->detail);
+        $this->assertSame(\App\Services\Fulfillment\Readiness\PreflightCheck::PASS, $clean->status);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────────────────────────────────
+
+    /** @return array<string, mixed> config/fulfillment.php as it evaluates when the environment says `$raw` */
+    private function fulfillmentConfigWith(string $variable, string $raw): array
+    {
+        $_SERVER[$variable] = $_ENV[$variable] = $raw;
+        try {
+            return require base_path('config/fulfillment.php');
+        } finally {
+            unset($_SERVER[$variable], $_ENV[$variable]);
+        }
+    }
+
 
     private function torodFulfillment(int $orderId = 100): \App\Models\ProviderFulfillment
     {

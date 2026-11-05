@@ -7,6 +7,9 @@ use App\Enums\Fulfillment\HoldReason;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\AuditLogger;
+use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\Support\ScrubbedFailure;
+use Closure;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -43,8 +46,12 @@ class OperatorActions
     ) {
     }
 
-    /** Held, dry-run or failed → pending, and sent now, bypassing the go-live cut-off. Never for a money hold. */
-    public function release(int $fulfillmentId): void
+    /**
+     * Held, dry-run or failed → pending, and sent now, bypassing the go-live cut-off. Never for a money hold.
+     *
+     * @return string what the send came to: a SubmissionResult outcome, or ProviderOrderDispatcher::SKIPPED / UNAVAILABLE
+     */
+    public function release(int $fulfillmentId): string
     {
         $fulfillment = $this->find($fulfillmentId);
         if ($fulfillment->status === FulfillmentStatus::Held && in_array($fulfillment->hold_reason, self::HOLDS_RELEASED_BY_THEIR_CAUSE, true)) {
@@ -55,11 +62,16 @@ class OperatorActions
         }
 
         $this->recordAudit('fulfillment.released', $fulfillment);
-        $this->sendAtOnce($fulfillmentId);
+
+        return $this->sendAtOnce($fulfillmentId);
     }
 
-    /** The operator confirmed in the provider's own dashboard that the order does NOT exist there. */
-    public function confirmNotCreated(int $fulfillmentId, string $reason): void
+    /**
+     * The operator confirmed in the provider's own dashboard that the order does NOT exist there.
+     *
+     * @return string what the send came to: a SubmissionResult outcome, or ProviderOrderDispatcher::SKIPPED / UNAVAILABLE
+     */
+    public function confirmNotCreated(int $fulfillmentId, string $reason): string
     {
         $fulfillment = $this->find($fulfillmentId);
         if (!$this->tracker->confirmNotCreated($fulfillmentId, $reason)) {
@@ -67,7 +79,8 @@ class OperatorActions
         }
 
         $this->recordAudit('fulfillment.confirmed_not_created', $fulfillment, ['reason' => $reason]);
-        $this->sendAtOnce($fulfillmentId);
+
+        return $this->sendAtOnce($fulfillmentId);
     }
 
     /** The operator found the order at the provider and supplies its reference. */
@@ -115,7 +128,7 @@ class OperatorActions
         $this->recordAudit('fulfillment.cancel_requested', $fulfillment);
 
         if ($this->queue->runsInline()) {
-            return $this->cancellation->cancel(fulfillmentId: $fulfillmentId, manual: true);
+            return $this->withoutPersonalDataInFailures(fn (): string => $this->cancellation->cancel(fulfillmentId: $fulfillmentId, manual: true));
         }
 
         $this->queue->dispatchCancel($fulfillmentId, manual: true);
@@ -156,15 +169,24 @@ class OperatorActions
     }
 
     /**
-     * A person's "send this one" is manual: it is the approval the dispatcher otherwise waits for. Without a queue worker (the
-     * `sync` driver) nothing would pick the job up, and the next sweep, which is not manual, would hold the order again.
+     * A person's "send this one" is manual: it is the approval the dispatcher otherwise waits for, and the person is waiting
+     * for the answer. It runs inside their request whatever the queue driver is. A queued job would carry the approval only in
+     * its payload, where a lost or failed job drops it without a word (the next sweep is not manual and holds the order again),
+     * and nothing could tell the person what became of the order. The dispatcher's claim and settle keep the outcome in the
+     * database either way, and a request that dies mid-send is recovered the way a crashed worker is.
      */
-    private function sendAtOnce(int $fulfillmentId): void
+    private function sendAtOnce(int $fulfillmentId): string
     {
-        $this->queue->inlineOrQueue(
-            inline: fn () => $this->dispatcher->dispatch(fulfillmentId: $fulfillmentId, manual: true),
-            queued: fn () => $this->queue->dispatchFulfillment($fulfillmentId, 0, true),
-        );
+        return $this->withoutPersonalDataInFailures(fn (): string => $this->dispatcher->dispatch(fulfillmentId: $fulfillmentId, manual: true));
+    }
+
+    /**
+     * These run in the person's request, outside the jobs that scrub their failures: a database or provider error would reach the
+     * framework's report with its whole message. The failures the controller expects (a refused action, a provider that is off) are ours.
+     */
+    private function withoutPersonalDataInFailures(Closure $work): string
+    {
+        return ScrubbedFailure::run($work, expected: [InvalidArgumentException::class, ProviderUnavailableException::class]);
     }
 
     private function applyManual(int $fulfillmentId, FulfillmentStatus $to, string $reason, string $action): void

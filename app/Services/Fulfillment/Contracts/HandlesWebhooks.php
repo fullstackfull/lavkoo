@@ -11,6 +11,16 @@ interface HandlesWebhooks
     /** @param array<array-key, mixed> $payload */
     public function normalizeWebhook(string $type, array $payload): ?NormalizedEvent;
 
+    /**
+     * What of the provider's body is kept with the event, and read back by normalizeWebhook() when the event is processed: the fields
+     * that method reads and nothing else. A body also carries the receiver, the courier and proof-of-delivery links, and none of
+     * those is needed to apply a status.
+     *
+     * @param array<array-key, mixed> $payload
+     * @return array<array-key, mixed>
+     */
+    public function storablePayload(array $payload): array;
+
     /** Find OUR fulfillment for an event — by references we hold for it, never by anything another provider could share. */
     public function locateFulfillment(NormalizedEvent $event): ?ProviderFulfillment;
 

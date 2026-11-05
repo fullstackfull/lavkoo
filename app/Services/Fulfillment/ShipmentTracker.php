@@ -84,14 +84,16 @@ class ShipmentTracker
      */
     public function noteUnmappedStatus(int $fulfillmentId, string $providerStatus): void
     {
-        DB::transaction(function () use ($fulfillmentId, $providerStatus): void {
+        $kept = PiiRedactor::scrubToFit($providerStatus, 100);
+
+        DB::transaction(function () use ($fulfillmentId, $kept): void {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
-            if ($fulfillment === null || $fulfillment->isTerminal() || $fulfillment->provider_status === $providerStatus) {
+            if ($fulfillment === null || $fulfillment->isTerminal() || $fulfillment->provider_status === $kept) {
                 return;
             }
 
-            $fulfillment->forceFill(['provider_status' => SecretRedactor::truncate($providerStatus, 100), 'last_received_at' => now()])->save();
-            $this->record($fulfillment->provider, 'poll', 'status', $fulfillment->id, $fulfillment->provider_reference, $providerStatus, null, null, EventOutcome::IGNORED_UNMAPPED, 'unmapped_provider_status');
+            $fulfillment->forceFill(['provider_status' => $kept, 'last_received_at' => now()])->save();
+            $this->record($fulfillment->provider, 'poll', 'status', $fulfillment->id, $fulfillment->provider_reference, $kept, null, null, EventOutcome::IGNORED_UNMAPPED, 'unmapped_provider_status');
         });
     }
 
@@ -207,7 +209,7 @@ class ShipmentTracker
             'last_error_message' => null,
             'next_attempt_at' => null,
             'claim_token' => null,
-        ] + ($freshStart ? ['attempts' => 0, 'reconcile_attempts' => 0] : []), 'released:' . $by, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed], forget: self::RECORDED_REQUEST);
+        ] + ($freshStart ? ['attempts' => 0, 'reconcile_attempts' => 0] : []), 'released:' . $by, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed]);
     }
 
     /**
@@ -449,7 +451,7 @@ class ShipmentTracker
             'event_type' => $eventType,
             'provider_fulfillment_id' => $fulfillmentId,
             'external_reference' => $externalReference,
-            'provider_status' => $providerStatus,
+            'provider_status' => $providerStatus === null ? null : PiiRedactor::scrubToFit($providerStatus, 100),
             'internal_status' => $internalStatus,
             'occurred_at' => AppTime::local($occurredAt),
             'received_at' => now(),
@@ -473,7 +475,7 @@ class ShipmentTracker
     ): void {
         $values = [
             'status' => $incoming,
-            'provider_status' => $providerStatus ?? $fulfillment->provider_status,
+            'provider_status' => $providerStatus === null ? $fulfillment->provider_status : PiiRedactor::scrubToFit($providerStatus, 100),
             'last_received_at' => now(),
             'last_event_at' => $this->newest($fulfillment->last_event_at, $occurredAt),
             'last_error_code' => null,
@@ -509,11 +511,10 @@ class ShipmentTracker
      * @param list<FulfillmentStatus>|null $onlyFrom
      * @param array<string, mixed> $values
      * @param array<string, mixed> $meta merged into the shipment's meta
-     * @param list<string> $forget meta keys removed in the same locked step
      */
-    private function simpleTransition(int $fulfillmentId, FulfillmentStatus $to, array $values, string $note, ?array $onlyFrom = null, array $meta = [], array $forget = []): bool
+    private function simpleTransition(int $fulfillmentId, FulfillmentStatus $to, array $values, string $note, ?array $onlyFrom = null, array $meta = []): bool
     {
-        return DB::transaction(function () use ($fulfillmentId, $to, $values, $note, $onlyFrom, $meta, $forget): bool {
+        return DB::transaction(function () use ($fulfillmentId, $to, $values, $note, $onlyFrom, $meta): bool {
             $fulfillment = ProviderFulfillment::whereKey($fulfillmentId)->lockForUpdate()->first();
             if ($fulfillment === null
                 || ($onlyFrom !== null && !in_array($fulfillment->status, $onlyFrom, true))
@@ -522,7 +523,11 @@ class ShipmentTracker
             }
 
             $values['status'] = $to;
-            if ($meta !== [] || $forget !== []) {
+
+            // The request a dry run recorded describes an order that was never sent. It lives only while the shipment waits as a dry run:
+            // any other way out of that state (released, held, failed, cancelled…) takes it along.
+            $forget = $to === FulfillmentStatus::DryRun ? [] : self::RECORDED_REQUEST;
+            if ($meta !== [] || array_intersect($forget, array_keys($fulfillment->meta ?? [])) !== []) {
                 $values['meta'] = Arr::except(array_replace($fulfillment->meta ?? [], $meta), $forget);
             }
             $fulfillment->forceFill($values)->save();

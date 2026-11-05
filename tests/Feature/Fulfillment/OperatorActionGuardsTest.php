@@ -62,13 +62,15 @@ class OperatorActionGuardsTest extends FulfillmentTestCase
     {
         $shipment = $this->shipment(status: FulfillmentStatus::Failed, columns: ['attempts' => 5, 'reconcile_attempts' => 2]);
 
-        $this->actions()->release($shipment->id);
+        $outcome = $this->actions()->release($shipment->id);
 
         $shipment->refresh();
-        $this->assertSame(FulfillmentStatus::Pending, $shipment->status);
-        $this->assertSame(0, $shipment->attempts);
+        $this->assertSame(SubmissionResult::ACCEPTED, $outcome);
+        $this->assertSame(FulfillmentStatus::Submitted, $shipment->status);
+        $this->assertSame(1, $shipment->attempts, 'the five failed attempts were forgotten and this is the first of a fresh start');
         $this->assertSame(0, $shipment->reconcile_attempts);
-        Queue::assertPushed(DispatchProviderFulfillment::class, static fn (DispatchProviderFulfillment $job): bool => $job->fulfillmentId === $shipment->id && $job->manual);
+        $this->assertCount(1, $this->providerCalls());
+        Queue::assertNotPushed(DispatchProviderFulfillment::class);
     }
 
     public function test_releasing_a_shipment_a_worker_is_already_sending_changes_nothing(): void
@@ -103,19 +105,75 @@ class OperatorActionGuardsTest extends FulfillmentTestCase
         }
     }
 
+    public function test_a_failure_inside_a_persons_send_lets_out_a_scrubbed_message_not_the_whole_one(): void
+    {
+        $shipment = $this->shipment(status: FulfillmentStatus::Failed);
+        $this->app->instance(ProviderOrderDispatcher::class, new class extends ProviderOrderDispatcher {
+            public function __construct()
+            {
+            }
+
+            public function dispatch(int $fulfillmentId, bool $manual = false): string
+            {
+                throw new \RuntimeException("SQLSTATE[23000]: Duplicate entry 'sara@example.test' for key 'phone' (0551234567 / 0559876543)");
+            }
+        });
+
+        try {
+            app(OperatorActions::class)->release($shipment->id);
+            $this->fail('the failure was swallowed');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('SQLSTATE[23000]', $exception->getMessage());
+            foreach (['sara@example.test', '0551234567', '0559876543'] as $personal) {
+                $this->assertStringNotContainsString($personal, $exception->getMessage());
+            }
+            $this->assertNull($exception->getPrevious(), 'nothing chains the original message to the report');
+        }
+    }
+
+    public function test_a_provider_that_is_switched_off_still_reaches_the_controller_as_the_exception_it_handles(): void
+    {
+        $shipment = $this->shipment(status: FulfillmentStatus::Failed);
+        $this->app->instance(ProviderOrderDispatcher::class, new class extends ProviderOrderDispatcher {
+            public function __construct()
+            {
+            }
+
+            public function dispatch(int $fulfillmentId, bool $manual = false): string
+            {
+                throw new \App\Services\Fulfillment\Exceptions\ProviderUnavailableException('Torod Point is switched off.');
+            }
+        });
+
+        $this->expectException(\App\Services\Fulfillment\Exceptions\ProviderUnavailableException::class);
+        $this->expectExceptionMessage('Torod Point is switched off.');
+
+        app(OperatorActions::class)->release($shipment->id);
+    }
+
+    public function test_a_refusal_the_controller_expects_is_not_turned_into_a_scrubbed_failure(): void
+    {
+        $shipment = $this->shipment(status: FulfillmentStatus::Delivered);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->actions()->release($shipment->id);
+    }
+
     // ---- confirm not created -----------------------------------------------------------------------------------
 
-    public function test_confirming_not_created_returns_the_shipment_to_pending_and_sends_it_again(): void
+    public function test_confirming_not_created_starts_afresh_and_sends_it_again_on_the_spot(): void
     {
         $shipment = $this->shipment(status: FulfillmentStatus::ReconcilePending, columns: ['attempts' => 2, 'reconcile_attempts' => 6]);
 
-        $this->actions()->confirmNotCreated($shipment->id, 'checked the provider dashboard, no such order');
+        $outcome = $this->actions()->confirmNotCreated($shipment->id, 'checked the provider dashboard, no such order');
 
         $shipment->refresh();
-        $this->assertSame(FulfillmentStatus::Pending, $shipment->status);
-        $this->assertSame(0, $shipment->attempts);
+        $this->assertSame(SubmissionResult::ACCEPTED, $outcome);
+        $this->assertSame(FulfillmentStatus::Submitted, $shipment->status);
+        $this->assertSame(1, $shipment->attempts, 'the earlier attempts were forgotten and this is the first of a fresh start');
         $this->assertDatabaseHas('provider_fulfillment_events', ['provider_fulfillment_id' => $shipment->id, 'source' => 'manual', 'outcome' => 'applied']);
-        Queue::assertPushed(DispatchProviderFulfillment::class, static fn (DispatchProviderFulfillment $job): bool => $job->manual);
+        Queue::assertNotPushed(DispatchProviderFulfillment::class);
     }
 
     public function test_without_a_queue_worker_confirming_not_created_sends_the_shipment_on_the_spot(): void

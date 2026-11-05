@@ -83,20 +83,20 @@ class ApprovalGateTest extends FulfillmentTestCase
         $this->assertNotContains(HoldReason::AWAITING_APPROVAL, ProviderOrderDispatcher::AUTO_RELEASABLE);
     }
 
-    public function test_releasing_the_order_is_the_approval_and_sends_that_one_order_at_once(): void
+    public function test_releasing_the_order_is_the_approval_and_sends_that_one_order_at_once_even_when_a_queue_runs(): void
     {
+        config(['queue.default' => 'database']);
         $first = $this->torodFulfillment(100);
         $second = $this->torodFulfillment(101);
         $this->dispatcher()->dispatch($first->id);
         $this->dispatcher()->dispatch($second->id);
         $this->torod->submitQueue = [SubmissionResult::accepted('O-APPROVED')];
 
-        app(OperatorActions::class)->release($first->id);
+        $outcome = app(OperatorActions::class)->release($first->id);
 
-        Queue::assertPushed(DispatchProviderFulfillment::class, static fn (DispatchProviderFulfillment $job): bool => $job->fulfillmentId === $first->id && $job->manual === true);
-        Queue::assertNotPushed(DispatchProviderFulfillment::class, static fn (DispatchProviderFulfillment $job): bool => $job->fulfillmentId === $second->id && $job->manual);
-        $this->dispatcher()->dispatch($first->id, manual: true);
-
+        $this->assertSame(SubmissionResult::ACCEPTED, $outcome, 'the person is told what the send came to, not that a job was queued');
+        // The approval is not left in a queue payload, where a lost or failed job would drop it without a word.
+        Queue::assertNotPushed(DispatchProviderFulfillment::class, static fn (DispatchProviderFulfillment $job): bool => $job->manual);
         $this->assertSame(FulfillmentStatus::Submitted, $first->fresh()->status);
         $this->assertSame('O-APPROVED', $first->fresh()->provider_reference);
         $this->assertSame(HoldReason::AWAITING_APPROVAL, $second->fresh()->hold_reason, 'approving one order approves no other');
@@ -135,6 +135,75 @@ class ApprovalGateTest extends FulfillmentTestCase
         $this->assertCount(1, $this->torod->calls);
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function holdsASweepCanPutOnAnOrderJustReleased(): iterable
+    {
+        yield 'awaiting approval' => [HoldReason::AWAITING_APPROVAL];
+        yield 'placed before go-live' => [HoldReason::BEFORE_GO_LIVE];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('holdsASweepCanPutOnAnOrderJustReleased')]
+    public function test_a_sweep_that_holds_the_order_between_the_release_and_the_send_does_not_swallow_the_approval(string $hold): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->dispatcher()->dispatch($fulfillment->id);
+        app(ShipmentTracker::class)->release($fulfillment->id, 'operator', freshStart: true);
+        // The sweep gets there first and, being no person, holds the order again.
+        app(ShipmentTracker::class)->hold($fulfillment->id, $hold);
+        $this->torod->submitQueue = [SubmissionResult::accepted('O-APPROVED')];
+
+        $outcome = $this->dispatcher()->dispatch($fulfillment->id, manual: true);
+
+        $this->assertSame(SubmissionResult::ACCEPTED, $outcome, 'the person approved it; the click is not lost');
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+    }
+
+    public function test_a_hold_a_person_does_not_answer_is_still_not_sent_by_a_manual_dispatch(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->dispatcher()->dispatch($fulfillment->id);
+        app(ShipmentTracker::class)->hold($fulfillment->id, HoldReason::MIXED_COD_BLOCKED);
+
+        $outcome = $this->dispatcher()->dispatch($fulfillment->id, manual: true);
+
+        $this->assertSame(ProviderOrderDispatcher::SKIPPED, $outcome);
+        $this->assertSame(HoldReason::MIXED_COD_BLOCKED, $fulfillment->fresh()->hold_reason);
+        $this->assertSame([], $this->torod->calls);
+    }
+
+    /** @return iterable<string, array{SubmissionResult|null, string}> */
+    public static function whatAReleaseCanComeTo(): iterable
+    {
+        yield 'the provider accepts it' => [SubmissionResult::accepted('O-1'), SubmissionResult::ACCEPTED];
+        yield 'the provider refuses it' => [SubmissionResult::rejected('bad_sku', 'unknown sku'), SubmissionResult::REJECTED];
+        yield 'the provider could not be reached' => [SubmissionResult::retryable('timeout_before_send', 'refused'), SubmissionResult::RETRYABLE];
+        yield 'the answer is lost' => [SubmissionResult::ambiguous('timeout', 'no answer'), SubmissionResult::AMBIGUOUS];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('whatAReleaseCanComeTo')]
+    public function test_a_release_says_what_the_send_came_to_and_never_hides_an_unknown_answer(SubmissionResult $answer, string $expected): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->dispatcher()->dispatch($fulfillment->id);
+        $this->torod->submitQueue = [$answer];
+
+        $this->assertSame($expected, app(OperatorActions::class)->release($fulfillment->id));
+        $this->assertCount(1, $this->torod->calls);
+    }
+
+    public function test_a_release_that_the_dispatcher_holds_again_says_so(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->dispatcher()->dispatch($fulfillment->id);
+        $this->torod->preflight = \App\Services\Fulfillment\Data\PreflightResult::hold(HoldReason::CITY_UNMAPPED);
+
+        $outcome = app(OperatorActions::class)->release($fulfillment->id);
+
+        $this->assertSame(ProviderOrderDispatcher::SKIPPED, $outcome);
+        $this->assertSame(HoldReason::CITY_UNMAPPED, $fulfillment->fresh()->hold_reason);
+        $this->assertSame([], $this->torod->calls);
+    }
+
     public function test_a_dry_run_needs_no_approval_because_nothing_leaves_the_host(): void
     {
         $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => true]);
@@ -169,6 +238,45 @@ class ApprovalGateTest extends FulfillmentTestCase
         $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
         $this->assertSame('O-CHECKED', $fulfillment->fresh()->provider_reference);
         $this->assertCount(2, $this->torod->calls);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function waysOutOfADryRun(): iterable
+    {
+        foreach (['cancelLocally', 'hold', 'markFailed', 'scheduleRetry', 'awaitReconciliation'] as $way) {
+            yield $way => [$way];
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('waysOutOfADryRun')]
+    public function test_the_request_a_dry_run_recorded_leaves_with_the_dry_run_however_it_ends(string $way): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $tracker = app(ShipmentTracker::class);
+        $tracker->markDryRun($fulfillment->id, ['payload_hash' => 'abc', 'payload_preview' => ['receiverName' => 'Sara Alharbi'], 'keep' => 'me']);
+        $this->assertArrayHasKey('payload_preview', $fulfillment->fresh()->meta);
+
+        match ($way) {
+            'cancelLocally' => $tracker->cancelLocally($fulfillment->id, 'parent_order_closed'),
+            'hold' => $tracker->hold($fulfillment->id, HoldReason::CITY_UNMAPPED),
+            'markFailed' => $tracker->markFailed($fulfillment->id, 'x', 'refused'),
+            'scheduleRetry' => $tracker->scheduleRetry($fulfillment->id, 'x', 'busy', now()->addMinute()),
+            'awaitReconciliation' => $tracker->awaitReconciliation($fulfillment->id, 'x', 'unknown', now()->addMinute()),
+        };
+
+        $this->assertSame(['keep' => 'me'], $fulfillment->fresh()->meta, $way);
+    }
+
+    public function test_a_dry_run_recorded_again_keeps_its_request(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $tracker = app(ShipmentTracker::class);
+
+        $tracker->markDryRun($fulfillment->id, ['payload_hash' => 'one', 'payload_preview' => ['invoiceNumber' => '100-TP1']]);
+        $tracker->markDryRun($fulfillment->id, ['payload_hash' => 'two', 'payload_preview' => ['invoiceNumber' => '100-TP1']]);
+
+        $this->assertSame('two', $fulfillment->fresh()->meta['payload_hash']);
+        $this->assertSame(['invoiceNumber' => '100-TP1'], $fulfillment->fresh()->meta['payload_preview']);
     }
 
     public function test_a_request_recorded_by_a_dry_run_does_not_outlive_the_order_being_accepted(): void

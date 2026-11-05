@@ -41,6 +41,7 @@ use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -64,6 +65,9 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     private const STOCK_FRESH_HOURS = 6;
     private const PAGE_SIZE = 100;
     private const MAX_PAGES = 50;
+
+    /** Every field the two webhook normalisers read (lower-cased), and so every field of a webhook body that is kept. */
+    private const WEBHOOK_FIELDS = ['newstatus', 'barcode', 'time', 'postponeddeliverydate', 'postponeddate', 'packageid', 'invoicenumber', 'cod', 'notes', 'status', 'packagebarcode'];
 
     /** Hosts the air waybill may be served from. */
     private const LABEL_HOST_SUFFIXES = ['amazonaws.com', 'logestechs.com'];
@@ -149,7 +153,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             },
             'cities' => $this->state('cities', $companyId, $global, true),
             'package_status' => $this->state('package_status', $companyId, $global, true),
-            'air_waybill' => $this->state('air_waybill', $companyId, $global, true),
+            'air_waybill' => $this->state('air_waybill', $companyId, $global, true, $this->connections->externalWritesEnabled()),
             'cancel_package' => $this->state('cancel_package', $companyId && $lastmileCredentials, $global, true, $this->connections->externalWritesEnabled()),
             'webhooks' => $this->state('webhooks', $config->hasSecret('webhook_secret'), $global, $config->bool('webhooks_enabled')),
             'status_poll' => $this->state('status_poll', $companyId, $global, true),
@@ -223,7 +227,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         return PreflightResult::passed();
     }
 
-    public function submit(ProviderFulfillment $fulfillment): SubmissionResult
+    public function submit(ProviderFulfillment $fulfillment, bool $dryRun): SubmissionResult
     {
         $order = Order::find($fulfillment->order_id);
         if ($order === null) {
@@ -243,10 +247,10 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return SubmissionResult::rejected('payload_error', $exception::class . ': ' . $exception->getMessage());
         }
 
-        if ($config->bool('dry_run', true)) {
+        if ($dryRun) {
             return SubmissionResult::dryRun([
                 'payload_hash' => RequestFingerprint::of($payload),
-                'payload_preview' => SecretRedactor::redact($payload),
+                'payload_preview' => PiiRedactor::maskContactDetails(SecretRedactor::redact($payload)),
             ]);
         }
 
@@ -268,6 +272,8 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return CancellationResult::failed('Lastmile credentials are not configured.');
         }
 
+        // Switching the provider off stops this too: FulfillmentCancellation defers the cancel and tries again once the provider is back.
+        $this->ensureCallable();
         $result = $this->lastmile->cancelPackage($barcode, $fulfillment->id);
 
         return match (true) {
@@ -371,6 +377,26 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             'fulfillment' => $this->normalizeFulfillment($payload),
             default => null,
         };
+    }
+
+    public function storablePayload(array $payload): array
+    {
+        $kept = [];
+        foreach ($payload as $key => $value) {
+            $name = strtolower((string) $key);
+            if (!in_array($name, self::WEBHOOK_FIELDS, true) || !is_scalar($value)) {
+                continue;
+            }
+
+            $kept[$key] = match (true) {
+                !is_string($value) => $value,
+                $name === 'notes' => PiiRedactor::scrub($value, 250),
+                $name === 'newstatus', $name === 'status' => PiiRedactor::scrubToFit($value, 100),
+                default => $value,
+            };
+        }
+
+        return $kept;
     }
 
     /**
@@ -645,6 +671,11 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         $list = [];
         $skipped = [];
         foreach (DB::table('products')->whereIn('id', $productIds)->where('added_by', 'admin')->where('product_type', 'physical')->get() as $product) {
+            // A product that belongs to M5AZN must never reach this warehouse: refuse it BEFORE anything is sent, not when the mapping is saved.
+            if ($product->fulfillment_provider !== null && $product->fulfillment_provider !== $this->code()->value) {
+                $skipped[(int) $product->id] = 'owned_by_another_provider';
+                continue;
+            }
             $variations = json_decode((string) ($product->variation ?? '[]'), true) ?: [];
             if ($variations !== []) {
                 $skipped[(int) $product->id] = 'variants_not_supported';
@@ -684,17 +715,23 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             }
 
             $source = collect($list)->firstWhere('externalId', $productId);
-            app(ProviderMappingService::class)->approve(
-                provider: $this->code(),
-                productId: $productId,
-                variantKey: '',
-                externalId: (string) $warehouseId,
-                externalSku: $source['sku'] ?? null,
-                externalBarcode: $source['barcode'] ?? null,
-                externalName: $source['name'] ?? null,
-                approvedBy: $adminId,
-                source: 'warehouse_push',
-            );
+            try {
+                app(ProviderMappingService::class)->approve(
+                    provider: $this->code(),
+                    productId: $productId,
+                    variantKey: '',
+                    externalId: (string) $warehouseId,
+                    externalSku: $source['sku'] ?? null,
+                    externalBarcode: $source['barcode'] ?? null,
+                    externalName: $source['name'] ?? null,
+                    approvedBy: $adminId,
+                    source: 'warehouse_push',
+                );
+            } catch (InvalidArgumentException $refusal) {
+                // The warehouse has the product but this store may not map it (it changed owner meanwhile): say so, and carry on with the rest.
+                $skipped[$productId] = $refusal->getMessage();
+                continue;
+            }
             $pushed++;
         }
 

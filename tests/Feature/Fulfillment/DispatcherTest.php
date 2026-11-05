@@ -17,6 +17,7 @@ use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\Fulfillment\ReconciliationService;
 use App\Services\Fulfillment\ShipmentTracker;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 
@@ -234,7 +235,7 @@ class DispatcherTest extends FulfillmentTestCase
         $throwing = new class extends \Tests\Support\FakeTorodAdapter {
             public int $submits = 0;
 
-            public function submit(ProviderFulfillment $fulfillment): SubmissionResult
+            public function submit(ProviderFulfillment $fulfillment, bool $dryRun): SubmissionResult
             {
                 $this->submits++;
                 throw new \RuntimeException('connection reset while reading the response');
@@ -254,7 +255,7 @@ class DispatcherTest extends FulfillmentTestCase
     {
         $fulfillment = $this->torodFulfillment();
         $throwing = new class extends \Tests\Support\FakeTorodAdapter {
-            public function submit(ProviderFulfillment $fulfillment): SubmissionResult
+            public function submit(ProviderFulfillment $fulfillment, bool $dryRun): SubmissionResult
             {
                 throw new \RuntimeException('HTTP 422: invalid receiver phone 0551234567 for sara@example.test');
             }
@@ -278,7 +279,7 @@ class DispatcherTest extends FulfillmentTestCase
     {
         $fulfillment = $this->torodFulfillment();
         $this->torod = new class extends \Tests\Support\FakeTorodAdapter {
-            public function submit(ProviderFulfillment $fulfillment): SubmissionResult
+            public function submit(ProviderFulfillment $fulfillment, bool $dryRun): SubmissionResult
             {
                 throw new ProviderUnavailableException('kill switch');
             }
@@ -366,13 +367,11 @@ class DispatcherTest extends FulfillmentTestCase
         app(FulfillmentRecovery::class)->dispatchDue();
         $this->assertSame([], $this->torod->calls);
 
-        // ...an operator does, and only then does the manual dispatch bypass the cut-off. (With a queue worker the release hands the
-        // send to it; ApprovalGateTest covers the sync driver, where the release sends at once.)
+        // ...an operator does, and only then does the manual dispatch bypass the cut-off: the release sends on the spot, queue or not.
         config(['queue.default' => 'database']);
-        app(\App\Services\Fulfillment\OperatorActions::class)->release($fulfillment->id);
-        $this->assertSame(FulfillmentStatus::Pending, $fulfillment->fresh()->status);
-        $this->dispatcher()->dispatch($fulfillment->id, manual: true);
+        $outcome = app(\App\Services\Fulfillment\OperatorActions::class)->release($fulfillment->id);
 
+        $this->assertSame(SubmissionResult::ACCEPTED, $outcome);
         $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
         $this->assertCount(1, $this->torod->calls);
     }
@@ -411,6 +410,35 @@ class DispatcherTest extends FulfillmentTestCase
         $this->assertNull($fresh->provider_reference);
         $this->assertNull($fresh->submitted_at);
         $this->assertSame('abc', $fresh->metaValue('payload_hash'));
+    }
+
+    /** @return iterable<string, array{bool}> */
+    public static function modesDecidedAtTheClaim(): iterable
+    {
+        yield 'a rehearsal stays a rehearsal when the switch is flipped to live between the claim and the send' => [true];
+        yield 'a claimed real send stays a real send when the switch is flipped to rehearse in between' => [false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('modesDecidedAtTheClaim')]
+    public function test_the_adapter_is_told_the_mode_decided_at_the_claim_whatever_the_switch_says_by_then(bool $dryRunAtTheClaim): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['dispatch_enabled' => true, 'dry_run' => $dryRunAtTheClaim]);
+        $fulfillment = $this->torodFulfillment();
+        $this->torod->submitQueue = [$dryRunAtTheClaim ? SubmissionResult::dryRun(['payload_hash' => 'abc']) : SubmissionResult::accepted('O1')];
+        $flipped = false;
+        // The first time the claimed shipment is read back (after the claim, before the send) an administrator flips the switch.
+        Event::listen('eloquent.retrieved: ' . ProviderFulfillment::class, function (ProviderFulfillment $model) use (&$flipped, $dryRunAtTheClaim): void {
+            if (!$flipped && $model->status === FulfillmentStatus::Dispatching) {
+                $flipped = true;
+                $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => !$dryRunAtTheClaim]);
+            }
+        });
+
+        $this->dispatcher()->dispatch($fulfillment->id);
+
+        $this->assertTrue($flipped, 'the switch was not flipped between the claim and the send');
+        $this->assertSame([$dryRunAtTheClaim], $this->torod->dryRunRequested);
+        $this->assertSame($dryRunAtTheClaim ? FulfillmentStatus::DryRun : FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
     }
 
     public function test_the_dispatch_sweep_picks_up_pending_due_retries_and_fixed_holds(): void

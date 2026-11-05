@@ -49,10 +49,11 @@ class ProviderHttp
         }
 
         $method = strtoupper($method);
+        $isWrite = ExternalOperations::isWrite(operation: $operation, method: $method);
 
         // Below every other switch: while external writes are off, nothing that could create or change something at a
         // provider leaves this host. Unknown operations and unexpected methods count as writes (see ExternalOperations).
-        if (!config('fulfillment.external_writes_enabled', false) && ExternalOperations::isWrite($operation, $method)) {
+        if (!config('fulfillment.external_writes_enabled', false) && $isWrite) {
             throw new ProviderUnavailableException("External write operations are disabled on this host (FULFILLMENT_EXTERNAL_WRITES_ENABLED is off); '{$operation}' was not sent.");
         }
 
@@ -71,7 +72,8 @@ class ProviderHttp
                 $pending = $pending->retry(
                     times: 1 + (int) config('fulfillment.http.read_retries', 2),
                     sleepMilliseconds: (int) config('fulfillment.http.read_retry_delay_ms', 400),
-                    when: static fn (Throwable $exception): bool => $exception instanceof ConnectionException,
+                    // Laravel passes null for a response that is neither a success nor an error (a redirect), so the type must allow it.
+                    when: static fn (?Throwable $exception): bool => $exception instanceof ConnectionException,
                     throw: false,
                 );
             }
@@ -85,7 +87,7 @@ class ProviderHttp
             }
 
             $response = $pending->send($method, $url, $options);
-            $result = $this->fromResponse($response, $correlationId, $this->elapsedMs($started));
+            $result = $this->fromResponse(response: $response, correlationId: $correlationId, durationMs: $this->elapsedMs($started), isWrite: $isWrite);
         } catch (ConnectionException $exception) {
             $result = $this->fromConnectionFailure($exception, $correlationId, $this->elapsedMs($started));
         }
@@ -95,7 +97,7 @@ class ProviderHttp
         return $result;
     }
 
-    private function fromResponse(Response $response, string $correlationId, int $durationMs): HttpResult
+    private function fromResponse(Response $response, string $correlationId, int $durationMs, bool $isWrite): HttpResult
     {
         $status = $response->status();
         $body = (string) $response->body();
@@ -107,6 +109,9 @@ class ProviderHttp
             $status === 429 => HttpResult::RATE_LIMITED,
             in_array($status, [408, 409, 425], true) => HttpResult::AMBIGUOUS,
             $status >= 500 => HttpResult::SERVER_ERROR,
+            // Redirects are not followed. A provider that answers an order-creating request with one (post/redirect/get) has
+            // usually created the order already, so a write that ends below 400 without succeeding proves nothing about it.
+            $isWrite && $status < 400 => HttpResult::AMBIGUOUS,
             default => HttpResult::REJECTED,
         };
 
@@ -186,7 +191,7 @@ class ProviderHttp
                 'request_summary' => $request === [] ? null : $request,
                 'response_status' => $result->status,
                 'response_summary' => SecretRedactor::truncate(
-                    SecretRedactor::redactString(json_encode(PiiRedactor::redact(SecretRedactor::redact($result->json ?? PiiRedactor::redactText($result->body)), $strict), JSON_INVALID_UTF8_SUBSTITUTE) ?: ''),
+                    json_encode(PiiRedactor::redact(SecretRedactor::redact($result->json ?? PiiRedactor::redactText($result->body)), $strict), JSON_INVALID_UTF8_SUBSTITUTE) ?: '',
                     $maxBytes,
                 ),
                 'success' => $result->ok(),

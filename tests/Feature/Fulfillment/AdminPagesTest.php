@@ -5,6 +5,7 @@ namespace Tests\Feature\Fulfillment;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\MappingStatus;
+use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
 use App\Models\Admin;
@@ -20,6 +21,7 @@ use App\Services\Fulfillment\ProviderConnectionManager;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Js;
 
 class AdminPagesTest extends AdminPagesTestCase
 {
@@ -278,6 +280,43 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->get('/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/label')->assertStatus(405);
     }
 
+    public function test_the_air_waybill_download_has_its_own_route_and_is_held_while_external_writes_are_off(): void
+    {
+        $shipment = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Submitted, ['provider_reference' => 'WH-1', 'provider_secondary_reference' => 'KSA1']);
+        $this->enableProvider(ProviderCode::TorodPoint, ['company_id' => '714']);
+        Http::fake(['https://apisv2.logestechs.com/api/guests/714/packages/pdf' => Http::response(['url' => 'https://elasticbeanstalk-eu-central-1.s3.amazonaws.com/awb.pdf'])]);
+        $url = '/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/label';
+
+        $this->post($url)->assertRedirect('https://elasticbeanstalk-eu-central-1.s3.amazonaws.com/awb.pdf');
+
+        config(['fulfillment.external_writes_enabled' => false]);
+        Http::fake();
+        $this->post($url)->assertRedirect();
+        $this->assertStringContainsString('FULFILLMENT_EXTERNAL_WRITES_ENABLED', implode(' ', $this->flashedToasts()), 'the person is told why there is no label');
+        Http::assertNothingSent();
+    }
+
+    public function test_an_action_name_the_page_does_not_offer_is_not_routed_to_the_action_handler(): void
+    {
+        $shipment = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::CITY_UNMAPPED]);
+
+        $this->assertSame('admin.fulfillment-providers.fulfillments.label', app('router')->getRoutes()->match(\Illuminate\Http\Request::create('/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/label', 'POST'))->getName());
+        foreach (\App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::ACTIONS as $action) {
+            $this->assertSame('admin.fulfillment-providers.fulfillments.action', app('router')->getRoutes()->match(\Illuminate\Http\Request::create('/admin/fulfillment-providers/fulfillments/' . $shipment->id . '/' . $action, 'POST'))->getName(), $action);
+        }
+    }
+
+    public function test_a_send_that_was_skipped_because_the_order_is_already_with_the_provider_says_so(): void
+    {
+        $sent = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Submitted, ['provider_reference' => 'WH-1']);
+        $held = $this->shipment(101, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::CITY_UNMAPPED], productId: 2);
+        $skipped = new \ReflectionMethod(\App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::class, 'skippedSend');
+        $controller = app(\App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController::class);
+
+        $this->assertSame(['info', 'send_result_already_sent'], $skipped->invoke($controller, $sent->id));
+        $this->assertSame(['warning', 'send_result_held'], $skipped->invoke($controller, $held->id));
+    }
+
     public function test_provider_calls_from_the_admin_are_rate_limited(): void
     {
         Http::fake();
@@ -517,8 +556,52 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->post(route('admin.fulfillment-providers.fulfillments.action', ['id' => $city->id, 'action' => 'release']))->assertRedirect();
         $this->post(route('admin.fulfillment-providers.fulfillments.action', ['id' => $money->id, 'action' => 'release']))->assertRedirect();
 
-        $this->assertSame(FulfillmentStatus::Pending, $city->refresh()->status);
+        $this->assertSame(FulfillmentStatus::Held, $city->refresh()->status, 'a release sends on the spot, and the rules that held it hold it again');
         $this->assertSame(FulfillmentStatus::Held, $money->refresh()->status, 'only fixing the cause releases a money hold');
+    }
+
+    /** @return list<string> the toast messages the last response flashed */
+    private function flashedToasts(): array
+    {
+        return array_map(static fn (array $toast): string => (string) ($toast['message'] ?? ''), array_values((array) session('laravel-toaster-magic::messages', [])));
+    }
+
+    public function test_sending_for_real_asks_for_confirmation_and_a_rehearsal_does_not_pretend_to_send(): void
+    {
+        $held = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::CITY_UNMAPPED]);
+        $page = fn (): string => $this->get(route('admin.fulfillment-providers.fulfillments.show', $held->id))->assertOk()->getContent();
+        $confirmation = static fn (string $key): string => 'return confirm(' . Js::from(translate($key)) . ')';
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => false]);
+        $live = $page();
+        $this->assertStringContainsString(e(translate('release_for_dispatch')), $live);
+        $this->assertStringContainsString($confirmation('send_order_confirmation'), $live);
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => true]);
+        $rehearsal = $page();
+        $this->assertStringContainsString(e(translate('record_dry_run_again')), $rehearsal);
+        $this->assertStringNotContainsString(e(translate('release_for_dispatch')), $rehearsal);
+        $this->assertStringNotContainsString($confirmation('send_order_confirmation'), $rehearsal, 'recording a rehearsal sends nothing, so there is nothing to confirm');
+    }
+
+    public function test_sending_again_after_an_unknown_answer_asks_for_confirmation_that_names_the_second_order(): void
+    {
+        $unknown = $this->shipment(101, ProviderCode::TorodPoint, FulfillmentStatus::ReconcilePending);
+
+        $html = $this->get(route('admin.fulfillment-providers.fulfillments.show', $unknown->id))->assertOk()->getContent();
+
+        $this->assertStringContainsString('return confirm(' . Js::from(translate('resend_order_confirmation')) . ')', $html);
+        $this->assertStringContainsString('a second order', translate('resend_order_confirmation'));
+    }
+
+    public function test_a_release_tells_the_person_what_the_send_came_to_instead_of_done(): void
+    {
+        $city = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::CITY_UNMAPPED]);
+
+        $this->post(route('admin.fulfillment-providers.fulfillments.action', ['id' => $city->id, 'action' => 'release']))->assertRedirect();
+
+        $this->assertContains(translate('send_result_held'), $this->flashedToasts());
+        $this->assertNotContains(translate('action_done'), $this->flashedToasts());
     }
 
     public function test_the_api_log_page_filters_and_redacts(): void

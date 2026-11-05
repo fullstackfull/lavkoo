@@ -13,9 +13,11 @@ namespace App\Services\Fulfillment\Support;
  * or deciding a field map needs, and they identify a parcel, not a person.
  *
  * `strict` is for responses that are mostly about people (order lists, order details, package status): there only an allow-list
- * survives. A string is kept if it is a short code word, or a short status word under a status-like key (any language); a number
- * is kept unless it is long enough to be a phone number or a national id; and keys that name a person, a courier, a user or a
- * place are hidden whatever the value.
+ * survives. A string is kept if it is shaped like a code (all capitals, or holding a digit or an underscore, or under a key that
+ * names a code) or is a short status word under a key that ends in status, state or stage (any language); a number is kept unless
+ * it is long enough to be a phone number or a national id; and keys that name a person, a courier, a user or a place are hidden
+ * whatever the value. A lone first name under a key it has no reason to suspect looks like any other word and is hidden only
+ * because words that are not shaped like codes are.
  *
  * It cannot recognise a name or a street address that sits under a key it has no reason to suspect, in free text. What it
  * promises is: contact details and credentials are removed by pattern everywhere, and names and addresses under the keys listed
@@ -37,7 +39,7 @@ final class PiiRedactor
     ];
 
     /** Keys that are personal when they are exactly this, in any mode: too short to be a fragment. */
-    private const PERSONAL_EXACT = ['tel', 'cell', 'lat', 'lng', 'lon', 'long', 'ip', 'ipaddress', 'geo', 'coords', 'coordinates', 'dob'];
+    private const PERSONAL_EXACT = ['tel', 'cell', 'lat', 'lng', 'lon', 'long', 'ip', 'ipaddress', 'geo', 'coords', 'coordinates', 'dob', 'zip'];
 
     /** Keys that are personal only in strict mode: too common in catalogues to hide there. */
     private const STRICT_KEYS = [
@@ -45,20 +47,30 @@ final class PiiRedactor
         'sender', 'createdby', 'updatedby', 'username', 'owner', 'author', 'operator', 'person', 'client',
     ];
 
-    /** A key ending like this holds a code, not a person: kept (unless it also names a phone, an e-mail, an address or an identity). */
-    private const CODE_SUFFIXES = ['id', 'ids', 'sku', 'barcode', 'code', 'ean', 'upc', 'reference', 'ref', 'invoicenumber', 'tracking', 'trackingnumber', 'awb', 'status', 'type'];
+    /** Fragments that mark a value as personal in strict mode only (catalogues have products named after nothing in particular). */
+    private const STRICT_FRAGMENTS = [
+        'courier', 'driver', 'rider', 'agent', 'deliveryman', 'deliveredto', 'handledby', 'signedby', 'receivedby', 'collectedby', 'captain',
+        'surname', 'family', 'given', 'handle', 'supplier',
+    ];
 
-    private const STILL_PERSONAL_IF_CODE_LIKE = ['phone', 'mobile', 'email', 'address', 'national', 'iqama', 'identity', 'passport', 'iban'];
+    /** A key ending like this holds a code, not a person: kept (unless it also names a phone, an e-mail, an address or an identity). */
+    private const CODE_SUFFIXES = ['id', 'ids', 'sku', 'barcode', 'code', 'ean', 'upc', 'reference', 'ref', 'invoicenumber', 'tracking', 'trackingnumber', 'awb', 'status', 'type', 'method', 'mode', 'currency', 'unit', 'kind', 'channel'];
+
+    private const STILL_PERSONAL_IF_CODE_LIKE = ['phone', 'mobile', 'whatsapp', 'telephone', 'email', 'address', 'zip', 'postal', 'postcode', 'national', 'iqama', 'identity', 'passport', 'iban'];
 
     /** Local part, domain and top-level domain are bounded, so no input can make the scan slow. */
     private const EMAIL = '/[\p{L}\p{N}._%+\-]{1,254}@[\p{L}\p{N}.\-]{1,255}\.\p{L}{2,24}/u';
 
-    /** A run of digits with the separators people put in phone numbers; whether it IS a phone number is decided by PhoneLike. */
-    private const PHONE_CANDIDATE = '/(?<![A-Za-z0-9])\+?[0-9][0-9 \-.\/()\x{A0}]{7,24}[0-9](?![A-Za-z0-9])/u';
+    /**
+     * A run of digits with the separators people put in phone numbers (spaces of every kind, tabs, line breaks, dots, slashes,
+     * brackets and every dash); whether it IS a phone number is decided by isPhoneNumber(). The run is long enough to hold three
+     * numbers written one after another, and bounded, so no input can make the scan slow.
+     */
+    private const PHONE_CANDIDATE = '/(?<![A-Za-z0-9])\+?[0-9][0-9\s\p{Z}\p{Pd}\x{2212}.\/()]{7,60}[0-9](?![A-Za-z0-9])/u';
 
     private const CODE_WORD = '/^[A-Za-z0-9_.:\-]{1,40}$/';
 
-    private const STATUS_WORD = '/^[\p{L}\p{N} _.:\-]{1,40}$/u';
+    private const STATUS_WORD = '/^[\p{L}\p{N} _.:\-]{1,30}$/u';
 
     /** Arabic-Indic, Extended Arabic-Indic and full-width digits, folded to the ASCII digits the patterns look for. */
     private const DIGITS = [
@@ -108,13 +120,31 @@ final class PiiRedactor
             return false;
         }
 
-        return self::mentions($normal, self::PERSONAL_FRAGMENTS) || ($strict && in_array($normal, self::STRICT_KEYS, true));
+        return self::mentions($normal, self::PERSONAL_FRAGMENTS)
+            || ($strict && (in_array($normal, self::STRICT_KEYS, true) || self::mentions($normal, self::STRICT_FRAGMENTS) || (preg_match('/name(en|ar)?$/', $normal) === 1 && !self::isStatusKey($normal))));
     }
 
     /** A key that is itself a phone number or an e-mail address (an object keyed by the receiver's number) is not kept as a key. */
     public static function maskedKeyName(string $key): string
     {
         return self::redactText($key) === $key ? $key : self::MASK;
+    }
+
+    /**
+     * A request that is shown to the person who has to approve it: names and addresses stay, because they are what is being
+     * approved, but a phone number or an e-mail address typed into a note or an address line does not. Codes are left alone.
+     */
+    public static function maskContactDetails(mixed $data, string $key = ''): mixed
+    {
+        if (is_array($data)) {
+            foreach ($data as $childKey => $child) {
+                $data[$childKey] = self::maskContactDetails($child, (string) $childKey);
+            }
+
+            return $data;
+        }
+
+        return is_string($data) ? self::redactText($data, phones: !self::looksLikeACode($key)) : $data;
     }
 
     /** Masks e-mail addresses and phone numbers inside free text (an error message that echoes what was sent). */
@@ -144,6 +174,12 @@ final class PiiRedactor
         return (string) SecretRedactor::truncate($text, $maxBytes);
     }
 
+    /** A word the provider sent that has to fit a column: scrubbed like any provider text, then cut to what fits (no marker is added). */
+    public static function scrubToFit(string $text, int $maxChars): string
+    {
+        return mb_substr(self::scrub($text, $maxChars * 4), 0, $maxChars);
+    }
+
     private static function walk(mixed $value, string $key, bool $strict, bool $insidePersonal): mixed
     {
         if (!is_array($value)) {
@@ -156,12 +192,29 @@ final class PiiRedactor
 
         $personal = $insidePersonal || self::isPersonalKey($key, $strict);
         $result = [];
+        $masked = 0;
         foreach ($value as $childKey => $child) {
-            $name = is_string($childKey) ? self::maskedKeyName($childKey) : $childKey;
-            $result[$name] = self::walk($child, (string) $childKey, $strict, $personal);
+            $result[self::keyName($childKey, $masked)] = self::walk($child, (string) $childKey, $strict, $personal);
         }
 
         return $result;
+    }
+
+    /**
+     * The key a child is kept under: its own, unless it is itself a phone number or an e-mail address. PHP turns a key such as
+     * `966551234567` into an integer, so integers long enough to be a number are looked at too; masked keys stay distinct, so
+     * hiding them does not merge their values.
+     */
+    private static function keyName(int|string $key, int &$maskedSoFar): int|string
+    {
+        if (is_int($key) && abs($key) < 100_000_000) {
+            return $key;
+        }
+        if (self::maskedKeyName((string) $key) !== self::MASK) {
+            return $key;
+        }
+
+        return ++$maskedSoFar === 1 ? self::MASK : self::MASK . '#' . $maskedSoFar;
     }
 
     private static function redactStringValue(string $value, string $key, bool $strict, bool $code): string
@@ -171,22 +224,34 @@ final class PiiRedactor
             return $masked;
         }
 
-        // Anything that had a contact detail in it is not a code word, and neither is an address.
+        // Anything that had a contact detail in it is not a code word, and neither is an address. A plain word is a code only when
+        // it is shaped like one or sits under a key that names one: "KSA100", "OUT_FOR_DELIVERY", "SAR", never "Khalid".
         $keep = $masked === $value && filter_var($masked, FILTER_VALIDATE_IP) === false
-            && (preg_match(self::CODE_WORD, $masked) === 1 || self::isStatusWord($key, $masked));
+            && ((preg_match(self::CODE_WORD, $masked) === 1 && ($code || self::isShapedLikeACode($masked))) || self::isStatusWord($key, $masked));
 
         return $keep ? $masked : self::MASK;
     }
 
-    /** A short word under a status-like key, in any language: it is the vocabulary a status map is made from, and what strict mode keeps. */
+    /** A short word under a key that ends in status, state or stage, in any language: it is the vocabulary a status map is made from, and what strict mode keeps. */
     public static function isStatusWord(string $key, string $value): bool
     {
-        $normal = self::normalise($key);
-        if (!str_contains($normal, 'status') && !str_ends_with($normal, 'state') && !str_ends_with($normal, 'stage')) {
+        if (!self::isStatusKey(self::normalise($key))) {
             return false;
         }
 
-        return preg_match(self::STATUS_WORD, $value) === 1 && preg_match('/\d{6,}/', $value) !== 1;
+        return preg_match(self::STATUS_WORD, $value) === 1 && substr_count($value, ' ') <= 2 && preg_match('/\d{6,}/', $value) !== 1;
+    }
+
+    /** `status`, `deliveryState`, `order_stage`, and the name or label of one (`status_name`): not `status_message` or `statusDescription`, which are free text. */
+    private static function isStatusKey(string $normal): bool
+    {
+        return preg_match('/(status|state|stage)$/', $normal) === 1 || preg_match('/status(name|text|label|word|value)$/', $normal) === 1;
+    }
+
+    /** All capitals, or holding a digit or an underscore: how identifiers, enumerations and currencies are written, and names are not. */
+    private static function isShapedLikeACode(string $value): bool
+    {
+        return preg_match('/[a-z]/', $value) !== 1 || preg_match('/[0-9_]/', $value) === 1;
     }
 
     /** A number long enough to be a phone number or a national id is hidden in strict mode, unless it is a timestamp. */
@@ -199,19 +264,18 @@ final class PiiRedactor
 
         $normal = self::normalise($key);
 
-        return !str_contains($normal, 'date') && !str_contains($normal, 'time') && preg_match('/(created|updated|deleted|delivered|shipped|picked|paid|cancell?ed)at$/', $normal) !== 1;
+        return !str_contains($normal, 'date') && !str_contains($normal, 'time') && preg_match('/(at|ts|eta|etd|expires|expiry|until|since|epoch|when)$/', $normal) !== 1;
     }
 
-    /** Nine to fifteen digits, written however people write them, and not an ISO date: a telephone number. */
+    /**
+     * Nine digits or more, once the ISO dates in the run are set aside: a telephone number, or several written one after another.
+     * There is no upper limit on purpose: two numbers next to each other, or one next to an order number, are more than fifteen digits.
+     */
     private static function isPhoneNumber(string $candidate): bool
     {
-        if (preg_match('/^\d{4}[-\/.]\d{2}[-\/.]\d{2}/', $candidate) === 1) {
-            return false;
-        }
+        $withoutDates = preg_replace('/\d{4}[-\/.]\d{2}[-\/.]\d{2}/', ' ', $candidate) ?? $candidate;
 
-        $digits = strlen(preg_replace('/\D/', '', $candidate) ?? '');
-
-        return $digits >= 9 && $digits <= 15;
+        return strlen(preg_replace('/\D/', '', $withoutDates) ?? '') >= 9;
     }
 
     private static function bounded(string $text): string

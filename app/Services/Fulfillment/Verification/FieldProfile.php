@@ -10,7 +10,7 @@ use App\Services\Fulfillment\Support\PiiRedactor;
  *
  * Nothing that identifies a person is ever kept: an example is recorded only if PiiRedactor lets the value through UNCHANGED for
  * its key and for the keys above it (everything under `receiver` or `address` is personal), otherwise the field is marked `redacted`
- * and only its type and presence are known. Numbers under personal keys are not summed. A key name that is itself a phone number
+ * (with how many values were hidden) and only its type and presence are known. Numbers under personal keys are not summed. A key name that is itself a phone number
  * or an e-mail address is not kept.
  */
 final class FieldProfile
@@ -32,7 +32,8 @@ final class FieldProfile
     /** @var list<string|int|float> */
     private array $examples = [];
 
-    private bool $redacted = false;
+    /** How many of the values seen were hidden, so a gap in the evidence shows as a number and not as a field that looks empty. */
+    private int $hidden = 0;
 
     private ?float $min = null;
 
@@ -86,7 +87,7 @@ final class FieldProfile
 
         foreach ([
             'examples' => $this->examples,
-            'redacted' => $this->redacted ?: null,
+            'redacted' => $this->hidden ?: null,
             'numeric' => $this->min === null ? null : ['min' => $this->min, 'max' => $this->max, 'sum' => $this->sum, 'non_zero' => $this->nonZero],
             'values' => $this->values === [] ? null : $this->values,
             'values_truncated' => $this->valuesTruncated ?: null,
@@ -194,7 +195,7 @@ final class FieldProfile
     private function masked(mixed $value, string $key, bool $strict, bool $insidePersonal): bool
     {
         if (PiiRedactor::redactScalar($value, $key, $strict, $insidePersonal) !== $value) {
-            $this->redacted = true;
+            $this->hidden++;
 
             return true;
         }

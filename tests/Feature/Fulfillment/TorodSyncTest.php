@@ -308,6 +308,62 @@ class TorodSyncTest extends TorodTestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_product_that_belongs_to_m5azn_is_never_pushed_to_the_warehouse_not_even_as_a_preview(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'dry_run' => true, 'company_id' => '714']);
+        $this->makeProduct(1, ProviderCode::M5azn, ['name' => 'Supplier item', 'code' => 'M5-1']);
+        $this->makeProduct(2, null, ['name' => 'Ours', 'code' => 'OUR-2']);
+        Http::fake();
+
+        $preview = $this->adapter()->pushProducts([1, 2]);
+
+        $this->assertSame('owned_by_another_provider', $preview['skipped'][1]);
+        $this->assertSame([2], array_column($preview['preview'], 'externalId'), 'the preview must not show what live would not send');
+        Http::assertNothingSent();
+    }
+
+    public function test_a_live_push_sends_nothing_for_an_m5azn_product_and_still_maps_the_others(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'dry_run' => false, 'company_id' => '714']);
+        $this->makeProduct(1, ProviderCode::M5azn, ['name' => 'Supplier item', 'code' => 'M5-1']);
+        $this->makeProduct(2, null, ['name' => 'Ours', 'code' => 'OUR-2']);
+        $this->makeProduct(3, ProviderCode::TorodPoint, ['name' => 'Already ours', 'code' => 'TP-3']);
+        Http::fake([self::V5 . '/public/fulfillment/product/bulk' => Http::response([
+            ['feedBack' => null, 'externalId' => '2', 'id' => 7002, 'status' => 'synced'],
+            ['feedBack' => null, 'externalId' => '3', 'id' => 7003, 'status' => 'synced'],
+        ])]);
+
+        $result = $this->adapter()->pushProducts([1, 2, 3]);
+
+        $this->assertSame(2, $result['pushed']);
+        $this->assertSame('owned_by_another_provider', $result['skipped'][1]);
+        Http::assertSent(static fn (Request $request): bool => array_column($request->data()['list'] ?? [], 'externalId') === [2, 3]);
+        $this->assertNull(ProviderProductMapping::where('product_id', 1)->first());
+        $this->assertSame([2, 3], ProviderProductMapping::where('provider', 'torod_point')->orderBy('product_id')->pluck('product_id')->all());
+    }
+
+    public function test_a_product_that_changes_owner_while_the_push_is_on_its_way_does_not_abort_the_batch(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'dry_run' => false, 'company_id' => '714']);
+        $this->makeProduct(1, null, ['name' => 'Ours', 'code' => 'OUR-1']);
+        $this->makeProduct(2, null, ['name' => 'Ours too', 'code' => 'OUR-2']);
+        Http::fake([self::V5 . '/public/fulfillment/product/bulk' => function () {
+            \Illuminate\Support\Facades\DB::table('products')->where('id', 1)->update(['fulfillment_provider' => ProviderCode::M5azn->value]);
+
+            return Http::response([
+                ['feedBack' => null, 'externalId' => '1', 'id' => 7001, 'status' => 'synced'],
+                ['feedBack' => null, 'externalId' => '2', 'id' => 7002, 'status' => 'synced'],
+            ]);
+        }]);
+
+        $result = $this->adapter()->pushProducts([1, 2]);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(1, $result['pushed'], 'the refusal is recorded for the one product; the other is still mapped');
+        $this->assertArrayHasKey(1, $result['skipped']);
+        $this->assertNotNull(ProviderProductMapping::where('product_id', 2)->first());
+    }
+
     public function test_only_admin_owned_physical_products_can_be_pushed(): void
     {
         $this->enableProvider(ProviderCode::TorodPoint, ['push_products_enabled' => true, 'dry_run' => true, 'company_id' => '714']);

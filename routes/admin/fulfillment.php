@@ -26,7 +26,7 @@ Route::group([
 
     Route::get('fulfillments', [ProviderFulfillmentController::class, 'index'])->name('fulfillments.index');
     Route::get('fulfillments/{id}', [ProviderFulfillmentController::class, 'show'])->whereNumber('id')->name('fulfillments.show');
-    Route::post('fulfillments/{id}/{action}', [ProviderFulfillmentController::class, 'action'])->whereNumber('id')->middleware('throttle:30,1')->name('fulfillments.action');
+    Route::post('fulfillments/{id}/{action}', [ProviderFulfillmentController::class, 'action'])->whereNumber('id')->whereIn('action', ProviderFulfillmentController::ACTIONS)->middleware('throttle:30,1')->name('fulfillments.action');
     // A POST: it calls the provider with our credentials, which a link on another site must not be able to trigger.
     Route::post('fulfillments/{id}/label', [ProviderFulfillmentController::class, 'label'])->whereNumber('id')->middleware('throttle:10,1')->name('fulfillments.label');
     Route::get('logs', [ProviderFulfillmentController::class, 'logs'])->name('logs');

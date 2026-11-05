@@ -155,8 +155,12 @@
                     @endif
 
                     @if (in_array($status, [FulfillmentStatus::Held, FulfillmentStatus::DryRun, FulfillmentStatus::Failed], true))
-                        <form method="POST" action="{{ $action('release') }}" class="mb-2">@csrf
-                            <button class="btn btn-primary btn-sm w-100" type="submit">{{ translate($fulfillment->hold_reason === \App\Enums\Fulfillment\HoldReason::AWAITING_APPROVAL ? 'approve_and_send' : 'release_for_dispatch') }}</button></form>
+                        <form method="POST" action="{{ $action('release') }}" class="mb-2" @if ($sendsForReal) onsubmit="return confirm(@js(translate('send_order_confirmation')))" @endif>@csrf
+                            <button class="btn btn-primary btn-sm w-100" type="submit">{{ translate(match (true) {
+                                !$sendsForReal => 'record_dry_run_again',
+                                $fulfillment->hold_reason === \App\Enums\Fulfillment\HoldReason::AWAITING_APPROVAL => 'approve_and_send',
+                                default => 'release_for_dispatch',
+                            }) }}</button></form>
                     @endif
 
                     @if ($accepted && $open)
@@ -172,7 +176,7 @@
 
                     @if ($status === FulfillmentStatus::ReconcilePending)
                         <div class="alert alert-warning fs-12">{{ translate('outcome_unknown_explainer') }}</div>
-                        <form method="POST" action="{{ $action('confirm-not-created') }}" class="mb-2">@csrf
+                        <form method="POST" action="{{ $action('confirm-not-created') }}" class="mb-2" onsubmit="return confirm(@js(translate('resend_order_confirmation')))">@csrf
                             <label class="form-label fs-12" for="not-created-reason">{{ translate('confirm_not_created_reason') }}</label>
                             <input class="form-control form-control-sm mb-1" id="not-created-reason" name="reason" required maxlength="255" placeholder="{{ translate('what_did_you_check') }}">
                             <button class="btn btn-outline-warning btn-sm w-100" type="submit">{{ translate('confirm_provider_has_no_such_order') }}</button></form>

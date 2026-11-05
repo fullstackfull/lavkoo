@@ -51,6 +51,12 @@ class ProviderOrderDispatcher
         HoldReason::PHONE_INVALID,
     ];
 
+    /** Holds that only a person's send answers: they are not released by a sweep, and are released by the click that approves them. */
+    private const HOLDS_A_PERSON_ANSWERS = [
+        HoldReason::AWAITING_APPROVAL,
+        HoldReason::BEFORE_GO_LIVE,
+    ];
+
     public const SKIPPED = 'skipped';
     public const UNAVAILABLE = 'unavailable';
 
@@ -74,14 +80,14 @@ class ProviderOrderDispatcher
             return self::SKIPPED;
         }
 
-        [$id, $token] = $claim;
+        [$id, $token, $dryRun] = $claim;
         $fulfillment = ProviderFulfillment::with('items')->findOrFail($id);
         $adapter = $this->registry->adapter($fulfillment->provider);
 
         $this->sync->attempted($fulfillment->provider, ProviderSyncRecorder::ORDERS);
 
         try {
-            $result = $adapter->submit($fulfillment);
+            $result = $adapter->submit($fulfillment, dryRun: $dryRun);
         } catch (ProviderUnavailableException $exception) {
             $this->tracker->unclaim($id, $token);
 
@@ -101,7 +107,7 @@ class ProviderOrderDispatcher
         return $result->outcome;
     }
 
-    /** @return array{0:int,1:string}|null */
+    /** @return array{0:int,1:string,2:bool}|null [fulfillment id, claim token, whether this send is a dry run: decided here, once] */
     private function claim(int $fulfillmentId, bool $manual): ?array
     {
         return DB::transaction(function () use ($fulfillmentId, $manual): ?array {
@@ -156,7 +162,7 @@ class ProviderOrderDispatcher
                 'hold_reason' => null,
             ])->save();
 
-            return [$fulfillment->id, $token];
+            return [$fulfillment->id, $token, $config->bool('dry_run', true)];
         });
     }
 
@@ -165,7 +171,10 @@ class ProviderOrderDispatcher
         return match ($fulfillment->status) {
             FulfillmentStatus::Pending => true,
             FulfillmentStatus::RetryWait => $fulfillment->next_attempt_at === null || $fulfillment->next_attempt_at->lte(now()),
-            FulfillmentStatus::Held => in_array($fulfillment->hold_reason, self::AUTO_RELEASABLE, true),
+            FulfillmentStatus::Held => in_array($fulfillment->hold_reason, self::AUTO_RELEASABLE, true)
+                // A person's own send is the approval, and the go-live cut-off is the one thing it overrides: a sweep that held the order
+                // a moment after the release committed must not make the click do nothing.
+                || ($manual && in_array($fulfillment->hold_reason, self::HOLDS_A_PERSON_ANSWERS, true)),
             FulfillmentStatus::DryRun => $manual,
             default => false,
         };

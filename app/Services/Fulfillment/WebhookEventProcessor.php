@@ -9,6 +9,7 @@ use App\Models\ProviderFulfillmentEvent;
 use App\Services\Fulfillment\Contracts\HandlesWebhooks;
 use App\Services\Fulfillment\Support\AppTime;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -61,11 +62,11 @@ class WebhookEventProcessor
                 'event_type' => $type,
                 'dedupe_key' => $normalized->dedupeKey,
                 'external_reference' => $normalized->reference('barcode'),
-                'provider_status' => $normalized->providerStatus,
+                'provider_status' => $normalized->providerStatus === null ? null : PiiRedactor::scrubToFit($normalized->providerStatus, 100),
                 'occurred_at' => AppTime::local($normalized->occurredAt),
                 'received_at' => now(),
                 'outcome' => EventOutcome::RECEIVED,
-                'payload' => SecretRedactor::redact($payload),
+                'payload' => SecretRedactor::redact($adapter->storablePayload($payload)),
             ]);
         } catch (UniqueConstraintViolationException) {
             return ['status' => 'duplicate', 'event_id' => null];
@@ -113,9 +114,10 @@ class WebhookEventProcessor
 
         $status = $normalized->providerStatus === null ? null : $adapter->mapStatus($normalized->providerStatus);
         if ($status === null) {
-            DB::table('provider_fulfillments')->where('id', $fulfillment->id)->update(['provider_status' => $normalized->providerStatus, 'last_received_at' => now()]);
+            $shown = PiiRedactor::scrubToFit((string) $normalized->providerStatus, 100);
+            DB::table('provider_fulfillments')->where('id', $fulfillment->id)->update(['provider_status' => $shown, 'last_received_at' => now()]);
 
-            return $this->close($event, EventOutcome::IGNORED_UNMAPPED, 'status_not_mapped:' . $normalized->providerStatus, $fulfillment->id);
+            return $this->close($event, EventOutcome::IGNORED_UNMAPPED, 'status_not_mapped:' . $shown, $fulfillment->id);
         }
 
         $confirmed = $adapter->confirmStatus($fulfillment, $normalized);
@@ -169,6 +171,7 @@ class WebhookEventProcessor
     {
         // Warehouse progress (created / picked / packed) is display-only. It is never delivery.
         if ($warehouseStatus !== null) {
+            $warehouseStatus = PiiRedactor::scrubToFit($warehouseStatus, 32);
             DB::table('provider_fulfillments')->where('id', $fulfillment->id)->update([
                 'warehouse_status' => strtolower($warehouseStatus),
                 'last_received_at' => now(),

@@ -7,6 +7,7 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderApiLog;
 use App\Models\ProviderCatalogItem;
 use App\Services\Fulfillment\Data\SubmissionResult;
+use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\Support\RemoteImageFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -147,6 +148,32 @@ class CommandsTest extends M5aznTestCase
         $this->assertNotNull($old->fresh(), 'but the status history is');
         $this->assertSame(['ring the bell twice'], $recent->fresh()->payload['notes'] === null ? [] : [$recent->fresh()->payload['notes']]);
         $this->assertSame([['fulfillment', 5], ['default', 90]], \Illuminate\Support\Facades\DB::table('failed_jobs')->orderBy('id')->get()->map(static fn ($row): array => [$row->queue, (int) round(now()->diffInDays($row->failed_at, true))])->all());
+    }
+
+    public function test_prune_clears_the_request_an_old_unreleased_dry_run_recorded_and_nothing_else(): void
+    {
+        $request = ['payload_hash' => 'abc', 'payload_preview' => ['receiverName' => 'Sara Alharbi'], 'keep' => 'me'];
+        $shipment = function (int $orderId, FulfillmentStatus $status, int $ageDays) use ($request): \App\Models\ProviderFulfillment {
+            $this->makeOrder($orderId);
+            $this->addLine($orderId, 2, 1, 35, ProviderCode::TorodPoint);
+            app(FulfillmentRouter::class)->route($orderId);
+            $row = $this->fulfillmentFor($orderId, ProviderCode::TorodPoint);
+            $row->timestamps = false;
+            $row->forceFill(['status' => $status, 'meta' => $request, 'updated_at' => now()->subDays($ageDays)])->save();
+
+            return $row;
+        };
+        $oldDryRun = $shipment(100, FulfillmentStatus::DryRun, 90);
+        $recentDryRun = $shipment(101, FulfillmentStatus::DryRun, 5);
+        $oldHeld = $shipment(102, FulfillmentStatus::Held, 90);
+
+        $this->artisan('fulfillment:prune')->assertSuccessful();
+
+        $this->assertSame(['keep' => 'me'], $oldDryRun->fresh()->meta);
+        // MySQL's JSON type stores the keys of an object in its own order, so the content is compared, not the order.
+        $this->assertEquals($request, $recentDryRun->fresh()->meta, 'a dry run that can still be released keeps its request');
+        $this->assertEquals($request, $oldHeld->fresh()->meta, 'only a dry run is ours to clear');
+        $this->assertEqualsWithDelta(90, now()->diffInDays($oldDryRun->fresh()->updated_at, true), 1, 'pruning is not activity on the shipment');
     }
 
     public function test_the_schedule_contains_the_recovery_poll_sync_and_prune_tasks(): void

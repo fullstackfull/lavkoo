@@ -433,6 +433,51 @@ class TorodWebhookTest extends TorodTestCase
         $this->assertStringNotContainsString('0598985000', $stored, 'the driver phone is masked in the stored copy');
     }
 
+    public function test_the_stored_copy_of_a_webhook_holds_the_fields_that_are_read_and_nothing_else(): void
+    {
+        $fulfillment = $this->submitted();
+        $received = $this->processor()->ingest(ProviderCode::TorodPoint, 'lastmile', $this->lastmilePayload('OUT_FOR_DELIVERY', extra: [
+            'receiverName' => 'Sara Alharbi', 'receiver' => ['name' => 'Sara', 'address' => 'King Fahd Rd 12'], 'customer_mobile' => '0551234567', 'consignee_phone' => '0551234567',
+            'driverName' => 'Khalid Driver', 'courierEmail' => 'khalid@example.test', 'attachmentUrls' => ['https://example-bucket.s3.amazonaws.com/proof.png'],
+        ]));
+
+        $stored = ProviderFulfillmentEvent::findOrFail($received['event_id'])->payload;
+
+        $this->assertEqualsCanonicalizing(['packageId', 'newStatus', 'barcode', 'cod', 'invoiceNumber', 'time'], array_keys($stored));
+        foreach (['Sara', 'King Fahd', '0551234567', 'Khalid', 'khalid@example.test', 'proof.png'] as $personal) {
+            $this->assertStringNotContainsString($personal, json_encode($stored), $personal);
+        }
+        $this->assertSame(EventOutcome::APPLIED, $this->processor()->process($received['event_id']), 'the reduced copy is all that is needed to apply it');
+        $this->assertSame(FulfillmentStatus::OutForDelivery, $fulfillment->fresh()->status);
+    }
+
+    public function test_a_couriers_note_that_explains_an_issue_reaches_the_operator_without_its_phone_numbers(): void
+    {
+        $fulfillment = $this->submitted();
+
+        $received = $this->receive('lastmile', $this->lastmilePayload('OPENED_ISSUE_AND_WAITING_FOR_MANAGEMENT', extra: ['notes' => 'Customer refused the parcel, call 0551234567 / 0559876543']));
+
+        $this->assertSame(FulfillmentStatus::NeedsAttention, $fulfillment->fresh()->status);
+        $this->assertStringContainsString('Customer refused the parcel', (string) $fulfillment->fresh()->last_error_message);
+        foreach (['0551234567', '0559876543'] as $number) {
+            $this->assertStringNotContainsString($number, (string) $fulfillment->fresh()->last_error_message);
+            $this->assertStringNotContainsString($number, json_encode(ProviderFulfillmentEvent::findOrFail($received['event_id'])->payload));
+        }
+    }
+
+    public function test_a_status_word_that_carries_a_phone_number_is_stored_without_it(): void
+    {
+        $fulfillment = $this->submitted();
+
+        $received = $this->receive('lastmile', $this->lastmilePayload('Delivered to Sara 0551234567'));
+
+        $event = ProviderFulfillmentEvent::findOrFail($received['event_id']);
+        foreach ([(string) $fulfillment->fresh()->provider_status, (string) $event->provider_status, (string) $event->outcome_note, json_encode($event->payload)] as $stored) {
+            $this->assertStringNotContainsString('0551234567', $stored);
+        }
+        $this->assertStringContainsString('Delivered to Sara', (string) $fulfillment->fresh()->provider_status);
+    }
+
     public function test_the_sync_state_records_the_last_received_update(): void
     {
         $this->submitted();

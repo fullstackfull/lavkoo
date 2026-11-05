@@ -2,10 +2,8 @@
 
 namespace App\Jobs\Fulfillment;
 
-use App\Services\Fulfillment\Support\PiiRedactor;
+use App\Services\Fulfillment\Support\ScrubbedFailure;
 use Closure;
-use RuntimeException;
-use Throwable;
 
 /**
  * A job that throws is reported by the queue worker (to laravel.log, with the whole message) and kept in `failed_jobs`. What a
@@ -16,10 +14,6 @@ trait KeepsPersonalDataOutOfFailures
 {
     private function withoutPersonalDataInFailures(Closure $work): void
     {
-        try {
-            $work();
-        } catch (Throwable $exception) {
-            throw new RuntimeException($exception::class . ' at ' . basename($exception->getFile()) . ':' . $exception->getLine() . ': ' . PiiRedactor::scrub($exception->getMessage(), 500));
-        }
+        ScrubbedFailure::run($work);
     }
 }

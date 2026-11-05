@@ -46,13 +46,22 @@ final class SecretRedactor
     public static function redactString(string $text): string
     {
         foreach ([
-            // A header line carries its whole value: `Authorization: Basic …`, `Cookie: a=b; c=d`, `X-Api-Key: …`.
+            // A header line carries its whole value: `Authorization: Basic …`, `Cookie: a=b; c=d`, `X-Api-Key: …`. It is applied to one
+            // string at a time, never to a whole encoded document, because the rest of the line goes with it.
             '/\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)\s*[:=][^\r\n]*/i' => '$1: ' . self::MASK,
-            '/\b(Bearer|Basic|Token|Digest)\s+[A-Za-z0-9\-._~+\/]{6,}=*/i' => '$1 ' . self::MASK,
-            // `password=hunter2`, `api_key: abc`, `"secret":"…"` inside a message or a query string.
-            '/\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|signature)\b(["\']?\s*[=:]\s*["\']?)[^\s,;&"\'<>]+/i' => '$1$2' . self::MASK,
+            '/\b(Bearer)\s+[A-Za-z0-9\-._~+\/]{6,}=*/i' => '$1 ' . self::MASK,
+            // A Basic, Token or Digest credential is long and holds a digit or one of + / =; the word that follows "Basic" in a sentence does not.
+            '/\b(Basic|Token|Digest)\s+(?=[A-Za-z0-9\-._~+\/]*[0-9=+\/])[A-Za-z0-9\-._~+\/]{12,}=*/i' => '$1 ' . self::MASK,
+            // `password=hunter2`, `api_token: abc`, `DB_PASSWORD=…`, `"secret":"…"` inside a message or a query string. A name may be joined to
+            // what it is a password or token OF with underscores or hyphens; the prefix is bounded so no input can make the scan slow.
+            '/\b((?:[a-z0-9]{1,20}[_-]){0,4}(?:password|passwd|pwd|secret|api[_-]?key|app[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|signature|phpsessid))\b(["\']?\s*[=:]\s*["\']?)[^\s,;&"\'<>]+/i' => '$1$2' . self::MASK,
+            '/([?&]key=)[^&\s"\'<>]+/i' => '$1' . self::MASK,
+            // The user and password in front of the host of a URL: https://user:secret@host/
+            '/(\b[a-z][a-z0-9+.\-]{1,10}:\/\/)[^\/\s:@]{1,100}:[^\/\s@]{1,100}@/i' => '$1' . self::MASK . '@',
             // JWT-shaped values (three base64url segments, the first starting "eyJ").
             '/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/' => self::MASK,
+            // A PEM private key, whole or cut short.
+            '/-----BEGIN [A-Z ]{0,30}PRIVATE KEY-----[A-Za-z0-9+\/=\s]{0,8000}(?:-----END [A-Z ]{0,30}PRIVATE KEY-----)?/' => self::MASK,
         ] as $pattern => $replacement) {
             $text = preg_replace($pattern, $replacement, $text) ?? self::MASK;
         }
