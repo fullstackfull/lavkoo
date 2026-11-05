@@ -65,10 +65,17 @@ jobs:
         run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
       - name: Environment (the example file carries a throwaway APP_KEY; no secret is used)
         run: cp .env.example .env
+      - name: strace (a deployment-tooling test watches the order in which a rollback restores and deletes)
+        run: sudo apt-get install -y --no-install-recommends strace
       - name: Full test suite
         env:
           EXPECT_DB_DRIVER: sqlite
         run: vendor/bin/phpunit --display-skipped
+      - name: Deployment tooling once more as root (the tests of file ownership need it; the rest run as the user a server would use)
+        if: matrix.php == '8.3'
+        env:
+          EXPECT_DB_DRIVER: sqlite
+        run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
   tests-mysql:
     name: Fulfillment + security tests, MySQL 8

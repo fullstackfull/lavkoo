@@ -176,17 +176,23 @@ function rawChanges(string $output): array
 function assertScriptsAreTheOnesInTheRelease(string $repo, string $head): void
 {
     $different = [];
+    $lineEndingsOnly = true;
     foreach (['deploy.php', ...TOOLS] as $script) {
         try {
             $inRelease = git($repo, ['show', "{$head}:scripts/deploy/{$script}"], trim: false);
         } catch (RuntimeException) {
             continue;
         }
-        if ($inRelease !== file_get_contents(__DIR__ . '/' . $script)) {
+        $here = (string) file_get_contents(__DIR__ . '/' . $script);
+        if ($inRelease !== $here) {
             $different[] = $script;
+            $lineEndingsOnly = $lineEndingsOnly && str_replace("\r\n", "\n", $here) === $inRelease;
         }
     }
 
+    if ($different !== [] && $lineEndingsOnly) {
+        throw new RuntimeException(implode(', ', $different) . ' in this checkout have Windows line endings (git\'s core.autocrlf), and bash cannot run copies of the shell scripts that have them. Build from a Linux checkout, or set core.autocrlf=false and check the files out again.');
+    }
     if ($different !== []) {
         throw new RuntimeException('the package would carry ' . implode(', ', $different) . ' from the checkout this builder runs from (' . __DIR__ . "), and the release {$head} has a different version of " . (count($different) === 1 ? 'it' : 'them') . ". Check out {$head} and build again.");
     }

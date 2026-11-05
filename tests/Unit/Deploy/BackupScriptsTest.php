@@ -39,6 +39,8 @@ class BackupScriptsTest extends TestCase
 
         $this->stub('mysql', <<<'BASH'
             [ -n "${STUB_LOG:-}" ] && echo "mysql $*" >> "$STUB_LOG"
+            # A real client reads all of a dump piped to it; one that exits early would make the writer fail with a broken pipe.
+            case "$*" in *" -e "*) ;; *) cat >/dev/null ;; esac
             case "$*" in
               *"SELECT 1"*) [ -n "${STUB_DB_DOWN:-}" ] && exit 1; echo 1 ;;
               *"SUM(data_length"*) echo 100 ;;
@@ -230,8 +232,43 @@ class BackupScriptsTest extends TestCase
 
         $this->assertSame(2, $climbing->getExitCode(), $climbing->getOutput() . $climbing->getErrorOutput());
         $this->assertStringContainsString("cannot resolve '..'", $climbing->getErrorOutput());
+        $this->assertStringNotContainsString('stopped unexpectedly', $climbing->getErrorOutput(), 'a refusal that was meant is not also reported as a crash');
         $this->assertDirectoryDoesNotExist($this->app . '/x', 'nothing was written into the application');
         $this->assertSame(0, $honest->getExitCode(), 'a plain destination still works without GNU realpath: ' . $honest->getOutput() . $honest->getErrorOutput());
+    }
+
+    public function test_a_destination_that_cannot_be_written_is_not_reported_as_a_backup_that_already_exists(): void
+    {
+        $real = trim((string) shell_exec('command -v mkdir'));
+        $this->stub('mkdir', 'if [ "${1:-}" = "-p" ]; then exec ' . escapeshellarg($real) . ' "$@"; fi; echo "mkdir: cannot create directory: Read-only file system" >&2; exit 1');
+
+        $backup = $this->backup(['--to=' . $this->work . '/backups']);
+
+        $this->assertSame(1, $backup->getExitCode(), $backup->getOutput() . $backup->getErrorOutput());
+        $this->assertStringContainsString('could not create', $backup->getErrorOutput());
+        $this->assertStringNotContainsString('already exists', $backup->getErrorOutput());
+    }
+
+    public function test_a_step_nobody_planned_for_is_reported_with_the_line_it_stopped_at(): void
+    {
+        $this->stub('mktemp', 'exit 1');
+
+        $backup = $this->backup(['--to=' . $this->work . '/backups']);
+
+        $this->assertSame(1, $backup->getExitCode());
+        $this->assertStringContainsString('stopped unexpectedly at line', $backup->getErrorOutput());
+    }
+
+    public function test_a_disk_whose_free_space_cannot_be_read_stops_the_backup_unless_the_check_is_skipped_on_purpose(): void
+    {
+        $this->stub('df', 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\n"');
+
+        $refused = $this->backup(['--to=' . $this->work . '/backups']);
+        $skipped = $this->backup(['--to=' . $this->work . '/backups', '--force-low-disk']);
+
+        $this->assertSame(1, $refused->getExitCode(), $refused->getOutput() . $refused->getErrorOutput());
+        $this->assertStringContainsString('cannot read the free space', $refused->getErrorOutput());
+        $this->assertSame(0, $skipped->getExitCode(), $skipped->getOutput() . $skipped->getErrorOutput());
     }
 
     public function test_a_damaged_backup_is_detected_by_its_checksum(): void
@@ -292,6 +329,38 @@ class BackupScriptsTest extends TestCase
         $allowed = $verify(['--force-low-disk', '--allow-events'], ['STUB_EVENTS' => '2']);
         $this->assertSame(0, $allowed->getExitCode(), $allowed->getOutput() . $allowed->getErrorOutput());
         $this->assertStringContainsString('The backup restores, and its row counts match.', $allowed->getOutput());
+    }
+
+    public function test_a_restore_test_that_cannot_read_the_free_space_refuses_unless_the_check_is_skipped_on_purpose(): void
+    {
+        $this->backup(['--to=' . $this->work . '/backups']);
+        $directory = $this->theBackupDirectory($this->work . '/backups');
+        mkdir($this->work . '/datadir');
+        $this->stub('df', 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\n"');
+        $verify = fn (array $extra): Process => $this->execute(['bash', dirname(__DIR__, 3) . '/scripts/deploy/verify-backup.sh', '--backup=' . $directory, '--app=' . $this->app, '--restore-test', ...$extra], environment: ['STUB_DATADIR' => $this->work . '/datadir']);
+
+        $refused = $verify([]);
+        $skipped = $verify(['--force-low-disk']);
+
+        $this->assertSame(1, $refused->getExitCode(), $refused->getOutput() . $refused->getErrorOutput());
+        $this->assertStringContainsString('cannot read the free space', $refused->getErrorOutput());
+        $this->assertStringNotContainsString('Loading the dump', $refused->getOutput(), 'nothing was loaded into the live server');
+        $this->assertSame(0, $skipped->getExitCode(), $skipped->getOutput() . $skipped->getErrorOutput());
+    }
+
+    public function test_a_restore_test_does_not_measure_this_machines_disk_for_a_database_that_runs_on_another_host(): void
+    {
+        file_put_contents($this->app . '/.env', str_replace('DB_HOST=127.0.0.1', 'DB_HOST=db.internal.test', (string) file_get_contents($this->app . '/.env')));
+        $this->backup(['--to=' . $this->work . '/backups']);
+        $directory = $this->theBackupDirectory($this->work . '/backups');
+        mkdir($this->work . '/datadir');
+        $this->stub('df', 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/x 10 9 1 90%% /\n"');
+
+        $verify = $this->execute(['bash', dirname(__DIR__, 3) . '/scripts/deploy/verify-backup.sh', '--backup=' . $directory, '--app=' . $this->app, '--restore-test'], environment: ['STUB_DATADIR' => $this->work . '/datadir']);
+
+        $this->assertSame(0, $verify->getExitCode(), $verify->getOutput() . $verify->getErrorOutput());
+        $this->assertStringContainsString('MySQL runs on db.internal.test, not on this machine', $verify->getOutput());
+        $this->assertStringNotContainsString("free in MySQL's data directory", $verify->getErrorOutput());
     }
 
     public function test_the_help_texts_stop_before_the_first_command(): void

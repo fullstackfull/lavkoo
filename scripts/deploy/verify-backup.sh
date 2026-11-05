@@ -66,18 +66,27 @@ cleanup() {
 
 FACTS="$(php "$HERE/mysql-defaults.php" --app="$APP" --out="$DEFAULTS")" || fail "could not read the database settings from $APP/.env."
 DB_NAME="$(printf '%s\n' "$FACTS" | sed -n 's/^DB_DATABASE=//p')"
+DB_HOST="$(printf '%s\n' "$FACTS" | sed -n 's/^DB_HOST=//p')"
 
-# The scratch copy is as big as the data: on a server whose disk cannot hold a second copy, loading it would stop the live site.
+# The scratch copy is as big as the data: on a server whose disk cannot hold a second copy, loading it would stop the live site. The free
+# space of THIS machine's disk says something about MySQL's only when MySQL runs here.
 DATADIR="$(mysql --defaults-extra-file="$DEFAULTS" -N -e 'SELECT @@datadir' 2>/dev/null || true)"
 DUMP_KB=$(( ($(gunzip -c "$BACKUP/db.sql.gz" | wc -c) + 1023) / 1024 ))
-if [ -n "$DATADIR" ] && [ -d "$DATADIR" ]; then
-  FREE_KB="$(df -Pk "$DATADIR" | awk 'NR==2 {print $4}')"
-  NEEDED_KB=$(( DUMP_KB * 2 ))
-  if [ "$FREE_KB" -lt "$NEEDED_KB" ] && [ "$FORCE_LOW_DISK" != 1 ]; then
-    fail "only $((FREE_KB / 1024)) MB are free in MySQL's data directory ($DATADIR); loading the dump needs about $((NEEDED_KB / 1024)) MB. Import it into another server instead, or free space, or --force-low-disk if you know better."
-  fi
+case "$DB_HOST" in socket|localhost|127.0.0.1|::1|'[::1]') DB_IS_LOCAL=1 ;; *) DB_IS_LOCAL=0 ;; esac
+if [ "$DB_IS_LOCAL" != 1 ]; then
+  echo "Note: MySQL runs on $DB_HOST, not on this machine, so its free space cannot be checked from here."
+elif [ -z "$DATADIR" ] || [ ! -d "$DATADIR" ]; then
+  echo "Note: MySQL's data directory (${DATADIR:-unknown}) cannot be read from this account, so its free space cannot be checked from here."
 else
-  echo "Note: MySQL's data directory is not on this machine, so its free space cannot be checked from here."
+  FREE_KB="$(df -Pk "$DATADIR" 2>/dev/null | awk 'NR==2 {print $4}' || true)"
+  case "$FREE_KB" in
+    ''|*[!0-9]*) [ "$FORCE_LOW_DISK" = 1 ] || fail "cannot read the free space of $DATADIR. Use --force-low-disk to go on without the check, if you know better." ;;
+    *)
+      NEEDED_KB=$(( DUMP_KB * 2 ))
+      if [ "$FREE_KB" -lt "$NEEDED_KB" ] && [ "$FORCE_LOW_DISK" != 1 ]; then
+        fail "only $((FREE_KB / 1024)) MB are free in MySQL's data directory ($DATADIR); loading the dump needs about $((NEEDED_KB / 1024)) MB. Import it into another server instead, or free space, or --force-low-disk if you know better."
+      fi ;;
+  esac
 fi
 
 EVENTS="$(mysql --defaults-extra-file="$DEFAULTS" -N -e "SELECT COUNT(*) FROM information_schema.events WHERE event_schema='$DB_NAME'" 2>/dev/null || echo 0)"

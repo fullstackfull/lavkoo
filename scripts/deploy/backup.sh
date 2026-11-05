@@ -60,7 +60,7 @@ absolute_path() {
 APP="$(cd "$APP" 2>/dev/null && pwd -P)" || fail "--app is not a directory."
 [ -f "$APP/artisan" ] && [ -f "$APP/.env" ] || fail "$APP does not look like the application (no artisan and .env)."
 [ -n "$TO" ] || TO="$(dirname "$APP")/pharmacy-backups"
-TO="$(absolute_path "$TO")"
+TO="$(absolute_path "$TO")" || exit 2
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 DEST="$TO/$STAMP"
 case "$DEST/" in "$APP"/*) [ "$ALLOW_INSIDE_APP" = 1 ] || fail "the backup directory $DEST is inside the application tree, which may be served to the web. Use --to=<a directory outside it>." ;; esac
@@ -100,7 +100,8 @@ fi
 # umask 077: a directory this run creates is private; one that was already there keeps its mode. Only the dated directory is ever removed
 # if the run does not finish, and only if this run made it.
 mkdir -p "$TO"
-mkdir "$DEST" || fail "$DEST already exists; wait a second and run again."
+[ ! -e "$DEST" ] || fail "$DEST already exists; wait a second and run again."
+mkdir "$DEST" || fail "could not create $DEST."
 MADE=1
 chmod 700 "$DEST"
 if [ "$ALLOW_INSIDE_APP" != 1 ]; then
@@ -116,11 +117,15 @@ FILES_KB=0
 # Only an estimate: a directory that cannot be read, or a cache file that vanishes while it is counted, must not stop the backup.
 [ "$DO_FILES" = 1 ] && { FILES_KB="$(du -sk "$APP" 2>/dev/null | cut -f1)" || true; }
 case "$FILES_KB" in ''|*[!0-9]*) FILES_KB=0 ;; esac
-FREE_KB="$(df -Pk "$TO" | awk 'NR==2 {print $4}')"
-NEEDED_KB=$(( (DB_KB + FILES_KB) / 2 ))
-if [ "$FREE_KB" -lt "$NEEDED_KB" ] && [ "$FORCE_LOW_DISK" = 0 ]; then
-  fail "only $((FREE_KB / 1024)) MB free where the backup goes; about $((NEEDED_KB / 1024)) MB are needed. Free some space, use --no-vendor / --no-uploads, or --to=<another disk>."
-fi
+FREE_KB="$(df -Pk "$TO" 2>/dev/null | awk 'NR==2 {print $4}' || true)"
+case "$FREE_KB" in
+  ''|*[!0-9]*) [ "$FORCE_LOW_DISK" = 1 ] || fail "cannot read the free space where the backup goes ($TO). Use --force-low-disk to go on without the check, if you know better." ;;
+  *)
+    NEEDED_KB=$(( (DB_KB + FILES_KB) / 2 ))
+    if [ "$FREE_KB" -lt "$NEEDED_KB" ] && [ "$FORCE_LOW_DISK" = 0 ]; then
+      fail "only $((FREE_KB / 1024)) MB free where the backup goes; about $((NEEDED_KB / 1024)) MB are needed. Free some space, use --no-vendor / --no-uploads, or --to=<another disk>."
+    fi ;;
+esac
 
 if [ "$DO_DB" = 1 ]; then
   echo "Dumping database '$DB_NAME' (about $((DB_KB / 1024)) MB of data) ..."

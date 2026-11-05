@@ -26,6 +26,11 @@ class OverlayDeploymentTest extends TestCase
     /** @var array<string, string|false> */
     private array $environment = [];
 
+    /** @var list<string>|null how a small disk this test mounted is unmounted: the command words that come before the directory */
+    private ?array $unmount = null;
+
+    private ?string $mountedAt = null;
+
     /** @var array<string, string> the baseline files */
     private const BASE = [
         'artisan' => "<?php\n// artisan\n",
@@ -69,6 +74,9 @@ class OverlayDeploymentTest extends TestCase
 
     protected function tearDown(): void
     {
+        if ($this->mountedAt !== null && (new Process([...$this->unmount, $this->mountedAt]))->run() !== 0) {
+            (new Process([...$this->unmount, '-l', $this->mountedAt]))->run();
+        }
         (new Process(['rm', '-rf', $this->work]))->run();
         foreach ($this->environment as $name => $value) {
             putenv($value === false ? $name : "{$name}={$value}");
@@ -201,6 +209,26 @@ class OverlayDeploymentTest extends TestCase
         $same = $this->build();
 
         $this->assertSame(0, $same->getExitCode(), $same->getErrorOutput());
+    }
+
+    public function test_a_checkout_with_windows_line_endings_is_told_so_and_not_asked_to_check_out_what_it_already_has(): void
+    {
+        $scripts = dirname(__DIR__, 3) . '/scripts/deploy';
+        $builder = $this->work . '/crlf-builder';
+        mkdir($builder);
+        foreach (glob($scripts . '/*') ?: [] as $file) {
+            $content = (string) file_get_contents($file);
+            file_put_contents($builder . '/' . basename($file), in_array(basename($file), ['deploy.php', 'backup.sh'], true) ? str_replace("\n", "\r\n", $content) : $content);
+        }
+        $this->commit(['scripts/deploy/deploy.php' => (string) file_get_contents($scripts . '/deploy.php'), 'scripts/deploy/backup.sh' => (string) file_get_contents($scripts . '/backup.sh'), 'app/Utils/OrderManager.php' => "<?php\nfunction order() { return 'release'; }\n"], 'release');
+
+        $build = new Process(['php', $builder . '/build-overlay.php', '--repo=' . $this->repo, '--base=HEAD~1', '--head=HEAD', '--out=' . $this->overlay]);
+        $build->run();
+
+        $this->assertSame(1, $build->getExitCode(), $build->getErrorOutput());
+        $this->assertStringContainsString('deploy.php, backup.sh in this checkout have Windows line endings', $build->getErrorOutput());
+        $this->assertStringNotContainsString('Check out', $build->getErrorOutput());
+        $this->assertFileDoesNotExist($this->overlay . '/deploy.php');
     }
 
     public function test_the_archive_comes_with_the_checksum_to_check_the_download_against(): void
@@ -464,15 +492,61 @@ class OverlayDeploymentTest extends TestCase
         $this->requireFileSizeLimit();
         $this->release(['app/Utils/OrderManager.php' => "<?php\n// " . str_repeat('x', 300_000) . "\nfunction order() { return 'release'; }\n"]);
         $before = $this->treeHash($this->live);
+        $inode = fileinode($this->live . '/app/Utils/OrderManager.php');
 
         $full = $this->applyWithFileSizeLimit(kilobytes: 100, survive: true);
 
+        clearstatcache();
+        $this->assertSame($inode, fileinode($this->live . '/app/Utils/OrderManager.php'), 'the file whose replacement never happened is not written again by the undo: a full disk would refuse it');
         $this->assertSame(2, $full->getExitCode(), $full->getOutput());
         $this->assertStringContainsString('is the disk full', $full->getOutput());
         $this->assertStringContainsString('every change it had made was taken back', $full->getOutput());
         $this->assertStringContainsString('optimize:clear', $full->getOutput(), 'and it says what to do next, as a rollback does');
         $this->assertSame($before, $this->treeHash($this->live), 'the tree is exactly as it was: no truncated file, no half-written temporary file, no stray directory');
         $this->assertArrayHasKey('rolled_back_at', (array) json_decode((string) file_get_contents($this->backups . '/applied.json'), true), 'the record says it was taken back, so it blocks nothing');
+    }
+
+    public function test_a_language_file_whose_merge_never_reached_the_disk_is_not_written_again_by_the_undo(): void
+    {
+        $this->requireFileSizeLimit();
+        $this->release(['resources/lang/en/new-messages.php' => "<?php\n\nreturn [\n\t'old_key' => 'Old text',\n\t'new_key' => '" . str_repeat('x', 150_000) . "',\n];\n"]);
+        $before = $this->treeHash($this->live);
+        $inode = fileinode($this->live . '/resources/lang/en/new-messages.php');
+
+        $full = $this->applyWithFileSizeLimit(kilobytes: 100, survive: true);
+
+        clearstatcache();
+        $this->assertSame(2, $full->getExitCode(), $full->getOutput());
+        $this->assertStringContainsString('every change it had made was taken back', $full->getOutput());
+        $this->assertSame($inode, fileinode($this->live . '/resources/lang/en/new-messages.php'), 'nothing of the release was in the language file, so it is left as the site has it');
+        $this->assertSame($before, $this->treeHash($this->live));
+    }
+
+    public function test_a_full_disk_that_refuses_a_restore_is_tried_again_once_the_files_the_release_added_are_gone(): void
+    {
+        $big = static fn (string $label): string => "<?php\n// {$label} " . str_repeat('x', 200_000) . "\n";
+        $this->commit(['app/Utils/OrderManager.php' => $big('original manager'), 'config/queue.php' => $big('original queue')], 'larger files');
+        $this->put($this->live . '/app/Utils/OrderManager.php', $big('original manager'));
+        $this->put($this->live . '/config/queue.php', $big('original queue'));
+        $this->release([
+            'app/Utils/OrderManager.php' => $big('release manager'), 'config/queue.php' => $big('release queue'),
+            'app/Services/Fulfillment/New.php' => "<?php\n// " . str_repeat('x', 800_000) . "\nclass New_ {}\n",
+        ]);
+        // The application and its backup share a disk that holds them, the release's new file and not much else: the last replaced
+        // file cannot be written, and putting the one before it back needs more room than there is until the new file is gone.
+        $copy = $this->work . '/live-copy';
+        (new Process(['cp', '-a', $this->work . '/live', $copy]))->mustRun();
+        $this->mountSmallDisk($this->work . '/live', kilobytes: 1700);
+        (new Process(['cp', '-a', $copy . '/.', $this->work . '/live/']))->mustRun();
+        $before = $this->treeHash($this->live);
+
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(2, $apply->getExitCode(), $apply->getOutput());
+        $this->assertStringContainsString('is the disk full', $apply->getOutput());
+        $this->assertStringContainsString('every change it had made was taken back', $apply->getOutput(), $apply->getOutput());
+        $this->assertSame($before, $this->treeHash($this->live));
+        $this->assertArrayHasKey('rolled_back_at', (array) json_decode((string) file_get_contents($this->backups . '/applied.json'), true));
     }
 
     /** @return array<string, array{string}> */
@@ -743,6 +817,7 @@ class OverlayDeploymentTest extends TestCase
 
             $this->assertSame(1, $rollback->getExitCode(), $rollback->getOutput());
             $this->assertStringContainsString('the saved original', $rollback->getOutput());
+            $this->assertStringContainsString('files.tar.gz', $rollback->getOutput(), 'and it says where the original can be had from');
             $this->assertStringNotContainsString('restored to what they were', $rollback->getOutput());
             $this->assertSame($deployed, $this->treeHash($this->live), 'no live file was replaced by an empty one');
         }
@@ -856,6 +931,38 @@ class OverlayDeploymentTest extends TestCase
         $this->assertStringContainsString('is not empty', $same->getOutput());
     }
 
+    public function test_a_record_another_tool_wrote_does_not_block_a_deployment_and_is_reported(): void
+    {
+        $this->release();
+        mkdir($this->work . '/live/foreign', 0700, true);
+        file_put_contents($this->work . '/live/foreign/applied.json', '{"name":"some other tool"}');
+
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(0, $apply->getExitCode(), $apply->getOutput());
+        $this->assertStringContainsString('foreign/applied.json is not a record this deploy.php wrote; it is ignored', $apply->getOutput());
+    }
+
+    public function test_a_record_this_user_may_not_read_is_reported_and_neither_blocks_nor_sends_the_operator_to_a_rollback_that_cannot_work(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('Root can read any file.');
+        }
+        $this->release();
+        mkdir($this->work . '/live/theirs', 0700, true);
+        file_put_contents($this->work . '/live/theirs/applied.json', json_encode(['app' => $this->live, 'complete' => false, 'files' => [], 'created_directories' => []]));
+        chmod($this->work . '/live/theirs/applied.json', 0000);
+
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        $rollback = $this->deploy('rollback', ['--backup-dir=' . $this->work . '/live/theirs'], withApp: false);
+
+        $this->assertSame(0, $apply->getExitCode(), $apply->getOutput());
+        $this->assertStringContainsString('theirs/applied.json cannot be read by this user', $apply->getOutput());
+        $this->assertNotSame(0, $rollback->getExitCode());
+        $this->assertStringContainsString('cannot be read by this user', $rollback->getOutput());
+        $this->assertStringNotContainsString('cut off', $rollback->getOutput(), 'a permission problem is not a record that was cut off, and copying old files over the live code would be the wrong advice');
+    }
+
     public function test_a_backup_directory_that_holds_only_a_dot_file_is_not_empty(): void
     {
         $this->release();
@@ -878,6 +985,19 @@ class OverlayDeploymentTest extends TestCase
 
         $this->assertSame(2, $apply->getExitCode(), $apply->getOutput());
         $this->assertStringContainsString('A deployment recorded in ' . $this->work . '/live/old did not finish', $apply->getOutput());
+    }
+
+    public function test_a_directory_whose_name_merely_contains_two_dots_can_be_rolled_back(): void
+    {
+        $this->release(['app/Services/Foo..Bar/Thing.php' => "<?php\nclass Thing {}\n"]);
+        $before = $this->treeHash($this->live);
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        $this->assertDirectoryExists($this->live . '/app/Services/Foo..Bar');
+
+        $rollback = $this->deploy('rollback', ['--backup-dir=' . $this->backups], withApp: false);
+
+        $this->assertSame(0, $rollback->getExitCode(), $rollback->getOutput());
+        $this->assertSame($before, $this->treeHash($this->live));
     }
 
     // ── what the deployment creates ────────────────────────────────────────────────────────────────────────
@@ -914,6 +1034,22 @@ class OverlayDeploymentTest extends TestCase
         foreach (['/app/Services/Fulfillment', '/app/Services/Fulfillment/Sub', '/app/Services/Fulfillment/Sub/Deep', '/app/Services/Fulfillment/Sub/Deep/Thing.php', '/database/migrations', '/database/migrations/2026_11_05_100000_create_thing.php'] as $created) {
             $this->assertSame(33, fileowner($this->live . $created), "{$created} belongs to the web user, however deep the chain");
         }
+    }
+
+    public function test_a_deployment_killed_while_it_records_the_directories_it_is_about_to_create_has_made_none_of_them(): void
+    {
+        $this->requireFileSizeLimit();
+        $chain = implode('/', array_map(static fn (int $level): string => 'level' . $level . str_repeat('d', 40), range(1, 12)));
+        $this->release(['app/Services/Fulfillment/' . $chain . '/Thing.php' => "<?php\nclass Thing {}\n"]);
+        $before = $this->treeHash($this->live);
+        $limit = (int) ceil(filesize($this->overlay . '/MANIFEST.json') / 1024) + 1;
+
+        $killed = $this->applyWithFileSizeLimit(kilobytes: $limit);
+        $rollback = $this->deploy('rollback', ['--backup-dir=' . $this->backups], withApp: false);
+
+        $this->assertTrue($killed->hasBeenSignaled(), 'the record of the chain of directories outgrew the limit, and the process was killed writing it');
+        $this->assertSame(0, $rollback->getExitCode(), $rollback->getOutput());
+        $this->assertSame($before, $this->treeHash($this->live), 'a directory that exists is a directory the record names: the record is written before the directories are');
     }
 
     // ── a rollback puts the replaced files back before it removes the ones the release added ──────────────
@@ -1074,6 +1210,23 @@ class OverlayDeploymentTest extends TestCase
         }
 
         return $process;
+    }
+
+    /** Mounts a small in-memory disk over a directory (as root, or with passwordless sudo), or skips the test. */
+    private function mountSmallDisk(string $directory, int $kilobytes): void
+    {
+        $options = 'size=' . $kilobytes . 'k,uid=' . getmyuid() . ',gid=' . getmygid() . ',mode=0755';
+        $asRoot = function_exists('posix_geteuid') && posix_geteuid() === 0;
+        foreach ($asRoot ? [[], ['sudo', '-n']] : [['sudo', '-n']] as $prefix) {
+            if ((new Process([...$prefix, 'mount', '-t', 'tmpfs', '-o', $options, 'tmpfs', $directory]))->run() === 0) {
+                $this->mountedAt = $directory;
+                $this->unmount = [...$prefix, 'umount'];
+
+                return;
+            }
+        }
+
+        $this->markTestSkipped('A small disk cannot be mounted here (it takes root or passwordless sudo).');
     }
 
     private function requireFileSizeLimit(): void

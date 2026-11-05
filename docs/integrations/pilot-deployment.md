@@ -231,8 +231,8 @@ What it guarantees, and what it refuses:
   the dump ends with mysqldump's completion line. That is **not** proof that it loads. The proof is `--restore-test`: it loads the
   dump into a scratch database it creates and drops **on the same MySQL server as the live database** and compares the row counts.
   That doubles the database's footprint while it runs and loads the live site, so: run it **off-peak**, it refuses unless about twice
-  the dump's uncompressed size is free in MySQL's data directory (checked when that directory is on this machine; `--force-low-disk`
-  skips the check), and it refuses when the live database has scheduled events (they would run in the scratch copy; `--allow-events`).
+  the dump's uncompressed size is free in MySQL's data directory (checked only when the database runs on this machine, and it refuses if
+  the free space cannot be read; `--force-low-disk` skips the check), and it refuses when the live database has scheduled events (they would run in the scratch copy; `--allow-events`).
   If the MySQL account may not create databases (common on shared hosting) or the disk is tight, import `db.sql.gz` into a new empty
   database on **another** server (or with phpMyAdmin) and compare `row-counts.txt` by hand. **That comparison is the proof; do not
   skip it.**
@@ -315,9 +315,9 @@ wrote `applied.json`. If everything is already in place it says `Nothing to appl
 | What happened | What `apply` does | What you do |
 |---|---|---|
 | A check fails before anything is written (a bold state in section 3) | refuses, writes nothing, makes no backup directory | resolve it, or ask us |
-| A write fails part-way (full disk, a permission) | **takes back everything it had written**, says so, exits 2 | read the error; the site is as it was |
-| It cannot take it back (a file changed in the meantime) | exits 2, names the file and the `rollback` command | keep the site down; run the `rollback` command; `--force` only after looking at the file |
-| The process is killed (SSH dropped, out of memory) | `applied.json` in the backup directory already lists every file it had written **or was about to write** (it is written *before* each file) | reconnect, set `APP`, `PKG` and `BACKUPS` again as in phase 0 (a new shell has lost them), **do not start a second `apply`** (it refuses while an unfinished one has not been rolled back): `ls -t "$BACKUPS/deploy" \| head -1`, then `php "$PKG/deploy.php" rollback --backup-dir="$BACKUPS/deploy/<that directory>"` |
+| A write fails part-way (full disk, a permission) | **takes back everything it had written** (a file it never got to replace is left as it is; a restore the full disk refuses is tried again once the release's new files are gone), says so, exits 2 | read the error; the site is as it was |
+| It cannot take it back (a file changed in the meantime, or a saved original is missing) | exits 2, names the file and the `rollback` command | keep the site down; run the `rollback` command; `--force` only after looking at the file. A saved original that is missing or damaged is copied back out of the `files.tar.gz` your `backup.sh` run made, into `<backup-dir>/files/<path>` (its checksum is checked), and `rollback` is run again |
+| The process is killed (SSH dropped, out of memory) | `applied.json` in the backup directory already lists every file it had written **or was about to write** (it is written *before* each file) | reconnect, set `APP`, `PKG` and `BACKUPS` again as in phase 0 (a new shell has lost them), **do not start a second `apply`** (it refuses while an unfinished one has not been rolled back): `ls -t "$BACKUPS/deploy" \| head -1`, then `php "$PKG/deploy.php" rollback --backup-dir="$BACKUPS/deploy/<that directory>"`. A record in a neighbouring backup directory that this user may not read, or that another tool wrote, is reported with a warning and does not block `apply` (what an unfinished deployment changed would show as drift); run as the user that ran the earlier deployment to be sure |
 
 Then the `.env` lines, the caches, and the check that the application still starts:
 

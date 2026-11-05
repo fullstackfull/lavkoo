@@ -485,17 +485,28 @@ final class Deploy
      */
     private function readJournal(string $file): array
     {
+        $contents = is_readable($file) ? file_get_contents($file) : false;
+        if ($contents === false) {
+            throw new RuntimeException("{$file} cannot be read by this user. Nothing was changed. Run this command as the user that ran `apply` (or as root).");
+        }
+
         try {
-            $document = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+            $document = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             throw new RuntimeException("{$file} cannot be read (it was cut off while it was being written). Nothing was changed. Take the deployment back by hand: copy the files kept under " . dirname($file) . '/files/ back over the application, and delete the files the release added (the MANIFEST.json beside it lists them).');
         }
 
-        if (!is_array($document) || !is_string($document['app'] ?? null) || !is_bool($document['complete'] ?? null) || !is_array($document['files'] ?? null) || !is_array($document['created_directories'] ?? null)) {
+        if (!is_array($document) || !$this->isOurJournal($document)) {
             throw new RuntimeException("{$file} is not a record this deploy.php wrote. Nothing was changed.");
         }
 
         return $document;
+    }
+
+    /** @param array<mixed> $document */
+    private function isOurJournal(array $document): bool
+    {
+        return is_string($document['app'] ?? null) && is_bool($document['complete'] ?? null) && is_array($document['files'] ?? null) && is_array($document['created_directories'] ?? null);
     }
 
     /** The record names what rollback will write over and delete: every path in it must be one a release may touch, and every directory one inside the application. */
@@ -509,7 +520,7 @@ final class Deploy
             $this->assertSafePath($file['path']);
         }
         foreach ($applied['created_directories'] as $directory) {
-            if (!is_string($directory) || !str_starts_with($directory, $app . '/') || str_contains($directory, '..')) {
+            if (!is_string($directory) || !str_starts_with($directory, $app . '/') || in_array('..', explode('/', $directory), true)) {
                 throw new RuntimeException("The record in {$backup}/applied.json names a directory outside the application: " . (is_string($directory) ? $directory : 'not a path') . '. Nothing was changed.');
             }
         }
@@ -533,7 +544,7 @@ final class Deploy
             }
             // Not even --force writes an empty or different file over a live one: without its saved original there is nothing to put back.
             if ($file['merge'] === null && $file['existed'] && !$this->savedOriginalIsIntact($backup, $file)) {
-                $problems[] = "{$file['path']}: the saved original in {$backup}/files is missing or damaged, so nothing was restored. Put this file back by hand from your own backup of the application.";
+                $problems[] = "{$file['path']}: the saved original in {$backup}/files is missing or damaged, so nothing was restored. Copy that file out of the files.tar.gz your backup.sh run made into {$backup}/files/{$file['path']} (its checksum is checked) and run rollback again, or restore the whole application from that archive.";
             }
         }
         if ($problems !== []) {
@@ -542,17 +553,19 @@ final class Deploy
 
         // The order `apply` wrote in, reversed: the files the release replaced are put back before the files it added are removed,
         // so a request in flight never finds a replaced file asking for a class that is already gone.
+        $again = [];
         foreach (array_reverse($applied['files']) as $file) {
-            $target = $app . '/' . $file['path'];
             try {
-                if ($file['merge'] !== null) {
-                    $this->undoLanguageMerge($target, $file['merge']);
-                } elseif ($file['existed']) {
-                    $this->writeAtomically($target, (string) file_get_contents($backup . '/files/' . $file['path']), null);
-                } elseif (is_file($target)) {
-                    unlink($target);
-                }
-                $this->removeLeftoverTemporaries(dirname($target));
+                $this->takeBack($file, $app, $backup);
+            } catch (Throwable) {
+                $again[] = $file;
+            }
+        }
+        // A full disk refuses a restore while the files the release added still hold their space. They are gone now: each failed one is
+        // tried once more before it is reported.
+        foreach ($again as $file) {
+            try {
+                $this->takeBack($file, $app, $backup);
             } catch (Throwable $failure) {
                 $problems[] = "{$file['path']} could not be taken back: " . $this->describe($failure);
             }
@@ -562,6 +575,27 @@ final class Deploy
         }
 
         return $problems;
+    }
+
+    /**
+     * One file of the journal put back as it was. A file that already is what it was (the write that was to replace it never happened,
+     * as when the disk filled up) is not written again: there is nothing to restore, and a full disk would refuse the write.
+     *
+     * @param array<string, mixed> $file a journal entry
+     */
+    private function takeBack(array $file, string $app, string $backup): void
+    {
+        $target = $app . '/' . $file['path'];
+        if ($file['merge'] !== null) {
+            $this->undoLanguageMerge($target, $file['merge']);
+        } elseif ($file['existed']) {
+            if (!is_file($target) || hash_file('sha256', $target) !== $file['sha256_before']) {
+                $this->writeAtomically($target, (string) file_get_contents($backup . '/files/' . $file['path']), null);
+            }
+        } elseif (is_file($target)) {
+            unlink($target);
+        }
+        $this->removeLeftoverTemporaries(dirname($target));
     }
 
     /** @param array<string, mixed> $file a journal entry for a file that existed before the deployment */
@@ -594,7 +628,8 @@ final class Deploy
             return;
         }
 
-        $messages = $this->languageArray($target);
+        $current = $this->languageArray($target);
+        $messages = $current;
         foreach ($merge['added'] as $key) {
             unset($messages[$key]);
         }
@@ -602,7 +637,10 @@ final class Deploy
             $messages[$key] = $previous;
         }
 
-        $this->writeAtomically($target, $this->languageFile($messages), null);
+        // Nothing of the release is in the file (its write never happened): it is left as the site has it.
+        if ($messages !== $current) {
+            $this->writeAtomically($target, $this->languageFile($messages), null);
+        }
     }
 
     // ── plumbing ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -672,8 +710,9 @@ final class Deploy
     }
 
     /**
-     * The backup directories beside this one whose deployment was cut off and never rolled back. A record that cannot be read counts as
-     * one that did not finish: nobody can say what that deployment did.
+     * The backup directories beside this one whose deployment was cut off and never rolled back. A record that was cut off while it was
+     * written counts as one that did not finish: nobody can say what that deployment did. A record this user may not read, or one
+     * another tool wrote, is reported and does not block: whatever an unfinished deployment changed shows as drift when this one is checked.
      *
      * @return list<string>
      */
@@ -686,8 +725,16 @@ final class Deploy
                 continue;
             }
 
-            $document = json_decode((string) file_get_contents($journal), true);
-            if (!is_array($document) || (($document['complete'] ?? false) !== true && !isset($document['rolled_back_at']))) {
+            $contents = is_readable($journal) ? file_get_contents($journal) : false;
+            if ($contents === false) {
+                $this->say('warn', "{$journal} cannot be read by this user, so it is not known whether that deployment finished. If it did not, the files it changed show up below as drifted. Run this as the user that ran it to be sure.");
+                continue;
+            }
+
+            $document = json_decode($contents, true);
+            if (is_array($document) && !$this->isOurJournal($document)) {
+                $this->say('warn', "{$journal} is not a record this deploy.php wrote; it is ignored.");
+            } elseif (!is_array($document) || (($document['complete'] ?? false) !== true && !isset($document['rolled_back_at']))) {
                 $unfinished[] = dirname($journal);
             }
         }
