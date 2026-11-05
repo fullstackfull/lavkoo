@@ -201,9 +201,9 @@ final class PiiRedactor
     }
 
     /**
-     * The key a child is kept under: its own, unless it is itself a phone number or an e-mail address. PHP turns a key such as
-     * `966551234567` into an integer, so integers long enough to be a number are looked at too; masked keys stay distinct, so
-     * hiding them does not merge their values.
+     * The key a child is kept under: its own, unless it is itself a phone number or an e-mail address. PHP turns a key made only of
+     * digits (a number written without a leading zero or a plus sign) into an integer, so integers long enough to be a number are
+     * looked at too; masked keys stay distinct, so hiding them does not merge their values.
      */
     private static function keyName(int|string $key, int &$maskedSoFar): int|string
     {

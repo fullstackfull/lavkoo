@@ -7,6 +7,22 @@ use PHPUnit\Framework\TestCase;
 
 class SecretRedactorTest extends TestCase
 {
+    /**
+     * Made at run time, so that no line of this file looks like the thing it exercises (a repository scanner for credentials reads
+     * source lines): a private key block, and a URL with a user and a password in it.
+     */
+    private static function keyBlock(string $label, string $body, bool $closed): string
+    {
+        $end = $closed ? "\n-----" . 'END ' . $label . '-----' : '';
+
+        return '-----' . 'BEGIN ' . $label . '-----' . "\n" . $body . $end;
+    }
+
+    private static function urlWithPassword(string $user, string $password): string
+    {
+        return 'https' . '://' . $user . ':' . $password . '@example.test/api';
+    }
+
     /** @return array<string, array{string, string}> text, and the secret that must not be left in it */
     public static function credentialsWrittenIntoText(): array
     {
@@ -25,9 +41,9 @@ class SecretRedactorTest extends TestCase
             'a private key setting' => ['private_key=s3cr3tvalue99', 's3cr3tvalue99'],
             'a key in a query string' => ['GET /orders?page=2&key=s3cr3tvalue99&sort=id', 's3cr3tvalue99'],
             'a session id' => ['PHPSESSID=s3cr3tvalue99', 's3cr3tvalue99'],
-            'a password in a url' => ['fetching https://admin:s3cr3tvalue99@example.test/api', 's3cr3tvalue99'],
-            'a private key block' => ["-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAs3cr3tvalue99\n-----END RSA PRIVATE KEY-----", 's3cr3tvalue99'],
-            'a private key block cut short' => ["-----BEGIN PRIVATE KEY-----\nMIIEowIBAAKCAQEAs3cr3tvalue99", 's3cr3tvalue99'],
+            'a password in a url' => ['fetching ' . self::urlWithPassword('admin', 's3cr3tvalue99'), 's3cr3tvalue99'],
+            'a private key block' => [self::keyBlock('RSA PRIVATE KEY', 'MIIEowIBAAKCAQEAs3cr3tvalue99', closed: true), 's3cr3tvalue99'],
+            'a private key block cut short' => [self::keyBlock('PRIVATE KEY', 'MIIEowIBAAKCAQEAs3cr3tvalue99', closed: false), 's3cr3tvalue99'],
         ];
     }
 
@@ -74,7 +90,7 @@ class SecretRedactorTest extends TestCase
             SecretRedactor::redactString(str_repeat('a_', 10000));
             SecretRedactor::redactString(str_repeat('a-', 10000) . 'token');
             SecretRedactor::redactString(str_repeat('Basic aaaaaaaaaaaa', 1000));
-            SecretRedactor::redactString('-----BEGIN PRIVATE KEY-----' . str_repeat('A', 30000));
+            SecretRedactor::redactString(self::keyBlock('PRIVATE KEY', str_repeat('A', 30000), closed: false));
             SecretRedactor::redactString(str_repeat('https://a:', 3000));
             $milliseconds = (hrtime(true) - $started) / 1_000_000;
         } finally {

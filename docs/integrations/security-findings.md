@@ -229,7 +229,7 @@ integration stores or logs; credentials (`Bearer` values and long `Basic`/`Token
 header lines, `password=`/`api_key=`/`token=` pairs including joined names such as `DB_PASSWORD` or `client_secret`, `?key=` query values,
 the user and password in a URL, JWTs, private-key blocks) are removed; control characters are dropped; the scan is bounded (20 KB of
 text, bounded patterns) and, if a pattern cannot run, the text is hidden rather than let through. A number glued to letters
-(`tel0551234567`) is read as a code, like a barcode. *By key:* a value under a key that names a person, a contact detail, an address, a
+(a prefix such as `tel` directly before the digits) is read as a code, like a barcode. *By key:* a value under a key that names a person, a contact detail, an address, a
 postal code or an identity (`receiver`, `consignee`, `customer`, `address`, `phone`, `email`, `note`, `national`, `iqama`, `passport`,
 `iban`, `zip`, `postal_code`, `lat`, `lng`…) is hidden, and so is **everything nested under** such a key except codes. *Strictly*, for
 answers that are about people (sign-in, order list, order detail, package status): only an allow-list survives: strings shaped like
