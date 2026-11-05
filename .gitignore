@@ -56,3 +56,15 @@ error_log
 /storage/framework/sessions/*
 /storage/framework/views/*
 /storage/*.key
+
+# Multi-provider fulfillment: nothing produced while verifying or deploying belongs in the repository
+/build/
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.jks
+*.dump
+*.sql.gz
+/storage/app/fulfillment-evidence/

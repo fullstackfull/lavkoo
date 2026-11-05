@@ -9,7 +9,6 @@ use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\Support\HttpResult;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
-use App\Services\Fulfillment\Support\SecretRedactor;
 use Throwable;
 
 /**
@@ -194,7 +193,7 @@ class LiveVerification
 
     private function safe(string $message): string
     {
-        return mb_substr(PiiRedactor::redactText(SecretRedactor::redactString($message)), 0, 300);
+        return PiiRedactor::scrub($message);
     }
 
     private function elapsed(int|float $started): int

@@ -6,6 +6,7 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Contracts\ReconcilesSubmissions;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -45,7 +46,7 @@ class ReconciliationService
         } catch (ProviderUnavailableException) {
             return 'unavailable';
         } catch (Throwable $exception) {
-            Log::warning('Reconciliation attempt failed.', ['fulfillment_id' => $fulfillmentId, 'error' => $exception->getMessage()]);
+            Log::warning('Reconciliation attempt failed.', ['fulfillment_id' => $fulfillmentId, 'error' => PiiRedactor::scrub($exception->getMessage())]);
             $result = null;
         }
 

@@ -112,6 +112,23 @@ jobs:
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
         run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php --display-skipped
 
+  # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
+  # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.
+  leak-guard:
+    name: No secret or personal data added
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Scan the lines this change adds
+        run: php scripts/ci/leak-guard.php --base="${{ github.event.pull_request.base.sha || github.event.before }}"
+
   # Builds exactly what would be deployed to the server (the added and modified files of this pull request, with the checksum of
   # each file's baseline version) so it can be downloaded, read and checked before anyone deploys anything. This job deploys nothing.
   build-overlay:

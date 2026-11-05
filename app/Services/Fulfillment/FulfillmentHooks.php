@@ -5,6 +5,7 @@ namespace App\Services\Fulfillment;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use App\Services\Fulfillment\Support\PiiRedactor;
 
 /**
  * The three places existing code tells the fulfillment pipeline "something changed".
@@ -65,7 +66,7 @@ class FulfillmentHooks
                 $work();
             }
         } catch (Throwable $exception) {
-            Log::warning('Fulfillment hook failed; the scheduled sweep will pick the order up.', ['error' => $exception->getMessage()]);
+            Log::warning('Fulfillment hook failed; the scheduled sweep will pick the order up.', ['error' => PiiRedactor::scrub($exception->getMessage())]);
         }
     }
 }

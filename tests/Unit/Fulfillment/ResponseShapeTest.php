@@ -102,7 +102,8 @@ class ResponseShapeTest extends TestCase
 
     public function test_a_jwt_under_an_innocent_key_is_not_kept(): void
     {
-        $jwt = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiI1OTY1MyJ9.signature-signature';
+        $encode = static fn (array $part): string => rtrim(strtr(base64_encode((string) json_encode($part)), '+/', '-_'), '=');
+        $jwt = $encode(['alg' => 'RS256']) . '.' . $encode(['sub' => '59653']) . '.signature-signature';
 
         $encoded = (string) json_encode(ResponseShape::profile(['data' => ['session' => $jwt, 'userId' => 59653]]));
 

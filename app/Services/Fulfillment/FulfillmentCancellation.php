@@ -8,6 +8,7 @@ use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use App\Services\Fulfillment\Support\PiiRedactor;
 
 /**
  * Cancels ONE provider fulfillment. Never touches another provider's fulfillment of the same order:
@@ -103,7 +104,7 @@ class FulfillmentCancellation
             Log::error('Provider adapter threw during cancel; treating it as a failed attempt.', [
                 'fulfillment_id' => $fulfillment->id,
                 'exception' => $exception::class,
-                'error' => $exception->getMessage(),
+                'error' => PiiRedactor::scrub($exception->getMessage()),
             ]);
             $result = CancellationResult::failed($exception::class);
         }

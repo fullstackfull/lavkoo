@@ -194,7 +194,7 @@ class ProviderHttp
                 'duration_ms' => $result->durationMs,
             ]);
         } catch (Throwable $exception) {
-            Log::warning('Provider API call could not be logged.', ['operation' => $operation, 'error' => $exception->getMessage()]);
+            Log::warning('Provider API call could not be logged.', ['operation' => $operation, 'error' => PiiRedactor::scrub($exception->getMessage())]);
         }
     }
 }

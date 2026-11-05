@@ -17,6 +17,7 @@ use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\Fulfillment\ReconciliationService;
 use App\Services\Fulfillment\ShipmentTracker;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 
 class DispatcherTest extends FulfillmentTestCase
@@ -247,6 +248,30 @@ class DispatcherTest extends FulfillmentTestCase
         $this->assertSame(FulfillmentStatus::ReconcilePending, $fulfillment->fresh()->status);
         $this->assertSame(1, $throwing->submits, 'we cannot know whether it was sent, so it must not be sent again');
         $this->assertSame('adapter_exception', $fulfillment->fresh()->last_error_code);
+    }
+
+    public function test_what_an_adapter_exception_says_about_the_customer_never_reaches_the_log(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $throwing = new class extends \Tests\Support\FakeTorodAdapter {
+            public function submit(ProviderFulfillment $fulfillment): SubmissionResult
+            {
+                throw new \RuntimeException('HTTP 422: invalid receiver phone 0551234567 for sara@example.test');
+            }
+        };
+        $this->app->instance(\Tests\Support\FakeTorodAdapter::class, $throwing);
+        $logged = [];
+        Log::listen(static function ($message) use (&$logged): void {
+            $logged[] = $message->message . ' ' . json_encode($message->context);
+        });
+
+        $this->dispatcher()->dispatch($fulfillment->id);
+
+        $this->assertNotEmpty($logged, 'the failure is logged');
+        $joined = implode("\n", $logged);
+        $this->assertStringContainsString('invalid receiver phone', $joined, 'the useful part survives');
+        $this->assertStringNotContainsString('0551234567', $joined);
+        $this->assertStringNotContainsString('sara@example.test', $joined);
     }
 
     public function test_when_integrations_are_switched_off_after_claiming_nothing_is_lost(): void

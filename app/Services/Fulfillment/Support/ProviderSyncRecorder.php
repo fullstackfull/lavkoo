@@ -46,7 +46,7 @@ final class ProviderSyncRecorder
         $this->touch($provider, $capability, [
             'last_attempt_at' => now(),
             'last_failure_at' => now(),
-            'last_error' => SecretRedactor::truncate(SecretRedactor::redactString($message), 1000),
+            'last_error' => PiiRedactor::scrub($message, 1000),
         ]);
     }
 
@@ -69,7 +69,7 @@ final class ProviderSyncRecorder
             Log::warning('Provider sync state not recorded', [
                 'provider' => $provider,
                 'capability' => $capability,
-                'error' => $exception->getMessage(),
+                'error' => PiiRedactor::scrub($exception->getMessage()),
             ]);
         }
     }

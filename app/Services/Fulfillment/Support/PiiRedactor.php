@@ -54,6 +54,15 @@ final class PiiRedactor
         return preg_replace(self::PHONE, self::MASK, $text) ?? $text;
     }
 
+    /**
+     * Free text that is about to be written to a log or stored as an error, with credentials and contact details removed, and short.
+     * A provider's error text (and the exception a failed request throws) may echo back what was sent to it: a name, a phone number.
+     */
+    public static function scrub(string $text, int $maxBytes = 300): string
+    {
+        return (string) SecretRedactor::truncate(self::redactText(SecretRedactor::redactString($text)), $maxBytes);
+    }
+
     private static function walk(mixed $value, string $key, bool $strict): mixed
     {
         if (is_array($value)) {

@@ -109,4 +109,17 @@ class PiiRedactorTest extends TestCase
         $this->assertSame([['id' => 1, 'sku' => 'A', 'stock' => 5, 'nested' => ['deep' => ['receiverEmail' => self::MASK, 'ok' => 'fine']]]], $redacted['data']);
         $this->assertSame(1, $redacted['total']);
     }
+
+    public function test_scrub_removes_credentials_and_contact_details_and_shortens(): void
+    {
+        $jwt = rtrim(strtr(base64_encode('{"alg":"RS256"}'), '+/', '-_'), '=') . '.' . rtrim(strtr(base64_encode('{"sub":"1"}'), '+/', '-_'), '=') . '.' . str_repeat('s', 20);
+
+        $scrubbed = PiiRedactor::scrub("HTTP 422: invalid receiver phone 0551234567 for sara@example.test, Authorization: Bearer abc.def-123, token {$jwt}");
+
+        foreach (['0551234567', 'sara@example.test', 'abc.def-123', $jwt] as $leaked) {
+            $this->assertStringNotContainsString($leaked, $scrubbed);
+        }
+        $this->assertStringContainsString('HTTP 422', $scrubbed, 'what a person debugging needs is kept');
+        $this->assertLessThanOrEqual(300 + strlen('…[truncated]'), strlen(PiiRedactor::scrub(str_repeat('a long line of nothing personal ', 40))));
+    }
 }

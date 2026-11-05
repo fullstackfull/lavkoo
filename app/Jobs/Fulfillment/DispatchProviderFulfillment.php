@@ -10,6 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use App\Services\Fulfillment\Support\PiiRedactor;
 
 /**
  * Sends one provider fulfillment. A job never retries itself: `tries = 1`. Whether the request may be
@@ -37,7 +38,7 @@ class DispatchProviderFulfillment implements ShouldQueue
     {
         Log::error('Provider fulfillment dispatch job crashed; recovery will reconcile it.', [
             'fulfillment_id' => $this->fulfillmentId,
-            'error' => $exception->getMessage(),
+            'error' => PiiRedactor::scrub($exception->getMessage()),
         ]);
     }
 }

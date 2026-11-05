@@ -11,6 +11,7 @@ use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Contracts\ProviderAdapter;
 use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use Carbon\Carbon;
@@ -90,7 +91,7 @@ class ProviderOrderDispatcher
             Log::error('Provider adapter threw during submit; treating the outcome as unknown.', [
                 'fulfillment_id' => $id,
                 'exception' => $exception::class,
-                'error' => $exception->getMessage(),
+                'error' => PiiRedactor::scrub($exception->getMessage()),
             ]);
             $result = SubmissionResult::ambiguous('adapter_exception', $exception::class);
         }

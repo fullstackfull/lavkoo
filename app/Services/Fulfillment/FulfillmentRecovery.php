@@ -9,8 +9,8 @@ use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
-use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -233,7 +233,7 @@ class FulfillmentRecovery
                 } catch (ProviderUnavailableException) {
                     continue 2;
                 } catch (Throwable $exception) {
-                    Log::warning('Status poll failed.', ['fulfillment_id' => $fulfillment->id, 'error' => $exception->getMessage()]);
+                    Log::warning('Status poll failed.', ['fulfillment_id' => $fulfillment->id, 'error' => PiiRedactor::scrub($exception->getMessage())]);
                     continue;
                 }
 
@@ -296,7 +296,7 @@ class FulfillmentRecovery
         try {
             return $sweep();
         } catch (Throwable $exception) {
-            Log::error('Fulfillment sweep failed; the other sweeps continue.', ['sweep' => $name, 'error' => SecretRedactor::redactString($exception->getMessage())]);
+            Log::error('Fulfillment sweep failed; the other sweeps continue.', ['sweep' => $name, 'error' => PiiRedactor::scrub($exception->getMessage())]);
 
             return -1;
         }
