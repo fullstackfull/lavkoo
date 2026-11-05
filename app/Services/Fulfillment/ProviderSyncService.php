@@ -3,10 +3,12 @@
 namespace App\Services\Fulfillment;
 
 use App\Enums\Fulfillment\ProviderCode;
+use App\Models\ProviderSyncState;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\Providers\M5azn\M5aznAdapter;
 use App\Services\Fulfillment\Providers\M5azn\M5aznProductImporter;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
+use Illuminate\Support\Carbon;
 
 /**
  * Runs a provider's pull-style synchronisations: its product list, its stock, its city list.
@@ -19,6 +21,17 @@ class ProviderSyncService
     public const PRODUCTS = 'products';
     public const INVENTORY = 'inventory';
     public const CITIES = 'cities';
+
+    /** Smallest interval an administrator may choose: a provider is never polled harder than this. */
+    public const MIN_INTERVAL_MINUTES = 5;
+
+    public const DEFAULT_INTERVAL_MINUTES = 30;
+
+    /**
+     * The scheduler wakes on five-minute ticks and a sync's attempt is stamped when it STARTS, so a strict
+     * "interval has elapsed" test would slip every run to the next tick (a 30-minute interval would become 35).
+     */
+    private const DUE_TOLERANCE_SECONDS = 90;
 
     public function __construct(
         private readonly ProviderRegistry $registry,
@@ -39,6 +52,28 @@ class ProviderSyncService
         }
 
         return $results;
+    }
+
+    /**
+     * Is this pull task due? The scheduler wakes every five minutes and asks; each provider's own setting
+     * (`product_sync_interval_minutes`, `inventory_sync_interval_minutes`) decides how often it really runs.
+     * "Sync now" in the admin does not ask.
+     */
+    public function isDue(ProviderCode $provider, string $task): bool
+    {
+        $minutes = match ($task) {
+            self::PRODUCTS => $this->connections->config($provider)->int('product_sync_interval_minutes', self::DEFAULT_INTERVAL_MINUTES),
+            self::INVENTORY => $this->connections->config($provider)->int('inventory_sync_interval_minutes', self::DEFAULT_INTERVAL_MINUTES),
+            default => null,
+        };
+        if ($minutes === null) {
+            return true;
+        }
+
+        $lastAttempt = ProviderSyncState::where('provider', $provider->value)->where('capability', $task)->value('last_attempt_at');
+
+        return $lastAttempt === null
+            || Carbon::parse($lastAttempt)->lte(now()->subMinutes(max(self::MIN_INTERVAL_MINUTES, $minutes))->addSeconds(self::DUE_TOLERANCE_SECONDS));
     }
 
     /** @return array<string, mixed> */

@@ -86,6 +86,8 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             'go_live_at' => null,
             'product_sync_enabled' => false,
             'inventory_sync_enabled' => false,
+            'product_sync_interval_minutes' => 30,
+            'inventory_sync_interval_minutes' => 30,
             'push_products_enabled' => false,
             'webhooks_enabled' => false,
             'dispatch_order_statuses' => [],

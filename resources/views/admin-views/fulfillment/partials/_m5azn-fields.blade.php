@@ -23,7 +23,8 @@
 
 <div class="col-12"><hr><h6>{{ translate('catalog_and_import') }}</h6></div>
 <div class="col-md-4"><label class="form-label" for="catalog_product_type">{{ translate('catalog_product_type') }}</label>
-    <input class="form-control" id="catalog_product_type" name="catalog_product_type" value="{{ $config->string('catalog_product_type', 'local') }}"></div>
+    <input class="form-control" id="catalog_product_type" name="catalog_product_type" value="{{ $config->string('catalog_product_type', 'local') }}">
+    <div class="fs-12 text-muted">{{ translate('catalog_product_type_help') }}</div></div>
 <div class="col-md-4"><label class="form-label" for="catalog_category_id">{{ translate('catalog_category_filter') }}</label>
     <input class="form-control" id="catalog_category_id" name="catalog_category_id" value="{{ $config->string('catalog_category_id') }}"></div>
 <div class="col-md-4"><label class="form-label" for="default_category_id">{{ translate('store_category_for_imports') }}</label>
@@ -36,6 +37,9 @@
 <div class="col-md-4"><div class="form-check form-switch">
     <input type="hidden" name="product_sync_enabled" value="0"><input class="form-check-input" type="checkbox" role="switch" id="product_sync_enabled" name="product_sync_enabled" value="1" @checked($config->bool('product_sync_enabled'))>
     <label class="form-check-label" for="product_sync_enabled">{{ translate('pull_selected_products') }}</label></div></div>
+<div class="col-md-4"><label class="form-label" for="product_sync_interval_minutes">{{ translate('product_sync_interval_minutes') }}</label>
+    <input class="form-control" type="number" min="5" max="1440" id="product_sync_interval_minutes" name="product_sync_interval_minutes" value="{{ $config->int('product_sync_interval_minutes', 30) }}">
+    <div class="fs-12 text-muted">{{ translate('sync_interval_help') }}</div></div>
 <div class="col-md-4"><div class="form-check form-switch">
     <input type="hidden" name="import_enabled" value="0"><input class="form-check-input" type="checkbox" role="switch" id="import_enabled" name="import_enabled" value="1" @checked($config->bool('import_enabled'))>
     <label class="form-check-label" for="import_enabled">{{ translate('import_into_store_automatically') }}</label>
@@ -47,6 +51,8 @@
 <div class="col-md-4"><div class="form-check form-switch">
     <input type="hidden" name="inventory_sync_enabled" value="0"><input class="form-check-input" type="checkbox" role="switch" id="inventory_sync_enabled" name="inventory_sync_enabled" value="1" @checked($config->bool('inventory_sync_enabled'))>
     <label class="form-check-label" for="inventory_sync_enabled">{{ translate('follow_m5azn_stock') }}</label></div></div>
+<div class="col-md-4"><label class="form-label" for="inventory_sync_interval_minutes">{{ translate('inventory_sync_interval_minutes') }}</label>
+    <input class="form-control" type="number" min="5" max="1440" id="inventory_sync_interval_minutes" name="inventory_sync_interval_minutes" value="{{ $config->int('inventory_sync_interval_minutes', 30) }}"></div>
 <div class="col-md-4"><div class="form-check form-switch">
     <input type="hidden" name="update_content_on_sync" value="0"><input class="form-check-input" type="checkbox" role="switch" id="update_content_on_sync" name="update_content_on_sync" value="1" @checked($config->bool('update_content_on_sync'))>
     <label class="form-check-label" for="update_content_on_sync">{{ translate('update_content_on_sync') }}</label></div></div>

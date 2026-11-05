@@ -39,8 +39,10 @@ class M5aznCatalogSyncTest extends M5aznTestCase
         $first = $this->adapter()->syncCatalog();
         $second = $this->adapter()->syncCatalog();
 
-        $this->assertSame(['created' => 2, 'updated' => 0, 'unchanged' => 0, 'unidentified' => 0], $first['stats']);
-        $this->assertSame(['created' => 0, 'updated' => 0, 'unchanged' => 2, 'unidentified' => 0], $second['stats'], 'syncing twice must not duplicate anything');
+        $this->assertSame(['created' => 2, 'updated' => 0, 'unchanged' => 0, 'unidentified' => 0], array_slice($first['stats'], 0, 4));
+        $this->assertSame(['created' => 0, 'updated' => 0, 'unchanged' => 2, 'unidentified' => 0], array_slice($second['stats'], 0, 4), 'syncing twice must not duplicate anything');
+        $this->assertFalse($first['stats']['truncated']);
+        $this->assertFalse($first['stats']['partial']);
         $this->assertSame(2, ProviderCatalogItem::count());
         $this->assertSame(0, DB::table('products')->count(), 'staging never creates a store product');
     }

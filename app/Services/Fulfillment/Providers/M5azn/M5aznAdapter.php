@@ -31,6 +31,7 @@ use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\Fulfillment\Support\SecretRedactor;
+use App\Services\Fulfillment\Support\StoredFieldMap;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Throwable;
@@ -47,6 +48,12 @@ use Throwable;
 class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
 {
     private const STOCK_FRESH_HOURS = 6;
+
+    /** Product types M5AZN's "my products" call accepts. The call itself defaults to `local`. */
+    private const PRODUCT_TYPES = ['local', 'global', 'ali_express', 'digital'];
+
+    /** Safety cap on pages read per product type in one sync. */
+    private const CATALOG_MAX_PAGES = 50;
 
     public function __construct(
         private readonly ProviderConnectionManager $connections,
@@ -68,6 +75,8 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
             'go_live_at' => null,
             'product_sync_enabled' => false,
             'inventory_sync_enabled' => false,
+            'product_sync_interval_minutes' => 30,
+            'inventory_sync_interval_minutes' => 30,
             'import_enabled' => false,
             'dispatch_order_statuses' => [],
             'platform_name' => '',
@@ -283,20 +292,26 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
         $this->sync->attempted($this->code()->value, ProviderSyncRecorder::PRODUCTS);
 
         $config = $this->config();
-        $result = $this->client->myProducts(array_filter([
+        $stored = $this->fieldMaps->get($this->code(), M5aznFieldMaps::CATALOG);
+        $filters = array_filter([
             'category_id' => $config->string('catalog_category_id'),
             'brand_id' => $config->string('catalog_brand_id'),
-            'product_type' => $config->string('catalog_product_type', 'local'),
-        ], static fn (string $value): bool => $value !== ''));
+        ], static fn (string $value): bool => $value !== '');
 
-        if (!$result->ok() || $result->json === null) {
-            return $this->failed(ProviderSyncRecorder::PRODUCTS, $result->message());
-        }
+        $items = [];
+        $pages = 0;
+        $truncated = false;
+        $partial = false;
+        foreach ($this->catalogProductTypes($config) as $type) {
+            $fetched = $this->fetchSelectedProducts($filters + ['product_type' => $type], $stored->itemsPath, $this->identityPaths($stored));
+            if ($fetched['error'] !== null) {
+                return $this->failed(ProviderSyncRecorder::PRODUCTS, $fetched['error']);
+            }
 
-        $stored = $this->fieldMaps->get($this->code(), M5aznFieldMaps::CATALOG);
-        $items = FieldMap::extractItems($result->json, $stored->itemsPath);
-        if ($items === null) {
-            return $this->failed(ProviderSyncRecorder::PRODUCTS, 'The response does not contain a list of products; set the items path in the field map.');
+            $items = array_merge($items, $fetched['items']);
+            $pages += $fetched['pages'];
+            $truncated = $truncated || $fetched['truncated'];
+            $partial = $partial || $fetched['partial'];
         }
 
         $paths = $stored->paths !== [] ? $stored->paths : $this->fieldMaps->propose($items, M5aznFieldMaps::CANDIDATES[M5aznFieldMaps::CATALOG]);
@@ -311,7 +326,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
                 continue;
             }
 
-            $records[] = [
+            $records[$externalId] = [
                 'external_id' => $externalId,
                 'name' => $map->string($item, 'name'),
                 'sku' => $map->string($item, 'sku'),
@@ -323,10 +338,94 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
             ];
         }
 
-        $stats = $this->staging->stage($this->code(), 'api', $records) + ['unidentified' => $unidentified];
+        $stats = $this->staging->stage($this->code(), 'api', array_values($records)) + ['unidentified' => $unidentified, 'pages' => $pages, 'truncated' => $truncated, 'partial' => $partial];
         $this->sync->succeeded($this->code()->value, ProviderSyncRecorder::PRODUCTS, $stats);
 
         return ['ok' => true, 'stats' => $stats, 'verified' => $stored->verified];
+    }
+
+    /**
+     * The product types the seller can have selected. M5AZN's "my products" call defaults to `local`, so a
+     * seller who supplied a `global` or `ali_express` product would never see it appear unless that type is
+     * asked for as well. The setting is a comma-separated list; unknown words are ignored.
+     *
+     * @return list<string>
+     */
+    private function catalogProductTypes(ProviderConfig $config): array
+    {
+        $types = array_values(array_unique(array_filter(
+            array_map('trim', explode(',', strtolower($config->string('catalog_product_type', 'local')))),
+            static fn (string $type): bool => in_array($type, self::PRODUCT_TYPES, true),
+        )));
+
+        return $types === [] ? ['local'] : $types;
+    }
+
+    /**
+     * Every product on the seller's list for one product type.
+     *
+     * The documentation lists no pagination parameter and no response schema, so this asks for page 2, 3, …
+     * and stops as soon as a page adds nothing new (an API that ignores `page` repeats page 1) or the safety
+     * cap is reached. Silently reading only the first page of a paginated list would drop products without
+     * any error, which is the one outcome this must not allow.
+     *
+     * @param array<string, string> $query
+     * @param array<string, string> $identityPaths where an item's id lives (stored map or the proposed one)
+     * @return array{items: list<array<array-key, mixed>>, pages: int, truncated: bool, partial: bool, error: ?string} partial = a later page failed, so the list may be incomplete this time
+     */
+    private function fetchSelectedProducts(array $query, ?string $itemsPath, array $identityPaths): array
+    {
+        $items = [];
+        $seen = [];
+        $pages = 0;
+
+        for ($page = 1; $page <= self::CATALOG_MAX_PAGES; $page++) {
+            $result = $this->client->myProducts($page === 1 ? $query : $query + ['page' => $page]);
+            $pages++;
+
+            if (!$result->ok() || $result->json === null) {
+                return $page === 1
+                    ? ['items' => [], 'pages' => $pages, 'truncated' => false, 'partial' => false, 'error' => $result->message()]
+                    : ['items' => $items, 'pages' => $pages, 'truncated' => false, 'partial' => true, 'error' => null];
+            }
+
+            $pageItems = FieldMap::extractItems($result->json, $itemsPath);
+            if ($pageItems === null) {
+                return $page === 1
+                    ? ['items' => [], 'pages' => $pages, 'truncated' => false, 'partial' => false, 'error' => 'The response does not contain a list of products; set the items path in the field map.']
+                    : ['items' => $items, 'pages' => $pages, 'truncated' => false, 'partial' => false, 'error' => null];
+            }
+
+            $added = 0;
+            foreach ($pageItems as $item) {
+                $fingerprint = $this->fingerprint($item, $identityPaths);
+                if (!isset($seen[$fingerprint])) {
+                    $seen[$fingerprint] = true;
+                    $items[] = $item;
+                    $added++;
+                }
+            }
+
+            if ($added === 0) {
+                return ['items' => $items, 'pages' => $pages, 'truncated' => false, 'partial' => false, 'error' => null];
+            }
+        }
+
+        return ['items' => $items, 'pages' => $pages, 'truncated' => true, 'partial' => false, 'error' => null];
+    }
+
+    /** @param array<array-key, mixed> $item @param array<string, string> $identityPaths */
+    private function fingerprint(array $item, array $identityPaths): string
+    {
+        $id = $identityPaths === [] ? null : (new FieldMap($identityPaths))->string($item, 'id');
+
+        return $id !== null ? 'id:' . $id : 'hash:' . hash('sha256', (string) json_encode($item));
+    }
+
+    /** @return array<string, string> */
+    private function identityPaths(StoredFieldMap $stored): array
+    {
+        return $stored->paths !== [] ? $stored->paths : ['id' => M5aznFieldMaps::CANDIDATES[M5aznFieldMaps::CATALOG]['id'][0]];
     }
 
     /**

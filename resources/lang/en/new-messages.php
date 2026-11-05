@@ -8889,4 +8889,8 @@ return [
 	'webhook_security' => 'Webhook security',
 	'what_did_you_check' => 'What did you check?',
 	'your_shipments' => 'Your shipments',
+	'product_sync_interval_minutes' => 'Product sync interval (minutes)',
+	'inventory_sync_interval_minutes' => 'Stock sync interval (minutes)',
+	'sync_interval_help' => 'How often the provider is checked. The scheduler looks every 5 minutes, so 5 is the shortest interval.',
+	'catalog_product_type_help' => 'Comma-separated: local, global, ali_express, digital. Add every type you supply from, or products of the others never appear.',
 ];

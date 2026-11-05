@@ -157,6 +157,25 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->assertSame('714', app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint)->string('company_id'), 'a refused save changes nothing');
     }
 
+    public function test_sync_intervals_and_product_types_are_validated_and_saved(): void
+    {
+        $this->post(route('admin.fulfillment-providers.update', 'm5azn'), ['enabled' => 1, 'product_sync_interval_minutes' => 2])
+            ->assertSessionHasErrors('product_sync_interval_minutes');
+        $this->post(route('admin.fulfillment-providers.update', 'm5azn'), ['enabled' => 1, 'inventory_sync_interval_minutes' => 5000])
+            ->assertSessionHasErrors('inventory_sync_interval_minutes');
+        $this->post(route('admin.fulfillment-providers.update', 'm5azn'), ['enabled' => 1, 'catalog_product_type' => 'local, shoes'])
+            ->assertSessionHasErrors('catalog_product_type');
+
+        $this->post(route('admin.fulfillment-providers.update', 'm5azn'), [
+            'enabled' => 1, 'product_sync_interval_minutes' => 10, 'inventory_sync_interval_minutes' => 15, 'catalog_product_type' => 'local, global',
+        ])->assertSessionHasNoErrors();
+
+        $config = app(ProviderConnectionManager::class)->config(ProviderCode::M5azn);
+        $this->assertSame(10, $config->int('product_sync_interval_minutes'));
+        $this->assertSame(15, $config->int('inventory_sync_interval_minutes'));
+        $this->assertSame('local, global', $config->string('catalog_product_type'));
+    }
+
     public function test_an_unknown_provider_slug_is_a_404(): void
     {
         $this->get('/admin/fulfillment-providers/dhl')->assertNotFound();

@@ -86,11 +86,14 @@ class ScheduleDefinition
         | finds work by state, so a missed hook costs a minute, not correctness. With the `sync` queue
         | driver it also does the dispatching itself, so the scheduler alone is enough to be correct.
         */
-        $schedule->command('fulfillment:recover')->everyMinute()->withoutOverlapping();
+        // withoutOverlapping() keeps a cache mutex that, if a run is killed (OOM, deploy restart), would otherwise
+        // survive for the default 24 hours and silence the sweep. Each expiry is a few times the run's real length.
+        $schedule->command('fulfillment:recover')->everyMinute()->withoutOverlapping(10);
         // The net under a webhook that never arrived: ask the provider about shipments we have not heard of.
-        $schedule->command('fulfillment:poll')->everyFifteenMinutes()->withoutOverlapping();
-        $schedule->command('fulfillment:sync --only=products,inventory')->everyThirtyMinutes()->withoutOverlapping();
-        $schedule->command('fulfillment:sync --only=cities')->weekly()->sundays()->at('03:30')->withoutOverlapping();
+        $schedule->command('fulfillment:poll')->everyFifteenMinutes()->withoutOverlapping(30)->runInBackground();
+        // Wakes every five minutes; each provider's own interval setting (default 30) decides whether it is due.
+        $schedule->command('fulfillment:sync --only=products,inventory --due')->everyFiveMinutes()->withoutOverlapping(60)->runInBackground();
+        $schedule->command('fulfillment:sync --only=cities')->weekly()->sundays()->at('03:30')->withoutOverlapping(60);
         $schedule->command('fulfillment:prune')->dailyAt('03:50');
 
         // Heartbeat: record the last scheduler run in the DB (not cache, which optimize:clear wipes) so

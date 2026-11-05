@@ -11,7 +11,8 @@ class FulfillmentSyncCommand extends Command
 {
     protected $signature = 'fulfillment:sync
         {provider? : m5azn or torod_point (default: every enabled provider)}
-        {--only=products,inventory : comma separated: products, inventory, cities}';
+        {--only=products,inventory : comma separated: products, inventory, cities}
+        {--due : run only the tasks whose provider interval has elapsed (what the scheduler uses)}';
 
     protected $description = 'Pull provider products, stock and city lists (each honours the provider\'s own switches)';
 
@@ -30,7 +31,9 @@ class FulfillmentSyncCommand extends Command
         $failed = false;
 
         foreach ($providers as $provider) {
-            foreach ($sync->run($provider, $tasks) as $task => $result) {
+            $due = $this->option('due') ? array_values(array_filter($tasks, static fn (string $task): bool => $sync->isDue($provider, $task))) : $tasks;
+
+            foreach ($sync->run($provider, $due) as $task => $result) {
                 $ok = (bool) ($result['ok'] ?? false);
                 $failed = $failed || (!$ok && !str_starts_with((string) ($result['error'] ?? ''), 'switched_off'));
                 $this->line(sprintf('%s %s: %s', $provider->value, $task, $ok ? 'ok ' . json_encode($result['stats'] ?? $result['count'] ?? '') : (string) ($result['error'] ?? 'failed')));

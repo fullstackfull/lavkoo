@@ -87,28 +87,35 @@ class M5aznProductImporter
             'product_id' => $result->productId ?? $item->product_id,
             'note' => $result->reason,
             'imported_at' => $result->succeeded() ? now() : $item->imported_at,
+            'imported_hash' => $result->succeeded() ? $item->payload_hash : $item->imported_hash,
         ])->save();
 
         return $result;
     }
 
     /**
-     * Bring every staged item up to date: new ones become products, already-imported ones get their stock
-     * and supplier cost refreshed. Idempotent — running it twice does the same work once.
+     * Bring the store up to date with what the seller has selected: products never imported before first, then
+     * imported ones whose M5AZN data has CHANGED since they were last imported. Idempotent — running it twice
+     * does the same work once — and fair: a long list of unchanged products can never crowd out a newly
+     * selected one, because unchanged ones are not touched at all. `$refreshAll` re-applies the settings
+     * (price policy, publishing, category…) to every imported product.
      *
      * @return array{imported: int, updated: int, needs_review: int, blocked: int}
      */
-    public function importPending(int $limit = 500, ?int $actorId = null): array
+    public function importPending(int $limit = 500, ?int $actorId = null, bool $refreshAll = false): array
     {
         $stats = ['imported' => 0, 'updated' => 0, 'needs_review' => 0, 'blocked' => 0];
 
-        $ids = ProviderCatalogItem::where('provider', ProviderCode::M5azn->value)
-            ->whereIn('status', [ProviderCatalogItem::STATUS_NEW, ProviderCatalogItem::STATUS_IMPORTED])
-            ->orderBy('id')
-            ->limit($limit)
-            ->pluck('id');
+        $new = ProviderCatalogItem::where('provider', ProviderCode::M5azn->value)
+            ->where('status', ProviderCatalogItem::STATUS_NEW)
+            ->orderBy('id')->limit($limit)->pluck('id');
 
-        foreach ($ids as $id) {
+        $changed = $new->count() >= $limit ? collect() : ProviderCatalogItem::where('provider', ProviderCode::M5azn->value)
+            ->where('status', ProviderCatalogItem::STATUS_IMPORTED)
+            ->unless($refreshAll, static fn ($query) => $query->where(static fn ($inner) => $inner->whereNull('imported_hash')->orWhereColumn('imported_hash', '!=', 'payload_hash')))
+            ->orderBy('id')->limit($limit - $new->count())->pluck('id');
+
+        foreach ($new->merge($changed) as $id) {
             $stats[$this->import((int) $id, $actorId)->outcome]++;
         }
 

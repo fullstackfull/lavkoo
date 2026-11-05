@@ -256,6 +256,9 @@ return new class extends Migration
                 $table->timestamp('first_seen_at')->nullable();
                 $table->timestamp('last_seen_at')->nullable();
                 $table->timestamp('imported_at')->nullable();
+                // payload_hash at the moment the product was last imported: an imported item whose payload has
+                // not changed since needs no work, which keeps a long list from starving newly selected products.
+                $table->string('imported_hash', 64)->nullable();
                 $table->timestamps();
 
                 $table->unique(['provider', 'external_id'], 'pci_provider_external_unique');

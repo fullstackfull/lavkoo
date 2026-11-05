@@ -2424,4 +2424,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'webhooks' => 'إشعارات ويب هوك',
 	'what_did_you_check' => 'ماذا تحققت منه؟',
 	'your_shipments' => 'شحناتك',
+	'product_sync_interval_minutes' => 'الفاصل الزمني لمزامنة المنتجات (بالدقائق)',
+	'inventory_sync_interval_minutes' => 'الفاصل الزمني لمزامنة المخزون (بالدقائق)',
+	'sync_interval_help' => 'مدة التحقق من المزوّد. يفحص المجدول كل 5 دقائق، لذا أقصر فاصل هو 5 دقائق.',
+	'catalog_product_type_help' => 'مفصولة بفواصل: local, global, ali_express, digital. أضف كل نوع تورّد منه، وإلا لن تظهر منتجات الأنواع الأخرى.',
 ];

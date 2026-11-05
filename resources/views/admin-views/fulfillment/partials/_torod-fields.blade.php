@@ -54,6 +54,11 @@
 <div class="col-md-4"><div class="form-check form-switch">
     <input type="hidden" name="inventory_sync_enabled" value="0"><input class="form-check-input" type="checkbox" role="switch" id="inventory_sync_enabled" name="inventory_sync_enabled" value="1" @checked($config->bool('inventory_sync_enabled'))>
     <label class="form-check-label" for="inventory_sync_enabled">{{ translate('follow_warehouse_stock') }}</label></div></div>
+<div class="col-md-4"><label class="form-label" for="product_sync_interval_minutes">{{ translate('product_sync_interval_minutes') }}</label>
+    <input class="form-control" type="number" min="5" max="1440" id="product_sync_interval_minutes" name="product_sync_interval_minutes" value="{{ $config->int('product_sync_interval_minutes', 30) }}">
+    <div class="fs-12 text-muted">{{ translate('sync_interval_help') }}</div></div>
+<div class="col-md-4"><label class="form-label" for="inventory_sync_interval_minutes">{{ translate('inventory_sync_interval_minutes') }}</label>
+    <input class="form-control" type="number" min="5" max="1440" id="inventory_sync_interval_minutes" name="inventory_sync_interval_minutes" value="{{ $config->int('inventory_sync_interval_minutes', 30) }}"></div>
 <div class="col-12"><div class="alert alert-warning fs-12 py-2 mb-0">
     <div class="form-check">
         <input class="form-check-input" type="checkbox" id="stock_field_confirmed" name="stock_field_confirmed" value="1" @checked($config->get('stock_field_confirmed_at'))>
