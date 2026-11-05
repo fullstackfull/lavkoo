@@ -17,8 +17,25 @@ use Illuminate\Support\Facades\DB;
  */
 class FulfillmentOrderGuard
 {
+    /** Statuses of an order that is live again: moving a closed order into one of them would revive it. */
+    private const REOPENING_STATUSES = ['pending', 'confirmed', 'processing', 'out_for_delivery'];
+
     public function __construct(private readonly FulfillmentAggregator $aggregator)
     {
+    }
+
+    /**
+     * Why this order may not move to `$newStatus`, or null when it may. The one question every place that writes an
+     * order's status asks before writing: the admin and vendor panels, the seller and delivery-man apps, and the
+     * delivery webhooks.
+     */
+    public function statusChangeBlockedReason(int $orderId, string $newStatus): ?string
+    {
+        return match (true) {
+            $newStatus === 'delivered' => $this->deliveryBlockedReason($orderId),
+            in_array($newStatus, self::REOPENING_STATUSES, true) => $this->reopenBlockedReason($orderId),
+            default => null,
+        };
     }
 
     /** A translated reason the order cannot be marked delivered yet, or null when it may be. */
@@ -62,6 +79,21 @@ class FulfillmentOrderGuard
         }
 
         return null;
+    }
+
+    /**
+     * A closed order's provider shipments were cancelled and its unrouted provider lines were closed with it. Reopening
+     * the order would leave goods nobody ships, so a closed order with provider lines is placed again instead.
+     */
+    private function reopenBlockedReason(int $orderId): ?string
+    {
+        if (!FulfillmentSchema::ready() || !$this->hasProviderWork($orderId)) {
+            return null;
+        }
+
+        $closed = DB::table('orders')->where('id', $orderId)->whereIn('order_status', OrderEligibility::CLOSED_STATUSES)->exists();
+
+        return $closed ? translate('closed_order_with_provider_items_cannot_be_reopened') : null;
     }
 
     /** True once any line of the order belongs to a provider, whether or not it has been handed over yet. */

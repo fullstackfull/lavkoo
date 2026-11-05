@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Services\Analytics\Analytics;
+use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
 use App\Models\Admin;
 use App\Services\ProductService;
@@ -429,7 +430,8 @@ class WebController extends Controller
             }
             $isPhysicalProductExistArray[$groupId] = $isPhysicalProductExist;
         }
-        $cashOnDeliveryBtnShow = !in_array(false, $isPhysicalProductExistArray);
+        $cashOnDeliveryBtnShow = !in_array(false, $isPhysicalProductExistArray)
+            && app(CheckoutCodGuard::class)->blockedReason(CartManager::get_cart_group_ids(request: $request, type: 'checked')) === null;
 
         $vendorWiseCartListCollection = collect($vendorWiseCartList);
         $couponDiscount = $vendorWiseCartListCollection?->sum('coupon_discount') ?? 0;
@@ -528,6 +530,16 @@ class WebController extends Controller
                 Toastr::error($message);
             }
             return isset($response['redirect']) ? redirect($response['redirect']) : redirect('/');
+        }
+
+        $codBlockedReason = app(CheckoutCodGuard::class)->blockedReason(CartManager::get_cart_group_ids(request: $request, type: 'checked'));
+        if ($codBlockedReason) {
+            if ($request->ajax()) {
+                return response()->json(['status' => 0, 'message' => $codBlockedReason]);
+            }
+            Toastr::error($codBlockedReason);
+
+            return back();
         }
 
         $cartListQuery = CartManager::getCartListQuery(type: 'checked');

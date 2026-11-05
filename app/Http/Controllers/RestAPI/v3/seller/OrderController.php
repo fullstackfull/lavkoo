@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
+use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
@@ -398,6 +399,10 @@ class OrderController extends Controller
             return response()->json(['success' => 0, 'message' => translate('order is already delivered')], 200);
         }
 
+        if ($blockedReason = app(FulfillmentOrderGuard::class)->statusChangeBlockedReason(orderId: (int) $order->id, newStatus: (string) $request['order_status'])) {
+            return response()->json(['success' => 0, 'message' => $blockedReason], 200);
+        }
+
         event(new OrderStatusEvent(key: $request['order_status'], type: 'customer', order: $order));
         if ($request->order_status == 'canceled') {
             event(new OrderStatusEvent(key: 'canceled', type: 'delivery_man', order: $order));
@@ -710,6 +715,10 @@ class OrderController extends Controller
 
                 if ($order['order_status'] == 'delivered' && !in_array($request['order_status'], ['returned', 'failed', 'canceled'])) {
                     return response()->json(['success' => 0, 'message' => translate('order_is_already_delivered')], 200);
+                }
+
+                if ($blockedReason = app(FulfillmentOrderGuard::class)->statusChangeBlockedReason(orderId: (int) $order['id'], newStatus: (string) $request['order_status'])) {
+                    return response()->json(['success' => 0, 'message' => $blockedReason], 200);
                 }
 
                 event(new OrderStatusEvent(key: $request['order_status'], type: 'customer', order: $order));

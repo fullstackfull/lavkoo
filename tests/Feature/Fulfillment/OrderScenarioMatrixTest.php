@@ -13,9 +13,11 @@ use App\Models\ProviderFulfillmentItem;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Services\Fulfillment\FulfillmentAggregator;
 use App\Services\Fulfillment\FulfillmentCancellation;
+use App\Services\Fulfillment\FulfillmentMoney;
 use App\Services\Fulfillment\FulfillmentRecovery;
 use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\Fulfillment\ShipmentTracker;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -243,6 +245,103 @@ class OrderScenarioMatrixTest extends FulfillmentTestCase
         foreach ($this->route(100) as $shipment) {
             $this->assertSame(HoldReason::MIXED_COD_BLOCKED, $shipment->hold_reason);
         }
+    }
+
+    // ---- money that changes between routing and dispatch -----------------------------------------------------
+
+    public function test_a_cod_order_paid_after_routing_is_sent_as_prepaid_so_the_provider_collects_nothing(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint);
+        $this->placeOrder(100, [['product' => 1, 'qty' => 1, 'price' => 100.0]], shipping: 20.0, cod: true);
+        $torod = $this->route(100)['torod_point'];
+        $this->assertEquals(120.0, (float) $torod->cod_amount);
+
+        DB::table('orders')->where('id', 100)->update(['payment_status' => 'paid', 'paid_amount' => 120]);
+        app(ProviderOrderDispatcher::class)->dispatch($torod->id);
+
+        $this->assertSame(PaymentMode::Prepaid->value, $this->torod->submitted[0]['payment_mode'], 'the provider is told the customer already paid');
+        $this->assertSame(0.0, $this->torod->submitted[0]['cod_amount']);
+        $torod->refresh();
+        $this->assertSame(FulfillmentStatus::Submitted, $torod->status);
+        $this->assertEquals(0.0, (float) $torod->cod_amount);
+        $this->assertDatabaseHas('provider_fulfillment_events', ['provider_fulfillment_id' => $torod->id, 'event_type' => 'money', 'outcome_note' => 'money_reassessed_before_send']);
+    }
+
+    public function test_a_part_payment_after_routing_lowers_the_cash_the_provider_is_told_to_collect(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint);
+        $this->placeOrder(100, [['product' => 1, 'qty' => 1, 'price' => 100.0]], shipping: 20.0, cod: true);
+        $torod = $this->route(100)['torod_point'];
+
+        DB::table('orders')->where('id', 100)->update(['paid_amount' => 50]);
+        app(ProviderOrderDispatcher::class)->dispatch($torod->id);
+
+        $this->assertSame(PaymentMode::CashOnDelivery->value, $this->torod->submitted[0]['payment_mode']);
+        $this->assertSame(70.0, $this->torod->submitted[0]['cod_amount']);
+    }
+
+    public function test_money_that_has_not_changed_is_sent_untouched_and_leaves_no_trace(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint);
+        $this->placeOrder(100, [['product' => 1, 'qty' => 1, 'price' => 100.0]], shipping: 20.0, cod: true);
+        $torod = $this->route(100)['torod_point'];
+
+        app(ProviderOrderDispatcher::class)->dispatch($torod->id);
+
+        $this->assertSame(120.0, $this->torod->submitted[0]['cod_amount']);
+        $this->assertDatabaseMissing('provider_fulfillment_events', ['provider_fulfillment_id' => $torod->id, 'event_type' => 'money']);
+    }
+
+    public function test_cash_collection_that_was_allowed_at_routing_but_is_not_at_dispatch_is_held_not_sent(): void
+    {
+        config(['fulfillment.cod.allow_mixed' => true]);
+        foreach ([ProviderCode::TorodPoint, ProviderCode::M5azn] as $provider) {
+            $this->enableProvider($provider, ['cod_verified' => true]);
+        }
+        $this->placeOrder(100, [['product' => 1, 'qty' => 1, 'price' => 60.0], ['product' => 2, 'qty' => 1, 'price' => 40.0]], cod: true);
+        $shipments = $this->route(100);
+        $this->assertSame(FulfillmentStatus::Pending, $shipments['torod_point']->status);
+
+        config(['fulfillment.cod.allow_mixed' => false]);
+        $outcome = app(ProviderOrderDispatcher::class)->dispatch($shipments['torod_point']->id);
+
+        $this->assertSame(ProviderOrderDispatcher::SKIPPED, $outcome);
+        $held = $shipments['torod_point']->refresh();
+        $this->assertSame(FulfillmentStatus::Held, $held->status);
+        $this->assertSame(HoldReason::MIXED_COD_BLOCKED, $held->hold_reason);
+        $this->assertSame([], $this->torod->submitted, 'two providers must never both be asked for the whole amount');
+    }
+
+    public function test_a_released_money_hold_takes_its_figures_from_the_current_assessment_even_without_an_order_total(): void
+    {
+        config(['fulfillment.cod.allow_mixed' => true]);
+        foreach ([ProviderCode::TorodPoint, ProviderCode::M5azn] as $provider) {
+            $this->enableProvider($provider, ['cod_verified' => false]);
+        }
+        $this->placeOrder(100, [['product' => 1, 'qty' => 1, 'price' => 60.0], ['product' => 2, 'qty' => 1, 'price' => 40.0]], cod: true);
+        $shipments = $this->route(100);
+        $this->assertSame(FulfillmentStatus::Held, $shipments['torod_point']->status);
+
+        foreach ([ProviderCode::TorodPoint, ProviderCode::M5azn] as $provider) {
+            $this->enableProvider($provider, ['cod_verified' => true]);
+        }
+        $this->assertTrue(app(FulfillmentRouter::class)->reevaluateHold($shipments['torod_point']->id));
+
+        $released = $shipments['torod_point']->refresh();
+        $this->assertSame(FulfillmentStatus::Pending, $released->status);
+        $this->assertEquals(60.0, (float) $released->cod_amount);
+        $this->assertEquals(60.0, (float) $released->total_amount);
+    }
+
+    public function test_a_shipment_with_no_lines_falls_back_to_a_zero_total_instead_of_a_null_one(): void
+    {
+        $this->placeOrder(100, [['product' => 1, 'qty' => 1, 'price' => 60.0]]);
+        $order = \App\Models\Order::findOrFail(100);
+
+        $money = app(FulfillmentMoney::class)->assess($order, ProviderCode::TorodPoint, collect(), collect());
+
+        $this->assertSame(0.0, $money->totalAmount);
+        $this->assertSame(0.0, $money->itemsTotal);
     }
 
     // ---- provider + in-house ----------------------------------------------------------------------------

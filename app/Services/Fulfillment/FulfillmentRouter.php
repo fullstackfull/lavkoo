@@ -4,7 +4,6 @@ namespace App\Services\Fulfillment;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
-use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
@@ -29,8 +28,7 @@ class FulfillmentRouter
     public function __construct(
         private readonly ProviderConnectionManager $connections,
         private readonly OrderEligibility $eligibility,
-        private readonly CodPolicy $codPolicy,
-        private readonly ProviderOrderShare $shares,
+        private readonly FulfillmentMoney $money,
         private readonly FulfillmentQueue $queue,
     ) {
     }
@@ -56,10 +54,7 @@ class FulfillmentRouter
                 return;
             }
 
-            $allItems = ProviderFulfillmentItem::where('order_id', $orderId)
-                ->where('status', '!=', ProviderFulfillmentItem::STATUS_CANCELLED)
-                ->get();
-            $plan = $this->codPolicy->plan($order, $allItems);
+            $allItems = $this->money->allItems($orderId);
 
             foreach ($unrouted->groupBy('provider') as $providerValue => $items) {
                 $provider = ProviderCode::tryFrom((string) $providerValue);
@@ -73,7 +68,7 @@ class FulfillmentRouter
                     continue;
                 }
 
-                $fulfillment = $this->create($order, $provider, $items, $plan, $allItems);
+                $fulfillment = $this->create($order, $provider, $items, $allItems);
                 if ($fulfillment !== null) {
                     $created[] = $fulfillment->id;
                     if ($fulfillment->status === FulfillmentStatus::Pending) {
@@ -107,28 +102,22 @@ class FulfillmentRouter
             }
 
             $order = Order::whereKey($fulfillment->order_id)->lockForUpdate()->first();
-            $items = ProviderFulfillmentItem::where('order_id', $fulfillment->order_id)
-                ->where('status', '!=', ProviderFulfillmentItem::STATUS_CANCELLED)
-                ->get();
-            if ($order === null) {
+            $provider = $fulfillment->providerCode();
+            if ($order === null || $provider === null) {
                 return;
             }
 
-            $plan = $this->codPolicy->plan($order, $items);
-            if ($plan->blockedReason !== null) {
+            $money = $this->money->assess($order, $provider, $fulfillment->items()->get(), $this->money->allItems($order->id));
+            if ($money->blockedReason !== null) {
                 return;
             }
 
-            $cod = $plan->codByProvider[$fulfillment->provider] ?? 0.0;
             $fulfillment->forceFill([
                 'status' => FulfillmentStatus::Pending,
                 'hold_reason' => null,
                 'last_error_code' => null,
                 'last_error_message' => null,
-                'payment_mode' => $plan->isCod && $cod > 0 ? PaymentMode::CashOnDelivery : PaymentMode::Prepaid,
-                'cod_amount' => $plan->isCod ? $cod : 0,
-                'total_amount' => $this->shares->totalFor($plan->orderTotal, (int) $fulfillment->order_id, $fulfillment->items()->get(), $items),
-            ])->save();
+            ] + $money->columns())->save();
 
             $released = true;
         });
@@ -144,38 +133,25 @@ class FulfillmentRouter
      * @param Collection<int, ProviderFulfillmentItem> $items
      * @param Collection<int, ProviderFulfillmentItem> $allItems
      */
-    private function create(
-        Order $order,
-        ProviderCode $provider,
-        Collection $items,
-        \App\Services\Fulfillment\Data\CollectionPlan $plan,
-        Collection $allItems,
-    ): ?ProviderFulfillment {
+    private function create(Order $order, ProviderCode $provider, Collection $items, Collection $allItems): ?ProviderFulfillment
+    {
         $generation = (int) ProviderFulfillment::where('order_id', $order->id)->where('provider', $provider->value)->max('generation') + 1;
         $itemIds = $items->pluck('id')->sort()->values()->all();
-        $blocked = $plan->blockedReason;
-        $cod = $plan->codByProvider[$provider->value] ?? 0.0;
-        $itemsTotal = round((float) $items->sum('line_total'), 2);
-        $total = $this->shares->totalFor($plan->orderTotal, $order->id, $items, $allItems);
+        $money = $this->money->assess($order, $provider, $items, $allItems);
 
         try {
-            $fulfillment = DB::transaction(static function () use ($order, $provider, $generation, $itemIds, $blocked, $plan, $cod, $itemsTotal, $total): ProviderFulfillment {
+            $fulfillment = DB::transaction(static function () use ($order, $provider, $generation, $itemIds, $money): ProviderFulfillment {
                 return ProviderFulfillment::create([
                     'reference' => $order->id . '-' . $provider->referenceCode() . $generation,
                     'order_id' => $order->id,
                     'provider' => $provider->value,
                     'generation' => $generation,
                     'idempotency_key' => hash('sha256', implode('|', ['v1', $order->id, $provider->value, $generation, implode(',', $itemIds)])),
-                    'status' => $blocked === null ? FulfillmentStatus::Pending : FulfillmentStatus::Held,
-                    'hold_reason' => $blocked,
-                    'payment_mode' => $plan->isCod && $cod > 0 ? PaymentMode::CashOnDelivery : PaymentMode::Prepaid,
-                    'cod_amount' => $plan->isCod ? $cod : 0,
+                    'status' => $money->blockedReason === null ? FulfillmentStatus::Pending : FulfillmentStatus::Held,
+                    'hold_reason' => $money->blockedReason,
                     'currency' => strtoupper((string) config('fulfillment.currency', 'SAR')),
-                    'items_total' => $itemsTotal,
-                    'shipping_allocation' => $total === null ? 0 : round($total - $itemsTotal, 2),
-                    'total_amount' => $total ?? $itemsTotal,
                     'created_by_type' => 'system',
-                ]);
+                ] + $money->columns());
             });
         } catch (UniqueConstraintViolationException) {
             // A concurrent router created this exact fulfillment first. Nothing to do.

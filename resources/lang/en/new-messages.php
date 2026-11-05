@@ -8641,6 +8641,8 @@ return [
 	'hold_city_unmapped' => 'The delivery city has no matching provider city.',
 	'hold_currency_unconvertible' => 'The order amount could not be converted to the provider currency.',
 	'hold_manual' => 'Held by an administrator.',
+	'cash_on_delivery_unavailable_for_mixed_provider_cart' => 'Cash on delivery is not available for this basket because it contains products shipped from different warehouses. Please pay online.',
+	'closed_order_with_provider_items_cannot_be_reopened' => 'This order was cancelled or closed and its provider shipments were closed with it, so it cannot be reopened. Place a new order instead.',
 	'hold_already_with_provider' => 'This shipment already has a provider reference, so it was not sent again. Check the provider\'s dashboard.',
 	'cancel_blocked_title' => 'Automatic cancellation cannot finish',
 	'cancel_blocked_help' => 'Cancel the shipment in the provider\'s own dashboard, then use “Mark as cancelled by hand” here. Reason:',

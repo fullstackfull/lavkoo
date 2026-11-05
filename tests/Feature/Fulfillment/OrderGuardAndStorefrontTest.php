@@ -152,14 +152,13 @@ class OrderGuardAndStorefrontTest extends AdminPagesTestCase
         $this->assertStringContainsString('cannot be edited', $verdict['message']);
     }
 
-    public function test_the_admin_status_endpoint_asks_the_guard_only_for_the_delivered_transition(): void
+    public function test_the_admin_status_endpoint_asks_the_guard_before_touching_stock_or_status(): void
     {
         $method = new \ReflectionMethod(\App\Http\Controllers\Admin\Order\OrderController::class, 'updateStatus');
         $body = implode('', array_slice(file($method->getFileName()), $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1));
 
-        $this->assertStringContainsString("\$request['order_status'] == 'delivered'", $body);
-        $this->assertStringContainsString('FulfillmentOrderGuard::class)->deliveryBlockedReason', $body);
-        $this->assertLessThan(strpos($body, 'updateStockOnOrderStatusChange'), strpos($body, 'deliveryBlockedReason'), 'the guard runs before stock or status are touched');
+        $this->assertStringContainsString('FulfillmentOrderGuard::class)->statusChangeBlockedReason', $body);
+        $this->assertLessThan(strpos($body, 'updateStockOnOrderStatusChange'), strpos($body, 'statusChangeBlockedReason'), 'the guard runs before stock or status are touched');
     }
 
     public function test_the_notice_appears_only_when_the_cart_comes_from_more_than_one_source(): void

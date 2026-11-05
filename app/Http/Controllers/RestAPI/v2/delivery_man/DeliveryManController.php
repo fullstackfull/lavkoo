@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v2\delivery_man;
 
+use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\API\v2\DeliveryMan\DeliveryManOrderDeliveryVerificationRequest;
@@ -143,6 +144,10 @@ class DeliveryManController extends Controller
 
         if ($order->order_status == 'delivered') {
             return response()->json(['success' => 0, 'message' => 'order is already delivered.'], 200);
+        }
+
+        if ($blockedReason = app(FulfillmentOrderGuard::class)->statusChangeBlockedReason(orderId: (int) $order->id, newStatus: (string) $request['status'])) {
+            return response()->json(['success' => 0, 'message' => $blockedReason], 200);
         }
 
         Order::where(['id' => $request['order_id'], 'delivery_man_id' => $deliveryMan['id']])->update([

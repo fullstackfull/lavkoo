@@ -44,6 +44,9 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     /** @var list<string> */
     public array $calls = [];
 
+    /** @var list<array{reference: string, payment_mode: string, cod_amount: float, total_amount: float}> what each submit() was asked to send */
+    public array $submitted = [];
+
     public bool $dispatchUsable = true;
 
     public static function reset(): void
@@ -75,6 +78,12 @@ abstract class FakeProviderAdapter implements ProviderAdapter, HandlesWebhooks, 
     public function submit(ProviderFulfillment $fulfillment): SubmissionResult
     {
         $this->calls[] = 'submit:' . $fulfillment->reference . ':' . $fulfillment->items->pluck('product_id')->sort()->implode(',');
+        $this->submitted[] = [
+            'reference' => $fulfillment->reference,
+            'payment_mode' => $fulfillment->payment_mode->value,
+            'cod_amount' => (float) $fulfillment->cod_amount,
+            'total_amount' => (float) $fulfillment->total_amount,
+        ];
         if ($this->whileSubmitting !== null) {
             ($this->whileSubmitting)($fulfillment);
         }

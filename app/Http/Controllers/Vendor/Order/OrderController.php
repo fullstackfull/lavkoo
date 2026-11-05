@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Vendor\Order;
 
+use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Contracts\Repositories\AdminWalletRepositoryInterface;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
@@ -638,6 +639,10 @@ class OrderController extends BaseController
                     }
                 }
             }
+        }
+
+        if ($blockedReason = app(FulfillmentOrderGuard::class)->statusChangeBlockedReason(orderId: (int) $order['id'], newStatus: (string) $request['order_status'])) {
+            return response()->json(['status' => 0, 'message' => $blockedReason]);
         }
 
         $this->orderRepo->updateStockOnOrderStatusChange($request['id'], $request['order_status']);

@@ -195,6 +195,15 @@ trait BuildsFulfillmentSchema
             $t->string('payment_status')->default('unpaid');
             $t->timestamps();
         });
+
+        Schema::create('carts', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('customer_id')->nullable();
+            $t->string('cart_group_id')->nullable();
+            $t->unsignedBigInteger('product_id')->nullable();
+            $t->boolean('is_checked')->default(true);
+            $t->timestamps();
+        });
     }
 
     /**

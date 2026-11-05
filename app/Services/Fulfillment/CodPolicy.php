@@ -74,8 +74,13 @@ class CodPolicy
             : new CollectionPlan(true, null, $allocation, $orderTotal);
     }
 
-    /** @param list<string> $providers */
-    private function mixedCodAllowed(array $providers, bool $hasInHouse): bool
+    /**
+     * May several collectors share one cash-on-delivery order? Only when it is enabled in the environment, every
+     * provider involved is verified for it, and no in-house delivery takes part.
+     *
+     * @param list<string> $providers
+     */
+    public function mixedCodAllowed(array $providers, bool $hasInHouse): bool
     {
         if ($hasInHouse || !config('fulfillment.cod.allow_mixed', false)) {
             return false;

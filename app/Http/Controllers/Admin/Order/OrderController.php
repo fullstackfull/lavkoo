@@ -679,9 +679,7 @@ class OrderController extends BaseController
         }
         // Delivered means every provider shipment of this order is delivered. An order with no provider
         // fulfillment (every existing order) is never blocked here.
-        $blockedReason = $request['order_status'] == 'delivered'
-            ? app(FulfillmentOrderGuard::class)->deliveryBlockedReason(orderId: (int) $order['id'])
-            : null;
+        $blockedReason = app(FulfillmentOrderGuard::class)->statusChangeBlockedReason(orderId: (int) $order['id'], newStatus: (string) $request['order_status']);
         if ($blockedReason) {
             return response()->json([
                 'status' => 0,

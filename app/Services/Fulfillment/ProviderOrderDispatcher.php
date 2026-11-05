@@ -2,8 +2,10 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Enums\Fulfillment\EventOutcome;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
+use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Contracts\ProviderAdapter;
@@ -58,6 +60,7 @@ class ProviderOrderDispatcher
         private readonly FulfillmentQueue $queue,
         private readonly ProviderSyncRecorder $sync,
         private readonly FulfillmentCancellation $cancellation,
+        private readonly FulfillmentMoney $money,
     ) {
     }
 
@@ -129,7 +132,7 @@ class ProviderOrderDispatcher
             }
 
             $adapter = $this->registry->adapter($provider);
-            $hold = $this->providerHold($fulfillment, $order, $config, $adapter, $manual);
+            $hold = $this->providerHold($fulfillment, $order, $config, $adapter, $manual) ?? $this->reassessMoney($fulfillment, $order, $provider);
             if ($hold === null) {
                 $preflight = $adapter->preflight($fulfillment->loadMissing('items'));
                 $hold = $preflight->ok ? null : [$preflight->holdReason, $preflight->detail];
@@ -182,6 +185,28 @@ class ProviderOrderDispatcher
         if (!$manual && !$config->bool('dry_run', true) && $goLive && $order?->created_at !== null
             && $order->created_at->lt(Carbon::parse($goLive))) {
             return [HoldReason::BEFORE_GO_LIVE, null];
+        }
+
+        return null;
+    }
+
+    /**
+     * The order may have been paid, part-paid, or had its cash-collection rules changed since the shipment was routed.
+     * What is sent must be what is true now: a provider told to collect cash the customer has already paid collects it twice.
+     *
+     * @return array{0:string,1:?string}|null [reason, detail] when the money can no longer be assigned safely
+     */
+    private function reassessMoney(ProviderFulfillment $fulfillment, Order $order, ProviderCode $provider): ?array
+    {
+        $money = $this->money->assess($order, $provider, $fulfillment->loadMissing('items')->items, $this->money->allItems($order->id));
+        if ($money->blockedReason !== null) {
+            return [$money->blockedReason, null];
+        }
+
+        if ($money->differsFrom($fulfillment)) {
+            $changes = $money->changesTo($fulfillment);
+            $fulfillment->forceFill($money->columns())->save();
+            $this->tracker->record($fulfillment->provider, 'system', 'money', $fulfillment->id, null, null, null, null, EventOutcome::APPLIED, 'money_reassessed_before_send', $changes);
         }
 
         return null;
