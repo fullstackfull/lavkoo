@@ -17,6 +17,7 @@ use App\Models\ShippingAddress;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
+use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Traits\CommonTrait;
 use App\Traits\PdfGenerator;
 use App\Traits\FileManagerTrait;
@@ -545,6 +546,10 @@ class CustomerController extends Controller
             $order['offlinePayments']->payment_info = $order->offlinePayments->payment_info;
         }
         $order = json_decode(json_encode($order), true);
+        // Additive: only an order that has provider shipments carries this key, so existing responses are unchanged.
+        if ($fulfillments = app(CustomerFulfillmentPresenter::class)->forOrder((int) $order['id'])) {
+            $order['fulfillments'] = $fulfillments;
+        }
         return response()->json($order, 200);
     }
 

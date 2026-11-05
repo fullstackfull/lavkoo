@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RestAPI\v1;
 use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
+use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
 use App\Models\Cart;
 use App\Models\Currency;
@@ -74,6 +75,10 @@ class OrderController extends Controller
         }
 
         $data = json_decode(json_encode($data), true);
+        // Additive: only an order that has provider shipments carries this key.
+        if ($fulfillments = app(CustomerFulfillmentPresenter::class)->forOrder((int) $data['id'])) {
+            $data['fulfillments'] = $fulfillments;
+        }
         return response()->json($data, 200);
     }
 
