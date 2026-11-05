@@ -20,6 +20,23 @@ and the parts always sum exactly to what is owed (`CodAllocator`).
 A held order is a safe state: nothing is sent, nothing is lost; fix the cause (or cancel the order) and the sweep
 releases it. A *money* hold cannot be released by an operator button — only by fixing its cause.
 
+## At checkout: cash on delivery is not offered when it could not be collected safely
+
+A hold after the fact leaves a customer with an accepted order that nobody ships. So the payment step does **not offer
+cash on delivery** for a basket that would be shipped by more than one collector (two providers, or a provider plus the
+shop's own delivery) unless the mixed-COD exception holds, and the web and API placement refuse it with an explanatory
+message. Each cart group is judged on its own, because each becomes one order (a basket of two orders, one per provider,
+is fine). Paying online is always available. The router and dispatcher keep their holds as the last line of defence.
+
+## Money is assessed again just before every send
+
+The cash a provider is told to collect is decided when the shipment is created **and again when it is claimed for sending**
+(`FulfillmentMoney`), because an order can be paid, part-paid, or have its collection rules changed in between. An order
+paid after routing is sent as prepaid with nothing to collect; a part-payment lowers the cash; a split that is no longer
+allowed holds the shipment. Any change is applied before the request and recorded on the shipment's history
+(`money_reassessed_before_send`). **After** a shipment has been accepted by a provider, a later payment or refund is not
+propagated (neither provider documents an update call): handle it with the provider.
+
 ## Torod Point specifics
 
 The Fulfillment API v5 has a collection-method field whose allowed values the document does not list. Until an
