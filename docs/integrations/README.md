@@ -32,10 +32,10 @@ vendor requests: [M5AZN](vendor-requests/m5azn-technical-request.md), [LogesTech
 
 | | |
 |---|---|
-| Admin | **Third-party setup → Fulfillment providers** (`/admin/fulfillment-providers`, module `3rd_party_setup`) |
+| Admin | **3rd Party Setup → Fulfillment providers** (`/admin/fulfillment-providers`, module `3rd_party_setup`) |
 | Pages | Integration Center · M5AZN settings / products · Torod Point settings / matching · Provider shipments · API logs |
 | Product form | **Fulfillment provider** card (admin-owned physical products) |
-| Order page | **Provider fulfillments** card per order |
+| Order page | **Provider shipments** card per order |
 | Customer | Notice before payment; shipments + tracking on order details / tracking; additive API endpoints |
 | Config | `config/fulfillment.php` (deployment defaults only — **never credentials**) |
 | Code | `app/Services/Fulfillment/**`, `app/Jobs/Fulfillment/**`, `app/Http/Controllers/Admin/Fulfillment/**`, `app/Console/Commands/Fulfillment*.php` |
@@ -62,9 +62,9 @@ parent order: FulfillmentAggregator derives one status (read-only — it never w
 
 ### Safety nets
 
-* **Six independent switches; an order is sent only when the first five are on and *Dry run* is off:**
+* **Six independent switches; an order is sent only when *Integration enabled*, *Send orders* and both `.env` lines are on, *Dry run* is off, and (for an order nobody released by hand) *Send automatically* is on:**
   `FULFILLMENT_INTEGRATIONS_ENABLED` and `FULFILLMENT_EXTERNAL_WRITES_ENABLED` (environment; with the second off the integration
-  is **read-only**: the transport refuses every request that is not a read or a sign-in; both are read when a process starts, so a
+  is **read-only**: the transport lets nothing but GET requests and the sign-in leave the host; both are read when a process starts, so a
   long-running queue worker needs `php artisan queue:restart` after a change), and, on the provider's page (read from the database
   on every call, so they act at once), **Integration enabled**, **Send orders to this provider** and **Dry run**.
   **Send automatically (no approval per order)** is the sixth, separate switch: while it is off, a due order waits for a person to

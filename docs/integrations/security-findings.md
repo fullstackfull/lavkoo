@@ -181,7 +181,7 @@ integration and none is fixed here (they are outside the change), but each affec
 
 `index.php` at the repository root defines `DOMAIN_POINTED_DIRECTORY = 'root'` and the root `.htaccess` hands any existing file to
 the browser; it only denies `.env`. If the site's document root is the application root rather than `public/`, then
-`storage/logs/laravel.log`, `storage/app/**` (KYC documents), `composer.json`, `.git/`, `config/system-addons.php` and
+`storage/logs/laravel.log`, `storage/app/**` (KYC documents), `composer.json`, `.git/` and
 `public/assets/back-end/Apple-AuthKey.p8` and `public/assets/back-end/Apple-AuthKey (copy).txt` are downloadable by anyone who asks for their address.
 **Check** with the loop in [pilot-deployment §0](pilot-deployment.md#0-look-at-the-server-first-read-only); every path must answer 403 or 404.
 **Fix** by pointing the document root at `public/`, or by denying everything except `index.php`, `public/` and `storage/app/public`.
@@ -222,26 +222,33 @@ rows the runbook suggests keeping under `docs/integrations/recorded-schemas/`: r
 An earlier revision of this documentation said only masked phone numbers and e-mail addresses were stored, and later that names and
 addresses were removed everywhere. Both were too broad. What the code does, and where it stops:
 
-**The rules.** *By pattern, everywhere:* e-mail addresses and phone numbers (nine to fifteen digits in any common spelling: dots, slashes,
-brackets, non-breaking spaces, Arabic-Indic and full-width digits) are masked in any text this integration stores or logs; credentials
-(`Bearer`/`Basic`/`Token` values, `Authorization`/`Cookie`/`X-Api-Key` header lines, `password=`/`api_key=`/`token=` pairs, JWTs) are
-removed; control characters are dropped; the scan is bounded (20 KB of text, bounded patterns) and, if a pattern cannot run, the text is
-hidden rather than let through. *By key:* a value under a key that names a person, a contact detail, an address or an identity
-(`receiver`, `consignee`, `customer`, `address`, `phone`, `email`, `note`, `national`, `iqama`, `passport`, `iban`, `lat`, `lng`…) is hidden,
-and so is **everything nested under** such a key except codes. *Strictly*, for answers that are about people (sign-in, order list, order
-detail, package status): only an allow-list survives: short code words, short status words under a status-like key (any language),
-numbers that are too short to be a phone number or a national id, booleans. The keys of an object that are themselves a phone number
-or an e-mail address are not kept either. **What none of it can do** is recognise a name or a street in free text under a key it has no
-reason to suspect, outside strict mode.
+**The rules.** *By pattern, everywhere:* e-mail addresses and phone numbers (a run of nine digits or more, with the separators people use
+between them: spaces of every kind, tabs, line breaks, dots, slashes, brackets, every dash; Arabic-Indic and full-width digits; several
+numbers one after another, or a number beside an order number, are masked whole; ISO dates are set aside) are masked in any text this
+integration stores or logs; credentials (`Bearer` values and long `Basic`/`Token`/`Digest` credentials, `Authorization`/`Cookie`/`X-Api-Key`
+header lines, `password=`/`api_key=`/`token=` pairs including joined names such as `DB_PASSWORD` or `client_secret`, `?key=` query values,
+the user and password in a URL, JWTs, private-key blocks) are removed; control characters are dropped; the scan is bounded (20 KB of
+text, bounded patterns) and, if a pattern cannot run, the text is hidden rather than let through. A number glued to letters
+(`tel0551234567`) is read as a code, like a barcode. *By key:* a value under a key that names a person, a contact detail, an address, a
+postal code or an identity (`receiver`, `consignee`, `customer`, `address`, `phone`, `email`, `note`, `national`, `iqama`, `passport`,
+`iban`, `zip`, `postal_code`, `lat`, `lng`…) is hidden, and so is **everything nested under** such a key except codes. *Strictly*, for
+answers that are about people (sign-in, order list, order detail, package status): only an allow-list survives: strings shaped like
+codes (all capitals, or holding a digit or an underscore, or under a key that names a code), a word of up to three under a key that
+ends in *status*, *state* or *stage* (any language), numbers that are too short to be a phone number or a national id (timestamps are
+kept), booleans; and keys that name a courier, a rider, an agent, a recipient or end in *name* are hidden whatever the value. The keys
+of an object that are themselves a phone number or an e-mail address are not kept either (several such keys stay separate entries).
+**What none of it can do** is recognise a name or a street in free text under a key it has no reason to suspect, outside strict
+mode; inside strict mode a lone first name is hidden only because a plain word is not shaped like a code, and a status of up to three
+words ("Delivered to Sara") is kept if the provider puts a name in it.
 
 | Place | Holds | Why |
 |---|---|---|
-| `provider_fulfillments`, `provider_fulfillment_items` | order reference, amounts, provider references, status; no name, phone or address column. `last_error_message` is the provider's own error text with credentials, e-mail addresses and phone numbers removed (a name or an address it echoes is **not**). A courier's free-text note and proof-of-delivery links are **not** kept: nothing reads them | these are our own order facts |
-| `provider_fulfillments.meta` (a dry run's *payload preview*) | the request that would have been sent: name, address and items as they are on the order, **phone and e-mail masked**, with a keyed fingerprint (an HMAC with `APP_KEY`, so it cannot be used to recover the masked phone). Kept **only while the shipment waits as a dry run**; removed when it is released or accepted | shown to the administrator so an order is never approved blind; it is data the order already holds |
-| `provider_fulfillment_events.payload` | the provider's webhook body as received (credential keys and phone/e-mail key values masked). A body may carry the receiver's name and phone. **Cleared after 60 days** by `fulfillment:prune`; the status history stays | the webhook de-duplication ledger and what status processing reads |
+| `provider_fulfillments`, `provider_fulfillment_items` | order reference, amounts, provider references, status; no name, phone or address column. `last_error_message` is the provider's own error text with credentials, e-mail addresses and phone numbers removed (a name or an address it echoes is **not**). For a shipment that needs attention, `last_error_message` also holds the courier's free-text note (phone numbers and e-mail addresses removed, 250 characters), because it is what the operator has to act on; a name or an address in it is **not** removed. Proof-of-delivery links are **not** kept. The provider's status words are stored scrubbed and cut to their column | these are our own order facts |
+| `provider_fulfillments.meta` (a dry run's *payload preview*) | the request that would have been sent: name, address and items as they are on the order, **phone and e-mail masked, also when typed into a note or an address line**, with a keyed fingerprint (an HMAC with `APP_KEY`, so it cannot be used to recover the masked phone). Kept **only while the shipment waits as a dry run**: any way out of that state (released, held, failed, cancelled, accepted) removes it, and `fulfillment:prune` clears it from a dry run nobody released for 60 days | shown to the administrator so an order is never approved blind; it is data the order already holds |
+| `provider_fulfillment_events.payload` | **only the fields status processing reads** (status, barcode, time, package id, invoice number, cash amount, postponed date, the courier's note scrubbed of phone numbers and e-mail addresses). The receiver, the courier and proof-of-delivery links in the provider's body are not stored. **Cleared after 60 days** by `fulfillment:prune`; the status history stays | the webhook de-duplication ledger and what status processing reads |
 | `provider_api_logs` | request and response; for orders, packages and sign-ins **strictly** redacted (see above), for catalogue and reference calls (products, categories, cities) with personal keys hidden but product and city names kept; credentials and tokens removed. Deleted after 60 days | support evidence |
 | `storage/app/fulfillment-evidence/` | the **shape** of each provider answer; strict for sign-in, order list, order detail and package status. Built to leave out credentials and personal data, **not guaranteed**: a person reads a file before it is shared. Denied to the web server on Apache only | the record the field maps are finalised from; not tracked by git |
-| Log files (`storage/logs`) | exception messages **this integration writes** with credentials, e-mail addresses and phone numbers removed and shortened (`PiiRedactor::scrub`). A fulfillment job that throws lets out only its class, where it failed and a scrubbed message, so the queue worker's own report and `failed_jobs` are clean too | a provider's error text may echo what was sent |
+| Log files (`storage/logs`) | exception messages **this integration writes** with credentials, e-mail addresses and phone numbers removed and shortened (`PiiRedactor::scrub`). A fulfillment job that throws, and a person's own send or cancel from the admin pages, let out only the exception's class, where it failed and a scrubbed message, so the queue worker's report, `failed_jobs` and the framework's report are clean too | a provider's error text may echo what was sent |
 | `failed_jobs` (the fulfillment queue) | that scrubbed message; deleted after 60 days by `fulfillment:prune` (other queues' rows are not touched) | the queue's own record |
 | `integration_settings.credentials` | provider credentials, **encrypted** with `APP_KEY` | see SEC-2 |
 

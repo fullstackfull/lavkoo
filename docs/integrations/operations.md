@@ -29,7 +29,7 @@
    | Variable | Value | Why |
    |---|---|---|
    | `FULFILLMENT_INTEGRATIONS_ENABLED` | `false` until the read-only phase | the global kill switch: no outbound provider call of any kind while off. **Read when a process starts**: after changing it, run `php artisan queue:restart` (a long-running worker keeps the old value) |
-   | `FULFILLMENT_EXTERNAL_WRITES_ENABLED` | `false` until an authorised test window or go-live | with it off the integration is **read-only**: the transport refuses every request that is not a read or a sign-in, whatever the admin panel says. Same rule: `queue:restart` after every change. A dry run still records its request with this off |
+   | `FULFILLMENT_EXTERNAL_WRITES_ENABLED` | `false` until an authorised test window or go-live | with it off the integration is **read-only**: the transport lets nothing but GET requests and the sign-in leave the host (so the air-waybill download, a POST, waits too), whatever the admin panel says. An environment value that is not a clear on/off word (`true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off`) counts as **off**, and the preflight says so. Same rule: `queue:restart` after every change. A dry run still records its request with this off |
    | `TRUSTED_PROXIES` | empty, or the proxy addresses | which `X-Forwarded-*` headers are believed (item 6 below) |
    | `QUEUE_CONNECTION` | `database` or `redis` | `sync` is *correct* (the sweep does the work) but slow; a real queue is recommended |
    | `QUEUE_RETRY_AFTER` | `180` | must exceed the longest job (120 s); `config/queue.php` defaults to 90 |
@@ -55,16 +55,19 @@
    |---|---|---|
    | job `timeout` | dispatch / reconcile 120 s, cancel 90 s | a provider call may take up to 20 s per attempt |
    | worker `--timeout` | 150 | above the longest job, below `retry_after` |
-   | `retry_after` | 180 | a job still running when it elapses would be handed to a second worker; the preflight WARNs below 120 s |
+   | `retry_after` | 180 | a job still running when it elapses would be handed to a second worker; the preflight WARNs at 130 s or less (it must be above the longest fulfillment job, 120 s, plus a margin) |
    | job `tries` | 1 | a job **never retries itself**: whether a request may be repeated is decided by the shipment's state (*retry wait* / *outcome unknown*), never by the queue — a blind retry of a timed-out create is a duplicate order |
    | overlap lock | one per shipment, **shared** by dispatch, reconcile and cancel | before this review each job class had its own lock, so a cancel could race a send still in flight |
    | `numprocs` | 1 is enough; more is safe | the per-shipment lock, the database claim token and the unique keys refuse a double send even with several workers |
 
    With the `sync` driver nothing is dispatched inline from a customer's request (a provider HTTP call must never run inside it);
-   the scheduled sweep does the work in its console process. A **person's own** actions — *Release for dispatch* / *Approve and send
+   the scheduled sweep does the work in its console process. A **person's own** actions — *Release and send now* / *Approve and send
    this order*, *Cancel at the provider*, *Confirm the provider has no such order* — run on the spot inside their admin request, so
-   the page waits for the provider's answer (about 20 seconds at most per call). The sweep itself never approves anything: it is not
-   a person.
+   the page waits for the provider's answer (about 20 seconds at most per call) and then says what the send came to. It does so
+   whatever the queue driver is: a queued job would carry the approval only in its payload, where a lost or failed job would drop it
+   silently. The sweep itself never approves anything: it is not a person. A browser or PHP time limit that cuts such a request short is
+   handled like a crashed worker: the shipment is left "dispatching", the recovery sweep turns it into *outcome unknown*, and nothing is
+   re-sent until the provider's own dashboard has been checked.
 5. **Scheduler** — registered in `App\Console\ScheduleDefinition`; the standard cron must exist:
    ```
    * * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
@@ -75,7 +78,7 @@
    | `fulfillment:poll` | every 15 min | asks each provider about open shipments (the net under a webhook that never arrives); the provider's `last_synced_at` keeps it from re-asking too often |
    | `fulfillment:sync --only=products,inventory --due` | wakes every 5 min | runs only the tasks whose provider interval (default **30**, minimum **5** minutes, set per provider) has elapsed |
    | `fulfillment:sync --only=cities` | Sundays 03:30 | refreshes Torod Point cities |
-   | `fulfillment:prune` | daily 03:50 | deletes API logs older than 60 days |
+   | `fulfillment:prune` | daily 03:50 | deletes API logs and this queue's failed jobs older than 60 days, clears stored provider payloads older than 60 days, and clears the request recorded by a dry run nobody released for 60 days |
 
    Sweeps are bounded (`limit` 100–200 per run) and **rotate**: each run resumes after where the previous one stopped,
    so rows that cannot progress (a paused order, a switched-off provider) can never starve the ones behind them.
@@ -89,7 +92,7 @@
 
 ## 2. Enter credentials
 
-Admin → **Third-party setup → Fulfillment providers** → choose the provider → enter the credentials → *Save*. Fields
+Admin → **3rd Party Setup → Fulfillment providers** → choose the provider → enter the credentials → *Save*. Fields
 are write-only: after saving you only see that a value is configured; to change one, type the new value; to remove
 one, tick its *Clear* box. A failed save never copies credentials into the session. Use **Test connection** (documented
 login / a read-only call; rate limited). Only admins with the `3rd_party_setup` module can reach these pages. Rotating
@@ -106,7 +109,7 @@ send them to LogesTechs. Turn on *Accept webhooks*.
 | Secret | 48 random characters, compared in constant time, in the URL path (LogesTechs can only be given a URL) **or** in `Authorization: Bearer` / `X-Webhook-Secret` if they can set headers — prefer a header |
 | IP allow-list | optional; addresses **and CIDR ranges**, IPv4 and IPv6; malformed entries are rejected when saving |
 | Rate limit | 600 / minute per client IP (see *Trusted proxies*) |
-| Body | ≤ 64 KB; payload keys read case-insensitively; stored redacted, de-duplicated by a unique key |
+| Body | ≤ 64 KB; payload keys read case-insensitively; only the fields status processing reads are stored (the receiver, the courier and proof links are not), de-duplicated by a unique key |
 | Unsigned events | the secret is the only credential, so an event is **never trusted for a terminal claim**: "delivered / cancelled / returned" is confirmed by asking Lastmile about **the package we hold for that shipment** and checking that the package reports the cash we asked for; a claim that cannot be confirmed waits (and the 15-minute poll applies the real status). A package barcode is learned only from an event that names our invoice number and our cash amount; an event whose references point at two different shipments is left unmatched |
 
 **The secret appears in the URL path**, which web-server access logs record. Redact `/api/fulfillment-webhooks/` in the
@@ -123,8 +126,8 @@ It is **never** re-sent automatically:
    M5AZN: finds our order id, needs the orders map) — first after 2 minutes, then after waits of 5, 10, 15, 20 and 25
    minutes. Finding it records the acceptance.
 3. Not finding it is *not* proof it does not exist; after 6 attempts it waits for a person: check the provider's own
-   dashboard, then **Confirm nothing was created** (only possible while the provider never gave a reference) or
-   **Link an existing provider order**. Both need a reason, are audited, and are refused if the situation changed while
+   dashboard, then **Confirm the provider has no such order** (only possible while the provider never gave a reference; it **sends the order again at once**, as Release would, after the browser's confirmation) or
+   **Link provider order**. Both need a reason, are audited, and are refused if the situation changed while
    the page was open.
 4. A cancellation wanted meanwhile is remembered and sent the moment the provider is proven to hold the order.
 
@@ -149,11 +152,11 @@ The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-de
    (`php artisan fulfillment:verify <provider>`), field maps verified ([live-verification](live-verification/README.md)).
 3. **Controlled phase** ([controlled-test-orders.md](controlled-test-orders.md)): *Send orders* on, *Dry run* on, *Send automatically*
    off. A test order records the exact request on the shipment page. Then, in an authorised window only,
-   `FULFILLMENT_EXTERNAL_WRITES_ENABLED=true`, **Dry run** off, and a person presses **Release for dispatch** on that one shipment.
+   `FULFILLMENT_EXTERNAL_WRITES_ENABLED=true`, **Dry run** off, and a person presses **Release and send now** (after the browser's confirmation) on that one shipment.
 4. The provider page's **Before automatic sending** checklist is derived from what really happened (a recent passing verification,
    verified maps, mapped products, a running scheduler and queue, one order accepted by the provider, one status update received and
-   understood). **Send automatically** is refused while an item is unmet; an administrator may go ahead with the override
-   checkbox, which writes the unmet items and the person to the audit log.
+   understood). **Send automatically** is refused while an item is unmet; the **master admin** may go ahead with the override
+   checkbox and a written reason, which is kept on the provider's settings and, when the platform's `audit_logs` table exists, in the audit log with the unmet items.
 5. The moment automatic sending becomes live is recorded as the provider's *go-live* time: orders placed **before** it are held
    (`hold_before_go_live`) and never swept out by the switch — release the ones you want sent, one by one.
 6. Watch *Integration Center* (open / held / failed / outcome-unknown / attention) and the API logs for the first real orders.
@@ -200,7 +203,7 @@ The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-de
 | System checks: *scheduler heartbeat* FAIL | `schedule:run` has stopped | Check cron; nothing is dispatched or reconciled meanwhile |
 | System checks: *shipment tracking* WARN | Open shipments heard nothing for 48 h | Check the webhook setup and the poll (M5AZN: a verified orders map) |
 
-Log files and the API log never contain credentials or tokens, and the e-mail addresses and phone numbers that a provider's
+Log files and the API log are built to hold no credential or token (credentials written into text are removed by pattern; a pattern is a net, not a proof), and the e-mail addresses and phone numbers that a provider's
 error text or an exception message may echo back are removed before this integration writes them (`PiiRedactor::scrub`; a failing
 fulfillment job lets out only where it failed and a scrubbed message, so the queue worker's own report and `failed_jobs` are clean
 too). That covers what this integration writes. It does **not** cover an exception from code that is not ours, which the framework

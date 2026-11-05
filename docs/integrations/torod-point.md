@@ -35,7 +35,8 @@ All are stored encrypted, are write-only in the UI, and never appear in logs.
 
 Enable *Allow pushing products to the warehouse*; **Push** uses Product Bulk Upsert. Dry run shows exactly what would
 be sent. Only an allow-listed set of fields can come from the defaults JSON; **quantity and identity fields are never
-sent**, so we never set warehouse stock.
+sent**, so we never set warehouse stock. A product assigned to another provider (M5AZN) is **skipped** by a push, with the reason
+shown, and so is one whose mapping the assignment rules refuse: a push never takes a product away from the provider that owns it.
 
 ## Orders
 

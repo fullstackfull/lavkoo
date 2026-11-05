@@ -3,7 +3,7 @@
 > **Status: prepared, not executed.** Nothing in this document has been run against the live server, the live database or a
 > provider: this repository has no access to any of them. The tooling (`deploy.php`, the package builder, the backup scripts) and
 > the code behind each gate are covered by automated tests, and the tooling was also run by hand on synthetic trees and a real
-> MySQL 8 (see the [appendix](#appendix-what-was-checked-and-what-was-not)); what the live server will answer is not known until it
+> MySQL 8 (see the table [what is verified and what is not](#what-is-verified-and-what-is-not) and the [appendix](#appendix-what-was-checked-and-what-was-not)); what the live server will answer is not known until it
 > is run. **Nothing is deployed, merged or switched on without your explicit approval** at the numbered gates.
 
 The existing production instance is a pilot environment, so it is also the target. There is **no staging server and no second
@@ -38,15 +38,24 @@ Rollback for every phase is in [section 10](#10-rollback-for-every-phase). The r
 ### What is armed after each phase
 
 Everything is off after deployment. **Six** independent switches stand between the code and a provider; each one fails closed. Two
-are lines in `.env`; four are on the provider's own page.
+are lines in `.env` (write exactly `true` or `false`: any other word counts as **off**, and `fulfillment:preflight` says so); four are
+on the provider's own page.
 
 | Phase | `FULFILLMENT_INTEGRATIONS_ENABLED` | `FULFILLMENT_EXTERNAL_WRITES_ENABLED` | *Integration enabled* | *Send orders to this provider* | *Dry run* | *Send automatically (no approval per order)* | What can leave the server |
 |---|---|---|---|---|---|---|---|
 | 4a–4c deployed | false | false | off | off | on | off | **nothing** |
 | 6 read-only | true | false | on | off | on | off | logins and reads (the transport refuses anything else) |
-| 8, rehearsal | true | **false** | on | on | **on** | off | **nothing**: the order is held back by the write guard and, being a dry run, only *records* the request it would send |
-| 8, controlled | true | **true** | on | on | **off** | **off** | an order, only when a person presses *Release for dispatch* / *Approve and send this order* on that order — and, because writes are on, a **cancellation** of an already accepted Torod Point shipment, sent by itself when its store order is cancelled (nothing asks you; M5AZN has no cancel API). Product pushes to the warehouse only if *Allow pushing products to the warehouse* is on |
+| 8, rehearsal | true | **false** | on | on | **on** | off | **no write and no order request**: being a dry run, the order is *recorded* as Dry run (never held by the write guard) with the request it would send; the logins and reads of the row above still leave |
+| 8, controlled | true | **true** | on | on | **off** | **off** | an order, only when a person presses *Release and send now* / *Approve and send this order* on that order — and, because writes are on, a **cancellation** of an already accepted Torod Point shipment, sent by itself when its store order is closed (see *Cancellations* below; nothing asks you; M5AZN has no cancel API). Product pushes to the warehouse only if *Allow pushing products to the warehouse* is on |
 | 9 live | true | true | on | on | off | **on** | every due order, and the same cancellations |
+
+**Cancellations.** A shipment the provider has accepted is cancelled by itself, with no person asking, when its store order becomes
+*canceled*, *failed*, *returned* or *refunded*, provided: both `.env` switches are on, *Integration enabled* is on, the Lastmile e-mail
+and password are saved, and the package barcode is known (Torod reports it only in a status webhook; without it the shipment is
+marked as needing a manual cancel and its page says so). *Send orders*, *Dry run* and *Send automatically* do not apply to a
+cancellation. One wanted while writes are off or the provider is off is **kept and retried every five minutes**: it leaves the moment
+both are on again, so look at the shipments marked *cancel wanted* or *needs attention* **before** you set
+`FULFILLMENT_EXTERNAL_WRITES_ENABLED=true`. M5AZN has no cancel API.
 
 The write guard is in the transport (`ProviderHttp` / `ExternalOperations`), below the admin switches: with
 `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` no order, product, stock or cancellation request can be sent whatever is ticked in the
@@ -64,7 +73,10 @@ otherwise a worker that started earlier still sends under the old setting, or ho
 ## 0. Look at the server first (read-only)
 
 Run these as the user that owns the application files (the one that will run `deploy.php`; it is usually **not** the web server's
-user). Set the paths once:
+user). Run **every** `php artisan …` of this runbook as that owner too (`sudo -u <owner> php artisan …` when you are root):
+`deploy.php` keeps the owner and group of what it replaces when it runs as root, but artisan as root creates root-owned cache, log and
+maintenance files under `storage/` that the web server's user can then neither write nor delete (if that happened,
+`chown -R <owner>:<group> storage bootstrap/cache`). Set the paths once (and again in every new shell: a dropped SSH session loses them):
 
 ```bash
 APP=/path/to/the/application                       # the directory that contains artisan and .env
@@ -88,6 +100,7 @@ ps aux | grep -E 'queue:(work|listen)' | grep -v grep   # is a queue worker runn
 df -h "$(dirname "$APP")" "$BACKUPS" 2>/dev/null   # room for the backup (backup.sh checks too)
 command -v mysqldump mysql tar gzip sha256sum      # all five are needed by backup.sh
 grep -c setClassMapAuthoritative vendor/composer/autoload_real.php   # must print 0 (see below)
+ls bootstrap/cache/config.php 2>&1 | head -1      # must say "No such file": a cached configuration makes every .env edit below inert (php artisan config:clear removes it)
 php -i | grep -E '^pcre\.jit'                      # 1 is normal; 0 only makes the personal-data scan slower (it is bounded either way)
 php artisan tinker --execute="echo Schema::hasTable('audit_logs') ? 'audit_logs: present' : 'audit_logs: MISSING';"
 ```
@@ -167,8 +180,10 @@ dependency change, no file under `public/` or `storage/`, and no deletion. It al
   | the three `resources/lang/*/new-messages.php`, order-detail/tracking/sidebar views | text and the provider card |
 
 * **The package refuses to be built** when the release deletes a file, changes `composer.*`/`package.json`, touches `public/`,
-  `Modules/` or the web entry point, contains a symbolic link or submodule, or changes only a file's mode: those need a person's
-  decision and are named in the error.
+  `Modules/` or the web entry point, contains a symbolic link or submodule, changes a file's mode (alone, or together with its
+  content: the server would keep the old mode), has a file name with a control character or a backslash in it, or carries its own
+  copy of `deploy.php` or a backup tool that differs from the one the builder would put in the package (then build again from a
+  checkout of the release): those need a person's decision and are named in the error.
 * **Transfer it outside the web root**, check it, unpack it:
 
   ```bash
@@ -194,7 +209,7 @@ and run them with `bash`.
 ```bash
 bash "$PKG/tools/backup.sh" --app="$APP" --to="$BACKUPS/data"          # prints the directory it made: <UTC stamp> inside it
 # smaller file backup if disk is tight:  --no-vendor --no-uploads   (the database is always complete)
-bash "$PKG/tools/verify-backup.sh" --backup=<the directory backup.sh printed> --app="$APP"
+bash "$PKG/tools/verify-backup.sh" --backup=<the directory backup.sh printed> --app="$APP"      # reads the backup only (see below)
 ```
 
 What it guarantees, and what it refuses:
@@ -207,11 +222,20 @@ What it guarantees, and what it refuses:
   and the archive is read back.
 * **Safety:** the database password is never on a command line or in the output (a mode-600 option file in a temporary directory);
   the backup directory is mode 700; the script refuses a destination **inside the application tree, however the path is written**
-  (relative, with `..`, or through a link); it checks free disk; and a run that stops early leaves no empty dated directory behind.
-  `--db-only` and `--files-only` each work alone and are mutually exclusive.
-* `verify-backup.sh` loads the dump into a scratch database it creates and drops, and compares the row counts. If the MySQL
-  account may not create databases (common on shared hosting), import `db.sql.gz` into a new empty database with phpMyAdmin and
-  compare `row-counts.txt` by hand. **That comparison is the proof; do not skip it.**
+  (relative, with `..`, or through a link; without GNU `realpath` any `..` in the destination is refused); it checks free disk; and a
+  run that does not finish removes the dated directory it made, so no truncated `db.sql.gz` is left beside a real backup (and a
+  failed dump on a full disk gives its space back). It never changes the mode of a `--to` directory that was already there.
+  `--db-only` and `--files-only` each work alone and are mutually exclusive. The temporary option file that holds the database
+  password is removed on every exit but a `SIGKILL` (the out-of-memory killer): after one, delete `$TMPDIR/tmp.*/client.cnf`.
+* `verify-backup.sh` without options **only reads** the backup: the checksums, that the archive and the dump are intact and that
+  the dump ends with mysqldump's completion line. That is **not** proof that it loads. The proof is `--restore-test`: it loads the
+  dump into a scratch database it creates and drops **on the same MySQL server as the live database** and compares the row counts.
+  That doubles the database's footprint while it runs and loads the live site, so: run it **off-peak**, it refuses unless about twice
+  the dump's uncompressed size is free in MySQL's data directory (checked when that directory is on this machine; `--force-low-disk`
+  skips the check), and it refuses when the live database has scheduled events (they would run in the scratch copy; `--allow-events`).
+  If the MySQL account may not create databases (common on shared hosting) or the disk is tight, import `db.sql.gz` into a new empty
+  database on **another** server (or with phpMyAdmin) and compare `row-counts.txt` by hand. **That comparison is the proof; do not
+  skip it.**
 * Copy the directory **off the server** to storage you control (it contains `.env` and customer data: never GitHub, never a
   third-party service). `RESTORE.txt` inside the backup explains the restore; [section 10](#10-rollback-for-every-phase) says what
   else a database restore needs.
@@ -293,7 +317,7 @@ wrote `applied.json`. If everything is already in place it says `Nothing to appl
 | A check fails before anything is written (a bold state in section 3) | refuses, writes nothing, makes no backup directory | resolve it, or ask us |
 | A write fails part-way (full disk, a permission) | **takes back everything it had written**, says so, exits 2 | read the error; the site is as it was |
 | It cannot take it back (a file changed in the meantime) | exits 2, names the file and the `rollback` command | keep the site down; run the `rollback` command; `--force` only after looking at the file |
-| The process is killed (SSH dropped, out of memory) | `applied.json` in the backup directory already lists every file it had written **or was about to write** (it is written *before* each file) | reconnect, **do not start a second `apply`** (it refuses while an unfinished one has not been rolled back): `ls -t "$BACKUPS/deploy" \| head -1`, then `php "$PKG/deploy.php" rollback --backup-dir="$BACKUPS/deploy/<that directory>"` |
+| The process is killed (SSH dropped, out of memory) | `applied.json` in the backup directory already lists every file it had written **or was about to write** (it is written *before* each file) | reconnect, set `APP`, `PKG` and `BACKUPS` again as in phase 0 (a new shell has lost them), **do not start a second `apply`** (it refuses while an unfinished one has not been rolled back): `ls -t "$BACKUPS/deploy" \| head -1`, then `php "$PKG/deploy.php" rollback --backup-dir="$BACKUPS/deploy/<that directory>"` |
 
 Then the `.env` lines, the caches, and the check that the application still starts:
 
@@ -323,7 +347,7 @@ worker after 180 s instead of 90 s (`config/queue.php`). Fulfillment jobs may ru
 handed to another worker.
 
 State now: the new code is on the server and does nothing. The store behaves exactly as before: checkout, order and product pages do
-not notice it, the scheduled `fulfillment:*` commands print *"The fulfillment migrations have not been run yet; nothing to do"*, and
+not notice it, the scheduled `fulfillment:*` commands print that integrations are disabled (`fulfillment:prune` says the migrations have not been run yet), and
 the Integration Center (*3rd Party Setup → Fulfillment providers*) says its tables do not exist yet instead of failing.
 
 ### 4b. Read-only checks of the live schema — then you decide
@@ -382,7 +406,7 @@ php artisan up
 
 (In phpMyAdmin the same change reads: `products` has a nullable, indexed `fulfillment_provider` column.)
 
-If either command prints a **FAIL, stay down** and go to section 10. Why only two migrations, by path: the platform has about 300
+If either command prints a **FAIL, stay down** and go to section 10 (the one exception: an `app key` FAIL you have decided in writing to accept under D1; then bring the site up). Why only two migrations, by path: the platform has about 300
 migrations of its own, and one of them (`2026_05_07_000001`) rebuilds 35 large tables to `DECIMAL(40,20)` and cannot be reversed
 losslessly. **Do not run a bare `migrate`**, whatever `migrate:status` shows as pending. If `migrate:status` lists platform migrations
 as pending, that is a pre-existing condition to be handled separately, with its own backup and rehearsal.
@@ -394,9 +418,11 @@ The queue worker and the cron job must include the new work, and this is the par
   sees our jobs. Nothing checks that for you while the integration is off, and afterwards the go-live item *Queue worker keeping up*
   only notices when a job has been waiting more than ten minutes.
 * **`QUEUE_CONNECTION=sync`:** supported. A provider call never runs inside a *customer's* request: the per-minute sweep does the
-  work. A person's own action (*Release for dispatch*, *Cancel*, confirming an order was not created) runs **inside their admin
-  request**: the page waits for the provider's answer (each call is limited to about 20 seconds). A real queue (`database` or `redis`
-  with a worker as above) is nicer for Gate D; `sync` works for the controlled phase.
+  work. A person's own action (*Release and send now*, *Approve and send this order*, confirming an order was not created, *Cancel*)
+  runs **inside their admin request whatever the queue is**: the page waits for the provider's answer (each call is limited to about
+  20 seconds; a first M5AZN send also signs in) and then **says what it came to** (accepted, refused, unknown…) instead of "Done". A real
+  queue (`database` or `redis` with a worker as above) is nicer for Gate D, where the sweeps, retries and status polling run;
+  `sync` works for the controlled phase.
 * **No cron line for `schedule:run`:** add it with **absolute** paths (cron has no `$APP`, and a pasted `cd ""` is a silent no-op):
   `* * * * * cd /path/to/the/application && /usr/bin/php artisan schedule:run >> /dev/null 2>&1`. Without it nothing is dispatched,
   polled or reconciled; the Integration Center's *scheduler heartbeat* says so once the integration is on.
@@ -410,16 +436,20 @@ the one exception) and the site is up. **Nothing is switched on:** no provider h
 
 After 4a, the store pages; after 4c, the Integration Center too.
 
-* Storefront: home, a category, a product page, the cart, the checkout page (do **not** place an order).
+* Storefront: home, a category, a product page, the cart, the checkout page (do **not** place a real customer's order; see the optional staff order below).
 * Admin: sign in; **3rd Party Setup → Fulfillment providers** (`/admin/fulfillment-providers`) shows *Integration mode on this
   server* as **OFF — no outbound call of any kind**, both provider cards switched off, and *System checks* with no red; open **M5AZN**
   and **Torod Point**: both pages render, credentials show as not configured, and the *Before automatic sending* checklist lists what is
   missing.
 * Admin: open an existing order: it shows **no** provider card at all (the *Provider shipments* card appears only on an order that
-  has provider shipments), and the product form (*Fulfillment provider* defaults to *In-house*, which is every existing product).
+  has provider shipments), and the product form (*Fulfillment provider* defaults to *In-house / Default*, which is every existing product).
 * `php artisan tinker --execute="echo DB::table('provider_api_logs')->count();"` prints `0`: no provider call has been logged
   (*Integration Center → API logs* shows the same).
 * `tail -n 50 storage/logs/laravel.log` shows nothing new that mentions `Fulfillment`.
+* **Optional, and only with your say-so after 4c:** place one cash-on-delivery order as a staff customer for an **in-house** product,
+  change its status in the admin, and cancel it. It is the only way to exercise the checkout and order-status hooks on the real
+  schema before the first real customer passes through them (the compatibility report only reads the schema). It creates a real
+  order record, which will show in order reports until you remove it by your usual means; nothing is sent to a provider.
 
 If anything is wrong: [section 10](#10-rollback-for-every-phase).
 
@@ -464,8 +494,9 @@ file before you share it. A file that cannot be written (a full disk, a permissi
 quietly losing it.
 
 The directory ships an `.htaccess` that denies direct access: that works on Apache with `AllowOverride` permitting it. On nginx or
-LiteSpeed, or with `AllowOverride None`, add the equivalent rule yourself, and after the first run check from outside that
-`https://YOUR-DOMAIN/storage/app/fulfillment-evidence/` answers 403 or 404 when the application is served from its root directory.
+LiteSpeed, or with `AllowOverride None`, add the equivalent rule yourself, and after the first run request a **file**
+from outside, `https://YOUR-DOMAIN/storage/app/fulfillment-evidence/<provider>/<the latest run_….json>`, and require 403 or 404 when the
+application is served from its root directory (the directory's own URL answering 403/404 proves nothing about the files in it).
 
 ---
 
@@ -524,22 +555,24 @@ for it, the scheduler and queue running. In addition:
 4. Only when that request is right: set `FULFILLMENT_EXTERNAL_WRITES_ENABLED=true`, run `php artisan queue:restart`, and turn **Dry run
    off** (*Save settings*). The mode reads **LIVE — writes to providers are allowed (the provider switches decide)**. Nothing is sent by
    either change: a recorded dry run is never sent by itself, not even by the sweep.
-5. Open that shipment and press **Release for dispatch**. That sends this one order, now (with a queue worker: as soon as it picks the
-   job up; without one: inside your request). Any other due order waits *Waiting for an operator to approve sending this order* until a
-   person approves it (*Approve and send this order*). The request is built again at that moment from the order, mapping, city and
+5. Open that shipment and press **Release and send now** (after the browser's confirmation). That sends this one order, now, inside your
+   request, and the page then says what the provider answered. Any other due order waits *Waiting for an operator to approve sending
+   this order* until a person approves it (*Approve and send this order*). The request is built again at that moment from the order, mapping, city and
    settings as they are then, so **review and release back to back**, and rehearse again after any change to those.
 6. Follow it by hand (the plan lists what to look at after each step: acceptance and the reference, the first status update, delivery).
    The first accepted response is the one schema the read-only run could not record; fill in **Where the provider order reference
    is in its response** from the API log row.
 7. When the test window ends: set `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` again, `php artisan queue:restart`, and confirm the mode
    reads **READ-ONLY**. The server is back to read-only until the next authorised window. (Until then a store order that is
-   cancelled also asks Torod Point to cancel its accepted package: see the armed table.)
+   cancelled also asks Torod Point to cancel its accepted package, on the conditions listed under *Cancellations* below the armed table.)
 
 ---
 
 ## 9. Turning automatic sending on
 
 > **Gate D — you approve going live**, one provider at a time, after the controlled orders succeeded.
+
+Before you tick anything: `FULFILLMENT_EXTERNAL_WRITES_ENABLED` was set back to `false` at the end of the controlled phase (step 8.7), and the checklist item *Sending to providers allowed on this server* is unmet while it is. Set it to `true` again and run `php artisan queue:restart`; do it when you mean to go live, because from then on orders flow as soon as automatic sending is on.
 
 The page decides, not a person's memory. *Before automatic sending* is derived from what really happened on this server:
 
@@ -582,15 +615,15 @@ swept out by the switch; release the ones you want sent.
 
 | If this goes wrong… | Do | Cost |
 |---|---|---|
-| **Stop everything now** | 1. On **both** provider pages untick *Integration enabled* and save: this is read from the database on every call, so it stops the website, the scheduler **and every queue worker** at once. 2. Then set `FULFILLMENT_INTEGRATIONS_ENABLED=false` and `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` in `.env` and run `php artisan queue:restart`; **confirm the worker restarted** (`supervisorctl status`, or `ps` start time). A queue worker started before the edit keeps the old values until then. A request already on its way to a provider cannot be recalled | seconds, then a minute |
+| **Stop everything now** | 1. On **both** provider pages untick *Integration enabled* and save: this is read from the database on every call, so it stops the website, the scheduler **and every queue worker** at once (an automatic cancellation of an accepted Torod Point shipment waits too, and is sent once the provider is enabled again). 2. Then set `FULFILLMENT_INTEGRATIONS_ENABLED=false` and `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` in `.env` and run `php artisan config:clear` and `php artisan queue:restart`; **confirm the worker restarted** (`supervisorctl status`, or `ps` start time). A queue worker started before the edit keeps the old values until then. A request already on its way to a provider cannot be recalled: an order a worker had already claimed (seconds; longer when M5AZN needs a fresh sign-in first) is sent in the mode that was in force when it was claimed, because the dry-run decision is taken once, at the claim | seconds, then a minute |
 | Automatic sending misbehaves | untick *Send automatically (no approval per order)* (read from the database: instant): every due order goes back to waiting for approval | seconds |
-| A shipment was sent that should not have been | it cannot be recalled by us: M5AZN documents no cancel endpoint and Torod no warehouse-order cancel; use the provider's dashboard/contact. The shipment page records the reference and everything sent | per order |
-| The read-only checks show a FAIL (phase 4b) | nothing in the database has changed and the files do nothing: leave them while we read the report, or take them back with the next row. Do **not** run the migration | — |
+| A shipment was sent that should not have been | before its package exists it cannot be recalled by us (M5AZN documents no cancel endpoint, Torod no warehouse-order cancel): use the provider's dashboard or contact; once a Torod package exists, *Cancel at the provider* asks for it. The shipment page records the reference and everything sent | per order |
+| The read-only checks show a FAIL (phase 4b) | nothing in the database has changed and the files do nothing: leave them while we read the report, or take them back with the row *The new code misbehaves*. Do **not** run the migration | — |
 | `apply` failed or was interrupted | see the table in 4a: it takes back what it wrote; if it was killed, run its `rollback` with that backup directory. The site stays in maintenance mode until the application starts and `fulfillment:preflight` is clean | minutes |
-| The new code misbehaves (phase 4a–5) | **If the migration has run, undo it first (next row), while its files are still on the server.** Then `php "$PKG/deploy.php" rollback --backup-dir=$BACKUPS/deploy/<the directory apply printed>` restores every replaced file, deletes every added one, removes cut-off temporary files, and takes back **only** the language keys the release added (the site's own keys stay). Running it twice says it was already rolled back. It refuses if a deployed file changed afterwards, unless `--force`. Then `php artisan optimize:clear`, reset OPcache, `php artisan queue:restart` | a minute |
+| The new code misbehaves (phase 4a–5) | **If the migration has run, undo it first (the row *The migration must be undone*, below), while its files are still on the server.** Then `php "$PKG/deploy.php" rollback --backup-dir=$BACKUPS/deploy/<the directory apply printed>` restores every replaced file **first**, then deletes every added one, removes cut-off temporary files, and takes back **only** the language keys the release added (the site's own keys stay). Running it twice says it was already rolled back. It refuses if a deployed file changed afterwards, unless `--force`; and it refuses, whatever the flags, when a saved original in the backup directory is missing or no longer matches its recorded checksum (it never writes an empty or different file over a live one), or when the record `applied.json` is damaged or names a path a release may not touch. In those cases it changes nothing and says what to restore by hand. Run it under `php artisan down`. Then `php artisan optimize:clear`, reset OPcache, `php artisan queue:restart` | a minute |
 | The application does not start after the files landed (for example *Class not found*) | `php artisan up` cannot run either. Run the `deploy.php rollback` above, then `rm storage/framework/down` to leave maintenance mode | a minute |
-| The migration must be undone | with the integration off, and after `backup.sh --db-only` (the provider tables hold the only local record of provider references: keep that dump). `php artisan migrate:status` shows the **Batch** of our two migrations; if they are the last batch: `php artisan migrate:rollback --force --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php`; if any other migration ran after them, add `--batch=<their batch>` (otherwise it rolls back nothing). It drops our 11 tables and the one nullable column; **it leaves `integration_settings`** (which holds the saved, encrypted credentials) and every store table. Shipments already at a provider are not recalled | a minute |
-| The database itself was damaged | last resort, and it **discards everything ordered since the backup**. 1. `php artisan down`. 2. `backup.sh --db-only` of the damaged state, so even this is reversible. 3. Undo our migrations first (previous row), or drop our 11 tables by name (`provider_fulfillments`, `provider_fulfillment_items`, `provider_fulfillment_events`, `provider_api_logs`, `provider_sync_states`, `provider_product_mappings`, `provider_catalog_items`, `provider_price_changes`, `provider_cities`, `provider_city_aliases`, `product_provider_changes`): a restore does **not** remove tables the dump does not contain, and rows left in them would point at orders that no longer exist. 4. Restore `db.sql.gz` as `RESTORE.txt` describes. 5. `php artisan optimize:clear`, `queue:restart`, then run `fulfillment:preflight` before `php artisan up` | the length of the restore |
+| The migration must be undone | with the integration off, and after `backup.sh --db-only` (the provider tables hold the only local record of provider references: keep that dump). `php artisan migrate:status` shows the **Batch** of our two migrations; if they are the last batch: `php artisan migrate:rollback --force --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php`; if any other migration ran after them, add `--batch=<their batch>` (otherwise it rolls back nothing). It drops our 11 tables and the one nullable column; **it leaves `integration_settings`** (which holds the saved, encrypted credentials) and every store table. Shipments already at a provider are not recalled. Then `php artisan optimize:clear` and `php artisan queue:restart` (workers remember that the migration has run). The column is the only marker that a product belongs to a provider: products assigned to or imported from one become ordinary in-house products, so unpublish or review them first | a minute |
+| The database itself was damaged | last resort, and it **discards everything ordered since the backup**. 1. `php artisan down`. 2. `backup.sh --db-only` of the damaged state, so even this is reversible. 3. Undo our migrations first (the row *The migration must be undone*), or drop our 11 tables by name (`provider_fulfillments`, `provider_fulfillment_items`, `provider_fulfillment_events`, `provider_api_logs`, `provider_sync_states`, `provider_product_mappings`, `provider_catalog_items`, `provider_price_changes`, `provider_cities`, `provider_city_aliases`, `product_provider_changes`): a restore does **not** remove tables the dump does not contain, and rows left in them would point at orders that no longer exist. 4. Restore `db.sql.gz` as `RESTORE.txt` describes. 5. `php artisan optimize:clear`, `queue:restart`, then run `fulfillment:preflight` before `php artisan up` | the length of the restore |
 | The application directory was damaged | `tar -xzf files.tar.gz -C "$APP"` from the same backup (it also restores `.env` and `storage/`) | minutes |
 
 The previous release ignores the new tables and the nullable column, so putting the old code back while the tables exist is safe.
@@ -618,12 +651,13 @@ The previous release ignores the new tables and the nullable column, so putting 
 
 | # | Finding | Decision |
 |---|---|---|
-| D1 | **`APP_KEY`.** `.env.example` carries a real-looking key. If production runs the same key, anyone with the repository can decrypt the provider credentials you are about to enter. `fulfillment:preflight` compares them only when `.env.example` is on the server, which this package does not ship; otherwise compare by hand **without printing the key**: on a machine with the repository `git show 34dce65:.env.example \| sed -n 's/^APP_KEY=//p' \| sha256sum`, on the server `sed -n 's/^APP_KEY=//p' .env \| sha256sum`: equal hashes mean the same key | If they match: rotate it **before** entering real credentials. There is no re-encryption tool: after the key changes, everything stored with `Crypt` on this platform can no longer be read and must be typed in again — the Zender secret, MTN Cash data and keys, the Chatwoot / WhatsApp credentials (`integration_settings`, the same table as the provider credentials), the Delivery Syria tokens — and every session ends. Note those values down from their own screens first. If you accept the risk instead, say so in writing |
+| D1 | **`APP_KEY`.** `.env.example` carries a real-looking key. If production runs the same key, anyone with the repository can decrypt the provider credentials you are about to enter. `fulfillment:preflight` compares them only when `.env.example` is on the server, which this package does not ship; otherwise compare by hand **without printing the key**: on the server, as the application's owner, `php artisan tinker --execute='echo hash("sha256", config("app.key")), PHP_EOL;'` prints the SHA-256 of the key the application really uses (however the `.env` line is quoted or ended). The example key's SHA-256 is `3c31a00b8939d8414babfdd1189a5fd229c14cf0ef270ac1949ca56ae57a0fa6`: **equal means production runs the public example key**. (Do not compare the `.env` line with `sed`/`sha256sum`: a quoted, CRLF-ended or `export`ed line hashes differently although it is the same key.) | If they match: rotate it **before** entering real credentials. There is no re-encryption tool: after the key changes, everything stored with `Crypt` on this platform can no longer be read and must be typed in again — the Zender secret, MTN Cash data and keys, the Chatwoot / WhatsApp credentials (`integration_settings`, the same table as the provider credentials), the Delivery Syria tokens — and every session ends. Note those values down from their own screens first. If you accept the risk instead, say so in writing |
 | D2 | **OTP codes are constant.** `config('app.mode')` is never defined, so every login/verification code is `123456` (6 digits) or `1234` (4 digits) | A production security defect unrelated to this PR. Fix or accept deliberately |
 | D3 | **Secrets committed to the repository:** ECDSA private-key files `Apple-AuthKey.p8` and `Apple-AuthKey (copy).txt`, each in `public/assets/back-end/` (web-served) and again under `resources/assets/back-end/`, the licence purchase key in `config/system-addons.php`, three public maintenance routes guarded by literal `-xk29` keys, a Paymera literal | Rotate whatever is real. None is used by this integration. Phase 0 checks that both public copies answer 403/404 |
 | D4 | The document root may be the application root (phase 0) | Point the web server at `public/`, or deny everything except `index.php`, `public/` and `storage/app/public` |
 | D5 | Pre-existing debug writers log **OTP + phone** (`ZenderOtpService`), parcel bodies with name/phone/address (`DeliverySyriaService`) and gateway callbacks to `storage/logs`, and `laravel.log` is truncated hourly for non-local requests | Use `LOG_CHANNEL=daily`; remove the debug writers; decide log retention (the API log tables are this project's evidence trail) |
 | D6 | The platform's own pending migrations, if `migrate:status` shows any (phase 0) | Separate change, separate backup and rehearsal. Not part of this deployment |
+| D7 | **SEC-1 (found while preparing this, fixed in this release):** four admin routes, among them the Zender (OTP gateway) settings, were reachable **without signing in**. The fix does not undo anything that already happened while the site was reachable | Treat the Zender secret and API key as exposed: rotate them with the gateway, review the gateway's sent-message log for messages you did not send, and search the web server's access log for requests to those routes (`security-findings.md`, SEC-1). Do this at Gate A1, before or together with the files |
 
 ### Known limitations of the providers (not blockers, but they shape the plan)
 
@@ -640,7 +674,7 @@ The previous release ignores the new tables and the nullable column, so putting 
 
 | Verified by automated tests (SQLite, and the fulfillment suites on MySQL 8) | Checked once by hand, not by a test or CI | Not verified — needs the live server or the providers |
 |---|---|---|
-| the write guard, the approval gate, the go-live checklist and its audited override; no duplicate order under retries, ambiguous outcomes, concurrent workers; money, VAT and COD rules; the overlay build, check, apply, kill-and-undo, full-disk and rollback paths including drift and language-file merge; the backup scripts' paths and failure behaviour (with stand-ins for `mysql`/`mysqldump`); the read-only schema check against a synthetic production-shaped schema | the backup and restore with a **real** MySQL 8 and a production-shaped schema; the two migrations (`--pretend`, run, rollback by path; 423 ms and 28 ms on empty tables) | the schema, data and drift of **your** database and files; how long the migration takes on real tables; **both providers' real response shapes**; the order-creation response; webhook delivery from LogesTechs; real latency and rate limits; your queue/cron/OPcache/ownership setup |
+| the write guard, the approval gate, the go-live checklist and its audited override; no duplicate order under retries and ambiguous outcomes, and under races that the tests **simulate by interleaving in one process** (not with parallel workers); money, VAT and COD rules; the overlay build, check, apply, kill-and-undo, full-disk and rollback paths including drift and language-file merge; the backup scripts' paths and failure behaviour (with stand-ins for `mysql`/`mysqldump`); the read-only schema check against a synthetic production-shaped schema | the backup and restore with a **real** MySQL 8 and a production-shaped schema; the two migrations (`--pretend`, run, rollback by path; 423 ms and 28 ms on empty tables) | the schema, data and drift of **your** database and files; how long the migration takes on real tables; **both providers' real response shapes**; the order-creation response; webhook delivery from LogesTechs; real latency and rate limits; your queue/cron/OPcache/ownership setup |
 
 *Nothing in the right-hand column is claimed to work. It is what phases 4b, 6, 7 and 8 exist to establish.*
 
