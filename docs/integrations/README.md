@@ -62,13 +62,15 @@ parent order: FulfillmentAggregator derives one status (read-only — it never w
 
 ### Safety nets
 
-* **Independent switches, all of which must be on before anything is sent:** `FULFILLMENT_INTEGRATIONS_ENABLED` and
-  `FULFILLMENT_EXTERNAL_WRITES_ENABLED` (environment; with the second off the integration is **read-only**: the transport
-  refuses every request that is not a read or a sign-in), the provider's **Integration enabled** and **Send orders**, and
-  **Dry run** off. **Send automatically** is a fifth, separate switch: while it is off, a due order waits for a person to
+* **Six independent switches; an order is sent only when the first five are on and *Dry run* is off:**
+  `FULFILLMENT_INTEGRATIONS_ENABLED` and `FULFILLMENT_EXTERNAL_WRITES_ENABLED` (environment; with the second off the integration
+  is **read-only**: the transport refuses every request that is not a read or a sign-in; both are read when a process starts, so a
+  long-running queue worker needs `php artisan queue:restart` after a change), and, on the provider's page (read from the database
+  on every call, so they act at once), **Integration enabled**, **Send orders to this provider** and **Dry run**.
+  **Send automatically (no approval per order)** is the sixth, separate switch: while it is off, a due order waits for a person to
   *Release* it, which sends that one order. A dry run records the exact request it would have sent (shown on the shipment
-  page) and sends nothing. Everything ships off, and *Send automatically* can only be turned on when the go-live checklist
-  on the provider page is met (or knowingly overridden, on the audit trail).
+  page) and sends nothing, even with writes off. Everything ships off, and *Send automatically* can only be turned on when the
+  go-live checklist on the provider page is met (or knowingly overridden by the master admin with a reason, which is kept).
 * **No duplicate orders:** unique `(order, provider, generation)`, unique SHA-256 idempotency key, a database claim
   token before any request, a job that never retries itself (`tries = 1`), and a mandatory reconcile-before-resend
   for any outcome that might have reached the provider.
@@ -77,9 +79,13 @@ parent order: FulfillmentAggregator derives one status (read-only — it never w
 * **Webhooks:** de-duplicated by a unique key, the secret compared in constant time, terminal claims
   (`delivered`/`cancelled`) confirmed against the provider before being believed, unmatched events retried.
 * **Secrets and personal data:** credentials are encrypted at rest (`integration_settings.credentials`), write-only in the admin UI
-  (a blank field keeps the stored value), and redacted from logs and API-log rows; names, phones, e-mail and street addresses
-  are removed from the API log, from verification evidence and from the exception text written to the log files. (The shipment
-  and its events, like the order itself, keep the data they need to ship: see [security findings](security-findings.md#sec-16--personal-data-where-this-integration-keeps-it-and-where-it-does-not).)
+  (a blank field keeps the stored value), and removed from logs and API-log rows. Personal data is removed by pattern everywhere
+  (e-mail addresses and phone numbers in any text, in any common spelling, including Arabic digits) and by key where the answer is
+  about people (order lists, order details, package status and sign-ins keep only codes, counts and status words, and everything
+  under a `receiver` or an `address`); an order's own record, like the order itself, keeps the data it needs to ship. What it
+  cannot do is recognise a name or a street in free text under a key it has no reason to suspect, so evidence is read by a person
+  before it is shared. The exact list of what is kept, where and for how long is in
+  [security findings](security-findings.md#sec-16--personal-data-where-this-integration-keeps-it-and-where-it-does-not).
 * **Parent order status** is never moved by a provider event. An order cannot be marked *delivered* — from the admin
   panel, the vendor panel, either seller API endpoint or the delivery-man app — while a provider shipment is unfinished;
   a closed order with provider lines cannot be reopened, and orders with provider lines cannot be edited; warehouse

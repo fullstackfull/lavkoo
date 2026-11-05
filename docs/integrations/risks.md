@@ -45,7 +45,8 @@ real systems.
    [staging-validation.md](staging-validation.md) describes the same checks on a restored copy.
 2. **Live provider behaviour.** No credentials were used and, by design, no real order or stock change was made. Response
    schemas the documents do not publish are *assumed* only in test fixtures. The read-only live verification
-   (`fulfillment:verify`, or the provider page) records the real *shapes* with no credential and no personal data; the order-creation
+   (`fulfillment:verify`, or the provider page) records the real *shapes*, built to leave out credentials and personal data (a person
+   reads them before they are shared); the order-creation
    response can only be recorded by the first controlled test order ([plan](controlled-test-orders.md)). See the [live verification
    checklists](live-verification/README.md): every field map must be verified from a real sample.
 3. **Torod Point stock.** No documented inventory endpoint and no documented stock field in the product list

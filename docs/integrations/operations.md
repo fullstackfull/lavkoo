@@ -7,9 +7,10 @@
 
 ## 1. Deploy (nothing is sent until you switch it on)
 
-1. **Back up the database and the files** (`scripts/deploy/backup.sh`, then `verify-backup.sh`) and prove the dump loads. Never
-   run `php artisan migrate` on an empty database (CLAUDE.md): restore the dump first, then migrate. Run
-   `php artisan fulfillment:preflight --allow-production-read-only` before **and** after migrating.
+1. **Back up the database and the files** (`backup.sh`, then `verify-backup.sh`, both in the package's `tools/`, run with `bash` and
+   writing outside every web root) and prove the dump loads. Never run `php artisan migrate` on an empty database (CLAUDE.md):
+   restore the dump first, then migrate. Run `php artisan fulfillment:preflight --allow-production-read-only` after the files land
+   and **before** migrating (the code is dormant until then), and again after.
 2. Deploy the code (the overlay: `scripts/deploy/deploy.php`, which detects drift on files that differ from what the release was
    built against and keeps a per-file rollback), then run **only our two migrations, by path**:
    ```bash
@@ -20,14 +21,15 @@
    ```
    Never a bare `migrate` here: the platform has about 300 migrations of its own, one of which rebuilds 35 large tables, and
    whatever is pending on the server is a separate change. The confirmation prompt appears only when `APP_ENV=production`; add
-   `--force` only in a non-interactive shell. The only change to an existing table is **one nullable column and its index on
-   `products`** (`fulfillment_provider`). `queue:restart` matters: long-running workers cache a "has the migration run?" check.
+   `--force` only in a non-interactive shell (`--pretend` asks too). The only change to an existing table is **one nullable column and
+   its index on `products`** (`fulfillment_provider`); `--pretend` cannot print it, and the `products.fulfillment_provider` line of
+   `fulfillment:preflight` is its preview. `queue:restart` matters: long-running workers cache a "has the migration run?" check.
 3. **Environment** (`.env`; see `.env.example`):
 
    | Variable | Value | Why |
    |---|---|---|
-   | `FULFILLMENT_INTEGRATIONS_ENABLED` | `false` until the read-only phase | the global kill switch: no outbound provider call of any kind while off |
-   | `FULFILLMENT_EXTERNAL_WRITES_ENABLED` | `false` until an authorised test window or go-live | with it off the integration is **read-only**: the transport refuses every request that is not a read or a sign-in, whatever the admin panel says |
+   | `FULFILLMENT_INTEGRATIONS_ENABLED` | `false` until the read-only phase | the global kill switch: no outbound provider call of any kind while off. **Read when a process starts**: after changing it, run `php artisan queue:restart` (a long-running worker keeps the old value) |
+   | `FULFILLMENT_EXTERNAL_WRITES_ENABLED` | `false` until an authorised test window or go-live | with it off the integration is **read-only**: the transport refuses every request that is not a read or a sign-in, whatever the admin panel says. Same rule: `queue:restart` after every change. A dry run still records its request with this off |
    | `TRUSTED_PROXIES` | empty, or the proxy addresses | which `X-Forwarded-*` headers are believed (item 6 below) |
    | `QUEUE_CONNECTION` | `database` or `redis` | `sync` is *correct* (the sweep does the work) but slow; a real queue is recommended |
    | `QUEUE_RETRY_AFTER` | `180` | must exceed the longest job (120 s); `config/queue.php` defaults to 90 |
@@ -58,8 +60,11 @@
    | overlap lock | one per shipment, **shared** by dispatch, reconcile and cancel | before this review each job class had its own lock, so a cancel could race a send still in flight |
    | `numprocs` | 1 is enough; more is safe | the per-shipment lock, the database claim token and the unique keys refuse a double send even with several workers |
 
-   With the `sync` driver nothing is dispatched inline (a provider HTTP call must never run inside a customer's request);
-   the scheduled sweep does the work in its console process, and an operator's *Cancel* runs on the spot.
+   With the `sync` driver nothing is dispatched inline from a customer's request (a provider HTTP call must never run inside it);
+   the scheduled sweep does the work in its console process. A **person's own** actions — *Release for dispatch* / *Approve and send
+   this order*, *Cancel at the provider*, *Confirm the provider has no such order* — run on the spot inside their admin request, so
+   the page waits for the provider's answer (about 20 seconds at most per call). The sweep itself never approves anything: it is not
+   a person.
 5. **Scheduler** — registered in `App\Console\ScheduleDefinition`; the standard cron must exist:
    ```
    * * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
@@ -155,18 +160,27 @@ The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-de
 
 ## 7. Rollback
 
-* **Stop sending, instantly, no deploy:** untick *Send automatically* (every due order then waits for a person), or *Send orders*
-  (or *Integration enabled*) for a provider, or set `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` (read-only) or
-  `FULFILLMENT_INTEGRATIONS_ENABLED=false` (off). Queued work waits; nothing is lost or failed.
+* **Stop sending, no deploy:** the switches on a provider's page are read from the database on every call, so they act at once for the
+  website, the scheduler and every queue worker: untick *Send automatically (no approval per order)* (every due order then waits for
+  a person), or *Send orders to this provider* (or *Integration enabled*). The two `.env` switches —
+  `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false` (read-only) and `FULFILLMENT_INTEGRATIONS_ENABLED=false` (off) — act at once for a web
+  request or a cron run, but **a queue worker started earlier keeps the old values until `php artisan queue:restart`**: run it and
+  confirm the worker restarted. Queued work waits; nothing is lost or failed.
 * **Return a product to in-house:** product form → Fulfillment provider → *In-house / Default* (blocked while orders for
   it are in flight with the provider; finish or cancel them first).
-* **Remove the feature:** disable the integrations, confirm with `php artisan migrate:status` that these two migrations are
-  the **last two** that ran, then `php artisan migrate:rollback --step=2`. They only ever *created* new tables and one
-  nullable column, so rollback drops exactly those and no store data. **The authoritative rollback is restoring the
-  pre-migration backup.** Shipments already accepted by a provider are not recalled by either — handle those with the provider.
+* **Remove the feature:** disable the integrations, take a `--db-only` backup (the provider tables hold the only local record of
+  provider references), confirm with `php artisan migrate:status` that these two migrations are the **last two** that ran, then
+  `php artisan migrate:rollback --step=2` (or `--batch=<their batch>` with their two `--path`s), **while their files are still on the
+  server**: the file rollback below deletes them. They only ever *created* new tables and one nullable column, so rollback drops
+  exactly those and no store data; `integration_settings`, with the saved credentials, stays. **The authoritative rollback is
+  restoring the pre-migration backup**, after which the provider tables a dump does not contain must be removed too (the exact list
+  is in the pilot-deployment rollback table). Shipments already accepted by a provider are not recalled by either — handle those with
+  the provider.
 * **Code rollback** while the tables exist is safe: the previous release ignores the new tables and the nullable column.
   The overlay deployment undoes itself file by file: `php deploy.php rollback --backup-dir=<the directory apply printed>`
-  restores every replaced file, removes every added one and takes back only the language keys the release added.
+  restores every replaced file, removes every added one and takes back only the language keys the release added. An `apply` that
+  fails part-way takes back what it wrote; one that is killed leaves a record in its backup directory that `rollback` reads, and a
+  new `apply` is refused until that one has been rolled back.
   The full table of rollbacks for every phase is in [pilot-deployment.md](pilot-deployment.md#10-rollback-for-every-phase).
 
 ## 8. Runbook
@@ -186,7 +200,12 @@ The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-de
 | System checks: *scheduler heartbeat* FAIL | `schedule:run` has stopped | Check cron; nothing is dispatched or reconciled meanwhile |
 | System checks: *shipment tracking* WARN | Open shipments heard nothing for 48 h | Check the webhook setup and the poll (M5AZN: a verified orders map) |
 
-Log files and the API log never contain credentials or tokens, and the personal data a provider's error text or an exception
-message may echo back (names, phone numbers, e-mail addresses) is removed before it is written (`PiiRedactor::scrub`). API-log
-rows are redacted of personal data as well, and pruned after 60 days. What the integration *does* keep about a customer, and
-where, is in [security-findings SEC-16](security-findings.md#sec-16--personal-data-where-this-integration-keeps-it-and-where-it-does-not).
+Log files and the API log never contain credentials or tokens, and the e-mail addresses and phone numbers that a provider's
+error text or an exception message may echo back are removed before this integration writes them (`PiiRedactor::scrub`; a failing
+fulfillment job lets out only where it failed and a scrubbed message, so the queue worker's own report and `failed_jobs` are clean
+too). That covers what this integration writes. It does **not** cover an exception from code that is not ours, which the framework
+reports with its whole message, and it cannot recognise a **name or a street** in free text. API-log rows for orders, packages and
+sign-ins are redacted strictly (only codes, counts and status words survive); catalogue and reference calls keep product and
+city names. API logs, stored provider payloads and the fulfillment queue's failed jobs are pruned after 60 days by
+`fulfillment:prune`. What the integration *does* keep about a customer, and where, is in
+[security-findings SEC-16](security-findings.md#sec-16--personal-data-where-this-integration-keeps-it-and-where-it-does-not).

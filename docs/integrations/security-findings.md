@@ -182,11 +182,13 @@ integration and none is fixed here (they are outside the change), but each affec
 `index.php` at the repository root defines `DOMAIN_POINTED_DIRECTORY = 'root'` and the root `.htaccess` hands any existing file to
 the browser; it only denies `.env`. If the site's document root is the application root rather than `public/`, then
 `storage/logs/laravel.log`, `storage/app/**` (KYC documents), `composer.json`, `.git/`, `config/system-addons.php` and
-`public/assets/back-end/Apple-AuthKey.p8` are downloadable by anyone who asks for their address.
+`public/assets/back-end/Apple-AuthKey.p8` and `public/assets/back-end/Apple-AuthKey (copy).txt` are downloadable by anyone who asks for their address.
 **Check** with the loop in [pilot-deployment §0](pilot-deployment.md#0-look-at-the-server-first-read-only); every path must answer 403 or 404.
 **Fix** by pointing the document root at `public/`, or by denying everything except `index.php`, `public/` and `storage/app/public`.
-What this project does about it: backups and the deployment package are kept **outside** the tree (the scripts refuse
-otherwise), and the verification-evidence directory ships an `.htaccess` that denies direct access (Apache).
+What this project does about it: backups and the deployment package are kept **outside** the tree (the scripts refuse a
+destination inside it however the path is written, and the runbook has you name a directory outside every document root, because
+the scripts cannot know where the web server's root is), and the verification-evidence directory ships an `.htaccess` that denies
+direct access (Apache).
 
 ## SEC-14 — One-time passwords are constant (pre-existing, HIGH)
 
@@ -204,23 +206,43 @@ needs a fix by whoever owns the authentication code, or a conscious decision to 
 * A Firebase web `apiKey` in `firebase-messaging-sw.js` (public by design for Firebase web, but part of the project's identity).
 * `POST /activation-check` is unauthenticated and rewrites licence state.
 
-This project adds a check (`scripts/ci/leak-guard.php`, run by CI) so that **nothing new** of this kind is committed: it refuses a
-change that adds a credential, key, token, environment file, database dump, evidence file, or what looks like a real person's phone number
-or e-mail address, and it never prints what it matched.
+This project adds a pattern check (`scripts/ci/leak-guard.php`, run by CI) as a net against **new** leaks of this kind. It reads every
+line each commit of a change adds, and the net difference, and refuses a private key, a recognisable token or JWT, credentials in a
+URL, a secret-named key with a secret-looking value (quoted or in a configuration file), an environment file, key material, a database
+dump or archive, a binary it cannot read, or what looks like a real person's phone number or e-mail address. A secret added and removed
+again in the same change is still reported: it is in the pushed history and has to be rotated. It never prints what it matched, treats
+test fixtures and language files as made-up data (but never real keys), and accepts a false alarm only through a reasoned entry in
+`scripts/ci/leak-guard-allow.json`. It is a net, not a promise: it recognises shapes (credentials, keys, tokens, e-mail addresses and
+unbroken Saudi mobile numbers), it does **not** see a phone number written with spaces or dots, a national id, coordinates, or a customer's
+name or street, and a person reading what is committed remains the control. That matters most for the verification evidence and API-log
+rows the runbook suggests keeping under `docs/integrations/recorded-schemas/`: read every example and value before it is committed.
 
 ## SEC-16 — Personal data: where this integration keeps it, and where it does not
 
-An earlier revision of this documentation said only masked phone numbers and e-mail addresses were stored. That was too broad. The accurate
-position:
+An earlier revision of this documentation said only masked phone numbers and e-mail addresses were stored, and later that names and
+addresses were removed everywhere. Both were too broad. What the code does, and where it stops:
+
+**The rules.** *By pattern, everywhere:* e-mail addresses and phone numbers (nine to fifteen digits in any common spelling: dots, slashes,
+brackets, non-breaking spaces, Arabic-Indic and full-width digits) are masked in any text this integration stores or logs; credentials
+(`Bearer`/`Basic`/`Token` values, `Authorization`/`Cookie`/`X-Api-Key` header lines, `password=`/`api_key=`/`token=` pairs, JWTs) are
+removed; control characters are dropped; the scan is bounded (20 KB of text, bounded patterns) and, if a pattern cannot run, the text is
+hidden rather than let through. *By key:* a value under a key that names a person, a contact detail, an address or an identity
+(`receiver`, `consignee`, `customer`, `address`, `phone`, `email`, `note`, `national`, `iqama`, `passport`, `iban`, `lat`, `lng`…) is hidden,
+and so is **everything nested under** such a key except codes. *Strictly*, for answers that are about people (sign-in, order list, order
+detail, package status): only an allow-list survives: short code words, short status words under a status-like key (any language),
+numbers that are too short to be a phone number or a national id, booleans. The keys of an object that are themselves a phone number
+or an e-mail address are not kept either. **What none of it can do** is recognise a name or a street in free text under a key it has no
+reason to suspect, outside strict mode.
 
 | Place | Holds | Why |
 |---|---|---|
-| `provider_fulfillments`, `provider_fulfillment_items` | order reference, amounts, provider references, status; no name, phone or address column. `last_error_message` is the provider's own error text (credentials removed, personal data **not**: it can echo what was sent) | these are our own order facts |
-| `provider_fulfillments.meta` (a dry run's *payload preview*) | the request that would have been sent: name, address and items as they are on the order, **phone and e-mail masked** | shown to the administrator so an order is never approved blind; it is data the order already holds |
-| `provider_fulfillment_events.payload` | the provider's webhook body as received (credentials redacted) | the status history and the webhook de-duplication ledger; a provider's body may carry the receiver's name and phone |
-| `provider_api_logs` | request and response **with names, phones, e-mail addresses, street addresses and notes removed**; credentials and tokens removed | support evidence; retention 60 days |
-| `storage/app/fulfillment-evidence/` | the **shape** of each provider answer; every string that could identify a person removed (strict mode for order lists) | the record the field maps are finalised from; denied to the web server; not tracked by git |
-| Log files (`storage/logs`) | exception messages with credentials, tokens, e-mail addresses and phone numbers masked and shortened (`PiiRedactor::scrub`) | a provider's error text may echo what was sent |
+| `provider_fulfillments`, `provider_fulfillment_items` | order reference, amounts, provider references, status; no name, phone or address column. `last_error_message` is the provider's own error text with credentials, e-mail addresses and phone numbers removed (a name or an address it echoes is **not**). A courier's free-text note and proof-of-delivery links are **not** kept: nothing reads them | these are our own order facts |
+| `provider_fulfillments.meta` (a dry run's *payload preview*) | the request that would have been sent: name, address and items as they are on the order, **phone and e-mail masked**, with a keyed fingerprint (an HMAC with `APP_KEY`, so it cannot be used to recover the masked phone). Kept **only while the shipment waits as a dry run**; removed when it is released or accepted | shown to the administrator so an order is never approved blind; it is data the order already holds |
+| `provider_fulfillment_events.payload` | the provider's webhook body as received (credential keys and phone/e-mail key values masked). A body may carry the receiver's name and phone. **Cleared after 60 days** by `fulfillment:prune`; the status history stays | the webhook de-duplication ledger and what status processing reads |
+| `provider_api_logs` | request and response; for orders, packages and sign-ins **strictly** redacted (see above), for catalogue and reference calls (products, categories, cities) with personal keys hidden but product and city names kept; credentials and tokens removed. Deleted after 60 days | support evidence |
+| `storage/app/fulfillment-evidence/` | the **shape** of each provider answer; strict for sign-in, order list, order detail and package status. Built to leave out credentials and personal data, **not guaranteed**: a person reads a file before it is shared. Denied to the web server on Apache only | the record the field maps are finalised from; not tracked by git |
+| Log files (`storage/logs`) | exception messages **this integration writes** with credentials, e-mail addresses and phone numbers removed and shortened (`PiiRedactor::scrub`). A fulfillment job that throws lets out only its class, where it failed and a scrubbed message, so the queue worker's own report and `failed_jobs` are clean too | a provider's error text may echo what was sent |
+| `failed_jobs` (the fulfillment queue) | that scrubbed message; deleted after 60 days by `fulfillment:prune` (other queues' rows are not touched) | the queue's own record |
 | `integration_settings.credentials` | provider credentials, **encrypted** with `APP_KEY` | see SEC-2 |
 
 What this integration does **not** control: the platform's own debug writers (OTP and phone numbers in `ZenderOtpService`, parcel bodies in
