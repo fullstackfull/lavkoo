@@ -34,7 +34,7 @@ jobs:
           coverage: none
       - name: Lint every PHP file we own (catches syntax the oldest supported PHP cannot parse)
         run: |
-          find app routes config database tests bootstrap Modules -name '*.php' -not -path '*/vendor/*' -print0 \
+          find app routes config database tests bootstrap Modules scripts -name '*.php' -not -path '*/vendor/*' -print0 \
             | xargs -0 -n 50 -P 4 php -l > /tmp/lint.log 2>&1 || { grep -v '^No syntax errors' /tmp/lint.log; exit 1; }
           echo "all files parse"
 
@@ -111,3 +111,31 @@ jobs:
       - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
         run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php --display-skipped
+
+  # Builds exactly what would be deployed to the server (the added and modified files of this pull request, with the checksum of
+  # each file's baseline version) so it can be downloaded, read and checked before anyone deploys anything. This job deploys nothing.
+  build-overlay:
+    name: Deployment overlay (artifact, deploys nothing)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Build the overlay against the branch this pull request targets
+        run: |
+          BASE="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
+          php scripts/deploy/build-overlay.php --base="$BASE" --head=HEAD --out=build/overlay --archive
+          (cd build && sha256sum overlay.tar.gz > overlay.tar.gz.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pilot-overlay-${{ github.event.pull_request.head.sha }}
+          path: |
+            build/overlay.tar.gz
+            build/overlay.tar.gz.sha256
+          retention-days: 14
