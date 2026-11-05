@@ -3,7 +3,9 @@
 namespace Tests\Support;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 
 /**
  * An INFERRED minimal schema for the core store tables this feature reads.
@@ -20,6 +22,8 @@ trait BuildsFulfillmentSchema
 {
     protected function buildCoreSchema(): void
     {
+        $this->startFromAnEmptyTestDatabase();
+
         Schema::create('business_settings', function (Blueprint $t) {
             $t->id();
             $t->string('type')->nullable();
@@ -185,6 +189,26 @@ trait BuildsFulfillmentSchema
     }
 
     /** Run the feature's REAL migrations against the in-memory database. */
+    /**
+     * The default test database is an in-memory SQLite connection that starts empty. CI also runs these
+     * tests on a real MySQL service, whose tables survive between tests, so it is emptied first - but only
+     * if it is unmistakably a throwaway database. Never drops anything on a database that is not.
+     */
+    private function startFromAnEmptyTestDatabase(): void
+    {
+        $connection = DB::connection();
+        if ($connection->getDriverName() === 'sqlite') {
+            return;
+        }
+
+        $database = (string) $connection->getDatabaseName();
+        if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
+            throw new RuntimeException("Refusing to drop every table of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
+        }
+
+        Schema::dropAllTables();
+    }
+
     protected function runFulfillmentMigrations(): void
     {
         foreach ([
