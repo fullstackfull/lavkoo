@@ -93,6 +93,16 @@
                     </dl>
                 </x-k.card>
 
+                @if (!empty($fulfillment->meta['payload_preview']))
+                    <x-k.card :title="translate('request_preview')" class="mb-3">
+                        <p class="fs-12 text-muted">{{ translate('request_preview_help') }}</p>
+                        <pre class="bg-light rounded p-2 mb-1 fs-11" style="max-height:320px;overflow:auto">{{ json_encode($fulfillment->meta['payload_preview'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</pre>
+                        @if (!empty($fulfillment->meta['payload_hash']))
+                            <div class="fs-10 text-muted text-break">{{ translate('request_fingerprint') }}: {{ $fulfillment->meta['payload_hash'] }}</div>
+                        @endif
+                    </x-k.card>
+                @endif
+
                 <x-k.card :title="translate('items')" :padded="false" class="mb-3">
                     <div class="k-table-wrap">
                         <table class="k-table">

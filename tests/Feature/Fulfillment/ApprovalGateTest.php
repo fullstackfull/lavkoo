@@ -113,6 +113,29 @@ class ApprovalGateTest extends FulfillmentTestCase
         $this->assertSame(FulfillmentStatus::DryRun, $fulfillment->fresh()->status);
     }
 
+    public function test_a_checked_dry_run_is_released_after_dry_run_is_turned_off_and_only_then_sent(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => true]);
+        $fulfillment = $this->torodFulfillment();
+        $this->torod->submitQueue = [SubmissionResult::dryRun(['payload_hash' => 'abc', 'payload_preview' => ['invoiceNumber' => '100-TP1']]), SubmissionResult::accepted('O-CHECKED')];
+        $this->dispatcher()->dispatch($fulfillment->id);
+        $this->assertSame(FulfillmentStatus::DryRun, $fulfillment->fresh()->status);
+        $this->assertSame(['invoiceNumber' => '100-TP1'], $fulfillment->fresh()->meta['payload_preview'], 'what an operator reads before approving');
+
+        $this->dispatcher()->dispatch($fulfillment->id);
+        $this->assertSame(FulfillmentStatus::DryRun, $fulfillment->fresh()->status, 'a recorded dry run is never sent by itself, not even by the sweep');
+        $this->assertCount(1, $this->torod->calls);
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => false, 'dry_run' => false]);
+        $this->assertSame(FulfillmentStatus::DryRun, $fulfillment->fresh()->status, 'turning dry run off sends nothing either');
+        app(OperatorActions::class)->release($fulfillment->id);
+        $this->dispatcher()->dispatch($fulfillment->id, manual: true);
+
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+        $this->assertSame('O-CHECKED', $fulfillment->fresh()->provider_reference);
+        $this->assertCount(2, $this->torod->calls);
+    }
+
     public function test_with_automatic_sending_on_orders_go_out_by_themselves_as_before(): void
     {
         $this->enableProvider(ProviderCode::TorodPoint, ['auto_dispatch' => true]);

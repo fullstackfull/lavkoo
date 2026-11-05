@@ -400,6 +400,25 @@ class AdminPagesTest extends AdminPagesTestCase
         $this->assertNoSecretLeaks($html);
     }
 
+    public function test_a_dry_run_shipment_shows_the_request_it_recorded_so_an_operator_never_approves_blind(): void
+    {
+        $preview = ['invoiceNumber' => '100-TP1', 'receiverPhone' => '*******567', 'receiverAddress' => ['cityId' => 41125], 'items' => [['sku' => '13222', 'quantity' => 2]]];
+        $dryRun = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::DryRun, ['meta' => ['payload_preview' => $preview, 'payload_hash' => str_repeat('ab', 32), 'internal_note' => 'not for display']]);
+        $submitted = $this->shipment(101, ProviderCode::M5azn, FulfillmentStatus::Submitted, ['provider_reference' => 'MZ-1']);
+
+        $html = $this->get(route('admin.fulfillment-providers.fulfillments.show', $dryRun->id))->assertOk()->getContent();
+
+        $this->assertStringContainsString(e(translate('request_preview')), $html);
+        $this->assertStringContainsString('100-TP1', $html);
+        $this->assertStringContainsString('*******567', $html, 'the masked phone, as stored');
+        $this->assertStringContainsString(str_repeat('ab', 32), $html);
+        $this->assertStringNotContainsString('not for display', $html, 'only the preview and its fingerprint are shown, not the rest of the record');
+        $this->assertStringContainsString(e(translate('release_for_dispatch')), $html, 'and the dry run can be released once it has been checked');
+
+        $other = $this->get(route('admin.fulfillment-providers.fulfillments.show', $submitted->id))->assertOk()->getContent();
+        $this->assertStringNotContainsString(e(translate('request_preview')), $other, 'a shipment that recorded no dry run has nothing to preview');
+    }
+
     public function test_an_operator_action_that_asserts_a_fact_needs_a_reason(): void
     {
         $unknown = $this->shipment(101, ProviderCode::TorodPoint, FulfillmentStatus::ReconcilePending);
