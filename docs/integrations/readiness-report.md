@@ -106,8 +106,10 @@ setting and under strict SQL mode**, and CI run #10 is green with all five jobs.
 * **Limitations.** (a) Nothing imports until the catalogue field map is verified from a **real sample** (M5AZN publishes no
   response schema) — **B2**. (b) Whether a product selected with *Supply/Import* actually appears in `myproductlist`
   under the default `product_type=local` (or only under `global`/`ali_express`) is **unverified** — checklist M-3; the setting
-  *Catalogue product types* covers the other types once known. (c) Deleting/un-selecting on M5AZN does not remove the
-  store product (by design: it may have orders).
+  *Catalogue product types* covers the other types once known. (c) A product removed from the M5AZN list is **not
+  detected**: the store product stays with its last stock, so a customer could still order something M5AZN no longer
+  supplies — that order's shipment would be refused or fail and need an operator. Unpublish such products by hand
+  (documented limitation, non-blocker N13).
 
 ## 5. Torod Point inventory — exactly what is missing
 
@@ -174,6 +176,7 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 | N10 | Tests use an inferred core schema and never call a provider | Stated limits; B1/B2/B3 exist for exactly this | — |
 | N11 | Multi-currency rate drift between checkout and routing | The store is single-currency (SAR); an unknown rate holds the shipment | — |
 | N12 | Field-map screens accept any path; numeric bounds/PII in samples | Admin-only; samples redacted | Low-priority hardening |
+| N13 | A product removed from M5AZN's list is not detected | The order for it would fail visibly (held/failed shipment), never silently | Unpublish by hand; a "not seen for N syncs" flag is a possible follow-up |
 
 ---
 
