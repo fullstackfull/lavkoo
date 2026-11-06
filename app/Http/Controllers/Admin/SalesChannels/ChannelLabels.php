@@ -1,0 +1,345 @@
+<?php
+
+namespace App\Http\Controllers\Admin\SalesChannels;
+
+use App\Enums\SalesChannels\ChannelOrderStatus;
+use App\Enums\SalesChannels\ExecutionPolicy;
+use App\Enums\SalesChannels\FulfillmentMode;
+use App\Enums\SalesChannels\IntegrationCapability;
+use App\Enums\SalesChannels\RoutingAction;
+
+/**
+ * The words the sales-channel screens use for codes the backend produces (reasons, results, states, statuses).
+ *
+ * Every code is translated through a FAMILY of keys (`order_reason_` + code). A code this version does not know is shown as it came, never passed to translate():
+ * translate() writes an unknown key into the language files, so a new backend code would otherwise dirty the repository and show an untranslated phrase.
+ *
+ * TRANSLATION_KEYS is the complete list of the keys built here (and by WriteState and the capability ladder), for whoever maintains the language files. A test keeps it
+ * identical to FAMILIES, so a family cannot grow a code without its key being listed.
+ */
+final class ChannelLabels
+{
+    public const NONE = '—';
+
+    /** @var array<string, list<string>> key prefix => the codes that have a translation */
+    public const FAMILIES = [
+        // Why an order waits (a routing decision's reason code, and the review reason on the order).
+        'order_reason_' => [
+            'channel_fulfills_order', 'unknown_fulfillment_mode', 'order_not_releasable', 'no_active_lines', 'carrier_arranged_by_channel', 'cod_requires_review',
+            'unmapped_lines', 'no_rule_matched', 'rule_requires_manual_review', 'rule_holds_order', 'rule_route_to_provider', 'rule_monitor_only', 'rule_channel_fulfills',
+            'line_has_no_stock_location', 'stock_not_at_target_provider', 'managed_dispatch_not_available', 'split_replaced', 'modified_after_routing',
+            'cancelled_after_dispatch', 'split_after_dispatch', 'ambiguous_shipment', 'shipment_linked_elsewhere',
+        ],
+        // Why nothing was sent to a channel (a switch that is off, an approval that is missing) or a shipment was not reported.
+        'channel_reason_' => [
+            'global_off', 'account_off', 'capability_off', 'writes_off_environment', 'writes_off_account', 'not_approved', 'unregistered_operation', 'auth_needed',
+            'no_linked_shipment_with_tracking', 'already_notified', 'fulfillment_dispatch_off', 'dry_run', 'channel_did_not_confirm', 'channel_notify_error',
+            'order_pending', 'order_awaiting_review', 'order_delivered', 'order_cancelled', 'order_returned', 'order_failed',
+        ],
+        'run_result_' => ['ok', 'skipped', 'busy', 'rate_limited', 'failed'],
+        'sync_resource_' => ['orders', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'],
+        'run_stat_' => [
+            'pages', 'created', 'updated', 'unchanged', 'stale', 'needs_review', 'skipped', 'decisions', 'linked', 'suggested', 'conflicts', 'unseen', 'stored', 'unlinked',
+            'new', 'duplicates', 'costs_recorded', 'considered', 'sent', 'accepted', 'failed', 'applied', 'unconfirmed', 'pending',
+        ],
+        'publish_skip_' => [
+            'fba_listing', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
+            'channel_owns_price', 'storefront_price_not_supported', 'no_manual_price', 'price_not_positive',
+        ],
+        'publish_state_' => ['queued', 'applied', 'failed', 'unconfirmed'],
+        'listing_status_' => ['unmapped', 'suggested', 'mapped', 'ignored', 'conflict'],
+        'match_method_' => ['ambiguous', 'already_linked_elsewhere', 'product_code', 'barcode', 'variant_sku', 'exact_product_code_auto', 'exact_barcode_auto', 'exact_variant_sku_auto', 'manual'],
+        'shipment_link_state_' => ['unlinked', 'linked', 'needs_review', 'conflict', 'not_applicable'],
+        'event_outcome_' => ['received', 'recorded_only', 'needs_review', 'applied', 'ignored_capability_off', 'ignored_invalid', 'failed'],
+        'event_source_' => ['webhook', 'notification', 'poll', 'system', 'manual'],
+        'stock_quality_' => ['confirmed', 'manual', 'stale', 'unknown'],
+        'price_source_' => ['internal', 'channel', 'manual'],
+        'price_source_help_' => ['internal', 'channel', 'manual'],
+        'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management'],
+        'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management'],
+        'integration_capability_help_' => ['connection_test', 'read_only_sync', 'product_sync', 'inventory_publishing', 'price_publishing', 'order_import', 'fulfillment_dispatch', 'financial_reconciliation'],
+        'ladder_blocker_' => ['requires', 'connection_not_proven', 'connection_stale', 'missing_permissions'],
+        'write_state_' => ['global_off', 'account_disabled', 'rehearsal', 'environment_read_only', 'writes_not_allowed', 'live'],
+        'write_state_help_' => ['global_off', 'account_disabled', 'rehearsal', 'environment_read_only', 'writes_not_allowed', 'live'],
+        'environment_' => ['production', 'sandbox'],
+        'carrier_payer_' => ['channel', 'seller'],
+        'secret_' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token', 'api_key', 'api_secret', 'webhook_api_key'],
+        'response_language_' => ['ar', 'en', 'tr'],
+        'trendyol_storefront_' => ['SA', 'AE', 'KW', 'none'],
+        'amazon_region_' => ['na', 'eu', 'fe'],
+        'torod_reference_' => ['order_number', 'package_id', 'tracking_number'],
+        // What each connector says it can and cannot do (the notes under each name come from the connector and are shown as written).
+        'capability_matrix_' => [
+            'basic_authentication', 'product_v2', 'product_create_update', 'order_v2', 'shipment_packages', 'picking_and_tracking', 'cancel_unsupplied', 'split_packages',
+            'invoice_upload', 'webhooks', 'claims_returns', 'current_account_statement', 'fulfilment_by_trendyol',
+            'lwa_authentication', 'orders_v2026_01_01', 'fba_vs_fbm', 'listings_items', 'catalog_items', 'product_type_definitions', 'fba_inventory', 'finances_v2024_06_19',
+            'feeds_json_listings', 'confirm_shipment', 'notifications', 'reports', 'sandbox',
+        ],
+    ];
+
+    /** @var list<string> every key built from FAMILIES, in full */
+    public const TRANSLATION_KEYS = [
+        'order_reason_channel_fulfills_order', 'order_reason_unknown_fulfillment_mode', 'order_reason_order_not_releasable', 'order_reason_no_active_lines',
+        'order_reason_carrier_arranged_by_channel', 'order_reason_cod_requires_review', 'order_reason_unmapped_lines', 'order_reason_no_rule_matched',
+        'order_reason_rule_requires_manual_review', 'order_reason_rule_holds_order', 'order_reason_rule_route_to_provider', 'order_reason_rule_monitor_only',
+        'order_reason_rule_channel_fulfills', 'order_reason_line_has_no_stock_location', 'order_reason_stock_not_at_target_provider',
+        'order_reason_managed_dispatch_not_available', 'order_reason_split_replaced', 'order_reason_modified_after_routing', 'order_reason_cancelled_after_dispatch',
+        'order_reason_split_after_dispatch', 'order_reason_ambiguous_shipment', 'order_reason_shipment_linked_elsewhere',
+        'channel_reason_global_off', 'channel_reason_account_off', 'channel_reason_capability_off', 'channel_reason_writes_off_environment',
+        'channel_reason_writes_off_account', 'channel_reason_not_approved', 'channel_reason_unregistered_operation', 'channel_reason_auth_needed',
+        'channel_reason_no_linked_shipment_with_tracking', 'channel_reason_already_notified', 'channel_reason_fulfillment_dispatch_off', 'channel_reason_dry_run',
+        'channel_reason_channel_did_not_confirm', 'channel_reason_channel_notify_error', 'channel_reason_order_pending', 'channel_reason_order_awaiting_review',
+        'channel_reason_order_delivered', 'channel_reason_order_cancelled', 'channel_reason_order_returned', 'channel_reason_order_failed',
+        'run_result_ok', 'run_result_skipped', 'run_result_busy', 'run_result_rate_limited', 'run_result_failed',
+        'sync_resource_orders', 'sync_resource_listings', 'sync_resource_inventory', 'sync_resource_finances', 'sync_resource_publish_stock', 'sync_resource_publish_price',
+        'run_stat_pages', 'run_stat_created', 'run_stat_updated', 'run_stat_unchanged', 'run_stat_stale', 'run_stat_needs_review', 'run_stat_skipped', 'run_stat_decisions',
+        'run_stat_linked', 'run_stat_suggested', 'run_stat_conflicts', 'run_stat_unseen', 'run_stat_stored', 'run_stat_unlinked', 'run_stat_new', 'run_stat_duplicates',
+        'run_stat_costs_recorded', 'run_stat_considered', 'run_stat_sent', 'run_stat_accepted', 'run_stat_failed', 'run_stat_applied', 'run_stat_unconfirmed', 'run_stat_pending',
+        'publish_skip_fba_listing', 'publish_skip_no_stock_source', 'publish_skip_location_not_for_this_channel', 'publish_skip_stock_not_confirmed', 'publish_skip_unchanged',
+        'publish_skip_awaiting_result', 'publish_skip_failed_repeatedly', 'publish_skip_channel_owns_price', 'publish_skip_storefront_price_not_supported',
+        'publish_skip_no_manual_price', 'publish_skip_price_not_positive',
+        'publish_state_queued', 'publish_state_applied', 'publish_state_failed', 'publish_state_unconfirmed',
+        'listing_status_unmapped', 'listing_status_suggested', 'listing_status_mapped', 'listing_status_ignored', 'listing_status_conflict',
+        'match_method_ambiguous', 'match_method_already_linked_elsewhere', 'match_method_product_code', 'match_method_barcode', 'match_method_variant_sku',
+        'match_method_exact_product_code_auto', 'match_method_exact_barcode_auto', 'match_method_exact_variant_sku_auto', 'match_method_manual',
+        'shipment_link_state_unlinked', 'shipment_link_state_linked', 'shipment_link_state_needs_review', 'shipment_link_state_conflict', 'shipment_link_state_not_applicable',
+        'event_outcome_received', 'event_outcome_recorded_only', 'event_outcome_needs_review', 'event_outcome_applied', 'event_outcome_ignored_capability_off',
+        'event_outcome_ignored_invalid', 'event_outcome_failed',
+        'event_source_webhook', 'event_source_notification', 'event_source_poll', 'event_source_system', 'event_source_manual',
+        'stock_quality_confirmed', 'stock_quality_manual', 'stock_quality_stale', 'stock_quality_unknown',
+        'price_source_internal', 'price_source_channel', 'price_source_manual',
+        'price_source_help_internal', 'price_source_help_channel', 'price_source_help_manual',
+        'approval_scope_product_writes', 'approval_scope_webhook_management', 'approval_scope_notification_management',
+        'approval_scope_help_product_writes', 'approval_scope_help_webhook_management', 'approval_scope_help_notification_management',
+        'integration_capability_help_connection_test', 'integration_capability_help_read_only_sync', 'integration_capability_help_product_sync',
+        'integration_capability_help_inventory_publishing', 'integration_capability_help_price_publishing', 'integration_capability_help_order_import',
+        'integration_capability_help_fulfillment_dispatch', 'integration_capability_help_financial_reconciliation',
+        'ladder_blocker_requires', 'ladder_blocker_connection_not_proven', 'ladder_blocker_connection_stale', 'ladder_blocker_missing_permissions',
+        'write_state_global_off', 'write_state_account_disabled', 'write_state_rehearsal', 'write_state_environment_read_only', 'write_state_writes_not_allowed', 'write_state_live',
+        'write_state_help_global_off', 'write_state_help_account_disabled', 'write_state_help_rehearsal', 'write_state_help_environment_read_only',
+        'write_state_help_writes_not_allowed', 'write_state_help_live',
+        'environment_production', 'environment_sandbox',
+        'carrier_payer_channel', 'carrier_payer_seller',
+        'secret_lwa_client_id', 'secret_lwa_client_secret', 'secret_refresh_token', 'secret_api_key', 'secret_api_secret', 'secret_webhook_api_key',
+        'response_language_ar', 'response_language_en', 'response_language_tr',
+        'trendyol_storefront_SA', 'trendyol_storefront_AE', 'trendyol_storefront_KW', 'trendyol_storefront_none',
+        'amazon_region_na', 'amazon_region_eu', 'amazon_region_fe',
+        'torod_reference_order_number', 'torod_reference_package_id', 'torod_reference_tracking_number',
+        'capability_matrix_basic_authentication', 'capability_matrix_product_v2', 'capability_matrix_product_create_update', 'capability_matrix_order_v2',
+        'capability_matrix_shipment_packages', 'capability_matrix_picking_and_tracking', 'capability_matrix_cancel_unsupplied', 'capability_matrix_split_packages',
+        'capability_matrix_invoice_upload', 'capability_matrix_webhooks', 'capability_matrix_claims_returns', 'capability_matrix_current_account_statement',
+        'capability_matrix_fulfilment_by_trendyol', 'capability_matrix_lwa_authentication', 'capability_matrix_orders_v2026_01_01', 'capability_matrix_fba_vs_fbm',
+        'capability_matrix_listings_items', 'capability_matrix_catalog_items', 'capability_matrix_product_type_definitions', 'capability_matrix_fba_inventory',
+        'capability_matrix_finances_v2024_06_19', 'capability_matrix_feeds_json_listings', 'capability_matrix_confirm_shipment', 'capability_matrix_notifications',
+        'capability_matrix_reports', 'capability_matrix_sandbox',
+    ];
+
+    /** What a routing decision decided; a value this version no longer knows is shown as stored. */
+    public function routingAction(?string $action): string
+    {
+        $case = RoutingAction::tryFrom((string) $action);
+
+        return $case === null ? ($action ?: self::NONE) : translate($case->labelKey());
+    }
+
+    public function fulfillmentMode(?string $mode): string
+    {
+        $case = FulfillmentMode::tryFrom((string) $mode);
+
+        return $case === null ? ($mode ?: self::NONE) : translate($case->labelKey());
+    }
+
+    public function orderStatus(?string $status): string
+    {
+        $case = ChannelOrderStatus::tryFrom((string) $status);
+
+        return $case === null ? ($status ?: self::NONE) : translate($case->labelKey());
+    }
+
+    /** Who pays the carrier of a package: the channel (it arranges the carrier too) or the seller. */
+    public function carrierPayer(?string $payer): string
+    {
+        return $this->label('carrier_payer_', $payer);
+    }
+
+    /** How an order is being handled; null while nothing has been decided about it. */
+    public function executionPolicy(?string $policy): string
+    {
+        $case = ExecutionPolicy::tryFrom((string) $policy);
+
+        return $case === null ? ($policy ?: self::NONE) : translate($case->labelKey());
+    }
+
+    public function orderReason(?string $code): string
+    {
+        return $this->label('order_reason_', $code);
+    }
+
+    /** The reason a channel call or a shipment report did not happen: a switch that is off, an approval that is missing, a shipment that is not ready. */
+    public function channelReason(?string $code): string
+    {
+        return $this->label('channel_reason_', $code);
+    }
+
+    public function runResult(string $result): string
+    {
+        return $this->label('run_result_', $result);
+    }
+
+    public function syncResource(string $resource): string
+    {
+        return $this->label('sync_resource_', $resource);
+    }
+
+    public function runStat(string $key): string
+    {
+        return $this->label('run_stat_', $key);
+    }
+
+    /** Why a listing was not sent: `stock_not_confirmed:stale` carries the quality of the figure that was not good enough. */
+    public function publishSkip(string $reason): string
+    {
+        [$code, $detail] = array_pad(explode(':', $reason, 2), 2, null);
+
+        return $detail === null ? $this->label('publish_skip_', $code) : $this->label('publish_skip_', $code) . ' (' . $this->stockQuality($detail) . ')';
+    }
+
+    public function publishState(?string $state): string
+    {
+        return $this->label('publish_state_', $state);
+    }
+
+    public function listingStatus(?string $status): string
+    {
+        return $this->label('listing_status_', $status);
+    }
+
+    public function matchMethod(?string $method): string
+    {
+        return $this->label('match_method_', $method);
+    }
+
+    public function shipmentLinkState(?string $state): string
+    {
+        return $this->label('shipment_link_state_', $state);
+    }
+
+    public function eventOutcome(?string $outcome): string
+    {
+        return $this->label('event_outcome_', $outcome);
+    }
+
+    public function eventSource(?string $source): string
+    {
+        return $this->label('event_source_', $source);
+    }
+
+    public function stockQuality(?string $quality): string
+    {
+        return $this->label('stock_quality_', $quality);
+    }
+
+    public function priceSource(?string $source): string
+    {
+        return $this->label('price_source_', $source);
+    }
+
+    public function priceSourceHelp(string $source): string
+    {
+        return $this->label('price_source_help_', $source);
+    }
+
+    /** An approval is recorded for a kind of write: either one of the write capabilities or one of the extra scopes. */
+    public function approvalScope(string $scope): string
+    {
+        $capability = IntegrationCapability::tryFrom($scope);
+
+        return $capability === null ? $this->label('approval_scope_', $scope) : translate($capability->labelKey());
+    }
+
+    public function approvalScopeHelp(string $scope): string
+    {
+        $capability = IntegrationCapability::tryFrom($scope);
+
+        return $capability === null ? $this->label('approval_scope_help_', $scope) : $this->capabilityHelp($capability);
+    }
+
+    public function capabilityHelp(IntegrationCapability $capability): string
+    {
+        return $this->label('integration_capability_help_', $capability->value);
+    }
+
+    public function ladderBlocker(string $code): string
+    {
+        return $this->label('ladder_blocker_', $code);
+    }
+
+    public function environment(?string $environment): string
+    {
+        return $this->label('environment_', $environment);
+    }
+
+    /** The name of a stored credential, never its value. */
+    public function secret(string $name): string
+    {
+        return $this->label('secret_', $name);
+    }
+
+    public function responseLanguage(string $code): string
+    {
+        return $this->label('response_language_', $code);
+    }
+
+    public function trendyolStorefront(?string $code): string
+    {
+        return $this->label('trendyol_storefront_', $code === null || $code === '' ? 'none' : $code);
+    }
+
+    public function amazonRegion(string $code): string
+    {
+        return $this->label('amazon_region_', $code);
+    }
+
+    public function torodReference(string $field): string
+    {
+        return $this->label('torod_reference_', $field);
+    }
+
+    public function connectorFeature(string $key): string
+    {
+        return $this->label('capability_matrix_', $key);
+    }
+
+    /**
+     * A run's counts in one line. A count of zero says nothing and is left out; the map of reasons a listing was not sent is spelled out.
+     *
+     * @param array<string, mixed> $stats
+     */
+    public function statsLine(array $stats): string
+    {
+        $parts = [];
+        foreach ($stats as $key => $value) {
+            if ($key === 'dry_run' || $value === 0 || $value === [] || $value === null) {
+                continue;
+            }
+            $parts[] = $this->runStat((string) $key) . ': ' . (is_array($value) ? $this->skippedMap($value) : $value);
+        }
+
+        return $parts === [] ? translate('run_stats_none') : implode(' · ', $parts);
+    }
+
+    /** @param array<string, int> $reasons */
+    private function skippedMap(array $reasons): string
+    {
+        return implode(', ', array_map(fn (string $reason, int $count): string => $this->publishSkip($reason) . ' ×' . $count, array_keys($reasons), $reasons));
+    }
+
+    private function label(string $prefix, ?string $code): string
+    {
+        if ($code === null || $code === '') {
+            return self::NONE;
+        }
+
+        return in_array($code, self::FAMILIES[$prefix], true) ? translate($prefix . $code) : $code;
+    }
+}
