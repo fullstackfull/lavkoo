@@ -217,7 +217,7 @@
                             </table>
                         </div>
                         @if ($unbilledCount > $unbilled->count())
-                            <x-slot:footer><span class="fs-12 text-muted">{{ translate('only_the_first') }} {{ $unbilled->count() }} {{ translate('of') }} {{ $unbilledCount }} {{ translate('are_listed') }}</span></x-slot:footer>
+                            <x-slot:footer><span class="fs-12 text-muted">{{ CostLabels::filled(translate('only_the_first_estimates_are_listed'), ['shown' => $unbilled->count(), 'total' => $unbilledCount]) }}</span></x-slot:footer>
                         @endif
                     </x-k.card>
                 @endif

@@ -8,7 +8,7 @@
         $mode = $mapping->fulfillmentMode();
         $currency = $mapping->currency;
         $trackingHref = $mapping->tracking_url && preg_match('#^https?://#i', $mapping->tracking_url) === 1 ? $mapping->tracking_url : null;
-        $canLink = !$canUnlink && $mapping->order_id === null && !$mode->isFulfilledByChannel() && $mode->value !== 'unknown';
+        $canLink = $mapping->shipment_link_state !== 'linked' && $mapping->order_id === null && !$mode->isFulfilledByChannel() && $mode->value !== 'unknown';
         $canNotify = $mapping->shipment_link_state === 'linked' && filled($mapping->tracking_number);
         $linkBag = $errors->getBag('link_shipment');
         $unlinkBag = $errors->getBag('unlink_shipment');
@@ -155,7 +155,9 @@
                             @if ($unlinkBag->has('reason'))<div class="text-danger fs-12" role="alert">{{ $unlinkBag->first('reason') }}</div>@endif
                             <div><button class="btn btn-outline-danger btn-sm" type="submit">{{ translate('unlink_shipment') }}</button></div>
                         </form>
-                    @elseif ($canLink)
+                    @endif
+
+                    @if ($canLink)
                         <form method="POST" action="{{ route('admin.sales-channels.orders.link-shipment', $mapping) }}" class="d-flex flex-column gap-2 mb-3">@csrf
                             <p class="fs-12 text-muted mb-0">{{ translate('link_shipment_help') }}</p>
                             <div>
@@ -182,13 +184,15 @@
                             </div>
                             <div><button class="btn btn-primary btn-sm" type="submit">{{ translate('link_shipment') }}</button></div>
                         </form>
-                    @else
+                    @endif
+
+                    @unless ($canLink || $canUnlink)
                         <div class="alert alert-secondary fs-12 py-2" role="note">
                             @if ($mapping->order_id !== null){{ translate('shipment_link_refused_application_fulfils') }}
                             @elseif ($mode->isFulfilledByChannel()){{ translate('shipment_link_refused_channel_ships') }}
                             @else{{ translate('shipment_link_refused_mode_unknown') }}@endif
                         </div>
-                    @endif
+                    @endunless
 
                     @if ($canNotify)
                         <form method="POST" action="{{ route('admin.sales-channels.orders.notify', $mapping) }}" class="d-flex flex-column gap-1">@csrf

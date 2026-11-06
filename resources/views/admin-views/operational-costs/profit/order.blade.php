@@ -9,7 +9,9 @@
 
 @section('content')
     @php
+        $costed = $result->buckets !== [];
         $money = static fn ($amount): string => CostFormat::amount($amount, $currency);
+        $moneyIfCosted = static fn ($amount): string => $money($costed ? $amount : null);
         $missing = count($result->missingComponents);
         $pending = count($result->pendingActualComponents);
         $drillNotes = array_map(static fn (string $note): array => array_pad(explode(':', $note, 2), 2, null), $result->notes);
@@ -24,12 +26,15 @@
 
         <div class="alert alert-info fs-12" role="note">{{ translate('a_marketplace_payout_is_not_revenue_note') }}</div>
 
-        @if ($drillNotes !== [] || !$result->revenueTrusted)
+        @if ($drillNotes !== [] || !$result->revenueTrusted || !$costed)
             <div class="alert alert-warning fs-12" role="alert">
                 <strong>{{ translate('this_figure_is_less_than_certain') }}</strong>
                 <ul class="mb-0">
+                    @unless ($costed)
+                        <li>{{ translate('no_costs_recorded_for_this_sale') }}</li>
+                    @endunless
                     @foreach ($drillNotes as [$note, $detail])
-                        <li>{{ CostLabels::of('profit_note', $note) }}@if ($detail !== null) ({{ $detail }})@endif</li>
+                        <li>{{ CostLabels::of('profit_note', $note) }}@if ($detail !== null) ({{ CostComponent::tryFrom($detail) ? translate(CostComponent::from($detail)->labelKey()) : $detail }})@endif</li>
                     @endforeach
                 </ul>
             </div>
@@ -37,10 +42,10 @@
 
         <div class="k-stats mb-3">
             <x-k.stat :label="translate('recognised_revenue')" :value="$money($result->revenue)" :caption="$document->isCancelled() ? translate('a_cancelled_sale_has_no_revenue') : ''" />
-            <x-k.stat :label="translate('estimated_cost')" :value="$money($result->estimatedCost)" :caption="CostLabels::completeness($result->estimatedComplete() ? 0 : 1, $missing, 0)" />
-            <x-k.stat :label="translate('actual_cost')" :value="$money($result->actualCost)" :caption="CostLabels::completeness($result->actualComplete() ? 0 : 1, $missing, $pending)" />
-            <x-k.stat :label="translate('estimated_profit')" :value="$money($result->estimatedProfit())" :caption="translate('margin') . ': ' . CostFormat::percent($result->estimatedMarginPercent())" />
-            <x-k.stat :label="translate('actual_profit')" :value="$money($result->actualProfit())" :caption="translate('margin') . ': ' . CostFormat::percent($result->actualMarginPercent())" />
+            <x-k.stat :label="translate('estimated_cost')" :value="$moneyIfCosted($result->estimatedCost)" :caption="$costed ? CostLabels::completeness($result->estimatedComplete() ? 0 : 1, $missing, 0) : translate('nothing_recorded')" />
+            <x-k.stat :label="translate('actual_cost')" :value="$moneyIfCosted($result->actualCost)" :caption="$costed ? CostLabels::completeness($result->actualComplete() ? 0 : 1, $missing, $pending) : translate('nothing_recorded')" />
+            <x-k.stat :label="translate('estimated_profit')" :value="$moneyIfCosted($result->estimatedProfit())" :caption="$costed ? translate('margin') . ': ' . CostFormat::percent($result->estimatedMarginPercent()) : ''" />
+            <x-k.stat :label="translate('actual_profit')" :value="$moneyIfCosted($result->actualProfit())" :caption="$costed ? translate('margin') . ': ' . CostFormat::percent($result->actualMarginPercent()) : ''" />
         </div>
         @if (!$result->disputedCost->isZero())
             <p class="fs-12 text-muted">{{ translate('disputed_costs_are_in_neither_figure') }}: <span class="k-num">{{ $money($result->disputedCost) }}</span></p>
@@ -57,9 +62,9 @@
                             </tr></thead>
                             <tbody>
                             @forelse ($result->buckets as $bucket)
-                                @php $component = CostComponent::tryFrom($bucket->component); @endphp
+                                @php $costComponent = CostComponent::tryFrom($bucket->component); @endphp
                                 <tr>
-                                    <td>{{ $component ? translate($component->labelKey()) : $bucket->component }}<div class="fs-10 text-muted">{{ CostClass::tryFrom($bucket->costClass) ? translate(CostClass::from($bucket->costClass)->labelKey()) : $bucket->costClass }}</div></td>
+                                    <td>{{ $costComponent ? translate($costComponent->labelKey()) : $bucket->component }}<div class="fs-10 text-muted">{{ CostClass::tryFrom($bucket->costClass) ? translate(CostClass::from($bucket->costClass)->labelKey()) : $bucket->costClass }}</div></td>
                                     <td class="k-table__num k-num">{{ $money($bucket->estimated) }}</td>
                                     <td class="k-table__num k-num">{{ $money($bucket->actual) }}</td>
                                     <td class="k-table__num k-num">{{ $bucket->missing }}</td>

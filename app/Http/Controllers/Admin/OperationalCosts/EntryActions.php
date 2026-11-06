@@ -28,7 +28,7 @@ final class EntryActions
     public static function allows(string $action, OperationalCostEntry $entry): bool
     {
         if (!$entry->is_effective) {
-            return false;
+            return $action === self::RESOLVE && $entry->state === CostState::Disputed && $entry->superseded_by_id === null;
         }
 
         return match ($action) {

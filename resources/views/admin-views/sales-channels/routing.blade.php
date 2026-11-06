@@ -93,7 +93,7 @@
         @endif
 
         <x-k.card :title="translate('new_rule')" class="mb-3" id="new-rule">
-            <details @open($errors->hasBag('rule_new'))>
+            <details @if ($errors->hasBag('rule_new')) open @endif>
                 <summary class="fs-12">{{ translate('write_a_new_rule') }}</summary>
                 <div class="mt-3">
                     @include('admin-views.sales-channels.partials._rule-form', $formData + ['values' => $newValues, 'action' => route('admin.sales-channels.routing.rules.store'), 'bag' => 'rule_new', 'submit' => translate('create_rule')])

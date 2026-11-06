@@ -14,6 +14,7 @@ use App\Services\OperationalCosts\Reports\ProfitReportBuilder;
 use App\Services\OperationalCosts\Sales\SaleDocument;
 use App\Services\OperationalCosts\Sales\SaleDocumentReader;
 use App\Services\OperationalCosts\Support\FxConverter;
+use App\Services\OperationalCosts\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -88,8 +89,8 @@ class ProfitabilityController extends Controller
     private function sorted(array $lines, ProfitInput $input): array
     {
         $figure = match ($input->sort) {
-            ProfitInput::SORT_ESTIMATED_PROFIT => static fn (ProfitLine $line) => $line->estimatedProfit(),
-            ProfitInput::SORT_ACTUAL_PROFIT => static fn (ProfitLine $line) => $line->actualProfit(),
+            ProfitInput::SORT_ESTIMATED_PROFIT => static fn (ProfitLine $line) => $line->estimatedProfit() ?? Money::zero(),
+            ProfitInput::SORT_ACTUAL_PROFIT => static fn (ProfitLine $line) => $line->actualProfit() ?? Money::zero(),
             default => static fn (ProfitLine $line) => $line->revenue(),
         };
         usort($lines, static fn (ProfitLine $a, ProfitLine $b): int => $input->ascending ? $figure($a)->compareTo($figure($b)) : $figure($b)->compareTo($figure($a)));

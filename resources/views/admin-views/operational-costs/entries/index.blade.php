@@ -2,6 +2,7 @@
 
 @use('App\Enums\OperationalCosts\CostState')
 @use('App\Http\Controllers\Admin\OperationalCosts\EntryActions')
+@use('App\Http\Controllers\Admin\OperationalCosts\Filters\EntryFilters')
 @use('App\Http\Controllers\Admin\OperationalCosts\CostFormat')
 @use('App\Http\Controllers\Admin\OperationalCosts\CostLabels')
 
@@ -14,7 +15,7 @@
             'href' => route('admin.operational-costs.entries.index', $filters->parameters(['view' => $view, 'class' => null])),
             'active' => $filters->view === $view,
         ], $views);
-        $classTab = !in_array($filters->view, ['all', 'missing'], true);
+        $classTab = !in_array($filters->view, [EntryFilters::VIEW_ALL, EntryFilters::VIEW_MISSING], true);
     @endphp
     <div class="content container-fluid">
         <x-k.page-header :title="translate('cost_entries')" :subtitle="translate('cost_entries_subtitle')">
@@ -33,8 +34,8 @@
                     <label class="form-label fs-12" for="filter-component">{{ translate('component') }}</label>
                     <select class="form-select form-select-sm" id="filter-component" name="component">
                         <option value="">{{ translate('all') }}</option>
-                        @foreach ($components as $component)
-                            <option value="{{ $component->value }}" @selected($filters->component === $component)>{{ translate($component->labelKey()) }}</option>
+                        @foreach ($components as $costComponent)
+                            <option value="{{ $costComponent->value }}" @selected($filters->component === $costComponent)>{{ translate($costComponent->labelKey()) }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -49,7 +50,7 @@
                         </select>
                     </div>
                 @endunless
-                @if ($filters->view !== 'missing')
+                @if ($filters->view !== EntryFilters::VIEW_MISSING)
                     <div class="col-md-2">
                         <label class="form-label fs-12" for="filter-state">{{ translate('state') }}</label>
                         <select class="form-select form-select-sm" id="filter-state" name="state">
@@ -133,8 +134,10 @@
                     @if ($line['state'] === CostState::Missing)
                         <span class="fs-12 text-danger">{{ translate('no_amount_a_missing_cost_is_not_a_zero') }}</span>
                     @else
-                        <strong class="k-num">{{ CostFormat::amount($line['total'], $line['currency']) }}</strong>
-                        @if ($line['unconverted'] > 0)<span class="fs-12 text-warning">{{ $line['unconverted'] }} {{ translate('entries_left_out_no_exchange_rate') }}</span>@endif
+                        @foreach ($line['totals'] as $totalCurrency => $total)
+                            <strong class="k-num">{{ CostFormat::amount($total, $totalCurrency) }}</strong>
+                        @endforeach
+                        @if ($line['unconverted'] > 0)<span class="fs-12 text-warning">{{ CostLabels::filled(translate('entries_left_out_no_exchange_rate'), ['count' => $line['unconverted']]) }}</span>@endif
                         @if ($line['state'] === CostState::Disputed)<span class="fs-12 text-muted">{{ translate('in_no_total_until_resolved') }}</span>@endif
                         @if ($line['state'] === CostState::Estimated)<span class="fs-12 text-muted">{{ translate('still_waiting_for_the_real_charge') }}</span>@endif
                     @endif

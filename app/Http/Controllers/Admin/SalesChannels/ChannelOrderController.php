@@ -179,7 +179,8 @@ class ChannelOrderController extends Controller
             $request->validateWithBag('notify', ['confirm_live' => ['accepted']], ['confirm_live.accepted' => translate('confirm_that_this_is_sent_for_real')]);
         }
 
-        $this->announcer->announceNotification($this->notifier->notify($mapping));
+        $result = $this->notifier->notify($mapping);
+        $this->announcer->announceNotification($result, $result['outcome'] === ChannelShipmentNotifier::FAILED ? ($mapping->fresh()->snapshot['channel_notify_error']['error'] ?? null) : null);
 
         return back();
     }

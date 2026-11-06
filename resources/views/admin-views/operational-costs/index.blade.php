@@ -46,6 +46,7 @@
         <div class="alert alert-info fs-12" role="note">{{ translate('estimated_and_actual_are_never_added_together_note') }}</div>
 
         @include('admin-views.operational-costs.partials._truncated-notice', ['report' => $report])
+        @include('admin-views.operational-costs.partials._uncosted-notice', ['report' => $report])
 
         <h2 class="fs-14 fw-semibold mb-2">{{ translate('profit_in_this_period') }}</h2>
         <div class="k-stats mb-3">

@@ -36,6 +36,7 @@ trait BuildsSalesChannelSchema
             '2026_11_07_100000_create_operational_cost_tables.php',
             '2026_11_07_100100_create_sales_channel_tables.php',
             '2026_11_07_100200_create_inventory_and_routing_tables.php',
+            '2026_11_08_100000_add_state_before_dispute_to_operational_cost_entries.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

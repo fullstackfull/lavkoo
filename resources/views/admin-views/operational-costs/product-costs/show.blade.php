@@ -76,7 +76,7 @@
                 </table>
             </div>
             @if ($consumptionCount > $consumptionLimit)
-                <x-slot:footer><span class="fs-12 text-muted">{{ translate('only_the_latest') }} {{ $consumptionLimit }} {{ translate('of') }} {{ $consumptionCount }} {{ translate('are_listed') }}</span></x-slot:footer>
+                <x-slot:footer><span class="fs-12 text-muted">{{ CostLabels::filled(translate('only_the_latest_rows_are_listed'), ['shown' => $consumptionLimit, 'total' => $consumptionCount]) }}</span></x-slot:footer>
             @endif
         </x-k.card>
     </div>

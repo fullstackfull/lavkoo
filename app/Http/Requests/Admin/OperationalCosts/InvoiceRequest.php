@@ -112,7 +112,11 @@ class InvoiceRequest extends FormRequest
      */
     public function typedLines(): array
     {
-        return array_map(static fn (array $line): array => array_filter($line, static fn ($value): bool => $value !== null), (array) ($this->validated()['items'] ?? []));
+        $lines = (array) ($this->validated()['items'] ?? []);
+        // The validator hands the rows back in the order it first met a filled cell of each, not in the order they were typed.
+        ksort($lines, SORT_NUMERIC);
+
+        return array_values(array_map(static fn (array $line): array => array_filter($line, static fn ($value): bool => $value !== null), $lines));
     }
 
     /** @return list<array<string, mixed>>|null null when the request carries no table of lines at all */

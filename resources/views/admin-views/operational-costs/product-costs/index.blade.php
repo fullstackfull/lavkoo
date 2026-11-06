@@ -157,7 +157,7 @@
                             <td class="k-table__num k-num">{{ $layer->quantity_remaining }} / {{ $layer->quantity_received }}</td>
                             <td class="k-table__num k-num">
                                 {{ CostFormat::amount($layer->unit_cost, $layer->currency) }}
-                                @if ((float) $layer->landed_unit_cost > 0)<div class="fs-10 text-muted">+ {{ CostFormat::amount($layer->landed_unit_cost, $layer->currency) }} {{ translate('landed') }}</div>@endif
+                                @if (CostFormat::isPositive($layer->landed_unit_cost))<div class="fs-10 text-muted">+ {{ CostFormat::amount($layer->landed_unit_cost, $layer->currency) }} {{ translate('landed') }}</div>@endif
                             </td>
                             <td class="fs-12 k-num">
                                 @if ($layer->original_currency)

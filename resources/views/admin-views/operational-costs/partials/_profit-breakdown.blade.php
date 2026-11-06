@@ -8,8 +8,8 @@
                 <th>{{ $kind === 'channel' ? translate('sales_channel') : translate('provider') }}</th>
                 <th class="k-table__num">{{ translate('sales') }}</th>
                 <th class="k-table__num">{{ translate('revenue') }} ({{ $currency }})</th>
-                <th class="k-table__num">{{ translate('estimated_profit') }}</th>
-                <th class="k-table__num">{{ translate('actual_profit') }}</th>
+                <th class="k-table__num">{{ translate('estimated_profit') }} ({{ $currency }})</th>
+                <th class="k-table__num">{{ translate('actual_profit') }} ({{ $currency }})</th>
             </tr></thead>
             <tbody>
             @forelse ($lines as $line)

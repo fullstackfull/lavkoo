@@ -75,32 +75,68 @@ class CostLedger
     /** The party charged something we contest: the entry leaves every total until the dispute is resolved. */
     public function dispute(OperationalCostEntry $entry, string $reason): OperationalCostEntry
     {
-        if ($entry->state === CostState::Missing) {
-            throw new InvalidArgumentException('A missing cost cannot be disputed.');
+        if (!$entry->state->isSettled()) {
+            throw new InvalidArgumentException('Only a charge (an actual or reconciled cost) can be disputed: an estimate or a missing cost is not a charge.');
         }
-        $entry->forceFill(['state' => CostState::Disputed, 'note' => mb_substr($reason, 0, 500)])->save();
+        $entry->forceFill(['state_before_dispute' => $entry->state->value, 'state' => CostState::Disputed, 'note' => mb_substr($reason, 0, 500)])->save();
         $this->audit->record(action: 'operational_cost.entry_disputed', subject: $entry, context: ['entry_id' => $entry->id, 'reason' => $reason]);
 
         return $entry;
     }
 
     /**
-     * A dispute is settled: the charge stands (it becomes actual again) or it does not (it leaves the totals; a reversal is recorded
-     * in its place).
+     * A dispute is settled. Two things can be in dispute, and "it stands" / "it does not stand" means the same for both: the figure in question counts, or it does not.
+     *
+     *  - A charge that was counted until it was contested: if it stands it counts again as what it was; if it does not, a reversal cancels it (the reversal is the only
+     *    trace in the totals, because the charge itself was outside them while it was contested).
+     *  - A newer figure the ledger kept beside an approved one: if it stands it replaces the approved figure for the slot (which is superseded, not edited); if it does not,
+     *    it is set aside and the approved figure remains.
      */
     public function resolveDispute(OperationalCostEntry $entry, bool $chargeStands, ?int $adminId, string $note): OperationalCostEntry
     {
         if ($entry->state !== CostState::Disputed) {
             throw new InvalidArgumentException('Only a disputed cost can be resolved.');
         }
-        if ($chargeStands) {
-            $entry->forceFill(['state' => CostState::Actual, 'note' => mb_substr($note, 0, 500)])->save();
-        } else {
-            $this->reverse($entry, $adminId, $note);
-        }
-        $this->audit->record(action: 'operational_cost.dispute_resolved', subject: $entry, context: ['entry_id' => $entry->id, 'charge_stands' => $chargeStands]);
+
+        DB::transaction(function () use ($entry, $chargeStands, $adminId, $note): void {
+            $entry->is_effective
+                ? $this->settleContestedCharge($entry, $chargeStands, $adminId, $note)
+                : $this->settleConflictingFigure($entry, $chargeStands, $note);
+        });
+        $this->audit->record(action: 'operational_cost.dispute_resolved', subject: $entry, context: ['entry_id' => $entry->id, 'charge_stands' => $chargeStands, 'by' => $adminId]);
 
         return $entry;
+    }
+
+    private function settleContestedCharge(OperationalCostEntry $entry, bool $chargeStands, ?int $adminId, string $note): void
+    {
+        $entry->forceFill(['state' => $this->stateBeforeDispute($entry), 'note' => mb_substr($note, 0, 500)])->save();
+        if (!$chargeStands) {
+            $this->reverse($entry, $adminId, $note);
+        }
+    }
+
+    private function settleConflictingFigure(OperationalCostEntry $conflict, bool $figureStands, string $note): void
+    {
+        $held = OperationalCostEntry::where('slot_key', $conflict->slot_key)->where('is_effective', true)->lockForUpdate()->get();
+        $conflict->forceFill(['state' => $this->stateBeforeDispute($conflict), 'note' => mb_substr($note, 0, 500)]);
+
+        if ($figureStands) {
+            foreach ($held as $replaced) {
+                $replaced->forceFill(['is_effective' => false, 'superseded_by_id' => $conflict->id])->save();
+            }
+            $conflict->is_effective = true;
+        } else {
+            $conflict->superseded_by_id = $held->first()?->id;
+        }
+        $conflict->save();
+    }
+
+    private function stateBeforeDispute(OperationalCostEntry $entry): CostState
+    {
+        $before = CostState::tryFrom((string) $entry->state_before_dispute);
+
+        return $before !== null && $before->isSettled() ? $before : CostState::Actual;
     }
 
     /** Cancels an entry's effect with an equal and opposite one. Safe to call twice: the reversal is one row. */
@@ -193,6 +229,7 @@ class CostLedger
             'cost_component' => $draft->component->value,
             'cost_class' => $draft->component->costClass()->value,
             'state' => $conflict ? CostState::Disputed : $draft->state,
+            'state_before_dispute' => $conflict ? $draft->state->value : null,
             'is_effective' => $effective,
             'amount' => $draft->amount?->toStorage(),
             'currency' => $draft->currency,

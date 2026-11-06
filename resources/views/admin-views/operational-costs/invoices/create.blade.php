@@ -120,8 +120,8 @@
                                 <td>
                                     <select class="form-select form-select-sm" name="items[{{ $index }}][cost_component]" aria-label="{{ translate('cost_component') }}">
                                         <option value="">{{ translate('choose') }}</option>
-                                        @foreach ($components as $component)
-                                            <option value="{{ $component->value }}" @selected(($line['cost_component'] ?? '') === $component->value)>{{ translate($component->labelKey()) }}</option>
+                                        @foreach ($components as $costComponent)
+                                            <option value="{{ $costComponent->value }}" @selected(($line['cost_component'] ?? '') === $costComponent->value)>{{ translate($costComponent->labelKey()) }}</option>
                                         @endforeach
                                     </select>
                                 </td>

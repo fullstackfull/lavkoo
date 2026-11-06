@@ -93,7 +93,7 @@ final class CapabilityLadder
         if ($capability->needsApproval()) {
             $checkedAt = $account->connection_checked_at;
             if ($checkedAt === null || $checkedAt->lt(CarbonImmutable::now()->subDays(ChannelAccountService::CONNECTION_FRESH_DAYS))) {
-                return ['connection_stale', (string) ChannelAccountService::CONNECTION_FRESH_DAYS];
+                return ['connection_stale', null];
             }
             if ($account->missing_permissions !== null && $account->missing_permissions !== []) {
                 return ['missing_permissions', implode(', ', $account->missing_permissions)];

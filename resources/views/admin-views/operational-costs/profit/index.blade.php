@@ -3,6 +3,7 @@
 @use('App\Enums\Fulfillment\ProviderCode')
 @use('App\Http\Controllers\Admin\OperationalCosts\CostFormat')
 @use('App\Http\Controllers\Admin\OperationalCosts\CostLabels')
+@use('App\Services\OperationalCosts\Profit\ProfitAggregator')
 @use('App\Services\OperationalCosts\Reports\ProfitFilters')
 @use('App\Services\OperationalCosts\Reports\ProfitReportBuilder')
 
@@ -12,7 +13,8 @@
     @php
         $isProduct = $input->dimension === ProfitReportBuilder::DIMENSION_PRODUCT;
         $isOrder = $input->dimension === ProfitReportBuilder::DIMENSION_ORDER;
-        $money = static fn ($amount): string => CostFormat::amount($amount);
+        $money = static fn ($amount): string => CostFormat::amount($amount, $currency);
+        $figure = static fn ($amount): string => CostFormat::amount($amount);
         $totals = $table->totals;
         $tabs = array_map(static fn (string $dimension): array => [
             'label' => CostLabels::of('profit_dimension', $dimension),
@@ -88,8 +90,9 @@
         </x-k.card>
 
         @include('admin-views.operational-costs.partials._truncated-notice', ['report' => $report])
+        @include('admin-views.operational-costs.partials._uncosted-notice', ['report' => $report])
         @if (count($table->lines) > $lineLimit)
-            <div class="alert alert-warning fs-12" role="alert">{{ translate('only_the_first') }} {{ $lineLimit }} {{ translate('of') }} {{ count($table->lines) }} {{ translate('lines_are_listed_the_totals_count_all_of_them') }}</div>
+            <div class="alert alert-warning fs-12" role="alert">{{ CostLabels::filled(translate('only_the_first_lines_are_listed_the_totals_count_all_of_them'), ['shown' => $lineLimit, 'total' => count($table->lines)]) }}</div>
         @endif
 
         <div class="k-stats mb-3">
@@ -100,7 +103,7 @@
             <x-k.stat :label="translate('actual_profit')" :value="$money($totals->actualProfit())" :caption="translate('margin') . ': ' . CostFormat::percent($totals->actualMarginPercent())" />
         </div>
         @if (!$totals->disputedCost->isZero())
-            <p class="fs-12 text-muted">{{ translate('disputed_costs_are_in_neither_figure') }}: <span class="k-num">{{ $money($totals->disputedCost) }} {{ $currency }}</span></p>
+            <p class="fs-12 text-muted">{{ translate('disputed_costs_are_in_neither_figure') }}: <span class="k-num">{{ $money($totals->disputedCost) }}</span></p>
         @endif
         @if ($isProduct)
             <div class="alert alert-info fs-12" role="note">{{ translate('product_profit_counts_the_costs_the_ledger_holds_note') }}</div>
@@ -113,10 +116,10 @@
                         <th>{{ CostLabels::of('profit_dimension', $input->dimension) }}</th>
                         <th class="k-table__num">{{ $isProduct ? translate('units') : translate('sales') }}</th>
                         <th class="k-table__num"><a href="{{ $sortLink('revenue') }}">{{ translate('revenue') }}</a> ({{ $currency }})</th>
-                        <th class="k-table__num">{{ translate('estimated_cost') }}</th>
-                        <th class="k-table__num">{{ translate('actual_cost') }}</th>
-                        <th class="k-table__num"><a href="{{ $sortLink('estimated_profit') }}">{{ translate('estimated_profit') }}</a></th>
-                        <th class="k-table__num"><a href="{{ $sortLink('actual_profit') }}">{{ translate('actual_profit') }}</a></th>
+                        <th class="k-table__num">{{ translate('estimated_cost') }} ({{ $currency }})</th>
+                        <th class="k-table__num">{{ translate('actual_cost') }} ({{ $currency }})</th>
+                        <th class="k-table__num"><a href="{{ $sortLink('estimated_profit') }}">{{ translate('estimated_profit') }}</a> ({{ $currency }})</th>
+                        <th class="k-table__num"><a href="{{ $sortLink('actual_profit') }}">{{ translate('actual_profit') }}</a> ({{ $currency }})</th>
                     </tr></thead>
                     <tbody>
                     @forelse ($lines as $line)
@@ -131,30 +134,30 @@
                                     @else
                                         {{ $line->label !== '' ? $line->label : translate('product') }} <span class="text-muted">#{{ $line->key }}</span>
                                     @endif
-                                @elseif ($input->dimension === 'channel')
+                                @elseif ($input->dimension === ProfitAggregator::BY_CHANNEL)
                                     {{ CostLabels::channel($line->key) }}
                                 @else
                                     {{ CostLabels::provider($line->key) }}
                                 @endif
                             </td>
                             <td class="k-table__num k-num">{{ $isProduct ? $line->units : $line->orders }}</td>
-                            <td class="k-table__num k-num">{{ $money($line->revenue()) }}</td>
-                            <td class="k-table__num k-num">{{ $money($line->estimatedCost()) }}</td>
-                            <td class="k-table__num k-num">{{ $money($line->actualCost()) }}</td>
+                            <td class="k-table__num k-num">{{ $figure($line->revenue()) }}</td>
+                            <td class="k-table__num k-num">{{ $figure($line->estimatedCost()) }}</td>
+                            <td class="k-table__num k-num">{{ $figure($line->actualCost()) }}</td>
                             @if ($isProduct)
                                 <td class="k-table__num">
-                                    <span class="k-num">{{ $money($line->estimatedProfit()) }}</span>
+                                    <span class="k-num">{{ $figure($line->estimatedProfit()) }}</span>
                                     <div class="fs-10 text-muted k-num">{{ CostFormat::percent($line->estimatedMarginPercent()) }}</div>
                                     @if ($line->missing > 0)<x-k.badge tone="warning" :dot="false">{{ translate('incomplete') }}: {{ $line->missing }} {{ translate('missing') }}</x-k.badge>@endif
                                 </td>
                                 <td class="k-table__num">
-                                    <span class="k-num">{{ $money($line->actualProfit()) }}</span>
+                                    <span class="k-num">{{ $figure($line->actualProfit()) }}</span>
                                     <div class="fs-10 text-muted k-num">{{ CostFormat::percent($line->actualMarginPercent()) }}</div>
                                     @if ($line->missing > 0)<x-k.badge tone="warning" :dot="false">{{ translate('incomplete') }}: {{ $line->missing }} {{ translate('missing') }}</x-k.badge>@endif
                                 </td>
                             @else
-                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->estimatedProfit(), 'margin' => $line->estimatedMarginPercent(), 'completeness' => CostLabels::lineCompleteness($line, settled: false), 'complete' => $line->incompleteEstimated === 0])</td>
-                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->actualProfit(), 'margin' => $line->actualMarginPercent(), 'completeness' => CostLabels::lineCompleteness($line, settled: true), 'complete' => $line->incompleteActual === 0])</td>
+                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->estimatedProfit(), 'margin' => $line->estimatedMarginPercent(), 'completeness' => $line->costed ? CostLabels::lineCompleteness($line, settled: false) : translate('nothing_recorded'), 'complete' => $line->incompleteEstimated === 0])</td>
+                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->actualProfit(), 'margin' => $line->actualMarginPercent(), 'completeness' => $line->costed ? CostLabels::lineCompleteness($line, settled: true) : translate('nothing_recorded'), 'complete' => $line->incompleteActual === 0])</td>
                             @endif
                         </tr>
                     @empty

@@ -49,14 +49,17 @@ final class RunAnnouncer
         };
     }
 
-    /** @param array{outcome: string, reason: string|null} $result what ChannelShipmentNotifier::notify() returned */
-    public function announceNotification(array $result): void
+    /**
+     * @param array{outcome: string, reason: string|null} $result what ChannelShipmentNotifier::notify() returned
+     * @param string|null $failure what the failure said, when the notifier kept it
+     */
+    public function announceNotification(array $result, ?string $failure = null): void
     {
         $reason = $this->labels->channelReason($result['reason']);
         match ($result['outcome']) {
             ChannelShipmentNotifier::SENT => SafeToast::success(translate('shipment_reported_to_channel')),
             ChannelShipmentNotifier::SKIPPED => SafeToast::info(translate('shipment_not_reported_nothing_sent'), $reason),
-            default => SafeToast::error(translate('shipment_report_failed'), $reason),
+            default => SafeToast::error(translate('shipment_report_failed'), $failure ? $reason . ': ' . $failure : $reason),
         };
     }
 

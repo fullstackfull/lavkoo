@@ -16,17 +16,23 @@ trait CreatesChannelRecords
 {
     private int $recordSequence = 0;
 
+    /** A number that has not been used yet in this test, for the identifiers records need to be different. */
+    protected function nextRecordNumber(): int
+    {
+        return ++$this->recordSequence;
+    }
+
     protected function product(string $name = 'Paracetamol 500mg', string $code = 'PARA-500', ?string $barcode = null, string $addedBy = 'admin', string $type = 'physical'): int
     {
         return (int) DB::table('products')->insertGetId([
-            'name' => $name, 'slug' => Str::slug($name) . '-' . ++$this->recordSequence, 'code' => $code, 'barcode' => $barcode,
+            'name' => $name, 'slug' => Str::slug($name) . '-' . $this->nextRecordNumber(), 'code' => $code, 'barcode' => $barcode,
             'added_by' => $addedBy, 'product_type' => $type, 'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
     protected function listing(SalesChannelAccount $account, array $attributes = []): SalesChannelProductMapping
     {
-        $number = ++$this->recordSequence;
+        $number = $this->nextRecordNumber();
 
         return SalesChannelProductMapping::create($attributes + [
             'account_id' => $account->id,
@@ -50,7 +56,7 @@ trait CreatesChannelRecords
      */
     protected function channelOrder(SalesChannelAccount $account, array $attributes = [], ?array $lines = null): ExternalOrderMapping
     {
-        $number = ++$this->recordSequence;
+        $number = $this->nextRecordNumber();
         $order = ExternalOrderMapping::create($attributes + [
             'account_id' => $account->id,
             'sales_channel' => $account->channel,
@@ -90,7 +96,7 @@ trait CreatesChannelRecords
 
     protected function routingRule(array $attributes = []): FulfillmentRoutingRule
     {
-        return FulfillmentRoutingRule::create($attributes + ['name' => 'Rule ' . ++$this->recordSequence, 'priority' => 100, 'is_active' => true, 'seller_id' => 0, 'action' => 'monitor_only']);
+        return FulfillmentRoutingRule::create($attributes + ['name' => 'Rule ' . $this->nextRecordNumber(), 'priority' => 100, 'is_active' => true, 'seller_id' => 0, 'action' => 'monitor_only']);
     }
 
     protected function routingDecision(ExternalOrderMapping $order, array $attributes = []): FulfillmentRoutingDecision

@@ -28,7 +28,6 @@ use RuntimeException;
  */
 class ChannelAccountOperationsController extends Controller
 {
-    public const SYNC_RESOURCES = [ChannelSyncService::ORDERS, ChannelSyncService::LISTINGS, ChannelSyncService::INVENTORY, ChannelSyncService::FINANCES];
     public const PUBLISH_KINDS = ['stock', 'price', 'settle', 'shipments'];
 
     /** The webhook details worth showing; whatever else the channel returns is dropped. */
@@ -61,6 +60,7 @@ class ChannelAccountOperationsController extends Controller
     {
         $this->announcer->announce(match ($resource) {
             ChannelSyncService::ORDERS => $this->sync->syncOrders($account),
+            ChannelSyncService::RETURNS => $this->sync->syncReturns($account),
             ChannelSyncService::LISTINGS => $this->sync->syncListings($account),
             ChannelSyncService::INVENTORY => $this->sync->syncChannelInventory($account),
             ChannelSyncService::FINANCES => $this->sync->syncFinances($account),

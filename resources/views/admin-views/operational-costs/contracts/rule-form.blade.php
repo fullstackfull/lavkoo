@@ -23,7 +23,7 @@
             </x-slot:actions>
         </x-k.page-header>
 
-        <div class="alert alert-info fs-12" role="note">{{ translate('no_figure_is_filled_in_for_you_note') }} ({{ $contract->currency }})</div>
+        <div class="alert alert-info fs-12" role="note">{{ CostLabels::filled(translate('no_figure_is_filled_in_for_you_note'), ['currency' => $contract->currency]) }}</div>
 
         @if ($errors->any())
             <div class="alert alert-danger fs-12" role="alert"><ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
@@ -38,11 +38,11 @@
                         <select class="form-select" id="service_type" name="service_type" required>
                             <option value="">{{ translate('choose') }}</option>
                             @foreach (CostClass::cases() as $class)
-                                @php $inClass = array_filter($components, static fn ($component): bool => $component->costClass() === $class); @endphp
+                                @php $inClass = array_filter($components, static fn ($costComponent): bool => $costComponent->costClass() === $class); @endphp
                                 @if ($inClass !== [])
                                     <optgroup label="{{ translate($class->labelKey()) }}">
-                                        @foreach ($inClass as $component)
-                                            <option value="{{ $component->value }}" @selected($value('service_type') === $component->value)>{{ translate($component->labelKey()) }}</option>
+                                        @foreach ($inClass as $costComponent)
+                                            <option value="{{ $costComponent->value }}" @selected($value('service_type') === $costComponent->value)>{{ translate($costComponent->labelKey()) }}</option>
                                         @endforeach
                                     </optgroup>
                                 @endif

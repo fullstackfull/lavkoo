@@ -34,10 +34,4 @@ final readonly class LadderRung
     {
         return !$this->held && $this->blocker === null;
     }
-
-    /** On, but nobody's approval is on record: a write of this kind is refused until it is approved again. */
-    public function approvalWithdrawn(): bool
-    {
-        return $this->held && $this->needsApproval() && $this->approval === null;
-    }
 }

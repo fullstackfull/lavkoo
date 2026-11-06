@@ -3,7 +3,6 @@
 @section('title', translate('Channel_API_Logs'))
 
 @section('content')
-    @use('Illuminate\Support\Str')
     @php
         $prettyJson = static fn (mixed $value): string => (string) json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         $outcomeTone = static fn (?string $outcome): string => match ($outcome) {
@@ -100,13 +99,13 @@
                                 <td class="fs-12">{{ $log->created_at?->format('Y-m-d H:i:s') }}</td>
                                 <td class="fs-12">{{ $accounts->get($log->account_id) ?? ($log->account_id ? '#' . $log->account_id : '—') }}</td>
                                 <td class="fs-12">{{ $log->operation }}</td>
-                                <td class="fs-12"><code>{{ $log->method }}</code> <span class="text-break">{{ Str::limit($log->url, 90) }}</span></td>
+                                <td class="fs-12"><code>{{ $log->method }}</code> <span class="text-break">{{ $log->url }}</span></td>
                                 <td>
                                     <x-k.badge :tone="$log->dry_run ? 'info' : ($log->success ? 'success' : 'danger')">{{ $log->dry_run ? translate('rehearsal') : ($log->response_status ?? translate('no_response')) }}</x-k.badge>
                                 </td>
                                 <td class="fs-12 k-table__num">{{ $log->duration_ms !== null ? $log->duration_ms . ' ms' : '—' }}</td>
                                 <td class="fs-12">
-                                    @if ($log->error_message)<div class="text-danger text-break">{{ Str::limit($log->error_message, 160) }}</div>@endif
+                                    @if ($log->error_message)<div class="text-danger text-break">{{ $log->error_message }}</div>@endif
                                     <details>
                                         <summary>{{ translate('request_and_response') }}</summary>
                                         <div class="mt-1 text-muted">{{ translate('request') }}</div>
@@ -154,7 +153,7 @@
                                 <td class="fs-12 text-break">{{ $event->external_reference ?? '—' }}</td>
                                 <td>
                                     <x-k.badge :tone="$outcomeTone($event->outcome)">{{ $labels->eventOutcome($event->outcome) }}</x-k.badge>
-                                    @if ($event->outcome_note)<div class="fs-10 text-muted text-break">{{ Str::limit($event->outcome_note, 120) }}</div>@endif
+                                    @if ($event->outcome_note)<div class="fs-10 text-muted text-break">{{ $event->outcome_note }}</div>@endif
                                 </td>
                                 <td class="fs-12">
                                     <details>

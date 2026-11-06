@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\SalesChannels\Support\AccountForm;
 use App\Http\Controllers\Admin\SalesChannels\Support\CapabilityLadder;
+use App\Http\Controllers\Admin\SalesChannels\Support\SyncResources;
 use App\Http\Controllers\Admin\SalesChannels\Support\WriteState;
 use App\Http\Controllers\Controller;
 use App\Models\SalesChannelAccount;
@@ -40,6 +41,7 @@ class ChannelAccountController extends Controller
         private readonly ChannelCredentialStore $credentials,
         private readonly ChannelConnectorRegistry $connectors,
         private readonly CapabilityLadder $ladder,
+        private readonly SyncResources $syncResources,
         private readonly AccountForm $form,
         private readonly ChannelLabels $labels,
     ) {
@@ -100,6 +102,8 @@ class ChannelAccountController extends Controller
             'secretFields' => $secretFields,
             'secretsSet' => Arr::only($this->credentials->get($account)->presence(), [...$secretFields, 'webhook_api_key']),
             'syncStates' => $account->syncStates->keyBy('resource'),
+            'syncResources' => SyncResources::all(),
+            'syncSupported' => $this->syncResources->supportedBy($account),
             'publishing' => $this->publishing($account),
             'matrix' => $this->connectors->for($account)->capabilityMatrix(),
             'webhook' => $channel === SalesChannel::Trendyol ? $this->webhook($account) : null,

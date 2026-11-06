@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\SalesChannels\ChannelOrderController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelProductController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelRoutingController;
 use App\Http\Controllers\Admin\SalesChannels\Support\CapabilityLadder;
+use App\Http\Controllers\Admin\SalesChannels\Support\SyncResources;
 use App\Http\Middleware\EnsureSalesChannelsMigrated;
 use Illuminate\Support\Facades\Route;
 
@@ -41,7 +42,7 @@ Route::group([
     // Everything below calls the channel: a POST (a link on another site cannot trigger it), and rate limited.
     Route::post('accounts/{account}/test', [ChannelAccountOperationsController::class, 'test'])->whereNumber('account')->middleware('throttle:10,1')->name('accounts.test');
     Route::post('accounts/{account}/sync/{resource}', [ChannelAccountOperationsController::class, 'sync'])->whereNumber('account')
-        ->whereIn('resource', ChannelAccountOperationsController::SYNC_RESOURCES)->middleware('throttle:6,1')->name('accounts.sync');
+        ->whereIn('resource', SyncResources::all())->middleware('throttle:6,1')->name('accounts.sync');
     Route::post('accounts/{account}/publish/{kind}', [ChannelAccountOperationsController::class, 'publish'])->whereNumber('account')
         ->whereIn('kind', ChannelAccountOperationsController::PUBLISH_KINDS)->middleware('throttle:6,1')->name('accounts.publish');
     Route::post('accounts/{account}/webhook', [ChannelAccountOperationsController::class, 'webhook'])->whereNumber('account')->middleware('throttle:6,1')->name('accounts.webhook');

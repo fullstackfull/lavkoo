@@ -20,7 +20,7 @@
         <div class="fs-12 text-muted text-break"><code>{{ $listing->listing_key }}</code></div>
         <div class="fs-12 text-muted">{{ translate('sku') }}: {{ $listing->external_sku ?? '—' }} · {{ translate('barcode') }}: {{ $listing->external_barcode ?? '—' }} · {{ translate('channel_id') }}: {{ $listing->external_id ?? '—' }}</div>
         <div class="fs-12">
-            {{ $account?->name }}
+            {{ $account?->name }} <span class="text-muted">· {{ translate('seller') }}: {{ ($account?->seller_id ?? 0) === 0 ? translate('platform') : '#' . $account->seller_id }}</span>
             <x-k.badge :tone="$statusTone">{{ $labels->listingStatus($listing->status) }}</x-k.badge>
             @if ($listing->fulfillment_mode)<x-k.badge :tone="$listing->fulfillment_mode === 'fba' ? 'info' : 'neutral'" :dot="false">{{ strtoupper($listing->fulfillment_mode) }}</x-k.badge>@endif
         </div>

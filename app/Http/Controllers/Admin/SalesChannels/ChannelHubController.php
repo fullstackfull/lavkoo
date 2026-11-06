@@ -27,7 +27,6 @@ class ChannelHubController extends Controller
             'managedDispatchEnabled' => (bool) config('sales_channels.managed_dispatch_enabled'),
             'cards' => $this->summary->cards($accounts),
             'attention' => $this->summary->attention($accounts),
-            'resources' => HubSummary::READ_RESOURCES,
         ]);
     }
 }

@@ -35,11 +35,11 @@ class CsvDownload
      * @param iterable<list<mixed>> $rows
      * @return Generator<int, list<mixed>>
      */
-    public function limited(iterable $rows, string $notice): Generator
+    public function limited(iterable $rows, string $notice, int $limit = self::ROW_LIMIT): Generator
     {
         $count = 0;
         foreach ($rows as $row) {
-            if ($count === self::ROW_LIMIT) {
+            if ($count === $limit) {
                 yield [$notice];
 
                 return;

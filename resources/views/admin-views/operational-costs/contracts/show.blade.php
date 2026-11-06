@@ -48,8 +48,8 @@
                         <dd class="col-sm-8">@include('admin-views.operational-costs.partials._seller', ['seller' => $contract->seller_id])</dd>
                         <dt class="col-sm-4">{{ translate('expected_services') }}</dt>
                         <dd class="col-sm-8">
-                            @forelse ($expected as $component)
-                                <x-k.badge tone="neutral" :dot="false">{{ CostComponent::tryFrom($component) ? translate(CostComponent::from($component)->labelKey()) : $component }}</x-k.badge>
+                            @forelse ($expected as $costComponent)
+                                <x-k.badge tone="neutral" :dot="false">{{ CostComponent::tryFrom($costComponent) ? translate(CostComponent::from($costComponent)->labelKey()) : $costComponent }}</x-k.badge>
                             @empty
                                 <span class="text-muted">—</span>
                             @endforelse
@@ -127,9 +127,15 @@
                             @endif
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $isDraft ? 7 : 6 }}"><x-k.empty icon="catalog" :title="translate('this_contract_prices_nothing_yet')" :text="translate('this_contract_prices_nothing_yet_help')">
-                            @if ($isDraft)<x-slot:action><a class="btn btn-primary btn-sm" href="{{ route('admin.operational-costs.contracts.rules.create', $contract->id) }}">{{ translate('add_a_price_rule') }}</a></x-slot:action>@endif
-                        </x-k.empty></td></tr>
+                        <tr><td colspan="{{ $isDraft ? 7 : 6 }}">
+                            @if ($isDraft)
+                                <x-k.empty icon="catalog" :title="translate('this_contract_prices_nothing_yet')" :text="translate('this_contract_prices_nothing_yet_help')">
+                                    <x-slot:action><a class="btn btn-primary btn-sm" href="{{ route('admin.operational-costs.contracts.rules.create', $contract->id) }}">{{ translate('add_a_price_rule') }}</a></x-slot:action>
+                                </x-k.empty>
+                            @else
+                                <x-k.empty icon="catalog" :title="translate('this_contract_prices_nothing_yet')" :text="translate('this_contract_prices_nothing_yet_help')" />
+                            @endif
+                        </td></tr>
                     @endforelse
                     </tbody>
                 </table>

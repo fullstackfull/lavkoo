@@ -240,6 +240,8 @@ final class ContractRuleForm
      */
     private static function rows(array $rows, array $keys): array
     {
+        // A validated request hands the rows back in the order it first met a filled cell of each; the order they were typed in is the order of their keys.
+        ksort($rows, SORT_NUMERIC);
         $kept = [];
         foreach ($rows as $row) {
             $row = array_intersect_key((array) $row, array_flip($keys));

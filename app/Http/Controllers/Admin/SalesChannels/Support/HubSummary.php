@@ -25,11 +25,10 @@ final class HubSummary
     /** How many entries of each kind the attention list spells out; the rest are one click away. */
     private const ATTENTION_LIMIT = 8;
 
-    /** The resources whose last run is always shown, run or not; the publishing ones appear once they have run. */
-    public const READ_RESOURCES = ['orders', 'listings', 'inventory', 'finances'];
-
-    public function __construct(private readonly ChannelLabels $labels)
-    {
+    public function __construct(
+        private readonly ChannelLabels $labels,
+        private readonly SyncResources $resources,
+    ) {
     }
 
     /**
@@ -50,6 +49,7 @@ final class HubSummary
             'account' => $account,
             'writeState' => WriteState::of($account),
             'capabilities' => array_values(array_filter(IntegrationCapability::cases(), static fn (IntegrationCapability $capability): bool => $account->hasCapability($capability))),
+            'resources' => $this->resources->supportedBy($account),
             'states' => ($states->get($account->id) ?? collect())->keyBy('resource'),
             'unlinkedListings' => (int) ($unlinked[$account->id] ?? 0),
             'ordersNeedingReview' => (int) ($review[$account->id] ?? 0),

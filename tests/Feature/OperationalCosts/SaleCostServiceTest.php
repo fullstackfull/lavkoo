@@ -99,6 +99,26 @@ class SaleCostServiceTest extends TestCase
         $this->assertSame(1, (int) InventoryCostLayer::sum('quantity_remaining'));
     }
 
+    public function test_a_line_that_is_not_linked_to_a_product_has_a_missing_cost_not_a_free_one_until_it_is_linked(): void
+    {
+        $this->stock(10, '10', 'inv-1');
+        $unlinked = new SaleLine('channel_order_line', 31, null, '', 'SKU-X', 2, Money::of('100'), Money::zero(), self::TOROD, SaleLine::BASIS_OWNED_STOCK);
+        $document = $this->document('amazon', SaleDocument::STATE_SHIPPED, [$unlinked], 3);
+
+        $this->sales->refresh($document);
+        $this->sales->refresh($document);
+
+        $missing = $this->cogs(31, 'channel_order_line');
+        $this->assertSame([CostState::Missing, null, 'product_not_linked'], [$missing->state, $missing->amount, $missing->missing_reason]);
+        $this->assertSame(1, OperationalCostEntry::where('subject_id', 31)->count(), 'Repeating the refresh adds nothing.');
+
+        $linked = new SaleLine('channel_order_line', 31, self::PRODUCT, '', 'SKU-X', 2, Money::of('100'), Money::zero(), self::TOROD, SaleLine::BASIS_OWNED_STOCK);
+        $this->sales->refresh($this->document('amazon', SaleDocument::STATE_SHIPPED, [$linked], 3));
+
+        $this->assertSame([CostState::Actual, '20.000000'], [$this->cogs(31, 'channel_order_line')->state, $this->cogs(31, 'channel_order_line')->amount]);
+        $this->assertFalse($missing->fresh()->is_effective);
+    }
+
     public function test_the_storefront_waits_for_delivery_and_a_marketplace_for_shipping(): void
     {
         $this->stock(10, '10', 'inv-1');

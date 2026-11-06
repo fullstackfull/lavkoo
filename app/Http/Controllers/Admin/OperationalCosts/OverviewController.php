@@ -55,7 +55,7 @@ class OverviewController extends Controller
             'missingReasons' => (clone $missingInPeriod)->selectRaw('missing_reason, count(*) as total')->groupBy('missing_reason')->orderByDesc('total')->limit(self::REASON_LIMIT)->get(),
             'unapprovedInvoices' => SellerScope::apply(OperationalCostInvoice::query()->whereIn('status', [OperationalCostInvoice::STATUS_DRAFT, OperationalCostInvoice::STATUS_UNDER_REVIEW]), $seller)->count(),
             'openDifferences' => $this->openDifferences($seller),
-            'disputedEntries' => SellerScope::apply(OperationalCostEntry::query()->effective()->inState(CostState::Disputed), $seller)->count(),
+            'disputedEntries' => SellerScope::apply(OperationalCostEntry::query()->openDisputes(), $seller)->count(),
         ]);
     }
 

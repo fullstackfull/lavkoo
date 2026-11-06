@@ -3,6 +3,7 @@
 @use('App\Http\Controllers\Admin\OperationalCosts\CostFormat')
 @use('App\Http\Controllers\Admin\OperationalCosts\CostLabels')
 @use('App\Http\Controllers\Admin\OperationalCosts\CostTones')
+@use('App\Http\Controllers\Admin\OperationalCosts\Filters\InvoiceFilters')
 
 @section('title', translate('invoices_and_reconciliation'))
 
@@ -35,7 +36,7 @@
                     <select class="form-select form-select-sm" id="filter-status" name="status">
                         <option value="">{{ translate('all') }}</option>
                         @foreach ($statuses as $status)
-                            <option value="{{ $status }}" @selected($filters->status === $status)>{{ $status === 'unapproved' ? translate('not_approved_yet') : CostLabels::of('invoice_status', $status) }}</option>
+                            <option value="{{ $status }}" @selected($filters->status === $status)>{{ $status === InvoiceFilters::UNAPPROVED ? translate('not_approved_yet') : CostLabels::of('invoice_status', $status) }}</option>
                         @endforeach
                     </select>
                 </div>

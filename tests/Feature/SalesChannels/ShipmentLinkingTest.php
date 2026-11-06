@@ -137,6 +137,37 @@ class ShipmentLinkingTest extends TestCase
         $this->assertSame('TOR-2', $mapping->refresh()->shipment_reference);
     }
 
+    public function test_unlinking_puts_back_the_tracking_the_channel_reported_before_the_link(): void
+    {
+        $mapping = $this->order('111', '900', ['carrier' => 'Trendyol Express', 'trackingNumber' => 'CHANNEL-1', 'trackingUrl' => 'https://track.example/CHANNEL-1']);
+        $this->assertSame(['CHANNEL-1', 'Trendyol Express'], [$mapping->tracking_number, $mapping->carrier]);
+        $snapshotBefore = (array) $mapping->snapshot;
+
+        $linked = $this->linker->link($mapping, 'torod_point', 'TOR-123', 1, trackingNumber: 'TRK-9', carrier: 'SMSA');
+        $this->assertSame(['TRK-9', 'SMSA'], [$linked->tracking_number, $linked->carrier]);
+
+        $unlinked = $this->linker->unlink($linked->refresh(), 1, 'linked by mistake');
+
+        $this->assertSame([ExternalOrderMapping::LINK_UNLINKED, null, 'CHANNEL-1', 'Trendyol Express', 'https://track.example/CHANNEL-1'], [
+            $unlinked->shipment_link_state, $unlinked->shipment_reference, $unlinked->tracking_number, $unlinked->carrier, $unlinked->tracking_url,
+        ]);
+        $this->assertSame($snapshotBefore, (array) $unlinked->snapshot, 'The snapshot is what it was before the link.');
+    }
+
+    public function test_the_link_resolves_only_its_own_review_reasons(): void
+    {
+        $ambiguous = $this->order('111', '900');
+        $ambiguous->forceFill(['shipment_link_state' => ExternalOrderMapping::LINK_NEEDS_REVIEW, 'review_reason' => 'ambiguous_shipment'])->save();
+        $this->assertNull($this->linker->link($ambiguous->refresh(), 'torod_point', 'TOR-1', 1)->review_reason);
+
+        $unrelated = $this->order('112', '901');
+        $unrelated->forceFill(['review_reason' => 'modified_after_routing'])->save();
+        $linked = $this->linker->link($unrelated->refresh(), 'torod_point', 'TOR-2', 1);
+        $this->assertSame('modified_after_routing', $linked->review_reason, 'A person still has to look at the change after routing.');
+
+        $this->assertSame('modified_after_routing', $this->linker->unlink($linked->refresh(), 1, 'undo')->review_reason);
+    }
+
     public function test_orders_that_cannot_have_a_provider_shipment_are_refused(): void
     {
         $fba = $this->order('F', '', ['fulfillmentMode' => FulfillmentMode::Fba]);
@@ -299,5 +330,16 @@ class ShipmentLinkingTest extends TestCase
         $request = Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'shipmentConfirmation'))->first()[0];
         $this->assertSame(['Other', 'SMSA Express', 'TRK-5'], [$request->data()['packageDetail']['carrierCode'], $request->data()['packageDetail']['carrierName'], $request->data()['packageDetail']['trackingNumber']]);
         $this->assertSame([['orderItemId' => '44000000000001', 'quantity' => 2]], $request->data()['packageDetail']['orderItems']);
+    }
+
+    public function test_a_later_sync_does_not_overwrite_the_tracking_of_a_linked_shipment(): void
+    {
+        $mapping = $this->order('111', '900', ['carrier' => 'Trendyol Express', 'trackingNumber' => 'CHANNEL-1']);
+        $this->linker->link($mapping, 'torod_point', 'TOR-123', 1, trackingNumber: 'TRK-9', carrier: 'SMSA');
+
+        $refreshed = $this->remoteOrder('111', '900', ChannelOrderStatus::New, null, '2026-11-10 12:00:00', ['fulfillmentMode' => FulfillmentMode::MerchantManaged, 'fulfillmentChannelRaw' => 'seller_pays', 'carrier' => 'Trendyol Express', 'trackingNumber' => 'CHANNEL-2']);
+        $result = app(ChannelOrderIngestor::class)->ingest($this->account, $refreshed);
+
+        $this->assertSame(['TRK-9', 'SMSA', 'TOR-123'], [$result->mapping->tracking_number, $result->mapping->carrier, $result->mapping->shipment_reference]);
     }
 }

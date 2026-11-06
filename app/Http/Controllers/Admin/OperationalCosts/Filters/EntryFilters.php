@@ -24,6 +24,9 @@ final readonly class EntryFilters
 
     public const VIEW_MISSING = 'missing';
 
+    /** The tabs of the entries page, in the order they are shown. */
+    public const VIEWS = [self::VIEW_ALL, 'shipment', 'storage', 'marketplace', 'payment', self::VIEW_MISSING];
+
     /** The tabs of the entries page: the cost classes that have a tab of their own. */
     private const VIEW_CLASSES = [
         'shipment' => CostClass::Fulfillment,
@@ -57,7 +60,7 @@ final readonly class EntryFilters
     public static function fromRequest(Request $request, ?string $forcedView = null): self
     {
         $view = $forcedView ?? QueryInput::text($request, 'view');
-        $view = in_array($view, [self::VIEW_ALL, self::VIEW_MISSING, ...array_keys(self::VIEW_CLASSES)], true) ? $view : self::VIEW_ALL;
+        $view = in_array($view, self::VIEWS, true) ? $view : self::VIEW_ALL;
         $datesSent = QueryInput::sent($request, 'from') || QueryInput::sent($request, 'to');
         $defaultPeriod = $datesSent || $view === self::VIEW_MISSING ? null : ReportPeriod::currentMonth();
         $subject = QueryInput::text($request, 'subject');
@@ -66,7 +69,7 @@ final readonly class EntryFilters
             view: $view,
             component: CostComponent::tryFrom((string) QueryInput::text($request, 'component')),
             costClass: CostClass::tryFrom((string) QueryInput::text($request, 'class')),
-            state: CostState::tryFrom((string) QueryInput::text($request, 'state')),
+            state: $view === self::VIEW_MISSING ? null : CostState::tryFrom((string) QueryInput::text($request, 'state')),
             provider: QueryInput::text($request, 'provider'),
             salesChannel: SalesChannel::tryFrom((string) QueryInput::text($request, 'channel'))?->value,
             accountId: QueryInput::integer($request, 'account'),

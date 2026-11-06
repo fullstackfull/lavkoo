@@ -120,24 +120,31 @@ class CostEntryController extends Controller
 
     /**
      * The totals of the entries listed, one line for each state, so that an estimate, a real charge, a cost in dispute and a cost nobody could determine are
-     * never added into one number. A line says how many entries it counts and, when some have no amount in the reporting currency, how many of them are left out.
+     * never added into one number. A line says how many entries it counts and, when some have no amount in the reporting currency, how many of them are left out
+     * of its total.
      *
-     * @return list<array{state: CostState, currency: ?string, entries: int, total: ?Money, unconverted: int}>
+     * @return list<array{state: CostState, entries: int, totals: array<string, Money>, unconverted: int}>
      */
     private function summary(EntryFilters $filters): array
     {
-        $lines = $filters->query()->toBase()->reorder()
+        $groups = $filters->query()->toBase()->reorder()
             ->selectRaw('state, base_currency, count(*) as entries, sum(base_amount) as base_total, sum(case when amount is not null and base_amount is null then 1 else 0 end) as unconverted')
-            ->groupBy('state', 'base_currency')->get()
-            ->map(static fn (object $line): array => [
-                'state' => CostState::from($line->state),
-                'currency' => $line->base_currency,
-                'entries' => (int) $line->entries,
-                'total' => Money::ofNullable($line->base_total),
-                'unconverted' => (int) $line->unconverted,
-            ]);
+            ->groupBy('state', 'base_currency')->get();
 
-        return $lines->sortBy(static fn (array $line): int => (int) array_search($line['state'], self::SUMMARY_ORDER, true))->values()->all();
+        $lines = [];
+        foreach ($groups as $group) {
+            $line = $lines[$group->state] ?? ['state' => CostState::from($group->state), 'entries' => 0, 'totals' => [], 'unconverted' => 0];
+            $line['entries'] += (int) $group->entries;
+            $line['unconverted'] += (int) $group->unconverted;
+            if ($group->base_currency !== null && $group->base_total !== null) {
+                $line['totals'][$group->base_currency] = Money::of($group->base_total);
+            }
+            $lines[$group->state] = $line;
+        }
+
+        usort($lines, static fn (array $a, array $b): int => array_search($a['state'], self::SUMMARY_ORDER, true) <=> array_search($b['state'], self::SUMMARY_ORDER, true));
+
+        return $lines;
     }
 
     /**

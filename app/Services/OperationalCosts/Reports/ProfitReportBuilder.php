@@ -38,17 +38,19 @@ class ProfitReportBuilder
         private readonly ProfitAggregator $aggregator,
         private readonly ProductProfitability $products,
         private readonly ProductNames $productNames,
+        private readonly int $documentLimit = self::DOCUMENT_LIMIT,
+        private readonly int $productDocumentLimit = self::PRODUCT_DOCUMENT_LIMIT,
     ) {
     }
 
-    public static function limitFor(string $dimension): int
+    public function limitFor(string $dimension): int
     {
-        return $dimension === self::DIMENSION_PRODUCT ? self::PRODUCT_DOCUMENT_LIMIT : self::DOCUMENT_LIMIT;
+        return $dimension === self::DIMENSION_PRODUCT ? $this->productDocumentLimit : $this->documentLimit;
     }
 
     public function build(ProfitFilters $filters, string $dimension): ProfitReport
     {
-        $limit = self::limitFor($dimension);
+        $limit = $this->limitFor($dimension);
         $documents = [];
         $truncated = false;
         foreach ($this->sales($filters) as $document) {

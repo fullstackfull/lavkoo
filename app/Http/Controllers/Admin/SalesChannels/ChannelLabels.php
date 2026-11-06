@@ -36,11 +36,10 @@ final class ChannelLabels
             'no_linked_shipment_with_tracking', 'already_notified', 'fulfillment_dispatch_off', 'dry_run', 'channel_did_not_confirm', 'channel_notify_error',
             'order_pending', 'order_awaiting_review', 'order_delivered', 'order_cancelled', 'order_returned', 'order_failed',
         ],
-        'run_result_' => ['ok', 'skipped', 'busy', 'rate_limited', 'failed'],
-        'sync_resource_' => ['orders', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'],
+        'sync_resource_' => ['orders', 'returns', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'],
         'run_stat_' => [
             'pages', 'created', 'updated', 'unchanged', 'stale', 'needs_review', 'skipped', 'decisions', 'linked', 'suggested', 'conflicts', 'unseen', 'stored', 'unlinked',
-            'new', 'duplicates', 'costs_recorded', 'considered', 'sent', 'accepted', 'failed', 'applied', 'unconfirmed', 'pending',
+            'new', 'duplicates', 'costs_recorded', 'considered', 'sent', 'accepted', 'failed', 'applied', 'unconfirmed', 'pending', 'unknown_order',
         ],
         'publish_skip_' => [
             'fba_listing', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
@@ -90,11 +89,10 @@ final class ChannelLabels
         'channel_reason_no_linked_shipment_with_tracking', 'channel_reason_already_notified', 'channel_reason_fulfillment_dispatch_off', 'channel_reason_dry_run',
         'channel_reason_channel_did_not_confirm', 'channel_reason_channel_notify_error', 'channel_reason_order_pending', 'channel_reason_order_awaiting_review',
         'channel_reason_order_delivered', 'channel_reason_order_cancelled', 'channel_reason_order_returned', 'channel_reason_order_failed',
-        'run_result_ok', 'run_result_skipped', 'run_result_busy', 'run_result_rate_limited', 'run_result_failed',
-        'sync_resource_orders', 'sync_resource_listings', 'sync_resource_inventory', 'sync_resource_finances', 'sync_resource_publish_stock', 'sync_resource_publish_price',
+        'sync_resource_orders', 'sync_resource_returns', 'sync_resource_listings', 'sync_resource_inventory', 'sync_resource_finances', 'sync_resource_publish_stock', 'sync_resource_publish_price',
         'run_stat_pages', 'run_stat_created', 'run_stat_updated', 'run_stat_unchanged', 'run_stat_stale', 'run_stat_needs_review', 'run_stat_skipped', 'run_stat_decisions',
         'run_stat_linked', 'run_stat_suggested', 'run_stat_conflicts', 'run_stat_unseen', 'run_stat_stored', 'run_stat_unlinked', 'run_stat_new', 'run_stat_duplicates',
-        'run_stat_costs_recorded', 'run_stat_considered', 'run_stat_sent', 'run_stat_accepted', 'run_stat_failed', 'run_stat_applied', 'run_stat_unconfirmed', 'run_stat_pending',
+        'run_stat_costs_recorded', 'run_stat_considered', 'run_stat_sent', 'run_stat_accepted', 'run_stat_failed', 'run_stat_applied', 'run_stat_unconfirmed', 'run_stat_pending', 'run_stat_unknown_order',
         'publish_skip_fba_listing', 'publish_skip_no_stock_source', 'publish_skip_location_not_for_this_channel', 'publish_skip_stock_not_confirmed', 'publish_skip_unchanged',
         'publish_skip_awaiting_result', 'publish_skip_failed_repeatedly', 'publish_skip_channel_owns_price', 'publish_skip_storefront_price_not_supported',
         'publish_skip_no_manual_price', 'publish_skip_price_not_positive',
@@ -179,11 +177,6 @@ final class ChannelLabels
     public function channelReason(?string $code): string
     {
         return $this->label('channel_reason_', $code);
-    }
-
-    public function runResult(string $result): string
-    {
-        return $this->label('run_result_', $result);
     }
 
     public function syncResource(string $resource): string

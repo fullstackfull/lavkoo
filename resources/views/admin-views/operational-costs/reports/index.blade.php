@@ -1,6 +1,7 @@
 @extends('layouts.admin.app')
 
 @use('App\Http\Controllers\Admin\OperationalCosts\CostLabels')
+@use('App\Http\Controllers\Admin\OperationalCosts\Filters\InvoiceFilters')
 @use('App\Services\OperationalCosts\Reports\ProfitFilters')
 @use('App\Http\Controllers\Admin\OperationalCosts\Filters\SellerScope')
 
@@ -37,8 +38,8 @@
                             <label class="form-label fs-12" for="entries-component">{{ translate('component') }}</label>
                             <select class="form-select form-select-sm" id="entries-component" name="component">
                                 <option value="">{{ translate('all') }}</option>
-                                @foreach ($components as $component)
-                                    <option value="{{ $component->value }}">{{ translate($component->labelKey()) }}</option>
+                                @foreach ($components as $costComponent)
+                                    <option value="{{ $costComponent->value }}">{{ translate($costComponent->labelKey()) }}</option>
                                 @endforeach
                             </select>
                         </div>
@@ -142,7 +143,7 @@
                             <select class="form-select form-select-sm" id="invoices-status" name="status">
                                 <option value="">{{ translate('all') }}</option>
                                 @foreach ($invoiceStatuses as $status)
-                                    <option value="{{ $status }}">{{ $status === 'unapproved' ? translate('not_approved_yet') : CostLabels::of('invoice_status', $status) }}</option>
+                                    <option value="{{ $status }}">{{ $status === InvoiceFilters::UNAPPROVED ? translate('not_approved_yet') : CostLabels::of('invoice_status', $status) }}</option>
                                 @endforeach
                             </select>
                         </div>

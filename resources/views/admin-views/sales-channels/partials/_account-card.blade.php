@@ -1,4 +1,4 @@
-{{-- One account on the hub. Expects $card (HubSummary::cards()) and $labels, $resources. --}}
+{{-- One account on the hub. Expects $card (HubSummary::cards()) and $labels. --}}
 @php
     $account = $card['account'];
     $writeState = $card['writeState'];
@@ -40,7 +40,7 @@
 
     <div class="mb-3 fs-12">
         <div class="fw-semibold mb-1">{{ translate('last_sync') }}</div>
-        @foreach ($resources as $resource)
+        @foreach ($card['resources'] as $resource)
             @php($state = $states->get($resource))
             <div class="d-flex justify-content-between gap-2 border-bottom py-1">
                 <span>{{ $labels->syncResource($resource) }}</span>

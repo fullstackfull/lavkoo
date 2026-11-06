@@ -12,6 +12,9 @@ use App\Services\OperationalCosts\Support\Money;
  * The figures are the services' own and are not computed again here: this puts the two shapes they come in (a grouped ProfitRow, one sale's ProfitResult) behind
  * one, so the page and the export read the same thing. Estimated and actual stay two sets of figures. A line says how many sales have a gap
  * (`incompleteEstimated`, `incompleteActual`) and how many costs are missing; a single sale also says how many of its services still wait for the real charge.
+ *
+ * A sale no cost was recorded for at all is not `costed`: the profit service calls it complete because nothing of it is missing, but its cost and profit are not
+ * known, so the line gives none (a dash on a page, an empty cell in a file) rather than a cost of zero and a profit equal to the revenue.
  */
 final readonly class ProfitLine
 {
@@ -25,6 +28,7 @@ final readonly class ProfitLine
         public ?int $pending,
         public int $incompleteEstimated,
         public int $incompleteActual,
+        public bool $costed = true,
     ) {
     }
 
@@ -46,6 +50,8 @@ final readonly class ProfitLine
 
     public static function ofResult(ProfitResult $result): self
     {
+        $costed = $result->buckets !== [];
+
         return new self(
             source: $result,
             key: $result->subjectType . ':' . $result->subjectId,
@@ -54,8 +60,9 @@ final readonly class ProfitLine
             units: null,
             missing: count($result->missingComponents),
             pending: count($result->pendingActualComponents),
-            incompleteEstimated: $result->estimatedComplete() ? 0 : 1,
-            incompleteActual: $result->actualComplete() ? 0 : 1,
+            incompleteEstimated: $costed && $result->estimatedComplete() ? 0 : 1,
+            incompleteActual: $costed && $result->actualComplete() ? 0 : 1,
+            costed: $costed,
         );
     }
 
@@ -64,14 +71,14 @@ final readonly class ProfitLine
         return $this->source->revenue;
     }
 
-    public function estimatedCost(): Money
+    public function estimatedCost(): ?Money
     {
-        return $this->source->estimatedCost;
+        return $this->costed ? $this->source->estimatedCost : null;
     }
 
-    public function actualCost(): Money
+    public function actualCost(): ?Money
     {
-        return $this->source->actualCost;
+        return $this->costed ? $this->source->actualCost : null;
     }
 
     public function disputedCost(): Money
@@ -79,24 +86,24 @@ final readonly class ProfitLine
         return $this->source->disputedCost;
     }
 
-    public function estimatedProfit(): Money
+    public function estimatedProfit(): ?Money
     {
-        return $this->source->estimatedProfit();
+        return $this->costed ? $this->source->estimatedProfit() : null;
     }
 
-    public function actualProfit(): Money
+    public function actualProfit(): ?Money
     {
-        return $this->source->actualProfit();
+        return $this->costed ? $this->source->actualProfit() : null;
     }
 
     public function estimatedMarginPercent(): ?Money
     {
-        return $this->source->estimatedMarginPercent();
+        return $this->costed ? $this->source->estimatedMarginPercent() : null;
     }
 
     public function actualMarginPercent(): ?Money
     {
-        return $this->source->actualMarginPercent();
+        return $this->costed ? $this->source->actualMarginPercent() : null;
     }
 
     public function subjectType(): ?string

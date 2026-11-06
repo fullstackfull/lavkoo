@@ -102,6 +102,10 @@ class ChannelOrderIngestor
         $regression = $incoming->rank() < $held->rank() && !in_array($incoming, [ChannelOrderStatus::Cancelled, ChannelOrderStatus::Returned, ChannelOrderStatus::Failed], true);
 
         $fields = $this->fields($mapping->account ?? SalesChannelAccount::findOrFail($mapping->account_id), $remote);
+        if ($mapping->shipment_link_state === ExternalOrderMapping::LINK_LINKED) {
+            // The linked shipment's carrier and tracking number are what the order was linked to; the channel's own (often empty) values must not wipe them.
+            unset($fields['carrier'], $fields['tracking_number'], $fields['tracking_url']);
+        }
         if ($regression) {
             unset($fields['status'], $fields['shipped_at'], $fields['delivered_at']);
             $changes[] = 'status_regression_ignored';

@@ -84,11 +84,11 @@
             <x-k.card :title="translate('what_the_contract_is_expected_to_price')" class="mb-3">
                 <p class="fs-12 text-muted">{{ translate('expected_services_help') }}</p>
                 <div class="row g-2">
-                    @foreach ($components as $component)
+                    @foreach ($components as $costComponent)
                         <div class="col-sm-6 col-lg-4">
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="expected-{{ $component->value }}" name="expected_components[]" value="{{ $component->value }}" @checked(in_array($component->value, $expected, true))>
-                                <label class="form-check-label fs-12" for="expected-{{ $component->value }}">{{ translate($component->labelKey()) }}</label>
+                                <input class="form-check-input" type="checkbox" id="expected-{{ $costComponent->value }}" name="expected_components[]" value="{{ $costComponent->value }}" @checked(in_array($costComponent->value, $expected, true))>
+                                <label class="form-check-label fs-12" for="expected-{{ $costComponent->value }}">{{ translate($costComponent->labelKey()) }}</label>
                             </div>
                         </div>
                     @endforeach

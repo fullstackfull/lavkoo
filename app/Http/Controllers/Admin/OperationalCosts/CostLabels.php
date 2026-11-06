@@ -27,6 +27,7 @@ final class CostLabels
         'missing_reason_service_level_unknown', 'missing_reason_weight_unknown', 'missing_reason_value_unknown', 'missing_reason_volume_unknown',
         'missing_reason_destination_unknown', 'missing_reason_stock_unknown', 'missing_reason_awaiting_channel_statement', 'missing_reason_product_cost_unknown',
         'missing_reason_inventory_location_unknown', 'missing_reason_cost_layers_short', 'missing_reason_supplier_cost_unknown', 'missing_reason_fx_unavailable',
+        'missing_reason_product_not_linked',
 
         // Where a cost entry came from, what it is about, and whether it has been split.
         'entry_source_rule', 'entry_source_invoice', 'entry_source_layer', 'entry_source_provider_field', 'entry_source_manual', 'entry_source_channel_api',
@@ -85,6 +86,15 @@ final class CostLabels
         $key = $family . '_' . $value;
 
         return in_array($key, self::TRANSLATION_KEYS, true) ? (string) translate($key) : $value;
+    }
+
+    /** A translated sentence with its :placeholders filled in, so that a translator can set each number where the sentence needs it. */
+    public static function filled(?string $sentence, array $values): string
+    {
+        return strtr((string) $sentence, array_combine(
+            array_map(static fn (string $name): string => ':' . $name, array_keys($values)),
+            array_map(strval(...), $values),
+        ));
     }
 
     /** A sales channel by name; a channel this version does not know is shown as it is. */

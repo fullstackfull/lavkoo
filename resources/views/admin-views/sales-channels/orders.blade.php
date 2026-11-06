@@ -108,7 +108,7 @@
                                 <a href="{{ route('admin.sales-channels.orders.show', $order) }}">{{ $order->external_order_id }}</a>
                                 @if ($order->external_package_id !== '')<div class="fs-10 text-muted">{{ translate('package') }} {{ $order->external_package_id }}</div>@endif
                             </td>
-                            <td>{{ $order->account?->name ?? '—' }}<div class="fs-10 text-muted">{{ translate(($order->account?->channelCode()?->labelKey()) ?? 'channel') }}</div></td>
+                            <td>{{ $order->account?->name ?? '—' }}<div class="fs-10 text-muted">{{ translate(($order->account?->channelCode()?->labelKey()) ?? 'channel') }} · {{ translate('seller') }}: {{ $order->seller_id === 0 ? translate('platform') : '#' . $order->seller_id }}</div></td>
                             <td class="fs-12">{{ $order->purchased_at?->format('Y-m-d H:i') ?? '—' }}</td>
                             <td>@include('admin-views.sales-channels.partials._order-status', ['status' => $order->orderStatus()])
                                 @if ($order->external_status)<div class="fs-10 text-muted">{{ $order->external_status }}</div>@endif</td>

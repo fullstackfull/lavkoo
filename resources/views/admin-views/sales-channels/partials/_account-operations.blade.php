@@ -1,5 +1,5 @@
 {{-- What calls the channel: syncs (reads) and publishes (writes). Each is a button that posts; opening this page calls nothing.
-     Expects $account, $writeState, $syncStates, $publishing, $labels, $errors. --}}
+     Expects $account, $writeState, $syncStates, $syncResources, $syncSupported, $publishing, $labels, $errors. --}}
 @use('Illuminate\Support\Str')
 <x-k.card :title="translate('synchronise')" :padded="false" class="mb-3">
     <p class="fs-12 text-muted p-3 pb-0 mb-0">{{ translate('synchronise_help') }}</p>
@@ -9,18 +9,26 @@
                 <th>{{ translate('resource') }}</th><th>{{ translate('status') }}</th><th>{{ translate('last_success') }}</th><th>{{ translate('last_run_result') }}</th><th></th>
             </tr></thead>
             <tbody>
-            @foreach (['orders', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'] as $resource)
-                @php($state = $syncStates->get($resource))
-                @continue($state === null && str_starts_with($resource, 'publish_'))
+            @foreach ([...$syncResources, 'publish_stock', 'publish_price'] as $resource)
+                @php
+                    $state = $syncStates->get($resource);
+                    $publishes = str_starts_with($resource, 'publish_');
+                    $supported = $publishes || in_array($resource, $syncSupported, true);
+                @endphp
+                @continue($state === null && $publishes)
                 <tr>
                     <td>{{ $labels->syncResource($resource) }}</td>
+                    @unless ($supported)
+                        <td colspan="4" class="fs-12 text-muted">{{ translate('this_channel_has_nothing_to_read_here') }}</td>
+                    @else
                     <td>
                         @if ($state?->lease_expires_at?->isFuture())
                             <x-k.badge tone="info">{{ translate('running') }}</x-k.badge>
-                        @elseif ($state?->backoff_until?->isFuture())
-                            <x-k.badge tone="warning">{{ translate('backing_off_until') }} {{ $state->backoff_until->format('Y-m-d H:i') }}</x-k.badge>
                         @elseif (($state?->consecutive_failures ?? 0) > 0)
                             <x-k.badge tone="danger">{{ translate('failing') }} ({{ $state->consecutive_failures }})</x-k.badge>
+                            @if ($state->backoff_until?->isFuture())<x-k.badge tone="warning">{{ translate('backing_off_until') }} {{ $state->backoff_until->format('Y-m-d H:i') }}</x-k.badge>@endif
+                        @elseif ($state?->backoff_until?->isFuture())
+                            <x-k.badge tone="warning">{{ translate('backing_off_until') }} {{ $state->backoff_until->format('Y-m-d H:i') }}</x-k.badge>
                         @elseif ($state?->last_success_at)
                             <x-k.badge tone="success">{{ translate('ok') }}</x-k.badge>
                         @else
@@ -33,12 +41,13 @@
                         @if ($state?->stats)<div class="text-muted">{{ $labels->statsLine((array) $state->stats) }}</div>@endif
                     </td>
                     <td>
-                        @unless (str_starts_with($resource, 'publish_'))
+                        @unless ($publishes)
                             <form method="POST" action="{{ route('admin.sales-channels.accounts.sync', ['account' => $account, 'resource' => $resource]) }}">@csrf
                                 <button class="btn btn-outline-primary btn-sm" type="submit">{{ translate('sync_now') }}</button>
                             </form>
                         @endunless
                     </td>
+                    @endunless
                 </tr>
             @endforeach
             </tbody>

@@ -174,14 +174,95 @@ class CostLedgerTest extends TestCase
         $this->assertSame('0.000000', $net->toStorage());
     }
 
-    public function test_a_disputed_entry_is_flagged_and_can_be_resolved_either_way(): void
+    /** What the totals add up: every effective entry that is not in dispute. */
+    private function countedTotal(): string
+    {
+        return OperationalCostEntry::effective()->where('state', '!=', CostState::Disputed->value)->get()
+            ->reduce(fn (Money $sum, OperationalCostEntry $entry): Money => $sum->plus($entry->amount), Money::zero())->toStorage();
+    }
+
+    public function test_only_a_charge_can_be_disputed(): void
+    {
+        $estimate = $this->ledger->record($this->draft(CostState::Estimated, '12', 'rule-1'))->entry;
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->ledger->dispute($estimate, 'not a charge');
+    }
+
+    public function test_a_contested_charge_leaves_the_totals_and_comes_back_as_what_it_was_when_it_stands(): void
+    {
+        $entry = $this->ledger->record($this->draft(CostState::Actual, '13.5', 'invoice-line-9'))->entry;
+        $this->ledger->approve($entry, 1);
+        $this->ledger->markReconciled($entry->fresh(), 1);
+        $this->assertSame('13.500000', $this->countedTotal());
+
+        $this->ledger->dispute($entry->fresh(), 'overcharged');
+        $this->assertSame(CostState::Disputed, $entry->fresh()->state);
+        $this->assertSame('0.000000', $this->countedTotal(), 'A cost in dispute is in no total.');
+
+        $this->ledger->resolveDispute($entry->fresh(), true, 1, 'provider was right');
+
+        $fresh = $entry->fresh();
+        $this->assertSame([CostState::Reconciled, true], [$fresh->state, $fresh->approved_at !== null]);
+        $this->assertSame('13.500000', $this->countedTotal());
+        $this->assertSame(1, OperationalCostEntry::count(), 'Nothing was added: the charge simply counts again.');
+    }
+
+    public function test_a_charge_that_does_not_stand_is_cancelled_once_and_not_subtracted_a_second_time(): void
     {
         $entry = $this->ledger->record($this->draft(CostState::Actual, '13.5', 'invoice-line-9'))->entry;
         $this->ledger->dispute($entry, 'overcharged');
-        $this->assertSame(CostState::Disputed, $entry->fresh()->state);
+        $this->assertSame('0.000000', $this->countedTotal());
 
-        $this->ledger->resolveDispute($entry->fresh(), true, 1, 'provider was right');
+        $this->ledger->resolveDispute($entry->fresh(), false, 1, 'credit note received');
+
+        $this->assertSame('0.000000', $this->countedTotal(), 'The charge and its reversal cancel; the total is not driven negative.');
+        $this->assertSame(2, OperationalCostEntry::count());
         $this->assertSame(CostState::Actual, $entry->fresh()->state);
+        $this->assertSame('-13.500000', OperationalCostEntry::where('id', '!=', $entry->id)->firstOrFail()->amount);
+    }
+
+    public function test_a_figure_kept_beside_an_approved_one_replaces_it_when_it_stands(): void
+    {
+        $approved = $this->ledger->record($this->draft(CostState::Actual, '13.5', 'invoice-line-9'))->entry;
+        $this->ledger->approve($approved, 1);
+        $conflict = $this->ledger->record($this->draft(CostState::Actual, '20', 'invoice-line-77'))->entry;
+        $this->assertSame(CostState::Actual->value, $conflict->state_before_dispute);
+        $this->assertSame(1, OperationalCostEntry::openDisputes()->count());
+
+        $this->ledger->resolveDispute($conflict->fresh(), true, 1, 'the corrected invoice is right');
+
+        $this->assertSame([true, CostState::Actual], [$conflict->fresh()->is_effective, $conflict->fresh()->state]);
+        $this->assertSame([false, $conflict->id], [$approved->fresh()->is_effective, $approved->fresh()->superseded_by_id]);
+        $this->assertSame('13.500000', $approved->fresh()->amount, 'The approved figure itself is not edited.');
+        $this->assertSame('20.000000', $this->countedTotal(), 'The service is counted once, at the figure that stood.');
+        $this->assertSame(0, OperationalCostEntry::openDisputes()->count());
+    }
+
+    public function test_a_figure_kept_beside_an_approved_one_is_set_aside_when_it_does_not_stand(): void
+    {
+        $approved = $this->ledger->record($this->draft(CostState::Actual, '13.5', 'invoice-line-9'))->entry;
+        $this->ledger->approve($approved, 1);
+        $conflict = $this->ledger->record($this->draft(CostState::Actual, '20', 'invoice-line-77'))->entry;
+
+        $this->ledger->resolveDispute($conflict->fresh(), false, 1, 'late duplicate');
+
+        $this->assertSame([false, $approved->id, CostState::Actual], [$conflict->fresh()->is_effective, $conflict->fresh()->superseded_by_id, $conflict->fresh()->state]);
+        $this->assertTrue($approved->fresh()->is_effective);
+        $this->assertSame('13.500000', $this->countedTotal());
+        $this->assertSame(0, OperationalCostEntry::openDisputes()->count(), 'A decided conflict is not open any more.');
+    }
+
+    public function test_only_a_dispute_that_is_still_open_is_counted_as_one(): void
+    {
+        $contested = $this->ledger->record($this->draft(CostState::Actual, '5', 'a', serviceRef: 'a'))->entry;
+        $this->ledger->dispute($contested, 'why');
+        $superseded = $this->ledger->record($this->draft(CostState::Actual, '6', 'b', serviceRef: 'b'))->entry;
+        $this->ledger->dispute($superseded, 'why');
+        $this->ledger->record($this->draft(CostState::Reconciled, '6', 'b-reconciled', serviceRef: 'b'));
+
+        $this->assertFalse($superseded->fresh()->is_effective, 'A reconciled figure replaced the contested one.');
+        $this->assertSame([$contested->id], OperationalCostEntry::openDisputes()->pluck('id')->all());
     }
 
     public function test_entries_of_different_sellers_do_not_share_a_slot(): void

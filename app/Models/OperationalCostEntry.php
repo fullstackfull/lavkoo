@@ -104,6 +104,12 @@ class OperationalCostEntry extends Model
         return $query->where('is_effective', true);
     }
 
+    /** Costs somebody still has to settle: a charge that is contested, or a newer figure that was kept beside an approved one and not yet decided. */
+    public function scopeOpenDisputes(Builder $query): Builder
+    {
+        return $query->inState(CostState::Disputed)->where(static fn (Builder $open): Builder => $open->where('is_effective', true)->orWhereNull('superseded_by_id'));
+    }
+
     public function scopeInState(Builder $query, CostState ...$states): Builder
     {
         return $query->whereIn('state', array_map(static fn (CostState $state): string => $state->value, $states));

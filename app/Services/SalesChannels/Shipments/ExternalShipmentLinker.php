@@ -24,6 +24,9 @@ class ExternalShipmentLinker
     public const NOT_FOUND = 'not_found';
     public const UNAVAILABLE = 'lookup_unavailable';
 
+    /** Review reasons this class raises or that a link resolves. */
+    private const OWN_REASONS = ['ambiguous_shipment', 'shipment_linked_elsewhere', 'managed_dispatch_not_available', 'no_rule_matched'];
+
     public function __construct(
         private readonly ExternalShipmentLookup $lookup,
         private readonly AuditLogger $audit,
@@ -75,6 +78,12 @@ class ExternalShipmentLinker
             $locked = ExternalOrderMapping::whereKey($mapping->id)->lockForUpdate()->firstOrFail();
             $this->assertLinkable($locked, $provider, $reference);
 
+            $snapshot = (array) $locked->snapshot;
+            // What the order held before the link, so that unlinking puts it back: the channel's own tracking data share these columns.
+            $snapshot['shipment_link'] = ($locked->shipment_link_state === ExternalOrderMapping::LINK_LINKED ? ($snapshot['shipment_link'] ?? []) : [
+                'previous' => ['provider' => $locked->provider, 'tracking_number' => $locked->tracking_number, 'tracking_url' => $locked->tracking_url, 'carrier' => $locked->carrier],
+            ]) + ['linked_at' => now()->toIso8601String(), 'by' => $adminId];
+
             try {
                 $locked->forceFill([
                     'execution_policy' => ExecutionPolicy::ExternallyManaged->value,
@@ -85,7 +94,8 @@ class ExternalShipmentLinker
                     'tracking_number' => $trackingNumber ?? $locked->tracking_number,
                     'carrier' => $carrier ?? $locked->carrier,
                     'shipment_checked_at' => now(),
-                    'review_reason' => in_array($locked->review_reason, ['ambiguous_shipment', 'shipment_linked_elsewhere', 'managed_dispatch_not_available', 'no_rule_matched'], true) ? null : $locked->review_reason,
+                    'review_reason' => in_array($locked->review_reason, self::OWN_REASONS, true) ? null : $locked->review_reason,
+                    'snapshot' => $snapshot,
                 ])->save();
             } catch (UniqueConstraintViolationException) {
                 throw new ShipmentLinkRefused('That shipment is already linked to another order.');
@@ -98,7 +108,18 @@ class ExternalShipmentLinker
 
     public function unlink(ExternalOrderMapping $mapping, ?int $adminId, string $reason): ExternalOrderMapping
     {
-        $mapping->forceFill(['shipment_link_state' => ExternalOrderMapping::LINK_UNLINKED, 'shipment_reference' => null, 'shipment_status' => null, 'shipment_checked_at' => null])->save();
+        $snapshot = (array) $mapping->snapshot;
+        $previous = (array) ($snapshot['shipment_link']['previous'] ?? []);
+        unset($snapshot['shipment_link']);
+
+        $mapping->forceFill([
+            'shipment_link_state' => ExternalOrderMapping::LINK_UNLINKED,
+            'shipment_reference' => null,
+            'shipment_status' => null,
+            'shipment_checked_at' => null,
+            'review_reason' => in_array($mapping->review_reason, self::OWN_REASONS, true) ? null : $mapping->review_reason,
+            'snapshot' => $snapshot,
+        ] + ($previous === [] ? [] : array_intersect_key($previous, array_flip(['provider', 'tracking_number', 'tracking_url', 'carrier']))))->save();
         $this->audit->record(action: 'sales_channel.shipment_unlinked', subject: $mapping, context: ['mapping_id' => $mapping->id, 'by' => $adminId, 'reason' => $reason]);
 
         return $mapping;

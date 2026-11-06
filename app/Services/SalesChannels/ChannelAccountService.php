@@ -68,9 +68,9 @@ class ChannelAccountService
                 'name' => mb_substr($name, 0, 120),
                 'seller_id' => (int) ($data['seller_id'] ?? 0),
                 'environment' => $environment->value,
-                'market' => ($data['market'] ?? null) ?: ($channel === SalesChannel::Amazon ? $settings['region'] : $settings['storefront_code']),
+                'market' => ($data['market'] ?? null) ?: $this->marketFor($channel->value, $settings),
                 'external_account_id' => ($data['external_account_id'] ?? null) ?: null,
-                'marketplace_ids' => $channel === SalesChannel::Amazon ? $settings['marketplace_ids'] : ($settings['storefront_code'] === '' ? [] : [$settings['storefront_code']]),
+                'marketplace_ids' => $this->marketplaceIdsFor($channel->value, $settings),
                 'currency' => ($data['currency'] ?? null) ? strtoupper((string) $data['currency']) : null,
                 'enabled' => false,
                 'write_enabled' => false,
@@ -101,6 +101,7 @@ class ChannelAccountService
     public function update(SalesChannelAccount $account, array $data, array $secrets, array $clearSecrets, ?int $adminId): SalesChannelAccount
     {
         $before = $account->only(['name', 'environment', 'market', 'external_account_id', 'currency', 'execution_policy', 'settings']);
+        $identityBefore = $this->identityOf($account);
         $account->fill(array_filter([
             'name' => isset($data['name']) ? mb_substr(trim((string) $data['name']), 0, 120) : null,
             'environment' => isset($data['environment']) ? (AccountEnvironment::tryFrom((string) $data['environment'])?->value ?? throw new InvalidArgumentException('The environment is production or sandbox.')) : null,
@@ -111,6 +112,11 @@ class ChannelAccountService
         ], static fn ($value): bool => $value !== null));
         if (isset($data['settings'])) {
             $account->settings = ChannelSettings::validate($account->channel, array_replace($account->settings ?? [], (array) $data['settings']));
+            // The connectors read these two columns, not the settings: they follow the settings, whatever the form sent.
+            $account->marketplace_ids = $this->marketplaceIdsFor($account->channel, $account->settings);
+            if (!isset($data['market'])) {
+                $account->market = $this->marketFor($account->channel, $account->settings) ?? $account->market;
+            }
         }
         $credentialsChanged = $secrets !== [] || $clearSecrets !== [];
         $account->updated_by = $adminId;
@@ -119,11 +125,69 @@ class ChannelAccountService
         $changed = $this->credentials->save($account, $secrets, $clearSecrets);
         if ($credentialsChanged && $changed !== []) {
             // New credentials have not been proven: the account must be tested again before anything leans on the old result.
-            $account->forceFill(['connection_status' => ConnectionStatus::Untested->value, 'connection_checked_at' => null, 'connection_message' => null])->save();
+            $this->forgetConnection($account);
+        }
+        if ($this->identityOf($account) !== $identityBefore) {
+            $this->resetForNewIdentity($account, $adminId);
         }
         $this->audit->record(action: 'sales_channel.account_updated', subject: $account, before: $before, after: $account->only(array_keys($before)), context: ['secrets_changed' => $changed, 'by' => $adminId]);
 
         return $account;
+    }
+
+    /**
+     * Which seller, where. Anything that approved or proved something about this account was approved or proved for THIS identity.
+     *
+     * @return array<string, mixed>
+     */
+    private function identityOf(SalesChannelAccount $account): array
+    {
+        $marketplaces = array_map('strval', (array) ($account->marketplace_ids ?? []));
+        sort($marketplaces);
+
+        return ['seller' => (string) $account->external_account_id, 'environment' => (string) $account->environment, 'market' => (string) $account->market, 'marketplaces' => $marketplaces];
+    }
+
+    /**
+     * The account now points at a different seller, environment or market. The last test, every approval and the write permission described the old one, so they are
+     * withdrawn: only the connection test stays switched on, writes are forbidden, dry run is back on, and each step has to be earned again for the new identity.
+     */
+    private function resetForNewIdentity(SalesChannelAccount $account, ?int $adminId): void
+    {
+        $this->forgetConnection($account);
+        $account->forceFill([
+            'capabilities' => array_values(array_intersect($this->held($account), [IntegrationCapability::ConnectionTest->value])),
+            'capability_approvals' => [],
+            'write_enabled' => false,
+            'dry_run' => true,
+        ])->save();
+        $this->audit->record(action: 'sales_channel.identity_changed', subject: $account, context: ['by' => $adminId, 'withdrawn' => 'connection result, approvals, write permission and every step above the connection test']);
+    }
+
+    private function forgetConnection(SalesChannelAccount $account): void
+    {
+        $account->forceFill(['connection_status' => ConnectionStatus::Untested->value, 'connection_checked_at' => null, 'connection_message' => null, 'granted_permissions' => [], 'missing_permissions' => []])->save();
+    }
+
+    /**
+     * @param array<string, mixed> $settings
+     * @return list<string>
+     */
+    private function marketplaceIdsFor(string $channel, array $settings): array
+    {
+        if ($channel === SalesChannel::Amazon->value) {
+            return array_values((array) ($settings['marketplace_ids'] ?? []));
+        }
+
+        return ($settings['storefront_code'] ?? '') === '' ? [] : [(string) $settings['storefront_code']];
+    }
+
+    /** @param array<string, mixed> $settings */
+    private function marketFor(string $channel, array $settings): ?string
+    {
+        $market = $channel === SalesChannel::Amazon->value ? ($settings['region'] ?? null) : ($settings['storefront_code'] ?? null);
+
+        return $market === '' ? null : $market;
     }
 
     public function setEnabled(SalesChannelAccount $account, bool $enabled, ?int $adminId): SalesChannelAccount

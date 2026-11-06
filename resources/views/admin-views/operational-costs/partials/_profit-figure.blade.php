@@ -1,4 +1,4 @@
-{{-- A profit figure with its margin and a badge that says how complete it is. Expects $profit (Money), $margin (?Money), $completeness (the wording) and $complete (bool). --}}
+{{-- A profit figure with its margin and a badge that says how complete it is. Expects $profit (?Money, a dash when absent), $margin (?Money), $completeness (the wording) and $complete (bool). --}}
 @use('App\Http\Controllers\Admin\OperationalCosts\CostFormat')
 <span class="k-num">{{ CostFormat::amount($profit) }}</span>
 <div class="fs-10 text-muted k-num">{{ CostFormat::percent($margin) }}</div>

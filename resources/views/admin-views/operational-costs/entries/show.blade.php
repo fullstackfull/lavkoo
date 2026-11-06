@@ -10,11 +10,11 @@
 
 @section('content')
     @php
-        $component = $entry->component();
+        $costComponent = $entry->component();
         $drill = $entry->external_order_mapping_id !== null ? ['channel_order', $entry->external_order_mapping_id] : ($entry->order_id !== null ? ['order', $entry->order_id] : null);
     @endphp
     <div class="content container-fluid">
-        <x-k.page-header :title="translate('cost_entry') . ' #' . $entry->id" :subtitle="($component ? translate($component->labelKey()) : $entry->cost_component) . ' · ' . $entry->period_date->toDateString()">
+        <x-k.page-header :title="translate('cost_entry') . ' #' . $entry->id" :subtitle="($costComponent ? translate($costComponent->labelKey()) : $entry->cost_component) . ' · ' . $entry->period_date->toDateString()">
             <x-slot:actions>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.operational-costs.entries.index') }}">{{ translate('back') }}</a>
                 @if ($drill)
@@ -43,7 +43,7 @@
                         <dt class="col-sm-4">{{ translate('base_amount') }}</dt>
                         <dd class="col-sm-8 k-num">{{ CostFormat::amount($entry->base_amount, $entry->base_currency) }}@if ($entry->fx_rate) <span class="text-muted">· {{ translate('rate') }} {{ CostFormat::figure($entry->fx_rate) }}</span>@endif</dd>
                         <dt class="col-sm-4">{{ translate('component') }}</dt>
-                        <dd class="col-sm-8">{{ $component ? translate($component->labelKey()) : $entry->cost_component }} <span class="text-muted">· {{ $component ? translate($component->costClass()->labelKey()) : $entry->cost_class }}</span></dd>
+                        <dd class="col-sm-8">{{ $costComponent ? translate($costComponent->labelKey()) : $entry->cost_component }} <span class="text-muted">· {{ $costComponent ? translate($costComponent->costClass()->labelKey()) : $entry->cost_class }}</span></dd>
                         <dt class="col-sm-4">{{ translate('subject') }}</dt>
                         <dd class="col-sm-8">{{ CostLabels::of('entry_subject', $entry->subject_type) }} #{{ $entry->subject_id }}</dd>
                         <dt class="col-sm-4">{{ translate('sales_channel') }}</dt>

@@ -22,6 +22,12 @@ final class CostFormat
         return $currency === null || $currency === '' ? $text : $text . ' ' . $currency;
     }
 
+    /** Is there an amount, and is it more than nothing? An absent amount and a zero both say no. */
+    public static function isPositive(Money|string|null $amount): bool
+    {
+        return $amount !== null && $amount !== '' && Money::of($amount)->isPositive();
+    }
+
     public static function percent(Money|string|null $percent): string
     {
         return $percent === null || $percent === '' ? self::DASH : Money::of($percent)->toDisplay() . '%';

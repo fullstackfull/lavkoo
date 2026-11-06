@@ -24,4 +24,13 @@ final readonly class ProfitReport
         public int $limit,
     ) {
     }
+
+    /**
+     * Sales no cost was recorded for at all. The profit service calls such a sale complete, because no cost of it is missing, so its profit is simply its revenue:
+     * a figure nobody should read as a margin.
+     */
+    public function uncostedSales(): int
+    {
+        return count(array_filter($this->results, static fn (ProfitResult $result): bool => $result->buckets === []));
+    }
 }

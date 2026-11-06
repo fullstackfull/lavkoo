@@ -51,14 +51,16 @@ class SaleCostService
         $recognition = (string) config('operational_costs.cogs_recognition.' . $document->salesChannel, 'delivered');
         $outcomes = [];
         foreach ($document->lines as $line) {
-            if ($line->productId === null || $line->quantity < 1) {
+            if ($line->quantity < 1) {
                 continue;
             }
-            $outcomes[] = match ($line->costBasis) {
-                SaleLine::BASIS_SUPPLIER => $this->supplierCost($document, $line),
-                SaleLine::BASIS_OWNED_STOCK => $document->isRecognised($recognition) ? $this->recognise($document, $line) : $this->estimate($document, $line),
-                default => $this->missing($document, $line, CostComponent::Cogs, 'product_cost_unknown'),
-            };
+            $outcomes[] = $line->productId === null
+                ? $this->missing($document, $line, CostComponent::Cogs, 'product_not_linked')
+                : match ($line->costBasis) {
+                    SaleLine::BASIS_SUPPLIER => $this->supplierCost($document, $line),
+                    SaleLine::BASIS_OWNED_STOCK => $document->isRecognised($recognition) ? $this->recognise($document, $line) : $this->estimate($document, $line),
+                    default => $this->missing($document, $line, CostComponent::Cogs, 'product_cost_unknown'),
+                };
         }
 
         return $outcomes;

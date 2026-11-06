@@ -32,14 +32,14 @@ class ChannelAccountServiceTest extends TestCase
         $this->credentials = app(ChannelCredentialStore::class);
     }
 
-    private function trendyol(array $secrets = ['api_key' => 'key-aaa111', 'api_secret' => 'secret-bbb222']): SalesChannelAccount
+    private function trendyol(array $secrets = ['api_key' => 'key-aaa111', 'api_secret' => 'secret-bbb222'], string $sellerId = '123456'): SalesChannelAccount
     {
-        return $this->accounts->create(['channel' => 'trendyol', 'name' => 'Trendyol KSA', 'external_account_id' => '123456'], $secrets, adminId: 1);
+        return $this->accounts->create(['channel' => 'trendyol', 'name' => 'Trendyol KSA', 'external_account_id' => $sellerId], $secrets, adminId: 1);
     }
 
     private function verified(SalesChannelAccount $account): SalesChannelAccount
     {
-        return $this->accounts->recordConnection($account, new ConnectionTestResult(ConnectionStatus::Ok, 'Connected.', ['orders:read'], [], [], '123456'));
+        return $this->accounts->recordConnection($account, new ConnectionTestResult(ConnectionStatus::Ok, 'Connected.', ['orders:read'], [], [], $account->external_account_id));
     }
 
     public function test_a_new_account_does_nothing_until_each_step_is_taken(): void
@@ -225,5 +225,80 @@ class ChannelAccountServiceTest extends TestCase
         $trail = json_encode(DB::table('audit_logs')->get());
         $this->assertStringNotContainsString('key-aaa111', $trail);
         $this->assertStringNotContainsString('secret-bbb222', $trail);
+    }
+
+    // ---- changing who the account is -------------------------------------------------------------------
+
+    /** An account that has earned everything: tested, switched on up to publishing and dispatch, approved, writing for real. */
+    private function fullyTrusted(string $sellerId = '123456'): SalesChannelAccount
+    {
+        $account = $this->verified($this->trendyol(sellerId: $sellerId));
+        $this->accounts->setEnabled($account, true, 1);
+        foreach ([Capability::ConnectionTest, Capability::ReadOnlySync, Capability::ProductSync, Capability::OrderImport, Capability::InventoryPublishing, Capability::FulfillmentDispatch] as $capability) {
+            $this->accounts->enableCapability($account, $capability, 1, $capability->needsApproval() ? 'approved for the tests' : null);
+        }
+        $this->accounts->approveScope($account, 'webhook_management', 1, 'for the tests');
+        $this->accounts->setWriteEnabled($account, true, 1);
+        $this->accounts->setDryRun($account, false, 1);
+
+        return $account->fresh();
+    }
+
+    public function test_the_columns_the_connectors_read_follow_the_settings_when_they_change(): void
+    {
+        $amazon = $this->accounts->create(['channel' => 'amazon', 'name' => 'Amazon', 'external_account_id' => 'A1', 'settings' => ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP']]], ['lwa_client_id' => 'a', 'lwa_client_secret' => 'b', 'refresh_token' => 'c'], 1);
+
+        $this->accounts->update($amazon, ['settings' => ['marketplace_ids' => ['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG'], 'region' => 'eu']], [], [], 1);
+
+        $this->assertSame(['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG'], $amazon->fresh()->marketplace_ids, 'AmazonConnector reads this column, not the settings.');
+
+        $trendyol = $this->trendyol();
+        $this->accounts->update($trendyol, ['settings' => ['storefront_code' => 'AE']], [], [], 1);
+        $this->assertSame(['AE', ['AE']], [$trendyol->fresh()->market, $trendyol->fresh()->marketplace_ids]);
+    }
+
+    public function test_pointing_the_account_at_another_seller_withdraws_everything_that_was_proven_or_approved_for_the_old_one(): void
+    {
+        $account = $this->fullyTrusted();
+        $this->assertTrue($account->write_enabled);
+        $this->assertFalse($account->dry_run);
+        $this->assertNotEmpty($account->capability_approvals);
+
+        $this->accounts->update($account, ['external_account_id' => '999999'], [], [], 1);
+
+        $fresh = $account->fresh();
+        $this->assertSame(ConnectionStatus::Untested, $fresh->connectionStatus());
+        $this->assertNull($fresh->connection_checked_at);
+        $this->assertSame(['connection_test'], $fresh->capabilities, 'Only the connection test stays on; every other step has to be earned again.');
+        $this->assertSame([], $fresh->capability_approvals);
+        $this->assertFalse($fresh->write_enabled);
+        $this->assertTrue($fresh->dry_run);
+        $this->assertTrue($fresh->enabled, 'The account itself is not switched off.');
+    }
+
+    public function test_a_change_of_storefront_or_environment_is_a_new_identity_too(): void
+    {
+        $storefront = $this->fullyTrusted();
+        $this->accounts->update($storefront, ['settings' => ['storefront_code' => 'AE']], [], [], 1);
+        $this->assertSame(ConnectionStatus::Untested, $storefront->fresh()->connectionStatus());
+        $this->assertFalse($storefront->fresh()->write_enabled);
+
+        $environment = $this->fullyTrusted(sellerId: '555555');
+        $this->accounts->update($environment, ['environment' => 'sandbox'], [], [], 1);
+        $this->assertSame([], $environment->fresh()->capability_approvals);
+        $this->assertTrue($environment->fresh()->dry_run);
+    }
+
+    public function test_saving_the_same_identity_again_keeps_what_was_earned(): void
+    {
+        $account = $this->fullyTrusted();
+
+        $this->accounts->update($account, ['name' => 'Renamed', 'external_account_id' => '123456', 'settings' => ['integration_name' => 'OtherName']], [], [], 1);
+
+        $fresh = $account->fresh();
+        $this->assertSame(ConnectionStatus::Ok, $fresh->connectionStatus());
+        $this->assertTrue($fresh->write_enabled);
+        $this->assertContains('fulfillment_dispatch', $fresh->capabilities);
+        $this->assertNotEmpty($fresh->capability_approvals);
     }
 }
