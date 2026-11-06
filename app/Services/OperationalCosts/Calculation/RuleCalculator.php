@@ -4,6 +4,7 @@ namespace App\Services\OperationalCosts\Calculation;
 
 use App\Enums\OperationalCosts\CalcMethod;
 use App\Models\OperationalCostRule;
+use App\Services\Fulfillment\Support\ArabicText;
 use App\Services\OperationalCosts\Data\RuleResult;
 use App\Services\OperationalCosts\Data\ServiceContext;
 use App\Services\OperationalCosts\Exceptions\CostInputMissing;
@@ -81,7 +82,7 @@ final class RuleCalculator
     private function conditionsHold(array $conditions, ServiceContext $context): bool
     {
         foreach ([
-            'cities' => [$context->city === null ? null : mb_strtolower(trim($context->city)), 'city_unknown'],
+            'cities' => [$context->city === null || ArabicText::normalize($context->city) === '' ? null : ArabicText::normalize($context->city), 'city_unknown'],
             'countries' => [$context->country === null ? null : strtoupper(trim($context->country)), 'country_unknown'],
             'payment_methods' => [$context->paymentMethod, 'payment_method_unknown'],
             'sales_channels' => [$context->salesChannel, 'sales_channel_unknown'],
@@ -119,7 +120,7 @@ final class RuleCalculator
     private function normaliseList(string $key, array $values): array
     {
         return array_values(array_filter(array_map(static fn ($value): string => match ($key) {
-            'cities' => mb_strtolower(trim((string) $value)),
+            'cities' => ArabicText::normalize((string) $value),
             'countries' => strtoupper(trim((string) $value)),
             default => trim((string) $value),
         }, $values), static fn (string $value): bool => $value !== ''));
@@ -232,15 +233,22 @@ final class RuleCalculator
      */
     private function byZone(array $params, ServiceContext $context): array
     {
-        $city = $context->city === null ? null : mb_strtolower(trim($context->city));
+        $city = $context->city === null ? null : ArabicText::normalize($context->city);
+        $city = $city === '' ? null : $city;
         $country = $context->country === null ? null : strtoupper(trim($context->country));
-        if (($city === null || $city === '') && ($country === null || $country === '')) {
+        $country = $country === '' ? null : $country;
+        if ($city === null && $country === null) {
             throw new CostInputMissing('destination_unknown');
         }
 
         foreach ($params['zones'] as $zone) {
-            if (($city !== null && in_array($city, $zone['cities'], true)) || ($city === null && $country !== null && in_array($country, $zone['countries'], true))
-                || ($zone['cities'] === [] && $country !== null && in_array($country, $zone['countries'], true))) {
+            $zoneCities = array_map(static fn ($zoneCity): string => ArabicText::normalize((string) $zoneCity), $zone['cities']);
+            $zoneCountries = array_map(static fn ($zoneCountry): string => strtoupper(trim((string) $zoneCountry)), $zone['countries']);
+            // A zone listing cities is matched by city; a zone listing only countries is matched by country (any city of it).
+            $matches = $zoneCities !== []
+                ? ($city !== null && in_array($city, $zoneCities, true))
+                : ($country !== null && in_array($country, $zoneCountries, true));
+            if ($matches) {
                 return [Money::of($zone['amount']), ['basis' => 'zone', 'zone' => $zone['name'], 'city' => $city, 'country' => $country], null];
             }
         }

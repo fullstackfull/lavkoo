@@ -148,6 +148,14 @@ class RuleCalculatorTest extends TestCase
         $this->calculator->calculate($rule, $this->context(['city' => 'Jeddah']));
     }
 
+    public function test_cities_match_across_arabic_spellings_and_english(): void
+    {
+        $rule = $this->rule('by_zone', ['zones' => [['name' => 'Central', 'cities' => ['الرياض'], 'countries' => [], 'amount' => '12']]]);
+
+        $this->assertSame('12.000000', $this->calculator->calculate($rule, $this->context(['city' => 'رياض']))->amount->toStorage());
+        $this->assertSame('12.000000', $this->calculator->calculate($rule, $this->context(['city' => 'الرِّيَاض']))->amount->toStorage());
+    }
+
     public function test_by_zone_with_no_destination_is_missing(): void
     {
         $rule = $this->rule('by_zone', ['zones' => [['name' => 'Central', 'cities' => ['riyadh'], 'countries' => [], 'amount' => '12']]]);

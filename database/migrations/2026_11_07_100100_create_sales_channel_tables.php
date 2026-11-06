@@ -137,6 +137,8 @@ return new class extends Migration
                 $table->decimal('shipping_total', 20, 6)->nullable();
                 $table->decimal('tax_total', 20, 6)->nullable();
                 $table->decimal('order_total', 20, 6)->nullable();
+                // Whether the channel's prices already contain the tax (Amazon KSA and Trendyol list VAT-inclusive prices).
+                $table->boolean('prices_include_tax')->nullable();
                 $table->timestamp('purchased_at')->nullable()->index();
                 $table->timestamp('external_updated_at', 3)->nullable();
                 $table->timestamp('shipped_at')->nullable();

@@ -4,6 +4,7 @@ namespace App\Services\OperationalCosts\Calculation;
 
 use App\Enums\OperationalCosts\CalcMethod;
 use App\Enums\OperationalCosts\CostComponent;
+use App\Services\Fulfillment\Support\ArabicText;
 use App\Services\OperationalCosts\Exceptions\InvalidContractChange;
 use App\Services\OperationalCosts\Support\Money;
 
@@ -142,7 +143,7 @@ final class RuleValidator
         }
         $clean = [];
         foreach (array_values($zones) as $zone) {
-            $cities = array_values(array_filter(array_map(static fn ($city): string => mb_strtolower(trim((string) $city)), (array) ($zone['cities'] ?? [])), static fn (string $city): bool => $city !== ''));
+            $cities = array_values(array_unique(array_filter(array_map(static fn ($city): string => ArabicText::normalize((string) $city), (array) ($zone['cities'] ?? [])), static fn (string $city): bool => $city !== '')));
             $countries = array_values(array_filter(array_map(static fn ($country): string => strtoupper(trim((string) $country)), (array) ($zone['countries'] ?? [])), static fn (string $country): bool => $country !== ''));
             if ($cities === [] && $countries === []) {
                 throw new InvalidContractChange('A zone needs at least one city or country.');

@@ -15,6 +15,7 @@ class InventoryCostConsumption extends Model
     protected $casts = [
         'layer_id' => 'integer',
         'consumer_id' => 'integer',
+        'generation' => 'integer',
         'quantity' => 'integer',
         'unit_cost' => 'decimal:6',
         'landed_unit_cost' => 'decimal:6',

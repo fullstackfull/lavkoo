@@ -273,7 +273,11 @@ return new class extends Migration
                 $table->decimal('unit_cost', 20, 6);
                 // Costs added to the stock (inbound freight, import duty) when policy says they are part of its cost.
                 $table->decimal('landed_unit_cost', 20, 6)->default(0);
+                // Costs are kept in the reporting currency. When the goods were bought in another one, what was paid and the rate used are kept too.
                 $table->string('currency', 8);
+                $table->string('original_currency', 8)->nullable();
+                $table->decimal('original_unit_cost', 20, 6)->nullable();
+                $table->decimal('fx_rate', 20, 10)->nullable();
                 $table->string('supplier_name', 160)->nullable();
                 $table->string('status', 12)->default('open');
                 $table->timestamps();
@@ -290,6 +294,8 @@ return new class extends Migration
                 // order_line | channel_order_line | transfer | write_off
                 $table->string('consumer_type', 24);
                 $table->unsignedBigInteger('consumer_id');
+                // A consumer that is reversed and taken again (its quantity was edited) starts a new generation.
+                $table->unsignedSmallInteger('generation')->default(1);
                 $table->unsignedInteger('quantity');
                 $table->decimal('unit_cost', 20, 6);
                 $table->decimal('landed_unit_cost', 20, 6)->default(0);
@@ -301,7 +307,7 @@ return new class extends Migration
                 $table->timestamps();
 
                 // A sold line takes from a given layer once, however many times the recognition job runs.
-                $table->unique(['consumer_type', 'consumer_id', 'layer_id'], 'icc_consumer_layer_unique');
+                $table->unique(['consumer_type', 'consumer_id', 'generation', 'layer_id'], 'icc_consumer_layer_unique');
                 $table->index(['consumer_type', 'consumer_id'], 'icc_consumer_idx');
             });
         }

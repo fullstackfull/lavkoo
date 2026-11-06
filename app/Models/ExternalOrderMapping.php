@@ -43,6 +43,7 @@ class ExternalOrderMapping extends Model
         'shipping_total' => 'decimal:6',
         'tax_total' => 'decimal:6',
         'order_total' => 'decimal:6',
+        'prices_include_tax' => 'boolean',
         'purchased_at' => 'datetime',
         'external_updated_at' => 'datetime',
         'shipped_at' => 'datetime',

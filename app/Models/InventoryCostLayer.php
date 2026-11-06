@@ -29,6 +29,8 @@ class InventoryCostLayer extends Model
         'quantity_remaining' => 'integer',
         'unit_cost' => 'decimal:6',
         'landed_unit_cost' => 'decimal:6',
+        'original_unit_cost' => 'decimal:6',
+        'fx_rate' => 'decimal:10',
     ];
 
     public function consumptions(): HasMany
