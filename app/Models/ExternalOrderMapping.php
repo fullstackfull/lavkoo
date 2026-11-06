@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
+use App\Models\Concerns\StoresLocalTime;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,6 +25,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class ExternalOrderMapping extends Model
 {
+    use StoresLocalTime;
+
     public const LINK_UNLINKED = 'unlinked';
     public const LINK_LINKED = 'linked';
     public const LINK_NEEDS_REVIEW = 'needs_review';

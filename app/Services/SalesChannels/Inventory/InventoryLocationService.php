@@ -42,6 +42,12 @@ class InventoryLocationService
         );
     }
 
+    /** @return list<int> the FBA locations of one account (one per marketplace) */
+    public function fbaLocationIds(SalesChannelAccount $account): array
+    {
+        return InventoryLocation::where('type', InventoryLocation::TYPE_AMAZON_FBA)->where('sales_channel_account_id', $account->id)->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+    }
+
     public function forProvider(string $providerCode): ?InventoryLocation
     {
         return InventoryLocation::where('provider', $providerCode)->where('is_active', true)->orderBy('id')->first();

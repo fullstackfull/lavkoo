@@ -1,0 +1,163 @@
+<?php
+
+namespace Tests\Feature\SalesChannels;
+
+use App\Enums\OperationalCosts\CostComponent;
+use App\Enums\OperationalCosts\CostState;
+use App\Models\ExternalOrderMapping;
+use App\Models\OperationalCostEntry;
+use App\Models\SalesChannelAccount;
+use App\Models\SalesChannelEvent;
+use App\Services\Fulfillment\Support\CurrencyRateSource;
+use App\Services\OperationalCosts\CostLedger;
+use App\Services\OperationalCosts\Support\Money;
+use App\Services\SalesChannels\Data\RemoteFinancialEntry;
+use App\Services\SalesChannels\Finance\ChannelFeeImporter;
+use Carbon\CarbonImmutable;
+use Tests\Support\BuildsSalesChannelSchema;
+use Tests\Support\CreatesChannelAccounts;
+use Tests\Support\FakeCurrencyRates;
+use Tests\TestCase;
+
+/** What a channel's statement does to the cost ledger: costs counted once and netted, payouts and unknowns never counted, nothing spread by guesswork. */
+class ChannelFeeImporterTest extends TestCase
+{
+    use BuildsSalesChannelSchema;
+    use CreatesChannelAccounts;
+
+    private ChannelFeeImporter $importer;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->buildSalesChannelSchema();
+        $this->app->bind(CurrencyRateSource::class, fn () => new FakeCurrencyRates());
+        config(['operational_costs.base_currency' => 'SAR']);
+        $this->importer = app(ChannelFeeImporter::class);
+    }
+
+    private function entry(string $identity, string $category, CostComponent $component, string $amount, ?string $orderId = '111', ?string $packageId = '900', string $currency = 'SAR'): RemoteFinancialEntry
+    {
+        return new RemoteFinancialEntry($identity, $category, $component, Money::of($amount), $currency, $orderId, $packageId, null, null, CarbonImmutable::parse('2026-11-06 10:00:00 UTC'), 'Test');
+    }
+
+    private function order(SalesChannelAccount $account, string $orderId = '111', string $packageId = '900'): ExternalOrderMapping
+    {
+        return ExternalOrderMapping::create(['account_id' => $account->id, 'sales_channel' => $account->channel, 'seller_id' => 0, 'external_order_id' => $orderId, 'external_package_id' => $packageId, 'status' => 'delivered', 'currency' => 'SAR']);
+    }
+
+    /** @return array<string, string> component => amount of the effective actual entries */
+    private function actuals(): array
+    {
+        return OperationalCostEntry::where('is_effective', true)->where('state', CostState::Actual->value)->pluck('amount', 'cost_component')->all();
+    }
+
+    public function test_a_commission_and_the_part_returned_with_a_refund_are_netted_into_one_actual(): void
+    {
+        $account = $this->trendyolAccount();
+        $this->order($account);
+
+        $this->importer->import($account, [$this->entry('a', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '25')]);
+        $this->importer->import($account, [$this->entry('b', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '-10')]);
+
+        $this->assertSame(['marketplace_commission' => '15.000000'], $this->actuals());
+        $this->assertSame(1, OperationalCostEntry::where('is_effective', true)->count(), 'The earlier net is superseded, not added to.');
+        $this->assertSame(2, OperationalCostEntry::where('cost_component', 'marketplace_commission')->count(), 'Nothing is deleted: the earlier net stays as history.');
+    }
+
+    public function test_the_same_fact_delivered_again_is_recorded_once(): void
+    {
+        $account = $this->trendyolAccount();
+        $this->order($account);
+        $fact = $this->entry('a', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '25');
+
+        $first = $this->importer->import($account, [$fact]);
+        $second = $this->importer->import($account, [$fact]);
+
+        $this->assertSame([1, 0], [$first['new'], $second['new']]);
+        $this->assertSame(1, $second['duplicates']);
+        $this->assertSame(1, OperationalCostEntry::count());
+    }
+
+    public function test_sales_refunds_payouts_and_duplicates_are_kept_but_never_become_costs(): void
+    {
+        $account = $this->trendyolAccount();
+        $this->order($account);
+
+        $stats = $this->importer->import($account, [
+            $this->entry('s', RemoteFinancialEntry::SALE, CostComponent::Other, '170'),
+            $this->entry('r', RemoteFinancialEntry::REFUND, CostComponent::Other, '170'),
+            $this->entry('p', RemoteFinancialEntry::PAYOUT, CostComponent::Other, '900', orderId: null, packageId: null),
+            $this->entry('d', RemoteFinancialEntry::DUPLICATE_OF_ANOTHER_ENTRY, CostComponent::MarketplaceCommission, '25'),
+        ]);
+
+        $this->assertSame(0, OperationalCostEntry::count(), 'A payout is not revenue and a repeated commission is not a second cost.');
+        $this->assertSame(4, $stats['new']);
+        $this->assertSame(4, SalesChannelEvent::count(), 'They are kept for reconciliation.');
+    }
+
+    public function test_a_fact_nobody_could_classify_is_flagged_for_a_person_and_not_counted(): void
+    {
+        $account = $this->trendyolAccount();
+
+        $stats = $this->importer->import($account, [$this->entry('u', RemoteFinancialEntry::UNCLASSIFIED, CostComponent::Other, '40', orderId: null, packageId: null)]);
+
+        $this->assertSame(1, $stats['needs_review']);
+        $this->assertSame(0, OperationalCostEntry::count());
+        $this->assertSame('needs_review', SalesChannelEvent::firstOrFail()->outcome);
+    }
+
+    public function test_a_fee_that_belongs_to_no_order_we_hold_stays_on_the_account_unallocated(): void
+    {
+        $account = $this->amazonAccount();
+
+        $this->importer->import($account, [
+            $this->entry('sub-1', RemoteFinancialEntry::FEE, CostComponent::MarketplaceServiceFee, '39', orderId: null, packageId: null),
+            $this->entry('sub-2', RemoteFinancialEntry::FEE, CostComponent::MarketplaceServiceFee, '39', orderId: null, packageId: null),
+            $this->entry('ghost', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '12', orderId: 'NOT-IMPORTED-YET', packageId: null),
+        ]);
+
+        $entries = OperationalCostEntry::where('is_effective', true)->get();
+        $this->assertCount(3, $entries, 'Two separate monthly fees are two costs, not one.');
+        $this->assertSame(['channel_account'], $entries->pluck('subject_type')->unique()->values()->all());
+        $this->assertSame(['unallocated'], $entries->pluck('allocation_status')->unique()->values()->all());
+    }
+
+    public function test_an_order_held_as_several_packages_is_not_guessed_at(): void
+    {
+        $account = $this->trendyolAccount();
+        $this->order($account, '111', '900');
+        $this->order($account, '111', '901');
+
+        $this->importer->import($account, [$this->entry('x', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '25', packageId: null)]);
+
+        $this->assertSame('channel_account', OperationalCostEntry::firstOrFail()->subject_type);
+    }
+
+    public function test_an_approved_figure_is_not_displaced_by_a_later_posting(): void
+    {
+        $account = $this->trendyolAccount();
+        $this->order($account);
+        $this->importer->import($account, [$this->entry('a', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '25')]);
+        app(CostLedger::class)->approve(OperationalCostEntry::firstOrFail(), 1, 'checked against the statement');
+
+        $this->importer->import($account, [$this->entry('b', RemoteFinancialEntry::ADJUSTMENT, CostComponent::MarketplaceCommission, '5')]);
+
+        $effective = OperationalCostEntry::where('is_effective', true)->firstOrFail();
+        $this->assertSame('25.000000', $effective->amount, 'The approved entry is untouched.');
+        $this->assertSame(CostState::Disputed, OperationalCostEntry::where('is_effective', false)->firstOrFail()->state, 'The newer figure waits beside it for a person to resolve.');
+    }
+
+    public function test_the_cost_carries_its_base_currency_and_the_order_it_belongs_to(): void
+    {
+        $account = $this->trendyolAccount();
+        $mapping = $this->order($account);
+
+        $this->importer->import($account, [$this->entry('usd', RemoteFinancialEntry::FEE, CostComponent::MarketplaceServiceFee, '10', currency: 'USD')]);
+
+        $row = OperationalCostEntry::firstOrFail();
+        $this->assertSame(['channel_order', $mapping->id, 'USD', 'channel_api'], [$row->subject_type, (int) $row->subject_id, $row->currency, $row->source]);
+        $this->assertSame('37.500000', $row->base_amount, '10 USD at 3.75 SAR per USD.');
+        $this->assertSame('SAR', $row->base_currency);
+    }
+}

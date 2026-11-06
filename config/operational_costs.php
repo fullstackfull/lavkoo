@@ -13,12 +13,12 @@ return [
     // in their own currency and the report says the total is incomplete.
     'base_currency' => env('OPERATIONAL_COSTS_BASE_CURRENCY', env('FULFILLMENT_CURRENCY', 'SAR')),
 
-    // Who writes cost entries for a sale, in order. Each one is idempotent and records a gap as MISSING. Marketplace fee contributors are added
-    // by the sales-channel module (config/sales_channels.php appends them at boot).
+    // Who writes cost entries for a sale, in order. Each one is idempotent and records a gap as MISSING.
     'contributors' => [
         \App\Services\OperationalCosts\Contributors\ProductCostContributor::class,
         \App\Services\OperationalCosts\Contributors\ShipmentCostContributor::class,
         \App\Services\OperationalCosts\Contributors\PaymentFeeContributor::class,
+        \App\Services\OperationalCosts\Contributors\MarketplaceFeeContributor::class,
     ],
 
     // When a sale's goods cost is recognised (taken from the cost layers). Reversed if the order is cancelled before it ships.

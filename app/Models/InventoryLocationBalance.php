@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\StoresLocalTime;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class InventoryLocationBalance extends Model
 {
+    use StoresLocalTime;
+
     public const CONFIRMED = 'confirmed';
     public const MANUAL = 'manual';
     public const STALE = 'stale';

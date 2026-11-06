@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\StoresLocalTime;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,6 +21,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class SalesChannelProductMapping extends Model
 {
+    use StoresLocalTime;
+
     public const UNMAPPED = 'unmapped';
     public const SUGGESTED = 'suggested';
     public const MAPPED = 'mapped';

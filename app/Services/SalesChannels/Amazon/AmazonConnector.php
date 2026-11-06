@@ -162,7 +162,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             $query['pageToken'] = $token;
         }
 
-        $response = $this->client->call($account, 'amazon.listings_search', 'GET', "/listings/2021-08-01/items/{$seller}", $query, capability: IntegrationCapability::ReadOnlySync);
+        $response = $this->client->call($account, 'amazon.listings_search', 'GET', "/listings/2021-08-01/items/{$seller}", $query, capability: IntegrationCapability::ProductSync);
         $this->assertOk($response, 'Amazon listings search');
 
         // A query returns at most 1000 items, however many exist: a window that holds that many is split in half and each half read on its own.

@@ -156,7 +156,18 @@ return [
         'stale_after_minutes' => 180,
     ],
 
+    // The class that speaks to each channel. A new channel is a connector class added here.
+    'connectors' => [
+        'amazon' => \App\Services\SalesChannels\Amazon\AmazonConnector::class,
+        'trendyol' => \App\Services\SalesChannels\Trendyol\TrendyolConnector::class,
+    ],
+
     'sync' => [
+        // One run reads at most this many pages and then pauses with its place saved, so a large backlog never holds the lease for hours.
+        'max_pages_per_run' => 25,
+        // Fees and corrections reach a statement days after the sale: each finance run re-reads this far back.
+        'finance_overlap_days' => 3,
+        'finance_backfill_days' => 30,
         // A run re-reads this far before its watermark so that an order changed while the previous run was reading is not missed.
         'overlap_minutes' => 10,
         // A run that crashed loses its lease after this long.

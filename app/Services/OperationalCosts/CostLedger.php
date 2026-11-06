@@ -189,7 +189,7 @@ class CostLedger
             'product_id' => $draft->productId,
             'variant_key' => $draft->variantKey,
             'sku' => $draft->sku,
-            'period_date' => $draft->periodDate->toDateString(),
+            'period_date' => $draft->periodDate->copy()->setTimezone(date_default_timezone_get())->toDateString(),
             'cost_component' => $draft->component->value,
             'cost_class' => $draft->component->costClass()->value,
             'state' => $conflict ? CostState::Disputed : $draft->state,

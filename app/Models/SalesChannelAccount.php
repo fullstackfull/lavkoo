@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\ConnectionStatus;
 use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
+use App\Models\Concerns\StoresLocalTime;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -33,6 +34,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class SalesChannelAccount extends Model
 {
+    use StoresLocalTime;
+
     protected $table = 'sales_channel_accounts';
 
     protected $guarded = [];

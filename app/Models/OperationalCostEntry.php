@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\OperationalCosts\CostComponent;
 use App\Enums\OperationalCosts\CostState;
+use App\Models\Concerns\StoresLocalTime;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -29,6 +30,8 @@ use LogicException;
  */
 class OperationalCostEntry extends Model
 {
+    use StoresLocalTime;
+
     /** Columns that describe the cost itself; frozen once the entry is approved or reconciled. */
     public const FROZEN_WHEN_APPROVED = [
         'dedupe_key', 'slot_key', 'subject_type', 'subject_id', 'cost_component', 'cost_class', 'amount', 'currency', 'fx_rate',

@@ -13,6 +13,7 @@ use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
+use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Data\Pages;
@@ -33,7 +34,7 @@ use RuntimeException;
  *
  * Product V1 and Order V1 are not used anywhere: Trendyol retired them in 2026.
  */
-class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments
+class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments
 {
     private const MILLISECONDS_PER_DAY = 86_400_000;
     private const LIST_PAGE_SIZE = 100;

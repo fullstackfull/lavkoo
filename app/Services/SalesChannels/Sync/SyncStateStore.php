@@ -58,7 +58,7 @@ class SyncStateStore
     public function succeed(SyncLease $lease, ?CarbonInterface $newWatermark, array $stats): void
     {
         $this->settle($lease, [
-            'watermark' => $newWatermark,
+            'watermark' => $newWatermark?->copy()->setTimezone(date_default_timezone_get()),
             'cursor' => null,
             'last_success_at' => now(),
             'last_error' => null,
