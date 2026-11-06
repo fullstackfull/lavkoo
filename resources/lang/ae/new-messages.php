@@ -15761,4 +15761,10 @@ return [
 	'sales_channel_amazon' => 'أمازون',
 	'sales_channel_storefront' => 'المتجر',
 	'sales_channel_trendyol' => 'ترنديول',
+	'missing_reason_product_not_linked' => 'بند الطلب غير مرتبط بمنتج',
+	'when_no_rule_matches' => 'عند عدم انطباق أي قاعدة توجيه على الطلب',
+	'when_no_rule_matches_help' => 'المراجعة اليدوية تترك الطلب لشخص يقرّر. أما «يُدار من طرف آخر» فتكتفي بمتابعة الطلب: يُتوقع أن تصدر الشحنة من جهة أخرى وتُربط هنا، ولا يُنشأ شيء لدى أي مزوّد. وتسبق أي قاعدة هذا الإعداد الافتراضي دائمًا.',
+	'account_identity_changed_withdrawn' => 'تغيّر البائع أو المنطقة أو المتجر. سُحب اختبار الاتصال والاعتمادات وإذن الكتابة: اختبر الاتصال وفعّل كل خطوة من جديد.',
+	'channel_reason_not_supported_by_channel' => 'لا تتيح هذه القناة قراءة هذا المورد',
+	'order_reason_account_default_externally_managed' => 'الحساب يتابع طلباته فقط (تُدار من طرف آخر)',
 ];

@@ -9172,4 +9172,10 @@ return [
 	'sales_channel_amazon' => 'Amazon',
 	'sales_channel_storefront' => 'Storefront',
 	'sales_channel_trendyol' => 'Trendyol',
+	'missing_reason_product_not_linked' => 'Order line not linked to a product',
+	'when_no_rule_matches' => 'When no routing rule matches an order',
+	'when_no_rule_matches_help' => 'Manual review leaves the order for a person. "Managed by someone else" only follows it: the shipment is expected to come from elsewhere and is linked here, and nothing is created at a provider. A rule always wins over this default.',
+	'account_identity_changed_withdrawn' => 'The seller, region or storefront changed. The connection test, the approvals and the permission to write were withdrawn: test the connection and switch each step on again.',
+	'channel_reason_not_supported_by_channel' => 'This channel can not be read for this resource',
+	'order_reason_account_default_externally_managed' => 'The account follows its orders (managed by someone else)',
 ];
