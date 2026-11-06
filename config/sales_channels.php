@@ -20,6 +20,12 @@ return [
 
     'external_writes_enabled' => filter_var(env('SALES_CHANNELS_EXTERNAL_WRITES_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 
+    // Classes whose static operations() list the calls each connector may make (see ChannelOperations).
+    'operation_providers' => [
+        \App\Services\SalesChannels\Trendyol\TrendyolOperations::class,
+        \App\Services\SalesChannels\Amazon\AmazonOperations::class,
+    ],
+
     'queue' => [
         'connection' => env('SALES_CHANNELS_QUEUE_CONNECTION'),
         'name' => env('SALES_CHANNELS_QUEUE', 'sales_channels'),
