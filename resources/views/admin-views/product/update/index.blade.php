@@ -23,6 +23,7 @@
             @include("admin-views.product.update._general-setup")
             @include("admin-views.product.update._pricing-others")
             @include("admin-views.product.update._product-variation-setup")
+            @include("admin-views.partials._fulfillment-provider", ['product' => $product])
             <div class="row product-image-wrapper g-3 mt-0">
                 @include("admin-views.product.update._additional-images")
                 @include("admin-views.product.update._digital-product-file")

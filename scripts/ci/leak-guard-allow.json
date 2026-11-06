@@ -1,0 +1,46 @@
+{
+    "allow": [
+        {
+            "rule": "jwt",
+            "path": "tests/Unit/Fulfillment/ResponseShapeTest.php",
+            "line": 105,
+            "reason": "A made-up token in a test of the redactor, in an early commit of pull request #1; a later commit of the same pull request builds it at run time instead. It was never a real credential."
+        },
+        {
+            "rule": "url-credentials",
+            "path": "tests/Unit/Fulfillment/SecretRedactorTest.php",
+            "line": 28,
+            "reason": "A made-up fixture in a test of the credential redactor (the text it must remove), in an early commit of pull request #1; the next commit of the same pull request builds it at run time instead, so no source line looks like a credential. It was never a real credential."
+        },
+        {
+            "rule": "private-key",
+            "path": "tests/Unit/Fulfillment/SecretRedactorTest.php",
+            "line": 29,
+            "reason": "A made-up fixture in a test of the credential redactor (the text it must remove), in an early commit of pull request #1; the next commit of the same pull request builds it at run time instead, so no source line looks like a credential. It was never a real credential."
+        },
+        {
+            "rule": "private-key",
+            "path": "tests/Unit/Fulfillment/SecretRedactorTest.php",
+            "line": 30,
+            "reason": "A made-up fixture in a test of the credential redactor (the text it must remove), in an early commit of pull request #1; the next commit of the same pull request builds it at run time instead, so no source line looks like a credential. It was never a real credential."
+        },
+        {
+            "rule": "private-key",
+            "path": "tests/Unit/Fulfillment/SecretRedactorTest.php",
+            "line": 77,
+            "reason": "A made-up fixture in a test of the credential redactor (the text it must remove), in an early commit of pull request #1; the next commit of the same pull request builds it at run time instead, so no source line looks like a credential. It was never a real credential."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "app/Services/Fulfillment/Support/PiiRedactor.php",
+            "line": 205,
+            "reason": "A made-up example number in a comment or document of pull request #1, in an early commit; the next commit of the same pull request rewords it without the digits. It is not anyone's number."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "docs/integrations/security-findings.md",
+            "line": 232,
+            "reason": "A made-up example number in a comment or document of pull request #1, in an early commit; the next commit of the same pull request rewords it without the digits. It is not anyone's number."
+        }
+    ]
+}

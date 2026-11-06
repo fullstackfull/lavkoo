@@ -1,0 +1,199 @@
+<?php
+
+namespace App\Http\Controllers\Admin\Fulfillment;
+
+use App\Services\Fulfillment\Support\SafeToast;
+use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\HoldReason;
+use App\Enums\Fulfillment\ProviderCode;
+use App\Http\Controllers\Controller;
+use App\Models\ProviderCatalogItem;
+use App\Models\ProviderFulfillment;
+use App\Models\ProviderProductMapping;
+use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\ProductProviderAssignmentService;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodCityResolver;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
+use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderMappingService;
+use Devrabiul\ToastMagic\Facades\ToastMagic;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\View\View;
+use InvalidArgumentException;
+
+/**
+ * Torod Point: matching our products to the warehouse's, explicitly.
+ *
+ * Nothing here links anything by itself. A warehouse item is shown with the store products that LOOK like
+ * it and the reasons why; a person picks one and approves it. Approving a mapping does not assign the
+ * product to Torod Point — that is a separate, explicit box — and a matching SKU or barcode never changes
+ * who fulfils a product.
+ */
+class TorodMatchingController extends Controller
+{
+    public function __construct(
+        private readonly ProviderMappingService $mappings,
+        private readonly ProductProviderAssignmentService $assignments,
+        private readonly TorodCityResolver $cities,
+        private readonly TorodPointAdapter $adapter,
+        private readonly ProviderConnectionManager $connections,
+    ) {
+    }
+
+    public function index(Request $request): View
+    {
+        $provider = ProviderCode::TorodPoint;
+        $status = (string) $request->query('status', 'unmatched');
+        $mappedIds = ProviderProductMapping::where('provider', $provider->value)->where('status', 'approved')->pluck('external_id');
+
+        $items = ProviderCatalogItem::where('provider', $provider->value)
+            ->when($status === 'unmatched', static fn ($query) => $query->whereNotIn('external_id', $mappedIds))
+            ->when($status === 'matched', static fn ($query) => $query->whereIn('external_id', $mappedIds))
+            ->when($request->filled('q'), static fn ($query) => $query->where(static fn ($inner) => $inner
+                ->where('name', 'like', '%' . $request->query('q') . '%')->orWhere('sku', 'like', '%' . $request->query('q') . '%')->orWhere('barcode', 'like', '%' . $request->query('q') . '%')))
+            ->orderByDesc('id')
+            ->paginate(20)
+            ->withQueryString();
+
+        $rows = $items->getCollection()->map(fn (ProviderCatalogItem $item): array => [
+            'item' => $item,
+            'matched' => $mappedIds->contains($item->external_id),
+            'suggestions' => $mappedIds->contains($item->external_id) ? [] : $this->mappings->suggestionsFor($item, echoedExternalId: isset($item->payload['externalId']) ? (string) $item->payload['externalId'] : null),
+        ]);
+
+        $mapped = ProviderProductMapping::where('provider', $provider->value)->latest('id')->limit(50)->get();
+        $products = DB::table('products')->whereIn('id', $mapped->pluck('product_id'))->get(['id', 'name', 'code', 'fulfillment_provider'])->keyBy('id');
+
+        return view('admin-views.fulfillment.torod-matching', [
+            'rows' => $rows,
+            'paginator' => $items,
+            'status' => $status,
+            'mapped' => $mapped,
+            'products' => $products,
+            'unmappedCities' => $this->unmappedCities(),
+            'config' => $this->connections->config($provider),
+            'counts' => ['staged' => ProviderCatalogItem::where('provider', $provider->value)->count(), 'mapped' => $mappedIds->count()],
+        ]);
+    }
+
+    public function approve(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'catalog_item_id' => ['required', 'integer'],
+            'product_id' => ['required', 'integer'],
+            'variant_key' => ['nullable', 'string', 'max:191'],
+            'assign_to_provider' => ['nullable', 'boolean'],
+        ]);
+        $item = ProviderCatalogItem::where('provider', ProviderCode::TorodPoint->value)->findOrFail($data['catalog_item_id']);
+
+        try {
+            $this->mappings->approve(
+                provider: ProviderCode::TorodPoint,
+                productId: (int) $data['product_id'],
+                variantKey: (string) ($data['variant_key'] ?? ''),
+                externalId: $item->external_id,
+                externalSku: $item->sku,
+                externalBarcode: $item->barcode,
+                externalName: $item->name,
+                approvedBy: auth('admin')->id(),
+            );
+        } catch (InvalidArgumentException $exception) {
+            SafeToast::error('', $exception->getMessage());
+
+            return back();
+        }
+
+        $item->forceFill(['status' => ProviderCatalogItem::STATUS_IMPORTED, 'product_id' => (int) $data['product_id']])->save();
+        ToastMagic::success(translate('mapping_approved'));
+
+        if ($request->boolean('assign_to_provider')) {
+            $result = $this->assignments->assign((int) $data['product_id'], ProviderCode::TorodPoint->value, 'admin', auth('admin')->id(), 'matched_to_warehouse_product');
+            $result->ok ? ToastMagic::success(translate('product_assigned_to_provider')) : SafeToast::warning('', $result->message());
+        }
+
+        return back();
+    }
+
+    public function retire(int $mapping): RedirectResponse
+    {
+        try {
+            $this->mappings->retire($mapping);
+            ToastMagic::success(translate('mapping_retired'));
+        } catch (InvalidArgumentException $exception) {
+            SafeToast::error('', $exception->getMessage());
+        }
+
+        return back();
+    }
+
+    public function stock(Request $request): RedirectResponse
+    {
+        $data = $request->validate(['mapping_id' => ['required', 'integer'], 'quantity' => ['required', 'integer', 'min:0', 'max:100000000']]);
+        $this->mappings->setManualStock((int) $data['mapping_id'], (int) $data['quantity']);
+        ToastMagic::success(translate('manual_stock_saved'));
+
+        return back();
+    }
+
+    public function alias(Request $request): RedirectResponse
+    {
+        $data = $request->validate(['alias' => ['required', 'string', 'max:191'], 'external_city_id' => ['required', 'string', 'max:32']]);
+        $this->cities->addAlias($data['alias'], $data['external_city_id'], auth('admin')->id());
+        ToastMagic::success(translate('city_alias_saved'));
+
+        return back();
+    }
+
+    /** GET …/cities?q= — search the cached city list (for the alias form). */
+    public function citySearch(Request $request): JsonResponse
+    {
+        return response()->json($this->cities->search((string) $request->query('q'))->map(static fn ($city): array => [
+            'id' => $city->external_id, 'name' => trim(($city->name_ar ?? '') . ' / ' . ($city->name_en ?? ''), ' /'),
+        ])->values());
+    }
+
+    /** GET …/products?q= — store products for the matching selector. */
+    public function productSearch(Request $request): JsonResponse
+    {
+        $term = (string) $request->query('q');
+
+        return response()->json(DB::table('products')
+            ->where('added_by', 'admin')->where('product_type', 'physical')
+            ->where(static fn ($query) => $query->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")->orWhere('barcode', 'like', "%{$term}%"))
+            ->limit(20)->get(['id', 'name', 'code', 'barcode', 'fulfillment_provider']));
+    }
+
+    public function push(Request $request): RedirectResponse
+    {
+        $ids = array_map('intval', (array) $request->validate(['product_ids' => ['required', 'array', 'min:1', 'max:100'], 'product_ids.*' => ['integer']])['product_ids']);
+
+        try {
+            $result = $this->adapter->pushProducts($ids, auth('admin')->id());
+        } catch (ProviderUnavailableException $exception) {
+            SafeToast::warning('', $exception->getMessage());
+
+            return back();
+        }
+
+        if (!$result['ok']) {
+            SafeToast::error('', (string) ($result['error'] ?? translate('push_failed')));
+        } elseif ($result['dry_run'] ?? false) {
+            SafeToast::info(translate('push_dry_run_nothing_sent'), (string) count($result['preview'] ?? []));
+        } else {
+            SafeToast::success(translate('products_pushed'), (string) ($result['pushed'] ?? 0));
+        }
+
+        return back();
+    }
+
+    /** @return list<string> city strings our checkout produced that no Torod Point city matched (held fulfillments) */
+    private function unmappedCities(): array
+    {
+        return ProviderFulfillment::where('provider', ProviderCode::TorodPoint->value)
+            ->where('status', FulfillmentStatus::Held->value)->where('hold_reason', HoldReason::CITY_UNMAPPED)
+            ->whereNotNull('last_error_message')->distinct()->pluck('last_error_message')->all();
+    }
+}

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\RestAPI\v1;
 use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
+use App\Services\Fulfillment\CheckoutCodGuard;
+use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
 use App\Models\Cart;
 use App\Models\Currency;
@@ -74,6 +76,10 @@ class OrderController extends Controller
         }
 
         $data = json_decode(json_encode($data), true);
+        // Additive: only an order that has provider shipments carries this key.
+        if ($fulfillments = app(CustomerFulfillmentPresenter::class)->forOrder((int) $data['id'])) {
+            $data['fulfillments'] = $fulfillments;
+        }
         return response()->json($data, 200);
     }
 
@@ -149,6 +155,10 @@ class OrderController extends Controller
         $verifyStatus = OrderManager::verifyCartListMinimumOrderAmount($request);
         if ($verifyStatus['status'] == 0) {
             return response()->json(['message' => translate('Check_minimum_order_amount_requirement')], 403);
+        }
+
+        if ($codBlockedReason = app(CheckoutCodGuard::class)->blockedReason($cartGroupIds)) {
+            return response()->json(['message' => $codBlockedReason], 403);
         }
 
         if ($user == 'offline' && $request->has('address_id') && $request['address_id']) {

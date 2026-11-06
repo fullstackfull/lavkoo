@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Traits\ProductTrait;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -404,6 +405,13 @@ class OrderEditService
             return [
                 'status' => false,
                 'message' => translate('Orders containing only digital products cannot be edited.'),
+            ];
+        }
+
+        if ($providerBlock = app(FulfillmentOrderGuard::class)->editBlockedReason(orderId: (int) $order['id'])) {
+            return [
+                'status' => false,
+                'message' => $providerBlock,
             ];
         }
 

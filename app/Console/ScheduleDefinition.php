@@ -78,6 +78,24 @@ class ScheduleDefinition
         // model observer that keeps it fresh in realtime.
         $schedule->command('search:reindex-products')->weekly()->sundays()->at('04:00')->withoutOverlapping();
 
+        /*
+        | Provider fulfillment (M5AZN / Torod Point).
+        |
+        | All of these do nothing unless FULFILLMENT_INTEGRATIONS_ENABLED is on. The recovery sweep is the
+        | safety net under every event-driven path (checkout hook, status hook, webhooks, queue jobs): it
+        | finds work by state, so a missed hook costs a minute, not correctness. With the `sync` queue
+        | driver it also does the dispatching itself, so the scheduler alone is enough to be correct.
+        */
+        // withoutOverlapping() keeps a cache mutex that, if a run is killed (OOM, deploy restart), would otherwise
+        // survive for the default 24 hours and silence the sweep. Each expiry is a few times the run's real length.
+        $schedule->command('fulfillment:recover')->everyMinute()->withoutOverlapping(10);
+        // The net under a webhook that never arrived: ask the provider about shipments we have not heard of.
+        $schedule->command('fulfillment:poll')->everyFifteenMinutes()->withoutOverlapping(30)->runInBackground();
+        // Wakes every five minutes; each provider's own interval setting (default 30) decides whether it is due.
+        $schedule->command('fulfillment:sync --only=products,inventory --due')->everyFiveMinutes()->withoutOverlapping(60)->runInBackground();
+        $schedule->command('fulfillment:sync --only=cities')->weekly()->sundays()->at('03:30')->withoutOverlapping(60);
+        $schedule->command('fulfillment:prune')->dailyAt('03:50');
+
         // Heartbeat: record the last scheduler run in the DB (not cache, which optimize:clear wipes) so
         // the admin dashboard can warn when the server cron `schedule:run` has stopped firing — the
         // failure mode where settlements silently never mature.

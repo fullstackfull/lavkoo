@@ -51,11 +51,13 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapApiv2Routes();
         $this->mapApiv3Routes();
         $this->mapDeliverySyriaRoutes();
+        $this->mapFulfillmentWebhookRoutes();
 
         //$this->mapInstallRoutes();
         //$this->mapUpdateRoutes();
 
         $this->mapBetaAdminRoutes();
+        $this->mapFulfillmentAdminRoutes();
         $this->mapBetaVendorRoutes();
         $this->mapSellerCenterRoutes();
         $this->mapBetaWebRoutes();
@@ -129,6 +131,17 @@ class RouteServiceProvider extends ServiceProvider
     }
 
     /**
+     * Provider fulfillment webhooks. Under the `api` prefix but outside the `api` middleware group —
+     * see routes/rest_api/fulfillment_webhooks.php for why.
+     */
+    protected function mapFulfillmentWebhookRoutes(): void
+    {
+        Route::prefix('api')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/rest_api/fulfillment_webhooks.php'));
+    }
+
+    /**
      * Define the "beta" routes for the application.
      *
      * These routes all receive session state, CSRF protection, etc.
@@ -164,6 +177,14 @@ class RouteServiceProvider extends ServiceProvider
             ->namespace($this->namespace)
             ->group(base_path('routes/admin/routes.php'));
     }
+    /** Integration Center and the M5AZN / Torod Point admin pages. */
+    protected function mapFulfillmentAdminRoutes(): void
+    {
+        Route::middleware('web')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/admin/fulfillment.php'));
+    }
+
     protected function mapBetaVendorRoutes(): void
     {
         Route::middleware('web')

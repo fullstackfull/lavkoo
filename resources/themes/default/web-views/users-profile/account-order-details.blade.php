@@ -406,6 +406,7 @@
                                 @endif
                             </div>
                         @endif
+                        @include('web-views.partials._fulfillment-shipments', ['orderId' => $order['id']])
                         <div class="border overflow-hidden rounded-10 mb-3">
                             <div class="payment table-responsive d-nones d-lg-block">
                                 <table class="table table-border min-width-600px">

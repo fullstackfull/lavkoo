@@ -116,31 +116,46 @@ use App\Http\Controllers\Admin\ManualMessageController;
 use App\Http\Controllers\Admin\AppCarouselController;
 use App\Http\Controllers\Admin\ZenderSettingController;
 use App\Http\Controllers\Admin\DeliverySyriaSettingController;
-Route::prefix('admin')->as('admin.')->group(function () {
-   Route::get('/otp/settings',[ZenderSettingController::class, 'show'])->name('zender.settings');
-   Route::put('/zender/settings',[ZenderSettingController::class, 'update'])->name('zender.settings.update');
-   Route::post('/zender/test',[ZenderSettingController::class, 'test'])->name('zender.test');
-   Route::post('/zender/toggle', [ZenderSettingController::class, 'toggleStatus'])->name('zender.settings.toggle');
-   Route::prefix('app-carousel')->as('app-carousel.')->controller(AppCarouselController::class)->group(function () {
-   Route::get('/', 'index')->name('index');
-   Route::post('/update', 'update')->name('update');
-   Route::post('/delete-image', 'deleteImage')->name('delete-image');});
-   Route::prefix('integrations/manual-message')
-    ->as('integrations.manual-message.')
-    ->controller(ManualMessageController::class)
-    ->group(function () {
+/*
+| Lynomia/Zender OTP gateway settings, app carousel, manual messages and cart marketing.
+|
+| These routes used to sit in a bare `admin` prefix group with no authentication at all, so anyone could
+| read and change the OTP gateway configuration (including pointing its base URL at their own server and
+| pressing "test", which posts the stored API secret there), send messages through the store's messaging
+| account, and edit the app carousel. They now carry the same guard as the rest of the admin panel plus
+| the module permission of the area each belongs to. See docs/integrations/security-findings.md.
+*/
+Route::prefix('admin')->as('admin.')->middleware(['admin', 'actch:admin_panel'])->group(function () {
+    Route::middleware('module:3rd_party_setup')->group(function () {
+        Route::get('/otp/settings', [ZenderSettingController::class, 'show'])->name('zender.settings');
+        Route::put('/zender/settings', [ZenderSettingController::class, 'update'])->name('zender.settings.update');
+        Route::post('/zender/test', [ZenderSettingController::class, 'test'])->name('zender.test');
+        Route::post('/zender/toggle', [ZenderSettingController::class, 'toggleStatus'])->name('zender.settings.toggle');
+
+        Route::prefix('integrations/manual-message')
+            ->as('integrations.manual-message.')
+            ->controller(ManualMessageController::class)
+            ->group(function () {
+                Route::get('/', 'index')->name('index');
+                Route::post('/check', 'check')->name('check');
+                Route::post('/send', 'send')->name('send');
+            });
+
+        Route::prefix('integrations/cart-marketing')
+            ->as('integrations.cart-marketing.')
+            ->controller(CartMarketingController::class)
+            ->group(function () {
+                Route::get('/', 'index')->name('index');
+                Route::post('/send', 'send')->name('send');
+            });
+    });
+
+    Route::prefix('app-carousel')->as('app-carousel.')->middleware('module:marketing')->controller(AppCarouselController::class)->group(function () {
         Route::get('/', 'index')->name('index');
-        Route::post('/check', 'check')->name('check');
-        Route::post('/send', 'send')->name('send');
+        Route::post('/update', 'update')->name('update');
+        Route::post('/delete-image', 'deleteImage')->name('delete-image');
     });
-   Route::prefix('integrations/cart-marketing')
-    ->as('integrations.cart-marketing.')
-    ->controller(CartMarketingController::class)
-    ->group(function () {
-        Route::get('/', 'index')->name('index');
-        Route::post('/send', 'send')->name('send');
-    });
-    });
+});
 /////////////////////////////////////////////////////////////////////////////
 
 Route::controller(SharedController::class)->group(function () {

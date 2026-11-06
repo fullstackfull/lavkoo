@@ -187,6 +187,10 @@
         </div>
         @endif
 
+        @if (str_contains(request()->url(), 'checkout-payment'))
+            @include('web-views.partials._mixed-provider-notice', ['cartProductIds' => $cart->where('is_checked', 1)->pluck('product_id')])
+        @endif
+
         <div class="pt-4">
             @if (str_contains(request()->url(), 'checkout-payment'))
                 <label class="custom-control custom-checkbox mb-3 d-flex user-select-none cursor-pointer">

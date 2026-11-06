@@ -639,6 +639,8 @@
                     </div>
                 </div>
 
+                @include('web-views.partials._fulfillment-shipments', ['orderId' => $orderDetails['id']])
+
                 <div class="text-center pt-4">
                     <a class="btn btn--primary btn-sm text-capitalize" href="#order-details"
                        data-toggle="modal">{{ translate('view_order_details')}}</a>

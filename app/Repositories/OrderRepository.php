@@ -14,6 +14,7 @@ use App\Models\Product;
 use App\Models\SellerWallet;
 use App\Models\Shop;
 use App\Models\Transaction;
+use App\Services\Fulfillment\FulfillmentHooks;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
@@ -517,6 +518,12 @@ class OrderRepository implements OrderRepositoryInterface
         // this is the path they all take. Recorded here instead, where the change actually happens.
         if ($updated && isset($data['order_status'])) {
             $this->recordStatusChange((int) $id, (string) $data['order_status']);
+        }
+
+        // Same reasoning: this is the path the panels take, so it is where provider fulfillment hears
+        // that an order was confirmed, paid or cancelled. Best-effort; the scheduled sweep is the net.
+        if ($updated) {
+            app(FulfillmentHooks::class)->orderChanged(orderId: $id, changes: $data);
         }
 
         return $updated;

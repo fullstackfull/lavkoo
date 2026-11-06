@@ -36,6 +36,7 @@ use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductEditImageRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Repositories\DigitalProductPublishingHouseRepository;
+use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\ProductService;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
@@ -201,9 +202,21 @@ class ProductController extends BaseController
             taxIds: $request['tax_ids'] ?? []
         );
 
+        $this->applyFulfillmentProviderSelection(request: $request, productId: $savedProduct->id);
+
         updateSetupGuideCacheKey(key: 'add_new_product', panel: 'admin');
         ToastMagic::success(translate('product_added_successfully'));
         return redirect()->route('admin.products.list', ['in_house']);
+    }
+
+    /** A refused provider change never fails the product save: the product stays as it was and the admin is told why. */
+    private function applyFulfillmentProviderSelection(Request $request, int|string $productId): void
+    {
+        $selection = app(ProductFormProviderSelection::class)->apply(request: $request, productId: (int) $productId);
+
+        if ($selection?->ok === false) {
+            ToastMagic::warning($selection->message());
+        }
     }
 
     public function updateProductAuthorAndPublishingHouse(object|array $request, object|array $product): void
@@ -315,6 +328,8 @@ class ProductController extends BaseController
             taxIds: $request['tax_ids'] ?? [],
             oldTaxIds: $taxVatIds
         );
+
+        $this->applyFulfillmentProviderSelection(request: $request, productId: $product['id']);
 
         updateSetupGuideCacheKey(key: 'add_new_product', panel: 'admin');
         ToastMagic::success(translate('product_updated_successfully'));

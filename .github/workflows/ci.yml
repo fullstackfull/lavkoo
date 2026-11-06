@@ -1,0 +1,172 @@
+name: CI
+
+# Runs on every pull request and on pushes to main. Nothing here can reach a real provider, a real database
+# or production: provider traffic is faked in the tests, the databases are throwaway.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A newer push to a pull request makes the older run pointless. A push to a branch is different: each one is scanned for secrets
+  # from its own previous tip, so cancelling one would leave its commits unread.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PHP_EXTENSIONS: curl, dom, fileinfo, gd, intl, json, libxml, mbstring, mysqli, openssl, pdo_mysql, pdo_sqlite, sqlite3, zip, bcmath, exif
+
+jobs:
+  lint:
+    name: PHP syntax (${{ matrix.php }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Lint every PHP file we own (catches syntax the oldest supported PHP cannot parse)
+        run: |
+          find app routes config database tests bootstrap Modules scripts -name '*.php' -not -path '*/vendor/*' -print0 \
+            | xargs -0 -n 50 -P 4 php -l > /tmp/lint.log 2>&1 || { grep -v '^No syntax errors' /tmp/lint.log; exit 1; }
+          echo "all files parse"
+
+  tests-sqlite:
+    name: Tests, SQLite (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          coverage: none
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ matrix.php }}-
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Environment (the example file carries a throwaway APP_KEY; no secret is used)
+        run: cp .env.example .env
+      - name: strace (a deployment-tooling test watches the order in which a rollback restores and deletes)
+        run: sudo apt-get install -y --no-install-recommends strace
+      - name: Full test suite
+        env:
+          EXPECT_DB_DRIVER: sqlite
+        run: vendor/bin/phpunit --display-skipped
+      - name: Deployment tooling once more as root (the tests of file ownership need it; the rest run as the user a server would use)
+        if: matrix.php == '8.3'
+        env:
+          EXPECT_DB_DRIVER: sqlite
+        run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
+
+  tests-mysql:
+    name: Fulfillment + security tests, MySQL 8
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: pharmacy_testing
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      EXPECT_DB_DRIVER: mysql
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: pharmacy_testing
+      DB_USERNAME: root
+      DB_PASSWORD: ci-root-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          coverage: none
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-8.3-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-8.3-
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Environment
+        run: cp .env.example .env
+      - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
+        # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php --display-skipped
+
+  # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
+  # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.
+  leak-guard:
+    name: No secret or personal data added
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Scan the lines this change adds
+        run: php scripts/ci/leak-guard.php --base="${{ github.event.pull_request.base.sha || github.event.before }}"
+
+  # Builds exactly what would be deployed to the server (the added and modified files of this pull request, with the checksum of
+  # each file's baseline version) so it can be downloaded, read and checked before anyone deploys anything. This job deploys nothing.
+  build-overlay:
+    name: Deployment overlay (artifact, deploys nothing)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The pull request's own head, not GitHub's temporary merge of it into the target branch: the package must say exactly
+          # which commit was reviewed, and its content must not change because the target branch moved.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Build the overlay from what the server runs to this pull request
+        env:
+          # The commit the pilot server's code corresponds to. After a deployment, set the repository variable PILOT_BASELINE to the
+          # `head` recorded in the deployed package's MANIFEST.json, so the next package holds only what is new.
+          BASELINE: ${{ vars.PILOT_BASELINE || '34dce65' }}
+          RELEASE: ${{ github.event.pull_request.head.sha }}
+        run: php scripts/deploy/build-overlay.php --base="$BASELINE" --head="$RELEASE" --out=build/overlay --archive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pilot-overlay-${{ github.event.pull_request.head.sha }}
+          path: |
+            build/overlay.tar.gz
+            build/overlay.tar.gz.sha256
+          retention-days: 14

@@ -1,0 +1,40 @@
+<?php
+
+namespace App\Services\Fulfillment;
+
+use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Fulfillment\Providers\M5azn\M5aznFieldMaps;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodFieldMaps;
+
+/** What each provider's field-map screen offers: which maps exist, their logical fields, and which are required. */
+class FieldMapDefinitions
+{
+    /**
+     * @return array<string, array{required: list<string>, fields: list<string>}> capability => definition
+     */
+    public function for(ProviderCode $provider): array
+    {
+        return match ($provider) {
+            ProviderCode::M5azn => [
+                M5aznFieldMaps::CATALOG => [
+                    'required' => M5aznFieldMaps::REQUIRED[M5aznFieldMaps::CATALOG],
+                    'fields' => array_merge(
+                        array_keys(M5aznFieldMaps::CANDIDATES[M5aznFieldMaps::CATALOG]),
+                        array_map(static fn (string $field): string => 'variant_' . $field, array_keys(M5aznFieldMaps::VARIANT_CANDIDATES)),
+                    ),
+                ],
+                M5aznFieldMaps::INVENTORY => ['required' => M5aznFieldMaps::REQUIRED[M5aznFieldMaps::INVENTORY], 'fields' => array_keys(M5aznFieldMaps::CANDIDATES[M5aznFieldMaps::INVENTORY])],
+                M5aznFieldMaps::ORDERS => ['required' => M5aznFieldMaps::REQUIRED[M5aznFieldMaps::ORDERS], 'fields' => array_keys(M5aznFieldMaps::CANDIDATES[M5aznFieldMaps::ORDERS])],
+            ],
+            ProviderCode::TorodPoint => [
+                TorodFieldMaps::PRODUCTS => ['required' => TorodFieldMaps::REQUIRED[TorodFieldMaps::PRODUCTS], 'fields' => array_keys(TorodFieldMaps::CANDIDATES[TorodFieldMaps::PRODUCTS])],
+                TorodFieldMaps::ORDERS => ['required' => TorodFieldMaps::REQUIRED[TorodFieldMaps::ORDERS], 'fields' => array_keys(TorodFieldMaps::CANDIDATES[TorodFieldMaps::ORDERS])],
+            ],
+        };
+    }
+
+    public function has(ProviderCode $provider, string $capability): bool
+    {
+        return array_key_exists($capability, $this->for($provider));
+    }
+}

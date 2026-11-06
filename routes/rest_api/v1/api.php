@@ -10,6 +10,7 @@ use App\Http\Controllers\RestAPI\v1\auth\PhoneVerificationController;
 use App\Http\Controllers\RestAPI\v1\auth\SocialAuthController;
 use App\Http\Controllers\RestAPI\v1\AnalyticsEventController;
 use App\Http\Controllers\RestAPI\v1\BannerController;
+use App\Http\Controllers\RestAPI\v1\FulfillmentController;
 use App\Http\Controllers\RestAPI\v1\BrandController;
 use App\Http\Controllers\RestAPI\v1\CartController;
 use App\Http\Controllers\RestAPI\v1\CategoryController;
@@ -177,12 +178,16 @@ Route::get('/cash', function () {
             Route::post('get-referral-discount-redeem', 'getReferralDiscountRedeem');
             Route::post('get-merge-guest-cart', 'getMergeGuestCart');
         });
+        // Additive: tells the app whether to show the "may arrive in separate shipments" notice.
+        Route::get('fulfillment-notice', [FulfillmentController::class, 'cartNotice']);
     });
 
     Route::group(['prefix' => 'customer/order', 'middleware' => 'apiGuestCheck'], function () {
         Route::controller(CustomerController::class)->group(function () {
             Route::get('get-order-by-id', 'getOrderById');
         });
+        // Additive: the shipments of one order (the existing order-details endpoint returns a bare array).
+        Route::get('fulfillments', [FulfillmentController::class, 'orderFulfillments']);
     });
 
     Route::group(['prefix' => 'notifications'], function () {
