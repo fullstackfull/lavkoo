@@ -6,11 +6,12 @@ Nothing here is deployed to production by this work, and no production data is r
 
 1. **Back up the database first.** The migrations are additive (new tables only; every `Schema::create` is guarded by `Schema::hasTable`; no existing table or column is altered; no foreign key points into a core table) but a backup is the rule for any release.
 2. **Never run `php artisan migrate` on an empty database** (project rule): import the dump first.
-3. Run exactly these three migrations (they can be run alone):
+3. Run exactly these four migrations, in this order (they can be run alone):
    ```bash
    php artisan migrate --path=database/migrations/2026_11_07_100000_create_operational_cost_tables.php
    php artisan migrate --path=database/migrations/2026_11_07_100100_create_sales_channel_tables.php
    php artisan migrate --path=database/migrations/2026_11_07_100200_create_inventory_and_routing_tables.php
+   php artisan migrate --path=database/migrations/2026_11_08_100000_add_state_before_dispute_to_operational_cost_entries.php
    ```
    Until they have run, every admin page of the module says so, and every scheduled command prints "the sales-channel migrations have not been run yet" and exits successfully.
 4. **Leave the switches off** (the default). `.env` needs nothing; the two optional values are `SALES_CHANNELS_ENABLED` and `SALES_CHANNELS_EXTERNAL_WRITES_ENABLED` (read with `FILTER_VALIDATE_BOOLEAN`: `off`/`no` mean off). `OPERATIONAL_COSTS_BASE_CURRENCY` defaults to the fulfilment currency (SAR).
@@ -27,7 +28,7 @@ Nothing here is deployed to production by this work, and no production data is r
 2. Enable the account, switch **Connection Test** on, press *Test connection*. It only reads. The result lists granted and missing permissions; fix roles/keys and test again.
 3. Switch on **Read-only Sync**, then **Product Sync**, **Order Import**, **Financial Reconciliation** as needed. Each is a separate decision; a successful test never switches anything on.
 4. Link listings to products (*Products & Channels*): nothing is linked automatically unless the account's explicit *auto-link exact SKU/barcode* setting is on; names are never matched.
-5. Add **routing rules** (*Dynamic Routing*). With no rule every order waits for manual review.
+5. Add **routing rules** (*Dynamic Routing*). With no matching rule the account's default decides: *manual review* (every order waits for a person — the standard) or *managed by someone else* (the order is only followed, for an account whose shipments another integration creates). Set it on the account's page.
 6. Writes (**Inventory Publishing**, **Price Publishing**, **Fulfillment Dispatch**) additionally need: the environment switch on, *write enabled* on the account, a recorded approval with a reason, and dry run turned off. Start with dry run on: it logs the exact request and sends nothing.
 
 ## Running things by hand

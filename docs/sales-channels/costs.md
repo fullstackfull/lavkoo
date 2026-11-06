@@ -24,6 +24,7 @@ Product cost: `cogs`, `supplier_cost`, `inbound_freight`. Fulfilment: `receiving
 * **One effective entry per service of a subject** (the *slot*): a better-known figure supersedes a weaker one (actual over estimate over missing) and a weaker one never displaces a better one, so an estimate and the real charge are never both counted. Superseded entries stay as history.
 * **Idempotent:** the same computation or document is one row (`dedupe_key`).
 * **Approved and reconciled entries are frozen.** A different newer figure is stored beside them as *disputed*, outside the totals, for a person to resolve. A mistake is reversed with an equal and opposite entry, never edited or deleted.
+* **Disputes.** Only a charge (actual or reconciled) can be contested; it leaves every total until settled and remembers the state it had. *The charge stands*: it counts again as what it was (nothing is added). *It does not stand*: it counts again only to be cancelled by one reversal, so the two net to zero and the total is never driven negative (the charge was already outside it while contested). For a newer figure kept beside an approved one: *it stands* — it replaces the approved figure for the slot (which is superseded, not edited); *it does not stand* — it is set aside and the approved figure remains. Every outcome is audited.
 * **Historical costs never change when a contract changes:** an entry keeps the contract, version and rule that priced it, its calculation inputs, and (for another currency) the exchange rate and the base amount at the time.
 * **Money** is exact decimal throughout (`Money`, brick/math): six decimals stored, half-up, two shown; shared charges are split with the largest-remainder method so the parts add up exactly. FX conversion uses a recorded rate; with none, the amount stays in its own currency and the report says the total is incomplete.
 
@@ -31,6 +32,7 @@ Product cost: `cogs`, `supplier_cost`, `inbound_freight`. Fulfilment: `receiving
 
 * **Inventory cost layers (FIFO).** A purchase creates a layer at a location (idempotent by source reference). Buying stock is an inventory movement, **not** an expense. The cost of goods is recognised **at the sale** (`operational_costs.cogs_recognition`: storefront at delivery, Amazon and Trendyol at shipment), consuming the oldest layers; cancelled-before-shipping sales reverse the consumption.
 * A sale for which the layers hold less than the quantity records the shortfall (reported, never costed at zero).
+* A sale line that is not linked to a product has a **missing** cost of goods (reason `product_not_linked`), not no cost at all: the order's profit is provisional until the line is linked, and linking supersedes the missing entry with the estimate or the actual cost.
 * **Dropshipping (M5AZN):** the supplier cost is the cost of goods, taken from the supplier's price at the time.
 * **Transfers are not sales.** Moving stock from Torod Point to Amazon FBA moves layers between locations (`transfer`), keeps the unit cost and records no revenue and no COGS.
 * **Amazon FBA** stock, storage and fees are kept apart from Torod's (own location; fees from the Finances API only).
