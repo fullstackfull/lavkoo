@@ -3,6 +3,7 @@
 namespace App\Services\SalesChannels\Routing;
 
 use App\Enums\SalesChannels\ChannelOrderStatus;
+use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
 
 /** Everything a routing decision may look at, and nothing else: the decision is a function of this, so it can be explained and repeated. */
@@ -24,6 +25,7 @@ final readonly class RoutingContext
         public ?string $currentExecutionPolicy,
         public bool $alreadyDispatched,
         public array $lines,
+        public ExecutionPolicy $accountPolicy = ExecutionPolicy::ManualReview,
     ) {
     }
 
@@ -38,7 +40,7 @@ final readonly class RoutingContext
     {
         return [
             'channel' => $this->channel, 'account_id' => $this->accountId, 'fulfillment_mode' => $this->mode->value, 'order_status' => $this->status->value,
-            'carrier_payer' => $this->channelPaysCarrier, 'cod' => $this->isCod, 'country' => $this->country, 'city' => $this->city, 'order_total' => $this->orderTotal,
+            'account_policy' => $this->accountPolicy->value, 'carrier_payer' => $this->channelPaysCarrier, 'cod' => $this->isCod, 'country' => $this->country, 'city' => $this->city, 'order_total' => $this->orderTotal,
             'lines' => array_map(static fn (RoutingLine $line): array => [
                 'line' => $line->externalLineId, 'product_id' => $line->productId, 'sku' => $line->sku, 'quantity' => $line->quantity, 'location_id' => $line->locationId,
                 'provider' => $line->provider, 'stock_confirmed' => $line->stockConfirmed, 'cancelled' => $line->cancelled,

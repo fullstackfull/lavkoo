@@ -1,6 +1,8 @@
 {{-- The fields of a channel account, for creating one and for editing it. Secrets are write-only (see _secret-field).
      Expects $channel (SalesChannel), $creating (bool), $account (?SalesChannelAccount), $settings, $secretFields, $secretsSet (secret => bool), $carrierCodesText, $labels. --}}
+@use('App\Enums\SalesChannels\ExecutionPolicy')
 @use('App\Enums\SalesChannels\SalesChannel')
+@use('App\Http\Controllers\Admin\SalesChannels\Support\AccountForm')
 @php
     $isAmazon = $channel === SalesChannel::Amazon;
     $setting = static fn (string $key, mixed $default = null): mixed => old('settings.' . $key, $settings[$key] ?? $default);
@@ -47,6 +49,16 @@
         <label class="form-label" for="account-currency">{{ translate('currency') }}</label>
         <input class="form-control" id="account-currency" name="currency" maxlength="3" placeholder="SAR" value="{{ old('currency', $account?->currency) }}">
         @error('currency')<div class="text-danger fs-12">{{ $message }}</div>@enderror
+    </div>
+    <div class="col-md-6">
+        <label class="form-label" for="account-policy">{{ translate('when_no_rule_matches') }}</label>
+        <select class="form-select" id="account-policy" name="execution_policy" required>
+            @foreach (AccountForm::DEFAULT_POLICIES as $policy)
+                <option value="{{ $policy->value }}" @selected(old('execution_policy', $account?->execution_policy ?? ExecutionPolicy::ManualReview->value) === $policy->value)>{{ $labels->executionPolicy($policy->value) }}</option>
+            @endforeach
+        </select>
+        <div class="fs-12 text-muted">{{ translate('when_no_rule_matches_help') }}</div>
+        @error('execution_policy')<div class="text-danger fs-12">{{ $message }}</div>@enderror
     </div>
 
     @if ($isAmazon)

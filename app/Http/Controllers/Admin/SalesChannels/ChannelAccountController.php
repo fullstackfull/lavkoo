@@ -131,7 +131,7 @@ class ChannelAccountController extends Controller
 
         ToastMagic::success(translate('settings_saved_successfully'));
         if ($identityBefore !== $this->identity($account, $channel)) {
-            SafeToast::warning(translate('connection_test_describes_the_old_identity'));
+            SafeToast::warning(translate('account_identity_changed_withdrawn'));
         }
 
         return redirect($back);

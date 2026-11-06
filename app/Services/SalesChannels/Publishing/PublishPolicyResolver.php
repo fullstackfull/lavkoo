@@ -6,8 +6,9 @@ use App\Models\InventorySourcePolicy;
 use App\Models\SalesChannelProductMapping;
 
 /**
- * Where a listing's quantity comes from and whether anything may be pushed to it. The most specific setting wins: the listing, then its product's policy, then the
- * account's. Pushing is an opt-in at every level; the absence of a setting is "off".
+ * Where a listing's quantity comes from and how much of it is held back. The most specific setting wins: the listing, then its product's policy, then the account's.
+ * Whether anything is pushed is decided by the listing alone: a policy never switches publishing on for listings a person did not opt in one by one, so a listing
+ * synced tomorrow can not start receiving stock because an account-wide default exists.
  */
 class PublishPolicyResolver
 {
@@ -20,8 +21,8 @@ class PublishPolicyResolver
 
         return new PublishPolicy(
             stockLocationId: $mapping->stock_location_id ?? $product?->stock_location_id ?? $account?->stock_location_id,
-            inventoryPush: (bool) $mapping->inventory_publish || $policy?->inventory_publish_mode === 'push',
-            pricePush: (bool) $mapping->price_publish || $policy?->price_publish_mode === 'push',
+            inventoryPush: (bool) $mapping->inventory_publish,
+            pricePush: (bool) $mapping->price_publish,
             priceSource: (string) ($mapping->price_source ?: 'internal'),
             safetyBuffer: (int) ($mapping->safety_buffer ?? $product?->safety_buffer ?? $account?->safety_buffer ?? 0),
             maxQuantity: $mapping->max_publish_quantity ?? $product?->max_publish_quantity ?? $account?->max_publish_quantity,

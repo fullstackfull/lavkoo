@@ -71,9 +71,6 @@ return new class extends Migration
                 $table->string('variant_key', 191)->default('');
                 $table->unsignedBigInteger('stock_location_id')->nullable();
                 $table->string('price_source', 16)->nullable();
-                // off | push. Reading a channel's quantity never writes ours, so there is no "pull" setting to misconfigure into a loop.
-                $table->string('inventory_publish_mode', 8)->default('off');
-                $table->string('price_publish_mode', 8)->default('off');
                 $table->unsignedInteger('safety_buffer')->nullable();
                 $table->unsignedInteger('max_publish_quantity')->nullable();
                 $table->boolean('is_active')->default(true);

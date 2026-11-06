@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\SalesChannels\Support;
 
 use App\Enums\SalesChannels\AccountEnvironment;
+use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Models\SalesChannelAccount;
 use App\Models\Seller;
@@ -20,8 +21,8 @@ use Illuminate\Validation\Rules\Unique;
  * Secrets are write-only: the form never receives a stored one, a blank field keeps what is stored, and each secret has its own "clear" box. They travel under one
  * request key (`secrets`) so that a rejected form can be sent back without them (`Request::except(self::SECRETS_KEY)`).
  *
- * The environment and the Amazon marketplaces are chosen when an account is created and are not edited afterwards: ChannelAccountService::update() does not carry a changed
- * marketplace list to the column the Amazon connector reads, and a changed environment would keep the earlier connection test. A different environment is a different account.
+ * The environment and the Amazon marketplaces are chosen when an account is created and are not edited afterwards: a different environment or marketplace is a different
+ * account. A changed seller id, region or storefront is allowed, and ChannelAccountService withdraws what had been proven or approved for the previous one.
  */
 final class AccountForm
 {
@@ -35,6 +36,9 @@ final class AccountForm
 
     /** The settings that say WHICH seller account a connection test was about: changing one leaves the earlier test describing something else. */
     public const IDENTITY_SETTINGS = ['amazon' => ['region'], 'trendyol' => ['storefront_code']];
+
+    /** What an account does with an order no rule decides about. It can follow only; creating shipments needs a rule that says from where. */
+    public const DEFAULT_POLICIES = [ExecutionPolicy::ManualReview, ExecutionPolicy::ExternallyManaged];
 
     private const SETTING_FIELDS = [
         'amazon' => ['region', 'marketplace_ids', 'sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders'],
@@ -77,6 +81,7 @@ final class AccountForm
             'name' => $validated['name'],
             'external_account_id' => $validated['external_account_id'],
             'currency' => $validated['currency'] ?? null,
+            'execution_policy' => $validated['execution_policy'] ?? null,
             'settings' => $settings,
         ];
         if ($creating) {
@@ -112,6 +117,7 @@ final class AccountForm
             'name' => ['required', 'string', 'max:120'],
             'external_account_id' => ['required', 'string', 'max:64', $channel === SalesChannel::Trendyol ? 'regex:/^\d+$/' : 'regex:/^[A-Za-z0-9_-]+$/', $this->uniqueSellerId($channel, $account?->environment ?? $environment, $account)],
             'currency' => ['nullable', 'string', 'regex:/^[A-Za-z]{3}$/'],
+            'execution_policy' => ['nullable', Rule::in(array_map(static fn (ExecutionPolicy $policy): string => $policy->value, self::DEFAULT_POLICIES))],
             'settings' => ['required', 'array'],
             self::SECRETS_KEY => ['nullable', 'array:' . implode(',', self::SECRET_FIELDS[$channel->value])],
             self::SECRETS_KEY . '.*' => ['nullable', 'string', 'max:4000'],
@@ -173,6 +179,7 @@ final class AccountForm
             'name' => translate('account_name'),
             'external_account_id' => translate('seller_id_at_the_channel'),
             'currency' => translate('currency'),
+            'execution_policy' => translate('when_no_rule_matches'),
             'environment' => translate('environment'),
             'seller_id' => translate('seller_id_platform_is_zero'),
             'settings.region' => translate('amazon_region'),

@@ -161,16 +161,29 @@ class StockPricePublisherTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_an_account_policy_can_opt_every_mapped_listing_in(): void
+    public function test_an_account_policy_gives_the_source_and_the_buffer_of_an_opted_in_listing(): void
     {
         $this->stock(20);
-        $this->listing(['inventory_publish' => false, 'stock_location_id' => null]);
-        InventorySourcePolicy::create(['scope' => 'account', 'account_id' => $this->account->id, 'stock_location_id' => $this->own->id, 'inventory_publish_mode' => 'push', 'safety_buffer' => 4, 'is_active' => true]);
+        $this->listing(['inventory_publish' => true, 'stock_location_id' => null]);
+        InventorySourcePolicy::create(['scope' => 'account', 'account_id' => $this->account->id, 'stock_location_id' => $this->own->id, 'safety_buffer' => 4, 'is_active' => true]);
         $this->accept();
 
         $this->publisher->publishStock($this->account);
 
         $this->assertSame(16, $this->sentTo('price-and-inventory')[0]->data()['items'][0]['quantity']);
+    }
+
+    public function test_an_account_policy_never_opts_a_listing_in(): void
+    {
+        $this->stock(20);
+        $this->listing(['inventory_publish' => false, 'stock_location_id' => null]);
+        InventorySourcePolicy::create(['scope' => 'account', 'account_id' => $this->account->id, 'stock_location_id' => $this->own->id, 'safety_buffer' => 4, 'is_active' => true]);
+        Http::fake();
+
+        $result = $this->publisher->publishStock($this->account);
+
+        $this->assertSame(0, $result['stats']['considered']);
+        Http::assertNothingSent();
     }
 
     public function test_the_same_quantity_is_not_sent_again_while_it_is_awaiting_its_result_or_already_shown(): void

@@ -3,6 +3,7 @@
 namespace App\Services\SalesChannels\Routing;
 
 use App\Enums\SalesChannels\ChannelOrderStatus;
+use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Enums\SalesChannels\RoutingAction;
 use App\Models\ExternalOrderLine;
@@ -21,7 +22,9 @@ use Illuminate\Support\Facades\DB;
  *  - an order that has been dispatched or whose shipment is linked is never decided again: the decision that was applied stands;
  *  - a package whose carrier the channel arranges and pays for is only followed, because a shipment of ours would be a second shipment of the same parcel;
  *  - cash on delivery and lines not linked to a product wait for a person.
- * Only after those does an administrator's rule decide, and with NO rule the answer is manual review: nothing is routed unless someone said so.
+ * Only after those does an administrator's rule decide. With NO rule the account's default decides, and that default is either manual review (the standard: nothing
+ * is routed unless someone said so) or "managed by someone else", which only follows the order. An account can never default to creating shipments: that needs a rule
+ * that names where the goods are shipped from.
  *
  * App-driven creation of a provider shipment for a channel order is not available in this version (it needs the buyer's address, which is deliberately never stored,
  * and an internal order). A rule asking for it is recorded as wanted and the order waits for a person, with the reason `managed_dispatch_not_available`.
@@ -70,10 +73,23 @@ class DynamicFulfillmentRoutingEngine
 
         $rule = $this->matcher->firstMatch($context, $sellerId);
         if ($rule === null) {
-            return $this->wait(RoutingAction::ManualReview, 'no_rule_matched', 'No routing rule matches this order, so nothing is done until a person decides.', $context, $inputs);
+            return $this->fromAccountDefault($context, $inputs, $lines);
         }
 
         return $this->fromRule($rule, $context, $inputs);
+    }
+
+    /**
+     * @param array<string, mixed> $inputs
+     * @param list<RoutingLine> $lines
+     */
+    private function fromAccountDefault(RoutingContext $context, array $inputs, array $lines): RoutingDecision
+    {
+        if ($context->accountPolicy === ExecutionPolicy::ExternallyManaged) {
+            return new RoutingDecision(RoutingAction::MonitorOnly, null, 'account_default_externally_managed', 'No routing rule matches, and this account\'s default is that someone else ships its orders: the order is only followed.', inputs: $inputs, lineDecisions: $this->uniform($lines, RoutingAction::MonitorOnly, null));
+        }
+
+        return $this->wait(RoutingAction::ManualReview, 'no_rule_matched', 'No routing rule matches this order, so nothing is done until a person decides.', $context, $inputs);
     }
 
     /**

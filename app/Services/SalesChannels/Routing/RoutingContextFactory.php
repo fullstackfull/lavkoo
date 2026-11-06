@@ -2,6 +2,7 @@
 
 namespace App\Services\SalesChannels\Routing;
 
+use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryLocation;
@@ -39,6 +40,7 @@ class RoutingContextFactory
             currentExecutionPolicy: $mapping->execution_policy,
             alreadyDispatched: $mapping->order_id !== null || $mapping->shipment_link_state === ExternalOrderMapping::LINK_LINKED,
             lines: $mapping->lines->map(fn (ExternalOrderLine $line): RoutingLine => $this->line($line, $locations->get($line->inventory_location_id)))->all(),
+            accountPolicy: ExecutionPolicy::tryFrom((string) $mapping->account?->execution_policy) ?? ExecutionPolicy::ManualReview,
         );
     }
 

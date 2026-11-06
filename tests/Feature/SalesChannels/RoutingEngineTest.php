@@ -157,6 +157,44 @@ class RoutingEngineTest extends TestCase
         $this->assertSame('manual_review', $this->place(orderId: 'B')->refresh()->execution_policy ?? 'manual_review');
     }
 
+    public function test_an_account_that_follows_its_orders_does_so_when_no_rule_decides(): void
+    {
+        $this->stocked('SKU-1', 10, $this->torod);
+        $this->account->forceFill(['execution_policy' => 'externally_managed'])->save();
+        $mapping = $this->place();
+
+        $decision = $this->decide($mapping);
+
+        $this->assertSame([RoutingAction::MonitorOnly->value, 'account_default_externally_managed', null, null], [$decision->action, $decision->reason_code, $decision->rule_id, $decision->provider]);
+        $this->assertSame(['externally_managed', ExternalOrderMapping::LINK_UNLINKED, null], [$mapping->refresh()->execution_policy, $mapping->shipment_link_state, $mapping->review_reason]);
+        $this->assertSame('externally_managed', $decision->inputs['account_policy']);
+        $this->assertSame(0, ProviderFulfillment::count(), 'Following an order creates no fulfilment.');
+    }
+
+    public function test_a_rule_still_wins_over_the_account_default_and_the_default_never_overrides_what_the_engine_refuses(): void
+    {
+        $this->stocked('SKU-1', 10, $this->torod);
+        $this->account->forceFill(['execution_policy' => 'externally_managed'])->save();
+
+        $fba = $this->place(orderId: 'FBA', overrides: ['fulfillmentMode' => FulfillmentMode::Fba, 'fulfillmentChannelRaw' => 'AFN']);
+        $this->assertSame('channel_fulfills_order', $this->decide($fba)->reason_code);
+
+        $cod = $this->place(orderId: 'COD', overrides: ['isCod' => true]);
+        $this->assertSame('cod_requires_review', $this->decide($cod)->reason_code, 'Cash on delivery still waits for a person.');
+
+        $this->rule(['action' => 'manual_review', 'priority' => 1]);
+        $ruled = $this->place(orderId: 'RULED');
+        $this->assertSame(['manual_review', 'rule_requires_manual_review'], [$this->decide($ruled)->action, $this->decide($ruled)->reason_code]);
+    }
+
+    public function test_the_standard_account_default_is_manual_review(): void
+    {
+        $this->stocked('SKU-1', 10, $this->torod);
+
+        $this->assertSame('manual_review', $this->account->execution_policy);
+        $this->assertSame('no_rule_matched', $this->decide($this->place())->reason_code);
+    }
+
     // ---- what the rules decide --------------------------------------------------------------------------
 
     public function test_a_rule_can_say_the_order_is_followed_not_shipped_by_us(): void

@@ -330,12 +330,38 @@ class AdminSalesChannelsAccountsTest extends AdminSalesChannelsTestCase
 
         $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['external_account_id' => '7654321']));
 
-        $this->assertToastContains(translate('connection_test_describes_the_old_identity'));
+        $this->assertToastContains(translate('account_identity_changed_withdrawn'));
         $this->assertSame('7654321', $account->fresh()->external_account_id);
+        $this->assertSame('untested', $account->fresh()->connection_status, 'the earlier connection test described another seller');
 
         $this->forgetToasts();
         $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['external_account_id' => '7654321', 'name' => 'Only a name']));
-        $this->assertStringNotContainsString(translate('connection_test_describes_the_old_identity'), implode(' ', $this->flashedToasts()));
+        $this->assertStringNotContainsString(translate('account_identity_changed_withdrawn'), implode(' ', $this->flashedToasts()));
+    }
+
+    public function test_the_account_default_for_orders_no_rule_decides_about_is_chosen_on_the_form(): void
+    {
+        $account = $this->freshAccount();
+        $this->assertSame('manual_review', $account->execution_policy, 'the standard: nothing happens until a person decides');
+
+        $this->get(route('admin.sales-channels.accounts.show', $account))->assertOk()->assertSee('name="execution_policy"', false);
+
+        $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['execution_policy' => 'externally_managed']))->assertRedirect();
+        $this->assertSame('externally_managed', $account->fresh()->execution_policy);
+
+        $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['name' => 'Only a name']));
+        $this->assertSame('externally_managed', $account->fresh()->execution_policy, 'a form that does not send the field leaves it as it was');
+    }
+
+    public function test_an_account_can_not_default_to_creating_shipments(): void
+    {
+        $account = $this->freshAccount();
+
+        $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['execution_policy' => 'managed']))->assertSessionHasErrors('execution_policy');
+        $this->assertSame('manual_review', $account->fresh()->execution_policy);
+
+        $this->post(route('admin.sales-channels.accounts.store'), $this->trendyolForm(['external_account_id' => '7777777', 'execution_policy' => 'managed']))->assertSessionHasErrors('execution_policy');
+        $this->assertSame(1, SalesChannelAccount::count());
     }
 
     public function test_a_seller_id_already_connected_cannot_be_taken_by_another_account(): void

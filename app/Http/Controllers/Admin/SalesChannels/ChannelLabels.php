@@ -26,7 +26,7 @@ final class ChannelLabels
         // Why an order waits (a routing decision's reason code, and the review reason on the order).
         'order_reason_' => [
             'channel_fulfills_order', 'unknown_fulfillment_mode', 'order_not_releasable', 'no_active_lines', 'carrier_arranged_by_channel', 'cod_requires_review',
-            'unmapped_lines', 'no_rule_matched', 'rule_requires_manual_review', 'rule_holds_order', 'rule_route_to_provider', 'rule_monitor_only', 'rule_channel_fulfills',
+            'unmapped_lines', 'no_rule_matched', 'account_default_externally_managed', 'rule_requires_manual_review', 'rule_holds_order', 'rule_route_to_provider', 'rule_monitor_only', 'rule_channel_fulfills',
             'line_has_no_stock_location', 'stock_not_at_target_provider', 'managed_dispatch_not_available', 'split_replaced', 'modified_after_routing',
             'cancelled_after_dispatch', 'split_after_dispatch', 'ambiguous_shipment', 'shipment_linked_elsewhere',
         ],
@@ -80,6 +80,7 @@ final class ChannelLabels
     public const TRANSLATION_KEYS = [
         'order_reason_channel_fulfills_order', 'order_reason_unknown_fulfillment_mode', 'order_reason_order_not_releasable', 'order_reason_no_active_lines',
         'order_reason_carrier_arranged_by_channel', 'order_reason_cod_requires_review', 'order_reason_unmapped_lines', 'order_reason_no_rule_matched',
+        'order_reason_account_default_externally_managed',
         'order_reason_rule_requires_manual_review', 'order_reason_rule_holds_order', 'order_reason_rule_route_to_provider', 'order_reason_rule_monitor_only',
         'order_reason_rule_channel_fulfills', 'order_reason_line_has_no_stock_location', 'order_reason_stock_not_at_target_provider',
         'order_reason_managed_dispatch_not_available', 'order_reason_split_replaced', 'order_reason_modified_after_routing', 'order_reason_cancelled_after_dispatch',
