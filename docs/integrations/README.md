@@ -22,7 +22,7 @@ Other documents: [capability matrix](capability-matrix.md) · [M5AZN](m5azn.md) 
 **Rolling it out (start here):** [**pilot deployment on the existing server**](pilot-deployment.md) — the exact procedure,
 the gates that need your approval, the rollback for every phase, the remaining blockers and
 [Hotfix 1](pilot-deployment.md#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server) (what the first read-only check
-found on the pilot server) ·
+found on the pilot server) · [Hotfix 2](hotfix-2.md) (the Torod orders map and who owns the warehouse stock; code only, nothing switched on) ·
 [controlled test orders](controlled-test-orders.md) · [GO / NO-GO readiness report](readiness-report.md) ·
 [live verification checklists](live-verification/README.md) ([M5AZN](live-verification/m5azn.md),
 [Torod Point](live-verification/torod-point.md)) · [security findings](security-findings.md) ·

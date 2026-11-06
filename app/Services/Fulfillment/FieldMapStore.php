@@ -29,12 +29,14 @@ class FieldMapStore
         $paths = (array) ($stored['paths'] ?? []);
         $itemsPath = isset($stored['items_path']) && $stored['items_path'] !== '' ? (string) $stored['items_path'] : null;
         $verifiedAt = $stored['verified_at'] ?? null;
+        $verified = $verifiedAt !== null && ($stored['verified_hash'] ?? null) === $this->hash($itemsPath, $paths);
 
         return new StoredFieldMap(
             itemsPath: $itemsPath,
             paths: $paths,
             verifiedAt: $verifiedAt,
-            verified: $verifiedAt !== null && ($stored['verified_hash'] ?? null) === $this->hash($itemsPath, $paths),
+            verified: $verified,
+            coverage: $verified ? (array) ($stored['coverage'] ?? []) : [],
         );
     }
 
@@ -56,17 +58,21 @@ class FieldMapStore
     }
 
     /**
-     * Verify the CURRENT stored map against a sample of real records. All required logical fields must
-     * resolve to a usable value in most records; only then is the map stamped verified.
+     * Verify the CURRENT stored map against a sample of real records. Every required logical field must
+     * resolve in most records (a usable value, or for a nullable field just the key); only then is the map
+     * stamped verified. This is a statement about the SHAPE of the response and nothing more: it says nothing
+     * about what a field means, and a nullable field may pass without a single filled value, which the stored
+     * coverage keeps visible.
      *
      * @param list<array<array-key, mixed>> $sample
      * @param list<string> $required
+     * @param list<string> $nullable the required fields that only have to be present in the records, not filled
      * @return list<string> the required fields that did not resolve (empty = verified)
      */
-    public function verify(ProviderCode $provider, string $capability, array $sample, array $required): array
+    public function verify(ProviderCode $provider, string $capability, array $sample, array $required, array $nullable = []): array
     {
         $stored = $this->get($provider, $capability);
-        $problems = $this->detector->unresolved($stored->map(), $sample, $required);
+        $problems = $this->detector->unresolved($stored->map(), $sample, $required, $nullable);
         if ($problems !== []) {
             return $problems;
         }
@@ -74,6 +80,7 @@ class FieldMapStore
         $maps = (array) $this->connections->config($provider)->get('field_maps', []);
         $maps[$capability]['verified_at'] = now()->toDateTimeString();
         $maps[$capability]['verified_hash'] = $this->hash($stored->itemsPath, $stored->paths);
+        $maps[$capability]['coverage'] = $this->detector->coverage($stored->map(), $sample, $nullable);
         $this->persist($provider, $maps);
 
         return [];
@@ -82,11 +89,12 @@ class FieldMapStore
     /**
      * @param list<array<array-key, mixed>> $sample
      * @param array<string, list<string>> $candidates
+     * @param list<string> $nullable
      * @return array<string, string>
      */
-    public function propose(array $sample, array $candidates): array
+    public function propose(array $sample, array $candidates, array $nullable = []): array
     {
-        return $this->detector->detect($sample, $candidates);
+        return $this->detector->detect($sample, $candidates, $nullable);
     }
 
     /** @param list<array<array-key, mixed>>|null $items */

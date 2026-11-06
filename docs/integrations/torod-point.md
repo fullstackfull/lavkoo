@@ -46,6 +46,35 @@ city is not a Torod Point city (see aliases), the phone is not a valid Saudi num
 collection method is not configured, or an amount cannot be converted to SAR. Our own **invoice number** is the order
 reference (`{order id}-TP{generation}`), which is also how an ambiguous submission is found again.
 
+### Real orders wait for one confirmation: the invoice number comes back
+
+Finding an order again after a lost answer depends on one fact: **the invoice number we send comes back, unchanged, in the
+warehouse order list.** The field map cannot show it. Most of the account's historical warehouse orders were not created by this
+integration and carry `invoiceNumber: null`, so the **orders map is verified for its shape**: the invoice-number key has to be
+present in the sampled orders, and may be empty; a path that is not there at all (a typo, another name) is still refused.
+`reference` (the order barcode) stays strict: most sampled orders must carry a value. After verification the page says how many of
+the sampled orders really had an invoice number ("0 / 5 …") and that the map is verified for its shape only.
+
+A verified map **authorises nothing and proves nothing about the round trip.** Until the **master administrator** has recorded,
+on the Torod Point page (*Invoice number round trip*), with the evidence, that the invoice number comes back:
+
+* **no real order is created**: it is held as *Provider not ready*, the check is repeated inside the adapter so that nothing that
+  reaches it can skip it, and the go-live checklist shows *Invoice number round trip confirmed* as unmet (it holds automatic sending
+  back too);
+* **rehearsals (Dry run) are not affected**: the request is still built and recorded, nothing is sent.
+
+The confirmation is stored with the provider's settings (who, when, the evidence, the path it was made for) and every change of it is in
+the audit log. It names the path the orders map reads the invoice number from, so **changing that path withdraws it**. A map that
+reads the invoice number from the order's own identifier (the barcode, the id, or the same field as the reference) has no usable path:
+nothing can be confirmed for it and no real order is created. Acceptable
+evidence is LogesTechs' written answer ([request, section F](vendor-requests/logestechs-technical-request.md)), or an order created for
+the purpose outside this system, with a known invoice number, that was read back in the order list. Withdraw it on the same page.
+
+When an answer is lost, the lookup compares **our** invoice number with the one the provider lists, and only that: a blank invoice
+number never matches (so the historical orders never do), the order's `id` or barcode is never taken for an invoice number, a
+match without a barcode is not acceptance, and two different orders carrying our invoice number are **not** linked automatically.
+Not found stays *outcome unknown*; it is never read as "not created", and the order is never sent again on that account.
+
 ## Status and tracking
 
 * **Lastmile webhook** (package statuses) drives the shipment status. **Fulfillment webhook** (`CREATED`, `PICKED`,
@@ -66,6 +95,28 @@ on the shipment page (a reason is required and recorded).
 
 ## Stock
 
-See the [stock question](capability-matrix.md#the-stock-question-brief-item-4): no documented inventory endpoint and no
-documented stock field. Stock stays *manual* (labelled) until LogesTechs confirms the field and an administrator
-verifies the map **and** ticks the confirmation.
+See the [stock question](capability-matrix.md#the-stock-question-brief-item-4) and the
+[gap analysis](torod-inventory-gap-analysis.md): no documented inventory endpoint, and the product list carries several
+quantity fields (on hand, sellable, committed, allocated …). Which of them is the quantity the storefront may sell from is
+**not decided by this system**: no field is ever proposed or picked because its name looks right or it is the first one filled in.
+
+Whose stock the storefront shows is decided **per product**:
+
+| Mode | When | What the storefront shows |
+|---|---|---|
+| **Manual** (the default, and what runs today) | the sync is off, or any condition below is missing | the stock a person typed in the product form; nothing here changes it |
+| **Warehouse** | **all** of: the product is **assigned to Torod Point**; it has an **approved mapping**; the products map is **verified**; an administrator **confirmed the stock path** (the confirmation names that exact path and lapses if the path changes); *Follow warehouse stock* is **on** | the warehouse's figure, minus the units customers bought that the warehouse has not taken on yet (orders not yet sent, held, retrying, in rehearsal, failed, outcome unknown) |
+
+In warehouse mode the figure is **set** (not subtracted again), so a sync landing between "order placed" and "order accepted" neither
+oversells nor counts the units twice; syncing twice changes nothing the second time; every change is a stock movement
+(`provider_sync`). The product form ignores a stock figure typed for such a product (and says so), and the matching page refuses a typed
+figure for it. Only the stock changes: never a price, discount, VAT, title, description or any other column, and no product is created.
+
+What the sync never does: touch a product that is not assigned to Torod Point (even one with an approved mapping); write a figure
+that is not a whole number from 0 up (**missing, negative, fractional, not a number, or listed twice with different values are
+skipped and counted, never turned into zero**); or report success when not one figure was usable. The run's counts (`updated`,
+`unchanged`, `unmapped`, `not_assigned`, `invalid`, `absent`) are on the sync status.
+
+The confirmation is a statement that the field is the quantity **available to sell, already excluding the units on orders the
+warehouse has accepted**. If the warehouse's field still counts those units until the parcel ships, the storefront would sell them
+twice: do not confirm it until LogesTechs has said how the fields move.

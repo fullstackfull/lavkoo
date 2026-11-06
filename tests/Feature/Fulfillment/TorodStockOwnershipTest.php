@@ -1,0 +1,623 @@
+<?php
+
+namespace Tests\Feature\Fulfillment;
+
+use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\MappingStatus;
+use App\Enums\Fulfillment\ProviderCode;
+use App\Enums\Fulfillment\StockSource;
+use App\Models\ProviderCatalogItem;
+use App\Models\ProviderFulfillmentItem;
+use App\Models\ProviderProductMapping;
+use App\Models\ProviderSyncState;
+use App\Services\Fulfillment\Data\CapabilityState;
+use App\Services\Fulfillment\Data\ReadinessReport;
+use App\Services\Fulfillment\FieldMapStore;
+use App\Services\Fulfillment\ProductFulfillmentPanel;
+use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderMappingService;
+use App\Services\Fulfillment\ProviderStockOwnership;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodFieldMaps;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodStockConfirmation;
+use App\Services\Fulfillment\Support\ProviderConfig;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\FakeM5aznAdapter;
+
+/**
+ * Whose stock the storefront shows: its own (typed by a person) until the warehouse's figure has been verified, confirmed for the
+ * exact field it is read from, and deliberately switched on; then, for the products ASSIGNED to the warehouse and only those, the
+ * warehouse's figure minus what customers bought and the warehouse has not taken on yet.
+ */
+class TorodStockOwnershipTest extends TorodTestCase
+{
+    private const PATH = 'quantity';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // The stock ledger belongs to the platform's inventory module; the fulfillment test schema does not build it.
+        Schema::create('stock_movements', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('type');
+            $table->integer('qty_change');
+            $table->integer('balance_after')->nullable();
+            $table->string('reason')->nullable();
+            $table->string('reference_type')->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->string('created_by_type')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    // ---- helpers -------------------------------------------------------------------------------------------------------------
+
+    private function config(): ProviderConfig
+    {
+        return app(ProviderConnectionManager::class)->config(ProviderCode::TorodPoint);
+    }
+
+    /** The warehouse's product list, every figure under the assumed `quantity` field: id => figure. */
+    private function warehouse(array $figures): array
+    {
+        return array_map(static fn (int $id, mixed $figure): array => ['id' => $id, 'name' => 'P' . $id, 'sku' => 'S' . $id, 'quantity' => $figure], array_keys($figures), $figures);
+    }
+
+    private function fakeProductPages(array ...$pages): void
+    {
+        $call = 0;
+        Http::fake([self::V5 . '/public/fulfillment/product*' => function () use (&$call, $pages) {
+            return Http::response(['data' => $pages[min($call++, count($pages) - 1)]]);
+        }]);
+    }
+
+    /** The map is verified for `$path` and the administrator has confirmed that field; the switch is whatever is given. */
+    private function stockSync(string $path = self::PATH, bool $switchedOn = true, bool $confirmed = true): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint, ['inventory_sync_enabled' => $switchedOn, 'company_id' => '714', 'dry_run' => false]);
+        $this->verifyProductsMap(['id' => 'id', 'name' => 'name', 'sku' => 'sku', 'stock' => $path], [['id' => 1, 'name' => 'A', 'sku' => 'S1']]);
+        if ($confirmed) {
+            $this->confirmStockField($path);
+        }
+    }
+
+    /** What ticking the box beside the path does. */
+    private function confirmStockField(string $path): void
+    {
+        $settings = app(TorodStockConfirmation::class)->settingsFor(ticked: true, seenPath: $path, current: $this->config());
+        app(ProviderConnectionManager::class)->save(ProviderCode::TorodPoint, null, null, $settings);
+    }
+
+    private function mappedProduct(int $id, int $stock = 50, ?ProviderCode $assignedTo = ProviderCode::TorodPoint, ?string $externalId = null): ProviderProductMapping
+    {
+        $this->makeProduct($id, $assignedTo, ['current_stock' => $stock]);
+
+        return ProviderProductMapping::create([
+            'provider' => 'torod_point', 'product_id' => $id, 'variant_key' => '', 'external_id' => $externalId ?? (string) $id,
+            'external_variant_id' => '', 'external_sku' => 'S' . $id, 'status' => MappingStatus::Approved,
+        ]);
+    }
+
+    private function stockOf(int $productId): int
+    {
+        return (int) DB::table('products')->where('id', $productId)->value('current_stock');
+    }
+
+    private function movements(): int
+    {
+        return DB::table('stock_movements')->count();
+    }
+
+    // ---- manual or warehouse: who sets the stock -------------------------------------------------------------------------------
+
+    /** @return iterable<string, array{bool, bool, bool, bool, bool, bool}> */
+    public static function modes(): iterable
+    {
+        //                                           assigned, mapped, switched on, verified, confirmed => the warehouse sets the stock
+        yield 'everything in place'                => [true, true, true, true, true, true];
+        yield 'the sync is switched off'           => [true, true, false, true, true, false];
+        yield 'the field is not confirmed'         => [true, true, true, true, false, false];
+        yield 'the map is not verified'            => [true, true, true, false, true, false];
+        yield 'the product is not assigned'        => [false, true, true, true, true, false];
+        yield 'the product has no approved link'   => [true, false, true, true, true, false];
+    }
+
+    #[DataProvider('modes')]
+    public function test_the_warehouse_sets_the_stock_only_when_every_condition_holds(bool $assigned, bool $mapped, bool $switchedOn, bool $verified, bool $confirmed, bool $warehouseSets): void
+    {
+        $this->stockSync(switchedOn: $switchedOn, confirmed: $confirmed);
+        if (!$verified) {
+            app(FieldMapStore::class)->save(ProviderCode::TorodPoint, TorodFieldMaps::PRODUCTS, ['id' => 'id', 'name' => 'name', 'stock' => self::PATH], null);
+        }
+        $this->makeProduct(1, $assigned ? ProviderCode::TorodPoint : null, ['current_stock' => 7]);
+        if ($mapped) {
+            ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved]);
+        }
+        $this->fakeProductPages($this->warehouse([1 => 40]));
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertSame($warehouseSets ? ProviderCode::TorodPoint : null, app(ProviderStockOwnership::class)->controllingProvider(1));
+        $this->assertSame($warehouseSets ? 40 : 7, $this->stockOf(1), 'otherwise the storefront keeps the figure a person typed');
+        $this->assertSame($warehouseSets, $result['ok'] && ($result['stats']['updated'] ?? 0) === 1);
+    }
+
+    public function test_while_the_sync_is_off_nothing_is_even_asked_of_the_warehouse(): void
+    {
+        $this->stockSync(switchedOn: false);
+        $this->mappedProduct(1, stock: 7);
+        Http::fake();
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(7, $this->stockOf(1));
+        Http::assertNothingSent();
+    }
+
+    public function test_an_unconfirmed_stock_field_blocks_the_sync_and_says_why(): void
+    {
+        $this->stockSync(confirmed: false);
+        $this->mappedProduct(1, stock: 7);
+        Http::fake();
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('no inventory endpoint is documented', $result['error']);
+        $this->assertSame(CapabilityState::UNVERIFIED, $this->adapter()->readiness()->capability('inventory_sync')->state);
+        $this->assertSame(7, $this->stockOf(1));
+        Http::assertNothingSent();
+    }
+
+    public function test_a_confirmation_made_for_one_field_lapses_when_the_map_reads_another(): void
+    {
+        $this->stockSync(path: 'sellableQuantity');
+        $this->assertSame(CapabilityState::ENABLED, $this->adapter()->readiness()->capability('inventory_sync')->state, 'confirmed for sellableQuantity');
+
+        $this->verifyProductsMap(['id' => 'id', 'name' => 'name', 'sku' => 'sku', 'stock' => 'onHandQuantity'], [['id' => 1, 'name' => 'A', 'sku' => 'S1']]);
+        $this->mappedProduct(1, stock: 7);
+        Http::fake();
+
+        $this->assertSame(CapabilityState::UNVERIFIED, $this->adapter()->readiness()->capability('inventory_sync')->state, 'the statement was about another field');
+        $this->assertFalse($this->adapter()->syncInventory()['ok']);
+        $this->assertSame(7, $this->stockOf(1));
+        Http::assertNothingSent();
+    }
+
+    public function test_a_confirmation_from_before_it_named_a_field_does_not_count(): void
+    {
+        $this->stockSync(confirmed: false);
+        app(ProviderConnectionManager::class)->save(ProviderCode::TorodPoint, null, null, ['stock_field_confirmed_at' => now()->toDateTimeString()]);
+
+        $this->assertFalse(app(TorodStockConfirmation::class)->isConfirmed($this->config()));
+        $this->assertFalse($this->adapter()->syncInventory()['ok']);
+    }
+
+    public function test_ticking_the_box_confirms_the_field_that_was_shown_and_only_while_it_is_still_the_one_read(): void
+    {
+        $this->stockSync(confirmed: false);
+        $confirmation = app(TorodStockConfirmation::class);
+
+        $this->assertSame(['stock_field_confirmed_at' => null, 'stock_field_confirmed_path' => null], $confirmation->settingsFor(ticked: false, seenPath: self::PATH, current: $this->config()));
+        $this->assertSame(['stock_field_confirmed_at' => null, 'stock_field_confirmed_path' => null], $confirmation->settingsFor(ticked: true, seenPath: 'sellableQuantity', current: $this->config()), 'a page left open across a change of the field confirms nothing');
+        $this->assertSame(['stock_field_confirmed_at' => null, 'stock_field_confirmed_path' => null], $confirmation->settingsFor(ticked: true, seenPath: null, current: $this->config()));
+
+        $ticked = $confirmation->settingsFor(ticked: true, seenPath: self::PATH, current: $this->config());
+        $this->assertSame(self::PATH, $ticked['stock_field_confirmed_path']);
+        $this->assertNotNull($ticked['stock_field_confirmed_at']);
+    }
+
+    public function test_saving_the_form_again_keeps_the_moment_of_the_original_confirmation(): void
+    {
+        $this->stockSync();
+        $first = $this->config()->get('stock_field_confirmed_at');
+        $this->travel(2)->hours();
+
+        $again = app(TorodStockConfirmation::class)->settingsFor(ticked: true, seenPath: self::PATH, current: $this->config());
+
+        $this->assertSame($first, $again['stock_field_confirmed_at']);
+    }
+
+    public function test_no_quantity_is_proposed_as_the_stock_and_the_staged_catalogue_carries_none(): void
+    {
+        $products = [['id' => 1, 'name' => 'A', 'sku' => 'S1', 'quantity' => 0, 'originalQuantity' => 0, 'committedQuantity' => 0, 'allocatedQuantity' => 0, 'onHandQuantity' => 15, 'sellableQuantity' => 0]];
+        $this->fakeProductPages($products);
+
+        $sample = $this->adapter()->sample(TorodFieldMaps::PRODUCTS);
+        $this->adapter()->syncCatalog();
+
+        $this->assertArrayNotHasKey('stock', $sample['proposal']);
+        $this->assertNull(ProviderCatalogItem::where('external_id', '1')->value('stock'), 'no figure is staged as the stock either');
+    }
+
+    // ---- only what is assigned ----------------------------------------------------------------------------------------------------
+
+    public function test_only_the_products_assigned_to_the_warehouse_are_written(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $unassigned = $this->mappedProduct(2, stock: 20, assignedTo: null);
+        $otherProvider = $this->mappedProduct(3, stock: 30, assignedTo: ProviderCode::M5azn);
+        $this->fakeProductPages($this->warehouse([1 => 40, 2 => 11, 3 => 9, 4 => 5]));
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(['updated' => 1, 'unchanged' => 0, 'unmapped' => 1, 'not_assigned' => 2, 'invalid' => 0, 'absent' => 0], $result['stats']);
+        $this->assertSame([40, 20, 30], [$this->stockOf(1), $this->stockOf(2), $this->stockOf(3)]);
+        $this->assertNull($unassigned->fresh()->provider_stock, 'no figure is recorded for a product the warehouse does not hold');
+        $this->assertSame(StockSource::None, $unassigned->fresh()->stock_source);
+        $this->assertSame(StockSource::None, $otherProvider->fresh()->stock_source);
+        $this->assertSame(StockSource::ProviderSync, ProviderProductMapping::where('product_id', 1)->first()->stock_source);
+    }
+
+    public function test_nothing_but_the_stock_of_an_assigned_product_changes(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $before = (array) DB::table('products')->where('id', 1)->first();
+        $this->fakeProductPages([['id' => 1, 'name' => 'A different title', 'sku' => 'OTHER', 'quantity' => 40, 'price' => 999, 'barcode' => 'OTHER', 'description' => 'changed']]);
+
+        $this->adapter()->syncInventory();
+
+        $after = (array) DB::table('products')->where('id', 1)->first();
+        $this->assertSame(40, (int) $after['current_stock']);
+        $this->assertSame(array_diff_key($before, ['current_stock' => 0, 'updated_at' => 0]), array_diff_key($after, ['current_stock' => 0, 'updated_at' => 0]), 'price, title, code, barcode, variations, tax and every other column are untouched');
+        $this->assertSame(1, DB::table('products')->count(), 'no product is created from the warehouse list');
+    }
+
+    // ---- figures that cannot be trusted ---------------------------------------------------------------------------------------------
+
+    /** @return iterable<string, array{mixed}> */
+    public static function unusableFigures(): iterable
+    {
+        yield 'negative' => [-5];
+        yield 'fractional' => [2.5];
+        yield 'text' => ['many'];
+        yield 'nothing' => [null];
+        yield 'a list' => [['a' => 1]];
+        yield 'true' => [true];
+        yield 'beyond any warehouse' => [1_000_000_000_000];
+    }
+
+    #[DataProvider('unusableFigures')]
+    public function test_an_unusable_figure_leaves_the_stock_exactly_as_it_was_and_is_never_turned_into_zero(mixed $figure): void
+    {
+        $this->stockSync();
+        $mapping = $this->mappedProduct(1, stock: 50);
+        $this->mappedProduct(2, stock: 50);
+        $this->fakeProductPages($this->warehouse([1 => $figure, 2 => 12]));
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertTrue($result['ok'], 'the product with a usable figure is synced');
+        $this->assertSame(1, $result['stats']['invalid']);
+        $this->assertSame(1, $result['stats']['updated']);
+        $this->assertSame([50, 12], [$this->stockOf(1), $this->stockOf(2)]);
+        $this->assertNull($mapping->fresh()->provider_stock);
+        $this->assertSame(StockSource::None, $mapping->fresh()->stock_source);
+        $this->assertSame(1, $this->movements(), 'only the product that changed has a movement');
+    }
+
+    public function test_a_missing_quantity_field_is_not_a_zero(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $this->mappedProduct(2, stock: 50);
+        $this->fakeProductPages([['id' => 1, 'name' => 'P1', 'sku' => 'S1'], ['id' => 2, 'name' => 'P2', 'sku' => 'S2', 'quantity' => 12]]);
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertSame(1, $result['stats']['invalid']);
+        $this->assertSame([50, 12], [$this->stockOf(1), $this->stockOf(2)]);
+    }
+
+    public function test_zero_is_a_real_figure_when_the_warehouse_says_so(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $this->fakeProductPages($this->warehouse([1 => 0]));
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertSame(1, $result['stats']['updated']);
+        $this->assertSame(0, $this->stockOf(1));
+        $this->assertSame(-50, (int) DB::table('stock_movements')->value('qty_change'));
+    }
+
+    public function test_a_product_listed_twice_with_different_figures_is_not_written_but_with_the_same_figure_it_is(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $this->mappedProduct(2, stock: 50);
+        $this->fakeProductPages([
+            ['id' => 1, 'name' => 'P1', 'sku' => 'S1', 'quantity' => 10], ['id' => 1, 'name' => 'P1', 'sku' => 'S1', 'quantity' => 30],
+            ['id' => 2, 'name' => 'P2', 'sku' => 'S2', 'quantity' => 20], ['id' => 2, 'name' => 'P2', 'sku' => 'S2', 'quantity' => 20],
+        ]);
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertSame([50, 20], [$this->stockOf(1), $this->stockOf(2)]);
+        $this->assertSame(1, $result['stats']['invalid']);
+    }
+
+    public function test_a_product_the_response_leaves_out_keeps_its_stock_and_is_counted(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $this->mappedProduct(2, stock: 50);
+        $this->fakeProductPages($this->warehouse([2 => 12]));
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertSame([50, 12], [$this->stockOf(1), $this->stockOf(2)]);
+        $this->assertSame(1, $result['stats']['absent']);
+    }
+
+    public function test_an_empty_list_changes_nothing(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $this->fakeProductPages([]);
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(50, $this->stockOf(1));
+        $this->assertSame(1, $result['stats']['absent']);
+        $this->assertSame(0, $this->movements());
+    }
+
+    public function test_a_failing_warehouse_changes_nothing_and_a_page_that_fails_midway_applies_nothing(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $call = 0;
+        $firstPage = array_map(static fn (int $id): array => ['id' => $id, 'name' => 'P' . $id, 'sku' => 'S' . $id, 'quantity' => 1], range(1, 100));
+        Http::fake([self::V5 . '/public/fulfillment/product*' => function () use (&$call, $firstPage) {
+            return $call++ === 0 ? Http::response(['data' => $firstPage]) : Http::response(['message' => 'down'], 500);
+        }]);
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(50, $this->stockOf(1), 'the first page was readable, but a sync that could not finish applies none of it');
+        $this->assertNotNull(ProviderSyncState::where(['provider' => 'torod_point', 'capability' => 'inventory'])->value('last_failure_at'));
+    }
+
+    public function test_when_not_one_figure_is_usable_the_sync_fails_loudly_instead_of_reporting_success(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $this->fakeProductPages([['id' => 1, 'name' => 'P1', 'sku' => 'S1', 'quantity' => 'n/a']]);
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('usable quantity', $result['error']);
+        $this->assertSame(50, $this->stockOf(1));
+    }
+
+    // ---- orders the warehouse has not taken on yet ------------------------------------------------------------------------------------
+
+    /** @return iterable<string, array{FulfillmentStatus}> */
+    public static function everyStatus(): iterable
+    {
+        foreach (FulfillmentStatus::cases() as $status) {
+            yield $status->value => [$status];
+        }
+    }
+
+    #[DataProvider('everyStatus')]
+    public function test_units_on_orders_the_warehouse_has_not_taken_on_are_held_back_and_the_others_are_not(FulfillmentStatus $status): void
+    {
+        $this->stockSync();
+        $fulfillment = $this->torodFulfillment();
+        $fulfillment->forceFill(['status' => $status])->save();
+        $this->fakeProductPages($this->warehouse([1421521 => 40]));
+
+        $this->adapter()->syncInventory();
+
+        $this->assertSame($status->isPreSubmission() ? 38 : 40, $this->stockOf(1), '40 in the warehouse, minus the 2 units of an order that is not with it yet');
+    }
+
+    public function test_a_cancelled_line_or_a_finished_order_holds_nothing_back(): void
+    {
+        $this->stockSync();
+        $this->torodFulfillment();
+        $this->fakeProductPages($this->warehouse([1421521 => 40]));
+
+        ProviderFulfillmentItem::where('order_id', 100)->where('provider', 'torod_point')->update(['status' => ProviderFulfillmentItem::STATUS_CANCELLED]);
+        $this->adapter()->syncInventory();
+        $this->assertSame(40, $this->stockOf(1), 'a cancelled line');
+
+        ProviderFulfillmentItem::where('order_id', 100)->where('provider', 'torod_point')->update(['status' => ProviderFulfillmentItem::STATUS_ROUTED]);
+        $this->adapter()->syncInventory();
+        $this->assertSame(38, $this->stockOf(1));
+
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'delivered']);
+        $this->adapter()->syncInventory();
+        $this->assertSame(40, $this->stockOf(1), 'a finished order');
+    }
+
+    public function test_units_the_checkout_already_took_are_not_taken_again(): void
+    {
+        $this->stockSync();
+        $this->torodFulfillment();
+        DB::table('products')->where('id', 1)->update(['current_stock' => 38]);
+        $this->fakeProductPages($this->warehouse([1421521 => 40]));
+
+        $first = $this->adapter()->syncInventory();
+        $second = $this->adapter()->syncInventory();
+
+        $this->assertSame(38, $this->stockOf(1), 'the sync SETS the figure; it does not subtract from what the checkout already subtracted');
+        $this->assertSame([0, 1], [$first['stats']['updated'], $first['stats']['unchanged']]);
+        $this->assertSame([0, 1], [$second['stats']['updated'], $second['stats']['unchanged']]);
+        $this->assertSame(0, $this->movements());
+    }
+
+    public function test_syncing_twice_changes_it_once_and_leaves_one_movement_with_its_balance(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        $this->fakeProductPages($this->warehouse([1 => 40]));
+
+        $first = $this->adapter()->syncInventory();
+        $second = $this->adapter()->syncInventory();
+
+        $this->assertSame(1, $first['stats']['updated']);
+        $this->assertSame(1, $second['stats']['unchanged']);
+        $this->assertSame(1, $this->movements());
+        $movement = DB::table('stock_movements')->first();
+        $this->assertSame([-10, 40, 'provider_sync'], [(int) $movement->qty_change, (int) $movement->balance_after, $movement->reason]);
+    }
+
+    public function test_cancelling_an_order_the_warehouse_never_took_gives_its_units_back_on_the_next_sync(): void
+    {
+        $this->stockSync();
+        $this->torodFulfillment();
+        $this->fakeProductPages($this->warehouse([1421521 => 40]));
+        $this->adapter()->syncInventory();
+        $this->assertSame(38, $this->stockOf(1));
+
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'canceled']);
+        $this->adapter()->syncInventory();
+
+        $this->assertSame(40, $this->stockOf(1));
+    }
+
+    // ---- the product form and the manual entry -------------------------------------------------------------------------------------------
+
+    private function controlled(int $stock = 37): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: $stock);
+    }
+
+    public function test_the_product_form_cannot_replace_the_stock_the_warehouse_sets(): void
+    {
+        $this->controlled();
+        $ownership = app(ProviderStockOwnership::class);
+
+        $kept = $ownership->keepProviderStock(['current_stock' => 999, 'name' => 'Renamed', 'variation' => '[]'], DB::table('products')->where('id', 1)->first());
+
+        $this->assertSame(37, $kept['current_stock']);
+        $this->assertSame('Renamed', $kept['name'], 'everything else the form says is still saved');
+    }
+
+    public function test_while_the_warehouse_does_not_control_the_stock_the_typed_figure_is_kept(): void
+    {
+        $this->stockSync(switchedOn: false);
+        $this->mappedProduct(1, stock: 37);
+
+        $kept = app(ProviderStockOwnership::class)->keepProviderStock(['current_stock' => 999, 'variation' => '[]'], DB::table('products')->where('id', 1)->first());
+
+        $this->assertSame(999, $kept['current_stock']);
+    }
+
+    public function test_a_product_that_is_not_assigned_keeps_whatever_the_form_says(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 37, assignedTo: null);
+
+        $kept = app(ProviderStockOwnership::class)->keepProviderStock(['current_stock' => 999, 'variation' => '[]'], DB::table('products')->where('id', 1)->first());
+
+        $this->assertSame(999, $kept['current_stock']);
+    }
+
+    public function test_variants_keep_the_warehouse_figures_and_a_new_variant_takes_the_form(): void
+    {
+        $this->stockSync();
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 10, 'variation' => json_encode([
+            ['type' => 'Blue', 'price' => 10, 'qty' => 7], ['type' => 'Red', 'price' => 10, 'qty' => 3],
+        ])]);
+        foreach (['Blue', 'Red'] as $type) {
+            ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => $type, 'external_id' => '1', 'external_variant_id' => 'V-' . $type, 'status' => MappingStatus::Approved]);
+        }
+        $submitted = json_encode([
+            ['type' => 'Blue', 'price' => 12, 'qty' => 99], ['type' => 'Red', 'price' => 10, 'qty' => 98], ['type' => 'Green', 'price' => 10, 'qty' => 5],
+        ]);
+
+        $kept = app(ProviderStockOwnership::class)->keepProviderStock(['current_stock' => 202, 'variation' => $submitted], DB::table('products')->where('id', 1)->first());
+
+        $variations = json_decode($kept['variation'], true);
+        $this->assertSame([7, 3, 5], array_column($variations, 'qty'));
+        $this->assertSame(12, $variations[0]['price'], 'a price typed in the form is still saved');
+        $this->assertSame(15, $kept['current_stock']);
+    }
+
+    public function test_a_typed_stock_figure_is_refused_for_a_mapping_the_warehouse_controls_and_accepted_otherwise(): void
+    {
+        $this->controlled();
+        $mapping = ProviderProductMapping::first();
+
+        $this->assertFalse(app(ProviderMappingService::class)->setManualStock($mapping->id, 5));
+        $this->assertNull($mapping->fresh()->provider_stock);
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['inventory_sync_enabled' => false, 'company_id' => '714', 'dry_run' => false]);
+
+        $this->assertTrue(app(ProviderMappingService::class)->setManualStock($mapping->id, 5));
+        $this->assertSame(5, $mapping->fresh()->provider_stock);
+        $this->assertSame(StockSource::Manual, $mapping->fresh()->stock_source);
+    }
+
+    public function test_the_product_panel_says_when_the_warehouse_controls_the_stock(): void
+    {
+        $this->controlled();
+
+        $this->assertSame(ProviderCode::TorodPoint, app(ProductFulfillmentPanel::class)->for(1)['stockControlledBy']);
+        $this->assertNull(app(ProductFulfillmentPanel::class)->for(null)['stockControlledBy']);
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['inventory_sync_enabled' => false, 'company_id' => '714', 'dry_run' => false]);
+        $this->assertNull(app(ProductFulfillmentPanel::class)->for(1)['stockControlledBy']);
+    }
+
+    public function test_a_product_owned_by_m5azn_is_never_taken_over_by_this_rule(): void
+    {
+        $this->app->instance(FakeM5aznAdapter::class, new class extends FakeM5aznAdapter {
+            public function readiness(): ReadinessReport
+            {
+                return new ReadinessReport(true, [], [
+                    'dispatch' => new CapabilityState('dispatch', CapabilityState::ENABLED),
+                    'inventory_sync' => new CapabilityState('inventory_sync', CapabilityState::ENABLED),
+                ]);
+            }
+        });
+        $this->makeProduct(5, ProviderCode::M5azn, ['current_stock' => 30]);
+        $mapping = ProviderProductMapping::create(['provider' => 'm5azn', 'product_id' => 5, 'variant_key' => '', 'external_id' => '5', 'external_variant_id' => '', 'status' => MappingStatus::Approved]);
+        $ownership = app(ProviderStockOwnership::class);
+
+        $this->assertNull($ownership->controllingProvider(5), 'M5AZN\'s stock has its own flow, which this change leaves alone');
+        $this->assertSame(99, $ownership->keepProviderStock(['current_stock' => 99, 'variation' => '[]'], DB::table('products')->where('id', 5)->first())['current_stock']);
+        $this->assertNull(app(ProductFulfillmentPanel::class)->for(5)['stockControlledBy']);
+        $this->assertTrue(app(ProviderMappingService::class)->setManualStock($mapping->id, 4));
+    }
+
+    public function test_the_admin_product_update_goes_through_the_stock_guard(): void
+    {
+        $controller = (string) file_get_contents(app_path('Http/Controllers/Admin/Product/ProductController.php'));
+
+        $this->assertMatchesRegularExpression('/getUpdateProductData\([^;]+;\s*\$dataArray = app\(ProviderStockOwnership::class\)->keepProviderStock\(update: \$dataArray, product: \$product\);/', $controller);
+    }
+
+    public function test_nothing_in_this_flow_sends_a_write_to_the_provider(): void
+    {
+        $this->controlled();
+        $this->fakeProductPages($this->warehouse([1 => 40]));
+
+        $this->adapter()->syncInventory();
+
+        foreach (Http::recorded() as [$request]) {
+            $this->assertSame('GET', $request->method(), 'reading the product list is all a stock sync does');
+        }
+    }
+}

@@ -59,12 +59,15 @@ class GoLiveReadiness
         $config = $this->connections->config($provider);
         $readiness = $this->registry->adapter($provider)->readiness();
 
-        return new GoLiveReport($provider, [
+        $liveSubmission = $readiness->capability('live_submission');
+
+        return new GoLiveReport($provider, array_values(array_filter([
             $this->item('credentials_saved', $readiness->missing === [], implode(', ', $readiness->missing)),
             $this->integrationOn($provider),
             $this->item('external_writes_allowed', $this->connections->externalWritesEnabled(), 'FULFILLMENT_EXTERNAL_WRITES_ENABLED'),
             $this->verificationPassed($provider),
             $this->fieldMapsVerified($provider),
+            $liveSubmission === null ? null : $this->capabilityItem('live_submission_proven', $liveSubmission, advisory: false),
             $this->productsReady($provider),
             $this->capabilityItem('status_tracking_ready', $readiness->capability('status_poll'), advisory: false),
             $this->schedulerRunning(),
@@ -75,7 +78,7 @@ class GoLiveReadiness
             $this->capabilityItem('stock_sync_running', $readiness->capability('inventory_sync'), advisory: true),
             $this->item('order_reference_named', $config->string('order_response_reference_path') !== '', advisory: true),
             $this->cashOnDelivery($config),
-        ]);
+        ])));
     }
 
     private function integrationOn(ProviderCode $provider): GoLiveItem

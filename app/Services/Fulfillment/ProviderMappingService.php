@@ -21,8 +21,10 @@ use InvalidArgumentException;
  */
 class ProviderMappingService
 {
-    public function __construct(private readonly AuditLogger $audit)
-    {
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly ProviderStockOwnership $stockOwnership,
+    ) {
     }
 
     public function approve(
@@ -113,14 +115,26 @@ class ProviderMappingService
         );
     }
 
-    /** A person types a stock figure for a provider product whose stock cannot be synced; it is labelled manual. */
-    public function setManualStock(int $mappingId, int $quantity): void
+    /**
+     * A person types a stock figure for a provider product whose stock cannot be synced; it is labelled manual.
+     * Not for a product whose stock the warehouse sync sets: its figure is the warehouse's, and a typed one would only stand in for it.
+     *
+     * @return bool false when the warehouse controls this product's stock and nothing was saved
+     */
+    public function setManualStock(int $mappingId, int $quantity): bool
     {
-        ProviderProductMapping::whereKey($mappingId)->update([
+        $mapping = ProviderProductMapping::findOrFail($mappingId);
+        if ($this->stockOwnership->controllingProvider($mapping->product_id) !== null) {
+            return false;
+        }
+
+        $mapping->forceFill([
             'provider_stock' => max(0, $quantity),
             'provider_stock_synced_at' => now(),
-            'stock_source' => StockSource::Manual->value,
-        ]);
+            'stock_source' => StockSource::Manual,
+        ])->save();
+
+        return true;
     }
 
     /**

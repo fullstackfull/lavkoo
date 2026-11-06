@@ -43,6 +43,9 @@ Route::group([
     Route::post('torod-point/cities/alias', [TorodMatchingController::class, 'alias'])->name('torod.alias');
     Route::get('torod-point/cities/search', [TorodMatchingController::class, 'citySearch'])->name('torod.cities.search');
     Route::get('torod-point/products/search', [TorodMatchingController::class, 'productSearch'])->name('torod.products.search');
+    // Recording (or withdrawing) the proof that the invoice number we send comes back in the order list; it calls no provider.
+    Route::post('torod-point/invoice-round-trip', [IntegrationCenterController::class, 'confirmInvoiceRoundTrip'])->name('torod.invoice-round-trip.confirm');
+    Route::post('torod-point/invoice-round-trip/withdraw', [IntegrationCenterController::class, 'withdrawInvoiceRoundTrip'])->name('torod.invoice-round-trip.withdraw');
 
     Route::get('{provider}', [IntegrationCenterController::class, 'show'])->whereIn('provider', ['m5azn', 'torod-point'])->name('show');
     Route::post('{provider}', [IntegrationCenterController::class, 'update'])->whereIn('provider', ['m5azn', 'torod-point'])->name('update');

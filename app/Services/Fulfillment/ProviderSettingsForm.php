@@ -4,6 +4,7 @@ namespace App\Services\Fulfillment;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodStockConfirmation;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use Closure;
 use Illuminate\Http\Request;
@@ -57,6 +58,10 @@ class ProviderSettingsForm
         'storageType', 'categoryId', 'color', 'length', 'width', 'maxCapacityPerLocation', 'height', 'weight', 'cost',
         'lessCapacity', 'customerInfo', 'areaZone', 'pickingMethod', 'linkedProductId', 'productUnit', 'productUnitQuantity',
     ];
+
+    public function __construct(private readonly TorodStockConfirmation $stockConfirmation)
+    {
+    }
 
     /** @return array<string, mixed> Laravel validation rules */
     public function rules(ProviderCode $provider): array
@@ -144,11 +149,13 @@ class ProviderSettingsForm
         }
 
         if ($provider === ProviderCode::TorodPoint) {
-            // An administrator attests that the product list's stock field is the AVAILABLE quantity; the
-            // moment of that statement is recorded, and un-ticking it withdraws it.
-            $settings['stock_field_confirmed_at'] = $request->boolean('stock_field_confirmed')
-                ? ($current->get('stock_field_confirmed_at') ?? now()->toDateTimeString())
-                : null;
+            // An administrator attests that the product list's stock field is the AVAILABLE quantity, for the path shown beside the box;
+            // the moment of that statement is recorded, un-ticking it withdraws it, and a different path is a different statement.
+            $settings += $this->stockConfirmation->settingsFor(
+                ticked: $request->boolean('stock_field_confirmed'),
+                seenPath: $request->filled('stock_field_path') ? (string) $request->input('stock_field_path') : null,
+                current: $current,
+            );
         }
 
         foreach (array_diff(self::ARMING_SWITCHES, ['enabled']) as $switch) {

@@ -217,6 +217,12 @@ class ProviderOrderDispatcher
             return [HoldReason::PROVIDER_NOT_READY, implode(', ', $readiness->missing) ?: $readiness->capability('dispatch')?->reason];
         }
 
+        // A provider that reports `live_submission` has something to prove before a REAL order goes to it (a rehearsal needs no such proof).
+        $proof = $readiness->capability('live_submission');
+        if (!$config->bool('dry_run', true) && $proof !== null && !$proof->isUsable()) {
+            return [HoldReason::PROVIDER_NOT_READY, $proof->reason];
+        }
+
         $goLive = $config->get('go_live_at');
         if (!$manual && !$config->bool('dry_run', true) && $goLive && $order?->created_at !== null
             && $order->created_at->lt(Carbon::parse($goLive))) {

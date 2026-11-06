@@ -10,7 +10,9 @@ use App\Services\Fulfillment\Providers\TorodPoint\TorodFieldMaps;
 class FieldMapDefinitions
 {
     /**
-     * @return array<string, array{required: list<string>, fields: list<string>}> capability => definition
+     * `nullable` names the required fields that only have to be present in the sampled records, not filled in them.
+     *
+     * @return array<string, array{required: list<string>, fields: list<string>, nullable?: list<string>}> capability => definition
      */
     public function for(ProviderCode $provider): array
     {
@@ -28,7 +30,11 @@ class FieldMapDefinitions
             ],
             ProviderCode::TorodPoint => [
                 TorodFieldMaps::PRODUCTS => ['required' => TorodFieldMaps::REQUIRED[TorodFieldMaps::PRODUCTS], 'fields' => array_keys(TorodFieldMaps::CANDIDATES[TorodFieldMaps::PRODUCTS])],
-                TorodFieldMaps::ORDERS => ['required' => TorodFieldMaps::REQUIRED[TorodFieldMaps::ORDERS], 'fields' => array_keys(TorodFieldMaps::CANDIDATES[TorodFieldMaps::ORDERS])],
+                TorodFieldMaps::ORDERS => [
+                    'required' => TorodFieldMaps::REQUIRED[TorodFieldMaps::ORDERS],
+                    'nullable' => TorodFieldMaps::NULLABLE[TorodFieldMaps::ORDERS],
+                    'fields' => array_keys(TorodFieldMaps::CANDIDATES[TorodFieldMaps::ORDERS]),
+                ],
             ],
         };
     }

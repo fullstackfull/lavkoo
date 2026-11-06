@@ -11,6 +11,9 @@
 > and a warning. A server that already runs the first package does
 > [Hotfix 1](#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server) **before** the migration step 4c; a server that has never
 > had a package gets everything in one.
+>
+> **Hotfix 2** (the Torod Point orders map and warehouse stock ownership; code only, no migration, nothing switched on) has its own
+> document: [hotfix-2.md](hotfix-2.md). It is applied on top of Hotfix 1 and rolled back newest first.
 
 The existing production instance is a pilot environment, so it is also the target. There is **no staging server and no second
 copy of the application**: the integration is deployed to this server with everything switched off, then armed one level at a

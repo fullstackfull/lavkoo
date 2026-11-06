@@ -149,6 +149,10 @@
                     @endforeach
                 </x-k.card>
 
+                @if ($invoiceRoundTrip)
+                    @include('admin-views.fulfillment.partials._invoice-round-trip')
+                @endif
+
                 <x-k.card :title="translate('recent_api_calls')" :padded="false">
                     <div class="k-table-wrap">
                         <table class="k-table">

@@ -25,6 +25,9 @@ use Illuminate\Support\Facades\DB;
  */
 class InventorySyncService
 {
+    /** The largest figure taken as a stock level: a bigger one is a wrong field, not a warehouse. */
+    public const MAX_UNITS = 100_000_000;
+
     private const NOT_YET_WITH_PROVIDER = [
         FulfillmentStatus::Pending, FulfillmentStatus::Held, FulfillmentStatus::Dispatching,
         FulfillmentStatus::ReconcilePending, FulfillmentStatus::RetryWait, FulfillmentStatus::DryRun, FulfillmentStatus::Failed,
@@ -45,11 +48,7 @@ class InventorySyncService
         $mappings = ProviderProductMapping::where('provider', $provider->value)
             ->where('status', MappingStatus::Approved->value)
             ->get();
-        $byKey = [];
-        foreach ($mappings as $mapping) {
-            $key = $mapping->external_variant_id !== '' ? $mapping->external_id . '|' . $mapping->external_variant_id : $mapping->external_id;
-            $byKey[$key] = $mapping;
-        }
+        $byKey = $this->keyed($mappings);
 
         foreach ($stockByKey as $key => $quantity) {
             $mapping = $byKey[(string) $key] ?? null;
@@ -58,18 +57,47 @@ class InventorySyncService
                 continue;
             }
 
-            $changed = DB::transaction(function () use ($mapping, $quantity, $provider): bool {
-                $mapping->forceFill([
-                    'provider_stock' => max(0, (int) $quantity),
-                    'provider_stock_synced_at' => now(),
-                    'stock_source' => StockSource::ProviderSync,
-                ])->save();
-
-                return $this->writeStoreStock($mapping, $provider, max(0, (int) $quantity));
-            });
-
-            $stats[$changed ? 'updated' : 'unchanged']++;
+            $stats[$this->store($mapping, $provider, max(0, (int) $quantity)) ? 'updated' : 'unchanged']++;
         }
+
+        return $stats;
+    }
+
+    /**
+     * A warehouse's figures for the products ASSIGNED to it, from a source whose stock field has been verified and confirmed.
+     *
+     * Only an approved mapping of a product that is assigned to this provider is written. A figure that is not a whole number of
+     * units (missing, negative, fractional, not a number, or given twice with different values) is never written and never turned
+     * into zero: the product keeps the stock it has, and the count says how many figures were refused.
+     *
+     * @param array<string, int|float|null> $stockByKey the provider's figure keyed "externalId" or "externalId|externalVariantId"; null where there was none
+     * @return array{updated: int, unchanged: int, unmapped: int, not_assigned: int, invalid: int, absent: int} `absent` counts assigned products the response said nothing about
+     */
+    public function applyToAssignedProducts(ProviderCode $provider, array $stockByKey): array
+    {
+        $stats = ['updated' => 0, 'unchanged' => 0, 'unmapped' => 0, 'not_assigned' => 0, 'invalid' => 0, 'absent' => 0];
+
+        $mappings = ProviderProductMapping::where('provider_product_mappings.provider', $provider->value)
+            ->where('provider_product_mappings.status', MappingStatus::Approved->value)
+            ->join('products', 'products.id', '=', 'provider_product_mappings.product_id')
+            ->get(['provider_product_mappings.*', 'products.fulfillment_provider as assigned_to']);
+        $byKey = $this->keyed($mappings);
+
+        foreach ($stockByKey as $key => $figure) {
+            $mapping = $byKey[(string) $key] ?? null;
+            if ($mapping === null) {
+                $stats['unmapped']++;
+            } elseif ($mapping->assigned_to !== $provider->value) {
+                $stats['not_assigned']++;
+            } elseif (($quantity = $this->wholeUnits($figure)) === null) {
+                $stats['invalid']++;
+            } else {
+                $stats[$this->store($mapping, $provider, $quantity) ? 'updated' : 'unchanged']++;
+            }
+        }
+
+        $assigned = array_filter($byKey, static fn (ProviderProductMapping $mapping): bool => $mapping->assigned_to === $provider->value);
+        $stats['absent'] = count(array_diff_key($assigned, $stockByKey));
 
         return $stats;
     }
@@ -97,6 +125,47 @@ class InventorySyncService
                 ->whereNull('items.provider_fulfillment_id')
                 ->orWhereIn('pf.status', array_map(static fn (FulfillmentStatus $status): string => $status->value, self::NOT_YET_WITH_PROVIDER)))
             ->sum('items.quantity');
+    }
+
+    /**
+     * @param iterable<ProviderProductMapping> $mappings
+     * @return array<string, ProviderProductMapping>
+     */
+    private function keyed(iterable $mappings): array
+    {
+        $byKey = [];
+        foreach ($mappings as $mapping) {
+            $key = $mapping->external_variant_id !== '' ? $mapping->external_id . '|' . $mapping->external_variant_id : $mapping->external_id;
+            $byKey[$key] = $mapping;
+        }
+
+        return $byKey;
+    }
+
+    /** A figure the provider gave for a quantity of units, or null when it cannot be one. A whole number from 0 up to a plausible ceiling is the only kind. */
+    private function wholeUnits(int|float|null $figure): ?int
+    {
+        $units = match (true) {
+            is_int($figure) => $figure,
+            is_float($figure) && is_finite($figure) && floor($figure) === $figure => (int) $figure,
+            default => null,
+        };
+
+        return $units !== null && $units >= 0 && $units <= self::MAX_UNITS ? $units : null;
+    }
+
+    /** One locked write: the provider's figure on the mapping, and the store's stock for the product it belongs to. */
+    private function store(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity): bool
+    {
+        return DB::transaction(function () use ($mapping, $provider, $providerQuantity): bool {
+            $mapping->forceFill([
+                'provider_stock' => $providerQuantity,
+                'provider_stock_synced_at' => now(),
+                'stock_source' => StockSource::ProviderSync,
+            ])->save();
+
+            return $this->writeStoreStock($mapping, $provider, $providerQuantity);
+        });
     }
 
     private function writeStoreStock(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity): bool

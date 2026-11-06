@@ -33,6 +33,10 @@
             @endunless
         </div>
 
+        @if ($fulfillmentPanel['stockControlledBy'])
+            <div class="alert alert-info fs-12 py-2 mt-3 mb-0">{{ translate('stock_controlled_by_warehouse_notice') }}</div>
+        @endif
+
         @if ($fulfillmentPanel['mappings']->isNotEmpty())
             <div class="mt-3">
                 <h3 class="fs-14 fw-bold">{{ translate('provider_product_links') }}</h3>

@@ -10,6 +10,7 @@ use App\Models\ProviderProductMapping;
 use App\Services\Fulfillment\FieldMapStore;
 use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodFieldMaps;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodInvoiceRoundTrip;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
 use App\Services\Fulfillment\Support\ArabicText;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,17 @@ abstract class TorodTestCase extends FulfillmentTestCase
             'lastmile_email' => 'lm@example.test', 'lastmile_password' => 'lm-pass-secret-9', 'webhook_secret' => 'hook-secret-abcdef',
         ]);
         $this->seedCities();
+        $this->confirmInvoiceRoundTrip();
+    }
+
+    /**
+     * The proof a real send waits for: the orders map reads our invoice number from `invoiceNumber`, and a master administrator recorded
+     * that it comes back. Tests of the gate itself withdraw it; every other test of a real send starts with it in place.
+     */
+    protected function confirmInvoiceRoundTrip(): void
+    {
+        app(FieldMapStore::class)->save(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, ['invoice_number' => 'invoiceNumber', 'reference' => 'barcode', 'status' => 'status'], null);
+        app(TorodInvoiceRoundTrip::class)->confirm(adminId: 1, adminName: 'Owner', evidence: 'The provider confirmed in writing that the invoice number comes back (test fixture).');
     }
 
     protected function adapter(): TorodPointAdapter

@@ -60,12 +60,17 @@
 <div class="col-md-4"><label class="form-label" for="inventory_sync_interval_minutes">{{ translate('inventory_sync_interval_minutes') }}</label>
     <input class="form-control" type="number" min="5" max="1440" id="inventory_sync_interval_minutes" name="inventory_sync_interval_minutes" value="{{ $config->int('inventory_sync_interval_minutes', 30) }}"></div>
 <div class="col-12"><div class="alert alert-warning fs-12 py-2 mb-0">
-    <div class="form-check">
-        <input class="form-check-input" type="checkbox" id="stock_field_confirmed" name="stock_field_confirmed" value="1" @checked($config->get('stock_field_confirmed_at'))>
-        <label class="form-check-label" for="stock_field_confirmed"><strong>{{ translate('i_confirm_the_stock_field_is_available_quantity') }}</strong></label>
-    </div>
-    <div class="mt-1">{{ translate('torod_stock_unverified_help') }}</div>
-    @if ($config->get('stock_field_confirmed_at'))<div class="mt-1">{{ translate('confirmed_at') }}: {{ $config->get('stock_field_confirmed_at') }}</div>@endif
+    @if ($stockField['path'])
+        <input type="hidden" name="stock_field_path" value="{{ $stockField['path'] }}">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="stock_field_confirmed" name="stock_field_confirmed" value="1" @checked($stockField['stated'])>
+            <label class="form-check-label" for="stock_field_confirmed"><strong>{{ translate('i_confirm_the_stock_field_is_available_to_sell') }}</strong> <code>{{ $stockField['path'] }}</code></label>
+        </div>
+    @else
+        <div><strong>{{ translate('stock_field_path_not_set') }}</strong></div>
+    @endif
+    <div class="mt-1">{{ translate('torod_stock_confirmation_help') }}</div>
+    @if ($stockField['stated'])<div class="mt-1">{{ translate('confirmed_at') }}: {{ $config->get('stock_field_confirmed_at') }}</div>@endif
 </div></div>
 <div class="col-12"><label class="form-label" for="product_defaults">{{ translate('warehouse_product_defaults') }} (JSON)</label>
     <textarea class="form-control font-monospace fs-12" rows="3" id="product_defaults" name="product_defaults" placeholder='{"categoryId":309,"storageType":"BIN","pickingMethod":"FIFO"}'>{{ json_encode($config->get('product_defaults', []) ?: new stdClass, JSON_UNESCAPED_UNICODE) }}</textarea>

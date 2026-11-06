@@ -37,6 +37,7 @@ use App\Http\Requests\ProductEditImageRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Repositories\DigitalProductPublishingHouseRepository;
 use App\Services\Fulfillment\ProductFormProviderSelection;
+use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
@@ -298,6 +299,7 @@ class ProductController extends BaseController
         }
         $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id], relations: ['digitalVariation', 'seoInfo']);
         $dataArray = $service->getUpdateProductData(request: $request, product: $product, updateBy: 'admin');
+        $dataArray = app(ProviderStockOwnership::class)->keepProviderStock(update: $dataArray, product: $product);
         $this->updateProductAuthorAndPublishingHouse(request: $request, product: $product);
 
         $this->productRepo->update(id: $id, data: $dataArray);
