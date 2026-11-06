@@ -208,7 +208,7 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 1. **You**: answer the phase-0 questions and the access items of [pilot-deployment §11](pilot-deployment.md#11-blockers-and-decisions); decide D1 (`APP_KEY`) before any
    real credential is typed. Send the two vendor requests now — their answers are the longest lead time.
 2. **You**: fetch and check the package, take the backup with the scripts in its `tools/` (`backup.sh`, then `verify-backup.sh`, both run with `bash`, writing outside every web root), copy it off the server, and approve **Gate A1** (the files) for a window.
-3. **Deploy the files with everything off** (phase 4a; the new code does nothing until its migrations have run), then the read-only database checks (4b). **You** read their report and approve **Gate A2**; then the two migrations (4c) and the smoke test (phase 5). Nothing is sent: no provider is contacted and none can be.
+3. **Deploy the files with everything off** (phase 4a; the new code does nothing until its migrations have run), then the read-only database checks (4b). **You** read their report and approve **Gate A2**; then the four migrations (4c; on a server that already runs the first package, **Hotfix 1** comes first) and the smoke test (phase 5). Nothing is sent: no provider is contacted and none can be.
 4. **You**: enter credentials; approve **Gate B**; run the read-only checks (`fulfillment:verify m5azn`, `torod_point`); finalise the field
    maps from the evidence → B2, B3 (read part), B7 (with the hand count).
 5. **Authorise, separately and in writing, per provider**, the controlled test order ([plan](controlled-test-orders.md), **Gate C**): a dry-run

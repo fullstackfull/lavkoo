@@ -41,7 +41,7 @@ final class MigrationsSection implements CompatibilitySection
         }
 
         $pending = array_values(array_diff(array_keys($files), $ran));
-        $ours = array_values(array_intersect($pending, FulfillmentPreflight::MIGRATIONS));
+        $ours = array_values(array_intersect($pending, [...FulfillmentPreflight::MIGRATIONS, ...FulfillmentPreflight::COMPATIBILITY_MIGRATIONS]));
         $platform = array_values(array_diff($pending, $ours));
         $touchingCore = array_values(array_filter($platform, fn (string $name): bool => $this->touchesCoreTables($files[$name])));
 

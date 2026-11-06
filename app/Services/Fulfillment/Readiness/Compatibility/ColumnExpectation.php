@@ -14,6 +14,11 @@ final readonly class ColumnExpectation
     public const REFERENCE = 'reference';
     /** An amount of money: a decimal or float type. A whole-number type cannot hold cents. */
     public const MONEY = 'money';
+    /**
+     * A currency rate. The platform's own currency table keeps it as TEXT (its migration ex_rate_update.php made it a varchar), so a
+     * decimal, a float or a string long enough to hold "3.75000000" is accepted; whether the VALUES are usable is checked on their own.
+     */
+    public const RATE = 'rate';
     public const STRING = 'string';
     /** Free text or JSON: a short varchar would truncate it. */
     public const TEXT = 'text';
@@ -48,6 +53,9 @@ final readonly class ColumnExpectation
         if ($this->kind === self::MONEY && $facts->family === ColumnFamily::INTEGER) {
             return "is {$facts->type}, a whole-number type: it cannot hold cents, so amounts would be rounded. {$this->reason}";
         }
+        if ($this->kind === self::RATE && $facts->family === ColumnFamily::INTEGER) {
+            return "is {$facts->type}, a whole-number type: it cannot hold a rate such as 3.75, so amounts would be converted wrongly. {$this->reason}";
+        }
 
         return $this->kind === self::TEXT && $facts->family === ColumnFamily::STRING
             ? "is {$facts->type}, too short for the JSON it carries ({$this->minimumDescription()}). {$this->reason}"
@@ -61,6 +69,7 @@ final readonly class ColumnExpectation
             self::ID, self::INTEGER, self::FLAG => [ColumnFamily::INTEGER],
             self::REFERENCE => [ColumnFamily::INTEGER, ColumnFamily::STRING],
             self::MONEY => [ColumnFamily::DECIMAL, ColumnFamily::FLOAT],
+            self::RATE => [ColumnFamily::DECIMAL, ColumnFamily::FLOAT, ColumnFamily::STRING],
             self::STRING => [ColumnFamily::STRING, ColumnFamily::TEXT],
             self::TEXT => [ColumnFamily::TEXT, ColumnFamily::JSON],
             self::DATETIME => [ColumnFamily::DATETIME],

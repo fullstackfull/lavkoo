@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\Fulfillment;
 
+use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
+use App\Models\ProviderProductMapping;
 use App\Services\Fulfillment\Contracts\ProviderAdapter;
 use App\Services\Fulfillment\Data\SubmissionResult;
+use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\FulfillmentSchema;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
@@ -182,6 +185,24 @@ abstract class FulfillmentTestCase extends TestCase
         }
 
         return $detailId;
+    }
+
+    /** One mapped line of a single provider on an order, routed into that provider's fulfillment. */
+    protected function routeSingleProviderOrder(ProviderCode $provider, array $orderOverrides = [], int $orderId = 100, float $lineTotal = 200, int $quantity = 2): ProviderFulfillment
+    {
+        $this->makeProduct(1, $provider);
+        $this->makeOrder($orderId, $orderOverrides);
+        $mapping = ProviderProductMapping::create([
+            'provider' => $provider->value, 'product_id' => 1, 'variant_key' => '', 'external_id' => '1947201',
+            'external_variant_id' => '', 'external_sku' => 'XSKU1', 'status' => MappingStatus::Approved,
+        ]);
+        $this->addLine($orderId, 1, $quantity, $lineTotal, $provider);
+        DB::table('provider_fulfillment_items')->where('order_id', $orderId)->update([
+            'mapping_id' => $mapping->id, 'external_product_id' => $mapping->external_id, 'external_sku' => $mapping->external_sku,
+        ]);
+        app(FulfillmentRouter::class)->route($orderId);
+
+        return $this->fulfillmentFor($orderId, $provider)->load('items');
     }
 
     protected function fulfillmentFor(int $orderId, ProviderCode $provider): ?ProviderFulfillment

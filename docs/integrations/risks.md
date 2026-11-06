@@ -29,8 +29,10 @@ real systems.
 * **Admin and storefront** — every page renders with the real templates; every route carries the admin guard and the
   `3rd_party_setup` permission; no stored secret is rendered; every phrase is translated (English + both Arabic locales);
   the required Arabic notice is exact; provider names never reach customers.
-* **Database** — both migrations are additive, idempotent and reversible on SQLite and MySQL 8.0; the integration's own
-  tables, unique keys, row locks, JSON, decimals and `timestamp(3)` behave on a real MySQL 8.0.
+* **Database** — the two integration migrations are additive, idempotent and reversible on SQLite and MySQL 8.0; the integration's own
+  tables, unique keys, row locks, JSON, decimals and `timestamp(3)` behave on a real MySQL 8.0. The two column-widening migrations of Hotfix 1
+  are additive and idempotent (and deliberately not reversible); they were run on MySQL 8.0 and MariaDB 10.11, **not** on MariaDB 11.4.2 (the pilot
+  server's engine): see the pilot-deployment runbook.
 
 ## Not verified — needs the live server (the pilot deployment) and the real providers
 

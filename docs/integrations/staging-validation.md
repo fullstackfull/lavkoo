@@ -163,7 +163,7 @@ exactly `cash_on_delivery` as COD).
 
 ```bash
 php artisan migrate:status                 # note the last migration BEFORE ours
-# Run ONLY our two migrations, by path. A bare `migrate` would also run every platform migration that is pending on the
+# Run ONLY our migrations, by path (the two below; Hotfix 1 of pilot-deployment.md adds two column-widening ones). A bare `migrate` would also run every platform migration that is pending on the
 # copy (one of them rebuilds 35 large tables to DECIMAL(40,20)), which is a different change that needs its own rehearsal.
 M1=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php
 M2=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php

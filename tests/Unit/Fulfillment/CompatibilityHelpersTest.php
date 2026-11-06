@@ -94,7 +94,7 @@ class CompatibilityHelpersTest extends TestCase
     public function test_the_spec_lists_every_column_once_with_a_known_kind_and_severity(): void
     {
         $seen = [];
-        $kinds = [ColumnExpectation::ID, ColumnExpectation::INTEGER, ColumnExpectation::FLAG, ColumnExpectation::REFERENCE, ColumnExpectation::MONEY, ColumnExpectation::STRING, ColumnExpectation::TEXT, ColumnExpectation::DATETIME];
+        $kinds = [ColumnExpectation::ID, ColumnExpectation::INTEGER, ColumnExpectation::FLAG, ColumnExpectation::REFERENCE, ColumnExpectation::MONEY, ColumnExpectation::STRING, ColumnExpectation::TEXT, ColumnExpectation::DATETIME, ColumnExpectation::RATE];
 
         foreach (CompatibilitySpec::columns() as $expectation) {
             $key = $expectation->table . '.' . $expectation->column;

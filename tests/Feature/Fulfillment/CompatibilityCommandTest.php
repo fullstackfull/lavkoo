@@ -37,7 +37,7 @@ class CompatibilityCommandTest extends FulfillmentTestCase
     /** The inferred test schema holds the tables the integration touches; a real restore also carries the ones the storefront boots from. */
     private function completeTheRestore(): void
     {
-        foreach (['login_setups', 'addon_settings', 'social_media', 'sellers', 'brands', 'banners', 'flash_deals', 'business_pages', 'robots_meta_contents', 'analytic_scripts', 'stock_clearance_setups', 'stock_clearance_products'] as $table) {
+        foreach (['login_setups', 'addon_settings', 'social_medias', 'sellers', 'brands', 'banners', 'flash_deals', 'business_pages', 'robots_meta_contents', 'analytic_scripts', 'stock_clearance_setups', 'stock_clearance_products'] as $table) {
             Schema::create($table, static fn (Blueprint $blueprint) => $blueprint->id());
         }
     }
@@ -608,14 +608,19 @@ class CompatibilityCommandTest extends FulfillmentTestCase
 
         $pending = $this->check($report, 'migrations', 'pending migrations');
         $this->assertSame('warn', $pending['status']);
-        $this->assertSame(['2026_11_05_100000_create_provider_fulfillment_tables', '2026_11_05_100100_add_fulfillment_provider_to_products_table'], $pending['facts']['pending_integration']);
+        $this->assertSame([
+            '2026_11_05_100000_create_provider_fulfillment_tables', '2026_11_05_100100_add_fulfillment_provider_to_products_table',
+            '2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment', '2026_11_06_100100_widen_order_details_variation_for_fulfillment',
+        ], $pending['facts']['pending_integration'], 'the two column-widening migrations are the integration\'s own, not the platform\'s');
         $this->assertGreaterThan(100, $pending['facts']['pending_platform'], 'migrate would run the platform\'s own migrations too');
         $this->assertLessThanOrEqual(40, count($pending['facts']['pending_platform_listed']));
         $this->assertStringContainsString('Rehearse the whole set', $pending['detail']);
 
         DB::table('migrations')->insert([
-            ['migration' => '2026_11_05_100000_create_provider_fulfillment_tables', 'batch' => 2],
-            ['migration' => '2026_11_05_100100_add_fulfillment_provider_to_products_table', 'batch' => 2],
+            ['migration' => '2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment', 'batch' => 2],
+            ['migration' => '2026_11_06_100100_widen_order_details_variation_for_fulfillment', 'batch' => 2],
+            ['migration' => '2026_11_05_100000_create_provider_fulfillment_tables', 'batch' => 3],
+            ['migration' => '2026_11_05_100100_add_fulfillment_provider_to_products_table', 'batch' => 3],
         ]);
         [, $after] = $this->compat();
 

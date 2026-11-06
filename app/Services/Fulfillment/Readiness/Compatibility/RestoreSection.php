@@ -15,7 +15,7 @@ final class RestoreSection implements CompatibilitySection
 
     /** Without these the storefront or the admin panel cannot boot. */
     private const BOOT_TABLES = [
-        'business_settings', 'currencies', 'login_setups', 'addon_settings', 'social_media', 'shops', 'sellers', 'products', 'categories',
+        'business_settings', 'currencies', 'login_setups', 'addon_settings', 'social_medias', 'shops', 'sellers', 'products', 'categories',
         'brands', 'banners', 'flash_deals', 'business_pages', 'robots_meta_contents', 'analytic_scripts', 'stock_clearance_setups',
         'stock_clearance_products',
     ];

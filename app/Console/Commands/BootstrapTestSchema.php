@@ -69,10 +69,10 @@ class BootstrapTestSchema extends Command
             },
             'currencies' => function (Blueprint $t) {
                 $t->id(); $t->string('name')->nullable(); $t->string('symbol', 20)->nullable();
-                $t->string('code', 20)->nullable(); $t->decimal('exchange_rate', 20, 8)->default(1);
+                $t->string('code', 20)->nullable(); $t->string('exchange_rate', 191)->default('1');
                 $t->boolean('status')->default(1); $t->timestamps();
             },
-            'social_media' => function (Blueprint $t) {
+            'social_medias' => function (Blueprint $t) {
                 $t->id(); $t->string('name')->nullable(); $t->string('link', 2048)->nullable();
                 $t->boolean('active_status')->default(1); $t->timestamps();
             },

@@ -2,6 +2,8 @@
 
 namespace App\Services\Fulfillment\Readiness\Compatibility;
 
+use App\Services\Fulfillment\Support\CurrencyCode;
+use App\Services\Fulfillment\Support\ExchangeRate;
 use Illuminate\Database\Query\Builder;
 
 /**
@@ -25,6 +27,7 @@ final class CheckoutSection implements CompatibilitySection
     {
         return array_values(array_filter([
             $probe->hasTable('business_settings') && $probe->hasTable('currencies') ? $this->currency($probe) : null,
+            $probe->hasTable('currencies') ? $this->exchangeRates($probe) : null,
             $probe->hasTable('admins') && $probe->hasTable('admin_roles') ? $this->adminAccess($probe) : null,
         ]));
     }
@@ -33,7 +36,7 @@ final class CheckoutSection implements CompatibilitySection
     {
         $settings = $this->settings($probe);
         $model = (string) ($settings['currency_model'] ?? self::MODEL_SINGLE);
-        $target = strtoupper((string) config('fulfillment.currency', 'SAR'));
+        $target = CurrencyCode::provider();
         $decimals = is_numeric($settings['decimal_point_settings'] ?? null) ? (int) $settings['decimal_point_settings'] : 2;
 
         [$convertible, $explanation] = $model === self::MODEL_MULTI
@@ -55,19 +58,60 @@ final class CheckoutSection implements CompatibilitySection
         $usd = $this->rate($probe, 'USD');
         $provider = $this->rate($probe, $target);
 
-        return $usd > 0 && $provider > 0
+        return $usd !== null && $provider !== null
             ? [true, "multi-currency store: amounts are stored in a USD-based unit and converted to {$target} with the currency table's rates, as the storefront does"]
-            : [false, "multi-currency store, but the currency table has no usable rate for USD or {$target}: every provider shipment would be held as 'currency unconvertible' instead of being sent with a guessed figure"];
+            : [false, "multi-currency store, but the currency table has no usable rate (a plain positive number) for USD or {$target}: every provider shipment would be held as 'currency unconvertible' instead of being sent with a guessed figure"];
     }
 
     /** @return array{0: bool, 1: string} */
     private function singleCurrency(ReadOnlyProbe $probe, mixed $defaultCurrencyId, string $target): array
     {
         $code = is_numeric($defaultCurrencyId) ? $this->defaultCode($probe, (int) $defaultCurrencyId) : null;
+        $printable = $code !== null && preg_match('/^[A-Za-z]{2,10}$/', $code) === 1 ? strtoupper($code) : null;
 
-        return $code !== null && strtoupper($code) === $target
-            ? [true, "single-currency store whose default currency is {$target}: stored amounts are sent to providers as they are"]
-            : [false, "single-currency store whose default currency is " . ($code !== null && preg_match('/^[A-Za-z]{2,10}$/', $code) === 1 ? strtoupper($code) : 'not known') . ", not {$target}: every provider shipment would be held as 'currency unconvertible'. Set FULFILLMENT_CURRENCY to the store's currency if providers accept it, or keep SAR as the default"];
+        if (CurrencyCode::canonical($code) === $target) {
+            return [true, $printable !== null && $printable !== $target
+                ? "single-currency store whose default currency is stored as {$printable}, the store's spelling of {$target} (config fulfillment.currency_aliases): stored amounts are sent to providers as they are, labelled {$target}"
+                : "single-currency store whose default currency is {$target}: stored amounts are sent to providers as they are"];
+        }
+
+        return [false, 'single-currency store whose default currency is ' . ($printable ?? 'not known') . ", not {$target}: every provider shipment would be held as 'currency unconvertible'. Set FULFILLMENT_CURRENCY to the store's currency if providers accept it, add the store's spelling to config fulfillment.currency_aliases, or keep SAR as the default"];
+    }
+
+    /**
+     * The currency table keeps its rates as text, typed by hand. A rate is usable only as a plain positive decimal; one that is not is
+     * treated as no rate at all (an amount that needs it is held, never converted with a guess). Counted, with the currency code of each
+     * offender when it is a plain code, and never the value.
+     */
+    private function exchangeRates(ReadOnlyProbe $probe): ?CompatibilityCheck
+    {
+        $columns = $probe->columns('currencies');
+        if (!isset($columns['exchange_rate'], $columns['code'])) {
+            return null;
+        }
+
+        $total = $probe->count('currencies');
+        $unusable = [];
+        $probe->eachRecent(
+            table: 'currencies',
+            columns: ['code', 'exchange_rate'],
+            limit: 500,
+            each: static function (object $row) use (&$unusable): void {
+                if (ExchangeRate::parse($row->exchange_rate) === null) {
+                    $unusable[] = preg_match('/^[A-Za-z]{2,10}$/', (string) $row->code) === 1 ? strtoupper((string) $row->code) : '(a code that is not plain letters)';
+                }
+            },
+        );
+
+        return new CompatibilityCheck(
+            section: self::SECTION,
+            name: 'exchange rates',
+            status: $unusable === [] ? CompatibilityCheck::PASS : CompatibilityCheck::WARN,
+            detail: $unusable === []
+                ? "all {$total} currency rates are plain positive numbers"
+                : count($unusable) . " of {$total} currency rates are not a plain positive number (" . implode(', ', array_slice($unusable, 0, 20)) . '): in a multi-currency store an amount that needs one is held as currency unconvertible; a single-currency store never reads them',
+            facts: ['currencies' => $total, 'unusable_rates' => count($unusable)],
+        );
     }
 
     private function adminAccess(ReadOnlyProbe $probe): CompatibilityCheck
@@ -106,20 +150,31 @@ final class CheckoutSection implements CompatibilitySection
         return $settings;
     }
 
-    private function rate(ReadOnlyProbe $probe, string $code): float
+    /** The usable rate of a currency, under the ISO code or else the store's spelling of it; null when there is none. */
+    private function rate(ReadOnlyProbe $probe, string $code): ?float
     {
-        $rate = 0.0;
+        $spellings = CurrencyCode::spellings($code);
+        $found = [];
         $probe->eachRecent(
             table: 'currencies',
-            columns: ['exchange_rate'],
-            limit: 1,
-            each: static function (object $row) use (&$rate): void {
-                $rate = (float) $row->exchange_rate;
+            columns: ['code', 'exchange_rate'],
+            limit: 20,
+            each: static function (object $row) use (&$found): void {
+                $spelling = strtoupper(trim((string) $row->code));
+                if (!array_key_exists($spelling, $found)) {
+                    $found[$spelling] = ExchangeRate::parse($row->exchange_rate);
+                }
             },
-            where: static fn (Builder $query) => $query->where('code', $code),
+            where: static fn (Builder $query) => $query->whereIn('code', $spellings),
         );
 
-        return $rate;
+        foreach ($spellings as $spelling) {
+            if (array_key_exists($spelling, $found)) {
+                return $found[$spelling];
+            }
+        }
+
+        return null;
     }
 
     private function defaultCode(ReadOnlyProbe $probe, int $id): ?string
