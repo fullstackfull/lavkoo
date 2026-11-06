@@ -13,6 +13,9 @@ class ProviderCity extends Model
 
     protected $casts = [
         'raw' => 'array',
+        'is_selected' => 'boolean',
         'synced_at' => 'datetime',
+        'last_seen_at' => 'datetime',
+        'missing_since' => 'datetime',
     ];
 }
