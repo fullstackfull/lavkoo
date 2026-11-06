@@ -7,6 +7,7 @@
     $v2HasMarketing = Helpers::module_permission_check('marketing');
     $v2HasPeople   = Helpers::module_permission_check('people');
     $v2HasReports  = Helpers::module_permission_check('reports');
+    $v2HasChannels = Helpers::module_permission_check('sales_channels') || Helpers::module_permission_check('operational_costs');
     $v2HasSettings = Helpers::module_permission_check('business_settings')
                      || Helpers::module_permission_check('system_settings')
                      || Helpers::module_permission_check('3rd_party_setup')
@@ -84,6 +85,19 @@
                      stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M5 20V11M11 20V5M17 20v-6"/>
                     <path d="M3 20h18"/>
+                </svg>
+            </button>
+        @endif
+
+        @if ($v2HasChannels)
+            <button class="v2-rail-btn" type="button" data-section="channels" data-label="{{ translate('Sales_Channels') }}" aria-label="{{ translate('Sales_Channels') }}">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="2.5"/>
+                    <circle cx="5" cy="6" r="2"/>
+                    <circle cx="19" cy="6" r="2"/>
+                    <circle cx="12" cy="20" r="2"/>
+                    <path d="m6.6 7.4 3.4 3.1M17.4 7.4l-3.4 3.1M12 14.5V18"/>
                 </svg>
             </button>
         @endif

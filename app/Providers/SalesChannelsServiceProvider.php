@@ -31,5 +31,8 @@ class SalesChannelsServiceProvider extends ServiceProvider
 
         // Inbound webhooks: under the `api` prefix but outside the `api` middleware group, which records a telemetry row per request.
         Route::prefix('api')->group(base_path('routes/rest_api/sales_channel_webhooks.php'));
+
+        Route::middleware('web')->group(base_path('routes/admin/sales-channels.php'));
+        Route::middleware('web')->group(base_path('routes/admin/operational-costs.php'));
     }
 }
