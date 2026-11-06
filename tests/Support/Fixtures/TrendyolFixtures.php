@@ -158,4 +158,23 @@ final class TrendyolFixtures
     {
         return ['page' => $page, 'size' => 1000, 'totalPages' => $totalPages, 'totalElements' => count($rows), 'content' => $rows];
     }
+
+    /** A customer return: units of one outbound package, each claim item with its own decision. */
+    public static function claim(array $itemStatuses = ['Accepted'], string $claimId = 'claim-1', array $overrides = []): array
+    {
+        return array_replace([
+            'id' => 'row-' . $claimId, 'claimId' => $claimId, 'orderNumber' => '10234567890', 'orderDate' => self::CREATED_MS - 600_000, 'claimDate' => self::CREATED_MS + 86_400_000,
+            'orderShipmentPackageId' => 3099999999, 'orderOutboundPackageId' => 3012345678, 'lastModifiedDate' => self::CREATED_MS + 90_000_000,
+            'customerFirstName' => 'Test', 'customerLastName' => 'Buyer',
+            'items' => [[
+                'orderLine' => ['id' => 4400000001, 'productName' => 'Test product', 'barcode' => '6281234567890', 'price' => 100.0, 'vatRate' => 15],
+                'claimItems' => array_map(static fn (string $status, int $index): array => ['id' => "ci-{$claimId}-{$index}", 'orderLineItemId' => 5500000000 + $index, 'claimItemStatus' => ['name' => $status], 'customerClaimItemReason' => ['name' => 'Changed my mind', 'code' => 'x']], $itemStatuses, array_keys($itemStatuses)),
+            ]],
+        ], $overrides);
+    }
+
+    public static function claimsPage(array $claims, int $page = 0, int $totalPages = 1): array
+    {
+        return ['page' => $page, 'size' => 200, 'totalPages' => $totalPages, 'totalElements' => count($claims), 'content' => $claims];
+    }
 }

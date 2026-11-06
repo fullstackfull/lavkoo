@@ -749,7 +749,7 @@ class TrendyolConnectorTest extends TestCase
         $this->assertTrue($matrix['product_v2']['built']);
         $this->assertFalse($matrix['product_create_update']['built']);
         $this->assertFalse($matrix['cancel_unsupplied']['built']);
-        $this->assertFalse($matrix['claims_returns']['built']);
+        $this->assertTrue($matrix['claims_returns']['built'], 'Claims are read; approving or rejecting them is not built.');
         $this->assertFalse($matrix['fulfilment_by_trendyol']['documented']);
     }
 }

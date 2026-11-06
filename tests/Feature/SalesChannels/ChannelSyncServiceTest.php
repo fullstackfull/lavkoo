@@ -175,7 +175,7 @@ class ChannelSyncServiceTest extends TestCase
         $first = $this->sync->runDue($account);
         $second = $this->sync->runDue($account);
 
-        $this->assertSame(['orders'], array_keys($first), 'Listings and statements need their own capabilities.');
+        $this->assertSame(['orders', 'returns'], array_keys($first), 'Returns come with Order Import; listings and statements need their own capabilities.');
         $this->assertSame([], $second, 'Five minutes have not passed.');
     }
 

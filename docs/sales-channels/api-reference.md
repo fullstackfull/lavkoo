@@ -42,7 +42,7 @@ Hosts: production `https://apigw.trendyol.com/integration`, stage `https://stage
 | Webhooks | `POST/GET/PUT/DELETE /webhook/sellers/{id}/webhooks[/…]` | authentication `API_KEY` (header `x-api-key`), at-least-once, out-of-order; max 15; the address must not contain *Trendyol*, *Dolap* or *localhost* | yes |
 | Product create/update, archive, unlock | `POST …/v2/products`, `…/*-bulk-update`, … | operations registered, **not built** | no |
 | Unsupplied (cancel lines), splits, box info, carrier change, invoice link/file, ADEL | registered or not, **not built** | cancelling lines cancels a customer order and locks the product | no |
-| Claims (returns) | `GET /order/sellers/{id}/claims` | **not built**: a package that Trendyol marks `Returned` reaches the order through the feed, but partial returns are not recorded | no |
+| Claims (returns) | `GET /order/sellers/{id}/claims` (window on last-modified, page ≤ 200) | read-only: the units a claim item has **Accepted** back are recorded on the order lines (set per claim, summed per line, capped at the units sold). Approve / reject (`…/claims/{id}/items/approve`, `…/issue`) is **not built**. UNVERIFIED: the plain path vs the `-gulf` path the Gulf OAS prints | read only |
 
 UNVERIFIED: whether Order V1 still answers after its 15 Oct 2026 sunset (not used); what exactly `is4P` / `3pByTrendyol` mean for a Gulf local seller; the header Trendyol sends for `BASIC_AUTHENTICATION` webhooks (API key is used); whether a webhook body is wrapped in `content[]` or bare (both accepted); the currency of statement rows; stage rate limits and data retention; the offset of `orderDate` (verify on stage).
 

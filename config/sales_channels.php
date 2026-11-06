@@ -177,6 +177,7 @@ return [
         // How often each resource is due, in minutes.
         'intervals' => [
             'orders' => 5,
+            'returns' => 30,
             'shipments' => 30,
             'inventory' => 30,
             'listings' => 360,

@@ -13,6 +13,7 @@ use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
+use App\Services\SalesChannels\Contracts\ReadsReturns;
 use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
@@ -34,7 +35,7 @@ use RuntimeException;
  *
  * Product V1 and Order V1 are not used anywhere: Trendyol retired them in 2026.
  */
-class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments
+class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments
 {
     private const MILLISECONDS_PER_DAY = 86_400_000;
     private const LIST_PAGE_SIZE = 100;
@@ -50,6 +51,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         private readonly TrendyolOrderMapper $orders,
         private readonly TrendyolListingMapper $listings,
         private readonly TrendyolFinanceMapper $finances,
+        private readonly TrendyolReturnMapper $returns,
     ) {
     }
 
@@ -71,7 +73,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             'split_packages' => ['documented' => true, 'built' => false, 'note' => 'Four split endpoints exist; none is built.'],
             'invoice_upload' => ['documented' => true, 'built' => false, 'note' => 'Invoice link/file upload is registered; invoice generation is outside this module.'],
             'webhooks' => ['documented' => true, 'built' => true, 'note' => 'Order-package webhooks (API-key authentication); polling stays the source of truth because Trendyol says delivery is not always possible. No webhook exists for claims, products or finance.'],
-            'claims_returns' => ['documented' => true, 'built' => false, 'note' => 'Returned-package statuses reach the order through the feed; reading claim items to record partially returned quantities is designed but not built.'],
+            'claims_returns' => ['documented' => true, 'built' => true, 'note' => 'Claims are read (read-only) and the units the channel ACCEPTED back are recorded on the order lines. Approving or rejecting a return is not built. The Gulf documentation prints the endpoint both with and without a -gulf suffix: UNVERIFIED which the gateway serves.'],
             'current_account_statement' => ['documented' => true, 'built' => true, 'note' => 'settlements (Sale, Return) and otherfinancials, windows of at most 15 days. Rows carry no currency and their ids changed in Aug 2026, so identity is built from the row\'s content.'],
             'fulfilment_by_trendyol' => ['documented' => false, 'built' => false, 'note' => 'The Gulf documentation describes no fulfilment-by-marketplace stock; every package is prepared by the seller.'],
         ];
@@ -247,6 +249,36 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         }
 
         return null;
+    }
+
+    // ---- returns ------------------------------------------------------------------------------------------------
+
+    /**
+     * Customer returns (claims) changed since `$since`. The claims endpoint filters on the claim's last-modified time; the Gulf documentation prints the path both plain and
+     * with a `-gulf` suffix, and the plain path with the storefront header is used (UNVERIFIED which the gateway serves: a refusal is reported, not hidden).
+     */
+    public function returns(SalesChannelAccount $account, CarbonInterface $since, ?array $cursor): Pages
+    {
+        $seller = $this->client->sellerId($account);
+        $page = (int) ($cursor['page'] ?? 0);
+        $start = (int) ($cursor['start'] ?? $this->milliseconds($since));
+        $end = (int) ($cursor['end'] ?? $this->milliseconds(now()));
+        $response = $this->client->call($account, 'trendyol.claims_list', 'GET', "/order/sellers/{$seller}/claims", ['startDate' => $start, 'endDate' => $end, 'page' => $page, 'size' => 200], capability: IntegrationCapability::OrderImport);
+        $this->assertOk($response, 'Trendyol claims');
+
+        $items = [];
+        $newest = null;
+        foreach ((array) $response->get('content', []) as $claim) {
+            $mapped = is_array($claim) ? $this->returns->map($claim) : null;
+            if ($mapped === null) {
+                continue;
+            }
+            $items[] = $mapped;
+            $newest = $mapped->updatedAt !== null && ($newest === null || $mapped->updatedAt->gt($newest)) ? $mapped->updatedAt : $newest;
+        }
+        $more = $page + 1 < (int) $response->get('totalPages', 1);
+
+        return new Pages($items, $more ? ['page' => $page + 1, 'start' => $start, 'end' => $end] : null, $newest);
     }
 
     // ---- finances -----------------------------------------------------------------------------------------------

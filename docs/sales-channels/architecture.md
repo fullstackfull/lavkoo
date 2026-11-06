@@ -58,7 +58,7 @@ Execution modes: **Managed** (the application would create the fulfilment), **Ex
 
 * **App-driven creation of a Torod/M5AZN shipment for a channel order** ("Managed" for channel orders). It needs the buyer's address — deliberately never stored — and an internal order, which would also enter the store's reports and stock. It is a decision for the owner (data-protection and reporting impact) and for the Torod/M5AZN workstream. A rule asking for it is recorded as *wanted* and the order waits with the reason `managed_dispatch_not_available`. The switch `sales_channels.managed_dispatch_enabled` exists and is off; turning it on without that work changes only the recorded decision.
 * Automatic discovery of an existing Torod shipment for a Trendyol order: the Torod adapter has no search call. `ExternalShipmentLookup` is the extension point; the default finds nothing and guesses nothing; linking is manual.
-* Trendyol product create/update/cancel/split, claim (returns) reading; Amazon Catalog enrichment, Notifications (SQS), Reports. Registered operations exist for some; none is built. See each connector's `capabilityMatrix()` and [api-reference.md](api-reference.md).
+* Trendyol product create/update/cancel/split and approving or rejecting a return; Amazon Catalog enrichment, Amazon returns, Notifications (SQS), Reports. Registered operations exist for some; none is built. See each connector's `capabilityMatrix()` and [api-reference.md](api-reference.md).
 * Odoo / any accounting destination: `AccountingDestination` + a null implementation only.
 
 ## Assumptions to verify before relying on the numbers

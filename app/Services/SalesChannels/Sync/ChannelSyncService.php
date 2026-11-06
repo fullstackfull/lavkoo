@@ -10,6 +10,7 @@ use App\Services\SalesChannels\Contracts\ReadsChannelInventory;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
+use App\Services\SalesChannels\Contracts\ReadsReturns;
 use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Finance\ChannelFeeImporter;
 use App\Enums\SalesChannels\RoutingAction;
@@ -32,6 +33,7 @@ class ChannelSyncService
     public const ORDERS = 'orders';
     public const LISTINGS = 'listings';
     public const INVENTORY = 'inventory';
+    public const RETURNS = 'returns';
     public const FINANCES = 'finances';
 
     public function __construct(
@@ -42,6 +44,7 @@ class ChannelSyncService
         private readonly ListingSyncService $listings,
         private readonly ChannelInventoryWriter $inventory,
         private readonly ChannelFeeImporter $fees,
+        private readonly ChannelReturnIngestor $returns,
         private readonly DynamicFulfillmentRoutingEngine $routing,
         private readonly ExternalShipmentLinker $linker,
     ) {
@@ -73,6 +76,7 @@ class ChannelSyncService
     {
         return [
             self::ORDERS => [IntegrationCapability::OrderImport, ReadsOrders::class, 'syncOrders'],
+            self::RETURNS => [IntegrationCapability::OrderImport, ReadsReturns::class, 'syncReturns'],
             self::LISTINGS => [IntegrationCapability::ProductSync, ReadsListings::class, 'syncListings'],
             self::INVENTORY => [IntegrationCapability::ReadOnlySync, ReadsChannelInventory::class, 'syncChannelInventory'],
             self::FINANCES => [IntegrationCapability::FinancialReconciliation, ReadsFinances::class, 'syncFinances'],
@@ -102,6 +106,28 @@ class ChannelSyncService
                         $stats[$result->outcome]++;
                         $this->decide($result, $stats);
                         $stats['needs_review'] += $result->mapping->fresh()->review_reason !== null ? 1 : 0;
+                    }
+                },
+                stats: $stats,
+                finish: static fn (?CarbonInterface $newest, CarbonInterface $started): CarbonInterface => $newest ?? $started,
+            );
+        });
+    }
+
+    /** @return array{result: string, detail: string|null, stats: array<string, mixed>} */
+    public function syncReturns(SalesChannelAccount $account): array
+    {
+        return $this->runner->run($account, self::RETURNS, function (SyncLease $lease) use ($account): array {
+            $reader = $this->connectors->able($account, ReadsReturns::class);
+            $since = $this->states->readFrom($lease);
+            $stats = ['pages' => 0, 'applied' => 0, 'unchanged' => 0, 'unknown_order' => 0];
+
+            return $this->sweep(
+                lease: $lease,
+                fetch: fn (?array $cursor): Pages => $reader->returns($account, $since, $cursor),
+                handle: function ($page) use ($account, &$stats): void {
+                    foreach ($page->items as $return) {
+                        $stats[$this->returns->apply($account, $return)]++;
                     }
                 },
                 stats: $stats,
