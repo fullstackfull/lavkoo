@@ -58,13 +58,7 @@ class ChannelAccountOperationsController extends Controller
 
     public function sync(SalesChannelAccount $account, string $resource): RedirectResponse
     {
-        $this->announcer->announce(match ($resource) {
-            ChannelSyncService::ORDERS => $this->sync->syncOrders($account),
-            ChannelSyncService::RETURNS => $this->sync->syncReturns($account),
-            ChannelSyncService::LISTINGS => $this->sync->syncListings($account),
-            ChannelSyncService::INVENTORY => $this->sync->syncChannelInventory($account),
-            ChannelSyncService::FINANCES => $this->sync->syncFinances($account),
-        });
+        $this->announcer->announce($this->sync->runResource($account, $resource));
 
         return $this->toAccount($account);
     }

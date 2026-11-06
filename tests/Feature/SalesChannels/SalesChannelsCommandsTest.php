@@ -59,6 +59,33 @@ class SalesChannelsCommandsTest extends TestCase
         $this->assertSame(1, ExternalOrderMapping::count());
     }
 
+    public function test_without_a_named_resource_every_resource_the_account_can_read_is_read_returns_included(): void
+    {
+        $account = $this->trendyolAccount(['connection_test', 'read_only_sync', 'order_import'], writes: false);
+        Http::fake([
+            self::TY . '/order/sellers/1234567/claims*' => Http::response(Trendyol::claimsPage([])),
+            self::TY . '/*' => Http::response(Trendyol::stream([Trendyol::package()])),
+        ]);
+
+        $this->artisan('channels:sync', ['account' => $account->id])
+            ->expectsOutputToContain('orders: ok')
+            ->expectsOutputToContain('returns: ok')
+            ->assertSuccessful();
+
+        $this->assertSame(1, ExternalOrderMapping::count());
+    }
+
+    public function test_a_resource_named_but_not_readable_is_reported_as_skipped_and_an_unknown_name_is_refused(): void
+    {
+        $amazon = $this->amazonAccount();
+        Http::fake();
+
+        $this->artisan('channels:sync', ['account' => $amazon->id, '--only' => 'returns'])->expectsOutputToContain('returns: skipped (not_supported_by_channel)')->assertSuccessful();
+        $this->artisan('channels:sync', ['--only' => 'orderz'])->expectsOutputToContain('Unknown resource: orderz')->assertFailed();
+
+        Http::assertNothingSent();
+    }
+
     public function test_a_failing_channel_makes_the_command_fail_loudly(): void
     {
         $account = $this->trendyolAccount();

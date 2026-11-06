@@ -20,6 +20,7 @@ use App\Services\SalesChannels\Shipments\ExternalShipmentLinker;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Closure;
+use InvalidArgumentException;
 
 /**
  * Reads what a channel has to say, one resource at a time, under the lease and back-off rules of ChannelSyncRunner.
@@ -69,6 +70,51 @@ class ChannelSyncService
         }
 
         return $results;
+    }
+
+    /** @return list<string> every resource a channel can be read for */
+    public static function resourceNames(): array
+    {
+        return [self::ORDERS, self::RETURNS, self::LISTINGS, self::INVENTORY, self::FINANCES];
+    }
+
+    /**
+     * The named resources of the account now, whether or not they are due (every one the account can read when none is named). A resource the account may not read, or
+     * the channel can not be read for, is reported as skipped when it was asked for by name, and left out when nobody named it.
+     *
+     * @param list<string> $only
+     * @return array<string, array{result: string, detail: string|null, stats: array<string, mixed>}>
+     */
+    public function runNow(SalesChannelAccount $account, array $only = []): array
+    {
+        $results = [];
+        foreach ($this->resources() as $resource => [$capability, $ability]) {
+            $named = in_array($resource, $only, true);
+            if ($only !== [] && !$named) {
+                continue;
+            }
+            if (!$named && !$this->permitted($account, $capability, $ability)) {
+                continue;
+            }
+            $results[$resource] = $this->runResource($account, $resource);
+        }
+
+        return $results;
+    }
+
+    /** @return array{result: string, detail: string|null, stats: array<string, mixed>} */
+    public function runResource(SalesChannelAccount $account, string $resource): array
+    {
+        [$capability, $ability, $method] = $this->resources()[$resource] ?? throw new InvalidArgumentException("Unknown resource '{$resource}'.");
+        if ($this->permitted($account, $capability, $ability)) {
+            return $this->{$method}($account);
+        }
+
+        return ['result' => ChannelSyncRunner::SKIPPED, 'detail' => match (true) {
+            !$account->enabled => 'account_off',
+            !$this->connectors->supports($account, $ability) => 'not_supported_by_channel',
+            default => 'capability_off',
+        }, 'stats' => []];
     }
 
     /** @return array<string, array{0: IntegrationCapability, 1: class-string, 2: string}> */

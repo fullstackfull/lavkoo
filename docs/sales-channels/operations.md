@@ -36,7 +36,7 @@ Nothing here is deployed to production by this work, and no production data is r
 ```bash
 php artisan channels:status                         # switches, accounts, capabilities, last sync
 php artisan channels:test-connection {account}      # harmless reads; prints granted / missing
-php artisan channels:sync {account} --only=orders   # orders | listings | inventory | finances
+php artisan channels:sync {account} --only=orders   # orders | returns | listings | inventory | finances; omit --only for every resource the account may read; --due runs only what the scheduler would
 php artisan channels:publish {account} --only=stock,price,settle,shipments
 php artisan channels:import-statement {account} statement.csv   # a statement exported from the seller portal (columns in the command's class docblock)
 php artisan costs:refresh --days=7                  # bring cost entries of recent sales up to date

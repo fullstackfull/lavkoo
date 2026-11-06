@@ -13,7 +13,7 @@ class SalesChannelsSyncCommand extends Command
 
     protected $signature = 'channels:sync
         {account? : the sales channel account id (default: every enabled account)}
-        {--only=orders,listings,inventory,finances : comma separated resources}
+        {--only= : comma separated resources: orders, returns, listings, inventory, finances (default: every resource the account can read)}
         {--due : run only the resources whose interval has elapsed (what the scheduler uses)}';
 
     protected $description = 'Read orders, listings, channel-held stock and statements from the sales channels (read-only; each honours the account switches)';
@@ -32,11 +32,17 @@ class SalesChannelsSyncCommand extends Command
         $accounts = $this->argument('account') !== null
             ? SalesChannelAccount::whereKey((int) $this->argument('account'))->get()
             : SalesChannelAccount::enabled()->orderBy('id')->get();
-        $only = array_filter(array_map('trim', explode(',', (string) $this->option('only'))));
+        $only = array_values(array_filter(array_map('trim', explode(',', (string) $this->option('only')))));
+        $unknown = array_diff($only, ChannelSyncService::resourceNames());
+        if ($unknown !== []) {
+            $this->error('Unknown resource: ' . implode(', ', $unknown) . '. Known: ' . implode(', ', ChannelSyncService::resourceNames()) . '.');
+
+            return self::FAILURE;
+        }
         $failed = false;
 
         foreach ($accounts as $account) {
-            $results = $this->option('due') ? $sync->runDue($account) : $this->runSelected($sync, $account, $only);
+            $results = $this->option('due') ? $sync->runDue($account) : $sync->runNow($account, $only);
             foreach ($results as $resource => $result) {
                 $failed = $failed || $result['result'] === 'failed';
                 $this->line(sprintf('%s #%d %s: %s%s', $account->channel, $account->id, $resource, $result['result'], $result['detail'] === null ? '' : ' (' . $result['detail'] . ')'));
@@ -44,25 +50,5 @@ class SalesChannelsSyncCommand extends Command
         }
 
         return $failed ? self::FAILURE : self::SUCCESS;
-    }
-
-    /**
-     * @param list<string> $only
-     * @return array<string, array{result: string, detail: string|null, stats: array<string, mixed>}>
-     */
-    private function runSelected(ChannelSyncService $sync, SalesChannelAccount $account, array $only): array
-    {
-        $methods = [
-            ChannelSyncService::ORDERS => 'syncOrders',
-            ChannelSyncService::LISTINGS => 'syncListings',
-            ChannelSyncService::INVENTORY => 'syncChannelInventory',
-            ChannelSyncService::FINANCES => 'syncFinances',
-        ];
-        $results = [];
-        foreach (array_intersect_key($methods, array_flip($only)) as $resource => $method) {
-            $results[$resource] = $sync->{$method}($account);
-        }
-
-        return $results;
     }
 }
