@@ -55,6 +55,16 @@ class FulfillmentPreflight
         '2026_11_05_100100_add_fulfillment_provider_to_products_table',
     ];
 
+    /**
+     * Migrations that widen two columns of the platform's own order_details table so that the platform's order statuses and its option JSON
+     * fit. They are run in the same command as MIGRATIONS, and change something only when `fulfillment:compatibility` reports those columns
+     * as too narrow.
+     */
+    public const COMPATIBILITY_MIGRATIONS = [
+        '2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment',
+        '2026_11_06_100100_widen_order_details_variation_for_fulfillment',
+    ];
+
     /** @param string|null $exampleEnvironmentFile the file whose APP_KEY is public; the repository's own .env.example unless told otherwise */
     public function __construct(
         private readonly ProviderConnectionManager $connections,
@@ -139,10 +149,13 @@ class FulfillmentPreflight
         $checks[] = $this->integrationSettings();
         $checks[] = $this->laterColumns();
 
-        $recorded = Schema::hasTable('migrations') ? DB::table('migrations')->whereIn('migration', self::MIGRATIONS)->pluck('migration')->all() : [];
-        $checks[] = count($recorded) === count(self::MIGRATIONS)
+        $recorded = Schema::hasTable('migrations') ? DB::table('migrations')->whereIn('migration', [...self::MIGRATIONS, ...self::COMPATIBILITY_MIGRATIONS])->pluck('migration')->all() : [];
+        $checks[] = count(array_intersect(self::MIGRATIONS, $recorded)) === count(self::MIGRATIONS)
             ? $this->pass('schema', 'migrations', 'both applied')
-            : $this->pass('schema', 'migrations', count(self::MIGRATIONS) - count($recorded) . ' pending: ' . implode(', ', array_diff(self::MIGRATIONS, $recorded)));
+            : $this->pass('schema', 'migrations', count(self::MIGRATIONS) - count(array_intersect(self::MIGRATIONS, $recorded)) . ' pending: ' . implode(', ', array_diff(self::MIGRATIONS, $recorded)));
+        $checks[] = count(array_intersect(self::COMPATIBILITY_MIGRATIONS, $recorded)) === count(self::COMPATIBILITY_MIGRATIONS)
+            ? $this->pass('schema', 'compatibility migrations', 'both applied')
+            : $this->pass('schema', 'compatibility migrations', count(array_diff(self::COMPATIBILITY_MIGRATIONS, $recorded)) . ' not applied: ' . implode(', ', array_diff(self::COMPATIBILITY_MIGRATIONS, $recorded)) . ' (needed only if fulfillment:compatibility reports order_details.delivery_status or order_details.variation as too short)');
 
         // `migrate --pretend` cannot show this change (it answers every "does it exist?" with no), so this line is the preview.
         $checks[] = Schema::hasColumn('products', 'fulfillment_provider')

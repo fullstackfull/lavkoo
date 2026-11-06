@@ -17,7 +17,7 @@ final class OutboundAudit
     /** Columns that hold free text or a URL the production host may be written into; counted, never read. */
     private const URL_COLUMNS = [
         'redirects' => 'to_path', 'business_pages' => 'description', 'email_templates' => 'body', 'products' => 'details',
-        'banners' => 'url', 'social_media' => 'link', 'seo_meta_info' => 'canonical', 'robots_meta_contents' => 'canonical', 'business_settings' => 'value',
+        'banners' => 'url', 'social_medias' => 'link', 'seo_meta_info' => 'canonical', 'robots_meta_contents' => 'canonical', 'business_settings' => 'value',
     ];
 
     /**

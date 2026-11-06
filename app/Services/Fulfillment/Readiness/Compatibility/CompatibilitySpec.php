@@ -24,8 +24,17 @@ final class CompatibilitySpec
 
     public const PAYMENT_METHOD_CASH_ON_DELIVERY = 'cash_on_delivery';
 
+    /** The columns the compatibility migrations change, by table: the width of the varchar they are widened to, or null for TEXT. */
+    public const WIDENED_COLUMNS = ['order_details' => ['delivery_status' => 30, 'variation' => null]];
+
     /** @var array<string, list<array{0: string, 1: string, 2: string, 3: string, 4?: int}>> table => [column, kind, severity, reason, minLength] */
     private static ?array $rows = null;
+
+    /** The length of the longest status the platform writes into a status column. */
+    public static function longestOrderStatus(): int
+    {
+        return max(array_map('strlen', self::ORDER_STATUSES));
+    }
 
     /** @return list<ColumnExpectation> the required tables first, then the ones the integration only uses on a best-effort basis */
     public static function columns(): array
@@ -86,8 +95,8 @@ final class CompatibilitySpec
                 ['tax', ColumnExpectation::MONEY, $warn, 'Part of the line total, inclusive or exclusive according to tax_model.'],
                 ['tax_model', ColumnExpectation::STRING, $warn, 'Tells whether tax is already inside the price.'],
                 ['variant', ColumnExpectation::STRING, $warn, 'Identifies the variant when a product has several.'],
-                ['variation', ColumnExpectation::TEXT, $warn, 'Variant detail as ordered.'],
-                ['delivery_status', ColumnExpectation::STRING, $fail, 'Read by the delivery guards.', 20],
+                ['variation', ColumnExpectation::TEXT, $warn, 'The platform writes the options a customer chose here as JSON (the integration reads the variant from "variant" and from the product, not from this column); text escaped with \\uXXXX needs up to six characters per Arabic letter, so a short varchar truncates it or refuses the order line. Migration 2026_11_06_100100 widens it to TEXT.'],
+                ['delivery_status', ColumnExpectation::STRING, $fail, 'The platform copies the new order status into this column when a cancelled, returned or failed order is re-opened, and "delivered" when it is delivered; "out_for_delivery" is the longest status. On a shorter column the status is cut short ("out_for_deliver") or the change is refused, depending on the session\'s SQL mode, and the platform\'s own comparisons with the status then fail. The integration neither reads nor writes this column. Migration 2026_11_06_100000 widens it.', self::longestOrderStatus()],
             ],
             'products' => [
                 ['id', ColumnExpectation::ID, $fail, 'Stored as an integer in the ownership snapshot and the provider mappings.'],
@@ -138,7 +147,7 @@ final class CompatibilitySpec
             'currencies' => [
                 ['id', ColumnExpectation::ID, $fail, 'The default currency is referenced by id.'],
                 ['code', ColumnExpectation::STRING, $fail, 'SAR is looked up by code.'],
-                ['exchange_rate', ColumnExpectation::MONEY, $fail, 'Amounts sent to a provider are converted to riyals with it.'],
+                ['exchange_rate', ColumnExpectation::RATE, $fail, 'Amounts sent to a provider are converted to riyals with it. The platform keeps it as text; the values are judged separately ("exchange rates").', 10],
             ],
             'admins' => [
                 ['id', ColumnExpectation::ID, $fail, 'Recorded as the actor of operator actions.'],

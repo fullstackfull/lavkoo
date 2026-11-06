@@ -10,6 +10,9 @@ namespace App\Services\Fulfillment\Support;
  * so this applies the same rate — selected currency over USD — with the same rounding. It refuses
  * (returns null) rather than guess when the rate is unknown: a fulfillment with an unconvertible amount
  * is held, never sent with a wrong COD figure.
+ *
+ * A single-currency store whose default currency is the provider currency under another spelling (this store's riyal is "KSA")
+ * needs no conversion: see CurrencyCode.
  */
 final class ProviderCurrency
 {
@@ -17,9 +20,10 @@ final class ProviderCurrency
     {
     }
 
+    /** The ISO code a provider is paid in. Never the store's own spelling of it ("KSA" for this store's riyal). */
     public function code(): string
     {
-        return strtoupper((string) config('fulfillment.currency', 'SAR'));
+        return CurrencyCode::provider();
     }
 
     public function fromStored(float|int|string|null $stored): ?float
@@ -34,7 +38,7 @@ final class ProviderCurrency
                 return null;
             }
             $amount = $amount * ($targetRate / $usd);
-        } elseif (strtoupper((string) $this->rates->defaultCode()) !== $target) {
+        } elseif (CurrencyCode::canonical($this->rates->defaultCode()) !== $target) {
             return null;
         }
 
@@ -60,6 +64,6 @@ final class ProviderCurrency
             return $amount * ($usd / $targetRate);
         }
 
-        return strtoupper((string) $this->rates->defaultCode()) === $target ? $amount : null;
+        return CurrencyCode::canonical($this->rates->defaultCode()) === $target ? $amount : null;
     }
 }

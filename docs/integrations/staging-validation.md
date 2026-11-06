@@ -6,6 +6,11 @@
 > test orders. This document is kept for anyone who prefers to rehearse on a restored copy first; its mechanical steps were
 > rehearsed (see the appendix) and the tools it names (`fulfillment:preflight`, `fulfillment:compatibility`,
 > `fulfillment:outbound-audit`, `fulfillment:sanitization-plan`) work the same on a copy. **Nothing here is required** for the pilot.
+>
+> **Written before Hotfix 1.** Where this document says "our two migrations", there are now four: the two below create the
+> integration's tables, and two more (`2026_11_06_100000`, `2026_11_06_100100`) widen two `order_details` columns. They are run in
+> the same command, and the "last two that ran" check below becomes "the last four" (see
+> [Hotfix 1](pilot-deployment.md#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server)).
 
 **Purpose.** Prove, on a throwaway copy of the real Pharmacy KSA database, that the fulfillment integration is
 compatible with the real schema and data, that its migrations apply and roll back cleanly, and that every order
@@ -163,7 +168,7 @@ exactly `cash_on_delivery` as COD).
 
 ```bash
 php artisan migrate:status                 # note the last migration BEFORE ours
-# Run ONLY our two migrations, by path. A bare `migrate` would also run every platform migration that is pending on the
+# Run ONLY our migrations, by path (the two below; Hotfix 1 of pilot-deployment.md adds two column-widening ones). A bare `migrate` would also run every platform migration that is pending on the
 # copy (one of them rebuilds 35 large tables to DECIMAL(40,20)), which is a different change that needs its own rehearsal.
 M1=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php
 M2=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php

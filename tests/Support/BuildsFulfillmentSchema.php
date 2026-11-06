@@ -196,6 +196,16 @@ trait BuildsFulfillmentSchema
             $t->timestamps();
         });
 
+        // The Product model loads its reviews with every query (a global scope), so any code that reads a product through the model needs the table.
+        Schema::create('reviews', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('product_id')->nullable();
+            $t->unsignedBigInteger('delivery_man_id')->nullable();
+            $t->unsignedBigInteger('customer_id')->nullable();
+            $t->boolean('status')->default(true);
+            $t->timestamps();
+        });
+
         Schema::create('carts', function (Blueprint $t) {
             $t->id();
             $t->unsignedBigInteger('customer_id')->nullable();

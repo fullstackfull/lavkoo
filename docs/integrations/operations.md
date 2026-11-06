@@ -12,10 +12,13 @@
    restore the dump first, then migrate. Run `php artisan fulfillment:preflight --allow-production-read-only` after the files land
    and **before** migrating (the code is dormant until then), and again after.
 2. Deploy the code (the overlay: `scripts/deploy/deploy.php`, which detects drift on files that differ from what the release was
-   built against and keeps a per-file rollback), then run **only our two migrations, by path**:
+   built against and keeps a per-file rollback), then run **only our migrations, by path** (four: two create the integration's tables, two widen `order_details.delivery_status` and
+   `.variation` — see Hotfix 1 in the pilot-deployment runbook):
    ```bash
    php artisan migrate --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php \
-                       --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php
+                       --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php \
+                       --path=database/migrations/2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment.php \
+                       --path=database/migrations/2026_11_06_100100_widen_order_details_variation_for_fulfillment.php
    php artisan optimize:clear       # never config:cache, route:cache or optimize on this platform
    php artisan queue:restart
    ```
@@ -172,10 +175,10 @@ The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-de
 * **Return a product to in-house:** product form → Fulfillment provider → *In-house / Default* (blocked while orders for
   it are in flight with the provider; finish or cancel them first).
 * **Remove the feature:** disable the integrations, take a `--db-only` backup (the provider tables hold the only local record of
-  provider references), confirm with `php artisan migrate:status` that these two migrations are the **last two** that ran, then
-  `php artisan migrate:rollback --step=2` (or `--batch=<their batch>` with their two `--path`s), **while their files are still on the
+  provider references), confirm with `php artisan migrate:status` which **batch** the integration's two migrations (`2026_11_05_*`) ran in, then
+  `php artisan migrate:rollback --batch=<that batch> --path=…` with those two `--path`s, **while their files are still on the
   server**: the file rollback below deletes them. They only ever *created* new tables and one nullable column, so rollback drops
-  exactly those and no store data; `integration_settings`, with the saved credentials, stays. **The authoritative rollback is
+  exactly those and no store data (the two `2026_11_06_*` widening migrations have no rollback on purpose: the columns stay wide); `integration_settings`, with the saved credentials, stays. **The authoritative rollback is
   restoring the pre-migration backup**, after which the provider tables a dump does not contain must be removed too (the exact list
   is in the pilot-deployment rollback table). Shipments already accepted by a provider are not recalled by either — handle those with
   the provider.

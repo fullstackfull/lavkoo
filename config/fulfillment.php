@@ -39,6 +39,16 @@ return [
     */
     'currency' => env('FULFILLMENT_CURRENCY', 'SAR'),
 
+    /*
+    | Codes the store's own currency table may use for a currency that providers know by its ISO code. This store's riyal is
+    | stored as "KSA" (the country, not the currency): it is the same money as SAR, so an amount in it needs no conversion, and a
+    | provider is always sent the ISO code. The map is read in one direction only (store spelling => ISO code); it never changes a
+    | row of the currency table.
+    */
+    'currency_aliases' => [
+        'KSA' => 'SAR',
+    ],
+
     'queue' => [
         'connection' => env('FULFILLMENT_QUEUE_CONNECTION'),
         'name' => env('FULFILLMENT_QUEUE', 'fulfillment'),
