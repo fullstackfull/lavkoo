@@ -26,7 +26,7 @@ time, with each level approved by you, backed up, and reversible.
 | 3 | Check the package against the live files (drift) | nothing | **Gate A1 — put the files on the server** |
 | 4a | Deploy the **files**, dormant, in a short maintenance window | the release's code files and 7 `.env` lines; **the database is not touched** | (Gate A1) |
 | 4b | Read-only checks of the live schema with the new code | nothing | **Gate A2 — run the migration** (you read the report first) |
-| 4b′ | **Hotfix 1**, only if the first package is already on the server: the incremental package, then 4b again | 18 files; the database is not touched | **Gate A1** again, for this package's files |
+| 4b′ | **Hotfix 1**, only if the first package is already on the server: the incremental package, then 4b again | 19 files; the database is not touched | **Gate A1** again, for this package's files |
 | 4c | The additive migrations: two for the integration's tables, two that widen `order_details` columns | 11 new tables, one nullable column on `products`, and `order_details.delivery_status` and `.variation` made wider (no row is written) | (Gate A2) |
 | 5 | Smoke-test the deployed pages | nothing | — |
 | 6 | Read-only integration: credentials, `Test connection`, `fulfillment:verify` | outbound **reads and logins only** | **Gate B — allow reads** |
@@ -522,7 +522,7 @@ you is valid for that hash only.
 php "$HOTFIX/deploy.php" verify --app="$APP" --package="$HOTFIX"
 ```
 
-Expected, and nothing else: `Summary: 13 CLEAN, 5 NEW` and `Result: every file can be applied.` The five `NEW` files are `CurrencyCode`,
+Expected, and nothing else: `Summary: 14 CLEAN, 5 NEW` and `Result: every file can be applied.` The five `NEW` files are `CurrencyCode`,
 `ExchangeRate`, `LegacyColumnWidener` and the two migrations. `CLEAN` here means the file on the server is still exactly the one the first
 package installed. A `DRIFTED` file means someone changed it since: read what they changed (`diff -u "$HOTFIX/base/<path>" "$APP/<path>"`)
 and accept it by name (`--accept-drift=…`) only after a person has looked, as in section 3.
