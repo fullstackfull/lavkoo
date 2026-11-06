@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\SalesChannels\Accounting\AccountingDestination;
+use App\Services\SalesChannels\Accounting\NullAccountingDestination;
 use App\Services\SalesChannels\Shipments\ExternalShipmentLookup;
 use App\Services\SalesChannels\Shipments\NullShipmentLookup;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -23,6 +25,8 @@ class SalesChannelsServiceProvider extends ServiceProvider
     {
         // No provider search exists yet (see ExternalShipmentLookup): the honest default finds nothing and guesses nothing. Bind a real lookup here when one does.
         $this->app->bind(ExternalShipmentLookup::class, NullShipmentLookup::class);
+        // Odoo is deferred: the books have an extension point (AccountingDestination) and, until one is built, a destination that posts nothing.
+        $this->app->bind(AccountingDestination::class, NullAccountingDestination::class);
     }
 
     public function boot(): void

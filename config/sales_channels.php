@@ -26,11 +26,6 @@ return [
         \App\Services\SalesChannels\Amazon\AmazonOperations::class,
     ],
 
-    'queue' => [
-        'connection' => env('SALES_CHANNELS_QUEUE_CONNECTION'),
-        'name' => env('SALES_CHANNELS_QUEUE', 'sales_channels'),
-    ],
-
     'http' => [
         'connect_timeout' => 5,
         'timeout' => 30,

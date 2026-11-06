@@ -78,7 +78,7 @@ jobs:
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
   tests-mysql:
-    name: Fulfillment + security tests, MySQL 8
+    name: Fulfillment, sales-channel, cost + security tests, MySQL 8
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -119,7 +119,7 @@ jobs:
         run: cp .env.example .env
       - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Feature/CiDatabaseTest.php --display-skipped
 
   # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
   # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.
