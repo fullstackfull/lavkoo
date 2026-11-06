@@ -39,6 +39,11 @@ return [
         ],
     ],
 
+    'storage' => [
+        // Storage is allocated to products one row per product per accrual; beyond this many products the charge is kept unallocated instead.
+        'max_allocation_rows' => 5000,
+    ],
+
     // An invoice line that differs from the estimate by no more than this percentage is considered matched.
     'reconciliation' => [
         'tolerance_percent' => 2,
