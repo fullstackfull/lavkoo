@@ -47,11 +47,14 @@ final class CurrencyCode
         return array_values(array_unique($spellings));
     }
 
-    /** @return array<string, string> store spelling => ISO code, both upper-cased; a code that maps to itself is not an alias */
+    /** @return array<string, string> store spelling => ISO code, both upper-cased; a code that maps to itself, or to another spelling, is not an alias */
     private static function aliases(): array
     {
         $aliases = [];
         foreach ((array) config('fulfillment.currency_aliases', []) as $alias => $iso) {
+            if (!is_string($iso) && !is_int($iso)) {
+                continue;
+            }
             $alias = strtoupper(trim((string) $alias));
             $iso = strtoupper(trim((string) $iso));
             if ($alias !== '' && $iso !== '' && $alias !== $iso) {
@@ -59,6 +62,7 @@ final class CurrencyCode
             }
         }
 
-        return $aliases;
+        // A code that is both a spelling and the thing a spelling stands for would make the map loop or chain: neither is a spelling of the other.
+        return array_filter($aliases, static fn (string $iso): bool => !array_key_exists($iso, $aliases));
     }
 }

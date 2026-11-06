@@ -6,6 +6,11 @@
 > test orders. This document is kept for anyone who prefers to rehearse on a restored copy first; its mechanical steps were
 > rehearsed (see the appendix) and the tools it names (`fulfillment:preflight`, `fulfillment:compatibility`,
 > `fulfillment:outbound-audit`, `fulfillment:sanitization-plan`) work the same on a copy. **Nothing here is required** for the pilot.
+>
+> **Written before Hotfix 1.** Where this document says "our two migrations", there are now four: the two below create the
+> integration's tables, and two more (`2026_11_06_100000`, `2026_11_06_100100`) widen two `order_details` columns. They are run in
+> the same command, and the "last two that ran" check below becomes "the last four" (see
+> [Hotfix 1](pilot-deployment.md#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server)).
 
 **Purpose.** Prove, on a throwaway copy of the real Pharmacy KSA database, that the fulfillment integration is
 compatible with the real schema and data, that its migrations apply and roll back cleanly, and that every order

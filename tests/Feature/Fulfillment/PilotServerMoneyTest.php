@@ -280,6 +280,35 @@ class PilotServerMoneyTest extends FulfillmentTestCase
         $this->assertFalse($item->snapshot['currency_converted']);
     }
 
+    public function test_a_line_captured_while_its_amount_could_not_be_converted_is_never_released_priced_at_nothing(): void
+    {
+        config(['fulfillment.currency_aliases' => []]);
+        $this->makeProduct(10, ProviderCode::TorodPoint);
+        $this->makeOrder(100, ['order_amount' => 215.5, 'payment_method' => 'cash_on_delivery', 'payment_status' => 'unpaid']);
+        $detailId = $this->addLine(100, 10, 2, 200);
+        app(OrderItemOwnershipSnapshotter::class)->capture(
+            orderId: 100,
+            orderDetailId: $detailId,
+            product: ['id' => 10, 'name' => 'Item', 'code' => 'SKU10', 'fulfillment_provider' => 'torod_point', 'variation' => '[]'],
+            variant: '',
+            quantity: 2,
+            unitPrice: 100.0,
+            netAmount: 200.0,
+            lineTax: 0.0,
+            taxModel: 'include',
+        );
+        $this->assertFalse(ProviderFulfillmentItem::firstOrFail()->snapshot['currency_converted'], 'the line was frozen with a total of 0');
+
+        config(['fulfillment.currency_aliases' => ['KSA' => 'SAR']]);
+        $this->router()->route(100);
+
+        $fulfillment = $this->fulfillmentFor(100, ProviderCode::TorodPoint);
+        $this->assertSame(FulfillmentStatus::Held, $fulfillment->status, 'the order total converts now, but the line total cannot be recovered');
+        $this->assertSame(HoldReason::CURRENCY_UNCONVERTIBLE, $fulfillment->hold_reason);
+        $this->assertFalse($this->router()->reevaluateHold($fulfillment->id));
+        $this->assertSame(FulfillmentStatus::Held, $fulfillment->fresh()->status);
+    }
+
     public function test_none_of_this_changes_the_stores_currency_rows_or_settings(): void
     {
         $snapshot = static fn (): array => [

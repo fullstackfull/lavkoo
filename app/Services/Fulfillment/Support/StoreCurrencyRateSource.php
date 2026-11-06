@@ -14,12 +14,13 @@ final class StoreCurrencyRateSource implements CurrencyRateSource
 
     /**
      * The rate of a currency, read from the store's text column and accepted only as a plain positive decimal (see ExchangeRate). The row
-     * carrying the ISO code is preferred; a row under the store's spelling of it ("KSA" for "SAR") stands in when there is none.
+     * carrying the ISO code is preferred; a row under the store's spelling of it ("KSA" for "SAR") stands in when there is none. Should a
+     * code appear twice, the first row wins, as everywhere in the platform.
      */
     public function rate(string $code): ?float
     {
         $spellings = CurrencyCode::spellings($code);
-        $rows = Currency::whereIn('code', $spellings)->get(['code', 'exchange_rate']);
+        $rows = Currency::whereIn('code', $spellings)->orderBy('id')->get(['code', 'exchange_rate']);
 
         foreach ($spellings as $spelling) {
             $row = $rows->first(static fn (Currency $currency): bool => strtoupper(trim((string) $currency->code)) === $spelling);

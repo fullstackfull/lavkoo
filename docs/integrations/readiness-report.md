@@ -195,8 +195,9 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 
 | Evidence | Result |
 |---|---|
-| Full suite, SQLite | **1,329 tests, 7,787 assertions, 0 failures** (7 skipped: `ExampleTest` needs the installation dump, which is not in the repository; the CI-database proof only runs in CI; four checks that only mean something on MySQL; one that cannot run as root) |
-| MySQL 8, platform non-strict mode | the fulfillment, security and CI-proof suites: **1,116 tests, 6,927 assertions, 0 failures, 0 skipped** (the four MySQL-only checks run here) |
+| Full suite, SQLite | **1,528 tests, 8,118 assertions, 0 failures** (40 skipped: `ExampleTest` needs the installation dump, which is not in the repository; one check that cannot run as root; four that only mean something on MySQL; and 34 of Hotfix 1's that need a server that enforces column lengths, MySQL or MariaDB) |
+| MySQL 8, platform non-strict mode | the fulfillment, security and CI-proof suites: **1,315 tests, 7,362 assertions, 0 failures, 3 skipped** (the MySQL-only checks run here; skipped are Hotfix 1's two SQLite-only checks and its MariaDB-only one) |
+| MariaDB 10.11.14, run by hand (CI has MySQL only) | the fulfillment suites: **1,307 tests, 7,297 assertions, 0 failures, 2 skipped** (the two SQLite-only checks of Hotfix 1). **Not run on MariaDB 11.4.2**, the pilot server's engine |
 | MySQL 8, **strict** SQL mode (an earlier experiment, reverted) | **all pass** — nothing relies on non-strict coercion |
 | GitHub Actions (every push; see the checks of the pull request) | SQLite on PHP 8.2 and 8.3, a syntax lint on both, the fulfillment and security suites on a real MySQL 8, the repository leak guard over every commit of the pull request, and the build of the deployment package from the pull request's head |
 | Adversarial review and mutation checks | three independent review rounds, the last aimed at what the previous round's fixes had changed, found defects in the order-sending path, the personal-data rules and the deployment tooling (26 in the last round, 57 in the one before, about a hundred earlier). Each was reproduced before it was fixed; each fix has a test, and the fixes of the last two rounds were **mutation-checked**: the fix is reverted, the test is confirmed to fail |

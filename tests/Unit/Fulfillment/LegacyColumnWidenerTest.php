@@ -30,7 +30,8 @@ class LegacyColumnWidenerTest extends TestCase
         yield 'MariaDB: a quoted word with spaces around it' => ["  'pending'  ", false, true, "DEFAULT 'pending'", null];
         yield 'MariaDB: empty text' => ["''", false, true, "DEFAULT ''", null];
         yield 'MariaDB: a doubled quote' => ["'it''s'", false, true, "DEFAULT 'it''s'", null];
-        yield 'MariaDB: a backslash-escaped quote' => ["'a\\'b'", false, true, "DEFAULT 'a\\'b'", null];
+        yield 'MariaDB: a backslash-escaped quote is not restated, a SQL mode could read it differently' => ["'a\\'b'", false, true, null, "its default ('a\\'b') contains a backslash, which is written differently in different SQL modes"];
+        yield 'MariaDB: a backslash on its own' => ["'\\\\'", false, true, null, "its default ('\\\\') contains a backslash, which is written differently in different SQL modes"];
         yield 'MariaDB: the word NULL' => ['NULL', true, true, 'DEFAULT NULL', null];
         yield 'MariaDB: the word null in lower case' => ['null', true, true, 'DEFAULT NULL', null];
         yield 'MariaDB: a whole number' => ['12', false, true, 'DEFAULT 12', null];

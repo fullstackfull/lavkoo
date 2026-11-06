@@ -20,6 +20,9 @@ final class CheckoutSection implements CompatibilitySection
     /** The only `business_settings` rows this section reads: none of them is a secret. */
     public const READABLE_SETTINGS = ['currency_model', 'system_default_currency', 'decimal_point_settings'];
 
+    /** The decimal places of every amount a provider is sent (ProviderCurrency rounds to the halala). */
+    private const PROVIDER_DECIMALS = 2;
+
     private const MODEL_SINGLE = 'single_currency';
     private const MODEL_MULTI = 'multi_currency';
 
@@ -42,12 +45,13 @@ final class CheckoutSection implements CompatibilitySection
         [$convertible, $explanation] = $model === self::MODEL_MULTI
             ? $this->multiCurrency($probe, $target)
             : $this->singleCurrency($probe, $settings['system_default_currency'] ?? null, $target);
+        $roundsLikeProviders = $decimals === self::PROVIDER_DECIMALS;
 
         return new CompatibilityCheck(
             section: self::SECTION,
             name: 'currency conversion',
-            status: $convertible ? CompatibilityCheck::PASS : CompatibilityCheck::WARN,
-            detail: $explanation,
+            status: $convertible && $roundsLikeProviders ? CompatibilityCheck::PASS : CompatibilityCheck::WARN,
+            detail: $roundsLikeProviders ? $explanation : $explanation . ". The store rounds the amounts customers see to {$decimals} decimal place(s) but providers are sent amounts rounded to " . self::PROVIDER_DECIMALS . ': a cash-on-delivery figure can differ from the one the customer saw',
             facts: ['currency_model' => $this->printable($model), 'provider_currency' => $target, 'convertible' => $convertible, 'decimals' => $decimals],
         );
     }
@@ -67,7 +71,7 @@ final class CheckoutSection implements CompatibilitySection
     private function singleCurrency(ReadOnlyProbe $probe, mixed $defaultCurrencyId, string $target): array
     {
         $code = is_numeric($defaultCurrencyId) ? $this->defaultCode($probe, (int) $defaultCurrencyId) : null;
-        $printable = $code !== null && preg_match('/^[A-Za-z]{2,10}$/', $code) === 1 ? strtoupper($code) : null;
+        $printable = $code !== null && preg_match('/^[A-Za-z]{2,10}$/D', $code) === 1 ? strtoupper($code) : null;
 
         if (CurrencyCode::canonical($code) === $target) {
             return [true, $printable !== null && $printable !== $target
@@ -75,7 +79,7 @@ final class CheckoutSection implements CompatibilitySection
                 : "single-currency store whose default currency is {$target}: stored amounts are sent to providers as they are"];
         }
 
-        return [false, 'single-currency store whose default currency is ' . ($printable ?? 'not known') . ", not {$target}: every provider shipment would be held as 'currency unconvertible'. Set FULFILLMENT_CURRENCY to the store's currency if providers accept it, add the store's spelling to config fulfillment.currency_aliases, or keep SAR as the default"];
+        return [false, 'single-currency store whose default currency is ' . ($printable ?? 'not known') . ", not {$target}: every provider shipment would be held as 'currency unconvertible'. Add the store's code to config fulfillment.currency_aliases ONLY if it is the same money as {$target} under another code (check the currency's name and symbol in the admin panel): an alias for a different currency would send its amounts to providers as {$target}. Otherwise keep {$target} as the default currency"];
     }
 
     /**
@@ -98,7 +102,7 @@ final class CheckoutSection implements CompatibilitySection
             limit: 500,
             each: static function (object $row) use (&$unusable): void {
                 if (ExchangeRate::parse($row->exchange_rate) === null) {
-                    $unusable[] = preg_match('/^[A-Za-z]{2,10}$/', (string) $row->code) === 1 ? strtoupper((string) $row->code) : '(a code that is not plain letters)';
+                    $unusable[] = preg_match('/^[A-Za-z]{2,10}$/D', (string) $row->code) === 1 ? strtoupper((string) $row->code) : '(a code that is not plain letters)';
                 }
             },
         );
@@ -133,7 +137,7 @@ final class CheckoutSection implements CompatibilitySection
         );
     }
 
-    /** @return array<string, mixed> setting => decoded value, for the allow-listed settings only */
+    /** @return array<string, mixed> setting => decoded value, for the allow-listed settings only; a setting stored twice counts once, as its first (oldest) row, as in the platform */
     private function settings(ReadOnlyProbe $probe): array
     {
         $settings = [];
@@ -142,7 +146,7 @@ final class CheckoutSection implements CompatibilitySection
             columns: ['type', 'value'],
             limit: count(self::READABLE_SETTINGS) * 4,
             each: static function (object $row) use (&$settings): void {
-                $settings[$row->type] ??= JsonShape::decode($row->value)['value'] ?? $row->value;
+                $settings[$row->type] = JsonShape::decode($row->value)['value'] ?? $row->value;
             },
             where: static fn (Builder $query) => $query->whereIn('type', self::READABLE_SETTINGS),
         );
@@ -160,10 +164,8 @@ final class CheckoutSection implements CompatibilitySection
             columns: ['code', 'exchange_rate'],
             limit: 20,
             each: static function (object $row) use (&$found): void {
-                $spelling = strtoupper(trim((string) $row->code));
-                if (!array_key_exists($spelling, $found)) {
-                    $found[$spelling] = ExchangeRate::parse($row->exchange_rate);
-                }
+                // Newest first, so the last row seen is the first one created: the one the platform and the runtime use.
+                $found[strtoupper(trim((string) $row->code))] = ExchangeRate::parse($row->exchange_rate);
             },
             where: static fn (Builder $query) => $query->whereIn('code', $spellings),
         );

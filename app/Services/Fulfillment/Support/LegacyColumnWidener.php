@@ -2,6 +2,7 @@
 
 namespace App\Services\Fulfillment\Support;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -30,7 +31,11 @@ final class LegacyColumnWidener
     /** Another database engine, or the table or the column is not there. */
     public const NOT_APPLICABLE = 'not_applicable';
 
-    private const TEXT_TYPES = ['tinytext', 'text', 'mediumtext', 'longtext'];
+    /** Types that already hold any text this change could put in them (a native JSON column included). */
+    private const TEXT_TYPES = ['tinytext', 'text', 'mediumtext', 'longtext', 'json'];
+
+    /** How long the change waits for the table's metadata lock behind a transaction that has not finished, before it gives up with nothing altered. */
+    private const LOCK_WAIT_SECONDS = 15;
 
     /** @return string WIDENED, ALREADY_WIDE or NOT_APPLICABLE */
     public static function widenString(string $table, string $column, int $length): string
@@ -66,9 +71,9 @@ final class LegacyColumnWidener
             return $plan['outcome'];
         }
 
-        DB::statement($plan['statement']);
+        Log::info("Fulfillment compatibility: changing {$table}.{$column} from {$plan['before']['column_type']} to " . self::targetType($length) . '.');
+        self::run($plan['statement']);
         self::confirm($table, $column, $plan['before'], $length);
-        Log::info("Fulfillment compatibility: {$table}.{$column} changed from {$plan['before']['column_type']} to " . self::targetType($length) . '.');
 
         return self::WIDENED;
     }
@@ -80,8 +85,17 @@ final class LegacyColumnWidener
      */
     private static function plan(string $table, string $column, ?int $length): array
     {
+        if (DB::connection()->pretending()) {
+            // A pretended query answers with nothing, so there is no definition to read and no statement to show.
+            return ['outcome' => self::NOT_APPLICABLE, 'statement' => null, 'before' => null];
+        }
+
         $before = self::describe($table, $column);
         if ($before === null) {
+            if (self::isMysqlOrMariaDb() && self::answersSelect($table, $column)) {
+                throw self::refused($table, $column, 'the database does not show its definition although the column is there (information_schema lists only what the user holds privileges on)');
+            }
+
             return ['outcome' => self::NOT_APPLICABLE, 'statement' => null, 'before' => null];
         }
 
@@ -92,9 +106,10 @@ final class LegacyColumnWidener
         if ($before['data_type'] !== 'varchar') {
             throw self::refused($table, $column, "it is a {$before['column_type']} column, not a varchar");
         }
-        if (preg_match('/^varchar\(\d+\)$/', $before['column_type']) !== 1) {
+        if (preg_match('/^varchar\(\d+\)$/D', $before['column_type']) !== 1) {
             throw self::refused($table, $column, "its type is {$before['column_type']}, which says more than a width, and rewriting the column would drop the rest");
         }
+        self::refuseWhenACheckConstraintMentions($table, $column);
         if ($length === null) {
             self::requireRestatableAsText($table, $column, $before);
         }
@@ -104,6 +119,19 @@ final class LegacyColumnWidener
             'statement' => self::statement($table, $column, $length === null ? 'TEXT' : "VARCHAR({$length})", $before, withDefault: $length !== null),
             'before' => $before,
         ];
+    }
+
+    /** Runs the statement, giving up after LOCK_WAIT_SECONDS if another transaction holds the table (nothing is altered then, and it can be repeated). */
+    private static function run(string $statement): void
+    {
+        $previous = (int) DB::selectOne('SELECT @@SESSION.lock_wait_timeout AS seconds')->seconds;
+        DB::statement('SET SESSION lock_wait_timeout = ' . self::LOCK_WAIT_SECONDS);
+
+        try {
+            DB::statement($statement);
+        } finally {
+            DB::statement('SET SESSION lock_wait_timeout = ' . $previous);
+        }
     }
 
     /** @param Definition $before */
@@ -119,6 +147,29 @@ final class LegacyColumnWidener
         }
     }
 
+    /** The column answers a SELECT although information_schema does not list it: its definition cannot be read, which is not the same as it not being there. */
+    private static function answersSelect(string $table, string $column): bool
+    {
+        try {
+            DB::select('SELECT ' . self::identifier($column) . ' FROM ' . self::identifier($table) . ' LIMIT 0');
+        } catch (QueryException $failure) {
+            return !in_array((int) ($failure->errorInfo[1] ?? 0), [1146, 1054], true);
+        }
+
+        return true;
+    }
+
+    /** MariaDB drops a column-level CHECK when the column is redefined, and a rule must not disappear unnoticed: a person decides. */
+    private static function refuseWhenACheckConstraintMentions(string $table, string $column): void
+    {
+        $create = (string) (((array) DB::selectOne('SHOW CREATE TABLE ' . self::identifier($table)))['Create Table'] ?? '');
+        foreach (preg_split('/\R/', $create) ?: [] as $line) {
+            if (stripos($line, 'CHECK') !== false && preg_match('/[`"]' . preg_quote($column, '/') . '[`"]/', $line) === 1) {
+                throw self::refused($table, $column, 'a CHECK constraint mentions it, and redefining the column could drop that rule without a word');
+            }
+        }
+    }
+
     private static function targetType(?int $length): string
     {
         return $length === null ? 'TEXT' : "varchar({$length})";
@@ -131,7 +182,7 @@ final class LegacyColumnWidener
      */
     public static function describe(string $table, string $column): ?array
     {
-        if (!in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
+        if (!self::isMysqlOrMariaDb()) {
             return null;
         }
 
@@ -179,7 +230,7 @@ final class LegacyColumnWidener
         $parts = [$type];
         if ($before['charset'] !== null) {
             foreach ([$before['charset'], (string) $before['collation']] as $name) {
-                if (preg_match('/^[A-Za-z0-9_]+$/', $name) !== 1) {
+                if (preg_match('/^[A-Za-z0-9_]+$/D', $name) !== 1) {
                     throw self::refused($table, $column, 'its character set or collation has an unusual name');
                 }
             }
@@ -223,9 +274,15 @@ final class LegacyColumnWidener
 
         return match (true) {
             strcasecmp($text, 'NULL') === 0 => ['DEFAULT NULL', null],
-            preg_match("/^'(?:[^'\\\\]|\\\\.|'')*'$/s", $text) === 1, preg_match('/^-?\d+(?:\.\d+)?$/', $text) === 1 => ['DEFAULT ' . $text, null],
+            str_contains($text, '\\') => [null, "its default ({$text}) contains a backslash, which is written differently in different SQL modes"],
+            preg_match("/^'(?:[^'\\\\]|\\\\.|'')*'$/sD", $text) === 1, preg_match('/^-?\d+(?:\.\d+)?$/D', $text) === 1 => ['DEFAULT ' . $text, null],
             default => [null, "its default ({$text}) is an expression"],
         };
+    }
+
+    private static function isMysqlOrMariaDb(): bool
+    {
+        return in_array(DB::getDriverName(), ['mysql', 'mariadb'], true);
     }
 
     private static function isMariaDb(): bool
@@ -259,7 +316,7 @@ final class LegacyColumnWidener
 
     private static function identifier(string $name): string
     {
-        if (preg_match('/^[A-Za-z0-9_]+$/', $name) !== 1) {
+        if (preg_match('/^[A-Za-z0-9_]+$/D', $name) !== 1) {
             throw new RuntimeException("'{$name}' is not a plain table or column name.");
         }
 

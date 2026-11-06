@@ -7,6 +7,7 @@ use App\Services\Fulfillment\Readiness\Compatibility\ColumnFacts;
 use App\Services\Fulfillment\Readiness\Compatibility\ColumnFamily;
 use App\Services\Fulfillment\Readiness\Compatibility\CompatibilitySpec;
 use App\Services\Fulfillment\Support\LegacyColumnWidener;
+use App\Services\Fulfillment\Support\ProviderCurrency;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -250,6 +251,67 @@ class PilotServerCompatibilityTest extends FulfillmentTestCase
         $this->assertStringContainsString('USD, not SAR', $currency['detail']);
         $this->assertStringContainsString('currency_aliases', $currency['detail']);
         $this->assertFalse($currency['facts']['convertible']);
+    }
+
+    public function test_a_code_stored_twice_is_judged_by_its_first_row_by_the_report_and_by_the_runtime_alike(): void
+    {
+        $this->useStoreCurrencies(model: 'multi_currency', defaultCurrencyId: 9, rows: [1 => ['USD', '1'], 9 => ['SAR', 'abc'], 10 => ['SAR', '3.75']]);
+        [, $badFirst] = $this->compat();
+        $badFirstRuntime = app(ProviderCurrency::class)->fromStored(10);
+
+        $this->useStoreCurrencies(model: 'multi_currency', defaultCurrencyId: 9, rows: [1 => ['USD', '1'], 9 => ['SAR', '3.75'], 10 => ['SAR', 'abc']]);
+        [, $goodFirst] = $this->compat();
+        $goodFirstRuntime = app(ProviderCurrency::class)->fromStored(10);
+
+        $this->assertSame('warn', $this->check($badFirst, 'checkout', 'currency conversion')['status']);
+        $this->assertNull($badFirstRuntime);
+        $this->assertSame('pass', $this->check($goodFirst, 'checkout', 'currency conversion')['status']);
+        $this->assertSame(37.5, $goodFirstRuntime);
+    }
+
+    public function test_a_setting_stored_twice_is_judged_by_its_first_row_by_the_report_and_by_the_runtime_alike(): void
+    {
+        DB::table('business_settings')->where('type', 'system_default_currency')->delete();
+        DB::table('business_settings')->insert([
+            ['type' => 'system_default_currency', 'value' => json_encode(1)],
+            ['type' => 'system_default_currency', 'value' => json_encode(8)],
+        ]);
+        Cache::flush();
+
+        [, $report] = $this->compat();
+
+        $this->assertFalse($this->check($report, 'checkout', 'currency conversion')['facts']['convertible'], 'the first row, the default currency USD, is the one the platform reads');
+        $this->assertNull(app(ProviderCurrency::class)->fromStored(10));
+    }
+
+    public function test_a_store_that_rounds_to_other_than_two_decimals_is_flagged_because_providers_are_sent_two(): void
+    {
+        DB::table('business_settings')->where('type', 'decimal_point_settings')->update(['value' => json_encode(0)]);
+
+        [, $report] = $this->compat();
+
+        $currency = $this->check($report, 'checkout', 'currency conversion');
+        $this->assertSame('warn', $currency['status']);
+        $this->assertStringContainsString('rounds the amounts customers see to 0 decimal place(s)', $currency['detail']);
+        $this->assertTrue($currency['facts']['convertible']);
+    }
+
+    public function test_the_advice_for_a_default_currency_that_is_not_the_riyal_warns_against_an_alias_for_other_money(): void
+    {
+        DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => json_encode(1)]);
+
+        [, $report] = $this->compat();
+
+        $this->assertStringContainsString('ONLY if it is the same money as SAR under another code', $this->check($report, 'checkout', 'currency conversion')['detail']);
+    }
+
+    public function test_a_currency_code_with_a_line_break_in_it_never_reaches_the_report(): void
+    {
+        DB::table('currencies')->where('id', 8)->update(['code' => "KSA\n"]);
+
+        [, $report] = $this->compat();
+
+        $this->assertStringNotContainsString("\n", $this->check($report, 'checkout', 'currency conversion')['detail']);
     }
 
     public function test_the_alias_is_what_makes_the_pilot_currency_convertible(): void

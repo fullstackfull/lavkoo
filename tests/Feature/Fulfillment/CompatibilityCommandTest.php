@@ -760,7 +760,9 @@ class CompatibilityCommandTest extends FulfillmentTestCase
             DB::statement('DROP TABLE compat_types');
         }
 
-        $this->assertSame(['a' => 'integer', 'b' => 'decimal', 'c' => 'text', 'd' => 'json', 'e' => 'string', 'f' => 'integer', 'g' => 'datetime', 'h' => 'float', 'i' => 'integer'], $families);
+        $mariaDb = str_contains(strtolower((string) DB::selectOne('SELECT VERSION() AS version')->version), 'mariadb');
+
+        $this->assertSame(['a' => 'integer', 'b' => 'decimal', 'c' => 'text', 'd' => $mariaDb ? 'text' : 'json', 'e' => 'string', 'f' => 'integer', 'g' => 'datetime', 'h' => 'float', 'i' => 'integer'], $families, 'MariaDB keeps a JSON column as LONGTEXT');
     }
 
     public function test_on_mysql_the_whole_run_passes_the_engine_checks_and_stays_read_only(): void

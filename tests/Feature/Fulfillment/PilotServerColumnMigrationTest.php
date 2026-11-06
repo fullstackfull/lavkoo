@@ -236,6 +236,122 @@ class PilotServerColumnMigrationTest extends FulfillmentTestCase
         $this->assertEquals($columns, $this->columns());
     }
 
+    public function test_a_check_constraint_that_mentions_the_column_stops_the_change(): void
+    {
+        $this->requireMysqlOrMariaDb();
+        DB::statement("ALTER TABLE order_details ADD CONSTRAINT chk_status_probe CHECK (delivery_status <> 'x')");
+        $columns = $this->columns();
+
+        try {
+            LegacyColumnWidener::widenString(table: 'order_details', column: 'delivery_status', length: 30);
+            $this->fail('a rule that could vanish with the redefinition must stop the change');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('a CHECK constraint mentions it', $refusal->getMessage());
+        }
+
+        $this->assertEquals($columns, $this->columns());
+    }
+
+    public function test_a_default_with_a_quote_in_it_is_restated_exactly(): void
+    {
+        $this->requireMysqlOrMariaDb();
+        DB::statement("ALTER TABLE order_details MODIFY COLUMN delivery_status VARCHAR(15) NOT NULL DEFAULT 'it''s'");
+        $before = $this->columns();
+
+        LegacyColumnWidener::widenString(table: 'order_details', column: 'delivery_status', length: 30);
+
+        $expected = $before;
+        $expected['delivery_status']['type'] = 'varchar(30)';
+        $this->assertEquals($expected, $this->columns());
+        DB::table('order_details')->insert(['order_id' => 1]);
+        $this->assertSame("it's", DB::table('order_details')->value('delivery_status'), 'a new line still gets the default the column had');
+    }
+
+    public function test_a_default_with_a_backslash_is_restated_exactly_on_mysql_and_left_to_a_person_on_mariadb(): void
+    {
+        $this->requireMysqlOrMariaDb();
+        DB::statement("ALTER TABLE order_details MODIFY COLUMN delivery_status VARCHAR(15) NOT NULL DEFAULT 'a\\\\b'");
+        $before = $this->columns();
+        $mariaDb = str_contains(strtolower((string) DB::selectOne('SELECT VERSION() AS version')->version), 'mariadb');
+
+        try {
+            LegacyColumnWidener::widenString(table: 'order_details', column: 'delivery_status', length: 30);
+            $this->assertFalse($mariaDb, 'MariaDB reports the default as SQL text whose meaning depends on the SQL mode');
+            $expected = $before;
+            $expected['delivery_status']['type'] = 'varchar(30)';
+            $this->assertEquals($expected, $this->columns());
+        } catch (RuntimeException $refusal) {
+            $this->assertTrue($mariaDb);
+            $this->assertStringContainsString('contains a backslash', $refusal->getMessage());
+            $this->assertEquals($before, $this->columns());
+        }
+    }
+
+    public function test_the_change_waits_at_most_a_short_while_for_the_tables_lock_and_puts_the_session_setting_back(): void
+    {
+        $this->requireMysqlOrMariaDb();
+        $before = DB::selectOne('SELECT @@SESSION.lock_wait_timeout AS seconds')->seconds;
+        $statements = [];
+        DB::listen(static function ($query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        LegacyColumnWidener::widenString(table: 'order_details', column: 'delivery_status', length: 30);
+
+        $alter = array_key_last(array_filter($statements, static fn (string $sql): bool => str_starts_with($sql, 'ALTER TABLE')));
+        $this->assertSame('SET SESSION lock_wait_timeout = 15', $statements[$alter - 1]);
+        $this->assertSame('SET SESSION lock_wait_timeout = ' . $before, $statements[$alter + 1]);
+        $this->assertEquals($before, DB::selectOne('SELECT @@SESSION.lock_wait_timeout AS seconds')->seconds);
+    }
+
+    public function test_under_pretend_the_migrations_show_no_alter_and_do_not_fail(): void
+    {
+        $this->requireMysqlOrMariaDb();
+        $columns = $this->columns();
+
+        $queries = DB::pretend(fn () => $this->runCompatibilityMigrations());
+
+        $this->assertSame([], array_filter($queries, static fn (array $query): bool => str_contains($query['query'], 'ALTER TABLE')), 'pretend mode cannot read the definition, so it shows no statement');
+        $this->assertEquals($columns, $this->columns());
+    }
+
+    public function test_a_column_that_already_holds_json_is_wide_enough_for_the_options(): void
+    {
+        $this->requireMysqlOrMariaDb();
+        DB::statement('ALTER TABLE order_details MODIFY COLUMN variation JSON NULL');
+
+        $this->assertSame(LegacyColumnWidener::ALREADY_WIDE, LegacyColumnWidener::convertToText(table: 'order_details', column: 'variation'));
+    }
+
+    public function test_a_database_user_that_cannot_see_the_column_gets_a_refusal_and_not_a_silent_skip(): void
+    {
+        $this->requireMysqlOrMariaDb();
+        $connection = (string) DB::getDefaultConnection();
+        $settings = (array) config("database.connections.{$connection}");
+        $user = 'widen_probe_' . bin2hex(random_bytes(3));
+        $secret = bin2hex(random_bytes(8));
+        DB::statement("CREATE USER '{$user}'@'%' IDENTIFIED BY '{$secret}'");
+
+        try {
+            DB::statement("GRANT SELECT (id) ON `{$settings['database']}`.`order_details` TO '{$user}'@'%'");
+            config(['database.connections.widen_probe' => array_merge($settings, ['username' => $user, 'password' => $secret])]);
+            DB::setDefaultConnection('widen_probe');
+
+            try {
+                LegacyColumnWidener::widenString(table: 'order_details', column: 'delivery_status', length: 30);
+                $this->fail('a column whose definition cannot be read must not be reported as not applicable');
+            } catch (RuntimeException $refusal) {
+                $this->assertStringContainsString('does not show its definition although the column is there', $refusal->getMessage());
+            }
+        } finally {
+            DB::setDefaultConnection($connection);
+            DB::purge('widen_probe');
+            DB::statement("DROP USER IF EXISTS '{$user}'@'%'");
+        }
+
+        $this->assertSame('varchar(15)', $this->columns()['delivery_status']['type']);
+    }
+
     public function test_an_expression_default_is_refused_not_guessed_at(): void
     {
         $this->requireMysqlOrMariaDb();

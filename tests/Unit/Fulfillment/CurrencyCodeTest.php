@@ -53,6 +53,18 @@ class CurrencyCodeTest extends TestCase
         $this->assertSame(['SAR', 'KSA'], CurrencyCode::spellings('SAR'));
     }
 
+    public function test_an_alias_map_that_would_loop_or_chain_is_not_followed_and_one_that_is_not_text_is_ignored(): void
+    {
+        config(['fulfillment.currency_aliases' => ['KSA' => 'SAR', 'SAR' => 'KSA', 'AAA' => 'BBB', 'BBB' => 'CCC', 'DDD' => ['EEE'], 'FFF' => null]]);
+
+        $this->assertSame('KSA', CurrencyCode::canonical('KSA'), 'KSA and SAR cannot both be a spelling of the other');
+        $this->assertSame('SAR', CurrencyCode::canonical('SAR'));
+        $this->assertSame('AAA', CurrencyCode::canonical('AAA'), 'a chain is not followed');
+        $this->assertSame('CCC', CurrencyCode::canonical('BBB'));
+        $this->assertSame('DDD', CurrencyCode::canonical('DDD'));
+        $this->assertSame('FFF', CurrencyCode::canonical('FFF'));
+    }
+
     /** @return iterable<string, array{mixed, string}> */
     public static function configured(): iterable
     {

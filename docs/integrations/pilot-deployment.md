@@ -6,10 +6,11 @@
 > MySQL 8 (see the table [what is verified and what is not](#what-is-verified-and-what-is-not) and the [appendix](#appendix-what-was-checked-and-what-was-not)); what the live server will answer is not known until it
 > is run. **Nothing is deployed, merged or switched on without your explicit approval** at the numbered gates.
 >
-> **Hotfix 1.** The first read-only check on the pilot server found three failures and four warnings. All three failures and the
-> currency warning are fixed in a second, small package, and two more migrations widen two `order_details` columns. A server that
-> already runs the first package does [Hotfix 1](#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server) **before** the
-> migration step 4c; a server that has never had a package gets everything in one.
+> **Hotfix 1.** The first read-only check on the pilot server found three failures and four warnings. A second, small package clears
+> two of the failures and the currency warning; two more migrations, which widen two `order_details` columns, clear the third failure
+> and a warning. A server that already runs the first package does
+> [Hotfix 1](#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server) **before** the migration step 4c; a server that has never
+> had a package gets everything in one.
 
 The existing production instance is a pilot environment, so it is also the target. There is **no staging server and no second
 copy of the application**: the integration is deployed to this server with everything switched off, then armed one level at a
@@ -388,9 +389,9 @@ php artisan migrate --pretend --force --path=database/migrations/2026_11_05_1000
   `alter table products` at all**. That one change, the only one that touches an existing table, is previewed by the
   `products.fulfillment_provider` line of `fulfillment:preflight` (a nullable, indexed column), and confirmed after the real run by the
   same line reading *present*. In production even `--pretend` asks *"Application in production"*; `--force`
-  answers it. The two **widening** migrations of Hotfix 1 print nothing under `--pretend` (they must read the column's definition
-  first, and pretend mode answers every query with nothing): their exact `ALTER TABLE` statements are shown, read-only, by the
-  *column changes the migrations would make* line of `fulfillment:compatibility`.
+  answers it. The two **widening** migrations of Hotfix 1 print no statement at all under `--pretend`, only their
+  name (they must read the column's definition first, and pretend mode answers every query with nothing; they do not fail): their exact
+  statements are shown, read-only, by the *column changes the migrations would make* line of `fulfillment:compatibility`.
 
 Send us the output (it holds counts, names and shapes, no row of customer data). **A FAIL stops here:** nothing in the database has
 changed, and `deploy.php rollback` returns the files (section 10). Do not run the migration, and do not call phase 4 finished.
@@ -410,51 +411,91 @@ platform, some were conservative rules, and two were real defects. Each is class
 | Found on the server | What it is | What Hotfix 1 does |
 |---|---|---|
 | Table `social_media` is missing (FAIL, *tables the application boots from*) | **Our mistake.** The platform's table is `social_medias` (its `SocialMedia` model). | The check, the outbound-channel audit and the test schema use `social_medias`. Nothing on the server changes. |
-| `currencies.exchange_rate` is `varchar(191)` (FAIL, *currencies column types*) | **Our mistake.** The platform keeps rates as text itself (its migration `2021_06_03_104531_ex_rate_update.php`); the check wanted a number type. | A text column passes. Each rate is judged by its **value**: a plain positive decimal (`1`, `3.75`) is a rate; `''`, `abc`, `3,75`, `1e3`, `0`, `-2` and Arabic-Indic digits are not, and an amount that needs such a rate is **held**, never converted with a guess. The report names the currencies whose rate is unusable and never prints a rate. A rate column typed as a whole number is still a failure (`3.75` cannot be stored in it). **The `currencies` table is only ever read.** |
+| `currencies.exchange_rate` is `varchar(191)` (FAIL, *currencies column types*) | **Our mistake.** The platform keeps rates as text itself (its migration `2021_06_03_104531_ex_rate_update.php`); the check wanted a number type. | A text column passes. Each rate is judged by its **value**: a plain positive decimal of a believable size (`1`, `3.75`; between 0.000001 and 1,000,000,000) is a rate; `''`, `abc`, `3,75`, `1e3`, `0`, `-2` and Arabic-Indic digits are not, and an amount that needs such a rate is **held**, never converted with a guess. The report names the currencies whose rate is unusable and never prints a rate. A rate column typed as a whole number is still a failure (`3.75` cannot be stored in it). **The `currencies` table is only ever read.** |
 | The store's riyal is the currency **`KSA`** (id 8, rate `1`), while providers and `FULFILLMENT_CURRENCY` say **`SAR`** (WARN, *currency conversion*) | **A real runtime defect.** To our code `KSA` was not `SAR`, so on this store every provider shipment was held (*currency cannot be converted*), an order line was snapshotted with a total of `0`, and an imported M5AZN product was priced `0` (and left unpublished). | `config/fulfillment.php` gets `currency_aliases = ['KSA' => 'SAR']`: the store's code is the legacy spelling of the riyal. A single-currency store whose default currency is `KSA` needs no conversion; a multi-currency store finds the riyal's rate under `SAR` or, failing that, `KSA`. A provider is **always told `SAR`** (the shipment's `currency`, M5AZN's `supplier_cost_currency`), even if `FULFILLMENT_CURRENCY` itself says `KSA`. **No currency id, price or rate is changed.** A default currency that is not the riyal (USD, say) is still held. |
 | `order_details.delivery_status` is `varchar(15)` (FAIL, *order_details column types*) | **A real, latent defect of the platform's own schema; the integration never reads or writes this column.** `out_for_delivery` has 16 characters. The platform copies the new order status into the line when it gives stock back or takes it again (cancelling, returning or failing an order, and re-opening one) and writes `delivered` on delivery. Re-opening a cancelled order straight into *out for delivery* therefore stores `out_for_deliver`, **with no error**, because the platform's connection is not in strict mode (a strict session would refuse the whole status change instead). The table has no rows today. | Migration `2026_11_06_100000` widens it to `varchar(30)`. |
 | `order_details.variation` is `varchar(255)` (WARN) | **A conservative rule with a real edge case.** The platform writes the options a customer chose into it as JSON, and with every Arabic letter escaped as `\uXXXX` (six characters) a few Arabic options exceed 255. The integration reads the variant from `order_details.variant` and the product's own list, never from this column. | Migration `2026_11_06_100100` makes it `TEXT`. Optional for the integration, recommended for the store. |
 | The other warnings | Pending platform migrations, *tables created outside migrations*, `audit_logs` or `stock_movements` missing, and the counts that describe existing data (unusual status words, orders without lines, duplicate SKUs…) are **the platform's existing state or observations about existing data**. None is caused by the integration or changed by Hotfix 1. | Nothing. Send us the list that remains after Hotfix 1 and we classify each (see *Reading what remains*, below). |
 
-**What the two column migrations do.** Each reads the column's definition from `information_schema`, builds the one
+**What the two column migrations do.** Each reads the column's definition from `information_schema` and builds the one
 `ALTER TABLE … MODIFY COLUMN` that says the same thing with a wider type (nullability, default, character set, collation and comment
-restated), runs it, reads the column back and fails loudly if anything but the type differs. No row is written. It **refuses before
-altering anything**, with a message, a column it cannot restate safely: not a varchar, a generated column, an expression default,
-and, for the TEXT change, an index on the column or a default value. A column that is already wide enough is left alone, so running
-it twice is safe and a wider column is never narrowed; on any database but MySQL and MariaDB it does nothing. Its `down()` does
-nothing on purpose: narrowing could cut off what has been stored since.
+restated). It waits at most 15 seconds for the table's lock (then stops with nothing altered), runs the statement, reads the column
+back and fails loudly if anything but the type differs. No row is written. It **refuses before altering anything**, with a message: a
+column that is not a varchar, or whose type says more than a width (`COMPRESSED`), or that is generated or invisible; an expression
+default (on MariaDB also a default that contains a backslash); a CHECK constraint that mentions the column; for the TEXT change an index
+on the column or a default value; and a column whose definition the database user is not allowed to see. A column that is already wide
+enough is left alone, so running it twice is safe and a wider column is never narrowed; on any database but MySQL and MariaDB it does
+nothing. Its `down()` does nothing on purpose: narrowing could cut off what has been stored since.
 
 **Look at the exact statements before you run them.** `fulfillment:compatibility` prints, read-only, a line *column changes the
-migrations would make*. For tables in the platform's usual character set it reads:
+migrations would make*. For tables in the platform's usual character set it reads (the same on MySQL and MariaDB):
 
 ```
 order_details.delivery_status: ALTER TABLE `order_details` MODIFY COLUMN `delivery_status` VARCHAR(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending'
 order_details.variation: ALTER TABLE `order_details` MODIFY COLUMN `variation` TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
 ```
 
-(your character set and collation are whatever `order_details` really uses). Send that line to us before 4c. If a column reads
-**THE MIGRATION WOULD REFUSE**, do not run the migrations: the message says why, and the column can be widened by hand once a person
-has looked at `SHOW CREATE TABLE order_details`.
+(your character set and collation are whatever `order_details` really uses; the two statements are joined by ` | ` on one line). Send
+that line to us before H6. If a column reads **THE MIGRATION WOULD REFUSE**, do not run the migrations: the message says why, and the
+column can be widened by hand once a person has looked at `SHOW CREATE TABLE order_details`.
 
-**The procedure.** Run every command as the owner of the application files, as in phase 0, with the same three variables, plus one
-for the new package:
+**Optional, and worth a minute: the server's engine.** The migrations were run on MySQL 8.0.46 and MariaDB 10.11.14, **not** on the
+pilot server's MariaDB 11.4.2. These read-only statements (phpMyAdmin, or `mysql` with the application's database user) show whether
+anything on the server differs from what was tested; send the answers with the H5 output:
+
+```sql
+SELECT VERSION(), @@lock_wait_timeout, @@alter_algorithm, @@old_alter_table, @@read_only;          -- VERSION() contains "MariaDB"; the two alter settings read DEFAULT
+SHOW GRANTS FOR CURRENT_USER();                                                                     -- must include ALTER on the database or on order_details
+SELECT COUNT(*) FROM order_details;                                                                 -- 0
+SELECT TABLE_TYPE, ENGINE, ROW_FORMAT, CREATE_OPTIONS FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_details';   -- BASE TABLE, InnoDB, no "partitioned"
+SELECT trx_id, trx_started FROM information_schema.INNODB_TRX;                                      -- no transaction older than a few seconds when you run H6
+SHOW CREATE TABLE order_details\G                                                                   -- keep it; the same command after H6 must differ only in the two column lines
+```
+
+The best rehearsal, if you have room for it, is to restore the backup of phase 2 into a scratch database on a server of the same
+version and run the four-path `migrate` of H6 there first.
+
+**The procedure.** Run these commands as `root` or as the owner of the application files. Set the variables first (a new shell has lost
+them; `DOCROOT` is the one from phase 0). Nothing below touches the web root, and `art` runs artisan as the user who owns the files, as
+phase 0 requires (artisan as root would leave root-owned files under `storage/` that the web server cannot write):
 
 ```bash
-APP=/path/to/the/application   BACKUPS=/path/outside/every/web/root/pharmacy-backups
-HOTFIX=/path/outside/every/web/root/overlay-hotfix-1          # a NEW directory, not the one the first package was unpacked in
+APP=/path/to/the/application                                   # the directory that contains artisan and .env
+BACKUPS=/path/outside/every/web/root/pharmacy-backups          # the same directory as for the first deployment
+HOTFIX=/path/outside/every/web/root/overlay-hotfix-1           # a NEW directory (as root, /root/… is fine)
+: "${APP:?}" "${BACKUPS:?}" "${HOTFIX:?}" "${DOCROOT:?}"       # stops here if one of them is empty
+for dir in "$BACKUPS" "$HOTFIX"; do
+  case "$(realpath -m "$dir")/" in "$(realpath -m "$DOCROOT")"/*) echo "STOP: $dir is inside the web root" ;; *) echo "ok: $dir is outside the web root" ;; esac
+done
+OWNER=$(stat -c %U "$APP/artisan")                             # the user that owns the application files
+art() { (cd "$APP" && sudo -u "$OWNER" php artisan "$@"); }    # without sudo: runuser -u "$OWNER" -- php artisan "$@"; already that user: php artisan "$@"
+```
+
+Use the `php` you used for the first deployment, and `art` wherever this section needs artisan. `deploy.php` and `backup.sh` run as `root` or
+as `$OWNER` (if as `$OWNER`, `$HOTFIX` and `$BACKUPS` must be readable and writable by that user).
+
+**H0. Prove what the server runs before you change it (reads only).** The server's own `git` HEAD proves nothing: the overlay does
+not move it. The record of the first deployment does:
+
+```bash
+ls -t "$BACKUPS/deploy" | head -5                                # the first deployment's directory is among them
+FIRST="$BACKUPS/deploy/<the first deployment's directory>"
+php -r '$m = json_decode(file_get_contents($argv[1]), true); echo $m["head"], PHP_EOL;' "$FIRST/MANIFEST.json"    # 30dcbf64…, the same tree as ef843600
+grep -c rolled_back_at "$FIRST/applied.json"                     # must print 0: that deployment was not rolled back
 ```
 
 **H1. Get the package.** Never fetch into, pull in, check out in or reset `$APP`: the working tree there (the files of `ef843600`, with
-`git`'s own HEAD possibly still at `34dce65`) is exactly what the next steps compare against. Either download the artifact
-`pilot-overlay-<HOTFIX_COMMIT>` of the pull request's CI run (it holds `overlay.tar.gz` and `overlay.tar.gz.sha256`, and is built
-from `ef843600`), or build it yourself in a scratch clone **anywhere but `$APP`** (the server, or your own computer):
+`git`'s own HEAD possibly still at `34dce65`) is exactly what the next steps compare against. `<HOTFIX_COMMIT>` below is the **full
+40-character hash we give you in writing** with this document (never a branch name; a document inside a commit cannot name its own
+hash). Either download the artifact `pilot-overlay-<HOTFIX_COMMIT>` of the pull request's CI run (it holds `overlay.tar.gz` and
+`overlay.tar.gz.sha256`), or build it yourself in a scratch clone **anywhere but `$APP`** (your own computer, or the server in a new
+directory outside the web root; the clone contains files that must not be web-served):
 
 ```bash
-WORK=$HOME/hotfix1-build                                                               # a NEW directory
-git clone https://github.com/fullstackfull/pharmacyksa98.git "$WORK/repo"              # a private repository: clone it the way you usually do
-git -C "$WORK/repo" fetch origin claude/clever-newton-wvhbt2                           # the hotfix branch
+WORK=$HOME/hotfix1-build && test ! -e "$WORK"                                          # a NEW directory
+git clone -c core.autocrlf=false https://github.com/fullstackfull/pharmacyksa98.git "$WORK/repo"     # a private repository: clone it the way you usually do
 git -C "$WORK/repo" checkout --detach <HOTFIX_COMMIT>                                  # a scratch clone: nothing on the server changes
-git -C "$WORK/repo" log -1 --format='%H %s'                                            # must print <HOTFIX_COMMIT>
+test "$(git -C "$WORK/repo" rev-parse HEAD)" = "<HOTFIX_COMMIT>" && echo "the clone is at the hotfix commit"
 git -C "$WORK/repo" cat-file -t ef843600                                               # must print: commit
 php "$WORK/repo/scripts/deploy/build-overlay.php" --repo="$WORK/repo" --base=ef843600 --head=<HOTFIX_COMMIT> --out="$WORK/overlay" --archive
 ```
@@ -469,8 +510,11 @@ sha256sum -c overlay.tar.gz.sha256                                  # in the dir
 mkdir -p "$HOTFIX" && tar -xzf overlay.tar.gz -C "$HOTFIX"
 (cd "$HOTFIX" && sha256sum -c SHA256SUMS | grep -v ': OK$' ; echo "(nothing listed above = every file matches its checksum)")
 php -r '$m = json_decode(file_get_contents($argv[1]), true); echo count($m["files"]), " files, base ", $m["base"], ", head ", $m["head"], PHP_EOL;' "$HOTFIX/MANIFEST.json"
-#   expected: 18 files, base ef843600…, head <HOTFIX_COMMIT>
 ```
+
+Expected: `head` is `<HOTFIX_COMMIT>`, and `base` is `ef843600…` or `30dcbf64…` (the same tree; the latter if the CI variable `PILOT_BASELINE`
+was set to the first package's head). A base of `34dce65…` means the **whole** package was built: do not use it. The file count we give
+you is valid for that hash only.
 
 **H3. Compare it with the files on the server (reads only).**
 
@@ -478,96 +522,143 @@ php -r '$m = json_decode(file_get_contents($argv[1]), true); echo count($m["file
 php "$HOTFIX/deploy.php" verify --app="$APP" --package="$HOTFIX"
 ```
 
-Expected: five `NEW` files (`CurrencyCode`, `ExchangeRate`, `LegacyColumnWidener` and the two migrations), thirteen `CLEAN`, nothing else.
-`CLEAN` here means the file on the server is still exactly the one the first package installed. A `DRIFTED` file means someone changed it
-since: read what they changed (`diff -u "$HOTFIX/base/<path>" "$APP/<path>"`) and accept it by name (`--accept-drift=…`) only after a
-person has looked, as in section 3.
+Expected, and nothing else: `Summary: 13 CLEAN, 5 NEW` and `Result: every file can be applied.` The five `NEW` files are `CurrencyCode`,
+`ExchangeRate`, `LegacyColumnWidener` and the two migrations. `CLEAN` here means the file on the server is still exactly the one the first
+package installed. A `DRIFTED` file means someone changed it since: read what they changed (`diff -u "$HOTFIX/base/<path>" "$APP/<path>"`)
+and accept it by name (`--accept-drift=…`) only after a person has looked, as in section 3.
 
 > **Gate A1 again, for this package's files.** They are dormant like the first package's: nothing here runs on a customer request
 > unless a product belongs to a provider, and none does.
 
-**H4. Put the files on the server (about a minute; the database is not touched).**
+**H4. Put the files on the server (about a minute; the database is not touched).** One chain: if any step fails, the next does not run
+and the site stays in maintenance mode (then see the failure table in 4a, reading `$HOTFIX` for `$PKG`).
 
 ```bash
-cd "$APP"
 STAMP=$(date -u +%Y%m%d-%H%M%S)
 php "$HOTFIX/deploy.php" apply --app="$APP" --package="$HOTFIX"                       # dry run: prints the report, changes nothing
-php artisan down --retry=60
-php "$HOTFIX/deploy.php" apply --app="$APP" --package="$HOTFIX" --yes --backup-dir="$BACKUPS/deploy/$STAMP-hotfix1"
-php artisan optimize:clear                                                            # routine; NEVER config:cache, route:cache or optimize on this platform
-php artisan queue:restart
-php artisan --version && php artisan up
+art down --retry=60 \
+  && php "$HOTFIX/deploy.php" apply --app="$APP" --package="$HOTFIX" --yes --backup-dir="$BACKUPS/deploy/$STAMP-hotfix1" \
+  && art optimize:clear && art queue:restart && art --version && art up
 ```
 
-Keep the `To undo:` line `apply` prints. The `.env` lines of 4a are already in place; this package adds none.
+Keep the `[next] To undo:` line `apply` prints. Reload PHP-FPM or reset OPcache if `opcache.validate_timestamps` is off, as in 4a. The
+`.env` lines of 4a are already in place; this package adds none. `$BACKUPS/deploy/$STAMP-hotfix1/MANIFEST.json` is the record of what
+is deployed from now on: its `head` is the base of the next package.
 
 **H5. Run the read-only checks again.**
 
 ```bash
-php artisan fulfillment:preflight --allow-production-read-only
-php artisan fulfillment:compatibility --allow-production-read-only --expect-database=<the production database name>
+art fulfillment:preflight --allow-production-read-only
+art fulfillment:compatibility --allow-production-read-only --expect-database=<the production database name>
 ```
 
-Expected: *tables the application boots from*, *currencies column types*, *exchange rates* and *currency conversion* are **PASS**;
-the one remaining **FAIL** is *order_details column types* (the two columns above); the *column changes the migrations would make* line
-is **info** and shows the two statements; the preflight shows `migrations: 2 pending` and `compatibility migrations: 2 not applied`;
-*nothing was written* is **PASS**. Send us the output (counts, names and shapes; no row of customer data). Then:
+Expected, line by line:
+
+* **FAIL:** exactly one, *order_details column types* (the two columns above), plus *app key* while D1 is still open. Any other FAIL: stop
+  before H6 and send us the output.
+* **PASS, all of them:** *database*, *external writes*, *switch spelling*, *m5azn dispatch*, *torod_point dispatch* (these prove writes and
+  sending are off), *tables the application boots from*, *currencies column types*, *currency conversion* (it reads *single-currency
+  store whose default currency is stored as KSA, the store's spelling of SAR (config fulfillment.currency_aliases): stored amounts are sent
+  to providers as they are, labelled SAR*), and *nothing was written*. *exchange rates* is PASS, or WARN naming only currencies this
+  single-currency store does not use.
+* **info:** *column changes the migrations would make*, with the two statements and no **THE MIGRATION WOULD REFUSE**.
+* **WARN you will probably still see**, none caused by this release: *audit_logs*, *tables created outside the migrations*, *stock_movements
+  column types*, *migrations table* (platform migrations pending). See *Reading what remains*.
+* **Preflight:** `migrations: 2 pending` and `compatibility migrations: 2 not applied`.
+
+Send us the output (counts, names and shapes; no row of customer data). Then:
 
 > **Gate A2 — you approve the migrations**, having read the report.
 
-**H6. Run the four migrations** (this is 4c, with its backup and maintenance steps):
+**H6. Run the four migrations** (this is 4c, with its backup and maintenance steps), in three blocks. Do not paste them as one: each
+block ends where you must look at what it printed.
 
 ```bash
-php artisan down --retry=60
+art down --retry=60
 bash "$HOTFIX/tools/backup.sh" --app="$APP" --to="$BACKUPS/data" --db-only
-php artisan migrate --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php \
-                    --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php \
-                    --path=database/migrations/2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment.php \
-                    --path=database/migrations/2026_11_06_100100_widen_order_details_variation_for_fulfillment.php
-php artisan optimize:clear
-php artisan queue:restart
-php artisan fulfillment:preflight --allow-production-read-only
-php artisan fulfillment:compatibility --allow-production-read-only --expect-database=<the production database name>
-# Only if neither command printed a FAIL:
-php artisan up
 ```
 
-If a widening migration stops with *was not changed: …*, nothing was altered: the tables are already created and recorded; stay down,
-send us the message, and repeat the same command after it has been dealt with (the migrations already recorded are skipped).
+It must end with `Backup complete: <directory>`. If it does not: run `art up` and send us the message. Note the directory: it is the
+restore point for this step.
+
+```bash
+art migrate --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php \
+            --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php \
+            --path=database/migrations/2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment.php \
+            --path=database/migrations/2026_11_06_100100_widen_order_details_variation_for_fulfillment.php
+```
+
+(`APP_ENV=production` asks *Do you really wish to run this command?*: answer `yes`.) Laravel runs them in file-name order and records each
+one when it has finished. If it stops, stay down and read the message:
+
+| It prints | State of the database | Do |
+|---|---|---|
+| `… was not changed: <reason>. Nothing was altered …` | unchanged; the migrations before it are recorded | send us the message |
+| `Lock wait timeout exceeded` with an `ALTER TABLE` in the message | unchanged | another request held `order_details`: wait a minute and repeat the same command |
+| any other SQL error that shows the `ALTER TABLE` (a foreign key, the row size…) | unchanged | send us the message |
+| `… was altered but does not read back as … with its other properties unchanged` | **changed**, not recorded | keep the site down, run `SHOW CREATE TABLE order_details`, send us the output; restore the dump above only if we say so |
+
+```bash
+art optimize:clear && art queue:restart \
+  && art fulfillment:preflight --allow-production-read-only \
+  && art fulfillment:compatibility --allow-production-read-only --expect-database=<the production database name> \
+  && art up
+```
+
+Both checks exit 1 on a FAIL, so the site comes up only if neither printed one. If the only FAIL is the *app key* one you have decided in
+writing to accept under D1, run `art up` yourself.
 
 **H7. Check the result.**
 
 ```bash
-php artisan tinker --execute='foreach (Schema::getColumns("order_details") as $c) { if (in_array($c["name"], ["delivery_status", "variation"])) { echo $c["name"], " ", $c["type"], PHP_EOL; } }'
-#   delivery_status varchar(30)
-#   variation text
+art tinker --execute='foreach (Schema::getColumns("order_details") as $c) { if (in_array($c["name"], ["delivery_status", "variation"])) { echo $c["name"], " ", $c["type"], PHP_EOL; } }'
+#   delivery_status varchar(30)   and   variation text      (in the table's column order)
 ```
 
 Then, in the admin panel: **3rd Party Setup → Fulfillment providers** shows *Integration mode on this server* as **OFF**, both provider
-cards off, *System checks* with no red (the *Currency conversion* line now says the riyal is kept as `KSA` and is sent as `SAR`), and
-open **M5AZN** and **Torod Point**: both render. Place nothing, send nothing. Every other check of phase 5 applies.
+cards off and *System checks* with no red; open **M5AZN** and **Torod Point**: both render. Place nothing, send nothing. Every other
+check of phase 5 applies. (The currency judgement is not a line of that page: it is the *currency conversion* line of
+`fulfillment:compatibility`, H5.)
 
-**H8. Read-only connection tests.** This is phase 6 (**Gate B**), unchanged, and it only reads: set
-`FULFILLMENT_INTEGRATIONS_ENABLED=true` with `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false`, run `php artisan queue:restart`, enter the
-credentials on the two provider pages (we never see them), *Test connection* on each, then `php artisan fulfillment:verify m5azn` and
-`php artisan fulfillment:verify torod_point`. Leave *Send orders to this provider* off and *Dry run* on; no order is created at either
-provider. Do not start phase 6 until H7 is clean.
+**H8. Read-only connection tests.** Phase 6 (**Gate B**), and only this part of it. Settle D1 (the `APP_KEY` hash) **before** typing a
+credential. Then turn on exactly this: `FULFILLMENT_INTEGRATIONS_ENABLED=true` (edit the existing line; keep
+`FULFILLMENT_EXTERNAL_WRITES_ENABLED=false`) and `art queue:restart`; on each provider page *Integration enabled*, the credentials (we
+never see them) and *Test connection*; then `art fulfillment:verify m5azn` and `art fulfillment:verify torod_point`. Leave **off**:
+*Pull the products selected on M5AZN*, *Read warehouse products*, stock sync, *Send orders to this provider*; leave *Dry run* **on**. No
+order is created at either provider, and the scheduler has nothing to sync. Do not start H8 until H7 is clean.
 
-**Taking Hotfix 1 back.** Before H6: `php "$HOTFIX/deploy.php" rollback --backup-dir="$BACKUPS/deploy/<the directory apply printed>"` restores
-the first release's version of every file and removes the five new ones (section 10). After H6 the two widened columns stay wide
-(nothing needs them narrow, and the first release's code does not mind); the two widening migrations then show in `migrate:status`
-as ran, with their files gone, which is harmless. The integration's own two migrations are undone as section 10 says.
+**Send us**, in this order: the H0 head line; the H3 `Summary:` and `Result:` lines; the H4 `[ok]` and `To undo:` lines; the H5 output
+(and the optional engine statements); the H6 output of each block; the two H7 lines.
+
+**Taking Hotfix 1 back.** Newest first: `php "$HOTFIX/deploy.php" rollback --backup-dir="$BACKUPS/deploy/$STAMP-hotfix1"` (the directory
+`apply` printed for the hotfix) restores the first release's version of every file and removes the five new ones; only then, if you also
+want the first deployment undone, run `rollback` on the first deployment's directory with the first package's `deploy.php` (the other way
+round it stops with *changed after the deployment*). After H6 the two widened columns stay wide (nothing needs them narrow, and the first
+release's code does not mind). The two widening migrations stay recorded in the `migrations` table (`fulfillment:preflight` still says
+*compatibility migrations: both applied*) but their files are gone, so `migrate:status` no longer lists them. The integration's own two
+migrations are undone as section 10 says; that rollback by path prints two harmless `Migration not found` lines for the widening files.
 
 **Reading what remains.** Everything the checks can still print, and what kind of thing it is:
 
 | Line | Kind | What to do |
 |---|---|---|
 | *order_details column types* (`delivery_status`, `variation`) | defect of the platform's schema (status), conservative rule (variation) | Hotfix 1's migrations |
-| *currency conversion* | **runtime defect** if it says the shipments would be held | the alias above; if the default currency is something else, say so |
+| *currency conversion* | **runtime defect** if it says the shipments would be held; also a WARN if the store rounds to other than 2 decimal places (providers are sent 2) | the alias above; if the default currency is something else, or the decimals are not 2, tell us before any order |
 | *exchange rates* (names of currencies) | conservative rule that protects real money: a shipment or imported price using that currency is held | correct the rate in the admin (*Business Setup → Currency*), or leave it if the currency is not used |
-| *migrations*, *platform migrations pending*, *…touching checkout tables* | pre-existing (D6): the platform's own state | nothing; never a bare `migrate` |
-| *tables created outside migrations*, `audit_logs`, `stock_movements` | pre-existing: tables that come from the installation dump | nothing for the integration; `audit_logs` is read in phase 0 |
+| *migrations*, *migrations table*, *platform migrations pending*, *…touching checkout tables* | pre-existing (D6): the platform's own state | nothing; never a bare `migrate` |
+| *tables created outside the migrations*, `audit_logs`, `stock_movements` | pre-existing: tables that come from the installation dump | nothing for the integration; `audit_logs` is read in phase 0 |
+| *app key* | D1 in section 11 | decide before any credential is typed |
 | counts of unusual status words, orders without lines, unreadable address JSON, duplicate SKUs or barcodes, negative stock | observations about **existing data**; the integration holds or skips such a case rather than guess | read them; none blocks |
+
+Three things to know about the currency work, none of which can occur on this store as configured:
+
+* An order line captured while its currency could not be converted (an unusable rate, or a default currency that is not the riyal) is
+  frozen with a total of `0`, and fixing the rate afterwards does not give it its value back. A shipment holding such a line therefore
+  **stays held** (*currency cannot be converted*) instead of going out priced at nothing; it needs a person, not a retry.
+* An M5AZN product imported while the price could not be converted was created unpublished with a price of `0`; the default price
+  policy never reprices it afterwards. If any product was imported before Hotfix 1, set its price by hand.
+* The currency settings are cached by the platform for a few hours. After a **direct SQL edit** of `business_settings` or `currencies`,
+  run `art optimize:clear`; edits made in the admin panel clear the cache themselves.
 
 ### 4c. The migrations (about a minute)
 
@@ -575,21 +666,32 @@ Only our four migrations, by path, in this order. **Never a bare `php artisan mi
 and has not had Hotfix 1 yet, do [Hotfix 1](#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server) first: its files contain the two
 widening migrations.)
 
+Three blocks, not one: each ends where you must look at what it printed (a pasted block keeps going after a failure, and
+`migrate` in production reads its confirmation from the next line you paste).
+
 ```bash
 php artisan down --retry=60                    # recommended: the `alter table products` takes a brief metadata lock
 bash "$PKG/tools/backup.sh" --app="$APP" --to="$BACKUPS/data" --db-only    # the restore point for the migration: taken NOW, not days ago
+```
+
+It must end with `Backup complete: <directory>`; if it does not, run `php artisan up` and ask us.
+
+```bash
 php artisan migrate --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php \
                     --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php \
                     --path=database/migrations/2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment.php \
                     --path=database/migrations/2026_11_06_100100_widen_order_details_variation_for_fulfillment.php
 #   (APP_ENV=production asks "Do you really wish to run this command?" — answer yes. --force only for a non-interactive shell.)
 #   Laravel runs them in file-name order, as listed. Each is recorded once it has finished, so a run that stops part-way is simply repeated.
-php artisan optimize:clear
-php artisan queue:restart                      # a running worker caches "has the migration run?"
-php artisan fulfillment:preflight --allow-production-read-only        # schema: both integration migrations applied and both compatibility migrations applied, all tables present; products.fulfillment_provider: present
-php artisan fulfillment:compatibility --allow-production-read-only --expect-database=<the production database name>
-# Only if neither command printed a FAIL:
-php artisan up
+```
+
+```bash
+php artisan optimize:clear && php artisan queue:restart \
+  && php artisan fulfillment:preflight --allow-production-read-only \
+  && php artisan fulfillment:compatibility --allow-production-read-only --expect-database=<the production database name> \
+  && php artisan up
+#   preflight: both integration migrations applied and both compatibility migrations applied, all tables present; products.fulfillment_provider: present
+#   (both commands exit 1 on a FAIL, so the site comes up only if neither printed one)
 ```
 
 (In phpMyAdmin the same change reads: `products` has a nullable, indexed `fulfillment_provider` column.)
@@ -810,13 +912,13 @@ swept out by the switch; release the ones you want sent.
 | A shipment was sent that should not have been | before its package exists it cannot be recalled by us (M5AZN documents no cancel endpoint, Torod no warehouse-order cancel): use the provider's dashboard or contact; once a Torod package exists, *Cancel at the provider* asks for it. The shipment page records the reference and everything sent | per order |
 | The read-only checks show a FAIL (phase 4b) | nothing in the database has changed and the files do nothing: leave them while we read the report, or take them back with the row *The new code misbehaves*. Do **not** run the migration | — |
 | `apply` failed or was interrupted | see the table in 4a: it takes back what it wrote; if it was killed, run its `rollback` with that backup directory. The site stays in maintenance mode until the application starts and `fulfillment:preflight` is clean | minutes |
-| The new code misbehaves (phase 4a–5) | **If the migration has run, undo it first (the row *The migration must be undone*, below), while its files are still on the server.** Then `php "$PKG/deploy.php" rollback --backup-dir=$BACKUPS/deploy/<the directory apply printed>` restores every replaced file **first**, then deletes every added one, removes cut-off temporary files, and takes back **only** the language keys the release added (the site's own keys stay). Running it twice says it was already rolled back. It refuses if a deployed file changed afterwards, unless `--force`; and it refuses, whatever the flags, when a saved original in the backup directory is missing or no longer matches its recorded checksum (it never writes an empty or different file over a live one), or when the record `applied.json` is damaged or names a path a release may not touch. In those cases it changes nothing and says what to restore by hand. Run it under `php artisan down`. Then `php artisan optimize:clear`, reset OPcache, `php artisan queue:restart` | a minute |
+| The new code misbehaves (phase 4a–5) | **If the migration has run, undo it first (the row *The migration must be undone*, below), while its files are still on the server.** Then `php "$PKG/deploy.php" rollback --backup-dir=$BACKUPS/deploy/<the directory apply printed>` (**newest package first**: with Hotfix 1 applied, its own directory and its own `deploy.php`, then the first package's) restores every replaced file **first**, then deletes every added one, removes cut-off temporary files, and takes back **only** the language keys the release added (the site's own keys stay). Running it twice says it was already rolled back. It refuses if a deployed file changed afterwards, unless `--force`; and it refuses, whatever the flags, when a saved original in the backup directory is missing or no longer matches its recorded checksum (it never writes an empty or different file over a live one), or when the record `applied.json` is damaged or names a path a release may not touch. In those cases it changes nothing and says what to restore by hand. Run it under `php artisan down`. Then `php artisan optimize:clear`, reset OPcache, `php artisan queue:restart` | a minute |
 | The application does not start after the files landed (for example *Class not found*) | `php artisan up` cannot run either. Run the `deploy.php rollback` above, then `rm storage/framework/down` to leave maintenance mode | a minute |
 | The migration must be undone | with the integration off, and after `backup.sh --db-only` (the provider tables hold the only local record of provider references: keep that dump). `php artisan migrate:status` shows the **Batch** of our migrations; if the two integration migrations are the last batch: `php artisan migrate:rollback --force --path=database/migrations/2026_11_05_100100_add_fulfillment_provider_to_products_table.php --path=database/migrations/2026_11_05_100000_create_provider_fulfillment_tables.php`; if any other migration ran after them, add `--batch=<their batch>` (otherwise it rolls back nothing). The two widening migrations have no rollback on purpose (narrowing a column could cut off what has been stored in it since): leave the columns wide, the previous release does not mind. It drops our 11 tables and the one nullable column; **it leaves `integration_settings`** (which holds the saved, encrypted credentials) and every store table. Shipments already at a provider are not recalled. Then `php artisan optimize:clear` and `php artisan queue:restart` (workers remember that the migration has run). The column is the only marker that a product belongs to a provider: products assigned to or imported from one become ordinary in-house products, so unpublish or review them first | a minute |
 | The database itself was damaged | last resort, and it **discards everything ordered since the backup**. 1. `php artisan down`. 2. `backup.sh --db-only` of the damaged state, so even this is reversible. 3. Undo our migrations first (the row *The migration must be undone*), or drop our 11 tables by name (`provider_fulfillments`, `provider_fulfillment_items`, `provider_fulfillment_events`, `provider_api_logs`, `provider_sync_states`, `provider_product_mappings`, `provider_catalog_items`, `provider_price_changes`, `provider_cities`, `provider_city_aliases`, `product_provider_changes`): a restore does **not** remove tables the dump does not contain, and rows left in them would point at orders that no longer exist. 4. Restore `db.sql.gz` as `RESTORE.txt` describes. 5. `php artisan optimize:clear`, `queue:restart`, then run `fulfillment:preflight` before `php artisan up` | the length of the restore |
 | The application directory was damaged | `tar -xzf files.tar.gz -C "$APP"` from the same backup (it also restores `.env` and `storage/`) | minutes |
 
-The previous release ignores the new tables and the nullable column, so putting the old code back while the tables exist is safe.
+The previous release ignores the new tables, the nullable column and the wider `order_details` columns, so putting the old code back while they exist is safe.
 
 ---
 

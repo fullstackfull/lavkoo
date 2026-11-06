@@ -17,10 +17,11 @@ class ExchangeRateTest extends TestCase
         yield 'spaces around it' => [' 3.75 ', 3.75];
         yield 'tab and newline around it' => ["\t3.75\n", 3.75];
         yield 'leading zero' => ['0.2666', 0.2666];
-        yield 'a very small rate' => ['0.0000001', 0.0000001];
+        yield 'the smallest believable rate' => ['0.000001', 0.000001];
         yield 'trailing zeros' => ['3.7500000000', 3.75];
         yield 'twenty decimals' => ['1.12345678901234567890', 1.1234567890123457];
-        yield 'fifteen digits' => ['999999999999999', 999999999999999.0];
+        yield 'the largest believable rate' => ['1000000000', 1000000000.0];
+        yield 'nine digits' => ['999999999', 999999999.0];
         yield 'an integer from a number column' => [4, 4.0];
         yield 'a float from a number column' => [3.75, 3.75];
     }
@@ -55,6 +56,10 @@ class ExchangeRateTest extends TestCase
         yield 'a unit after it' => ['3.75 USD'];
         yield 'hexadecimal' => ['0x1A'];
         yield 'sixteen digits' => ['1234567890123456'];
+        yield 'fifteen digits, a billion times too large' => ['999999999999999'];
+        yield 'just above the largest believable rate' => ['1000000001'];
+        yield 'smaller than any real currency' => ['0.0000001'];
+        yield 'twenty zeros and a one' => ['0.00000000000000000001'];
         yield 'twenty-one decimals' => ['1.123456789012345678901'];
         yield 'null' => [null];
         yield 'true' => [true];
@@ -65,6 +70,8 @@ class ExchangeRateTest extends TestCase
         yield 'float zero' => [0.0];
         yield 'negative float' => [-3.75];
         yield 'float not a number' => [NAN];
+        yield 'float smaller than any real currency' => [1.0E-7];
+        yield 'float larger than any real currency' => [1.0E+10];
         yield 'float infinity' => [INF];
     }
 
