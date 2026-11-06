@@ -255,7 +255,7 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
         $context = json_decode((string) $audit->context, true);
 
         $this->assertSame('orders', $context['field_map_saved']);
-        $this->assertSame(['invoice_number' => 'invoiceNumber', 'reference' => 'barcode'], $context['paths']);
+        $this->assertEquals(['invoice_number' => 'invoiceNumber', 'reference' => 'barcode'], $context['paths'], 'a JSON column may list the keys in its own order');
         $this->assertStringNotContainsString('O001', (string) $audit->context);
     }
 

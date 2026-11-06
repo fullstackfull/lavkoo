@@ -443,8 +443,8 @@ order_details.variation: ALTER TABLE `order_details` MODIFY COLUMN `variation` T
 that line to us before H6. If a column reads **THE MIGRATION WOULD REFUSE**, do not run the migrations: the message says why, and the
 column can be widened by hand once a person has looked at `SHOW CREATE TABLE order_details`.
 
-**Optional, and worth a minute: the server's engine.** The migrations were run on MySQL 8.0.46 and MariaDB 10.11.14, **not** on the
-pilot server's MariaDB 11.4.2. These read-only statements (phpMyAdmin, or `mysql` with the application's database user) show whether
+**Optional, and worth a minute: the server's engine.** The migrations were run on MySQL 8.0.46, MariaDB 10.11.14 and a local
+MariaDB 11.4.2 test instance, **not** on the pilot server itself. These read-only statements (phpMyAdmin, or `mysql` with the application's database user) show whether
 anything on the server differs from what was tested; send the answers with the H5 output:
 
 ```sql
@@ -983,8 +983,8 @@ The previous release ignores the new tables, the nullable column and the wider `
 *Nothing in the right-hand column is claimed to work. It is what phases 4b, 6, 7 and 8 exist to establish.*
 
 **Hotfix 1** has its own tests (`PilotServer*Test`, `CurrencyCodeTest`, `ExchangeRateTest`, `LegacyColumnWidenerTest`) on a schema modelled on what was found on
-this server. The two column migrations were run on **MySQL 8.0.46 and MariaDB 10.11.14** (and CI runs the fulfillment suites on MySQL 8);
-they were **not** run on MariaDB 11.4.2, the engine of the pilot server, which could not be installed where this was prepared. That is
+this server. The two column migrations were run on **MySQL 8.0.46, MariaDB 10.11.14 and a local MariaDB 11.4.2 test instance** (the pilot
+server's version; CI runs the fulfillment suites on MySQL 8); they were **not** run on the pilot server itself. That is
 what the read-only *column changes the migrations would make* line, the backup taken just before, the refusal-before-alter rules and the
 read-back after the change are for.
 

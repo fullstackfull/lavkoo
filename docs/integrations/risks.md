@@ -32,8 +32,8 @@ real systems.
 * **Database** — the two integration migrations are additive, idempotent and reversible on SQLite and MySQL 8.0; the integration's own
   tables, unique keys, row locks, JSON, decimals and `timestamp(3)` behave on a real MySQL 8.0. The two migrations of Hotfix 1 are
   idempotent widening ALTERs of two columns of the platform's own `order_details` table (type only, no row written, deliberately not
-  reversible); they were run on MySQL 8.0 and MariaDB 10.11, **not** on MariaDB 11.4.2 (the pilot server's engine): see the
-  pilot-deployment runbook.
+  reversible); they were run on MySQL 8.0, MariaDB 10.11 and, when Hotfix 2 was verified, a local MariaDB 11.4.2 test instance (the
+  pilot server's version; the server itself was never touched): see the pilot-deployment runbook.
 
 ## Not verified — needs the live server (the pilot deployment) and the real providers
 

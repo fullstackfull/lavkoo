@@ -1,10 +1,15 @@
 # Production readiness report — GO / NO-GO
 
-**Branch:** `claude/clever-newton-wvhbt2` · **PR:** #1 (not merged) · **Date:** 2026-11-05
+**Branch:** `claude/clever-newton-wvhbt2` · **PR:** #1 and #2 (merged; Hotfix 2 is its own pull request) · **Date:** 2026-11-05 (Hotfix 2 added 2026-11-06)
 **Scope of this phase:** independent review, verification and hardening of the M5AZN + Torod Point (LogesTechs)
 fulfillment integration. **Not done, by instruction:** merge, deploy, production migration, real order dispatch, any
 live write call to a provider. No live call of any kind was made.
 
+> **Update — Hotfix 2.** As reported by the owner: the Torod API connection works, the live read-only verification ran with 5 passes, 1
+> warning and 1 skipped check, the products field map is verified, the orders field map is **not** (that is what Hotfix 2 fixes),
+> `FULFILLMENT_INTEGRATIONS_ENABLED=true` and `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false`. Nothing below was re-established live by
+> Hotfix 2: [hotfix-2.md](hotfix-2.md) says what it changes, and its two new blockers are B7 and B9 in the blocker table.
+>
 > **Update — pilot-server phase.** The existing production server is the pilot environment, and no staging server will be built.
 > The deployment procedure, its approval gates, the rollback for every phase and the remaining blockers are in
 > [**pilot-deployment.md**](pilot-deployment.md); the plan for the first real orders is [controlled-test-orders.md](controlled-test-orders.md).
@@ -198,7 +203,11 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 |---|---|
 | Full suite, SQLite | **1,528 tests, 8,118 assertions, 0 failures** (40 skipped: `ExampleTest` needs the installation dump, which is not in the repository; one check that cannot run as root; four that only mean something on MySQL; and 34 of Hotfix 1's that need a server that enforces column lengths, MySQL or MariaDB) |
 | MySQL 8, platform non-strict mode | the fulfillment, security and CI-proof suites: **1,315 tests, 7,362 assertions, 0 failures, 3 skipped** (the MySQL-only checks run here; skipped are Hotfix 1's two SQLite-only checks and its MariaDB-only one) |
-| MariaDB 10.11.14, run by hand (CI has MySQL only) | the fulfillment suites: **1,307 tests, 7,297 assertions, 0 failures, 2 skipped** (the two SQLite-only checks of Hotfix 1). **Not run on MariaDB 11.4.2**, the pilot server's engine |
+| MariaDB 10.11.14, run by hand (CI has MySQL only) | the fulfillment suites: **1,307 tests, 7,297 assertions, 0 failures, 2 skipped** (the two SQLite-only checks of Hotfix 1). Hotfix 2 ran them on a local MariaDB 11.4.2 too (below) |
+| **Hotfix 2** — SQLite, full suite | **1,765 tests, 8,984 assertions, 0 failures** (40 skipped, for the same reasons) |
+| **Hotfix 2** — MySQL 8.0.46 | the fulfillment, security and CI-proof suites: **1,552 tests, 8,228 assertions, 0 failures, 3 skipped** |
+| **Hotfix 2** — MariaDB 11.4.2 (a local instance of the pilot server's version) | the fulfillment suites: **1,544 tests, 8,163 assertions, 0 failures, 2 skipped** |
+| **Hotfix 2** — mutation checks | 103 single-line mutations of the new safety logic (the gate, the stock ownership, the sync, the guards, the field-map reading); six survived at first and were closed with new tests, and every one is caught now |
 | MySQL 8, **strict** SQL mode (an earlier experiment, reverted) | **all pass** — nothing relies on non-strict coercion |
 | GitHub Actions (every push; see the checks of the pull request) | SQLite on PHP 8.2 and 8.3, a syntax lint on both, the fulfillment and security suites on a real MySQL 8, the repository leak guard over every commit of the pull request, and the build of the deployment package from the pull request's head |
 | Adversarial review and mutation checks | three independent review rounds, the last aimed at what the previous round's fixes had changed, found defects in the order-sending path, the personal-data rules and the deployment tooling (26 in the last round, 57 in the one before, about a hundred earlier). Each was reproduced before it was fixed; each fix has a test, and the fixes of the last two rounds were **mutation-checked**: the fix is reverted, the test is confirmed to fail |
