@@ -11,6 +11,9 @@
 > and a warning. A server that already runs the first package does
 > [Hotfix 1](#hotfix-1-fit-the-integration-to-the-schema-found-on-this-server) **before** the migration step 4c; a server that has never
 > had a package gets everything in one.
+>
+> **Hotfix 2** (the Torod Point orders map and warehouse stock ownership; code only, no migration, nothing switched on) has its own
+> document: [hotfix-2.md](hotfix-2.md). It is applied on top of Hotfix 1 and rolled back newest first.
 
 The existing production instance is a pilot environment, so it is also the target. There is **no staging server and no second
 copy of the application**: the integration is deployed to this server with everything switched off, then armed one level at a
@@ -169,8 +172,9 @@ dependency change, no file under `public/` or `storage/`, and no deletion. It al
 
 * **Where it comes from:** the `Deployment overlay` job of the CI run on the pull request uploads `pilot-overlay-<commit>`
   (`overlay.tar.gz` + `overlay.tar.gz.sha256`). The job builds from the commit the server runs to the pull request's own head
-  commit. That baseline is the repository variable `PILOT_BASELINE` if it is set, otherwise `ef843600` (the first release, which this
-  server now runs); for a server that still runs the original code, set `PILOT_BASELINE=34dce65` to get the whole package in one. To
+  commit. That baseline is the repository variable `PILOT_BASELINE` if it is set, otherwise `698aa1e` (the tree this server runs after
+  Hotfix 1); for a server that still runs the first release, set `PILOT_BASELINE=ef843600`, and for one that still runs the original
+  code `PILOT_BASELINE=34dce65`, to get the whole package in one. To
   build it yourself, into a **new or empty** directory:
   `php scripts/deploy/build-overlay.php --base=<what the server runs> --head=<release commit> --out=build/overlay --archive` (the builder
   refuses a non-empty `--out`, so nothing from an earlier build can end up in the package).
@@ -439,8 +443,8 @@ order_details.variation: ALTER TABLE `order_details` MODIFY COLUMN `variation` T
 that line to us before H6. If a column reads **THE MIGRATION WOULD REFUSE**, do not run the migrations: the message says why, and the
 column can be widened by hand once a person has looked at `SHOW CREATE TABLE order_details`.
 
-**Optional, and worth a minute: the server's engine.** The migrations were run on MySQL 8.0.46 and MariaDB 10.11.14, **not** on the
-pilot server's MariaDB 11.4.2. These read-only statements (phpMyAdmin, or `mysql` with the application's database user) show whether
+**Optional, and worth a minute: the server's engine.** The migrations were run on MySQL 8.0.46, MariaDB 10.11.14 and a local
+MariaDB 11.4.2 test instance, **not** on the pilot server itself. These read-only statements (phpMyAdmin, or `mysql` with the application's database user) show whether
 anything on the server differs from what was tested; send the answers with the H5 output:
 
 ```sql
@@ -810,8 +814,10 @@ confirmed it against a real answer**. That is what the evidence is for.
    poll is inactive until it exists and the `orders` map is verified. If the status field shows **hidden** values (the order-list check
    warns "N status value(s) were hidden"), the evidence is missing words: read the status words in the M5AZN dashboard and type them
    into the map yourself.
-4. Torod only: when the stock field is established (hand count + LogesTechs), tick **I confirm the stock field in the product list is
-   the available quantity** (the moment is recorded). Without it stock stays unused.
+4. Torod only: when LogesTechs has stated which quantity is available to sell (and the hand count agrees), type that field's path into
+   the products map and **Save and verify**; only then tick **I confirm this field of the product list is the quantity available to
+   sell …** beside the path (the moment and the path are recorded; since [Hotfix 2](hotfix-2.md) no quantity is ever proposed for you).
+   Without it stock stays unused.
 5. Keep the evidence: add the reviewed JSON files to the repository under `docs/integrations/recorded-schemas/<provider>/` through
    a pull request, so the recorded schemas outlive the server. The evidence is built to hold no credential and no personal data, but
    **read each file before you commit it**: the CI leak guard looks only for credentials, keys and tokens, e-mail addresses and phone
@@ -836,6 +842,10 @@ for it, the scheduler and queue running. In addition:
   our invoice number and amount, so without webhooks **no status update ever arrives** and the *A status update received and
   understood* item can never be met. On the Torod page: **Generate webhook secret** (the URLs are shown once; copy them), turn
   **Accept webhooks** on, give both URLs to LogesTechs, and have them confirm a delivery ([operations §3](operations.md)).
+* **Torod Point only — the invoice-number round trip must be confirmed first.** No real order is created until the master administrator has
+  recorded, with evidence, that the invoice number we send comes back in the order list (Torod Point page → *Invoice number round trip*;
+  [torod-point.md](torod-point.md#real-orders-wait-for-one-confirmation-the-invoice-number-comes-back)). Until then step 5 answers with
+  a hold, *A real order waits for the provider's confirmation step*.
 * How the queue runs is known (phase 0), and after every `.env` change in this phase `php artisan queue:restart` was run.
 
 1. Take a fresh database backup: `bash "$PKG/tools/backup.sh" --app="$APP" --to="$BACKUPS/data" --db-only`.
@@ -873,7 +883,8 @@ The page decides, not a person's memory. *Before automatic sending* is derived f
 |---|---|
 | Credentials saved · Integration switched on · Sending to providers allowed on this server | the three switches above |
 | Live verification passed recently | the latest run has no failure and is under 14 days old (a run in which nothing was asked does not count) |
-| Field maps verified | every map of the provider |
+| Field maps verified | every map of the provider (Torod Point's orders map is verified for its shape; see the next row) |
+| **Invoice number round trip confirmed** (Torod Point only) | the master administrator has recorded the evidence on the provider page, for the current path and account |
 | Products assigned and mapped | at least one product assigned to this provider **that has an approved mapping** (a mapping on a product that is not assigned does not count) |
 | Status tracking ready | M5AZN: status map + verified orders map; Torod: company ID |
 | Scheduler running · Queue worker keeping up | a sweep in the last 5 minutes · no fulfillment job waiting over 10 minutes (a queue driver that cannot be measured is reported as such) |
@@ -972,8 +983,8 @@ The previous release ignores the new tables, the nullable column and the wider `
 *Nothing in the right-hand column is claimed to work. It is what phases 4b, 6, 7 and 8 exist to establish.*
 
 **Hotfix 1** has its own tests (`PilotServer*Test`, `CurrencyCodeTest`, `ExchangeRateTest`, `LegacyColumnWidenerTest`) on a schema modelled on what was found on
-this server. The two column migrations were run on **MySQL 8.0.46 and MariaDB 10.11.14** (and CI runs the fulfillment suites on MySQL 8);
-they were **not** run on MariaDB 11.4.2, the engine of the pilot server, which could not be installed where this was prepared. That is
+this server. The two column migrations were run on **MySQL 8.0.46, MariaDB 10.11.14 and a local MariaDB 11.4.2 test instance** (the pilot
+server's version; CI runs the fulfillment suites on MySQL 8); they were **not** run on the pilot server itself. That is
 what the read-only *column changes the migrations would make* line, the backup taken just before, the refusal-before-alter rules and the
 read-back after the change are for.
 

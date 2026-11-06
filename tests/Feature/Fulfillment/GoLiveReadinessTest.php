@@ -17,6 +17,7 @@ use App\Services\Fulfillment\ProviderMappingService;
 use App\Services\Fulfillment\ProviderSettingsSaver;
 use App\Services\Fulfillment\Providers\M5azn\M5aznFieldMaps;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodFieldMaps;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodInvoiceRoundTrip;
 use App\Services\Fulfillment\Readiness\GoLiveItem;
 use App\Services\Fulfillment\Readiness\GoLiveOverride;
 use App\Services\Fulfillment\Readiness\GoLiveReadiness;
@@ -109,6 +110,7 @@ class GoLiveReadinessTest extends AdminPagesTestCase
         } else {
             $this->verifyMap($provider, TorodFieldMaps::PRODUCTS, ['id' => 'id', 'name' => 'name'], [['id' => 1, 'name' => 'Panadol']], ['id', 'name']);
             $this->verifyMap($provider, TorodFieldMaps::ORDERS, ['invoice_number' => 'invoiceNumber', 'reference' => 'barcode'], [['invoiceNumber' => '1-TP1', 'barcode' => 'B1']], ['invoice_number', 'reference']);
+            app(TorodInvoiceRoundTrip::class)->confirm(adminId: 1, adminName: 'Admin', evidence: 'Provider confirmed in writing that the invoice number comes back.', seenPath: 'invoiceNumber');
         }
 
         $productId = $this->makeProduct(900 + (int) ($provider === ProviderCode::TorodPoint), $provider);

@@ -79,8 +79,9 @@ Setting made:  <field-map path / status map / setting, or "none">
   to run on an unverified map (that is deliberate: nothing guesses a response shape).
 * A **status map** (M5AZN) turns the provider's status words into ours. A word that is not in the map changes nothing and
   is shown on the shipment (*unmapped*), so an incomplete map is visible, never silently wrong.
-* **Stock** (Torod Point) drives availability only after a verified products map **and** a person ticks *"I confirm the
-  stock field is the available quantity"* — and only if LogesTechs has actually said so. Until then stock is manual.
+* **Stock** (Torod Point) drives availability only after a verified products map **and** a person ticks *"I confirm this field of
+  the product list is the quantity available to sell …"* beside its path — and only if LogesTechs has actually said so. Until then
+  stock is manual.
 
 ## Stop conditions
 

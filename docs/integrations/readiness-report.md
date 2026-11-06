@@ -1,10 +1,15 @@
 # Production readiness report — GO / NO-GO
 
-**Branch:** `claude/clever-newton-wvhbt2` · **PR:** #1 (not merged) · **Date:** 2026-11-05
+**Branch:** `claude/clever-newton-wvhbt2` · **PR:** #1 and #2 (merged; Hotfix 2 is its own pull request) · **Date:** 2026-11-05 (Hotfix 2 added 2026-11-06)
 **Scope of this phase:** independent review, verification and hardening of the M5AZN + Torod Point (LogesTechs)
 fulfillment integration. **Not done, by instruction:** merge, deploy, production migration, real order dispatch, any
 live write call to a provider. No live call of any kind was made.
 
+> **Update — Hotfix 2.** As reported by the owner: the Torod API connection works, the live read-only verification ran with 5 passes, 1
+> warning and 1 skipped check, the products field map is verified, the orders field map is **not** (that is what Hotfix 2 fixes),
+> `FULFILLMENT_INTEGRATIONS_ENABLED=true` and `FULFILLMENT_EXTERNAL_WRITES_ENABLED=false`. Nothing below was re-established live by
+> Hotfix 2: [hotfix-2.md](hotfix-2.md) says what it changes, and its two new blockers are B7 and B9 in the blocker table.
+>
 > **Update — pilot-server phase.** The existing production server is the pilot environment, and no staging server will be built.
 > The deployment procedure, its approval gates, the rollback for every phase and the remaining blockers are in
 > [**pilot-deployment.md**](pilot-deployment.md); the plan for the first real orders is [controlled-test-orders.md](controlled-test-orders.md).
@@ -168,7 +173,8 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 | **B4** | **Deployment security actions** (we cannot see production): confirm production's `APP_KEY` is not the example key in `.env.example` (SEC-2); rotate the Zender secret and review its message log (SEC-1) | D | Checklists in [security-findings](security-findings.md) | Store owner / ops |
 | **B5** | **Runtime wiring on the target host** not known: how the queue runs (it must include the `fulfillment` queue), the cron `schedule:run` line, a real cache driver, `retry_after` 180, **trusted proxies** (client IP), the document root (SEC-13) | C, D | [pilot-deployment §0 and §4](pilot-deployment.md); preflight, *System checks* and the go-live checklist's *Scheduler running* / *Queue worker keeping up* all met | Ops |
 | **B6** | **Business decisions for cash on delivery**: is COD taken for provider items at all; keep mixed-collection blocked (recommended) or verify it per provider; who collects at M5AZN and how it is settled | D, only if COD is offered | Decide; then M-12 / T-9c | Store owner |
-| **B7** | **Torod stock**: LogesTechs must state which field is available-to-sell (or provide an inventory endpoint) | F only | T-1b with physical counts (`fulfillment:verify torod_point --skus=…`) + written answer | LogesTechs |
+| **B7** | **Torod stock**: LogesTechs must state which of the product list's quantity fields (`onHandQuantity`, `sellableQuantity`, …) is available-to-sell and falls when an order is accepted (or provide an inventory endpoint). The live run showed 15/19/2 on hand and 0 sellable for three products; no field is proposed or picked by the system | F only | T-1b with physical counts (`fulfillment:verify torod_point --skus=…`) + written answer ([request, section F](vendor-requests/logestechs-technical-request.md)) | LogesTechs |
+| **B9** | **Torod invoice-number round trip**: nobody has shown that the invoice number we send comes back in the order list (historical orders carry `invoiceNumber: null`; the orders map is verified for its shape only). Until a master administrator records the evidence, **no real order is created** | D (Torod), C (controlled orders) | LogesTechs' written answer, or an order created for the purpose and read back; then *Invoice number round trip* on the Torod Point page | LogesTechs + store owner |
 | **B8** | **Access and inputs for the pilot**: shell access on the server, the phase-0 answers, the production database name, a maintenance window, an off-server place for the backup, both providers' credentials, written authorisation and test products for the controlled orders | A, B, C | The table in [pilot-deployment §11](pilot-deployment.md#11-blockers-and-decisions) | You |
 
 ### Non-blockers (tracked; none prevents the decisions above)
@@ -197,7 +203,11 @@ change cannot rewrite what was sold and sent (immutable snapshot); it is **not p
 |---|---|
 | Full suite, SQLite | **1,528 tests, 8,118 assertions, 0 failures** (40 skipped: `ExampleTest` needs the installation dump, which is not in the repository; one check that cannot run as root; four that only mean something on MySQL; and 34 of Hotfix 1's that need a server that enforces column lengths, MySQL or MariaDB) |
 | MySQL 8, platform non-strict mode | the fulfillment, security and CI-proof suites: **1,315 tests, 7,362 assertions, 0 failures, 3 skipped** (the MySQL-only checks run here; skipped are Hotfix 1's two SQLite-only checks and its MariaDB-only one) |
-| MariaDB 10.11.14, run by hand (CI has MySQL only) | the fulfillment suites: **1,307 tests, 7,297 assertions, 0 failures, 2 skipped** (the two SQLite-only checks of Hotfix 1). **Not run on MariaDB 11.4.2**, the pilot server's engine |
+| MariaDB 10.11.14, run by hand (CI has MySQL only) | the fulfillment suites: **1,307 tests, 7,297 assertions, 0 failures, 2 skipped** (the two SQLite-only checks of Hotfix 1). Hotfix 2 ran them on a local MariaDB 11.4.2 too (below) |
+| **Hotfix 2** — SQLite, full suite | **1,765 tests, 8,984 assertions, 0 failures** (40 skipped, for the same reasons) |
+| **Hotfix 2** — MySQL 8.0.46 | the fulfillment, security and CI-proof suites: **1,552 tests, 8,228 assertions, 0 failures, 3 skipped** |
+| **Hotfix 2** — MariaDB 11.4.2 (a local instance of the pilot server's version) | the fulfillment suites: **1,544 tests, 8,163 assertions, 0 failures, 2 skipped** |
+| **Hotfix 2** — mutation checks | 103 single-line mutations of the new safety logic (the gate, the stock ownership, the sync, the guards, the field-map reading); six survived at first and were closed with new tests, and every one is caught now |
 | MySQL 8, **strict** SQL mode (an earlier experiment, reverted) | **all pass** — nothing relies on non-strict coercion |
 | GitHub Actions (every push; see the checks of the pull request) | SQLite on PHP 8.2 and 8.3, a syntax lint on both, the fulfillment and security suites on a real MySQL 8, the repository leak guard over every commit of the pull request, and the build of the deployment package from the pull request's head |
 | Adversarial review and mutation checks | three independent review rounds, the last aimed at what the previous round's fixes had changed, found defects in the order-sending path, the personal-data rules and the deployment tooling (26 in the last round, 57 in the one before, about a hundred earlier). Each was reproduced before it was fixed; each fix has a test, and the fixes of the last two rounds were **mutation-checked**: the fix is reverted, the test is confirmed to fail |

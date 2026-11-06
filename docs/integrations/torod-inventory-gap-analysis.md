@@ -34,16 +34,42 @@ not proven to be the available quantity is labelled and never used to decide ava
    whether a full-catalogue poll is acceptable and how often.
 8. **Identifier precedence** between `externalId`, `id` (LogesTechs) and `sku` is unspecified for order lines.
 
+## What the live read-only run showed (Hotfix 2)
+
+The product list **does** return quantities, under several names: `quantity`, `originalQuantity`, `committedQuantity`,
+`allocatedQuantity`, `onHandQuantity` and `sellableQuantity`. For three real products the run showed:
+
+| Product | `onHandQuantity` | `sellableQuantity` | `quantity` · `originalQuantity` · `committedQuantity` · `allocatedQuantity` |
+|---|---|---|---|
+| AS9 | 15 | 0 | 0 · 0 · 0 · 0 |
+| AS10 | 19 | 0 | 0 · 0 · 0 · 0 |
+| AS8 | 2 | 0 | 0 · 0 · 0 · 0 |
+
+Nothing in that table says which figure the storefront may sell from, or why units on hand are not sellable (a put-away or release
+step? a different meaning?). Picking `sellableQuantity` would put every one of these products at zero; picking `onHandQuantity` may
+count units that are already committed to orders. **That is LogesTechs' to answer** ([request, section F](vendor-requests/logestechs-technical-request.md)),
+not ours to infer, so:
+
+* no quantity field is proposed as the stock (the old first candidate, `quantity`, was filled in with a zero on every product and would
+  have been proposed);
+* the confirmation gate stays, and it now names the **path** it was made for;
+* until it is cleared, **inventory sync stays off and the storefront keeps its manually maintained stock.**
+
 ## What the code does today (nothing is guessed)
 
 * `fulfillment:sync` / *Sync warehouse products* reads the product list and **stages the raw rows**
   (`provider_catalog_items`). Any number that looks like stock is shown as **"Not confirmed as available quantity"**.
 * A mapped product's stock is **manual** (typed by a person, labelled *Entered manually*) until both are true:
   an administrator has **verified the products field map** (which JSON path is the stock field) **and** ticked
-  *"I confirm the stock field is the available quantity"* in the Torod Point settings (the moment is recorded;
-  un-ticking withdraws it). The capability report says *Not verified* until then.
-* When confirmed, `InventorySyncService` writes `stock − quantities not yet handed to the warehouse` into the
-  storefront availability, so an order we have not yet sent is not counted twice.
+  *"I confirm this field of the product list is the quantity available to sell, already excluding the units on orders the warehouse
+  has accepted"* beside that path in the Torod Point settings (the moment and the path are recorded; a different path lapses it;
+  un-ticking withdraws it). The capability report says *Unverified* until then.
+* When confirmed **for the exact path the map reads**, and only for products **assigned to Torod Point**,
+  `InventorySyncService::applyToAssignedProducts` writes `stock − quantities not yet handed to the warehouse` into the
+  storefront availability (a variant at a time; a figure the warehouse has not repeated for six hours stops counting), so an order we have not yet sent is not counted twice. A figure that is missing, negative,
+  fractional, not a number or contradictory is skipped and counted (never zero); a product the response does not mention is
+  left alone and counted; the product form and the manual-stock entry stand aside for a product the warehouse controls.
+  Details and the manual/warehouse modes: [torod-point.md](torod-point.md#stock).
 * If LogesTechs provides a **dedicated inventory endpoint** instead, a small adapter addition reads it (the
   scheduling, mapping, labelling and storefront write already exist). Estimated work: the client call, a field map,
   tests — nothing else changes.
@@ -63,8 +89,10 @@ The exact questions, with a proposed minimal contract, are in
 
 ## Interim operating mode (until answered)
 
-Torod Point products are sellable on **manual stock**: a person enters the warehouse count (labelled), and orders are
-still sent automatically. Risk: the store can oversell if the manual figure is stale; the warehouse cannot fulfil what
+This is what runs today, by decision: `inventory_sync_enabled` is off and stays off.
+
+Torod Point products are sellable on **manual stock**: a person enters the warehouse count (labelled). Orders wait for the usual
+approval and for the invoice-number round-trip confirmation; stock has no part in that. Risk: the store can oversell if the manual figure is stale; the warehouse cannot fulfil what
 it does not have, so such an order would be rejected or stall at the provider and surface as *Failed/Held*. This is
 acceptable for a pilot, not for full automation. **Classified as a blocker for "automatic inventory synchronisation",
-not for order dispatch.**
+not for order dispatch (which has its own gate: the invoice-number round trip).**

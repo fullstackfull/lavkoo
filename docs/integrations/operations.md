@@ -127,7 +127,8 @@ It is **never** re-sent automatically:
 1. The shipment moves to **Outcome unknown** (a worker lost mid-request is moved there after 10 minutes).
 2. Reconciliation asks the provider (Torod: finds our invoice number in the order list, needs a verified orders map;
    M5AZN: finds our order id, needs the orders map) — first after 2 minutes, then after waits of 5, 10, 15, 20 and 25
-   minutes. Finding it records the acceptance.
+   minutes. Finding it records the acceptance. (Torod: a blank invoice number never matches, an order's id or barcode is never taken
+   for it, and two orders carrying our number are not linked automatically; they wait for a person.)
 3. Not finding it is *not* proof it does not exist; after 6 attempts it waits for a person: check the provider's own
    dashboard, then **Confirm the provider has no such order** (only possible while the provider never gave a reference; it **sends the order again at once**, as Release would, after the browser's confirmation) or
    **Link provider order**. Both need a reason, are audited, and are refused if the situation changed while
@@ -157,7 +158,7 @@ The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-de
    off. A test order records the exact request on the shipment page. Then, in an authorised window only,
    `FULFILLMENT_EXTERNAL_WRITES_ENABLED=true`, **Dry run** off, and a person presses **Release and send now** (after the browser's confirmation) on that one shipment.
 4. The provider page's **Before automatic sending** checklist is derived from what really happened (a recent passing verification,
-   verified maps, mapped products, a running scheduler and queue, one order accepted by the provider, one status update received and
+   verified maps, *Torod only:* the invoice-number round trip confirmed with its evidence, mapped products, a running scheduler and queue, one order accepted by the provider, one status update received and
    understood). **Send automatically** is refused while an item is unmet; the **master admin** may go ahead with the override
    checkbox and a written reason, which is kept on the provider's settings and, when the platform's `audit_logs` table exists, in the audit log with the unmet items.
 5. The moment automatic sending becomes live is recorded as the provider's *go-live* time: orders placed **before** it are held
@@ -193,6 +194,9 @@ The full sequence, with its approval gates, is in [pilot-deployment.md](pilot-de
 
 | You see | Meaning | Do |
 |---|---|---|
+| **Held** · *A real order waits for the provider's confirmation step* on Torod Point, with the capability *Real order submission: Not verified* | The invoice number we send has not been confirmed to come back in the order list; no real order is created until it is | A master administrator records the confirmation with its evidence (Torod Point page → *Invoice number round trip*); the sweep then retries the held orders (each still waits for the usual approval unless *Send automatically* is on). A rehearsal is not held |
+| The stock run's counts (message after *Sync stock now*, `fulfillment:sync` output, `provider_sync_states.stats`) show `invalid`, `unsupported`, `not_assigned` or `absent` | Figures the warehouse gave that were refused (missing, negative, fractional, contradictory), a whole-product mapping on a product with variants or a variant that no longer exists, mapped products that are not assigned to Torod Point, or assigned products the answer did not mention | Nothing was written for those: the storefront kept its stock. Look at the product list in the sample; a high `invalid` means the confirmed field is wrong. A run in which assigned products received no usable figure at all is shown as failed (*Last API error*) |
+| A typed stock figure was not saved: *This product's stock is set by the warehouse sync* | The warehouse sets that product's stock (assigned, mapped, confirmed, switched on, figure recent) | Nothing to fix. To type stock again: switch *Follow warehouse stock levels* off, or unassign the product |
 | **Held** + reason | Safe: nothing sent. The reason names the cause (mapping, city, phone, COD, currency, provider off, before go-live, **already has a provider reference**…) | Fix the cause; the sweep releases causes it can re-check, or press *Release* (money holds and "already with provider" release only when their cause is fixed) |
 | **Outcome unknown** | A request may or may not have reached the provider. It is *not* re-sent | See section 4 |
 | **Failed** | The provider refused, or retries ran out | Read the last error and the API calls on the shipment page; fix the data or settings, then *Release* (resets the attempt counters) |

@@ -42,6 +42,7 @@ class ProviderOrderDispatcher
         HoldReason::PROVIDER_DISABLED,
         HoldReason::EXTERNAL_WRITES_DISABLED,
         HoldReason::PROVIDER_NOT_READY,
+        HoldReason::LIVE_SUBMISSION_UNPROVEN,
         HoldReason::ACKNOWLEDGEMENT_REQUIRED,
         HoldReason::MAPPING_MISSING,
         HoldReason::MAPPING_NOT_APPROVED,
@@ -215,6 +216,12 @@ class ProviderOrderDispatcher
         $readiness = $adapter->readiness();
         if (!$readiness->canUse('dispatch')) {
             return [HoldReason::PROVIDER_NOT_READY, implode(', ', $readiness->missing) ?: $readiness->capability('dispatch')?->reason];
+        }
+
+        // A provider that reports `live_submission` has something to prove before a REAL order goes to it (a rehearsal needs no such proof).
+        $proof = $readiness->capability('live_submission');
+        if (!$config->bool('dry_run', true) && $proof !== null && !$proof->isUsable()) {
+            return [HoldReason::LIVE_SUBMISSION_UNPROVEN, null];
         }
 
         $goLive = $config->get('go_live_at');

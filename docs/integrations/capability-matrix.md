@@ -26,7 +26,7 @@ Sources: M5AZN API on `m5azn-api.stoplight.io` (retrieved 2026-11-05); LogesTech
 
 | Capability | API | Documented | Built | Notes |
 |---|---|---|---|---|
-| Create warehouse (fulfillment) order | Fulfillment v5 `POST /public/fulfillment/order` | Yes | Yes | Headers `company-id`, `username`, `password`; the warehouse then creates its own last-mile package |
+| Create warehouse (fulfillment) order | Fulfillment v5 `POST /public/fulfillment/order` | Yes | Gated | Headers `company-id`, `username`, `password`; the warehouse then creates its own last-mile package. A real order waits until the master administrator has confirmed the invoice-number round trip |
 | List warehouse orders | v5 `GET /public/fulfillment/order` | Yes (no response schema) | Gated | Used to reconcile an ambiguous submission by our invoice number; needs a verified orders map |
 | Product list | v5 `GET /public/fulfillment/product` | Yes (no response schema) | Gated | **Does not document a stock quantity** — see below |
 | Product bulk upsert | v5 `POST /public/fulfillment/product/bulk` | Yes | Gated | Off by default, previewable, **never sends quantity** |
@@ -52,8 +52,9 @@ Sources: M5AZN API on `m5azn-api.stoplight.io` (retrieved 2026-11-05); LogesTech
 * the product list is read and staged; whatever stock-looking number it returns is shown as **"not confirmed as
   available quantity"**;
 * warehouse stock drives availability **only if** (a) an administrator has verified the products field map **and**
-  (b) a person ticked *"I confirm the stock field is the available quantity"* in the Torod Point settings — the
-  moment of that statement is recorded, and un-ticking withdraws it;
+  (b) a person ticked *"I confirm this field of the product list is the quantity available to sell, already excluding the units on
+  orders the warehouse has accepted"* beside the path the map reads — the moment and the path are recorded, a different path lapses
+  it, and un-ticking withdraws it **and** (c) *Follow warehouse stock levels* is on and the product is assigned to Torod Point;
 * otherwise stock for a mapped product is **manual** (typed by a person, labelled *Entered manually*) and never
   silently treated as synced;
 * **what is needed from LogesTechs:** the response schema of the product list and either a confirmation that its

@@ -14,6 +14,8 @@ use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\FieldMapDefinitions;
 use App\Services\Fulfillment\FieldMapStore;
 use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodInvoiceRoundTrip;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodStockConfirmation;
 use App\Services\Fulfillment\Readiness\FulfillmentPreflight;
 use App\Services\Fulfillment\Readiness\GoLiveItem;
 use App\Services\Fulfillment\Readiness\GoLiveOverride;
@@ -30,6 +32,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use InvalidArgumentException;
 
 /** The Integration Center: every fulfillment provider's connection, switches, health and operational logs in one place. */
 class IntegrationCenterController extends Controller
@@ -46,6 +49,8 @@ class IntegrationCenterController extends Controller
         private readonly EvidenceStore $evidence,
         private readonly GoLiveReadiness $goLive,
         private readonly ProviderSettingsSaver $saver,
+        private readonly TorodInvoiceRoundTrip $invoiceRoundTrip,
+        private readonly TorodStockConfirmation $stockConfirmation,
     ) {
     }
 
@@ -82,6 +87,10 @@ class IntegrationCenterController extends Controller
             'secrets' => $config->toDisplayArray()['secrets_configured'],
             'defaults' => $this->registry->defaultSettings($code),
             'maps' => $maps,
+            'stockField' => $code === ProviderCode::TorodPoint ? ['path' => $this->stockConfirmation->path(), 'stated' => $this->stockConfirmation->isStated($config)] : null,
+            'invoiceRoundTrip' => $code === ProviderCode::TorodPoint
+                ? ['confirmation' => $this->invoiceRoundTrip->confirmation($config), 'path' => $this->invoiceRoundTrip->invoicePath(), 'minEvidence' => TorodInvoiceRoundTrip::MIN_EVIDENCE_LENGTH, 'maxEvidence' => TorodInvoiceRoundTrip::MAX_EVIDENCE_LENGTH]
+                : null,
             'webhookUrls' => $this->webhookUrls($code, $config->secret('webhook_secret')),
             'revealedSecret' => session('webhook_secret_once'),
             'recentLogs' => ProviderApiLog::where('provider', $code->value)->latest('id')->limit(15)->get(),
@@ -179,7 +188,9 @@ class IntegrationCenterController extends Controller
         ]);
 
         $paths = array_intersect_key((array) ($validated['paths'] ?? []), array_flip($definition['fields']));
+        $confirmedPathsBefore = $this->confirmedPaths($code);
         $this->fieldMaps->save($code, $capability, $paths, $validated['items_path'] ?? null);
+        $this->forgetConfirmationsOfChangedPaths($code, $confirmedPathsBefore);
 
         if (!$request->boolean('verify')) {
             ToastMagic::success(translate('field_map_saved_not_verified'));
@@ -196,12 +207,99 @@ class IntegrationCenterController extends Controller
         }
 
         $items = $sample['ok'] ? FieldMap::extractItems(['data' => $sample['items']], 'data') ?? [] : [];
-        $problems = $this->fieldMaps->verify($code, $capability, $items, $definition['required']);
-        $problems === []
+        $problems = $this->fieldMaps->verify($code, $capability, $items, $definition['required'], $definition['nullable'] ?? [], strictValues: $definition['strict'] ?? false);
+        if ($problems !== []) {
+            SafeToast::error(translate('field_map_not_verified'), implode(', ', $problems));
+
+            return back();
+        }
+
+        $unfilled = $this->unfilledNullableFields($code, $capability, $definition['nullable'] ?? []);
+        $unfilled === []
             ? ToastMagic::success(translate('field_map_verified'))
-            : SafeToast::error(translate('field_map_not_verified'), implode(', ', $problems));
+            : SafeToast::warning(translate('field_map_verified_shape_only'), implode(', ', array_map(static fn (string $logical): string => translate('map_field_' . $logical), $unfilled)));
 
         return back();
+    }
+
+    /** POST …/torod-point/invoice-round-trip — a master administrator records that Torod Point returns the invoice number we send, and the evidence. */
+    public function confirmInvoiceRoundTrip(Request $request): RedirectResponse
+    {
+        if (!$this->isMasterAdmin()) {
+            throw ValidationException::withMessages(['confirm' => translate('invoice_round_trip_master_admin_only')]);
+        }
+
+        $validated = $request->validate([
+            'confirm' => ['accepted'],
+            'evidence' => ['required', 'string', 'min:' . TorodInvoiceRoundTrip::MIN_EVIDENCE_LENGTH, 'max:' . TorodInvoiceRoundTrip::MAX_EVIDENCE_LENGTH],
+            'invoice_path' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        if ($this->invoiceRoundTrip->invoicePath() === null) {
+            SafeToast::warning(translate('invoice_round_trip_not_confirmed'), translate('invoice_round_trip_needs_invoice_path'));
+
+            return back();
+        }
+
+        $admin = auth('admin')->user();
+        try {
+            $this->invoiceRoundTrip->confirm(adminId: (int) $admin->id, adminName: (string) $admin->name, evidence: $validated['evidence'], seenPath: (string) ($validated['invoice_path'] ?? ''));
+        } catch (InvalidArgumentException) {
+            SafeToast::warning(translate('invoice_round_trip_not_confirmed'), translate('invoice_round_trip_check_again'));
+
+            return back()->withInput();
+        }
+        ToastMagic::success(translate('invoice_round_trip_confirmed'));
+
+        return back();
+    }
+
+    public function withdrawInvoiceRoundTrip(): RedirectResponse
+    {
+        if (!$this->isMasterAdmin()) {
+            throw ValidationException::withMessages(['confirm' => translate('invoice_round_trip_master_admin_only')]);
+        }
+
+        $this->invoiceRoundTrip->withdraw();
+        ToastMagic::success(translate('invoice_round_trip_withdrawn'));
+
+        return back();
+    }
+
+    /** @return array{invoice: ?string, stock: ?string} the paths the Torod Point confirmations are about (none for any other provider) */
+    private function confirmedPaths(ProviderCode $code): array
+    {
+        return $code === ProviderCode::TorodPoint
+            ? ['invoice' => $this->invoiceRoundTrip->configuredPath(), 'stock' => $this->stockConfirmation->path()]
+            : ['invoice' => null, 'stock' => null];
+    }
+
+    /**
+     * A confirmation is about one path. When the path is changed the confirmation is removed, so that putting the old path back
+     * does not bring back a statement nobody has made again.
+     *
+     * @param array{invoice: ?string, stock: ?string} $before
+     */
+    private function forgetConfirmationsOfChangedPaths(ProviderCode $code, array $before): void
+    {
+        if ($code === ProviderCode::TorodPoint) {
+            $this->invoiceRoundTrip->withdrawIfPathChanged($before['invoice']);
+            $this->stockConfirmation->withdrawIfPathChanged($before['stock']);
+        }
+    }
+
+    /**
+     * The nullable fields of a map that the verification sample did not fill in for every record it looked at.
+     *
+     * @param list<string> $nullable
+     * @return list<string>
+     */
+    private function unfilledNullableFields(ProviderCode $code, string $capability, array $nullable): array
+    {
+        $stored = $this->fieldMaps->get($code, $capability);
+        $sampled = (int) ($stored->coverage['sampled'] ?? 0);
+
+        return array_values(array_filter($nullable, static fn (string $logical): bool => ($stored->filledIn($logical) ?? 0) < $sampled));
     }
 
     /** @return array<string, mixed> */

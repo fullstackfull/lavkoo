@@ -46,6 +46,12 @@ These are exactly the two checklist items that block turning automatic sending o
   * *Torod Point only:* **webhooks are set up** (*Generate webhook secret*, *Accept webhooks* on, both URLs given to LogesTechs, a
     delivery confirmed — [operations §3](operations.md)). A Torod package barcode is learned only from a webhook event, so without
     it step 8 can never pass.
+  * *Torod Point only:* **the invoice-number round trip is confirmed** (Torod Point page → *Invoice number round trip*, master
+    administrator, with the evidence). Until it is, step 5 cannot send: the shipment is held (*A real order waits for the provider's confirmation step*). The evidence
+    comes from outside this system: LogesTechs' written answer about the Add Order API ([request, section F](vendor-requests/logestechs-technical-request.md)),
+    or a test order created **through the Add Order API** (by LogesTechs, or by you outside this system, with an invoice number agreed in
+    writing) and read back unchanged in the order list. An order typed into the Torod Point dashboard proves nothing about the API.
+    A verified orders map is not that evidence: historical orders show `invoiceNumber: null`.
   * Only the test products are assigned to the provider. Everything else stays in-house.
 * **A staff customer account**, with a valid Saudi mobile (`05XXXXXXXX`) and a delivery address in a city the provider serves, that
   belong to a person who will receive the parcel or can refuse it.
