@@ -98,8 +98,13 @@ class InventoryCostLayerService
     {
         return DB::transaction(function () use ($consumerType, $consumerId, $locationId, $productId, $variantKey, $quantity, $at, $sellerId): ConsumptionResult {
             $generation = $this->currentGeneration($consumerType, $consumerId);
-            $alreadyTaken = (int) InventoryCostConsumption::where('consumer_type', $consumerType)->where('consumer_id', $consumerId)
-                ->where('generation', $generation)->whereNull('reversed_at')->sum('quantity');
+            $alreadyTaken = $this->takenBy($consumerType, $consumerId, $generation);
+            if ($alreadyTaken > $quantity) {
+                // The sale got smaller (units cancelled): give everything back and take the smaller quantity afresh, so the layers and the cost follow it.
+                $this->reverse($consumerType, $consumerId);
+                $generation = $this->currentGeneration($consumerType, $consumerId);
+                $alreadyTaken = 0;
+            }
             $needed = $quantity - $alreadyTaken;
 
             if ($needed > 0) {
@@ -261,6 +266,12 @@ class InventoryCostLayerService
         ]);
         $remaining = $layer->quantity_remaining - $quantity;
         $layer->forceFill(['quantity_remaining' => $remaining, 'status' => $remaining === 0 ? InventoryCostLayer::DEPLETED : $layer->status])->save();
+    }
+
+    private function takenBy(string $consumerType, int $consumerId, int $generation): int
+    {
+        return (int) InventoryCostConsumption::where('consumer_type', $consumerType)->where('consumer_id', $consumerId)
+            ->where('generation', $generation)->whereNull('reversed_at')->sum('quantity');
     }
 
     /** The generation a consumer is on: a new one starts once every row of the latest has been reversed. */
