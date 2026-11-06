@@ -64,7 +64,7 @@ class AddressCatalog
             ->when($onlyActive, static fn (Builder $query) => $query->where('is_active', true));
 
         if ($keys === []) {
-            return $builder->orderBy('name_en')->orderBy('id')->limit($limit)->get();
+            return $builder->orderByDesc('sort_order')->orderBy('name_en')->orderBy('id')->limit($limit)->get();
         }
 
         $aliasCityIds = AddressCityAlias::query()
@@ -89,6 +89,7 @@ class AddressCatalog
                 'CASE WHEN normalized_ar = ? OR normalized_en = ? THEN 0 WHEN normalized_ar LIKE ? OR normalized_en LIKE ? THEN 1 ELSE 2 END',
                 [$keys[0], $keys[0], $keys[0] . '%', $keys[0] . '%'],
             )
+            ->orderByDesc('sort_order')
             ->orderBy('name_en')
             ->orderBy('id')
             ->limit($limit)

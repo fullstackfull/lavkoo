@@ -173,7 +173,7 @@ class AddressImporter
                 $batch[] = [
                     'region_id' => $regionId, 'name_ar' => $nameAr, 'name_en' => $nameEn,
                     'normalized_ar' => AddressText::key($nameAr), 'normalized_en' => AddressText::key($nameEn),
-                    'latitude' => $row['lat'] ?? null, 'longitude' => $row['lon'] ?? null, 'is_active' => true,
+                    'latitude' => $row['lat'] ?? null, 'longitude' => $row['lon'] ?? null, 'sort_order' => max(0, (int) ($row['rank'] ?? 0)), 'is_active' => true,
                     'source' => $source, 'source_ref' => $ref, 'source_updated_at' => $snapshot ?? $now,
                     'created_at' => $now, 'updated_at' => $now,
                 ];
@@ -185,7 +185,10 @@ class AddressImporter
                 continue;
             }
 
-            $current->fill(['latitude' => $row['lat'] ?? null, 'longitude' => $row['lon'] ?? null, 'source_updated_at' => $snapshot ?? $current->source_updated_at]);
+            $current->fill([
+                'latitude' => $row['lat'] ?? null, 'longitude' => $row['lon'] ?? null,
+                'sort_order' => max(0, (int) ($row['rank'] ?? 0)), 'source_updated_at' => $snapshot ?? $current->source_updated_at,
+            ]);
             if ($refreshNames) {
                 $current->fill(['name_ar' => $nameAr, 'name_en' => $nameEn, 'normalized_ar' => AddressText::key($nameAr), 'normalized_en' => AddressText::key($nameEn)]);
             }

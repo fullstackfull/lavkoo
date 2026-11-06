@@ -48,6 +48,7 @@ return new class extends Migration
                 $table->string('normalized_en', 191)->index('address_cities_norm_en_idx');
                 $table->decimal('latitude', 10, 8)->nullable();
                 $table->decimal('longitude', 11, 8)->nullable();
+                $table->unsignedInteger('sort_order')->default(0);
                 $table->boolean('is_active')->default(true);
                 $table->string('source', 40)->nullable();
                 $table->string('source_ref', 64)->nullable();

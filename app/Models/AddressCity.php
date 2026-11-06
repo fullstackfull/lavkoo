@@ -19,6 +19,7 @@ class AddressCity extends Model
 
     protected $casts = [
         'region_id' => 'integer',
+        'sort_order' => 'integer',
         'is_active' => 'boolean',
         'latitude' => 'float',
         'longitude' => 'float',
