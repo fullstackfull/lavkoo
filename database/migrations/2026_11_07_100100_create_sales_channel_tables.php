@@ -151,7 +151,8 @@ return new class extends Migration
 
                 $table->unique(['account_id', 'external_order_id', 'external_package_id'], 'eom_account_order_package_unique');
                 $table->index(['sales_channel', 'status'], 'eom_channel_status_idx');
-                $table->index(['provider', 'shipment_reference'], 'eom_provider_reference_idx');
+                // One provider shipment belongs to one channel order package: a second link to the same shipment is refused by the database as well as by the linker.
+                $table->unique(['provider', 'shipment_reference'], 'eom_provider_reference_unique');
             });
         }
 

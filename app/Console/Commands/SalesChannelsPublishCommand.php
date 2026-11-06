@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Console\Commands\Concerns\SkipsUntilSalesChannelsMigrated;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
+use App\Services\SalesChannels\Shipments\ChannelShipmentNotifier;
 use Illuminate\Console\Command;
 
 class SalesChannelsPublishCommand extends Command
@@ -13,11 +14,11 @@ class SalesChannelsPublishCommand extends Command
 
     protected $signature = 'channels:publish
         {account? : the sales channel account id (default: every enabled account)}
-        {--only=stock,price,settle : comma separated: stock, price, settle (follow up what the channel queued)}';
+        {--only=stock,price,settle,shipments : comma separated: stock, price, settle (follow up what the channel queued), shipments (tell the channel about linked shipments)}';
 
     protected $description = 'Publish confirmed stock and set prices to the sales channels (a WRITE: needs the environment switch, the account switch and a recorded approval; a dry-run account only rehearses)';
 
-    public function handle(StockPricePublisher $publisher): int
+    public function handle(StockPricePublisher $publisher, ChannelShipmentNotifier $notifier): int
     {
         if (!config('sales_channels.enabled')) {
             $this->line('Sales channel integrations are switched off (SALES_CHANNELS_ENABLED); nothing to do.');
@@ -41,6 +42,9 @@ class SalesChannelsPublishCommand extends Command
                     $failed = $failed || $result['result'] === 'failed';
                     $this->line(sprintf('%s #%d publish %s: %s %s', $account->channel, $account->id, $name, $result['result'], json_encode($result['stats'])));
                 }
+            }
+            if (in_array('shipments', $only, true) && $account->enabled) {
+                $this->line(sprintf('%s #%d shipments: %s', $account->channel, $account->id, json_encode($notifier->notifyDue($account))));
             }
             if (in_array('settle', $only, true) && $account->enabled) {
                 $this->line(sprintf('%s #%d settle: %s', $account->channel, $account->id, json_encode($publisher->settle($account))));

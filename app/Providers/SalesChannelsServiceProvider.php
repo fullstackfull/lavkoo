@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\SalesChannels\Shipments\ExternalShipmentLookup;
+use App\Services\SalesChannels\Shipments\NullShipmentLookup;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -17,6 +19,12 @@ use Illuminate\Support\ServiceProvider;
  */
 class SalesChannelsServiceProvider extends ServiceProvider
 {
+    public function register(): void
+    {
+        // No provider search exists yet (see ExternalShipmentLookup): the honest default finds nothing and guesses nothing. Bind a real lookup here when one does.
+        $this->app->bind(ExternalShipmentLookup::class, NullShipmentLookup::class);
+    }
+
     public function boot(): void
     {
         RateLimiter::for('sales-channel-webhooks', static fn (Request $request): Limit => Limit::perMinute(600)->by($request->ip()));

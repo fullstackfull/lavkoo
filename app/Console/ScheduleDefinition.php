@@ -103,7 +103,7 @@ class ScheduleDefinition
         | the environment write switch, the account's write switch and a recorded approval. Reads and writes are separate commands so each can be scheduled, paused or removed alone.
         */
         $schedule->command('channels:sync --due')->everyFiveMinutes()->withoutOverlapping(30)->runInBackground();
-        $schedule->command('channels:publish --only=stock,price')->everyFifteenMinutes()->withoutOverlapping(30)->runInBackground();
+        $schedule->command('channels:publish --only=stock,price,shipments')->everyFifteenMinutes()->withoutOverlapping(30)->runInBackground();
         $schedule->command('channels:publish --only=settle')->everyTenMinutes()->withoutOverlapping(30);
         $schedule->command('costs:refresh --days=3')->hourlyAt(37)->withoutOverlapping(60);
         $schedule->command('costs:accrue-storage')->dailyAt('01:20')->withoutOverlapping(60);

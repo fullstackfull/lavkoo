@@ -156,6 +156,10 @@ return [
         'stale_after_minutes' => 180,
     ],
 
+    // Creating a provider shipment for a CHANNEL order (an order that never was a storefront order) is not available in this version: it needs the buyer's address, which is
+    // deliberately never stored, and an internal order. Leave this off; a routing rule that asks for it is recorded as wanted and the order waits for a person.
+    'managed_dispatch_enabled' => false,
+
     // The class that speaks to each channel. A new channel is a connector class added here.
     'connectors' => [
         'amazon' => \App\Services\SalesChannels\Amazon\AmazonConnector::class,

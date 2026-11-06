@@ -10,10 +10,10 @@ trait CreatesChannelAccounts
 {
     private const ALL_CAPABILITIES = ['connection_test', 'read_only_sync', 'product_sync', 'order_import', 'inventory_publishing', 'price_publishing', 'fulfillment_dispatch', 'financial_reconciliation'];
 
-    protected function trendyolAccount(array $capabilities = self::ALL_CAPABILITIES, bool $writes = true): SalesChannelAccount
+    protected function trendyolAccount(array $capabilities = self::ALL_CAPABILITIES, bool $writes = true, string $sellerId = '1234567'): SalesChannelAccount
     {
         $account = app(ChannelAccountService::class)->create(
-            ['channel' => 'trendyol', 'name' => 'Trendyol KSA', 'external_account_id' => '1234567', 'currency' => 'SAR', 'settings' => ['storefront_code' => 'SA', 'integration_name' => 'PharmacyHub', 'carrier_codes' => ['smsa' => 'SMSA']]],
+            ['channel' => 'trendyol', 'name' => 'Trendyol KSA', 'external_account_id' => $sellerId, 'currency' => 'SAR', 'settings' => ['storefront_code' => 'SA', 'integration_name' => 'PharmacyHub', 'carrier_codes' => ['smsa' => 'SMSA']]],
             ['api_key' => 'key-abc-123', 'api_secret' => 'secret-xyz-789'],
             adminId: 1,
         );

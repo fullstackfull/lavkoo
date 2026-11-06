@@ -3,6 +3,7 @@
 namespace App\Services\SalesChannels\Sync;
 
 use App\Enums\SalesChannels\IntegrationCapability;
+use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Contracts\ReadsChannelInventory;
@@ -11,7 +12,10 @@ use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
 use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Finance\ChannelFeeImporter;
+use App\Enums\SalesChannels\RoutingAction;
 use App\Services\SalesChannels\Inventory\ChannelInventoryWriter;
+use App\Services\SalesChannels\Routing\DynamicFulfillmentRoutingEngine;
+use App\Services\SalesChannels\Shipments\ExternalShipmentLinker;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Closure;
@@ -38,6 +42,8 @@ class ChannelSyncService
         private readonly ListingSyncService $listings,
         private readonly ChannelInventoryWriter $inventory,
         private readonly ChannelFeeImporter $fees,
+        private readonly DynamicFulfillmentRoutingEngine $routing,
+        private readonly ExternalShipmentLinker $linker,
     ) {
     }
 
@@ -84,7 +90,7 @@ class ChannelSyncService
         return $this->runner->run($account, self::ORDERS, function (SyncLease $lease) use ($account): array {
             $reader = $this->connectors->able($account, ReadsOrders::class);
             $since = $this->states->readFrom($lease);
-            $stats = ['pages' => 0, 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'stale' => 0, 'needs_review' => 0, 'skipped' => 0];
+            $stats = ['pages' => 0, 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'stale' => 0, 'needs_review' => 0, 'skipped' => 0, 'decisions' => 0, 'linked' => 0];
 
             return $this->sweep(
                 lease: $lease,
@@ -94,7 +100,8 @@ class ChannelSyncService
                     foreach ($page->items as $remote) {
                         $result = $this->orders->ingest($account, $remote);
                         $stats[$result->outcome]++;
-                        $stats['needs_review'] += $result->mapping->review_reason !== null ? 1 : 0;
+                        $this->decide($result, $stats);
+                        $stats['needs_review'] += $result->mapping->fresh()->review_reason !== null ? 1 : 0;
                     }
                 },
                 stats: $stats,
@@ -178,6 +185,26 @@ class ChannelSyncService
                 finish: static fn (?CarbonInterface $newest, CarbonInterface $started): CarbonInterface => $to,
             );
         });
+    }
+
+    /**
+     * Records what is to be done about an order that is new, changed, or has never been decided, and looks for the shipment of one that is only followed. Both only
+     * read and record: no shipment is created and nothing is sent to the channel or to a provider.
+     *
+     * @param array<string, mixed> $stats
+     */
+    private function decide(IngestResult $result, array &$stats): void
+    {
+        $mapping = $result->mapping;
+        if (in_array($result->outcome, [IngestResult::STALE], true) || ($result->outcome === IngestResult::UNCHANGED && $mapping->execution_policy !== null)) {
+            return;
+        }
+
+        $decision = $this->routing->route($mapping);
+        $stats['decisions'] += $decision?->wasRecentlyCreated ? 1 : 0;
+        if ($decision?->action === RoutingAction::MonitorOnly->value && $mapping->fresh()->shipment_link_state === ExternalOrderMapping::LINK_UNLINKED) {
+            $stats['linked'] += $this->linker->autoLink($mapping->fresh()) === ExternalShipmentLinker::LINKED ? 1 : 0;
+        }
     }
 
     /**
