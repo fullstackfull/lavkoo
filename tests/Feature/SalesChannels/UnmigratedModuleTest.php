@@ -30,6 +30,7 @@ class UnmigratedModuleTest extends TestCase
 
     public function test_with_no_table_the_module_is_not_ready_and_every_scheduled_command_does_nothing_and_succeeds(): void
     {
+        $this->buildCoreSchema();
         $this->assertFalse(SalesChannelSchema::ready());
 
         foreach (self::SCHEDULED as [$command, $arguments]) {
