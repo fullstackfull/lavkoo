@@ -55,6 +55,8 @@ return [
             'operations' => [
                 'trendyol.orders_list' => ['max' => 25, 'per_seconds' => 60],
                 'trendyol.orders_stream' => ['max' => 10, 'per_seconds' => 60],
+                'trendyol.probe_orders' => ['max' => 10, 'per_seconds' => 60, 'bucket' => 'trendyol.orders_stream'],
+                'trendyol.probe_finance' => ['max' => 80, 'per_seconds' => 60, 'bucket' => 'trendyol.finance_settlements'],
                 'trendyol.claims_list' => ['max' => 100, 'per_seconds' => 60],
                 'trendyol.finance_settlements' => ['max' => 80, 'per_seconds' => 60],
                 'trendyol.finance_other' => ['max' => 80, 'per_seconds' => 60],
@@ -137,6 +139,16 @@ return [
         // Each financial transaction type is read with its own request in the international (Gulf) API.
         'finance_settlement_types' => ['Sale', 'Return'],
         'finance_other_types' => ['DeductionInvoices', 'CreditNote', 'CommissionInvoice', 'PaymentOrder'],
+        // A DeductionInvoices row only has a free-text description: these patterns decide what the deduction is. A description that matches none stays unclassified for a person.
+        'finance_map' => [
+            'deduction' => [
+                '/cargo|shipping|carrier|freight|kargo|شحن/iu' => 'marketplace_shipping',
+                '/platform|service[ _-]?fee|hizmet|خدمة/iu' => 'marketplace_service_fee',
+                '/\bads?\b|advert|reklam|إعلان/iu' => 'marketplace_service_fee',
+            ],
+        ],
+        // The largest body a webhook delivery may have before it is refused (a package with many lines is a few kilobytes).
+        'webhook_max_bytes' => 262144,
     ],
 
     'stock' => [

@@ -29,6 +29,7 @@ final class ChannelSettings
                 'integration_name' => 'SelfIntegration',
                 'accept_language' => 'ar',
                 'auto_link_exact_barcode' => false,
+                'prices_include_tax' => true,
                 'torod_reference_field' => 'order_number',
                 'carrier_codes' => [],
             ],
@@ -44,7 +45,7 @@ final class ChannelSettings
     {
         $merged = array_replace(self::defaults($channel), array_intersect_key($input, self::defaults($channel)));
 
-        foreach (['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'auto_link_exact_barcode'] as $flag) {
+        foreach (['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'auto_link_exact_barcode', 'prices_include_tax'] as $flag) {
             if (array_key_exists($flag, $merged)) {
                 $merged[$flag] = filter_var($merged[$flag], FILTER_VALIDATE_BOOLEAN);
             }

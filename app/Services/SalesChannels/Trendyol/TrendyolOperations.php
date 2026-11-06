@@ -44,6 +44,7 @@ final class TrendyolOperations
             // ---- orders (V2) ----
             'trendyol.orders_list' => Ops::read(capabilities: $orders, people: true),
             'trendyol.orders_stream' => Ops::read(capabilities: $orders, people: true),
+            'trendyol.probe_orders' => Ops::read(capabilities: [Capability::ConnectionTest], people: true),
             'trendyol.orders_picking' => Ops::write(['PUT'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
             'trendyol.orders_tracking' => Ops::write(['PUT'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
             'trendyol.orders_invoice_link' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
@@ -53,6 +54,7 @@ final class TrendyolOperations
             'trendyol.claims_list' => Ops::read(capabilities: $orders, people: true),
 
             // ---- finance (current account statement) ----
+            'trendyol.probe_finance' => Ops::read(capabilities: [Capability::ConnectionTest]),
             'trendyol.finance_settlements' => Ops::read(capabilities: $finance),
             'trendyol.finance_other' => Ops::read(capabilities: $finance),
             'trendyol.finance_payment_orders' => Ops::read(capabilities: $finance),

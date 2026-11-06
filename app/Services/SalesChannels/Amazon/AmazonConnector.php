@@ -23,11 +23,10 @@ use App\Services\SalesChannels\Data\RemoteInventoryItem;
 use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\ShipmentConfirmation;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
-use App\Services\SalesChannels\Exceptions\ChannelRateLimitedException;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
+use App\Services\SalesChannels\Support\ChannelResponseGuard;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use RuntimeException;
 
 /**
  * Amazon Selling Partner API: connection test, listings, orders (v2026-01-01), FBA stock, financial transactions (v2024-06-19), price and quantity publishing,
@@ -480,13 +479,6 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
     private function assertOk(ChannelResponse $response, string $what): void
     {
-        if ($response->ok()) {
-            return;
-        }
-        if ($response->kind === ChannelResponse::RATE_LIMITED) {
-            throw new ChannelRateLimitedException($response->retryAfterSeconds() ?? 60, "{$what}: Amazon asked us to slow down.");
-        }
-
-        throw new RuntimeException("{$what} failed (HTTP {$response->status}): " . $response->message());
+        ChannelResponseGuard::assertOk(response: $response, what: $what, channelName: 'Amazon');
     }
 }
