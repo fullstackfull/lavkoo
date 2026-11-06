@@ -299,7 +299,11 @@ class ProductController extends BaseController
         }
         $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id], relations: ['digitalVariation', 'seoInfo']);
         $dataArray = $service->getUpdateProductData(request: $request, product: $product, updateBy: 'admin');
+        $submitted = $dataArray;
         $dataArray = app(ProviderStockOwnership::class)->keepProviderStock(update: $dataArray, product: $product);
+        if ($dataArray !== $submitted) {
+            ToastMagic::warning(translate('stock_is_set_by_the_warehouse_sync'));
+        }
         $this->updateProductAuthorAndPublishingHouse(request: $request, product: $product);
 
         $this->productRepo->update(id: $id, data: $dataArray);
@@ -816,6 +820,11 @@ class ProductController extends BaseController
 
     public function updateQuantity(Request $request): RedirectResponse
     {
+        if (app(ProviderStockOwnership::class)->controllingProvider((int) $request['product_id']) !== null) {
+            ToastMagic::warning(translate('stock_is_set_by_the_warehouse_sync'));
+            return back();
+        }
+
         $variations = [];
         $stockCount = $request['current_stock'];
         if ($request->has('type')) {

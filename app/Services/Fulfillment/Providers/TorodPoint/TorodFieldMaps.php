@@ -56,6 +56,12 @@ final class TorodFieldMaps
         ],
     ];
 
+    /**
+     * Field names (lower case, the last segment of a path) that identify an order itself. None of them is an invoice number: a map that reads
+     * the invoice number from one of them, or from the field the reference reads, cannot be confirmed.
+     */
+    public const IDENTIFIER_FIELDS = ['id', 'orderid', 'barcode', 'orderbarcode', 'packagebarcode', 'packageid', 'uuid'];
+
     /** Where the order reference (the WMS barcode the Fulfillment webhook reports) is looked for in an Add Order response. */
     public const CREATE_RESPONSE_REFERENCE_PATHS = ['barcode', 'data.barcode', 'orderBarcode', 'data.orderBarcode', '0.barcode', 'id', 'data.id', '0.id'];
 

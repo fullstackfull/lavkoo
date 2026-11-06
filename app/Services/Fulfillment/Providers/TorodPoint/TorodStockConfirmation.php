@@ -4,6 +4,7 @@ namespace App\Services\Fulfillment\Providers\TorodPoint;
 
 use App\Enums\Fulfillment\ProviderCode;
 use App\Services\Fulfillment\FieldMapStore;
+use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\Support\ProviderConfig;
 
 /**
@@ -15,8 +16,10 @@ use App\Services\Fulfillment\Support\ProviderConfig;
  */
 final class TorodStockConfirmation
 {
-    public function __construct(private readonly FieldMapStore $fieldMaps)
-    {
+    public function __construct(
+        private readonly FieldMapStore $fieldMaps,
+        private readonly ProviderConnectionManager $connections,
+    ) {
     }
 
     /** The path the products map reads the stock from now. */
@@ -39,6 +42,22 @@ final class TorodStockConfirmation
     public function isConfirmed(ProviderConfig $config): bool
     {
         return $this->fieldMaps->get(ProviderCode::TorodPoint, TorodFieldMaps::PRODUCTS)->verified && $this->isStated($config);
+    }
+
+    /** A new stock path is a new question: the confirmation made for the old one is removed, so that the old path coming back does not bring it back. */
+    public function withdrawIfPathChanged(?string $pathBefore): void
+    {
+        $confirmedAt = $this->connections->config(ProviderCode::TorodPoint)->get('stock_field_confirmed_at');
+
+        if ($confirmedAt !== null && $pathBefore !== $this->path()) {
+            $this->connections->save(
+                provider: ProviderCode::TorodPoint,
+                enabled: null,
+                baseUrl: null,
+                settings: ['stock_field_confirmed_at' => null, 'stock_field_confirmed_path' => null],
+                auditContext: ['change' => 'stock_field_confirmation_withdrawn'],
+            );
+        }
     }
 
     /**

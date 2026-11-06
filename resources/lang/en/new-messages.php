@@ -9038,7 +9038,7 @@ return [
 	'withdraw_confirmation' => 'Withdraw confirmation',
 	'invoice_round_trip_unconfirmed_notice' => 'Not confirmed. Real orders to Torod Point are held until it is.',
 	'invoice_round_trip_evidence' => 'Evidence',
-	'invoice_round_trip_evidence_help' => 'Say how you know: for example the provider\'s written answer (who, when), or the test order you created and read back (its number and the invoice number it returned). 10 to 500 characters; it is saved with your name and the time.',
+	'invoice_round_trip_evidence_help' => 'Say how you know: for example the provider\'s written answer (who, when), or the test order you created and read back (its number, the invoice number it returned, and where in the list it appeared: the lookup reads only the first 150 orders). 10 to 500 characters. Do not paste customer data or credentials: the text is shown to every administrator who can open this page and is kept in the audit log.',
 	'invoice_round_trip_statement' => 'I confirm that the invoice number sent with an order comes back unchanged in the provider\'s order list, at this path:',
 	'confirm_invoice_round_trip' => 'Record confirmation',
 	'may_be_empty' => 'may be empty',
@@ -9053,4 +9053,7 @@ return [
 	'stock_controlled_by_warehouse_notice' => 'The stock of this product comes from the Torod Point warehouse. While the warehouse sync is on, the stock figures typed in this form are not saved.',
 	'i_confirm_the_stock_field_is_available_to_sell' => 'I confirm this field of the product list is the quantity available to sell, already excluding the units on orders the warehouse has accepted:',
 	'torod_stock_confirmation_help' => 'The documentation does not say which quantity the product list returns, and the warehouse reports several (on hand, sellable, committed, allocated). Confirm only the one the provider has stated is available to sell. Until you do, warehouse stock is not used and the storefront keeps its own stock.',
+	'hold_live_submission_unproven' => 'A real order waits for the provider\'s confirmation step: for Torod Point, the master administrator has to record on the Torod Point page that the invoice number comes back.',
+	'invoice_round_trip_check_again' => 'The path shown, the path now set and the evidence no longer agree, or the evidence is too short once personal details are removed. Reload the page and try again.',
+	'torod_stock_map_unverified' => 'The stock field was confirmed, but the products field map has changed since it was verified: verify it again (Save and verify).',
 ];

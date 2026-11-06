@@ -52,8 +52,9 @@ Sources: M5AZN API on `m5azn-api.stoplight.io` (retrieved 2026-11-05); LogesTech
 * the product list is read and staged; whatever stock-looking number it returns is shown as **"not confirmed as
   available quantity"**;
 * warehouse stock drives availability **only if** (a) an administrator has verified the products field map **and**
-  (b) a person ticked *"I confirm the stock field is the available quantity"* in the Torod Point settings — the
-  moment of that statement is recorded, and un-ticking withdraws it;
+  (b) a person ticked *"I confirm this field of the product list is the quantity available to sell, already excluding the units on
+  orders the warehouse has accepted"* beside the path the map reads — the moment and the path are recorded, a different path lapses
+  it, and un-ticking withdraws it **and** (c) *Follow warehouse stock levels* is on and the product is assigned to Torod Point;
 * otherwise stock for a mapped product is **manual** (typed by a person, labelled *Entered manually*) and never
   silently treated as synced;
 * **what is needed from LogesTechs:** the response schema of the product list and either a confirmation that its

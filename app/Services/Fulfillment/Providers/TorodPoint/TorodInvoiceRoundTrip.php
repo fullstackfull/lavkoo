@@ -5,7 +5,9 @@ namespace App\Services\Fulfillment\Providers\TorodPoint;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Services\Fulfillment\FieldMapStore;
 use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderConfig;
+use App\Services\Fulfillment\Support\SecretRedactor;
 use InvalidArgumentException;
 
 /**
@@ -18,8 +20,9 @@ use InvalidArgumentException;
  * the purpose and read back, shows that the value we send is the value they return. Until a master administrator has
  * recorded that, with the evidence, no real order is submitted.
  *
- * The confirmation names the path it was made for, so changing the path withdraws it, and it is stored with the provider's
- * settings, so every change of it is in the audit log with who made it.
+ * The confirmation names what it was made for: the path the invoice number is read from, and the account (company and base
+ * URL). Changing the path removes it; another account makes it lapse. It is stored with the provider's settings, so every
+ * change of it is in the audit log with who made it.
  */
 final class TorodInvoiceRoundTrip
 {
@@ -39,20 +42,22 @@ final class TorodInvoiceRoundTrip
     }
 
     /**
-     * The confirmation that applies to the path the orders map reads the invoice number from now, if there is one.
+     * The confirmation that applies to the path the orders map reads the invoice number from now, for the account that is set now.
      *
-     * @return array{confirmed_at: string, confirmed_by: int|null, confirmed_by_name: string, evidence: string, invoice_path: string}|null
+     * @return array{confirmed_at: string, confirmed_by: int|null, confirmed_by_name: string, evidence: string, invoice_path: string, company_id: string, base_url: string}|null
      */
     public function confirmation(ProviderConfig $config): ?array
     {
         $record = $config->get(self::SETTING);
         $path = $this->invoicePath();
 
-        if (!is_array($record) || $path === null || ($record['invoice_path'] ?? null) !== $path || trim((string) ($record['confirmed_at'] ?? '')) === '') {
-            return null;
-        }
+        $applies = is_array($record) && $path !== null
+            && ($record['invoice_path'] ?? null) === $path
+            && ($record['company_id'] ?? null) === $config->string('company_id')
+            && ($record['base_url'] ?? null) === $config->baseUrl
+            && trim((string) ($record['confirmed_at'] ?? '')) !== '';
 
-        return $record;
+        return $applies ? $record : null;
     }
 
     /**
@@ -62,21 +67,37 @@ final class TorodInvoiceRoundTrip
      */
     public function invoicePath(): ?string
     {
-        $map = $this->fieldMaps->get(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS)->map();
-        $path = $map->path('invoice_number');
-        $identifiers = [$map->path('reference'), ...TorodFieldMaps::CANDIDATES[TorodFieldMaps::ORDERS]['reference']];
-
-        return $path !== null && !in_array($path, $identifiers, true) ? $path : null;
-    }
-
-    public function confirm(int $adminId, string $adminName, string $evidence): void
-    {
-        $path = $this->invoicePath();
-        $evidence = trim($evidence);
-        if ($path === null || mb_strlen($evidence) < self::MIN_EVIDENCE_LENGTH) {
-            throw new InvalidArgumentException('The invoice number path and the evidence for the confirmation are both required.');
+        $path = $this->configuredPath();
+        if ($path === null) {
+            return null;
         }
 
+        $lastSegment = strtolower(substr(strrchr('.' . $path, '.'), 1));
+        $referencePath = $this->fieldMaps->get(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS)->map()->path('reference');
+
+        return $path === $referencePath || in_array($lastSegment, TorodFieldMaps::IDENTIFIER_FIELDS, true) ? null : $path;
+    }
+
+    /** The path the orders map has for the invoice number, whatever it is. */
+    public function configuredPath(): ?string
+    {
+        return $this->fieldMaps->get(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS)->map()->path('invoice_number');
+    }
+
+    /**
+     * @param string $seenPath the path the administrator was shown next to the statement they confirmed: a page left open across a change of the path confirms nothing
+     * @throws InvalidArgumentException when there is no usable path, the path is no longer the one shown, or the evidence is too short
+     */
+    public function confirm(int $adminId, string $adminName, string $evidence, string $seenPath): void
+    {
+        $path = $this->invoicePath();
+        $evidence = trim(mb_substr(PiiRedactor::scrub($evidence, self::MAX_EVIDENCE_LENGTH * 4), 0, self::MAX_EVIDENCE_LENGTH));
+        $substance = trim(str_replace([PiiRedactor::MASK, SecretRedactor::MASK], '', $evidence));
+        if ($path === null || $seenPath !== $path || mb_strlen($substance) < self::MIN_EVIDENCE_LENGTH) {
+            throw new InvalidArgumentException('The invoice number path shown, the path now set, and the evidence for the confirmation have to agree and be present.');
+        }
+
+        $config = $this->connections->config(ProviderCode::TorodPoint);
         $this->connections->save(
             provider: ProviderCode::TorodPoint,
             enabled: null,
@@ -85,10 +106,12 @@ final class TorodInvoiceRoundTrip
                 'confirmed_at' => now()->toDateTimeString(),
                 'confirmed_by' => $adminId,
                 'confirmed_by_name' => $adminName,
-                'evidence' => mb_substr($evidence, 0, self::MAX_EVIDENCE_LENGTH),
+                'evidence' => $evidence,
                 'invoice_path' => $path,
+                'company_id' => $config->string('company_id'),
+                'base_url' => $config->baseUrl,
             ]],
-            auditContext: ['change' => 'invoice_round_trip_confirmed'],
+            auditContext: ['change' => 'invoice_round_trip_confirmed', 'invoice_path' => $path],
         );
     }
 
@@ -101,5 +124,15 @@ final class TorodInvoiceRoundTrip
             settings: [self::SETTING => null],
             auditContext: ['change' => 'invoice_round_trip_withdrawn'],
         );
+    }
+
+    /** A new path is a new question: the confirmation made for the old one is removed, so that the old path coming back does not bring it back. */
+    public function withdrawIfPathChanged(?string $pathBefore): void
+    {
+        $record = $this->connections->config(ProviderCode::TorodPoint)->get(self::SETTING);
+
+        if (is_array($record) && $pathBefore !== $this->configuredPath()) {
+            $this->withdraw();
+        }
     }
 }

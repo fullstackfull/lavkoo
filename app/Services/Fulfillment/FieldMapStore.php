@@ -54,7 +54,7 @@ class FieldMapStore
             'verified_hash' => null,
         ];
 
-        $this->persist($provider, $maps);
+        $this->persist($provider, $maps, ['field_map_saved' => $capability, 'paths' => $paths, 'items_path' => $maps[$capability]['items_path']]);
     }
 
     /**
@@ -81,7 +81,7 @@ class FieldMapStore
         $maps[$capability]['verified_at'] = now()->toDateTimeString();
         $maps[$capability]['verified_hash'] = $this->hash($stored->itemsPath, $stored->paths);
         $maps[$capability]['coverage'] = $this->detector->coverage($stored->map(), $sample, $nullable);
-        $this->persist($provider, $maps);
+        $this->persist($provider, $maps, ['field_map_verified' => $capability]);
 
         return [];
     }
@@ -103,14 +103,18 @@ class FieldMapStore
         return FieldMap::extractItems($response, $stored->itemsPath);
     }
 
-    /** @param array<string, mixed> $maps */
-    private function persist(ProviderCode $provider, array $maps): void
+    /**
+     * @param array<string, mixed> $maps
+     * @param array<string, mixed> $auditContext what changed, for the audit entry: the paths, never a sample
+     */
+    private function persist(ProviderCode $provider, array $maps, array $auditContext): void
     {
         $this->connections->save(
             provider: $provider,
             enabled: null,
             baseUrl: null,
             settings: ['field_maps' => $maps],
+            auditContext: $auditContext,
         );
     }
 

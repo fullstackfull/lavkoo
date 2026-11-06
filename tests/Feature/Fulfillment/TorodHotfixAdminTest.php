@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Fulfillment;
 
+use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
@@ -86,7 +88,7 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
 
     private function confirmationRequest(array $overrides = []): array
     {
-        return $overrides + ['confirm' => 1, 'evidence' => self::EVIDENCE];
+        return $overrides + ['confirm' => 1, 'evidence' => self::EVIDENCE, 'invoice_path' => 'invoiceNumber'];
     }
 
     // ---- verifying the orders map ---------------------------------------------------------------------------------------------
@@ -184,6 +186,87 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
         $html = $this->get(route('admin.fulfillment-providers.show', 'torod-point'))->assertOk()->getContent();
         $this->assertStringContainsString(e(self::EVIDENCE), $html);
         $this->assertStringContainsString(route('admin.fulfillment-providers.torod.invoice-round-trip.withdraw'), $html);
+    }
+
+    public function test_the_form_carries_the_path_the_statement_names(): void
+    {
+        $this->saveOrdersMap($this->historicalOrders());
+
+        $html = $this->get(route('admin.fulfillment-providers.show', 'torod-point'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('name="invoice_path" value="invoiceNumber"', $html);
+        $this->assertStringContainsString(e(translate('invoice_round_trip_evidence_help')), $html);
+    }
+
+    public function test_a_page_left_open_across_a_change_of_the_path_confirms_nothing(): void
+    {
+        $this->saveOrdersMap($this->historicalOrders());
+
+        $this->saveOrdersMap($this->historicalOrders(), verify: false, paths: ['invoice_number' => 'externalRef', 'reference' => 'barcode']);
+        $this->post(route('admin.fulfillment-providers.torod.invoice-round-trip.confirm'), $this->confirmationRequest(['invoice_path' => 'invoiceNumber']));
+
+        $this->assertFalse($this->roundTrip()->isConfirmed($this->config()));
+        $this->assertNull($this->config()->get('invoice_round_trip'), 'not even for the path that is set now');
+        $this->assertStringContainsString(translate('invoice_round_trip_not_confirmed'), $this->toasts());
+
+        $this->post(route('admin.fulfillment-providers.torod.invoice-round-trip.confirm'), ['confirm' => 1, 'evidence' => self::EVIDENCE]);
+        $this->assertNull($this->config()->get('invoice_round_trip'), 'a request that does not say which path it is about confirms nothing');
+    }
+
+    public function test_changing_the_invoice_path_removes_the_confirmation_so_the_old_path_cannot_bring_it_back(): void
+    {
+        $this->saveOrdersMap($this->historicalOrders());
+        $this->post(route('admin.fulfillment-providers.torod.invoice-round-trip.confirm'), $this->confirmationRequest());
+        $this->assertTrue($this->roundTrip()->isConfirmed($this->config()));
+
+        $this->saveOrdersMap($this->historicalOrders(), verify: false, paths: ['invoice_number' => 'externalRef', 'reference' => 'barcode']);
+        $this->saveOrdersMap($this->historicalOrders(), verify: false);
+
+        $this->assertNull($this->config()->get('invoice_round_trip'), 'the statement was about another path and is gone');
+        $this->assertFalse($this->roundTrip()->isConfirmed($this->config()), 'the original path is back, and nobody has said anything about it again');
+    }
+
+    public function test_saving_the_map_without_changing_the_invoice_path_keeps_the_confirmation(): void
+    {
+        $this->saveOrdersMap($this->historicalOrders());
+        $this->post(route('admin.fulfillment-providers.torod.invoice-round-trip.confirm'), $this->confirmationRequest());
+
+        $this->saveOrdersMap($this->historicalOrders());
+
+        $this->assertTrue($this->roundTrip()->isConfirmed($this->config()));
+    }
+
+    public function test_the_evidence_is_stored_without_pasted_contact_details(): void
+    {
+        $this->saveOrdersMap($this->historicalOrders());
+
+        $this->post(route('admin.fulfillment-providers.torod.invoice-round-trip.confirm'), $this->confirmationRequest(['evidence' => 'Support (anna@logestechs.example) wrote on 2026-11-02 that it is stored as sent.']));
+
+        $evidence = $this->roundTrip()->confirmation($this->config())['evidence'];
+        $this->assertStringNotContainsString('anna@logestechs.example', $evidence);
+        $this->assertStringContainsString('wrote on 2026-11-02', $evidence);
+    }
+
+    public function test_a_change_of_a_map_is_in_the_audit_log_with_the_paths_and_never_a_sample(): void
+    {
+        $this->saveOrdersMap($this->historicalOrders(), verify: false, paths: ['invoice_number' => 'invoiceNumber', 'reference' => 'barcode']);
+
+        $audit = DB::table('audit_logs')->where('action', 'integration.provider_settings_updated')->orderByDesc('id')->first();
+        $context = json_decode((string) $audit->context, true);
+
+        $this->assertSame('orders', $context['field_map_saved']);
+        $this->assertSame(['invoice_number' => 'invoiceNumber', 'reference' => 'barcode'], $context['paths']);
+        $this->assertStringNotContainsString('O001', (string) $audit->context);
+    }
+
+    public function test_a_shipment_held_for_the_confirmation_says_so_in_words(): void
+    {
+        $held = $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Held, ['hold_reason' => HoldReason::LIVE_SUBMISSION_UNPROVEN]);
+
+        $html = $this->get(route('admin.fulfillment-providers.fulfillments.show', $held->id))->assertOk()->getContent();
+
+        $this->assertStringContainsString(e(translate('hold_live_submission_unproven')), $html);
+        $this->assertStringNotContainsString('torod_invoice_round_trip_unconfirmed', $html, 'no translation key is printed as if it were text');
     }
 
     public function test_nobody_else_can_record_or_withdraw_it(): void
@@ -332,17 +415,45 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
         $this->assertFalse(app(TorodStockConfirmation::class)->isConfirmed($this->config()));
     }
 
+    public function test_changing_the_stock_path_removes_the_confirmation_so_the_old_path_cannot_bring_it_back(): void
+    {
+        $this->verifiedProductsMap('sellableQuantity');
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $this->settingsForm(['stock_field_confirmed' => 1, 'stock_field_path' => 'sellableQuantity']));
+        $this->assertTrue(app(TorodStockConfirmation::class)->isConfirmed($this->config()));
+
+        $paths = static fn (string $stock): array => ['paths' => ['id' => 'id', 'name' => 'name', 'stock' => $stock]];
+        $this->post(route('admin.fulfillment-providers.field-map.save', ['torod-point', 'products']), $paths('onHandQuantity'));
+        $this->post(route('admin.fulfillment-providers.field-map.save', ['torod-point', 'products']), $paths('sellableQuantity'));
+        $this->verifiedProductsMap('sellableQuantity');
+
+        $this->assertNull($this->config()->get('stock_field_confirmed_at'));
+        $this->assertFalse(app(TorodStockConfirmation::class)->isConfirmed($this->config()), 'sellableQuantity is back, and nobody has confirmed it again');
+    }
+
+    public function test_the_update_stock_modal_stands_aside_for_a_product_the_warehouse_controls(): void
+    {
+        $this->verifiedProductsMap('sellableQuantity');
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $this->settingsForm(['stock_field_confirmed' => 1, 'stock_field_path' => 'sellableQuantity', 'inventory_sync_enabled' => 1]));
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 12]);
+        ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved, 'provider_stock' => 12, 'provider_stock_synced_at' => now()]);
+
+        $this->post(route('admin.products.update-quantity'), ['product_id' => 1, 'current_stock' => 999]);
+
+        $this->assertSame(12, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+        $this->assertStringContainsString(translate('stock_is_set_by_the_warehouse_sync'), $this->toasts());
+    }
+
     public function test_the_matching_page_refuses_a_typed_stock_figure_for_a_product_the_warehouse_controls(): void
     {
         $this->verifiedProductsMap('sellableQuantity');
         $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $this->settingsForm(['stock_field_confirmed' => 1, 'stock_field_path' => 'sellableQuantity', 'inventory_sync_enabled' => 1]));
         $this->makeProduct(1, ProviderCode::TorodPoint);
-        $mapping = ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved]);
+        $mapping = ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved, 'provider_stock' => 40, 'provider_stock_synced_at' => now()]);
 
         $this->post(route('admin.fulfillment-providers.torod.stock'), ['mapping_id' => $mapping->id, 'quantity' => 5]);
 
         $this->assertStringContainsString(e(translate('stock_is_set_by_the_warehouse_sync')), $this->toasts());
-        $this->assertNull($mapping->fresh()->provider_stock);
+        $this->assertSame(40, $mapping->fresh()->provider_stock);
 
         $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $this->settingsForm(['stock_field_confirmed' => 1, 'stock_field_path' => 'sellableQuantity', 'inventory_sync_enabled' => 0]));
         $this->post(route('admin.fulfillment-providers.torod.stock'), ['mapping_id' => $mapping->id, 'quantity' => 5]);

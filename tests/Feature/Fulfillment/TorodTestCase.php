@@ -50,7 +50,7 @@ abstract class TorodTestCase extends FulfillmentTestCase
     protected function confirmInvoiceRoundTrip(): void
     {
         app(FieldMapStore::class)->save(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, ['invoice_number' => 'invoiceNumber', 'reference' => 'barcode', 'status' => 'status'], null);
-        app(TorodInvoiceRoundTrip::class)->confirm(adminId: 1, adminName: 'Owner', evidence: 'The provider confirmed in writing that the invoice number comes back (test fixture).');
+        app(TorodInvoiceRoundTrip::class)->confirm(adminId: 1, adminName: 'Owner', evidence: 'The provider confirmed in writing that the invoice number comes back (test fixture).', seenPath: 'invoiceNumber');
     }
 
     protected function adapter(): TorodPointAdapter

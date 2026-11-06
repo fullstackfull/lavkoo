@@ -61,11 +61,12 @@ not ours to infer, so:
   (`provider_catalog_items`). Any number that looks like stock is shown as **"Not confirmed as available quantity"**.
 * A mapped product's stock is **manual** (typed by a person, labelled *Entered manually*) until both are true:
   an administrator has **verified the products field map** (which JSON path is the stock field) **and** ticked
-  *"I confirm the stock field is the available quantity"* in the Torod Point settings (the moment is recorded;
-  un-ticking withdraws it). The capability report says *Not verified* until then.
+  *"I confirm this field of the product list is the quantity available to sell, already excluding the units on orders the warehouse
+  has accepted"* beside that path in the Torod Point settings (the moment and the path are recorded; a different path lapses it;
+  un-ticking withdraws it). The capability report says *Unverified* until then.
 * When confirmed **for the exact path the map reads**, and only for products **assigned to Torod Point**,
   `InventorySyncService::applyToAssignedProducts` writes `stock − quantities not yet handed to the warehouse` into the
-  storefront availability, so an order we have not yet sent is not counted twice. A figure that is missing, negative,
+  storefront availability (a variant at a time; a figure the warehouse has not repeated for six hours stops counting), so an order we have not yet sent is not counted twice. A figure that is missing, negative,
   fractional, not a number or contradictory is skipped and counted (never zero); a product the response does not mention is
   left alone and counted; the product form and the manual-stock entry stand aside for a product the warehouse controls.
   Details and the manual/warehouse modes: [torod-point.md](torod-point.md#stock).

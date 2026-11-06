@@ -148,7 +148,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
             $this->assertNotContains($substitute, TorodFieldMaps::CANDIDATES[TorodFieldMaps::ORDERS]['invoice_number']);
             $this->assertNull($this->roundTrip()->invoicePath(), $substitute);
             try {
-                $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'The provider says the barcode comes back as the invoice number.');
+                $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'The provider says the barcode comes back as the invoice number.', seenPath: $substitute);
                 $this->fail('a confirmation for ' . $substitute . ' must be refused');
             } catch (InvalidArgumentException) {
                 $this->assertFalse($this->roundTrip()->isConfirmed($this->config()));
@@ -175,7 +175,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
         $this->dispatcher()->dispatch($fulfillment->id);
 
         $this->assertFalse($this->roundTrip()->isConfirmed($this->config()));
-        $this->assertSame(HoldReason::PROVIDER_NOT_READY, $fulfillment->fresh()->hold_reason);
+        $this->assertSame(HoldReason::LIVE_SUBMISSION_UNPROVEN, $fulfillment->fresh()->hold_reason);
         $this->assertSame(0, $this->createCalls());
     }
 
@@ -216,7 +216,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
         $fresh = $fulfillment->fresh();
         $this->assertSame(ProviderOrderDispatcher::SKIPPED, $outcome);
         $this->assertSame(FulfillmentStatus::Held, $fresh->status);
-        $this->assertSame(HoldReason::PROVIDER_NOT_READY, $fresh->hold_reason);
+        $this->assertSame(HoldReason::LIVE_SUBMISSION_UNPROVEN, $fresh->hold_reason);
         $this->assertSame(0, $this->createCalls(), 'nothing was created at the provider');
         Http::assertNothingSent();
     }
@@ -230,7 +230,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
         $outcome = $this->dispatcher()->dispatch($fulfillment->id, manual: true);
 
         $this->assertSame(ProviderOrderDispatcher::SKIPPED, $outcome);
-        $this->assertSame(HoldReason::PROVIDER_NOT_READY, $fulfillment->fresh()->hold_reason);
+        $this->assertSame(HoldReason::LIVE_SUBMISSION_UNPROVEN, $fulfillment->fresh()->hold_reason);
         Http::assertNothingSent();
     }
 
@@ -288,7 +288,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
         $fulfillment = $this->torodFulfillment();
         $this->fakeWarehouse();
         $this->dispatcher()->dispatch($fulfillment->id);
-        $this->assertSame(HoldReason::PROVIDER_NOT_READY, $fulfillment->fresh()->hold_reason);
+        $this->assertSame(HoldReason::LIVE_SUBMISSION_UNPROVEN, $fulfillment->fresh()->hold_reason);
     }
 
     public function test_the_gate_is_reported_as_a_capability_and_a_go_live_item_for_torod_only(): void
@@ -314,7 +314,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
         $this->roundTrip()->withdraw();
 
         try {
-            $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'too short');
+            $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'too short', seenPath: 'invoiceNumber');
             $this->fail('evidence of fewer than ten characters must be refused');
         } catch (InvalidArgumentException) {
             $this->assertFalse($this->roundTrip()->isConfirmed($this->config()));
@@ -322,14 +322,14 @@ class TorodOrdersFieldMapTest extends TorodTestCase
 
         app(FieldMapStore::class)->save(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, ['reference' => 'barcode'], null);
         $this->expectException(InvalidArgumentException::class);
-        $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'Written answer from the provider, dated today.');
+        $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'Written answer from the provider, dated today.', seenPath: 'invoiceNumber');
     }
 
     public function test_the_confirmation_records_who_when_where_and_why(): void
     {
         $this->roundTrip()->withdraw();
 
-        $this->roundTrip()->confirm(adminId: 7, adminName: 'Salma', evidence: '  LogesTechs support wrote that invoiceNumber is stored as sent.  ');
+        $this->roundTrip()->confirm(adminId: 7, adminName: 'Salma', evidence: '  LogesTechs support wrote that invoiceNumber is stored as sent.  ', seenPath: 'invoiceNumber');
 
         $record = $this->roundTrip()->confirmation($this->config());
         $this->assertSame(7, $record['confirmed_by']);
@@ -462,6 +462,138 @@ class TorodOrdersFieldMapTest extends TorodTestCase
         $this->fakeWarehouse([[]], listStatus: 500);
 
         $this->assertSame('order_list_unreadable', $this->adapter()->reconcileSubmission($fulfillment)->errorCode);
+    }
+
+    public function test_an_order_whose_barcode_is_only_blanks_is_not_acceptance_and_stores_no_empty_reference(): void
+    {
+        $fulfillment = $this->reconcilable();
+        $this->fakeWarehouse([[['id' => 1, 'barcode' => '   ', 'invoiceNumber' => $fulfillment->reference, 'status' => 'CREATED']]]);
+
+        $result = $this->adapter()->reconcileSubmission($fulfillment);
+
+        $this->assertSame(SubmissionResult::AMBIGUOUS, $result->outcome);
+        $this->assertSame('match_without_barcode', $result->errorCode);
+        $this->assertNull($result->providerReference);
+    }
+
+    public function test_an_order_without_a_barcode_still_counts_when_deciding_whether_our_invoice_number_is_unique(): void
+    {
+        $fulfillment = $this->reconcilable();
+        $this->fakeWarehouse([[
+            ['id' => 1, 'barcode' => 'O1', 'invoiceNumber' => $fulfillment->reference, 'status' => 'CREATED'],
+            ['id' => 2, 'barcode' => null, 'invoiceNumber' => $fulfillment->reference, 'status' => 'CREATED'],
+        ]]);
+
+        $result = $this->adapter()->reconcileSubmission($fulfillment);
+
+        $this->assertSame('duplicate_invoice_in_order_list', $result->errorCode, 'the first order is not taken as the answer while another carries our number');
+    }
+
+    public function test_two_different_orders_without_a_barcode_carrying_our_invoice_number_are_two_orders(): void
+    {
+        $fulfillment = $this->reconcilable();
+        $this->fakeWarehouse([[
+            ['id' => 1, 'barcode' => null, 'invoiceNumber' => $fulfillment->reference, 'status' => 'CREATED'],
+            ['id' => 2, 'barcode' => null, 'invoiceNumber' => $fulfillment->reference, 'status' => 'CREATED'],
+        ]]);
+
+        $this->assertSame('duplicate_invoice_in_order_list', $this->adapter()->reconcileSubmission($fulfillment)->errorCode, 'two records are not one order because both lack a barcode');
+    }
+
+    public function test_the_same_order_without_a_barcode_listed_on_every_page_is_still_one_order(): void
+    {
+        $fulfillment = $this->reconcilable();
+        $page = array_map(static fn (int $n): array => ['id' => $n, 'barcode' => 'O' . $n, 'invoiceNumber' => null, 'status' => 'CREATED'], range(1, 49));
+        $page[] = ['id' => 50, 'barcode' => null, 'invoiceNumber' => $fulfillment->reference, 'status' => 'CREATED'];
+        $this->fakeWarehouse([$page]);
+
+        $this->assertSame('match_without_barcode', $this->adapter()->reconcileSubmission($fulfillment)->errorCode);
+    }
+
+    // ---- what the confirmation is about ---------------------------------------------------------------------------------------------
+
+    public function test_a_confirmation_is_refused_for_a_path_other_than_the_one_that_was_shown(): void
+    {
+        $this->roundTrip()->withdraw();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'Written answer from the provider, dated today.', seenPath: 'invoice_number');
+    }
+
+    public function test_a_confirmation_lapses_with_the_account_it_was_made_for(): void
+    {
+        $this->assertTrue($this->roundTrip()->isConfirmed($this->config()));
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['company_id' => '999', 'dry_run' => false]);
+        $this->assertFalse($this->roundTrip()->isConfirmed($this->config()), 'another company is another account');
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['company_id' => '714', 'dry_run' => false]);
+        $this->assertTrue($this->roundTrip()->isConfirmed($this->config()), 'the same account again is the same statement');
+    }
+
+    public function test_a_confirmation_lapses_with_the_address_it_was_made_for(): void
+    {
+        $this->assertTrue($this->roundTrip()->isConfirmed($this->config()));
+
+        app(ProviderConnectionManager::class)->save(provider: ProviderCode::TorodPoint, enabled: null, baseUrl: 'https://another-warehouse.example.test/api', settings: []);
+        $this->assertFalse($this->roundTrip()->isConfirmed($this->config()), 'another address is another account');
+
+        app(ProviderConnectionManager::class)->save(provider: ProviderCode::TorodPoint, enabled: null, baseUrl: '', settings: []);
+        $this->assertTrue($this->roundTrip()->isConfirmed($this->config()), 'the original address again is the same statement');
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function identifierPaths(): iterable
+    {
+        foreach (['Barcode', 'Id', 'ID', 'data.id', 'order.id', 'orderId', 'OrderBarcode', 'packageBarcode', 'data.barcode', 'packageId', 'uuid'] as $path) {
+            yield $path => [$path];
+        }
+    }
+
+    #[DataProvider('identifierPaths')]
+    public function test_whatever_the_casing_or_nesting_an_identifier_is_not_an_invoice_number(string $path): void
+    {
+        $this->roundTrip()->withdraw();
+        app(FieldMapStore::class)->save(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, ['invoice_number' => $path, 'reference' => 'barcode'], null);
+
+        $this->assertNull($this->roundTrip()->invoicePath());
+        $this->assertFalse($this->roundTrip()->isConfirmed($this->config()));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function invoicePaths(): iterable
+    {
+        foreach (['invoiceNumber', 'invoice_number', 'data.invoiceNumber', 'invoice.number', 'InvoiceNo'] as $path) {
+            yield $path => [$path];
+        }
+    }
+
+    #[DataProvider('invoicePaths')]
+    public function test_a_path_that_names_the_invoice_number_is_usable(string $path): void
+    {
+        app(FieldMapStore::class)->save(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, ['invoice_number' => $path, 'reference' => 'barcode'], null);
+
+        $this->assertSame($path, $this->roundTrip()->invoicePath());
+    }
+
+    public function test_the_evidence_is_stored_without_the_contact_details_that_were_pasted_into_it(): void
+    {
+        $this->roundTrip()->withdraw();
+
+        $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'Support (anna@logestechs.example, +966500000000) wrote that it is stored as sent on 2026-11-02.', seenPath: 'invoiceNumber');
+
+        $evidence = $this->roundTrip()->confirmation($this->config())['evidence'];
+        $this->assertStringNotContainsString('anna@logestechs.example', $evidence);
+        $this->assertStringNotContainsString('966500000000', $evidence);
+        $this->assertStringContainsString('wrote that it is stored as sent on 2026-11-02', $evidence, 'the rest of what the administrator wrote is kept');
+    }
+
+    public function test_evidence_that_is_nothing_but_contact_details_is_too_short_to_confirm_anything(): void
+    {
+        $this->roundTrip()->withdraw();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->roundTrip()->confirm(adminId: 1, adminName: 'Owner', evidence: 'a@b.sa', seenPath: 'invoiceNumber');
     }
 
     // ---- duplicate-order prevention ---------------------------------------------------------------------------------------------

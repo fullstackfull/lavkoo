@@ -15,6 +15,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * The plan-only sanitization generator and the read-only outbound audit, against a synthetic copy of production in which
@@ -332,6 +333,59 @@ class StagingSanitizationTest extends FulfillmentTestCase
         }
     }
 
+    public function test_what_a_person_confirmed_about_the_production_account_does_not_travel_with_a_copy(): void
+    {
+        $this->applyPlan($this->plan());
+
+        $settings = json_decode((string) DB::table('integration_settings')->where('provider', 'torod_point')->value('settings'), true);
+        $this->assertNull($settings['invoice_round_trip'], 'the invoice number round trip was shown for the production account');
+        $this->assertNull($settings['stock_field_confirmed_at']);
+        $this->assertNull($settings['stock_field_confirmed_path']);
+        $this->assertSame('714', $settings['company_id'], 'nothing else about the settings is rewritten');
+    }
+
+    /** @param array<string, mixed> $confirmation */
+    #[DataProvider('confirmationsAlone')]
+    public function test_a_confirmation_alone_keeps_a_provider_row_armed_until_it_is_cleaned(array $confirmation): void
+    {
+        foreach (['m5azn', 'torod_point'] as $provider) {
+            $settings = json_decode((string) DB::table('integration_settings')->where('provider', $provider)->value('settings'), true);
+            DB::table('integration_settings')->where('provider', $provider)->update([
+                'enabled' => 0,
+                'credentials' => null,
+                'settings' => json_encode(array_merge($settings, [
+                    'dispatch_enabled' => false, 'auto_dispatch' => false, 'product_sync_enabled' => false, 'inventory_sync_enabled' => false,
+                    'import_enabled' => false, 'push_products_enabled' => false, 'webhooks_enabled' => false, 'dry_run' => true,
+                    'invoice_round_trip' => null, 'stock_field_confirmed_at' => null, 'stock_field_confirmed_path' => null,
+                ], $provider === 'torod_point' ? $confirmation : [])),
+            ]);
+        }
+
+        [, $report] = $this->audit();
+        $this->assertSame(
+            [['table' => 'integration_settings', 'armed_rows' => 1]],
+            $this->channel($report, 'fulfillment_providers')['facts']['armed'],
+            'what was confirmed about the production account is not true of a copy, so the audit reports the row',
+        );
+
+        $this->applyPlan($this->plan());
+
+        $cleaned = json_decode((string) DB::table('integration_settings')->where('provider', 'torod_point')->value('settings'), true);
+        foreach (['invoice_round_trip', 'stock_field_confirmed_at', 'stock_field_confirmed_path'] as $key) {
+            $this->assertNull($cleaned[$key] ?? null, $key);
+        }
+        [, $after] = $this->audit();
+        $this->assertSame([], $this->channel($after, 'fulfillment_providers')['facts']['armed']);
+    }
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function confirmationsAlone(): iterable
+    {
+        yield 'the invoice round trip' => [['invoice_round_trip' => ['confirmed_at' => '2026-11-05 10:00:00', 'invoice_path' => 'invoiceNumber', 'company_id' => '714']]];
+        yield 'the stock field with its path' => [['stock_field_confirmed_at' => '2026-11-05 10:00:00', 'stock_field_confirmed_path' => 'sellableQuantity']];
+        yield 'a stock path alone' => [['stock_field_confirmed_path' => 'sellableQuantity']];
+    }
+
     // ── the guard, the registry and the dialect ──────────────────────────────────────────────────────────────
 
     public function test_on_mysql_the_guard_statement_fails_for_a_database_that_is_not_the_expected_one(): void
@@ -558,7 +612,11 @@ class StagingSanitizationTest extends FulfillmentTestCase
         ]);
         DB::table('zender_settings')->insert(['enabled' => 1, 'secret' => 'CANARY-ZENDER-SECRET']);
         $this->enableProvider(ProviderCode::M5azn, ['dispatch_enabled' => true, 'dry_run' => false], ['email' => 'seller@example.test', 'password' => 'CANARY-M5-CREDENTIALS']);
-        $this->enableProvider(ProviderCode::TorodPoint, ['dispatch_enabled' => true, 'dry_run' => false, 'company_id' => '714'], ['fulfillment_username' => 'u', 'fulfillment_password' => 'CANARY-M5-CREDENTIALS']);
+        $this->enableProvider(ProviderCode::TorodPoint, [
+            'dispatch_enabled' => true, 'dry_run' => false, 'company_id' => '714',
+            'stock_field_confirmed_at' => '2026-11-05 10:00:00', 'stock_field_confirmed_path' => 'sellableQuantity',
+            'invoice_round_trip' => ['confirmed_at' => '2026-11-05 10:00:00', 'invoice_path' => 'invoiceNumber', 'company_id' => '714', 'evidence' => 'Confirmed by the provider for the production account.'],
+        ], ['fulfillment_username' => 'u', 'fulfillment_password' => 'CANARY-M5-CREDENTIALS']);
         DB::table('integration_settings')->insert(['provider' => 'chatwoot', 'name' => 'Chatwoot', 'enabled' => 1, 'credentials' => 'CANARY-CHATWOOT-TOKEN', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('notification_template_mappings')->insert(['enabled' => 1]);
         DB::table('seller_webhooks')->insert([['status' => 'active'], ['status' => 'paused']]);

@@ -47,7 +47,7 @@ These are exactly the two checklist items that block turning automatic sending o
     delivery confirmed — [operations §3](operations.md)). A Torod package barcode is learned only from a webhook event, so without
     it step 8 can never pass.
   * *Torod Point only:* **the invoice-number round trip is confirmed** (Torod Point page → *Invoice number round trip*, master
-    administrator, with the evidence). Until it is, step 5 cannot send: the shipment is held as *Provider not ready*. The evidence
+    administrator, with the evidence). Until it is, step 5 cannot send: the shipment is held (*A real order waits for the provider's confirmation step*). The evidence
     comes from outside this system: LogesTechs' written answer ([request, section F](vendor-requests/logestechs-technical-request.md)),
     or an order you created for the purpose in the Torod Point dashboard with a known invoice number and read back in the order list.
     A verified orders map is not that evidence: historical orders show `invoiceNumber: null`.

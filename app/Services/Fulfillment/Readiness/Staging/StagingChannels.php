@@ -240,6 +240,11 @@ final class StagingChannels
                             ['dispatch_enabled', 'auto_dispatch', 'product_sync_enabled', 'inventory_sync_enabled', 'import_enabled', 'push_products_enabled', 'webhooks_enabled'],
                         ),
                         "(CASE WHEN json_valid(settings) THEN " . $sql->jsonText('settings', '$.dry_run') . " END IN ('0', 'false'))",
+                        // What a person confirmed about the PRODUCTION account (the invoice number comes back; this stock field is the quantity) is not true of a copy.
+                        ...array_map(
+                            static fn (string $path): string => "(CASE WHEN json_valid(settings) THEN " . $sql->jsonText('settings', $path) . " END NOT IN ('', 'null'))",
+                            ['$.invoice_round_trip.confirmed_at', '$.stock_field_confirmed_at', '$.stock_field_confirmed_path'],
+                        ),
                     ]),
                     set: static fn (SqlDialect $sql): string => 'settings = ' . $sql->jsonSet('settings', [
                         '$.dispatch_enabled' => $sql->jsonBoolean(false),
@@ -250,6 +255,9 @@ final class StagingChannels
                         '$.import_enabled' => $sql->jsonBoolean(false),
                         '$.push_products_enabled' => $sql->jsonBoolean(false),
                         '$.webhooks_enabled' => $sql->jsonBoolean(false),
+                        '$.invoice_round_trip' => 'NULL',
+                        '$.stock_field_confirmed_at' => 'NULL',
+                        '$.stock_field_confirmed_path' => 'NULL',
                     ]),
                     scope: self::ofProviders('m5azn', 'torod_point'),
                 ),

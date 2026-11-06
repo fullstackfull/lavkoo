@@ -32,6 +32,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use InvalidArgumentException;
 
 /** The Integration Center: every fulfillment provider's connection, switches, health and operational logs in one place. */
 class IntegrationCenterController extends Controller
@@ -187,7 +188,9 @@ class IntegrationCenterController extends Controller
         ]);
 
         $paths = array_intersect_key((array) ($validated['paths'] ?? []), array_flip($definition['fields']));
+        $confirmedPathsBefore = $this->confirmedPaths($code);
         $this->fieldMaps->save($code, $capability, $paths, $validated['items_path'] ?? null);
+        $this->forgetConfirmationsOfChangedPaths($code, $confirmedPathsBefore);
 
         if (!$request->boolean('verify')) {
             ToastMagic::success(translate('field_map_saved_not_verified'));
@@ -229,6 +232,7 @@ class IntegrationCenterController extends Controller
         $validated = $request->validate([
             'confirm' => ['accepted'],
             'evidence' => ['required', 'string', 'min:' . TorodInvoiceRoundTrip::MIN_EVIDENCE_LENGTH, 'max:' . TorodInvoiceRoundTrip::MAX_EVIDENCE_LENGTH],
+            'invoice_path' => ['nullable', 'string', 'max:120'],
         ]);
 
         if ($this->invoiceRoundTrip->invoicePath() === null) {
@@ -238,7 +242,13 @@ class IntegrationCenterController extends Controller
         }
 
         $admin = auth('admin')->user();
-        $this->invoiceRoundTrip->confirm(adminId: (int) $admin->id, adminName: (string) $admin->name, evidence: $validated['evidence']);
+        try {
+            $this->invoiceRoundTrip->confirm(adminId: (int) $admin->id, adminName: (string) $admin->name, evidence: $validated['evidence'], seenPath: (string) ($validated['invoice_path'] ?? ''));
+        } catch (InvalidArgumentException) {
+            SafeToast::warning(translate('invoice_round_trip_not_confirmed'), translate('invoice_round_trip_check_again'));
+
+            return back()->withInput();
+        }
         ToastMagic::success(translate('invoice_round_trip_confirmed'));
 
         return back();
@@ -254,6 +264,28 @@ class IntegrationCenterController extends Controller
         ToastMagic::success(translate('invoice_round_trip_withdrawn'));
 
         return back();
+    }
+
+    /** @return array{invoice: ?string, stock: ?string} the paths the Torod Point confirmations are about (none for any other provider) */
+    private function confirmedPaths(ProviderCode $code): array
+    {
+        return $code === ProviderCode::TorodPoint
+            ? ['invoice' => $this->invoiceRoundTrip->configuredPath(), 'stock' => $this->stockConfirmation->path()]
+            : ['invoice' => null, 'stock' => null];
+    }
+
+    /**
+     * A confirmation is about one path. When the path is changed the confirmation is removed, so that putting the old path back
+     * does not bring back a statement nobody has made again.
+     *
+     * @param array{invoice: ?string, stock: ?string} $before
+     */
+    private function forgetConfirmationsOfChangedPaths(ProviderCode $code, array $before): void
+    {
+        if ($code === ProviderCode::TorodPoint) {
+            $this->invoiceRoundTrip->withdrawIfPathChanged($before['invoice']);
+            $this->stockConfirmation->withdrawIfPathChanged($before['stock']);
+        }
     }
 
     /**

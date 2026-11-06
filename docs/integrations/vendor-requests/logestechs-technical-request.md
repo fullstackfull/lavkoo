@@ -102,7 +102,8 @@ personal data redacted) wherever a sample is requested, or an OpenAPI/Postman co
 31. **`invoiceNumber` in the order list.** Most historical orders in `GET /public/fulfillment/order` show `invoiceNumber: null`. Is the
     `invoiceNumber` we send in *Add Order* stored and returned **unchanged** (case, spaces, length limit) in that list? Please send the
     list entry of one order created through *Add Order* with an `invoiceNumber`. This is what we use to find an order again after a
-    lost answer, and we will not create real orders until it is confirmed (see also item 10).
+    lost answer, and we will not create real orders until it is confirmed (see also item 10). We read only the first 150 orders of the
+    list: is it **newest first**, and can it be **filtered by `invoiceNumber`**?
 
 ## What we will do with the answers
 

@@ -6,6 +6,7 @@ use App\Models\Seller;
 
 use App\Models\StockMovement;
 use App\Services\AuditLogger;
+use App\Services\Fulfillment\ProviderStockOwnership;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -45,6 +46,10 @@ class InventoryService
             $product = DB::table('products')->where('id', $productId)->lockForUpdate()->first();
             if (!$product) {
                 return ['ok' => false, 'reason' => 'product_not_found'];
+            }
+            if (app(ProviderStockOwnership::class)->controllingProvider($productId) !== null) {
+                // A fulfillment warehouse sets this product's stock: a typed correction would only stand in for its figure until the next sync.
+                return ['ok' => false, 'reason' => 'stock_is_set_by_the_warehouse_sync'];
             }
 
             $current = (int) $product->current_stock;

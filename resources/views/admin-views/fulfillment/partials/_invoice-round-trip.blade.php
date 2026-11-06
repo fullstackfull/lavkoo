@@ -23,6 +23,7 @@
         @else
             <form method="POST" action="{{ route('admin.fulfillment-providers.torod.invoice-round-trip.confirm') }}">
                 @csrf
+                <input type="hidden" name="invoice_path" value="{{ $invoiceRoundTrip['path'] }}">
                 <label class="form-label fs-12" for="invoice_round_trip_evidence">{{ translate('invoice_round_trip_evidence') }}</label>
                 <textarea class="form-control form-control-sm" id="invoice_round_trip_evidence" name="evidence" rows="2" required
                           minlength="{{ $invoiceRoundTrip['minEvidence'] }}" maxlength="{{ $invoiceRoundTrip['maxEvidence'] }}">{{ old('evidence') }}</textarea>

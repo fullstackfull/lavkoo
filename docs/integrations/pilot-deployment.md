@@ -813,8 +813,10 @@ confirmed it against a real answer**. That is what the evidence is for.
    poll is inactive until it exists and the `orders` map is verified. If the status field shows **hidden** values (the order-list check
    warns "N status value(s) were hidden"), the evidence is missing words: read the status words in the M5AZN dashboard and type them
    into the map yourself.
-4. Torod only: when the stock field is established (hand count + LogesTechs), tick **I confirm the stock field in the product list is
-   the available quantity** (the moment is recorded). Without it stock stays unused.
+4. Torod only: when LogesTechs has stated which quantity is available to sell (and the hand count agrees), type that field's path into
+   the products map and **Save and verify**; only then tick **I confirm this field of the product list is the quantity available to
+   sell …** beside the path (the moment and the path are recorded; since [Hotfix 2](hotfix-2.md) no quantity is ever proposed for you).
+   Without it stock stays unused.
 5. Keep the evidence: add the reviewed JSON files to the repository under `docs/integrations/recorded-schemas/<provider>/` through
    a pull request, so the recorded schemas outlive the server. The evidence is built to hold no credential and no personal data, but
    **read each file before you commit it**: the CI leak guard looks only for credentials, keys and tokens, e-mail addresses and phone

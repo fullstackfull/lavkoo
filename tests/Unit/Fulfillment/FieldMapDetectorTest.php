@@ -5,6 +5,7 @@ namespace Tests\Unit\Fulfillment;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodFieldMaps;
 use App\Services\Fulfillment\Support\FieldMap;
 use App\Services\Fulfillment\Support\FieldMapDetector;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -127,6 +128,43 @@ class FieldMapDetectorTest extends TestCase
         $sample = array_merge($this->historicalOrders(25), array_map(static fn (int $n): array => ['id' => $n], range(1, 50)));
 
         $this->assertSame([], $this->unresolved($sample), 'the records after the first twenty-five are not looked at');
+    }
+
+    // ---- what counts as a value ------------------------------------------------------------------------------------------------
+
+    /** @return iterable<string, array{mixed}> */
+    public static function notAValue(): iterable
+    {
+        yield 'a flag that is off' => [false];
+        yield 'a flag that is on' => [true];
+        yield 'blanks' => ['   '];
+        yield 'a tab and a newline' => ["\t\n"];
+    }
+
+    #[DataProvider('notAValue')]
+    public function test_the_strict_barcode_does_not_count_a_flag_or_blanks_as_a_value(mixed $barcode): void
+    {
+        $sample = array_map(static fn (array $order): array => ['barcode' => $barcode] + $order, $this->historicalOrders());
+
+        $this->assertSame(['reference'], $this->unresolved($sample));
+    }
+
+    public function test_zero_and_the_text_zero_are_values(): void
+    {
+        $zero = array_map(static fn (array $order): array => ['barcode' => 0] + $order, $this->historicalOrders());
+        $text = array_map(static fn (array $order): array => ['barcode' => '0'] + $order, $this->historicalOrders());
+
+        $this->assertSame([], $this->unresolved($zero));
+        $this->assertSame([], $this->unresolved($text));
+    }
+
+    #[DataProvider('notAValue')]
+    public function test_an_invoice_number_that_is_not_a_value_passes_as_present_but_is_not_counted_as_filled(mixed $invoiceNumber): void
+    {
+        $sample = array_map(static fn (array $order): array => ['invoiceNumber' => $invoiceNumber] + $order, $this->historicalOrders());
+
+        $this->assertSame([], $this->unresolved($sample));
+        $this->assertSame(0, $this->detector()->coverage($this->map(), $sample, self::NULLABLE)['non_empty']['invoice_number'], 'so the page cannot say it is populated');
     }
 
     // ---- what the sample showed, kept next to the verification --------------------------------------------------------------

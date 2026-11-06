@@ -120,11 +120,19 @@ final class FieldMapDetector
         return !$valueRequired && Arr::has($record, $path) && !is_array(Arr::get($record, $path));
     }
 
-    /** @param array<array-key, mixed> $record */
+    /**
+     * A usable value: text with something in it, or a number (0 is a number). Not null, not blank, not a flag, not a list.
+     *
+     * @param array<array-key, mixed> $record
+     */
     private function hasValue(array $record, string $path): bool
     {
         $value = Arr::get($record, $path);
 
-        return $value !== null && $value !== '' && !is_array($value);
+        return match (true) {
+            is_string($value) => trim($value) !== '',
+            is_int($value), is_float($value) => true,
+            default => false,
+        };
     }
 }

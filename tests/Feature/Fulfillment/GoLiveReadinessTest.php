@@ -110,7 +110,7 @@ class GoLiveReadinessTest extends AdminPagesTestCase
         } else {
             $this->verifyMap($provider, TorodFieldMaps::PRODUCTS, ['id' => 'id', 'name' => 'name'], [['id' => 1, 'name' => 'Panadol']], ['id', 'name']);
             $this->verifyMap($provider, TorodFieldMaps::ORDERS, ['invoice_number' => 'invoiceNumber', 'reference' => 'barcode'], [['invoiceNumber' => '1-TP1', 'barcode' => 'B1']], ['invoice_number', 'reference']);
-            app(TorodInvoiceRoundTrip::class)->confirm(adminId: 1, adminName: 'Admin', evidence: 'Provider confirmed in writing that the invoice number comes back.');
+            app(TorodInvoiceRoundTrip::class)->confirm(adminId: 1, adminName: 'Admin', evidence: 'Provider confirmed in writing that the invoice number comes back.', seenPath: 'invoiceNumber');
         }
 
         $productId = $this->makeProduct(900 + (int) ($provider === ProviderCode::TorodPoint), $provider);

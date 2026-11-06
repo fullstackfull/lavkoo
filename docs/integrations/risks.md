@@ -52,23 +52,33 @@ real systems.
    reads them before they are shared); the order-creation
    response can only be recorded by the first controlled test order ([plan](controlled-test-orders.md)). See the [live verification
    checklists](live-verification/README.md): every field map must be verified from a real sample.
-3. **Torod Point stock.** No documented inventory endpoint and no documented stock field in the product list
-   ([gap analysis](torod-inventory-gap-analysis.md)). Stock stays manual and labelled until LogesTechs confirms; nothing
-   simulates warehouse stock. **This is why "automatic inventory synchronization" cannot be delivered today.**
-4. **Cash on delivery.** The Fulfillment API's collection-method values and M5AZN's COD settlement are undocumented. COD
+3. **Torod Point stock.** No documented inventory endpoint, and the product list carries several quantity fields that disagree on
+   real products (on hand 15, 19 and 2 while sellable is 0: [gap analysis](torod-inventory-gap-analysis.md)). Stock stays manual
+   until LogesTechs says which field is the quantity available to sell and how it moves when an order is accepted; no field is
+   proposed or picked by the system. After that answer an administrator confirms the field's path and only then can the sync be
+   switched on, per assigned product and reversible ([Hotfix 2](hotfix-2.md)). Nothing simulates warehouse stock.
+   **This is why "automatic inventory synchronization" is not on.**
+   Also not exercised: a stock sync against the real warehouse (the code is proved against mocked answers only), and how long after
+   acceptance the warehouse's own count falls ([request, item 30](vendor-requests/logestechs-technical-request.md)).
+4. **Torod Point orders: the invoice number.** The orders field map reads the order's `invoiceNumber`, which is empty on most
+   historical warehouse orders, so it is verified for its shape (the field is present) and not for its content. Nobody has shown that
+   the invoice number we send comes back in the order list, which is what finding an order again after a lost answer relies on.
+   Until a master administrator records that evidence, **no real order is created** (a rehearsal is unaffected). The first 150 orders of
+   the list are read and its order is undocumented ([request, items 29–31](vendor-requests/logestechs-technical-request.md)).
+5. **Cash on delivery.** The Fulfillment API's collection-method values and M5AZN's COD settlement are undocumented. COD
    for Torod Point stays held until a value is entered; mixed-provider COD is blocked unless explicitly enabled and verified;
    an order that is part in-house, part provider is always held. The assumption that Lastmile's package `cod` equals the
    cash we sent (used to confirm webhook claims) is unverified (T-6).
-5. **M5AZN delivery tracking.** No webhook and no documented status vocabulary: delivery depends on a verified status map
+6. **M5AZN delivery tracking.** No webhook and no documented status vocabulary: delivery depends on a verified status map
    or on an operator closing the shipment. M5AZN cannot cancel through the API.
-6. **Torod Point webhook authenticity.** Unsigned; the secret in the URL is the only credential. Terminal claims are
+7. **Torod Point webhook authenticity.** Unsigned; the secret in the URL is the only credential. Terminal claims are
    confirmed with the provider; the first event for a package is trusted on first sight.
-7. **Deployment facts we cannot see.** Whether the web server's document root is `public/` or the application root (SEC-13), trusted
+8. **Deployment facts we cannot see.** Whether the web server's document root is `public/` or the application root (SEC-13), trusted
    proxies (`TRUSTED_PROXIES`; the webhook rate limit and any allow-list depend on them), the production `APP_KEY` (SEC-2), the Zender
    secret rotation (SEC-1), the queue worker and cron configuration, and whether the platform has migrations of its own pending.
-8. **Payment changes after dispatch.** Once a shipment is accepted, a later payment or refund on the parent order is **not**
+9. **Payment changes after dispatch.** Once a shipment is accepted, a later payment or refund on the parent order is **not**
    propagated to the provider (neither provider documents an update call). Handled by an operator with the provider.
-9. **Imported-product freshness.** M5AZN imports are polled (default 30 min, minimum 5). The delay between selecting a
+10. **Imported-product freshness.** M5AZN imports are polled (default 30 min, minimum 5). The delay between selecting a
    product on M5AZN and seeing it in the store is M5AZN's own latency plus up to one interval plus the 5-minute scheduler
    tick; *Sync products now* removes the wait ([workflow](m5azn-import-workflow.md)).
 
@@ -84,6 +94,10 @@ real systems.
 * A product can be assigned to a provider only after it is saved and matched; the create form says so.
 * Orders with provider lines cannot be edited or reopened (cancel and re-place instead) until an edit can amend the
   provider's order.
+* **Who may switch on the warehouse stock sync.** *Follow warehouse stock levels* is a setting on the Torod Point page, saved by any
+  administrator with the third-party setup permission, as every other setting there. The stock-field confirmation is also saved by
+  that role, while the invoice round-trip confirmation is restricted to the master administrator. Decide whether the stock
+  confirmation and the switch should be master-administrator-only as well; the system does not decide it for you.
 
 ## Observations outside this change
 
@@ -93,5 +107,10 @@ real systems.
 * `tests/Feature/ExampleTest` (`GET /`) failed on the untouched base commit as well: the storefront middleware reads
   installation tables the in-memory test database does not have. It now skips with that reason when they are absent and
   still runs where the dump has been imported ([ci notes](../../.github/workflows/ci.yml)).
+* The seller REST API's product create/update and stock-update endpoints (`v2/seller` and `v3/seller` `ProductController`) write
+  `current_stock` and variant quantities without asking whose stock it is. A figure typed there for a warehouse-controlled product
+  stands until the next sync replaces it (recorded as a `provider_sync` stock movement). This predates this change and is not
+  modified; the admin product form, *Update stock*, inventory adjustments and manual stock entry are guarded
+  ([Torod Point, stock](torod-point.md#stock)). Purchase-order receipts and return restocks are not guarded either.
 * The platform's MySQL connection runs non-strict (`'strict' => false`), under which a text value compared with a numeric
   column is read as 0 (SEC-11). Other platform endpoints share the pattern.
