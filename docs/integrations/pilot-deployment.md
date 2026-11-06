@@ -463,16 +463,17 @@ phase 0 requires (artisan as root would leave root-owned files under `storage/` 
 APP=/path/to/the/application                                   # the directory that contains artisan and .env
 BACKUPS=/path/outside/every/web/root/pharmacy-backups          # the same directory as for the first deployment
 HOTFIX=/path/outside/every/web/root/overlay-hotfix-1           # a NEW directory (as root, /root/… is fine)
-: "${APP:?}" "${BACKUPS:?}" "${HOTFIX:?}" "${DOCROOT:?}"       # stops here if one of them is empty
+PHP=php                                                        # the PHP binary you used for the first deployment (several versions may be installed: write its full path)
+: "${APP:?}" "${BACKUPS:?}" "${HOTFIX:?}" "${DOCROOT:?}" "${PHP:?}"     # stops here if one of them is empty
 for dir in "$BACKUPS" "$HOTFIX"; do
   case "$(realpath -m "$dir")/" in "$(realpath -m "$DOCROOT")"/*) echo "STOP: $dir is inside the web root" ;; *) echo "ok: $dir is outside the web root" ;; esac
 done
 OWNER=$(stat -c %U "$APP/artisan")                             # the user that owns the application files
-art() { (cd "$APP" && sudo -u "$OWNER" php artisan "$@"); }    # without sudo: runuser -u "$OWNER" -- php artisan "$@"; already that user: php artisan "$@"
+art() { (cd "$APP" && sudo -u "$OWNER" "$PHP" artisan "$@"); }  # without sudo: runuser -u "$OWNER" -- "$PHP" artisan "$@"; already that user: "$PHP" artisan "$@"
 ```
 
-Use the `php` you used for the first deployment, and `art` wherever this section needs artisan. `deploy.php` and `backup.sh` run as `root` or
-as `$OWNER` (if as `$OWNER`, `$HOTFIX` and `$BACKUPS` must be readable and writable by that user).
+Use `art` wherever this section needs artisan. `deploy.php` and `backup.sh` run as `root` or as `$OWNER` (if as `$OWNER`, `$HOTFIX` and
+`$BACKUPS` must be readable and writable by that user).
 
 **H0. Prove what the server runs before you change it (reads only).** The server's own `git` HEAD proves nothing: the overlay does
 not move it. The record of the first deployment does:
@@ -519,7 +520,7 @@ you is valid for that hash only.
 **H3. Compare it with the files on the server (reads only).**
 
 ```bash
-php "$HOTFIX/deploy.php" verify --app="$APP" --package="$HOTFIX"
+"$PHP" "$HOTFIX/deploy.php" verify --app="$APP" --package="$HOTFIX"
 ```
 
 Expected, and nothing else: `Summary: 14 CLEAN, 5 NEW` and `Result: every file can be applied.` The five `NEW` files are `CurrencyCode`,
@@ -535,9 +536,9 @@ and the site stays in maintenance mode (then see the failure table in 4a, readin
 
 ```bash
 STAMP=$(date -u +%Y%m%d-%H%M%S)
-php "$HOTFIX/deploy.php" apply --app="$APP" --package="$HOTFIX"                       # dry run: prints the report, changes nothing
+"$PHP" "$HOTFIX/deploy.php" apply --app="$APP" --package="$HOTFIX"                       # dry run: prints the report, changes nothing
 art down --retry=60 \
-  && php "$HOTFIX/deploy.php" apply --app="$APP" --package="$HOTFIX" --yes --backup-dir="$BACKUPS/deploy/$STAMP-hotfix1" \
+  && "$PHP" "$HOTFIX/deploy.php" apply --app="$APP" --package="$HOTFIX" --yes --backup-dir="$BACKUPS/deploy/$STAMP-hotfix1" \
   && art optimize:clear && art queue:restart && art --version && art up
 ```
 
@@ -630,7 +631,7 @@ order is created at either provider, and the scheduler has nothing to sync. Do n
 **Send us**, in this order: the H0 head line; the H3 `Summary:` and `Result:` lines; the H4 `[ok]` and `To undo:` lines; the H5 output
 (and the optional engine statements); the H6 output of each block; the two H7 lines.
 
-**Taking Hotfix 1 back.** Newest first: `php "$HOTFIX/deploy.php" rollback --backup-dir="$BACKUPS/deploy/$STAMP-hotfix1"` (the directory
+**Taking Hotfix 1 back.** Newest first: `"$PHP" "$HOTFIX/deploy.php" rollback --backup-dir="$BACKUPS/deploy/$STAMP-hotfix1"` (the directory
 `apply` printed for the hotfix) restores the first release's version of every file and removes the five new ones; only then, if you also
 want the first deployment undone, run `rollback` on the first deployment's directory with the first package's `deploy.php` (the other way
 round it stops with *changed after the deployment*). After H6 the two widened columns stay wide (nothing needs them narrow, and the first
