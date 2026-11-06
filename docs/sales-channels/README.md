@@ -11,7 +11,7 @@ A multi-channel layer on top of the storefront: **Amazon** (Selling Partner API)
 | [costs.md](costs.md) | the operational-cost ledger: contracts, fee types and calculation methods, product cost layers, profit |
 | [operations.md](operations.md) | deployment (exact migrations), switches, scheduler, runbooks (connect, sync, link, route, publish, roll back) |
 | [shared-file-changes.md](shared-file-changes.md) | every change to a file that existed before this work, for the other workstream |
-| [final-report.md](final-report.md) | the delivery report: what exists, what was tested and how, what is not built, the open risks |
+| [final-report.md](final-report.md) | the delivery report, in Arabic, in the 20 points the task asked for: what exists, what was tested and how, what is not built, the open risks |
 
 ## What this is not
 
