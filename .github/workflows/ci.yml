@@ -160,7 +160,7 @@ jobs:
         env:
           # The commit the pilot server's code corresponds to. After a deployment, set the repository variable PILOT_BASELINE to the
           # `head` recorded in the deployed package's MANIFEST.json, so the next package holds only what is new.
-          BASELINE: ${{ vars.PILOT_BASELINE || 'ef843600' }}
+          BASELINE: ${{ vars.PILOT_BASELINE || '698aa1e' }}
           RELEASE: ${{ github.event.pull_request.head.sha }}
         run: php scripts/deploy/build-overlay.php --base="$BASELINE" --head="$RELEASE" --out=build/overlay --archive
       - uses: actions/upload-artifact@v4

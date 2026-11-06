@@ -4,6 +4,7 @@ namespace App\Services\Fulfillment;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodStockConfirmation;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use Closure;
 use Illuminate\Http\Request;
@@ -45,6 +46,9 @@ class ProviderSettingsForm
      */
     private const ARMING_SWITCHES = ['enabled', 'dispatch_enabled', 'dry_run', 'auto_dispatch'];
 
+    /** The same rule for what lets a warehouse's figures replace the store's stock: the switch of its sync (and, below, the confirmation of its stock field). */
+    private const WAREHOUSE_STOCK_SWITCH = 'inventory_sync_enabled';
+
     /** Hosts a provider's API may live on (the documented servers). */
     private const ALLOWED_HOSTS = [
         'm5azn' => ['m5azn.com', 'm5azn.ae', 'm5azn.om'],
@@ -57,6 +61,10 @@ class ProviderSettingsForm
         'storageType', 'categoryId', 'color', 'length', 'width', 'maxCapacityPerLocation', 'height', 'weight', 'cost',
         'lessCapacity', 'customerInfo', 'areaZone', 'pickingMethod', 'linkedProductId', 'productUnit', 'productUnitQuantity',
     ];
+
+    public function __construct(private readonly TorodStockConfirmation $stockConfirmation)
+    {
+    }
 
     /** @return array<string, mixed> Laravel validation rules */
     public function rules(ProviderCode $provider): array
@@ -143,15 +151,21 @@ class ProviderSettingsForm
             $settings[$field] = is_array($decoded) ? $decoded : [];
         }
 
-        if ($provider === ProviderCode::TorodPoint) {
-            // An administrator attests that the product list's stock field is the AVAILABLE quantity; the
-            // moment of that statement is recorded, and un-ticking it withdraws it.
-            $settings['stock_field_confirmed_at'] = $request->boolean('stock_field_confirmed')
-                ? ($current->get('stock_field_confirmed_at') ?? now()->toDateTimeString())
-                : null;
+        if ($provider === ProviderCode::TorodPoint && !$this->untouched($request, 'stock_field_confirmed')) {
+            // An administrator attests that the product list's stock field is the AVAILABLE quantity, for the path shown beside the box;
+            // the moment of that statement is recorded, un-ticking it withdraws it, and a different path is a different statement.
+            $settings += $this->stockConfirmation->settingsFor(
+                ticked: $request->boolean('stock_field_confirmed'),
+                seenPath: $request->filled('stock_field_path') ? (string) $request->input('stock_field_path') : null,
+                current: $current,
+            );
         }
 
-        foreach (array_diff(self::ARMING_SWITCHES, ['enabled']) as $switch) {
+        $guarded = array_diff(self::ARMING_SWITCHES, ['enabled']);
+        if ($provider === ProviderCode::TorodPoint) {
+            $guarded[] = self::WAREHOUSE_STOCK_SWITCH;
+        }
+        foreach ($guarded as $switch) {
             if ($this->untouched($request, $switch)) {
                 $settings[$switch] = $current->bool($switch, $switch === 'dry_run');
             }

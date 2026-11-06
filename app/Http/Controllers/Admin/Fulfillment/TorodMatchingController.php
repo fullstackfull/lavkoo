@@ -132,7 +132,12 @@ class TorodMatchingController extends Controller
     public function stock(Request $request): RedirectResponse
     {
         $data = $request->validate(['mapping_id' => ['required', 'integer'], 'quantity' => ['required', 'integer', 'min:0', 'max:100000000']]);
-        $this->mappings->setManualStock((int) $data['mapping_id'], (int) $data['quantity']);
+        if (!$this->mappings->setManualStock((int) $data['mapping_id'], (int) $data['quantity'])) {
+            SafeToast::warning('', translate('stock_is_set_by_the_warehouse_sync'));
+
+            return back();
+        }
+
         ToastMagic::success(translate('manual_stock_saved'));
 
         return back();

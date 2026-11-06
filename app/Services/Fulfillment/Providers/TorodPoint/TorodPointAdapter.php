@@ -62,7 +62,8 @@ use Throwable;
  */
 class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, HandlesWebhooks, ProvidesShippingLabel
 {
-    private const STOCK_FRESH_HOURS = 6;
+    /** How long a warehouse figure on a mapping stays the word on that product's stock (longer when the sync interval is: see stockFreshSince). */
+    public const STOCK_FRESH_HOURS = 6;
     private const PAGE_SIZE = 100;
     private const MAX_PAGES = 50;
 
@@ -83,6 +84,8 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         private readonly CatalogStagingService $staging,
         private readonly InventorySyncService $inventory,
         private readonly ProviderSyncRecorder $sync,
+        private readonly TorodInvoiceRoundTrip $invoiceRoundTrip,
+        private readonly TorodStockConfirmation $stockConfirmation,
     ) {
     }
 
@@ -115,6 +118,8 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             'webhook_ip_allowlist' => '',
             'tracking_url_template' => '',
             'stock_field_confirmed_at' => null,
+            'stock_field_confirmed_path' => null,
+            'invoice_round_trip' => null,
             'field_maps' => [],
         ];
     }
@@ -137,8 +142,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         $lastmileCredentials = $config->hasSecret('lastmile_email') && $config->hasSecret('lastmile_password');
         $companyId = $config->string('company_id') !== '';
 
-        $products = $this->fieldMaps->get($this->code(), TorodFieldMaps::PRODUCTS);
-        $stockMapped = $products->verified && $products->map()->has('stock') && $config->get('stock_field_confirmed_at') !== null;
+        $stockMapped = $this->stockConfirmation->isConfirmed($config);
 
         $capabilities = [
             'connection' => $this->state('connection', $credentials, $global, true),
@@ -147,7 +151,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             'product_push' => $this->state('product_push', $credentials, $global, $config->bool('push_products_enabled'), $this->connections->externalWritesEnabled()),
             'inventory_sync' => match (true) {
                 !$credentials => new CapabilityState('inventory_sync', CapabilityState::NEEDS_CONFIGURATION, 'credentials_missing'),
-                !$stockMapped => new CapabilityState('inventory_sync', CapabilityState::UNVERIFIED, 'torod_stock_field_unverified'),
+                !$stockMapped => new CapabilityState('inventory_sync', CapabilityState::UNVERIFIED, $this->stockConfirmation->isStated($config) ? 'torod_stock_map_unverified' : 'torod_stock_field_unverified'),
                 $global && $config->bool('inventory_sync_enabled') => new CapabilityState('inventory_sync', CapabilityState::ENABLED),
                 default => new CapabilityState('inventory_sync', CapabilityState::READY_DISABLED),
             },
@@ -157,6 +161,9 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             'cancel_package' => $this->state('cancel_package', $companyId && $lastmileCredentials, $global, true, $this->connections->externalWritesEnabled()),
             'webhooks' => $this->state('webhooks', $config->hasSecret('webhook_secret'), $global, $config->bool('webhooks_enabled')),
             'status_poll' => $this->state('status_poll', $companyId, $global, true),
+            'live_submission' => $this->invoiceRoundTrip->isConfirmed($config)
+                ? new CapabilityState('live_submission', CapabilityState::ENABLED)
+                : new CapabilityState('live_submission', CapabilityState::UNVERIFIED, 'torod_invoice_round_trip_unconfirmed'),
             'inventory_endpoint' => new CapabilityState('inventory_endpoint', CapabilityState::UNDOCUMENTED, 'torod_no_inventory_endpoint'),
             'cancel_warehouse_order' => new CapabilityState('cancel_warehouse_order', CapabilityState::UNDOCUMENTED, 'torod_no_warehouse_cancel'),
             'warehouse_order_status_lookup' => new CapabilityState('warehouse_order_status_lookup', CapabilityState::UNDOCUMENTED, 'torod_no_warehouse_status_lookup'),
@@ -254,6 +261,12 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             ]);
         }
 
+        // The dispatcher holds a real send until this is confirmed; checking again here means nothing that reaches the adapter
+        // can create a warehouse order whose invoice number has never been shown to come back. Nothing has been sent yet.
+        if (!$this->invoiceRoundTrip->isConfirmed($config)) {
+            return SubmissionResult::rejected('invoice_round_trip_unconfirmed', 'Torod Point has not been confirmed to return the invoice number we send, so no order is created.');
+        }
+
         return $this->interpretCreate($this->fulfillment->createOrder($payload, $fulfillment->id), $config);
     }
 
@@ -345,6 +358,13 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return SubmissionResult::ambiguous('cannot_reconcile', 'No verified way to find this order in the Torod Point order list.');
         }
 
+        $invoice = trim($fulfillment->reference);
+        if ($invoice === '' || !$map->has('invoice_number')) {
+            return SubmissionResult::ambiguous('cannot_reconcile', 'There is no invoice number to look for in the Torod Point order list.');
+        }
+
+        // Every listed order that carries OUR invoice number, once: by its barcode, or by its whole record when it has none.
+        $matches = [];
         for ($page = 1; $page <= self::RECONCILE_PAGES; $page++) {
             $result = $this->fulfillment->listOrders($page, 50);
             $items = $result->ok() && $result->json !== null ? FieldMap::extractItems($result->json, $stored->itemsPath) : null;
@@ -353,12 +373,14 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             }
 
             foreach ($items as $item) {
-                if ($map->string($item, 'invoice_number') === $fulfillment->reference) {
-                    $reference = $map->string($item, 'reference');
-                    if ($reference !== null) {
-                        return SubmissionResult::accepted(providerReference: $reference, providerStatus: $map->string($item, 'status'));
-                    }
+                // A blank invoice number (most of the account's historical orders) is nobody's: a match is the same non-empty text on both sides.
+                if ($map->string($item, 'invoice_number') !== $invoice) {
+                    continue;
                 }
+
+                $reference = $map->string($item, 'reference');
+                $reference = $reference === '' ? null : $reference;
+                $matches[$reference ?? 'record:' . md5((string) json_encode($item))] = ['reference' => $reference, 'status' => $map->string($item, 'status')];
             }
 
             if (count($items) < 50) {
@@ -366,7 +388,18 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             }
         }
 
-        return SubmissionResult::ambiguous('not_found_in_order_list', 'Our invoice number was not found in the recent Torod Point orders (the list may be paged or late).');
+        if (count($matches) > 1) {
+            return SubmissionResult::ambiguous('duplicate_invoice_in_order_list', 'More than one Torod Point order carries our invoice number; none is linked automatically.');
+        }
+
+        $match = $matches === [] ? null : reset($matches);
+        if ($match === null) {
+            return SubmissionResult::ambiguous('not_found_in_order_list', 'Our invoice number was not found in the recent Torod Point orders (the list may be paged or late).');
+        }
+
+        return $match['reference'] === null
+            ? SubmissionResult::ambiguous('match_without_barcode', 'An order carries our invoice number but has no barcode to link it by.')
+            : SubmissionResult::accepted(providerReference: $match['reference'], providerStatus: $match['status']);
     }
 
     // ---- webhooks -----------------------------------------------------------------------------------
@@ -582,6 +615,9 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
      * stock has been resolved by an administrator: the products map is verified, a `stock` path is set,
      * and the administrator confirmed that path is the available quantity.
      *
+     * Only the products ASSIGNED to this warehouse are written, from figures that are whole, non-negative numbers; a missing,
+     * negative, fractional or contradictory figure leaves the product's stock exactly as it is and is counted in the stats.
+     *
      * @return array{ok: bool, error?: string, stats?: array<string, int>}
      */
     public function syncInventory(): array
@@ -590,30 +626,47 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         $config = $this->config();
         $stored = $this->fieldMaps->get($this->code(), TorodFieldMaps::PRODUCTS);
 
-        if (!$stored->verified || !$stored->map()->has('stock') || $config->get('stock_field_confirmed_at') === null) {
-            return $this->failed(ProviderSyncRecorder::INVENTORY, 'Warehouse stock is not verified: no inventory endpoint is documented, and the product list has not been confirmed to carry available stock.');
+        if (!$this->stockConfirmation->isConfirmed($config)) {
+            return $this->failed(ProviderSyncRecorder::INVENTORY, $this->stockConfirmation->isStated($config)
+                ? 'Warehouse stock is not verified: the products field map has to be verified again (Save and verify) before its stock field is used.'
+                : 'Warehouse stock is not verified: no inventory endpoint is documented, and the stock field of the product list has not been confirmed as the available quantity.');
         }
         if (!$config->bool('inventory_sync_enabled')) {
             return $this->failed(ProviderSyncRecorder::INVENTORY, 'Inventory sync is switched off.');
         }
 
         $this->sync->attempted($this->code()->value, ProviderSyncRecorder::INVENTORY);
+        $readStartedAt = now();
         $items = $this->readProductPages($stored->itemsPath, $error);
         if ($items === null) {
             return $this->failed(ProviderSyncRecorder::INVENTORY, (string) $error);
         }
 
-        $map = $stored->map();
-        $stock = [];
-        foreach ($items as $item) {
-            $id = $map->string($item, 'id');
-            $quantity = $map->number($item, 'stock');
-            if ($id !== null && $quantity !== null) {
-                $stock[$id] = (int) $quantity;
-            }
+        // Reading takes a while: an administrator may have switched the sync off, withdrawn the confirmation or changed the map meanwhile.
+        $config = $this->config();
+        $current = $this->fieldMaps->get($this->code(), TorodFieldMaps::PRODUCTS);
+        if (!$config->bool('inventory_sync_enabled') || !$this->stockConfirmation->isConfirmed($config) || $current->itemsPath !== $stored->itemsPath || $current->paths !== $stored->paths) {
+            return $this->failed(ProviderSyncRecorder::INVENTORY, 'Inventory sync was switched off, unconfirmed or re-mapped while the warehouse list was being read; no stock was changed.');
         }
 
-        $stats = $this->inventory->apply($this->code(), $stock);
+        $map = $stored->map();
+        $figures = [];
+        foreach ($items as $item) {
+            $id = $map->string($item, 'id');
+            if ($id === null) {
+                continue;
+            }
+
+            // null where the figure is missing or is not a number. A product listed twice with different figures has no figure.
+            $figure = $map->number($item, 'stock');
+            $figures[$id] = array_key_exists($id, $figures) && $figures[$id] !== $figure ? null : $figure;
+        }
+
+        $stats = $this->inventory->applyToAssignedProducts($this->code(), $figures, $readStartedAt);
+        if ($stats['invalid'] + $stats['unsupported'] + $stats['absent'] > 0 && $stats['updated'] + $stats['unchanged'] === 0) {
+            return $this->failed(ProviderSyncRecorder::INVENTORY, 'No product assigned to the warehouse received a usable quantity at the confirmed stock path (missing, unusable or no longer matching); no stock was changed.');
+        }
+
         $this->sync->succeeded($this->code()->value, ProviderSyncRecorder::INVENTORY, $stats);
 
         return ['ok' => true, 'stats' => $stats];
@@ -648,7 +701,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         return [
             'ok' => true,
             'items' => PiiRedactor::redact(SecretRedactor::redact($items), strict: $capability === TorodFieldMaps::ORDERS),
-            'proposal' => $this->fieldMaps->propose($items, TorodFieldMaps::CANDIDATES[$capability] ?? []),
+            'proposal' => $this->fieldMaps->propose($items, TorodFieldMaps::CANDIDATES[$capability] ?? [], TorodFieldMaps::NULLABLE[$capability] ?? []),
             'items_path' => $stored->itemsPath,
         ];
     }
@@ -915,8 +968,14 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     {
         return $mapping->stock_source === StockSource::ProviderSync
             && $mapping->provider_stock !== null
-            && $mapping->provider_stock_synced_at?->gt(now()->subHours(self::STOCK_FRESH_HOURS))
+            && $mapping->provider_stock_synced_at?->gt(self::stockFreshSince($this->config()))
             && $mapping->provider_stock < $quantity;
+    }
+
+    /** How far back a warehouse figure still counts: six hours, or three sync intervals when an administrator chose an interval longer than two hours. */
+    public static function stockFreshSince(ProviderConfig $config): Carbon
+    {
+        return now()->subMinutes(max(self::STOCK_FRESH_HOURS * 60, 3 * $config->int('inventory_sync_interval_minutes', 30)));
     }
 
     private function ensureCallable(): void

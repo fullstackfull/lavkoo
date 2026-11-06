@@ -17,7 +17,7 @@
         <div class="row g-2">
             @foreach ($map['fields'] as $field)
                 <div class="col-md-4">
-                    <label class="form-label fs-12">{{ translate('map_field_' . $field) }}@if (in_array($field, $map['required'], true)) <span class="text-danger">*</span>@endif</label>
+                    <label class="form-label fs-12">{{ translate('map_field_' . $field) }}@if (in_array($field, $map['required'], true)) <span class="text-danger">*</span>@endif @if (in_array($field, $map['nullable'] ?? [], true))<span class="text-muted">({{ translate('may_be_empty') }})</span>@endif</label>
                     <input class="form-control form-control-sm" type="text" name="paths[{{ $field }}]" value="{{ $stored->paths[$field] ?? '' }}" autocomplete="off">
                     <span class="fs-10 text-success" data-proposal="{{ $field }}"></span>
                 </div>
@@ -32,5 +32,15 @@
             <button class="btn btn-primary btn-sm" type="submit" name="verify" value="1">{{ translate('save_and_verify') }}</button>
         </div>
     </form>
+    @if ($stored->verified)
+        @foreach ($map['nullable'] ?? [] as $logical)
+            @if (($stored->filledIn($logical) ?? 0) < ($stored->coverage['sampled'] ?? 0))
+                <div class="alert alert-warning fs-12 py-2 mt-3 mb-0">
+                    <strong>{{ translate('map_field_' . $logical) }}:</strong> {{ $stored->filledIn($logical) ?? 0 }} / {{ $stored->coverage['sampled'] ?? 0 }} {{ translate('sampled_records_have_a_value') }}
+                    <div>{{ translate('field_map_shape_only_help') }}</div>
+                </div>
+            @endif
+        @endforeach
+    @endif
     <pre class="bg-light rounded p-2 mt-3 mb-0 fs-11" id="sample-{{ $capability }}" style="max-height:260px;overflow:auto">{{ translate('sample_not_loaded') }}</pre>
 </div>

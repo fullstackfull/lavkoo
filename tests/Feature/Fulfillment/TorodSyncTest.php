@@ -99,7 +99,7 @@ class TorodSyncTest extends TorodTestCase
         $sample = $this->adapter()->sample('products');
 
         $this->assertTrue($sample['ok']);
-        $this->assertSame('quantity', $sample['proposal']['stock'], 'proposed, not trusted');
+        $this->assertArrayNotHasKey('stock', $sample['proposal'], 'no quantity is proposed as the stock: which one the storefront may sell from is a decision, not a guess');
         $this->assertSame('id', $sample['proposal']['id']);
         $this->assertCount(2, $sample['items']);
     }
@@ -133,7 +133,7 @@ class TorodSyncTest extends TorodTestCase
 
     public function test_confirmed_warehouse_stock_overwrites_store_stock_minus_unsent_orders(): void
     {
-        $this->enableProvider(ProviderCode::TorodPoint, ['inventory_sync_enabled' => true, 'stock_field_confirmed_at' => now()->toDateTimeString(), 'company_id' => '714', 'dry_run' => false]);
+        $this->enableProvider(ProviderCode::TorodPoint, ['inventory_sync_enabled' => true, 'stock_field_confirmed_at' => now()->toDateTimeString(), 'stock_field_confirmed_path' => 'quantity', 'company_id' => '714', 'dry_run' => false]);
         $this->verifyProductsMap(['id' => 'id', 'name' => 'name', 'sku' => 'sku', 'stock' => 'quantity'], $this->warehouseProducts());
         $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 0]);
         ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1421521', 'external_variant_id' => '', 'external_sku' => '13222', 'status' => MappingStatus::Approved]);

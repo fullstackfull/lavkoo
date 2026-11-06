@@ -12,6 +12,7 @@ final class HoldReason
     public const EXTERNAL_WRITES_DISABLED = 'hold_external_writes_disabled';
     public const AWAITING_APPROVAL = 'hold_awaiting_approval';
     public const PROVIDER_NOT_READY = 'hold_provider_not_ready';
+    public const LIVE_SUBMISSION_UNPROVEN = 'hold_live_submission_unproven';
     public const BEFORE_GO_LIVE = 'hold_before_go_live';
     public const MAPPING_MISSING = 'hold_mapping_missing';
     public const MAPPING_NOT_APPROVED = 'hold_mapping_not_approved';

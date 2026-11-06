@@ -89,6 +89,22 @@ personal data redacted) wherever a sample is requested, or an OpenAPI/Postman co
     `CANCELLED`, `RETURNED…` only after confirming them with *Get Package Status*; a status we do not recognise is
     shown on the shipment and changes nothing.
 
+## F. Quantities and invoice numbers (from our read-only checks of the live account)
+
+29. **Which quantity may a store sell from?** `GET /public/fulfillment/product` returns `quantity`, `originalQuantity`,
+    `committedQuantity`, `allocatedQuantity`, `onHandQuantity` and `sellableQuantity`. Please define each one. For our products
+    AS9, AS10 and AS8 `onHandQuantity` is 15, 19 and 2, while `sellableQuantity` is 0 for all three and the other four fields are 0.
+    Why is nothing sellable? Is there a step (put-away, release, activation, a flag on the product) that makes units on hand sellable?
+    Are the figures real time?
+30. **When an order is accepted** (*Add Order*), which of these fields change, and when: on acceptance, on pick, on pack, on
+    dispatch, on cancellation? In particular: does `sellableQuantity` already exclude the units of an order in status `CREATED`? Does
+    `onHandQuantity`? We will only treat a field as the available quantity if the answer is that it falls on acceptance.
+31. **`invoiceNumber` in the order list.** Most historical orders in `GET /public/fulfillment/order` show `invoiceNumber: null`. Is the
+    `invoiceNumber` we send in *Add Order* stored and returned **unchanged** (case, spaces, length limit) in that list? Please send the
+    list entry of one order created through *Add Order* with an `invoiceNumber`. This is what we use to find an order again after a
+    lost answer, and we will not create real orders until it is confirmed (see also item 10). We read only the first 150 orders of the
+    list: is it **newest first**, and can it be **filtered by `invoiceNumber`**?
+
 ## What we will do with the answers
 
 * Verify the response field maps and switch on **automatic stock synchronisation** (every 30 minutes, or faster if

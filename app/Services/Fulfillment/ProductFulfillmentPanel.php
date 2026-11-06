@@ -2,6 +2,7 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProductProviderChange;
 use App\Models\ProviderProductMapping;
 use Illuminate\Support\Collection;
@@ -11,12 +12,14 @@ class ProductFulfillmentPanel
 {
     private const HISTORY_LIMIT = 5;
 
-    public function __construct(private readonly ProductProviderAssignmentService $assignments)
-    {
+    public function __construct(
+        private readonly ProductProviderAssignmentService $assignments,
+        private readonly ProviderStockOwnership $stockOwnership,
+    ) {
     }
 
     /**
-     * @return array{current: string, choices: list<array<string, mixed>>, mappings: Collection<int, ProviderProductMapping>, history: Collection<int, ProductProviderChange>}
+     * @return array{current: string, choices: list<array<string, mixed>>, mappings: Collection<int, ProviderProductMapping>, history: Collection<int, ProductProviderChange>, stockControlledBy: ?ProviderCode}
      */
     public function for(?int $productId): array
     {
@@ -27,6 +30,7 @@ class ProductFulfillmentPanel
             'history' => $productId === null
                 ? new Collection()
                 : ProductProviderChange::where('product_id', $productId)->latest('id')->limit(self::HISTORY_LIMIT)->get(),
+            'stockControlledBy' => $productId === null ? null : $this->stockOwnership->controllingProvider($productId),
         ];
     }
 }
