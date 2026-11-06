@@ -48,16 +48,27 @@ abstract class AdminPagesTestCase extends TestCase
         Http::preventStrayRequests();
         Cache::flush();
 
-        $this->withoutMiddleware([
-            AdminMiddleware::class, ActivationCheckMiddleware::class, ModulePermissionMiddleware::class,
-            Localization::class, DetectMobile::class, ApplySeoRedirects::class, NoIndexThemePreview::class,
-            RecordHttpTelemetry::class, MonitorRequest::class, RecordAnalytics::class,
-        ]);
+        $this->withoutMiddleware($this->middlewareToDisable());
         $this->actingAs(Admin::findOrFail(1), 'admin');
 
         foreach (['en', 'sa', 'ae'] as $locale) {
             $this->languageFileHashes[$locale] = (string) md5_file(base_path("resources/lang/{$locale}/new-messages.php"));
         }
+    }
+
+    /**
+     * The request middleware that needs the installation (or is not what a page test is about). A test of the permissions themselves overrides this to leave
+     * ModulePermissionMiddleware on.
+     *
+     * @return list<class-string>
+     */
+    protected function middlewareToDisable(): array
+    {
+        return [
+            AdminMiddleware::class, ActivationCheckMiddleware::class, ModulePermissionMiddleware::class,
+            Localization::class, DetectMobile::class, ApplySeoRedirects::class, NoIndexThemePreview::class,
+            RecordHttpTelemetry::class, MonitorRequest::class, RecordAnalytics::class,
+        ];
     }
 
     protected function tearDown(): void
