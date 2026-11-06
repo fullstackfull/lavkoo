@@ -37,6 +37,7 @@ php artisan channels:status                         # switches, accounts, capabi
 php artisan channels:test-connection {account}      # harmless reads; prints granted / missing
 php artisan channels:sync {account} --only=orders   # orders | listings | inventory | finances
 php artisan channels:publish {account} --only=stock,price,settle,shipments
+php artisan channels:import-statement {account} statement.csv   # a statement exported from the seller portal (columns in the command's class docblock)
 php artisan costs:refresh --days=7                  # bring cost entries of recent sales up to date
 php artisan costs:accrue-storage --date=2026-11-05  # storage cost of one day
 ```
