@@ -61,7 +61,7 @@ class ChannelHttp
     ): ChannelResponse {
         $method = strtoupper($method);
         $correlationId = (string) Str::uuid();
-        $dryRun = $this->assertAllowed($account, $operation, $method, $capability, $scope);
+        $dryRun = $this->assertAllowed($account, $operation, $method, $capability, $scope, $query);
 
         if ($dryRun) {
             $response = ChannelResponse::dryRun($correlationId);
@@ -70,13 +70,13 @@ class ChannelHttp
             return $response;
         }
 
-        [$max, $perSeconds] = $this->rateLimitFor($account, $operation);
+        [$max, $perSeconds, $bucket] = $this->rateLimitFor($account, $operation);
         $retries = ChannelOperations::isRetrySafe($operation) ? (int) config('sales_channels.http.retries', 3) : 0;
 
         $attempt = 0;
         while (true) {
             $attempt++;
-            $this->limiter->acquire($account->id . ':' . $operation, $max, $perSeconds);
+            $this->limiter->acquire($account->id . ':' . $bucket, $max, $perSeconds);
             $response = $this->attempt($method, $url, $headers, $json, $query, $form, $correlationId);
 
             $retryable = in_array($response->kind, [ChannelResponse::RATE_LIMITED, ChannelResponse::SERVER_ERROR, ChannelResponse::NOT_SENT, ChannelResponse::AMBIGUOUS], true);
@@ -100,10 +100,15 @@ class ChannelHttp
      * @return bool true when the account is in dry run and the call would change something: it is to be logged, not sent
      * @throws ChannelUnavailableException
      */
-    public function assertAllowed(SalesChannelAccount $account, string $operation, string $method, ?IntegrationCapability $capability = null, ?string $scope = null): bool
+    public function assertAllowed(SalesChannelAccount $account, string $operation, string $method, ?IntegrationCapability $capability = null, ?string $scope = null, array $query = []): bool
     {
         if (!ChannelOperations::isRegistered($operation) || !ChannelOperations::methodAllowed($operation, $method)) {
             throw new ChannelUnavailableException(ChannelUnavailableException::UNREGISTERED_OPERATION, "'{$operation}' with {$method} is not a registered channel call; nothing was sent.");
+        }
+        foreach (ChannelOperations::requiredQuery($operation) as $name => $value) {
+            if (($query[$name] ?? null) !== $value) {
+                throw new ChannelUnavailableException(ChannelUnavailableException::UNREGISTERED_OPERATION, "'{$operation}' is only a read with {$name}={$value}; nothing was sent.");
+            }
         }
         if (!config('sales_channels.enabled', false)) {
             throw new ChannelUnavailableException(ChannelUnavailableException::GLOBAL_OFF, 'Sales channel integrations are switched off (SALES_CHANNELS_ENABLED); nothing was sent.');
@@ -222,13 +227,13 @@ class ChannelHttp
         return min($cap, $base * (2 ** ($attempt - 1)) + random_int(0, 250));
     }
 
-    /** @return array{0: int, 1: int} calls allowed, per this many seconds */
+    /** @return array{0: int, 1: int, 2: string} calls allowed, per this many seconds, and the allowance they draw on */
     private function rateLimitFor(SalesChannelAccount $account, string $operation): array
     {
         $limits = (array) config('sales_channels.rate_limits.' . $account->channel, []);
         $own = (array) ($limits['operations'][$operation] ?? $limits['default'] ?? ['max' => 30, 'per_seconds' => 10]);
 
-        return [(int) ($own['max'] ?? 30), (int) ($own['per_seconds'] ?? 10)];
+        return [(int) ($own['max'] ?? 30), (int) ($own['per_seconds'] ?? 10), (string) ($own['bucket'] ?? $operation)];
     }
 
     private function elapsedMs(int|float $started): int

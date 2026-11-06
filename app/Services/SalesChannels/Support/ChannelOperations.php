@@ -34,7 +34,7 @@ final class ChannelOperations
     private const READ_CAPABILITIES = [Capability::ReadOnlySync, Capability::ProductSync, Capability::OrderImport, Capability::FinancialReconciliation];
 
     /**
-     * @var array<string, array{kind: string, methods: list<string>, capabilities: list<Capability>, scopes: list<string>, retrySafe: bool, people: bool}>
+     * @var array<string, array{kind: string, methods: list<string>, capabilities: list<Capability>, scopes: list<string>, retrySafe: bool, people: bool, requiredQuery?: array<string, string>}>
      */
     private static array $registry = [];
 
@@ -61,9 +61,13 @@ final class ChannelOperations
         }
     }
 
-    public static function read(array $methods = ['GET'], array $capabilities = self::READ_CAPABILITIES, bool $people = false): array
+    /**
+     * @param list<Capability> $capabilities
+     * @param array<string, string> $requiredQuery query values that MUST be present: what makes a non-GET call a read (a validation preview that submits nothing)
+     */
+    public static function read(array $methods = ['GET'], array $capabilities = self::READ_CAPABILITIES, bool $people = false, array $requiredQuery = [], bool $retrySafe = true): array
     {
-        return ['kind' => self::READ, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => [], 'retrySafe' => true, 'people' => $people];
+        return ['kind' => self::READ, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => [], 'retrySafe' => $retrySafe, 'people' => $people, 'requiredQuery' => $requiredQuery];
     }
 
     public static function auth(array $methods = ['POST']): array
@@ -115,6 +119,12 @@ final class ChannelOperations
     public static function isRetrySafe(string $operation): bool
     {
         return self::entry($operation)['retrySafe'];
+    }
+
+    /** @return array<string, string> */
+    public static function requiredQuery(string $operation): array
+    {
+        return self::entry($operation)['requiredQuery'] ?? [];
     }
 
     public static function describesPeople(string $operation): bool

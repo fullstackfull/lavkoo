@@ -24,6 +24,10 @@ final readonly class RemoteFinancialEntry
     public const REFUND = 'refund';
     public const PAYOUT = 'payout';
     public const ADJUSTMENT = 'adjustment';
+    /** A fact the channel reported that matches nothing we know: kept for a person, never counted as a cost or as revenue. */
+    public const UNCLASSIFIED = 'unclassified';
+    /** Reported again elsewhere (an invoice that bills commission already seen on each sale): kept for reconciliation, not counted twice. */
+    public const DUPLICATE_OF_ANOTHER_ENTRY = 'duplicate';
 
     /** @param array<string, mixed> $meta */
     public function __construct(

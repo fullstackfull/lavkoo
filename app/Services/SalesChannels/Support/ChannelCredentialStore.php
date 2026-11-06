@@ -87,7 +87,15 @@ class ChannelCredentialStore
                 $values[$key] = $value;
             }
             $this->store($row, $values);
+            $this->adoptStoredCredentials(account: $account, stored: $row);
         });
+    }
+
+    /** The caller keeps using the model it passed in, so it must see the token just written; other unsaved attributes stay untouched. */
+    private function adoptStoredCredentials(SalesChannelAccount $account, SalesChannelAccount $stored): void
+    {
+        $account->setAttribute('credentials', $stored->getAttributes()['credentials'] ?? null);
+        $account->syncOriginalAttribute('credentials');
     }
 
     /** @param array<string, mixed> $values */
