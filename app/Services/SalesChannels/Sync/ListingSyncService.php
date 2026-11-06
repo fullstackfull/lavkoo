@@ -6,6 +6,7 @@ use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\SalesChannels\Data\RemoteListing;
+use App\Services\SalesChannels\Support\SnapshotState;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
 
@@ -42,7 +43,9 @@ class ListingSyncService
                 $stats['unchanged']++;
                 continue;
             }
-            $row->forceFill($this->remoteFields($listing))->save();
+            $fields = $this->remoteFields($listing);
+            $fields['snapshot'] = SnapshotState::refreshed($row->snapshot, $fields['snapshot'], SnapshotState::LISTING);
+            $row->forceFill($fields)->save();
             $stats['updated']++;
             if (!$row->isMapped() && $row->status !== SalesChannelProductMapping::IGNORED) {
                 $this->propose($row, $listing, $autoLink, $stats);

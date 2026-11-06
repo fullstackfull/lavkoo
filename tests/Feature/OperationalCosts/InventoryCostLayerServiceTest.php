@@ -115,6 +115,38 @@ class InventoryCostLayerServiceTest extends TestCase
         $this->assertSame(4, (int) $layer->fresh()->quantity_remaining);
     }
 
+    public function test_a_sale_that_grows_is_taken_afresh_when_its_extra_units_would_come_from_a_layer_it_already_used(): void
+    {
+        $this->receive(3, '10', '2026-01-01', 'inv-1');
+        $this->receive(10, '12', '2026-02-01', 'inv-2');
+        $this->sell('1', 5);
+
+        $grown = $this->sell('1', 8);
+
+        $this->assertTrue($grown->isComplete());
+        $this->assertSame('90.000000', $grown->totalCost->toStorage(), '3 x 10 from the first layer and 5 x 12 from the second.');
+        $this->assertSame([0, 5], InventoryCostLayer::orderBy('id')->pluck('quantity_remaining')->all(), 'The units of the first take went back before the second.');
+        $this->assertSame(2, InventoryCostConsumption::whereNull('reversed_at')->count(), 'One live row per layer.');
+        $this->assertSame(2, InventoryCostConsumption::whereNotNull('reversed_at')->count(), 'The first take is kept as history, reversed.');
+        $this->assertSame('90.000000', $this->sell('1', 8)->totalCost->toStorage(), 'Refreshing it again changes nothing.');
+    }
+
+    public function test_a_sale_that_was_short_is_completed_from_units_a_cancelled_sale_gave_back(): void
+    {
+        $this->receive(5, '10', '2026-01-01', 'inv-1');
+        $this->sell('2', 2);
+        $short = $this->sell('1', 5);
+        $this->assertSame(2, $short->shortfall());
+        $this->layers->reverse('order_line', 2);
+
+        $completed = $this->sell('1', 5);
+
+        $this->assertTrue($completed->isComplete());
+        $this->assertSame('50.000000', $completed->totalCost->toStorage());
+        $this->assertSame(0, (int) InventoryCostLayer::firstOrFail()->quantity_remaining);
+        $this->assertSame(InventoryCostLayer::DEPLETED, InventoryCostLayer::firstOrFail()->status);
+    }
+
     public function test_the_same_receipt_is_one_layer(): void
     {
         $this->receive(10, '10', '2026-01-01', 'inv-1');

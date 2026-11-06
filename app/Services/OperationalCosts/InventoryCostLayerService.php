@@ -13,6 +13,7 @@ use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -92,7 +93,9 @@ class InventoryCostLayerService
     /**
      * Takes `$quantity` units for a consumer from the oldest layers. Calling it again for the same consumer tops up only what is still
      * uncovered, so a retry never takes a unit twice; a later layer (the purchase invoice arrived after the sale) completes a sale that
-     * was short.
+     * was short. A consumed row is never edited, so when the units still needed would have to come from a layer the consumer already took
+     * from (the sale grew, or a cancelled sale gave units back to that layer), the consumer gives everything back and takes the whole
+     * quantity afresh in a new generation: the cost is then what first-in-first-out gives for the quantity it has now.
      */
     public function consume(string $consumerType, int $consumerId, int $locationId, int $productId, string $variantKey, int $quantity, CarbonInterface $at, int $sellerId = 0): ConsumptionResult
     {
@@ -108,16 +111,13 @@ class InventoryCostLayerService
             $needed = $quantity - $alreadyTaken;
 
             if ($needed > 0) {
-                $layers = InventoryCostLayer::query()
-                    ->where('seller_id', $sellerId)
-                    ->where('inventory_location_id', $locationId)
-                    ->where('product_id', $productId)
-                    ->where('variant_key', $variantKey)
-                    ->where('status', InventoryCostLayer::OPEN)
-                    ->where('quantity_remaining', '>', 0)
-                    ->orderBy('received_at')->orderBy('id')
-                    ->lockForUpdate()
-                    ->get();
+                $layers = $this->openLayers($locationId, $productId, $variantKey, $sellerId);
+                if ($alreadyTaken > 0 && $this->wouldTakeFromALayerAlreadyUsed($layers, $needed, $consumerType, $consumerId, $generation)) {
+                    $this->reverse($consumerType, $consumerId);
+                    $generation = $this->currentGeneration($consumerType, $consumerId);
+                    $needed = $quantity;
+                    $layers = $this->openLayers($locationId, $productId, $variantKey, $sellerId);
+                }
 
                 foreach ($layers as $layer) {
                     if ($needed <= 0) {
@@ -131,6 +131,38 @@ class InventoryCostLayerService
 
             return $this->resultFor($consumerType, $consumerId, $generation, $quantity);
         });
+    }
+
+    /** @return Collection<int, InventoryCostLayer> the layers with units left, oldest first, locked for the transaction */
+    private function openLayers(int $locationId, int $productId, string $variantKey, int $sellerId): Collection
+    {
+        return InventoryCostLayer::query()
+            ->where('seller_id', $sellerId)
+            ->where('inventory_location_id', $locationId)
+            ->where('product_id', $productId)
+            ->where('variant_key', $variantKey)
+            ->where('status', InventoryCostLayer::OPEN)
+            ->where('quantity_remaining', '>', 0)
+            ->orderBy('received_at')->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+    }
+
+    /** @param Collection<int, InventoryCostLayer> $layers */
+    private function wouldTakeFromALayerAlreadyUsed(Collection $layers, int $needed, string $consumerType, int $consumerId, int $generation): bool
+    {
+        $used = InventoryCostConsumption::where('consumer_type', $consumerType)->where('consumer_id', $consumerId)->where('generation', $generation)->whereNull('reversed_at')->pluck('layer_id')->all();
+        foreach ($layers as $layer) {
+            if ($needed <= 0) {
+                return false;
+            }
+            if (in_array($layer->id, $used, true)) {
+                return true;
+            }
+            $needed -= (int) $layer->quantity_remaining;
+        }
+
+        return false;
     }
 
     /** Puts a consumer's units back into the layers they came from. Returns the number of units restored. */

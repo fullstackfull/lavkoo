@@ -30,6 +30,11 @@ class ChannelFeeImporter
 {
     private const COST_CATEGORIES = [RemoteFinancialEntry::FEE, RemoteFinancialEntry::ADJUSTMENT];
 
+    /** A fact's event is stored before its cost is recorded; until the cost is in the ledger the event says `received`, afterwards `applied`. */
+    private const STORED_NOW = 'stored_now';
+    private const ALREADY_HANDLED = 'already_handled';
+    private const COST_NOT_RECORDED_YET = 'cost_not_recorded_yet';
+
     public function __construct(
         private readonly CostLedger $ledger,
         private readonly FxConverter $fx,
@@ -46,13 +51,14 @@ class ChannelFeeImporter
         $slots = [];
 
         foreach ($entries as $entry) {
-            if (!$this->remember($account, $entry)) {
+            $state = $this->remember($account, $entry);
+            if ($state === self::ALREADY_HANDLED) {
                 $stats['duplicates']++;
                 continue;
             }
-            $stats['new']++;
-            if ($entry->category === RemoteFinancialEntry::UNCLASSIFIED) {
-                $stats['needs_review']++;
+            if ($state === self::STORED_NOW) {
+                $stats['new']++;
+                $stats['needs_review'] += $entry->category === RemoteFinancialEntry::UNCLASSIFIED ? 1 : 0;
             }
             if (in_array($entry->category, self::COST_CATEGORIES, true)) {
                 $slots[$this->slotKey($entry)] = $entry;
@@ -71,8 +77,13 @@ class ChannelFeeImporter
         return $entry->orderId === null ? 'fact:' . $entry->identity : implode('|', [$entry->orderId, $entry->packageId ?? '', $entry->component->value, $entry->currency]);
     }
 
-    /** @return bool false when this exact fact was stored before */
-    private function remember(SalesChannelAccount $account, RemoteFinancialEntry $entry): bool
+    /**
+     * A fact that was stored before is not counted again, unless its cost never reached the ledger (the database refused the write once): then it is recorded now,
+     * because the channel will not send it a third time.
+     *
+     * @return self::STORED_NOW|self::ALREADY_HANDLED|self::COST_NOT_RECORDED_YET
+     */
+    private function remember(SalesChannelAccount $account, RemoteFinancialEntry $entry): string
     {
         try {
             SalesChannelEvent::create([
@@ -91,10 +102,12 @@ class ChannelFeeImporter
                 'received_at' => now(),
             ]);
         } catch (UniqueConstraintViolationException) {
-            return false;
+            $costPending = SalesChannelEvent::where('account_id', $account->id)->where('dedupe_key', $entry->identity)->where('outcome', 'received')->exists();
+
+            return $costPending ? self::COST_NOT_RECORDED_YET : self::ALREADY_HANDLED;
         }
 
-        return true;
+        return self::STORED_NOW;
     }
 
     private function reference(RemoteFinancialEntry $entry): ?string
@@ -164,6 +177,7 @@ class ChannelFeeImporter
             baseCurrency: $converted === null ? null : $this->fx->baseCurrency(),
             allocationStatus: $mapping === null ? 'unallocated' : 'not_applicable',
         ));
+        SalesChannelEvent::where('account_id', $account->id)->whereIn('dedupe_key', $identities)->where('outcome', 'received')->update(['outcome' => 'applied']);
 
         return $outcome->wroteSomething();
     }

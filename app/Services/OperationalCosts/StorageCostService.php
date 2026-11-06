@@ -136,24 +136,33 @@ class StorageCostService
         ]);
     }
 
-    /** @param list<array{product_id: int|null, variant_key: string, sku: string|null, availability: StockAvailability}> $rows */
+    /**
+     * The storage of a location is shared out per PRODUCT by units, the same unit the profit report keeps: the variants of one product add up to one share.
+     *
+     * @param list<array{product_id: int|null, variant_key: string, sku: string|null, availability: StockAvailability}> $rows
+     */
     private function allocate(OperationalCostEntry $entry, array $rows): void
     {
-        $limit = (int) config('operational_costs.storage.max_allocation_rows', 5000);
-        if ($rows === [] || count($rows) > $limit) {
+        $unitsByProduct = [];
+        foreach ($rows as $row) {
+            $unitsByProduct[(int) $row['product_id']] = ($unitsByProduct[(int) $row['product_id']] ?? 0) + (int) $row['availability']->available;
+        }
+        ksort($unitsByProduct);
+
+        if ($unitsByProduct === [] || count($unitsByProduct) > (int) config('operational_costs.storage.max_allocation_rows', 5000)) {
             $entry->forceFill(['allocation_status' => 'unallocated'])->save();
 
             return;
         }
 
-        $this->allocator->allocate($entry, array_map(static fn (array $row): AllocationTarget => new AllocationTarget(
+        $this->allocator->allocate($entry, array_map(static fn (int $productId, int $units): AllocationTarget => new AllocationTarget(
             type: 'product',
-            id: (int) $row['product_id'],
-            productId: (int) $row['product_id'],
-            variantKey: $row['variant_key'],
-            quantity: Money::of((int) $row['availability']->available),
+            id: $productId,
+            productId: $productId,
+            variantKey: '',
+            quantity: Money::of($units),
             weight: null,
-            value: Money::of((int) $row['availability']->available),
-        ), $rows), AllocationService::BASIS_QUANTITY);
+            value: Money::of($units),
+        ), array_keys($unitsByProduct), $unitsByProduct), AllocationService::BASIS_QUANTITY);
     }
 }

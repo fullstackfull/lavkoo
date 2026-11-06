@@ -9,11 +9,15 @@ use App\Models\OperationalCostEntry;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelEvent;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
+use App\Services\AuditLogger;
 use App\Services\OperationalCosts\CostLedger;
+use App\Services\OperationalCosts\Data\CostDraft;
+use App\Services\OperationalCosts\Data\RecordOutcome;
 use App\Services\OperationalCosts\Support\Money;
 use App\Services\SalesChannels\Data\RemoteFinancialEntry;
 use App\Services\SalesChannels\Finance\ChannelFeeImporter;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\CreatesChannelAccounts;
 use Tests\Support\FakeCurrencyRates;
@@ -50,6 +54,38 @@ class ChannelFeeImporterTest extends TestCase
     private function actuals(): array
     {
         return OperationalCostEntry::where('is_effective', true)->where('state', CostState::Actual->value)->pluck('amount', 'cost_component')->all();
+    }
+
+    public function test_a_fee_whose_recording_failed_once_is_recorded_by_the_next_run_and_not_twice_after_that(): void
+    {
+        $account = $this->trendyolAccount();
+        $this->order($account);
+        $fact = $this->entry('a', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '25');
+
+        $refusing = new class(app(AuditLogger::class)) extends CostLedger {
+            public function record(CostDraft $draft): RecordOutcome
+            {
+                throw new QueryException('mysql', 'insert into operational_cost_entries', [], new \Exception('SQLSTATE[40001]: Deadlock found when trying to get lock; try restarting transaction'));
+            }
+        };
+        $this->app->instance(CostLedger::class, $refusing);
+        try {
+            app(ChannelFeeImporter::class)->import($account, [$fact]);
+            $this->fail('The database refusal was swallowed.');
+        } catch (QueryException) {
+            $this->assertSame(0, OperationalCostEntry::count());
+            $this->assertSame('received', SalesChannelEvent::firstOrFail()->outcome, 'The fact is remembered as not yet in the ledger.');
+        }
+
+        $this->app->instance(CostLedger::class, new CostLedger(app(AuditLogger::class)));
+        $second = app(ChannelFeeImporter::class)->import($account, [$fact]);
+        $third = app(ChannelFeeImporter::class)->import($account, [$fact]);
+
+        $this->assertSame(['marketplace_commission' => '25.000000'], $this->actuals());
+        $this->assertSame(['new' => 0, 'duplicates' => 0, 'costs_recorded' => 1, 'needs_review' => 0], $second);
+        $this->assertSame(['new' => 0, 'duplicates' => 1, 'costs_recorded' => 0, 'needs_review' => 0], $third, 'Once recorded it is a duplicate like any other.');
+        $this->assertSame('applied', SalesChannelEvent::firstOrFail()->outcome);
+        $this->assertSame(1, OperationalCostEntry::count());
     }
 
     public function test_a_commission_and_the_part_returned_with_a_refund_are_netted_into_one_actual(): void

@@ -173,6 +173,26 @@ class StorageAndStockTest extends TestCase
         $this->assertSame(['3.000000', '1.000000'], $entry->allocations()->orderBy('product_id')->pluck('amount')->all());
     }
 
+    public function test_the_variants_of_one_product_are_one_share_of_the_storage_cost(): void
+    {
+        [$torod] = $this->locations->ensureDefaults();
+        foreach (['S' => 5, 'M' => 15] as $variant => $stock) {
+            ProviderProductMapping::create([
+                'provider' => 'torod_point', 'product_id' => 1, 'variant_key' => $variant, 'external_id' => 'ext-1', 'external_variant_id' => $variant,
+                'status' => MappingStatus::Approved, 'stock_source' => StockSource::ProviderSync, 'provider_stock' => $stock, 'provider_stock_synced_at' => now(),
+            ]);
+        }
+        $this->mapping(2, 20, StockSource::ProviderSync);
+        $this->torodContract([['service_type' => 'storage_daily', 'calc_method' => 'per_day', 'params' => ['amount' => '0.1', 'multiply_by' => 'units']]]);
+
+        app(StorageCostService::class)->accrue($torod, CarbonImmutable::parse('2026-11-10'));
+
+        $entry = OperationalCostEntry::where('cost_component', 'storage_daily')->firstOrFail();
+        $this->assertSame('4.000000', $entry->amount, '40 units at 0.10 for one day.');
+        $this->assertSame('allocated', $entry->allocation_status);
+        $this->assertSame(['2.000000', '2.000000'], $entry->allocations()->orderBy('product_id')->pluck('amount')->all(), 'Product 1 holds 20 units over two variants, product 2 holds 20.');
+    }
+
     public function test_a_flat_monthly_fee_is_charged_on_the_last_day_of_the_month_only(): void
     {
         [$torod] = $this->locations->ensureDefaults();

@@ -10,6 +10,7 @@ use App\Models\SalesChannelProductMapping;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\RemoteOrderLine;
+use App\Services\SalesChannels\Support\SnapshotState;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -102,6 +103,7 @@ class ChannelOrderIngestor
         $regression = $incoming->rank() < $held->rank() && !in_array($incoming, [ChannelOrderStatus::Cancelled, ChannelOrderStatus::Returned, ChannelOrderStatus::Failed], true);
 
         $fields = $this->fields($mapping->account ?? SalesChannelAccount::findOrFail($mapping->account_id), $remote);
+        $fields['snapshot'] = SnapshotState::refreshed($mapping->snapshot, $fields['snapshot'], SnapshotState::ORDER);
         if ($mapping->shipment_link_state === ExternalOrderMapping::LINK_LINKED) {
             // The linked shipment's carrier and tracking number are what the order was linked to; the channel's own (often empty) values must not wipe them.
             unset($fields['carrier'], $fields['tracking_number'], $fields['tracking_url']);
@@ -209,7 +211,9 @@ class ChannelOrderIngestor
                 $changed = true;
                 continue;
             }
-            $row->fill($this->lineFields($line));
+            $fields = $this->lineFields($line);
+            $fields['snapshot'] = SnapshotState::refreshed($row->snapshot, $fields['snapshot'], SnapshotState::ORDER_LINE);
+            $row->fill($fields);
             if ($row->isDirty()) {
                 $changed = true;
             }

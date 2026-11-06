@@ -38,6 +38,31 @@ class ListingSyncServiceTest extends TestCase
         return new RemoteListing($key, $sku, 'content-1', $barcode ?? $key, null, $title, null, 'onSale', Money::of($price), 'SAR', $quantity, CarbonImmutable::parse('2026-11-10'), ['title' => $title]);
     }
 
+    public function test_a_listing_that_changes_at_the_channel_keeps_the_price_a_person_set_and_the_state_of_its_publishes(): void
+    {
+        $this->listings->sync($this->account, [$this->listingSaying(['brand_code' => 'B-1'], quantity: 5)]);
+        $row = SalesChannelProductMapping::firstOrFail();
+        $row->forceFill(['snapshot' => $row->snapshot + [
+            'manual_price' => '120.000000',
+            'publish' => ['stock' => ['state' => 'failed', 'attempted' => '3', 'failures' => 2]],
+        ]])->save();
+
+        // The channel now shows another quantity (for example because our own publish just changed it).
+        $this->listings->sync($this->account, [$this->listingSaying(['brand_code' => 'B-2'], quantity: 3)]);
+
+        $after = $row->fresh();
+        $this->assertSame(3, $after->remote_quantity);
+        $this->assertSame('120.000000', $after->snapshot['manual_price']);
+        $this->assertSame(['state' => 'failed', 'attempted' => '3', 'failures' => 2], $after->snapshot['publish']['stock']);
+        $this->assertSame('B-2', $after->snapshot['brand_code'], 'What the channel says is still refreshed.');
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    private function listingSaying(array $snapshot, int $quantity): RemoteListing
+    {
+        return new RemoteListing('999', null, 'content-1', '999', null, 'A listing', null, 'onSale', Money::of('99'), 'SAR', $quantity, CarbonImmutable::parse('2026-11-10'), $snapshot);
+    }
+
     public function test_reading_listings_creates_unlinked_rows_and_touches_no_product(): void
     {
         $this->product(1, 'P-1', '111');

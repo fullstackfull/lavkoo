@@ -48,6 +48,37 @@ class ChannelOrderIngestorTest extends TestCase
         $this->assertSame(1, ExternalOrderLine::count());
     }
 
+    public function test_a_changed_order_keeps_what_the_application_recorded_in_its_snapshot(): void
+    {
+        $this->ingestor->ingest($this->account, $this->remoteOrder(status: ChannelOrderStatus::Processing));
+        $mapping = ExternalOrderMapping::firstOrFail();
+        $mapping->forceFill(['snapshot' => $mapping->snapshot + [
+            'channel_notified' => ['tracking' => 'TRK-1', 'at' => '2026-11-10T10:05:00+00:00'],
+            'channel_notify_error' => ['error' => 'unknown carrier', 'at' => '2026-11-10T10:00:00+00:00'],
+            'shipment_link' => ['previous' => ['provider' => null, 'carrier' => 'X'], 'by' => 1],
+        ]])->save();
+        $before = $mapping->fresh()->snapshot;
+
+        $result = $this->ingestor->ingest($this->account, $this->remoteOrder(status: ChannelOrderStatus::Shipped, updatedAt: '2026-11-10 11:00:00', overrides: ['isCod' => true]));
+
+        $after = $result->mapping->snapshot;
+        $this->assertSame(IngestResult::UPDATED, $result->outcome);
+        $this->assertSame([$before['channel_notified'], $before['channel_notify_error'], $before['shipment_link']], [$after['channel_notified'], $after['channel_notify_error'], $after['shipment_link']]);
+        $this->assertTrue($after['is_cod'], 'What the channel says is still refreshed.');
+    }
+
+    public function test_what_a_return_gave_back_survives_the_order_being_read_again_and_is_not_a_change_of_the_lines(): void
+    {
+        $this->ingestor->ingest($this->account, $this->remoteOrder(status: ChannelOrderStatus::Delivered));
+        $line = ExternalOrderLine::firstOrFail();
+        $line->forceFill(['quantity_returned' => 1, 'snapshot' => ($line->snapshot ?? []) + ['returned_by_claim' => ['claim-1' => 1]]])->save();
+
+        $result = $this->ingestor->ingest($this->account, $this->remoteOrder(status: ChannelOrderStatus::Delivered, updatedAt: '2026-11-10 12:00:00', overrides: ['paymentMethod' => 'CreditCard']));
+
+        $this->assertSame(['claim-1' => 1], $line->fresh()->snapshot['returned_by_claim']);
+        $this->assertNotContains('lines_changed', $result->changes, 'Our own record on the line is not a change at the channel.');
+    }
+
     public function test_ingesting_creates_no_internal_order_no_shipment_and_no_product(): void
     {
         $this->ingestor->ingest($this->account, $this->remoteOrder());

@@ -276,6 +276,21 @@ class ShipmentLinkingTest extends TestCase
         $this->assertSame(['cargoSenderNumber' => 'TRK-9', 'providerCode' => 'SMSA'], $this->puts()[1]->data());
     }
 
+    public function test_the_channel_is_not_told_again_because_its_package_moved_on(): void
+    {
+        $this->fakeTrendyol(['whoPays' => 1]);
+        $mapping = $this->linkedWithTracking();
+        $notifier = app(ChannelShipmentNotifier::class);
+        $notifier->notify($mapping);
+
+        // Trendyol now shows the package as Shipped: the poller reads the changed order.
+        app(ChannelOrderIngestor::class)->ingest($this->account, $this->remoteOrder('10234567890', '3012345678', ChannelOrderStatus::Shipped, null, '2026-11-10 12:00:00', ['fulfillmentMode' => FulfillmentMode::MerchantManaged, 'fulfillmentChannelRaw' => 'seller_pays']));
+        $second = $notifier->notify($mapping->refresh()->load('lines', 'account'));
+
+        $this->assertSame(['skipped', 'already_notified'], [$second['outcome'], $second['reason']]);
+        $this->assertCount(2, $this->puts(), 'Picking and the tracking number, once.');
+    }
+
     public function test_a_carrier_trendyol_has_no_code_for_is_reported_as_a_failure_a_person_can_read(): void
     {
         $this->fakeTrendyol(['whoPays' => 1]);
