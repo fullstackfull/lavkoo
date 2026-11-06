@@ -40,8 +40,9 @@ shown, and so is one whose mapping the assignment rules refuse: a push never tak
 
 ## Orders
 
-Eligible orders (paid or COD; status in the configured dispatch statuses; Torod-owned lines only) are sent
-automatically through the queue as warehouse orders. Held — not sent — when: a product has no approved match, the
+Eligible orders (paid or COD; status in the configured dispatch statuses; Torod-owned lines only) are sent through the queue as
+warehouse orders: automatically once *Send automatically* is on, otherwise one at a time when a person releases them, and in both
+cases only after the invoice-number round trip below has been confirmed (a rehearsal needs none). Held — not sent — when: a product has no approved match, the
 city is not a Torod Point city (see aliases), the phone is not a valid Saudi number, the address is incomplete, a COD
 collection method is not configured, or an amount cannot be converted to SAR. Our own **invoice number** is the order
 reference (`{order id}-TP{generation}`), which is also how an ambiguous submission is found again.
@@ -63,14 +64,18 @@ on the Torod Point page (*Invoice number round trip*), with the evidence, that t
   back too);
 * **rehearsals (Dry run) are not affected**: the request is still built and recorded, nothing is sent.
 
-The confirmation is stored with the provider's settings (who, when, the evidence, the path it was made for) and every change of it is in
-the audit log. It names the path the orders map reads the invoice number from and the account it was made for (company and base URL):
-**changing the path removes it** (putting the old path back does not bring it back), and another account makes it lapse. A map that
-reads the invoice number from the order's own identifier (a field named id, barcode, order id, package barcode … in any casing or
-nesting, or the same field as the reference) has no usable path: nothing can be confirmed for it and no real order is created. The
-evidence is stored without pasted e-mail addresses, phone numbers and credentials; do not paste customer data into it. Acceptable
-evidence is LogesTechs' written answer ([request, section F](vendor-requests/logestechs-technical-request.md)), or an order created for
-the purpose outside this system, with a known invoice number, that was read back in the order list. Withdraw it on the same page.
+The confirmation is stored with the provider's settings (who, when, the evidence, the path and the account it was made for), and every
+change of it is written to the audit log when the server has one (the preflight tells whether `audit_logs` exists). It names the path the
+orders map reads the invoice number from and the account it was made for (company and base URL): **a different path removes it**
+(putting the old path back does not bring it back), and **a different account makes it lapse** (it applies again if that account is set
+again). A map that reads the invoice number from a field named like an identifier (its name, with or without separators and in any
+casing, ends in id, barcode, uuid or guid: `order_id`, `orderBarcode`, `package-uuid` …), from a field below one, or from the same field
+as the reference has no usable path: nothing can be confirmed for it and no real order is created. The evidence is stored without
+pasted e-mail addresses, phone numbers and credentials; do not paste customer data into it. Acceptable evidence is LogesTechs' written
+answer about the Add Order API ([request, section F](vendor-requests/logestechs-technical-request.md)), or a test order created
+**through the Add Order API** (by LogesTechs, or by you outside this system, with an invoice number agreed in writing) and read back
+unchanged in the order list. An order typed into the Torod Point dashboard proves nothing about the API. Withdraw the confirmation on
+the same page.
 
 When an answer is lost, the lookup compares **our** invoice number with the one the provider lists, and only that: a blank invoice
 number never matches (so the historical orders never do), the order's `id` or barcode is never taken for an invoice number, a
@@ -111,29 +116,36 @@ Whose stock the storefront shows is decided **per product** (and, for a product 
 | Mode | When | What the storefront shows |
 |---|---|---|
 | **Manual** (the default, and what runs today) | the sync is off, or any condition below is missing | the stock a person typed; nothing here changes it |
-| **Warehouse** | **all** of: the product is **assigned to Torod Point**; it has an **approved mapping** (for a product with variants, one per variant; a whole-product mapping on a product with variants is not enough); the products map is **verified**; an administrator **confirmed the stock path** (the confirmation names that exact path and is removed when the path changes); *Follow warehouse stock levels* is **on**; and the warehouse's figure for it is **recent** (written by a sync in the last six hours) | the warehouse's figure, minus the units customers bought that the warehouse has not taken on yet (orders not yet sent, held, retrying, in rehearsal, failed, outcome unknown), and minus the units of an order the warehouse accepted after this run began reading its list |
+| **Warehouse** | **all** of: the product is **assigned to Torod Point**; it has an **approved mapping** (for a product with variants, one per variant; a whole-product mapping on a product with variants is not enough); the products map is **verified**; an administrator **confirmed the stock path** (the confirmation names that exact path and is removed when the path changes); *Follow warehouse stock levels* is **on**; and the warehouse's figure for it is **recent**: a sync wrote it in the last six hours, or in the last three sync intervals when the interval is longer than two hours (a figure a person typed never counts) | the warehouse's figure, minus the units customers bought that the warehouse has not taken on yet (orders not yet sent, held, retrying, in rehearsal, failed, outcome unknown), and minus the units of an order the warehouse accepted after this run began reading its list |
 
 In warehouse mode the figure is **set** (not subtracted again), so a sync landing between "order placed" and "order accepted" neither
-oversells nor counts the units twice; syncing twice changes nothing the second time; every change is a stock movement
-(`provider_sync`). Only the stock changes: never a price, discount, VAT, title, description or any other column, and no product is
-created. A figure the warehouse has stopped giving for a product goes stale after six hours, and the product goes back to manual
-instead of being frozen. A variant added or renamed after the assignment has no mapping, so its stock stays manual.
+oversells nor counts the units twice; syncing twice changes nothing the second time (no write, no movement); every change is a
+`provider_sync` stock movement when the platform's stock ledger exists (without it the stock is still set, with no history line). Only
+the stock changes: never a price, discount, VAT, title, description or any other column, and no product is created; a variant priced 0
+is set to 0 whatever the warehouse reports (the rule the legacy sync already had). A figure the warehouse has stopped giving for a
+product goes stale (see *recent* above) and the product goes back to manual instead of being frozen. A variant added or renamed after
+the assignment has no mapping, so its stock stays manual.
 
 **Where a typed figure is refused for a warehouse-controlled product:** the product form (the figure is dropped, the rest of the form is
-saved, and a warning says so), the *Update stock* action of the limited-stock and restock-request lists, *Inventory adjustments* (and so
+saved, and a warning says so), the stock update of the limited-stock list and of the restock-request list, *Inventory adjustments* (and so
 bulk adjustments and batch write-offs), and the manual stock entry of the matching page.
 
 **Where it is not, and what happens then:** purchase-order receipts and return restocks (they record goods that physically moved, and
 a warehouse-controlled product is not in the store's own warehouse), and the seller REST API (see [risks](risks.md#observations-outside-this-change)).
 A figure written there stands until the next sync, which replaces it and records the correction as a `provider_sync` stock movement, so
-it is never silent, but the storefront may sell from it meanwhile. The save that assigns a product to Torod Point (or moves it away) is
-judged by the assignment the product had when the save began.
+it is not silent, but the storefront may sell from it meanwhile. The save that assigns a product to Torod Point (or moves it away) is
+judged by the assignment the product had when the save began. Two smaller windows remain: the product form reads a controlled variant's
+stored quantity a few milliseconds before it saves, so a checkout that commits in between is overwritten (the next sync corrects it),
+and two stock runs started together (*Sync stock now* while the scheduler's run is still reading) are not serialised, so the one that
+finishes last wins until the next run.
 
 What the sync never does: touch a product that is not assigned to Torod Point (even one with an approved mapping); write a figure
 that is not a whole number from 0 up (**missing, negative, fractional, not a number, beyond any plausible warehouse, or listed twice
 with different values are skipped and counted, never turned into zero**); label a mapping as synced when its stock could not be
-written; or report success when no assigned product received a usable figure. The run's counts (`updated`, `unchanged`, `unmapped`,
-`not_assigned`, `invalid`, `unsupported`, `absent`) are on the sync status.
+written; or report success when assigned products received no usable figure at all. The run's counts (`updated`, `unchanged`,
+`unmapped`, `not_assigned`, `invalid`, `unsupported`, `absent`) are shown in the message after *Sync stock now*, printed by
+`fulfillment:sync`, and kept for a scheduled run in `provider_sync_states.stats`; only a run that refused everything is shown as failed
+(*Last API error*).
 
 The confirmation is a statement that the field is the quantity **available to sell, already excluding the units on orders the
 warehouse has accepted**. If the warehouse's field still counts those units until the parcel ships, the storefront would sell them

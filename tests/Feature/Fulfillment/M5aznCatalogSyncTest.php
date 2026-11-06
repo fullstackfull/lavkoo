@@ -165,6 +165,16 @@ class M5aznCatalogSyncTest extends M5aznTestCase
         $this->assertFalse($store->get(ProviderCode::M5azn, 'catalog')->verified, 'changing a path must reset verification');
     }
 
+    public function test_its_maps_are_still_read_the_way_they_always_were(): void
+    {
+        $store = app(FieldMapStore::class);
+        $store->save(ProviderCode::M5azn, 'orders', ['reference' => 'status', 'status' => 'status'], null);
+        $flags = array_map(static fn (int $n): array => ['status' => true], range(1, 5));
+
+        $this->assertSame([], $store->verify(ProviderCode::M5azn, 'orders', $flags, ['reference', 'status']), 'a flag in a required field is no stricter a problem than it was');
+        $this->assertTrue($store->get(ProviderCode::M5azn, 'orders')->verified);
+    }
+
     public function test_a_map_that_does_not_resolve_against_the_real_sample_is_refused(): void
     {
         $store = app(FieldMapStore::class);

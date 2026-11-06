@@ -17,9 +17,10 @@ class FieldMapDetectorTest extends TestCase
     private const REQUIRED = ['invoice_number', 'reference'];
     private const NULLABLE = ['invoice_number'];
 
+    /** The reading Torod Point's maps are verified with: a flag or a blank text is no value. */
     private function detector(): FieldMapDetector
     {
-        return new FieldMapDetector();
+        return (new FieldMapDetector())->strict();
     }
 
     private function map(array $overrides = []): FieldMap
@@ -165,6 +166,23 @@ class FieldMapDetectorTest extends TestCase
 
         $this->assertSame([], $this->unresolved($sample));
         $this->assertSame(0, $this->detector()->coverage($this->map(), $sample, self::NULLABLE)['non_empty']['invoice_number'], 'so the page cannot say it is populated');
+    }
+
+    public function test_every_other_provider_keeps_the_looser_reading_it_always_had(): void
+    {
+        $loose = new FieldMapDetector();
+        $map = new FieldMap(['reference' => 'status']);
+        $flags = array_map(static fn (int $n): array => ['status' => true], range(1, 5));
+        $blanks = array_map(static fn (int $n): array => ['status' => '   '], range(1, 5));
+        $nothing = array_map(static fn (int $n): array => ['status' => $n % 2 === 0 ? null : ''], range(1, 5));
+        $lists = array_map(static fn (int $n): array => ['status' => ['PAID']], range(1, 5));
+
+        $this->assertSame([], $loose->unresolved($map, $flags, ['reference']), 'a flag was a value before and still is');
+        $this->assertSame([], $loose->unresolved($map, $blanks, ['reference']), 'so was a text of blanks');
+        $this->assertSame(['reference'], $loose->unresolved($map, $nothing, ['reference']), 'null and the empty text never were');
+        $this->assertSame(['reference'], $loose->unresolved($map, $lists, ['reference']), 'nor a list');
+        $this->assertSame(['reference'], $loose->strict()->unresolved($map, $flags, ['reference']), 'only the strict reading refuses the flag');
+        $this->assertSame(['reference'], $loose->strict()->unresolved($map, $blanks, ['reference']));
     }
 
     // ---- what the sample showed, kept next to the verification --------------------------------------------------------------

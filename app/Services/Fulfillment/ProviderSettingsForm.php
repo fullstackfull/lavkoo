@@ -46,6 +46,9 @@ class ProviderSettingsForm
      */
     private const ARMING_SWITCHES = ['enabled', 'dispatch_enabled', 'dry_run', 'auto_dispatch'];
 
+    /** The same rule for what lets a warehouse's figures replace the store's stock: the switch of its sync (and, below, the confirmation of its stock field). */
+    private const WAREHOUSE_STOCK_SWITCH = 'inventory_sync_enabled';
+
     /** Hosts a provider's API may live on (the documented servers). */
     private const ALLOWED_HOSTS = [
         'm5azn' => ['m5azn.com', 'm5azn.ae', 'm5azn.om'],
@@ -148,7 +151,7 @@ class ProviderSettingsForm
             $settings[$field] = is_array($decoded) ? $decoded : [];
         }
 
-        if ($provider === ProviderCode::TorodPoint) {
+        if ($provider === ProviderCode::TorodPoint && !$this->untouched($request, 'stock_field_confirmed')) {
             // An administrator attests that the product list's stock field is the AVAILABLE quantity, for the path shown beside the box;
             // the moment of that statement is recorded, un-ticking it withdraws it, and a different path is a different statement.
             $settings += $this->stockConfirmation->settingsFor(
@@ -158,7 +161,11 @@ class ProviderSettingsForm
             );
         }
 
-        foreach (array_diff(self::ARMING_SWITCHES, ['enabled']) as $switch) {
+        $guarded = array_diff(self::ARMING_SWITCHES, ['enabled']);
+        if ($provider === ProviderCode::TorodPoint) {
+            $guarded[] = self::WAREHOUSE_STOCK_SWITCH;
+        }
+        foreach ($guarded as $switch) {
             if ($this->untouched($request, $switch)) {
                 $settings[$switch] = $current->bool($switch, $switch === 'dry_run');
             }

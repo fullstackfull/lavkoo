@@ -62,7 +62,7 @@ use Throwable;
  */
 class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, HandlesWebhooks, ProvidesShippingLabel
 {
-    /** How long a warehouse figure on a mapping stays the word on that product's stock. */
+    /** How long a warehouse figure on a mapping stays the word on that product's stock (longer when the sync interval is: see stockFreshSince). */
     public const STOCK_FRESH_HOURS = 6;
     private const PAGE_SIZE = 100;
     private const MAX_PAGES = 50;
@@ -642,10 +642,11 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return $this->failed(ProviderSyncRecorder::INVENTORY, (string) $error);
         }
 
-        // Reading takes a while: an administrator may have switched the sync off or withdrawn the confirmation meanwhile.
+        // Reading takes a while: an administrator may have switched the sync off, withdrawn the confirmation or changed the map meanwhile.
         $config = $this->config();
-        if (!$config->bool('inventory_sync_enabled') || !$this->stockConfirmation->isConfirmed($config)) {
-            return $this->failed(ProviderSyncRecorder::INVENTORY, 'Inventory sync was switched off or unconfirmed while the warehouse list was being read; no stock was changed.');
+        $current = $this->fieldMaps->get($this->code(), TorodFieldMaps::PRODUCTS);
+        if (!$config->bool('inventory_sync_enabled') || !$this->stockConfirmation->isConfirmed($config) || $current->itemsPath !== $stored->itemsPath || $current->paths !== $stored->paths) {
+            return $this->failed(ProviderSyncRecorder::INVENTORY, 'Inventory sync was switched off, unconfirmed or re-mapped while the warehouse list was being read; no stock was changed.');
         }
 
         $map = $stored->map();
@@ -967,8 +968,14 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     {
         return $mapping->stock_source === StockSource::ProviderSync
             && $mapping->provider_stock !== null
-            && $mapping->provider_stock_synced_at?->gt(now()->subHours(self::STOCK_FRESH_HOURS))
+            && $mapping->provider_stock_synced_at?->gt(self::stockFreshSince($this->config()))
             && $mapping->provider_stock < $quantity;
+    }
+
+    /** How far back a warehouse figure still counts: six hours, or three sync intervals when an administrator chose an interval longer than two hours. */
+    public static function stockFreshSince(ProviderConfig $config): Carbon
+    {
+        return now()->subMinutes(max(self::STOCK_FRESH_HOURS * 60, 3 * $config->int('inventory_sync_interval_minutes', 30)));
     }
 
     private function ensureCallable(): void

@@ -127,7 +127,8 @@ class InventorySyncService
      * that a customer has already bought, oversell it, and then have a cancellation restore it a second time.
      *
      * With `$acceptedSince`, the lines the provider accepted at or after that moment are held back too: a figure read from the provider
-     * from then on may not have counted them yet, and a sync that put them back would sell units the provider already holds.
+     * from then on may not have counted them yet, and a sync that put them back would sell units the provider already holds. A shipment
+     * with no recorded acceptance time counts from its last event, and failing that from its last change.
      */
     public function reservedNotYetWithProvider(ProviderCode $provider, int $productId, string $variantKey, ?CarbonInterface $acceptedSince = null): int
     {
@@ -144,7 +145,7 @@ class InventorySyncService
                 ->orWhereIn('pf.status', array_map(static fn (FulfillmentStatus $status): string => $status->value, self::NOT_YET_WITH_PROVIDER))
                 ->when($acceptedSince !== null, static fn ($recent) => $recent->orWhere(static fn ($accepted) => $accepted
                     ->whereIn('pf.status', array_map(static fn (FulfillmentStatus $status): string => $status->value, self::ACCEPTED_AND_OPEN))
-                    ->where('pf.submitted_at', '>=', $acceptedSince))))
+                    ->whereRaw('COALESCE(pf.submitted_at, pf.last_received_at, pf.updated_at) >= ?', [$acceptedSince]))))
             ->sum('items.quantity');
     }
 
@@ -230,13 +231,16 @@ class InventorySyncService
         $available = max(0, $providerQuantity - $this->reservedNotYetWithProvider($provider, (int) $product->id, $mapping->variant_key, $acceptedSince));
         $before = (int) $product->current_stock;
         $values = [];
+        $variantChanged = false;
 
         if ($mapping->variant_key !== '') {
             $found = false;
             foreach ($variations as &$variation) {
                 if (($variation['type'] ?? null) === $mapping->variant_key) {
                     // A variant without a price is not for sale; the provider having stock of it must not make it free.
-                    $variation['qty'] = (float) ($variation['price'] ?? 0) > 0 ? $available : 0;
+                    $quantity = (float) ($variation['price'] ?? 0) > 0 ? $available : 0;
+                    $variantChanged = $variantChanged || ($variation['qty'] ?? null) !== $quantity;
+                    $variation['qty'] = $quantity;
                     $found = true;
                 }
             }
@@ -250,7 +254,9 @@ class InventorySyncService
             $after = $available;
         }
 
-        if ($after === $before && !isset($values['variation'])) {
+        // The legacy write (M5AZN) keeps rewriting a variation it did not change: its behaviour is not part of this change.
+        $nothingToRewrite = !isset($values['variation']) || ($assignedOnly && !$variantChanged);
+        if ($after === $before && $nothingToRewrite) {
             return self::UNCHANGED;
         }
 

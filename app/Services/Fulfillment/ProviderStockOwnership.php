@@ -3,6 +3,7 @@
 namespace App\Services\Fulfillment;
 
 use App\Enums\Fulfillment\ProviderCode;
+use App\Enums\Fulfillment\StockSource;
 use App\Models\ProviderProductMapping;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
 use Illuminate\Support\Facades\DB;
@@ -15,8 +16,9 @@ use Illuminate\Support\Facades\DB;
  * Until then, and for every product that is not assigned to it, the storefront's own stock is the only stock there is and nothing
  * here changes it.
  *
- * The warehouse sets the stock of a variant (or of a product without variants) only while its figure is recent: a mapping the
- * warehouse has stopped answering for goes back to manual after a few hours instead of being frozen. A whole-product mapping on a
+ * The warehouse sets the stock of a variant (or of a product without variants) only while a sync wrote its figure recently (a figure
+ * a person typed is never taken for one): a mapping the warehouse has stopped answering for goes back to manual after a few hours
+ * instead of being frozen. A whole-product mapping on a
  * product that has variants is not controlled at all (one figure cannot be spread over variants), and a variant added or renamed
  * after the assignment has no mapping, so its stock stays manual.
  */
@@ -25,8 +27,10 @@ class ProviderStockOwnership
     /** Providers whose warehouse is the authority for the stock of the products assigned to them (M5AZN's catalogue quantity is its own flow). */
     private const WAREHOUSES = [ProviderCode::TorodPoint];
 
-    public function __construct(private readonly ProviderRegistry $registry)
-    {
+    public function __construct(
+        private readonly ProviderRegistry $registry,
+        private readonly ProviderConnectionManager $connections,
+    ) {
     }
 
     /** The warehouse whose verified, switched-on sync sets this product's stock, or null when its stock is the store's own. */
@@ -51,7 +55,8 @@ class ProviderStockOwnership
         $fresh = ProviderProductMapping::where('provider', $provider->value)
             ->where('product_id', $productId)
             ->approved()
-            ->where('provider_stock_synced_at', '>=', now()->subHours(TorodPointAdapter::STOCK_FRESH_HOURS))
+            ->where('stock_source', StockSource::ProviderSync->value)
+            ->where('provider_stock_synced_at', '>=', TorodPointAdapter::stockFreshSince($this->connections->config($provider)))
             ->pluck('variant_key')
             ->map(static fn ($key): string => (string) $key)
             ->all();

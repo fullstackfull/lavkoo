@@ -46,7 +46,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
         $store = app(FieldMapStore::class);
         $store->save(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, $paths, $itemsPath);
 
-        return $store->verify(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, $sample, $definition['required'], $definition['nullable']);
+        return $store->verify(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS, $sample, $definition['required'], $definition['nullable'], strictValues: $definition['strict']);
     }
 
     /** @var array{pages: list<list<array<string, mixed>>>, createStatus: int, createBody: array<string, mixed>, listStatus: int}|null */
@@ -126,6 +126,15 @@ class TorodOrdersFieldMapTest extends TorodTestCase
 
         $this->assertSame(['reference'], $this->verifyOrders(self::PATHS, $withoutBarcodes));
         $this->assertFalse(app(FieldMapStore::class)->get(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS)->verified);
+    }
+
+    public function test_a_flag_or_a_text_of_blanks_in_the_barcode_does_not_verify_the_orders_map(): void
+    {
+        foreach ([true, false, '   '] as $barcode) {
+            $sample = array_map(static fn (array $order): array => ['barcode' => $barcode] + $order, $this->historicalOrders());
+
+            $this->assertSame(['reference'], $this->verifyOrders(self::PATHS, $sample), var_export($barcode, true));
+        }
     }
 
     public function test_a_path_that_does_not_exist_in_the_orders_does_not_verify_even_though_null_would_be_allowed(): void
@@ -545,7 +554,11 @@ class TorodOrdersFieldMapTest extends TorodTestCase
     /** @return iterable<string, array{string}> */
     public static function identifierPaths(): iterable
     {
-        foreach (['Barcode', 'Id', 'ID', 'data.id', 'order.id', 'orderId', 'OrderBarcode', 'packageBarcode', 'data.barcode', 'packageId', 'uuid'] as $path) {
+        foreach ([
+            'Barcode', 'Id', 'ID', 'data.id', 'order.id', 'orderId', 'OrderBarcode', 'packageBarcode', 'data.barcode', 'packageId', 'uuid',
+            'order_id', 'order_barcode', 'package_barcode', 'package_id', '_id', 'order-id', 'order_uuid', 'orderUuid', 'guid', 'warehouse_order_id',
+            'warehouseOrderId', 'wmsOrderId', 'data.0.id', 'data[0].id', 'order.id.value', 'data.order_id', 'bar_code', 'order_bar_code', 'uu_id', 'g-uid',
+        ] as $path) {
             yield $path => [$path];
         }
     }
@@ -563,7 +576,7 @@ class TorodOrdersFieldMapTest extends TorodTestCase
     /** @return iterable<string, array{string}> */
     public static function invoicePaths(): iterable
     {
-        foreach (['invoiceNumber', 'invoice_number', 'data.invoiceNumber', 'invoice.number', 'InvoiceNo'] as $path) {
+        foreach (['invoiceNumber', 'invoice_number', 'data.invoiceNumber', 'invoice.number', 'InvoiceNo', 'data.0.invoiceNumber', 'invoice-no', 'orders.items.referenceNo'] as $path) {
             yield $path => [$path];
         }
     }

@@ -110,7 +110,10 @@ real systems.
 * The seller REST API's product create/update and stock-update endpoints (`v2/seller` and `v3/seller` `ProductController`) write
   `current_stock` and variant quantities without asking whose stock it is. A figure typed there for a warehouse-controlled product
   stands until the next sync replaces it (recorded as a `provider_sync` stock movement). This predates this change and is not
-  modified; the admin product form, *Update stock*, inventory adjustments and manual stock entry are guarded
+  modified; the admin product form, the stock update of the limited-stock and restock lists, inventory adjustments and manual stock entry are guarded
   ([Torod Point, stock](torod-point.md#stock)). Purchase-order receipts and return restocks are not guarded either.
+* Two smaller stock windows ([Torod Point, stock](torod-point.md#stock)): the product form reads a warehouse-controlled variant's stored
+  quantity a few milliseconds before it saves (a checkout committing in between is overwritten until the next sync), and two stock runs
+  started together are not serialised (the one that finishes last wins until the next run).
 * The platform's MySQL connection runs non-strict (`'strict' => false`), under which a text value compared with a numeric
   column is read as 0 (SEC-11). Other platform endpoints share the pattern.

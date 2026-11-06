@@ -349,6 +349,52 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
         return $overrides + ['enabled' => 1, 'company_id' => '714', 'dry_run' => 1];
     }
 
+    public function test_the_save_and_verify_button_reads_a_flag_in_the_barcode_as_no_barcode(): void
+    {
+        $orders = array_map(static fn (array $order): array => ['barcode' => true] + $order, $this->historicalOrders());
+
+        $this->saveOrdersMap($orders);
+
+        $this->assertFalse($this->ordersMap()->verified);
+    }
+
+    public function test_a_page_opened_before_the_stock_sync_was_stopped_cannot_switch_it_back_on(): void
+    {
+        $this->verifiedProductsMap('sellableQuantity');
+        $on = $this->settingsForm(['stock_field_confirmed' => 1, 'stock_field_path' => 'sellableQuantity', 'inventory_sync_enabled' => 1]);
+        $loaded = ['loaded_stock_field_confirmed' => 1, 'loaded_inventory_sync_enabled' => 1];
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $on);
+        $this->assertTrue($this->config()->bool('inventory_sync_enabled'));
+        $this->assertTrue(app(TorodStockConfirmation::class)->isConfirmed($this->config()));
+
+        // Administrator A stops it: switches the sync off and withdraws the confirmation.
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), array_replace($on, ['stock_field_confirmed' => 0, 'inventory_sync_enabled' => 0]) + $loaded);
+        $this->assertFalse($this->config()->bool('inventory_sync_enabled'));
+        $this->assertFalse(app(TorodStockConfirmation::class)->isStated($this->config()));
+
+        // Administrator B saves something else from a page that was opened while both were still on.
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $on + $loaded + ['default_weight_kg' => 2]);
+
+        $this->assertFalse($this->config()->bool('inventory_sync_enabled'), 'a switch B did not touch keeps what A set');
+        $this->assertFalse(app(TorodStockConfirmation::class)->isStated($this->config()), 'nor can B bring back a statement A withdrew');
+        $this->assertEquals(2.0, $this->config()->get('default_weight_kg'), 'what B did change is saved');
+    }
+
+    public function test_a_page_opened_before_the_stock_field_was_confirmed_cannot_withdraw_the_confirmation(): void
+    {
+        $this->verifiedProductsMap('sellableQuantity');
+        $off = $this->settingsForm(['stock_field_path' => 'sellableQuantity', 'inventory_sync_enabled' => 0]);
+        $loaded = ['loaded_stock_field_confirmed' => 0, 'loaded_inventory_sync_enabled' => 0];
+
+        // Administrator A confirms it after B opened the page.
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), array_replace($off, ['stock_field_confirmed' => 1]));
+        $this->assertTrue(app(TorodStockConfirmation::class)->isConfirmed($this->config()));
+
+        $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $off + $loaded + ['default_weight_kg' => 2]);
+
+        $this->assertTrue(app(TorodStockConfirmation::class)->isConfirmed($this->config()), 'a box B never touched keeps what A ticked');
+    }
+
     public function test_the_stock_confirmation_names_the_field_it_is_about(): void
     {
         $this->verifiedProductsMap('sellableQuantity');
@@ -356,6 +402,8 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
         $html = $this->get(route('admin.fulfillment-providers.show', 'torod-point'))->assertOk()->getContent();
 
         $this->assertStringContainsString('name="stock_field_path" value="sellableQuantity"', $html);
+        $this->assertStringContainsString('name="loaded_stock_field_confirmed" value="0"', $html);
+        $this->assertStringContainsString('name="loaded_inventory_sync_enabled" value="0"', $html);
         $this->assertStringContainsString('<code>sellableQuantity</code>', $html);
         $this->assertStringNotContainsString('name="stock_field_confirmed" value="1" checked', $html);
     }
@@ -435,7 +483,7 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
         $this->verifiedProductsMap('sellableQuantity');
         $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $this->settingsForm(['stock_field_confirmed' => 1, 'stock_field_path' => 'sellableQuantity', 'inventory_sync_enabled' => 1]));
         $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 12]);
-        ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved, 'provider_stock' => 12, 'provider_stock_synced_at' => now()]);
+        ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved, 'provider_stock' => 12, 'provider_stock_synced_at' => now(), 'stock_source' => StockSource::ProviderSync]);
 
         $this->post(route('admin.products.update-quantity'), ['product_id' => 1, 'current_stock' => 999]);
 
@@ -448,7 +496,7 @@ class TorodHotfixAdminTest extends AdminPagesTestCase
         $this->verifiedProductsMap('sellableQuantity');
         $this->post(route('admin.fulfillment-providers.update', 'torod-point'), $this->settingsForm(['stock_field_confirmed' => 1, 'stock_field_path' => 'sellableQuantity', 'inventory_sync_enabled' => 1]));
         $this->makeProduct(1, ProviderCode::TorodPoint);
-        $mapping = ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved, 'provider_stock' => 40, 'provider_stock_synced_at' => now()]);
+        $mapping = ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => '', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved, 'provider_stock' => 40, 'provider_stock_synced_at' => now(), 'stock_source' => StockSource::ProviderSync]);
 
         $this->post(route('admin.fulfillment-providers.torod.stock'), ['mapping_id' => $mapping->id, 'quantity' => 5]);
 

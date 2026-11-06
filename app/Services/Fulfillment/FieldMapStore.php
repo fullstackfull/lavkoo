@@ -67,12 +67,14 @@ class FieldMapStore
      * @param list<array<array-key, mixed>> $sample
      * @param list<string> $required
      * @param list<string> $nullable the required fields that only have to be present in the records, not filled
+     * @param bool $strictValues a flag or a blank text is no value (see FieldMapDetector)
      * @return list<string> the required fields that did not resolve (empty = verified)
      */
-    public function verify(ProviderCode $provider, string $capability, array $sample, array $required, array $nullable = []): array
+    public function verify(ProviderCode $provider, string $capability, array $sample, array $required, array $nullable = [], bool $strictValues = false): array
     {
         $stored = $this->get($provider, $capability);
-        $problems = $this->detector->unresolved($stored->map(), $sample, $required, $nullable);
+        $detector = $strictValues ? $this->detector->strict() : $this->detector;
+        $problems = $detector->unresolved($stored->map(), $sample, $required, $nullable);
         if ($problems !== []) {
             return $problems;
         }
@@ -80,7 +82,7 @@ class FieldMapStore
         $maps = (array) $this->connections->config($provider)->get('field_maps', []);
         $maps[$capability]['verified_at'] = now()->toDateTimeString();
         $maps[$capability]['verified_hash'] = $this->hash($stored->itemsPath, $stored->paths);
-        $maps[$capability]['coverage'] = $this->detector->coverage($stored->map(), $sample, $nullable);
+        $maps[$capability]['coverage'] = $detector->coverage($stored->map(), $sample, $nullable);
         $this->persist($provider, $maps, ['field_map_verified' => $capability]);
 
         return [];

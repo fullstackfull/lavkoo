@@ -207,7 +207,7 @@ class IntegrationCenterController extends Controller
         }
 
         $items = $sample['ok'] ? FieldMap::extractItems(['data' => $sample['items']], 'data') ?? [] : [];
-        $problems = $this->fieldMaps->verify($code, $capability, $items, $definition['required'], $definition['nullable'] ?? []);
+        $problems = $this->fieldMaps->verify($code, $capability, $items, $definition['required'], $definition['nullable'] ?? [], strictValues: $definition['strict'] ?? false);
         if ($problems !== []) {
             SafeToast::error(translate('field_map_not_verified'), implode(', ', $problems));
 

@@ -463,6 +463,35 @@ class TorodStockOwnershipTest extends TorodTestCase
         $this->assertSame(1, ProviderSyncState::where(['provider' => 'torod_point', 'capability' => 'inventory'])->count());
     }
 
+    public function test_a_second_run_with_the_same_figure_does_not_rewrite_the_product_of_a_variant(): void
+    {
+        $this->stockSync();
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 10, 'variation' => json_encode([['type' => 'Blue', 'price' => 10, 'qty' => 10]])]);
+        ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => 'Blue', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved]);
+        $this->fakeProductPages($this->warehouse([1 => 7]));
+        $this->adapter()->syncInventory();
+        $this->assertSame(7, $this->stockOf(1));
+        DB::table('products')->where('id', 1)->update(['updated_at' => '2020-01-01 00:00:00']);
+
+        $second = $this->adapter()->syncInventory();
+
+        $this->assertSame(1, $second['stats']['unchanged']);
+        $this->assertSame('2020-01-01 00:00:00', (string) DB::table('products')->where('id', 1)->value('updated_at'), 'nothing changed, so the row was left alone');
+        $this->assertSame(1, $this->movements());
+    }
+
+    public function test_a_variant_that_differs_is_rewritten_even_when_the_total_happens_to_match(): void
+    {
+        $this->stockSync();
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 7, 'variation' => json_encode([['type' => 'Blue', 'price' => 10, 'qty' => 10]])]);
+        ProviderProductMapping::create(['provider' => 'torod_point', 'product_id' => 1, 'variant_key' => 'Blue', 'external_id' => '1', 'external_variant_id' => '', 'status' => MappingStatus::Approved]);
+        $this->fakeProductPages($this->warehouse([1 => 7]));
+
+        $this->adapter()->syncInventory();
+
+        $this->assertSame(7, json_decode((string) DB::table('products')->where('id', 1)->value('variation'), true)[0]['qty'], 'the figure on the variant is the warehouse\'s, whatever the stored total said');
+    }
+
     public function test_ownership_is_checked_again_under_the_product_lock(): void
     {
         $this->stockSync();
@@ -501,6 +530,23 @@ class TorodStockOwnershipTest extends TorodTestCase
         $this->assertSame(50, $this->stockOf(1));
     }
 
+    public function test_a_run_whose_map_was_changed_while_it_read_the_warehouse_writes_nothing(): void
+    {
+        $this->stockSync();
+        $this->mappedProduct(1, stock: 50);
+        Http::fake([self::V5 . '/public/fulfillment/product*' => function () {
+            $this->verifyProductsMap(['id' => 'id', 'name' => 'name', 'sku' => 'sku', 'stock' => 'sellableQuantity'], [['id' => 1, 'name' => 'A', 'sku' => 'S1', 'sellableQuantity' => 3]]);
+            $this->confirmStockField('sellableQuantity');
+
+            return Http::response(['data' => $this->warehouse([1 => 40])]);
+        }]);
+
+        $result = $this->adapter()->syncInventory();
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(50, $this->stockOf(1), 'figures read at the old path are not written under a confirmation made for another one');
+    }
+
     public function test_the_stock_confirmation_is_explained_when_only_the_map_lost_its_verification(): void
     {
         $this->stockSync();
@@ -530,6 +576,25 @@ class TorodStockOwnershipTest extends TorodTestCase
 
         $service->applyToAssignedProducts(ProviderCode::TorodPoint, [1421521 => 10.0], readStartedAt: now()->addMinute());
         $this->assertSame(10, $this->stockOf(1), 'accepted before the read began: the figure counted them');
+    }
+
+    public function test_an_accepted_order_with_no_recorded_acceptance_time_counts_from_its_last_event(): void
+    {
+        $this->stockSync();
+        $fulfillment = $this->torodFulfillment();
+        $service = app(InventorySyncService::class);
+        $fulfillment->forceFill(['status' => FulfillmentStatus::Processing, 'submitted_at' => null, 'last_received_at' => now()])->save();
+
+        $service->applyToAssignedProducts(ProviderCode::TorodPoint, [1421521 => 10.0], readStartedAt: now()->subMinute());
+        $this->assertSame(8, $this->stockOf(1), 'its first word came after the read began: the figure may not count its 2 units');
+
+        $fulfillment->forceFill(['last_received_at' => now()->subHours(2)])->save();
+        $service->applyToAssignedProducts(ProviderCode::TorodPoint, [1421521 => 10.0], readStartedAt: now()->subMinute());
+        $this->assertSame(10, $this->stockOf(1), 'its last word came before the read began');
+
+        $fulfillment->forceFill(['last_received_at' => null])->save();
+        $service->applyToAssignedProducts(ProviderCode::TorodPoint, [1421521 => 10.0], readStartedAt: now()->subMinute());
+        $this->assertSame(8, $this->stockOf(1), 'nothing says when: it counts from its last change');
     }
 
     public function test_an_order_that_was_accepted_and_then_cancelled_or_finished_holds_nothing_back(): void
@@ -572,7 +637,7 @@ class TorodStockOwnershipTest extends TorodTestCase
     {
         $this->stockSync();
         $fulfillment = $this->torodFulfillment();
-        $fulfillment->forceFill(['status' => $status])->save();
+        $fulfillment->forceFill(['status' => $status, 'submitted_at' => now()->subHour()])->save();
         $this->fakeProductPages($this->warehouse([1421521 => 40]));
 
         $this->adapter()->syncInventory();
@@ -749,6 +814,48 @@ class TorodStockOwnershipTest extends TorodTestCase
         $this->assertTrue(app(ProviderMappingService::class)->setManualStock(ProviderProductMapping::first()->id, 3));
         $this->freshlySynced();
         $this->assertSame(ProviderCode::TorodPoint, $ownership->controllingProvider(1));
+    }
+
+    public function test_a_figure_a_person_typed_does_not_hand_the_product_back_to_the_warehouse(): void
+    {
+        $this->controlled();
+        $ownership = app(ProviderStockOwnership::class);
+        $this->travel(TorodPointAdapter::STOCK_FRESH_HOURS + 1)->hours();
+        $this->assertNull($ownership->controllingProvider(1));
+
+        $this->assertTrue(app(ProviderMappingService::class)->setManualStock(ProviderProductMapping::first()->id, 3));
+
+        $this->assertNull($ownership->controllingProvider(1), 'the warehouse has not spoken: the typed figure is the only stock there is');
+        $this->assertSame(999, $ownership->keepProviderStock(['current_stock' => 999, 'variation' => '[]'], DB::table('products')->where('id', 1)->first())['current_stock']);
+        $this->assertTrue(app(InventoryService::class)->adjust(productId: 1, delta: 5, reason: 'count_correction')['ok']);
+    }
+
+    public function test_a_long_sync_interval_keeps_a_figure_in_force_until_the_run_that_follows_it(): void
+    {
+        $this->controlled();
+        $ownership = app(ProviderStockOwnership::class);
+        $this->enableProvider(ProviderCode::TorodPoint, ['inventory_sync_interval_minutes' => 720, 'inventory_sync_enabled' => true, 'company_id' => '714', 'dry_run' => false]);
+
+        $this->travel(11)->hours();
+        $this->assertSame(ProviderCode::TorodPoint, $ownership->controllingProvider(1), 'a run every twelve hours has not missed anything after eleven');
+
+        $this->travel(9)->hours();
+        $this->assertSame(ProviderCode::TorodPoint, $ownership->controllingProvider(1), 'nor a run that is hours late');
+
+        $this->travel(17)->hours();
+        $this->assertNull($ownership->controllingProvider(1), 'three whole intervals without a figure: the warehouse stopped answering');
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['inventory_sync_interval_minutes' => 30, 'inventory_sync_enabled' => true, 'company_id' => '714', 'dry_run' => false]);
+        $this->freshlySynced();
+        $this->travel(TorodPointAdapter::STOCK_FRESH_HOURS * 60 + 1)->minutes();
+        $this->assertNull($ownership->controllingProvider(1), 'with the default interval six hours is the limit');
+    }
+
+    public function test_a_product_form_that_dropped_the_typed_figure_says_so(): void
+    {
+        $controller = (string) file_get_contents(app_path('Http/Controllers/Admin/Product/ProductController.php'));
+
+        $this->assertStringContainsString("ToastMagic::warning(translate('stock_is_set_by_the_warehouse_sync'));", $controller);
     }
 
     public function test_a_product_switched_to_digital_is_left_alone_by_the_form_guard(): void

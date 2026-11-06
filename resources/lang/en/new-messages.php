@@ -9038,7 +9038,7 @@ return [
 	'withdraw_confirmation' => 'Withdraw confirmation',
 	'invoice_round_trip_unconfirmed_notice' => 'Not confirmed. Real orders to Torod Point are held until it is.',
 	'invoice_round_trip_evidence' => 'Evidence',
-	'invoice_round_trip_evidence_help' => 'Say how you know: for example the provider\'s written answer (who, when), or the test order you created and read back (its number, the invoice number it returned, and where in the list it appeared: the lookup reads only the first 150 orders). 10 to 500 characters. Do not paste customer data or credentials: the text is shown to every administrator who can open this page and is kept in the audit log.',
+	'invoice_round_trip_evidence_help' => 'Say how you know: for example the provider\'s written answer about the Add Order API (who, when), or a test order created through the Add Order API (not typed into the provider\'s dashboard) and read back (its number, the invoice number it returned, and where in the list it appeared: the lookup reads only the first 150 orders). 10 to 500 characters. Do not paste customer data or credentials: the text is shown to every administrator who can open this page and is kept in the audit log.',
 	'invoice_round_trip_statement' => 'I confirm that the invoice number sent with an order comes back unchanged in the provider\'s order list, at this path:',
 	'confirm_invoice_round_trip' => 'Record confirmation',
 	'may_be_empty' => 'may be empty',
@@ -9056,4 +9056,5 @@ return [
 	'hold_live_submission_unproven' => 'A real order waits for the provider\'s confirmation step: for Torod Point, the master administrator has to record on the Torod Point page that the invoice number comes back.',
 	'invoice_round_trip_check_again' => 'The path shown, the path now set and the evidence no longer agree, or the evidence is too short once personal details are removed. Reload the page and try again.',
 	'torod_stock_map_unverified' => 'The stock field was confirmed, but the products field map has changed since it was verified: verify it again (Save and verify).',
+	'product_quantity_updated_successfully' => 'Product quantity updated successfully',
 ];

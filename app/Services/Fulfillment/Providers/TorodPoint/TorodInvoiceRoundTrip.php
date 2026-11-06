@@ -72,10 +72,21 @@ final class TorodInvoiceRoundTrip
             return null;
         }
 
-        $lastSegment = strtolower(substr(strrchr('.' . $path, '.'), 1));
         $referencePath = $this->fieldMaps->get(ProviderCode::TorodPoint, TorodFieldMaps::ORDERS)->map()->path('reference');
 
-        return $path === $referencePath || in_array($lastSegment, TorodFieldMaps::IDENTIFIER_FIELDS, true) ? null : $path;
+        return $path === $referencePath || $this->namesAnIdentifier($path) ? null : $path;
+    }
+
+    /** Does any step of the path carry an identifier's name, whatever its separators and casing: order_id, data.0.orderBarcode, id.value? */
+    private function namesAnIdentifier(string $path): bool
+    {
+        foreach (explode('.', $path) as $step) {
+            if (preg_match(TorodFieldMaps::IDENTIFIER_NAME, strtolower((string) preg_replace('/[^A-Za-z0-9]/', '', $step))) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** The path the orders map has for the invoice number, whatever it is. */

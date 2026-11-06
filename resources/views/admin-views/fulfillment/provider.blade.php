@@ -30,7 +30,7 @@
             <div class="col-xl-8">
                 <form method="POST" action="{{ route('admin.fulfillment-providers.update', $card['slug']) }}" autocomplete="off">
                     @csrf
-                    @foreach (['enabled' => $config->enabled, 'dispatch_enabled' => $config->bool('dispatch_enabled'), 'dry_run' => $config->bool('dry_run', true), 'auto_dispatch' => $config->bool('auto_dispatch')] as $switch => $loaded)
+                    @foreach (['enabled' => $config->enabled, 'dispatch_enabled' => $config->bool('dispatch_enabled'), 'dry_run' => $config->bool('dry_run', true), 'auto_dispatch' => $config->bool('auto_dispatch')] + ($isM5azn ? [] : ['inventory_sync_enabled' => $config->bool('inventory_sync_enabled')]) as $switch => $loaded)
                         <input type="hidden" name="loaded_{{ $switch }}" value="{{ $loaded ? 1 : 0 }}">
                     @endforeach
                     <x-k.card :title="translate('connection')" class="mb-3">

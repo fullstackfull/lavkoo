@@ -18,6 +18,17 @@ final class FieldMapDetector
     private const SAMPLE_LIMIT = 25;
     private const MIN_COVERAGE = 0.8;
 
+    /** @param bool $strictValues a flag or a blank text is no value (Torod Point's maps); every other provider keeps the looser reading it always had */
+    public function __construct(private readonly bool $strictValues = false)
+    {
+    }
+
+    /** The same detector with the stricter reading of what a value is. */
+    public function strict(): self
+    {
+        return new self(strictValues: true);
+    }
+
     /**
      * @param list<array<array-key, mixed>> $sample
      * @param array<string, list<string>> $candidates logical name => candidate dot-paths, best first
@@ -121,13 +132,18 @@ final class FieldMapDetector
     }
 
     /**
-     * A usable value: text with something in it, or a number (0 is a number). Not null, not blank, not a flag, not a list.
+     * A usable value. Strictly: text with something in it, or a number (0 is a number), not null, not blank, not a flag, not a list.
+     * Otherwise anything but null, an empty text and a list.
      *
      * @param array<array-key, mixed> $record
      */
     private function hasValue(array $record, string $path): bool
     {
         $value = Arr::get($record, $path);
+
+        if (!$this->strictValues) {
+            return $value !== null && $value !== '' && !is_array($value);
+        }
 
         return match (true) {
             is_string($value) => trim($value) !== '',

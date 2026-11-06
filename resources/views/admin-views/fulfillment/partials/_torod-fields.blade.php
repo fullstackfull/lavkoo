@@ -62,6 +62,7 @@
 <div class="col-12"><div class="alert alert-warning fs-12 py-2 mb-0">
     @if ($stockField['path'])
         <input type="hidden" name="stock_field_path" value="{{ $stockField['path'] }}">
+        <input type="hidden" name="loaded_stock_field_confirmed" value="{{ $stockField['stated'] ? 1 : 0 }}">
         <div class="form-check">
             <input class="form-check-input" type="checkbox" id="stock_field_confirmed" name="stock_field_confirmed" value="1" @checked($stockField['stated'])>
             <label class="form-check-label" for="stock_field_confirmed"><strong>{{ translate('i_confirm_the_stock_field_is_available_to_sell') }}</strong> <code>{{ $stockField['path'] }}</code></label>

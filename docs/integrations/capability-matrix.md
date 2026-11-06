@@ -26,7 +26,7 @@ Sources: M5AZN API on `m5azn-api.stoplight.io` (retrieved 2026-11-05); LogesTech
 
 | Capability | API | Documented | Built | Notes |
 |---|---|---|---|---|
-| Create warehouse (fulfillment) order | Fulfillment v5 `POST /public/fulfillment/order` | Yes | Yes | Headers `company-id`, `username`, `password`; the warehouse then creates its own last-mile package |
+| Create warehouse (fulfillment) order | Fulfillment v5 `POST /public/fulfillment/order` | Yes | Gated | Headers `company-id`, `username`, `password`; the warehouse then creates its own last-mile package. A real order waits until the master administrator has confirmed the invoice-number round trip |
 | List warehouse orders | v5 `GET /public/fulfillment/order` | Yes (no response schema) | Gated | Used to reconcile an ambiguous submission by our invoice number; needs a verified orders map |
 | Product list | v5 `GET /public/fulfillment/product` | Yes (no response schema) | Gated | **Does not document a stock quantity** — see below |
 | Product bulk upsert | v5 `POST /public/fulfillment/product/bulk` | Yes | Gated | Off by default, previewable, **never sends quantity** |

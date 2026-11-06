@@ -91,8 +91,8 @@ The exact questions, with a proposed minimal contract, are in
 
 This is what runs today, by decision: `inventory_sync_enabled` is off and stays off.
 
-Torod Point products are sellable on **manual stock**: a person enters the warehouse count (labelled), and orders are
-still sent automatically. Risk: the store can oversell if the manual figure is stale; the warehouse cannot fulfil what
+Torod Point products are sellable on **manual stock**: a person enters the warehouse count (labelled). Orders wait for the usual
+approval and for the invoice-number round-trip confirmation; stock has no part in that. Risk: the store can oversell if the manual figure is stale; the warehouse cannot fulfil what
 it does not have, so such an order would be rejected or stall at the provider and surface as *Failed/Held*. This is
 acceptable for a pilot, not for full automation. **Classified as a blocker for "automatic inventory synchronisation",
-not for order dispatch.**
+not for order dispatch (which has its own gate: the invoice-number round trip).**

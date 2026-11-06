@@ -8,13 +8,13 @@
 
 | | Before | After |
 |---|---|---|
-| **Orders field map** | *Save and verify* fails with `invoice_number`: most historical warehouse orders carry `invoiceNumber: null`, and every required field needed a value in 80% of the sample | The invoice-number **key** has to be present in 80% of the sample and may be empty. A path that does not exist (a typo, another name) still fails. `reference` (the order barcode) stays strict. The page says how many sampled orders really had an invoice number (`0 / 5 of the sampled records have a value`) and that the map is verified for its **shape only** |
+| **Orders field map** | *Save and verify* fails with `invoice_number`: most historical warehouse orders carry `invoiceNumber: null`, and every required field needed a value in 80% of the sample | The invoice-number **key** has to be present in 80% of the sample and may be empty. A path that does not exist (a typo, another name) still fails. `reference` (the order barcode) stays strict. The page says how many sampled orders really had an invoice number (for example `0 / 5`) and that the map is verified for its **shape only** |
 | **What a verified orders map means** | it also let a lost answer be looked up | the same, and **nothing more**: it releases no order and proves no round trip |
-| **Real orders** | created as soon as the switches allowed | created only after a **master administrator** has recorded, with evidence, that the invoice number we send comes back in the order list (Torod Point page → *Invoice number round trip*). The confirmation names the path and the account it was made for; changing either removes it. Until then a real order is held (*A real order waits for the provider's confirmation step*). Rehearsals (*Dry run*) are not affected |
+| **Real orders** | created as soon as the switches allowed | created only after a **master administrator** has recorded, with evidence, that the invoice number we send comes back in the order list (Torod Point page → *Invoice number round trip*). The confirmation names the path and the account it was made for: a different path removes it, a different account makes it lapse until that account is set again. Until then a real order is held (*A real order waits for the provider's confirmation step*). Rehearsals (*Dry run*) are not affected |
 | **Finding a lost order again** | the first listed order carrying our invoice number | the same, but: a blank invoice number never matches; an order's `id` or barcode is never taken for the invoice number; a match without a barcode is not acceptance; two orders carrying our number are not linked automatically (they wait for a person). Only the first 150 orders of the list are read |
 | **Stock field** | the screen proposed `quantity` (a `0` on every product of the live account) and the confirmation was a bare tick | **no quantity is proposed**; the confirmation names the **path** it was made for and lapses when the path changes; its text says what is being confirmed (available to sell, already excluding units on orders the warehouse accepted) |
-| **Stock sync** (off, and stays off) | any approved mapping was written, a negative figure became `0` | only products **assigned to Torod Point**, one mapping per variant for a product with variants (a whole-product mapping on such a product is refused); a figure that is missing, negative, fractional, not a number, beyond any plausible warehouse or listed twice with different values is **skipped and counted, never turned into zero**; a sync in which assigned products received not one usable figure is a failure, not a success; the figure is *set* (not subtracted again) minus the units customers bought that the warehouse has not taken on yet; a figure the warehouse stops giving is trusted for six hours, then the product goes back to manual. Products not assigned keep their own stock |
-| **Typed stock** | a typed figure always replaced the stock | for stock the warehouse controls (assigned, mapped, verified, confirmed, switched on, figure recent) the typed figure is ignored, with a message, in the product form, the *Update stock* action, *Inventory adjustments* and the manual entry of the matching page. **Not guarded:** purchase-order receipts, return restocks and the seller REST API ([risks](risks.md#observations-outside-this-change)) |
+| **Stock sync** (off, and stays off) | any approved mapping was written, a negative figure became `0` | only products **assigned to Torod Point**, one mapping per variant for a product with variants (a whole-product mapping on such a product is refused); a figure that is missing, negative, fractional, not a number, beyond any plausible warehouse or listed twice with different values is **skipped and counted, never turned into zero**; a sync in which assigned products received not one usable figure is a failure, not a success; the figure is *set* (not subtracted again) minus the units customers bought that the warehouse has not taken on yet; a figure the warehouse stops giving is trusted for six hours (three sync intervals when the interval is longer than two hours), then the product goes back to manual. Products not assigned keep their own stock |
+| **Typed stock** | a typed figure always replaced the stock | for stock the warehouse controls (assigned, mapped, verified, confirmed, switched on, figure recent) the typed figure is ignored, with a message, in the product form, the stock update of the limited-stock and restock lists, *Inventory adjustments* and the manual entry of the matching page. **Not guarded:** purchase-order receipts, return restocks and the seller REST API ([risks](risks.md#observations-outside-this-change)) |
 
 The full behaviour is in [torod-point.md](torod-point.md#real-orders-wait-for-one-confirmation-the-invoice-number-comes-back) (orders)
 and [torod-point.md](torod-point.md#stock) (stock). The questions only LogesTechs can answer are
@@ -26,7 +26,7 @@ pushing products to Torod Point, M5AZN, prices, discounts, VAT, titles, descript
 ## The package
 
 An **incremental** overlay: the files that changed between commit **`698aa1e`** (the tree the server runs after Hotfix 1; `506429a`, the
-merge commit of that pull request, has an identical tree) and the Hotfix 2 commit. Its `files/` hold application code, views and
+merge commit of that pull request, has an identical tree) and the Hotfix 2 commit. Its `files/` hold application code, views, one routes file and
 language files only: no test, documentation, script or workflow of the repository. The commit hash and the file count are given to you
 in writing with this document and are valid for that hash only. Once Hotfix 2 is applied, the next incremental package is built against
 the Hotfix 2 commit.
@@ -85,7 +85,7 @@ mkdir -p "$HOTFIX2" && tar -xzf overlay.tar.gz -C "$HOTFIX2"
 php -r '$m = json_decode(file_get_contents($argv[1]), true); echo count($m["files"]), " files, base ", $m["base"], ", head ", $m["head"], PHP_EOL;' "$HOTFIX2/MANIFEST.json"
 ```
 
-Expected: `head` is `<HOTFIX2_COMMIT>`, `base` begins `698aa1e`, and the file count is the one we gave you. A base of `34dce65…` or `ef843600…` means a
+Expected: `head` is `<HOTFIX2_COMMIT>`, `base` begins `698aa1e`, and the file count is the one we gave you. A base of `34dce65…`, `30dcbf64…` or `ef843600…` means a
 different, larger package was built: do not use it.
 
 **H2-3. Compare it with the files on the server (reads only).**
@@ -97,7 +97,8 @@ different, larger package was built: do not use it.
 Expected, and nothing else: a `Summary:` line made only of `CLEAN`, `MERGE` and `NEW` (the count of each is given with the package) and
 `Result: every file can be applied.` `CLEAN` means the file on the server is exactly the one Hotfix 1 installed. `MERGE` is each of the
 three language files: the keys this release adds are put into the live file and every key the site already has keeps the site's own
-wording. `NEW` is a file that does not exist on the server yet. A `DRIFTED` file means someone changed it since Hotfix 1: read what they
+wording (keys this release no longer uses, two stock-confirmation texts of Hotfix 1, simply stay on the server, unused). `NEW` is a file
+that does not exist on the server yet. A `DRIFTED` file means someone changed it since Hotfix 1: read what they
 changed (`diff -u "$HOTFIX2/base/<path>" "$APP/<path>"`) and accept it by name (`--accept-drift=…`) only after a person has looked.
 
 > **Gate A1, for this package's files.** Nothing here switches anything on: sending stays off and `FULFILLMENT_EXTERNAL_WRITES_ENABLED`
@@ -138,7 +139,7 @@ Expected: **the same result as after Hotfix 1**: no new FAIL; the lines that pro
 
 * *Integration mode on this server* is still **READ-ONLY**. Open **Torod Point**: it renders, and the switches are exactly what they were
   (*Dry run* on, *Send orders to this provider* off, *Send automatically (no approval per order)* off, *Follow warehouse stock levels* off).
-* The *Capabilities* table lists **Real order submission: Unverified**, and the checklist *Before automatic sending* lists *Invoice number
+* The *Capabilities* table lists **Real order submission: Not verified** (the reason beneath it: the invoice number we send has not been confirmed to come back), and the checklist *Before automatic sending* lists *Invoice number
   round trip confirmed* as not met. That is the new gate, closed, as intended.
 * Under *Products and stock* the box beside the stock field names the path it is about, or says to set the stock path first. **Leave it
   unticked.**
@@ -150,14 +151,14 @@ Expected: **the same result as after Hotfix 1**: no new FAIL; the lines that pro
    (**Use proposed paths** fills them from the sample; `id` and `barcode` are never proposed for the invoice number, and a map that reads
    the invoice number from the barcode or the id can never be confirmed, so no real order would be created).
 3. **Save and verify**. Expected: the card's badge reads **Verified**, and a notice says how many of the sampled orders had an invoice
-   number (for example `0 / 5 of the sampled records have a value`) and that the map is verified for its shape only. **That is the
+   number (for example `0 / 5`) and that the map is verified for its shape only. **That is the
    intended result, not a warning to act on.** It does not unlock anything.
    If it says `invoice_number` or `reference` did not resolve, send us the sample's field names (no values).
 
 **H2-8. Stop here.** The following belong to later gates and need your decision in writing; none is part of this deployment:
 
 * **Invoice number round trip**: ask LogesTechs ([section F, items 29–31](vendor-requests/logestechs-technical-request.md)); only after their written
-  answer (or an order created for the purpose and read back) does the master administrator record it on the Torod Point page. Until then
+  answer (or a test order created through the Add Order API and read back unchanged) does the master administrator record it on the Torod Point page. Until then
   no real order is created, in any mode.
 * **Stock**: ask LogesTechs which quantity is available to sell ([items 29–30](vendor-requests/logestechs-technical-request.md)). Until they
   answer, do not tick the confirmation, and keep *Follow warehouse stock levels* **off**. Who may switch it on is
@@ -178,20 +179,22 @@ H2-4, and `art up`.
 There is **no database change to undo**. What Hotfix 2 itself writes is limited to what someone does with its new controls: plain keys
 inside the Torod Point settings JSON (`field_maps.orders.coverage` when the orders map is saved or verified, `invoice_round_trip` when the
 master administrator confirms, `stock_field_confirmed_path` beside the existing `stock_field_confirmed_at` when the stock confirmation is
-ticked) and one audit-log entry for each of those actions. While the stock sync stays off and no real order is sent, no product, stock
-figure or order is written.
+ticked) and, where the server has an `audit_logs` table, one audit-log entry for each of those actions. While the stock sync stays off
+and no real order is sent, no product, stock figure or order is written.
 
 Hotfix 1 ignores `coverage`, `invoice_round_trip` and `stock_field_confirmed_path`. It has no invoice gate, so a confirmation recorded
 under Hotfix 2 does nothing there, and it treats a recorded stock confirmation as valid whatever the stock path is: **if anyone ever
 ticked the stock confirmation, untick it and save before rolling back.** An orders map verified under Hotfix 2 stays verified after the
-rollback; saving and verifying it again under Hotfix 1 would fail on `invoice_number` as before.
+rollback; saving and verifying it again under Hotfix 1 would fail on `invoice_number` as before. The records Hotfix 2 stored stay in the
+settings after a rollback and apply again, unchanged, if Hotfix 2 is installed again: withdraw the invoice confirmation first (Torod
+Point page) if that is not wanted.
 
 ## What is verified and what is not
 
 Verified by tests (SQLite, MySQL 8, MariaDB 11.4.2 — the engine the pilot server reports; every behaviour change has a test that fails
 when the change is reverted, checked by mutation): the orders map with historical, null, missing, wrong-path and filled invoice numbers;
 the strict barcode; that a verified map releases nothing; the held real order, the rehearsal that is not held, the adapter's own refusal,
-the withdrawal when the path or the account changes and the master-administrator rule with its audit entry; the reconciliation rules;
+the withdrawal when the path changes, the lapse when the account changes and the master-administrator rule with its audit entry; the reconciliation rules;
 that a lost answer is never answered with a second order; the stock modes (every combination of assigned, mapped, switched on, verified,
 confirmed and recent), variants, the confirmation bound to its path, the assigned-only write, every kind of unusable figure,
 reservations for every shipment status including an order accepted while the list was being read, idempotence, the stock movement, the

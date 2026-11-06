@@ -172,8 +172,9 @@ dependency change, no file under `public/` or `storage/`, and no deletion. It al
 
 * **Where it comes from:** the `Deployment overlay` job of the CI run on the pull request uploads `pilot-overlay-<commit>`
   (`overlay.tar.gz` + `overlay.tar.gz.sha256`). The job builds from the commit the server runs to the pull request's own head
-  commit. That baseline is the repository variable `PILOT_BASELINE` if it is set, otherwise `ef843600` (the first release, which this
-  server now runs); for a server that still runs the original code, set `PILOT_BASELINE=34dce65` to get the whole package in one. To
+  commit. That baseline is the repository variable `PILOT_BASELINE` if it is set, otherwise `698aa1e` (the tree this server runs after
+  Hotfix 1); for a server that still runs the first release, set `PILOT_BASELINE=ef843600`, and for one that still runs the original
+  code `PILOT_BASELINE=34dce65`, to get the whole package in one. To
   build it yourself, into a **new or empty** directory:
   `php scripts/deploy/build-overlay.php --base=<what the server runs> --head=<release commit> --out=build/overlay --archive` (the builder
   refuses a non-empty `--out`, so nothing from an earlier build can end up in the package).
@@ -841,6 +842,10 @@ for it, the scheduler and queue running. In addition:
   our invoice number and amount, so without webhooks **no status update ever arrives** and the *A status update received and
   understood* item can never be met. On the Torod page: **Generate webhook secret** (the URLs are shown once; copy them), turn
   **Accept webhooks** on, give both URLs to LogesTechs, and have them confirm a delivery ([operations §3](operations.md)).
+* **Torod Point only — the invoice-number round trip must be confirmed first.** No real order is created until the master administrator has
+  recorded, with evidence, that the invoice number we send comes back in the order list (Torod Point page → *Invoice number round trip*;
+  [torod-point.md](torod-point.md#real-orders-wait-for-one-confirmation-the-invoice-number-comes-back)). Until then step 5 answers with
+  a hold, *A real order waits for the provider's confirmation step*.
 * How the queue runs is known (phase 0), and after every `.env` change in this phase `php artisan queue:restart` was run.
 
 1. Take a fresh database backup: `bash "$PKG/tools/backup.sh" --app="$APP" --to="$BACKUPS/data" --db-only`.
@@ -878,7 +883,8 @@ The page decides, not a person's memory. *Before automatic sending* is derived f
 |---|---|
 | Credentials saved · Integration switched on · Sending to providers allowed on this server | the three switches above |
 | Live verification passed recently | the latest run has no failure and is under 14 days old (a run in which nothing was asked does not count) |
-| Field maps verified | every map of the provider |
+| Field maps verified | every map of the provider (Torod Point's orders map is verified for its shape; see the next row) |
+| **Invoice number round trip confirmed** (Torod Point only) | the master administrator has recorded the evidence on the provider page, for the current path and account |
 | Products assigned and mapped | at least one product assigned to this provider **that has an approved mapping** (a mapping on a product that is not assigned does not count) |
 | Status tracking ready | M5AZN: status map + verified orders map; Torod: company ID |
 | Scheduler running · Queue worker keeping up | a sweep in the last 5 minutes · no fulfillment job waiting over 10 minutes (a queue driver that cannot be measured is reported as such) |
