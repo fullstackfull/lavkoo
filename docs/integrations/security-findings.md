@@ -203,6 +203,7 @@ needs a fix by whoever owns the authentication code, or a conscious decision to 
 * The licence purchase key and buyer name in `config/system-addons.php`, which the platform rewrites after each licence check.
 * Three public maintenance routes (`/diag-write-xk29`, `/find-img-xk29`, `/run-fix-xk29`) guarded only by literal query keys in
   `routes/web/routes.php`: they write test files, chmod `storage/app/public` recursively, search the project tree and run `storage:link`.
+  **Removed** with the unified address release (`tests/Feature/Security/MaintenanceRoutesTest.php` fails if a route file ever runs commands, touches permissions or files, or compares a request value with a key written in it). `php artisan file:permission`, `storage:link` and `optimize:clear` do the same from a shell. The keys remain in the repository's history: treat them as exposed, and change the same value anywhere else it is used.
 * A Firebase web `apiKey` in `firebase-messaging-sw.js` (public by design for Firebase web, but part of the project's identity).
 * `POST /activation-check` is unauthenticated and rewrites licence state.
 
