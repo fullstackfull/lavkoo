@@ -107,7 +107,7 @@ class ChannelHttp
         }
         foreach (ChannelOperations::requiredQuery($operation) as $name => $value) {
             if (($query[$name] ?? null) !== $value) {
-                throw new ChannelUnavailableException(ChannelUnavailableException::UNREGISTERED_OPERATION, "'{$operation}' is only a read with {$name}={$value}; nothing was sent.");
+                throw new ChannelUnavailableException(ChannelUnavailableException::UNREGISTERED_OPERATION, "'{$operation}' is only allowed with {$name}={$value}; nothing was sent.");
             }
         }
         if (!config('sales_channels.enabled', false)) {

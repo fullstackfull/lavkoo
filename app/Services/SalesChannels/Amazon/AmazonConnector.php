@@ -363,7 +363,8 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
     /**
      * One PATCH per SKU (the Listings API takes one SKU per call). Each is first checked with Amazon's validation preview, which submits nothing, so a
-     * patch Amazon would reject is never sent; an update that previews as invalid is reported with Amazon's reason.
+     * patch Amazon would reject is never sent; an update that previews as invalid is reported with Amazon's reason. The preview is a write for every gate: an account in
+     * dry run logs both requests and sends neither.
      *
      * @param list<PublishUpdate> $updates
      */
@@ -376,6 +377,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         $marketplace = $this->primaryMarketplace($account);
         $seller = rawurlencode((string) $account->external_account_id);
         $capability = $field === 'price' ? IntegrationCapability::PricePublishing : IntegrationCapability::InventoryPublishing;
+        $scope = $field === 'price' ? 'price_publishing' : 'inventory_publishing';
         $operation = $field === 'price' ? 'amazon.listings_patch_price' : 'amazon.listings_patch_quantity';
 
         foreach ($updates as $update) {
@@ -393,12 +395,12 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             $path = "/listings/2021-08-01/items/{$seller}/" . rawurlencode($sku);
 
             if ($account->setting('validate_before_publish', true)) {
-                $preview = $this->client->call($account, 'amazon.listings_validate', 'PATCH', $path, ['marketplaceIds' => $marketplace, 'mode' => 'VALIDATION_PREVIEW', 'includedData' => 'issues'], $body, $capability);
-                if ($preview->ok() && $preview->get('status') === 'INVALID') {
+                $preview = $this->client->call($account, 'amazon.listings_validate', 'PATCH', $path, ['marketplaceIds' => $marketplace, 'mode' => 'VALIDATION_PREVIEW', 'includedData' => 'issues'], $body, $capability, $scope);
+                if (!$preview->isDryRun() && $preview->ok() && $preview->get('status') === 'INVALID') {
                     $failed[$update->mappingId] = $this->firstIssue($preview) ?? 'Amazon\'s validation preview rejected this update.';
                     continue;
                 }
-                if (!$preview->ok()) {
+                if (!$preview->isDryRun() && !$preview->ok()) {
                     $failed[$update->mappingId] = 'Validation preview failed (' . $preview->status . '): ' . $preview->message();
                     if ($preview->isTransient()) {
                         $transient[] = $update->mappingId;
@@ -407,7 +409,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
                 }
             }
 
-            $response = $this->client->call($account, $operation, 'PATCH', $path, ['marketplaceIds' => $marketplace, 'includedData' => 'issues'], $body, $capability);
+            $response = $this->client->call($account, $operation, 'PATCH', $path, ['marketplaceIds' => $marketplace, 'includedData' => 'issues'], $body, $capability, $scope);
             if ($response->isDryRun()) {
                 $dryRun = true;
                 continue;

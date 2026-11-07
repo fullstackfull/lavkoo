@@ -42,8 +42,9 @@ final class AmazonOperations
             'amazon.listing_get' => Ops::read(capabilities: $listings),
             'amazon.catalog_search' => Ops::read(capabilities: $listings),
             'amazon.product_type_definition' => Ops::read(capabilities: $listings),
-            // A PATCH that submits nothing: Amazon checks the patch and answers VALID or INVALID. The transport refuses it without mode=VALIDATION_PREVIEW.
-            'amazon.listings_validate' => Ops::read(methods: ['PATCH'], capabilities: $publishing, requiredQuery: ['mode' => 'VALIDATION_PREVIEW']),
+            // A PATCH that submits nothing: Amazon checks the patch and answers VALID or INVALID. It is still a PATCH with the real values in it, so every write gate applies to it (a
+            // rehearsal logs it and sends nothing; without the switches and the approval it is never sent), and the transport refuses it without mode=VALIDATION_PREVIEW.
+            'amazon.listings_validate' => Ops::write(['PATCH'], $publishing, ['price_publishing', 'inventory_publishing'], retrySafe: true, requiredQuery: ['mode' => 'VALIDATION_PREVIEW']),
             'amazon.listings_patch_price' => Ops::write(['PATCH'], [Capability::PricePublishing], ['price_publishing'], retrySafe: true),
             'amazon.listings_patch_quantity' => Ops::write(['PATCH'], [Capability::InventoryPublishing], ['inventory_publishing'], retrySafe: true),
 

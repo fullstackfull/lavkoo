@@ -538,9 +538,25 @@ class AmazonConnectorTest extends TestCase
 
         $this->assertTrue($result->dryRun);
         $this->assertSame([], $result->accepted);
-        $logged = SalesChannelApiLog::where('operation', 'amazon.listings_patch_price')->first();
-        $this->assertTrue($logged->dry_run);
-        $this->assertCount(0, array_filter($this->sentTo('/listings/2021-08-01/items'), fn (Request $request): bool => !str_contains($request->url(), 'VALIDATION_PREVIEW')));
+        $this->assertSame([true, true], [
+            SalesChannelApiLog::where('operation', 'amazon.listings_validate')->first()->dry_run,
+            SalesChannelApiLog::where('operation', 'amazon.listings_patch_price')->first()->dry_run,
+        ], 'Both requests are logged as a rehearsal, so a person can see exactly what would be sent.');
+        $this->assertCount(0, $this->sentTo('/listings/2021-08-01/items'), 'Neither the real PATCH nor the validation preview (also a PATCH with the real values) leaves the host.');
+    }
+
+    public function test_without_the_environment_write_switch_not_even_the_validation_preview_is_sent(): void
+    {
+        config(['sales_channels.external_writes_enabled' => false]);
+        Http::fake($this->token() + [self::SP . '/*' => Http::response(['status' => 'VALID', 'issues' => []])]);
+
+        try {
+            $this->amazon->publishPrices($this->account->fresh(), [$this->update($this->mapping(), price: '49.95')]);
+            $this->fail('A PATCH needs the environment write switch, the preview included.');
+        } catch (ChannelUnavailableException $refused) {
+            $this->assertSame(ChannelUnavailableException::WRITES_OFF_ENVIRONMENT, $refused->reason);
+        }
+        $this->assertCount(0, $this->sentTo('/listings/2021-08-01/items'));
     }
 
     public function test_publishing_is_refused_outright_without_the_approval(): void
@@ -548,8 +564,13 @@ class AmazonConnectorTest extends TestCase
         $this->account->forceFill(['capability_approvals' => []])->save();
         Http::fake($this->token() + [self::SP . '/*' => Http::response(['status' => 'VALID'])]);
 
-        $this->expectException(ChannelUnavailableException::class);
-        $this->amazon->publishPrices($this->account->fresh(), [$this->update($this->mapping(), price: '49.95')]);
+        try {
+            $this->amazon->publishPrices($this->account->fresh(), [$this->update($this->mapping(), price: '49.95')]);
+            $this->fail('Publishing without the approval has to be refused.');
+        } catch (ChannelUnavailableException $refused) {
+            $this->assertSame(ChannelUnavailableException::NOT_APPROVED, $refused->reason);
+        }
+        $this->assertCount(0, $this->sentTo('/listings/2021-08-01/items'), 'The preview is a write too: nothing about the update leaves the host before the approval.');
     }
 
     // ---- shipment confirmation --------------------------------------------------------------------------

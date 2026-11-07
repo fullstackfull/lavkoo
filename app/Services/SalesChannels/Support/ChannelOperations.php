@@ -63,7 +63,7 @@ final class ChannelOperations
 
     /**
      * @param list<Capability> $capabilities
-     * @param array<string, string> $requiredQuery query values that MUST be present: what makes a non-GET call a read (a validation preview that submits nothing)
+     * @param array<string, string> $requiredQuery query values that MUST be present, or the call is refused before anything is sent
      */
     public static function read(array $methods = ['GET'], array $capabilities = self::READ_CAPABILITIES, bool $people = false, array $requiredQuery = [], bool $retrySafe = true): array
     {
@@ -78,10 +78,11 @@ final class ChannelOperations
     /**
      * @param list<Capability> $capabilities
      * @param list<string> $scopes
+     * @param array<string, string> $requiredQuery query values that MUST be present (what keeps a validation preview from being sent as a real change)
      */
-    public static function write(array $methods, array $capabilities, array $scopes, bool $retrySafe = false, bool $people = false): array
+    public static function write(array $methods, array $capabilities, array $scopes, bool $retrySafe = false, bool $people = false, array $requiredQuery = []): array
     {
-        return ['kind' => self::WRITE, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => $scopes, 'retrySafe' => $retrySafe, 'people' => $people];
+        return ['kind' => self::WRITE, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => $scopes, 'retrySafe' => $retrySafe, 'people' => $people, 'requiredQuery' => $requiredQuery];
     }
 
     public static function isRegistered(string $operation): bool
