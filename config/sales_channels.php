@@ -176,7 +176,9 @@ return [
         // How the internal order is marked. `default_type` is the only value every storefront and admin page understands; see operations.md before changing it.
         'order_type' => 'default_type',
         'payment_method' => 'marketplace_prepaid',
-        // Buyer details are removed from the internal order once the provider holds the shipment (or the attempt is over); a rehearsal (dry run) keeps them no longer than this.
+        // Buyer details are removed from the internal order this long after the provider holds the shipment (or the channel order was cancelled).
+        'retain_after_accept_hours' => 24,
+        // An order nothing has been sent for (a rehearsal in dry run, or a send that keeps failing) keeps them no longer than this; it is then closed and the channel order waits to be dispatched again.
         'rehearsal_buyer_data_hours' => 72,
     ],
 

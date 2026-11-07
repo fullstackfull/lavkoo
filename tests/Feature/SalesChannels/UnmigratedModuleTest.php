@@ -21,6 +21,9 @@ class UnmigratedModuleTest extends TestCase
         ['costs:refresh', ['--days' => 3]],
         ['costs:accrue-storage', []],
         ['channels:prune', []],
+        ['channels:dispatch', []],
+        ['channels:dispatch-sync', []],
+        ['channels:purge-buyer-data', []],
     ];
 
     protected function setUp(): void
