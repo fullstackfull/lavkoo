@@ -8,7 +8,10 @@ use App\Services\Address\AddressCountry;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressText;
 use App\Services\Address\NationalAddress;
+use App\Models\ShippingAddress;
 use App\Services\Fulfillment\Support\SaudiPhone;
+use Closure;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,6 +28,8 @@ class ShippingAddressService
     private const STRUCTURED_COLUMNS = ['region_id', 'city_id', 'district', 'national_address'];
 
     private const DISTRICT_MAX_LENGTH = 191;
+
+    private const AMEND_ATTEMPTS = 3;
 
     public function __construct(private readonly AddressCatalog $catalog)
     {
@@ -51,6 +56,25 @@ class ShippingAddressService
         ];
 
         return array_merge($data, $this->structuredAttributes(input: $data + $this->structuredInput($request), channel: AddressChannel::Panel));
+    }
+
+    /**
+     * Writes an edit of a saved address. The row is read again under a lock and the structured columns are decided from it as it is now,
+     * not as the request found it: an old-form edit that retypes the city clears the ids even when a backfill gave them a moment ago,
+     * and two edits made from stale pages cannot leave the region of one beside the city of the other.
+     *
+     * @param array<string, mixed> $attributes the old columns the client sent; a column it left out keeps its value
+     * @param Closure(ShippingAddress): array<string, mixed> $structuredFor the structured columns for the address as it is now (structuredAttributes())
+     * @throws ValidationException
+     */
+    public function amend(ShippingAddress $address, array $attributes, Closure $structuredFor): ShippingAddress
+    {
+        return DB::transaction(function () use ($address, $attributes, $structuredFor): ShippingAddress {
+            $current = ShippingAddress::query()->lockForUpdate()->findOrFail($address->getKey());
+            $current->update(array_merge($attributes, $structuredFor($current)));
+
+            return $current;
+        }, attempts: self::AMEND_ATTEMPTS);
     }
 
     /**

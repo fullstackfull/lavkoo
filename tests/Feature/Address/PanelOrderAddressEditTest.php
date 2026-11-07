@@ -7,6 +7,7 @@ use App\Models\AddressCity;
 use App\Models\AuditLog;
 use App\Models\Order;
 use App\Services\Address\AddressSchema;
+use App\Services\OrderAddressUpdateService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -71,6 +72,20 @@ class PanelOrderAddressEditTest extends PanelAddressTestCase
         $this->assertArrayNotHasKey('address_schema', $copy, 'the old copy keeps its old shape');
         $this->assertSame('Billing St 9', $this->storedCopy(self::ORDER_ID, 'billing')['address'], 'the other address of the order is untouched');
         $this->assertContains('success', $this->toastTypes());
+    }
+
+    public function test_two_edits_made_from_stale_pages_do_not_overwrite_each_other(): void
+    {
+        $this->orderWithLegacyCopies();
+        $firstPage = Order::query()->findOrFail(self::ORDER_ID);
+        $secondPage = Order::query()->findOrFail(self::ORDER_ID);
+        $service = app(OrderAddressUpdateService::class);
+
+        $service->update($firstPage, 'shipping', ['address' => 'First street 1']);
+        $service->update($secondPage, 'shipping', ['name' => 'Second Name']);
+
+        $copy = Order::query()->findOrFail(self::ORDER_ID)->shippingAddressSnapshot();
+        $this->assertSame(['First street 1', 'Second Name'], [$copy['address'], $copy['contact_person_name']], 'the second edit was made on top of the first, not on the page it was opened from');
     }
 
     public function test_while_the_mode_is_off_moving_a_structured_copy_leaves_no_ids_of_the_old_city_in_it(): void

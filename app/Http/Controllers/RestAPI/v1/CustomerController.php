@@ -362,11 +362,7 @@ class CustomerController extends Controller
 
         [$structuredAttributes, $structuredError] = $this->structuredAddress(request: $request, existing: $shippingAddress);
         if ($structuredError !== null) {
-            // The endpoint's older refusals carry a `message`; a build that reads it is told what to do, one that reads `errors` is too.
-            return response()->json([
-                'message' => (string) collect($structuredError->errors())->flatten()->first(),
-                'errors' => Helpers::validationErrorProcessor($structuredError->validator),
-            ], 403);
+            return $this->refusedAddress(refusal: $structuredError);
         }
 
         $zipRestrictStatus = getWebConfig(name: 'delivery_zip_code_area_restriction');
@@ -379,9 +375,31 @@ class CustomerController extends Controller
         }
 
         // Only what the app sent is changed: a field it left out (the ZIP code, or the structured address of an app that predates it) keeps its value.
-        $shippingAddress->update(array_merge($request->only(self::ADDRESS_FIELDS), $structuredAttributes));
+        // The structured columns are decided again from the row as it is when it is written, so an edit made from a stale read cannot leave ids that name another city.
+        try {
+            $this->shippingAddressService->amend(
+                address: $shippingAddress,
+                attributes: $request->only(self::ADDRESS_FIELDS),
+                structuredFor: function (ShippingAddress $current) use ($request): array {
+                    [$columns, $refusal] = $this->structuredAddress(request: $request, existing: $current);
+
+                    return $refusal === null ? $columns : throw $refusal;
+                },
+            );
+        } catch (ValidationException $refusal) {
+            return $this->refusedAddress(refusal: $refusal);
+        }
 
         return response()->json(['message' => translate('update_successful')], 200);
+    }
+
+    /** The endpoint's older refusals carry a `message`; a build that reads it is told what to do, one that reads `errors` is too. */
+    private function refusedAddress(ValidationException $refusal): JsonResponse
+    {
+        return response()->json([
+            'message' => (string) collect($refusal->errors())->flatten()->first(),
+            'errors' => Helpers::validationErrorProcessor($refusal->validator),
+        ], 403);
     }
 
     public function delete_address(Request $request):JsonResponse

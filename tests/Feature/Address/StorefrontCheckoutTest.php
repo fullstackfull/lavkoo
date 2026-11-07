@@ -538,6 +538,30 @@ class StorefrontCheckoutTest extends StorefrontTestCase
         $this->assertSame('billing_', $response->json('prefix'), 'the page needs the prefix to find the billing input the message belongs to');
     }
 
+    public function test_soft_a_refused_checkout_leaves_no_saved_address_behind_for_the_retry_to_duplicate(): void
+    {
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $this->signIn();
+
+        $this->postCheckout($this->saudiForm(['save_address' => 'on']), $this->saudiBillingForm(['billing_city_id' => $this->ids['riyadh']]))->assertStatus(403);
+        $this->assertSame(0, ShippingAddress::count(), 'the shipping address was fine, but it is not saved when the billing one is refused');
+        $this->assertNull($this->sessionAddress());
+
+        $this->postCheckout($this->saudiForm(['save_address' => 'on']), $this->saudiBillingForm())->assertOk();
+        $this->assertSame(2, ShippingAddress::count(), 'one saved shipping address and one billing copy: what a single good request makes');
+    }
+
+    public function test_a_guest_whose_account_details_are_refused_leaves_no_address_behind(): void
+    {
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $this->asGuest(704);
+
+        $this->postCheckout($this->saudiForm(['email' => 'guest@example.test']), null, ['is_check_create_account' => 1, 'customer_password' => 'secret-pass-1', 'customer_confirm_password' => 'another-pass-2'])->assertStatus(403);
+
+        $this->assertSame(0, ShippingAddress::count());
+        $this->assertNull($this->sessionAddress());
+    }
+
     public function test_soft_a_guest_gets_the_same_form_and_the_same_rules(): void
     {
         $this->setAddressMode(AddressSchema::MODE_SOFT);

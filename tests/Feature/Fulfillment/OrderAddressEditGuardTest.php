@@ -4,8 +4,12 @@ namespace Tests\Feature\Fulfillment;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Models\Order;
 use App\Services\Address\OrderAddressService;
 use App\Services\Fulfillment\FulfillmentSchema;
+use App\Services\OrderAddressUpdateService;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -79,6 +83,49 @@ class OrderAddressEditGuardTest extends AdminPagesTestCase
 
         $this->assertSame(self::REASON, $this->blockedReason(100));
         $this->assertNull($this->blockedReason(101), 'a held shipment is looked at again by the next sweep, so its order can still be corrected');
+    }
+
+    public function test_an_edit_holds_the_shipments_of_its_order_until_it_is_written_so_a_claim_cannot_slip_in_between(): void
+    {
+        if (DB::getDriverName() === 'sqlite') {
+            $this->markTestSkipped('Row locks need a real MySQL or MariaDB: SQLite has none.');
+        }
+        $this->makeProduct(1);
+        $this->makeOrder(100);
+        $this->shipment(100, ProviderCode::TorodPoint, FulfillmentStatus::Pending);
+
+        $claimWaited = null;
+        DB::beforeExecuting(function (string $query) use (&$claimWaited): void {
+            if ($claimWaited !== null || preg_match('/^update\s+[`"]orders[`"]/i', $query) !== 1) {
+                return;
+            }
+
+            $claimWaited = $this->aClaimFromAnotherConnectionHadToWait(orderId: 100);
+        });
+
+        app(OrderAddressUpdateService::class)->update(Order::query()->findOrFail(100), 'shipping', ['address' => 'Corrected street 7']);
+
+        $this->assertTrue($claimWaited, 'the dispatcher claims a shipment under the same row lock, so it waits for the edit to be written');
+        $this->assertSame('Corrected street 7', Order::query()->findOrFail(100)->shippingAddressSnapshot()['address']);
+    }
+
+    /** Tries what the dispatcher's claim does (changing the shipment's status) on a second connection that gives up after a second. */
+    private function aClaimFromAnotherConnectionHadToWait(int $orderId): bool
+    {
+        config(['database.connections.second_connection' => config('database.connections.' . config('database.default'))]);
+        DB::purge('second_connection');
+        $other = DB::connection('second_connection');
+        $other->statement('SET SESSION innodb_lock_wait_timeout = 1');
+
+        try {
+            $other->table('provider_fulfillments')->where('order_id', $orderId)->update(['status' => FulfillmentStatus::Dispatching->value]);
+
+            return false;
+        } catch (QueryException $exception) {
+            return str_contains($exception->getMessage(), 'Lock wait timeout');
+        } finally {
+            DB::disconnect('second_connection');
+        }
     }
 
     public function test_before_the_fulfillment_tables_exist_nothing_is_blocked(): void

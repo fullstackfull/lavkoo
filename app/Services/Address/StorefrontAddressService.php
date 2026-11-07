@@ -131,7 +131,11 @@ class StorefrontAddressService
      */
     public function amendInAddressBook(ShippingAddress $address, array $attributes, array $input): void
     {
-        $address->update(array_merge($attributes, $this->structured(input: $input + Arr::only($attributes, ['city']), existing: $address)));
+        $this->addresses->amend(
+            address: $address,
+            attributes: $attributes,
+            structuredFor: fn (ShippingAddress $current): array => $this->structured(input: $input + Arr::only($attributes, ['city']), existing: $current),
+        );
     }
 
     public function removeFromAddressBook(mixed $addressId): bool
@@ -246,9 +250,11 @@ class StorefrontAddressService
             throw ValidationException::withMessages(['address' => [translate('address_not_found')]]);
         }
 
-        $address->update(array_merge(Arr::only($attributes, [...self::LEGACY_FIELDS, 'zip']), $this->structured(input: $input, existing: $address)));
-
-        return $address;
+        return $this->addresses->amend(
+            address: $address,
+            attributes: Arr::only($attributes, [...self::LEGACY_FIELDS, 'zip']),
+            structuredFor: fn (ShippingAddress $current): array => $this->structured(input: $input, existing: $current),
+        );
     }
 
     /**

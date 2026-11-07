@@ -463,6 +463,50 @@ class AddressServicesTest extends AddressTestCase
         $this->assertNull(AddressSnapshot::zip(AddressSnapshot::build(['city' => 'Riyadh'])));
     }
 
+    /** @param array<string, mixed> $attributes */
+    private function savedAddress(array $attributes): ShippingAddress
+    {
+        return ShippingAddress::query()->create($attributes + [
+            'customer_id' => '7', 'is_guest' => 0, 'contact_person_name' => 'Sara Alharbi', 'address_type' => 'home', 'address' => 'King Fahd Rd 12',
+            'country' => 'Saudi Arabia', 'phone' => '0551234567',
+        ]);
+    }
+
+    public function test_an_old_form_edit_decides_from_the_row_as_it_is_when_written_not_as_it_was_read(): void
+    {
+        AddressSchema::setMode(AddressSchema::MODE_SOFT);
+        $address = $this->savedAddress(['city' => 'الرياض']);
+        $staleRead = ShippingAddress::query()->findOrFail($address->id);
+
+        // A backfill, or a person confirming the spelling, gives the address its city after the app read it.
+        DB::table('shipping_addresses')->where('id', $address->id)->update(['region_id' => $this->ids['region_RUH'], 'city_id' => $this->ids['riyadh']]);
+
+        $this->service()->amend(
+            address: $staleRead,
+            attributes: ['city' => 'جدة'],
+            structuredFor: fn (ShippingAddress $current): array => $this->service()->structuredAttributes(input: ['country' => 'Saudi Arabia', 'city' => 'جدة'], channel: AddressChannel::Api, existing: $current),
+        );
+
+        $row = ShippingAddress::query()->findOrFail($address->id);
+        $this->assertSame(['جدة', null, null], [$row->city, $row->city_id, $row->region_id], 'the ids of the city the customer no longer says must not stay beside the new text');
+    }
+
+    public function test_two_edits_of_one_saved_address_made_from_stale_reads_do_not_mix_their_columns(): void
+    {
+        AddressSchema::setMode(AddressSchema::MODE_SOFT);
+        $address = $this->savedAddress(['city' => 'الرياض', 'region_id' => $this->ids['region_RUH'], 'city_id' => $this->ids['riyadh'], 'national_address' => 'RAGI2929', 'district' => 'Al Olaya']);
+        $firstRead = ShippingAddress::query()->findOrFail($address->id);
+        $secondRead = ShippingAddress::query()->findOrFail($address->id);
+        $edit = fn (string $region, string $city): array => $this->submitted(['region_id' => $this->ids[$region], 'city_id' => $this->ids[$city], 'national_address' => 'RAGI2929']);
+
+        $this->service()->amend($firstRead, [], fn (ShippingAddress $current): array => $this->service()->structuredAttributes(input: $edit('region_MAK', 'jeddah'), channel: AddressChannel::Web, existing: $current));
+        $this->service()->amend($secondRead, [], fn (ShippingAddress $current): array => $this->service()->structuredAttributes(input: $edit('region_RUH', 'diriyah'), channel: AddressChannel::Web, existing: $current));
+
+        $row = ShippingAddress::query()->findOrFail($address->id);
+        $this->assertSame([$this->ids['region_RUH'], $this->ids['diriyah'], 'الدرعية'], [$row->region_id, $row->city_id, $row->city], 'the last edit wins as a whole: its region goes with its city');
+        $this->assertSame([], app(CheckoutAddressGuard::class)->problems($row, AddressChannel::Web));
+    }
+
     public function test_the_checkout_guard_passes_complete_addresses_and_stops_old_ones(): void
     {
         $guard = app(CheckoutAddressGuard::class);

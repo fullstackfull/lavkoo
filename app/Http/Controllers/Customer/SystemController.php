@@ -16,6 +16,7 @@ use App\Utils\CartManager;
 use App\Utils\OrderManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class SystemController extends Controller
@@ -193,8 +194,8 @@ class SystemController extends Controller
         $countryRestrictStatus = getWebConfig(name: 'delivery_country_restriction');
         $isGuestCustomer = !auth('customer')->check();
 
-        // Shipping start
-        $addressId = 0;
+        // Everything that can refuse the request is checked before anything is written, and the two addresses are saved together:
+        // a refusal never leaves a saved copy behind for the retry to duplicate.
         if (isset($shipping['shipping_method_id'])) {
             if ($this->storefrontAddresses->isIncomplete(posted: $shipping, billing: false, guest: $isGuestCustomer)) {
                 return response()->json([
@@ -209,18 +210,10 @@ class SystemController extends Controller
                     'errors' => translate('Delivery_unavailable_in_this_zip_code_area')
                 ], 403);
             }
-
-            try {
-                $addressId = $this->storefrontAddresses->saveFromCheckout(posted: $shipping, billing: false);
-            } catch (ValidationException $exception) {
-                return $this->refuseAddress(exception: $exception, fieldPrefix: '');
-            }
         }
-        // Shipping End
 
-        // Billing Start
-        $billingAddressId = $addressId;
-        if ($request['billing_addresss_same_shipping'] == 'false' && isset($billing['billing_method_id']) && $billingInputByCustomer) {
+        $billingFormPosted = $request['billing_addresss_same_shipping'] == 'false' && isset($billing['billing_method_id']) && $billingInputByCustomer;
+        if ($billingFormPosted) {
             if ($this->storefrontAddresses->isIncomplete(posted: $billing, billing: true, guest: $isGuestCustomer)) {
                 return response()->json([
                     'errors' => translate('Fill_all_required_fields_of_billing_address')
@@ -234,22 +227,13 @@ class SystemController extends Controller
                     'errors' => translate('Delivery_unavailable_in_this_zip_code_area')
                 ], 403);
             }
-
-            try {
-                $billingAddressId = $this->storefrontAddresses->saveFromCheckout(posted: $billing, billing: true);
-            } catch (ValidationException $exception) {
-                return $this->refuseAddress(exception: $exception, fieldPrefix: 'billing_');
-            }
         } elseif ($request['billing_addresss_same_shipping'] == 'false' && !isset($billing['billing_method_id']) && $physicalProduct != 'yes') {
             return response()->json([
                 'errors' => translate('Fill_all_required_fields_of_billing_address')
             ], 403);
         }
-        // Billing End
 
-        session()->put('address_id', $addressId);
-        session()->put('billing_address_id', $billingAddressId);
-
+        $newCustomerAddress = null;
         if ($request['is_check_create_account'] && $isGuestCustomer) {
             if (empty($request['customer_password']) || empty($request['customer_confirm_password'])) {
                 return response()->json([
@@ -284,10 +268,32 @@ class SystemController extends Controller
 
             if (User::where(['email' => $newCustomerAddress['email']])->orWhere(['phone' => $newCustomerAddress['phone']])->first()) {
                 return response()->json(['errors' => translate('Already_registered')], 403);
-            }else{
-                $newCustomerRegister = self::getRegisterNewCustomer(request: $request, address: $newCustomerAddress);
-                session()->put('newCustomerRegister', $newCustomerRegister);
             }
+        }
+
+        $failedFormPrefix = '';
+        try {
+            [$addressId, $billingAddressId] = DB::transaction(function () use ($shipping, $billing, $billingFormPosted, &$failedFormPrefix): array {
+                $failedFormPrefix = '';
+                $addressId = isset($shipping['shipping_method_id']) ? $this->storefrontAddresses->saveFromCheckout(posted: $shipping, billing: false) : 0;
+                $billingAddressId = $addressId;
+                if ($billingFormPosted) {
+                    $failedFormPrefix = 'billing_';
+                    $billingAddressId = $this->storefrontAddresses->saveFromCheckout(posted: $billing, billing: true);
+                }
+
+                return [$addressId, $billingAddressId];
+            });
+        } catch (ValidationException $exception) {
+            return $this->refuseAddress(exception: $exception, fieldPrefix: $failedFormPrefix);
+        }
+
+        session()->put('address_id', $addressId);
+        session()->put('billing_address_id', $billingAddressId);
+
+        if ($newCustomerAddress !== null) {
+            $newCustomerRegister = self::getRegisterNewCustomer(request: $request, address: $newCustomerAddress);
+            session()->put('newCustomerRegister', $newCustomerRegister);
         } else {
             session()->forget('newCustomerRegister');
             session()->forget('newRegisterCustomerInfo');

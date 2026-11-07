@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Address\OrderAddressService;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -62,6 +63,8 @@ class OrderAddressUpdateService
 
     private const STRUCTURED_FIELDS = ['region_id', 'city_id', 'district', 'national_address'];
 
+    private const EDIT_ATTEMPTS = 3;
+
     public function __construct(
         private readonly OrderAddressService $addresses,
         private readonly OrderRepositoryInterface $orders,
@@ -79,27 +82,35 @@ class OrderAddressUpdateService
             return;
         }
 
-        if ($blocked = $this->addresses->editBlockedReason(orderId: (int) $order->id)) {
-            throw ValidationException::withMessages(['order' => [$blocked]]);
-        }
+        // The shipments of the order are locked first, the way the dispatcher locks the one it claims, and the order is read again under its
+        // own lock: either this edit is written before the claim (and the provider is sent the new address), or the claim came first and the
+        // edit is refused. Two edits of one order made from stale pages cannot overwrite each other either.
+        DB::transaction(function () use ($order, $addressType, $input, $channel): void {
+            $this->addresses->lockShipmentsOf(orderId: (int) $order->id);
+            $fresh = Order::query()->lockForUpdate()->findOrFail($order->id);
 
-        $current = $addressType === 'shipping' ? $order->shippingAddressSnapshot() : $order->billingAddressSnapshot();
-        $revised = $this->addresses->revise(
-            snapshot: $current,
-            changes: $this->changes(input: $input, fields: $channel === AddressChannel::Panel ? self::FIELDS : self::APP_FIELDS) + ['updated_at' => now()],
-            structuredInput: Arr::only($input, self::STRUCTURED_FIELDS),
-            channel: $channel,
-        );
+            if ($blocked = $this->addresses->editBlockedReason(orderId: (int) $fresh->id)) {
+                throw ValidationException::withMessages(['order' => [$blocked]]);
+            }
 
-        $this->orders->update(id: (string) $order->id, data: [$addressType . '_address_data' => json_encode($revised, JSON_THROW_ON_ERROR)]);
+            $current = $addressType === 'shipping' ? $fresh->shippingAddressSnapshot() : $fresh->billingAddressSnapshot();
+            $revised = $this->addresses->revise(
+                snapshot: $current,
+                changes: $this->changes(input: $input, fields: $channel === AddressChannel::Panel ? self::FIELDS : self::APP_FIELDS) + ['updated_at' => now()],
+                structuredInput: Arr::only($input, self::STRUCTURED_FIELDS),
+                channel: $channel,
+            );
 
-        $this->audit->record(
-            action: 'order.address_updated',
-            subject: ['type' => 'order', 'id' => $order->id],
-            before: $this->summary(snapshot: $current),
-            after: $this->summary(snapshot: $revised),
-            context: ['address_type' => $addressType, 'channel' => $channel->value, 'changed' => $this->changedKeys(before: $current ?? [], after: $revised)],
-        );
+            $this->orders->update(id: (string) $fresh->id, data: [$addressType . '_address_data' => json_encode($revised, JSON_THROW_ON_ERROR)]);
+
+            $this->audit->record(
+                action: 'order.address_updated',
+                subject: ['type' => 'order', 'id' => $fresh->id],
+                before: $this->summary(snapshot: $current),
+                after: $this->summary(snapshot: $revised),
+                context: ['address_type' => $addressType, 'channel' => $channel->value, 'changed' => $this->changedKeys(before: $current ?? [], after: $revised)],
+            );
+        }, attempts: self::EDIT_ATTEMPTS);
     }
 
     /**

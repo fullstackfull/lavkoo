@@ -165,6 +165,14 @@ class OrderAddressService
             : null;
     }
 
+    /** Takes the lock the dispatcher takes before it claims a shipment, so an edit and a claim of one order cannot both go through. Inside a transaction. */
+    public function lockShipmentsOf(int $orderId): void
+    {
+        if (FulfillmentSchema::ready()) {
+            ProviderFulfillment::query()->where('order_id', $orderId)->lockForUpdate()->pluck('id');
+        }
+    }
+
     /** The address staff deliver to when none is chosen: the latest one of a registered customer, a delivery address before a billing one. */
     public function latestSavedAddress(mixed $customerId): ?ShippingAddress
     {
