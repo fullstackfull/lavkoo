@@ -25,6 +25,7 @@ use App\Services\OperationalCosts\Shipments\ShipmentCostService;
 use App\Services\OperationalCosts\Shipments\ShipmentFactsFactory;
 use App\Services\OperationalCosts\Support\Money;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use LogicException;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\FakeCurrencyRates;
@@ -286,6 +287,42 @@ class InvoiceReconciliationTest extends TestCase
         $this->reconciliation->resolve($row, 'dispute', 1, 'billed above the contract rate');
         $this->assertSame(CostState::Disputed, OperationalCostEntry::where('provider_fulfillment_id', $shipment->id)->where('is_effective', true)->first()->state);
         $this->assertSame(OperationalCostReconciliation::DISPUTED, $row->fresh()->status);
+    }
+
+    public function test_a_difference_written_off_keeps_the_billed_charge_and_closes_the_variance_with_its_note(): void
+    {
+        $shipment = $this->shipment(2001, 'TP-AAA');
+        $this->estimateShipping($shipment, '100');
+        $invoice = $this->serviceInvoice('INV-1', [['cost_component' => 'shipping', 'amount' => '130', 'external_reference' => 'TP-AAA']], '130')->invoice;
+        $this->invoices->approve($invoice, 1);
+        $row = $this->reconciliation->reconcile($invoice->fresh())[0];
+
+        $this->reconciliation->resolve($row, 'write_off', 1, 'too small to be worth contesting');
+
+        $entry = OperationalCostEntry::where('provider_fulfillment_id', $shipment->id)->where('is_effective', true)->first();
+        $this->assertSame([CostState::Reconciled, '130.000000'], [$entry->state, $entry->amount], 'The cost stays what was billed.');
+        $this->assertSame(
+            [OperationalCostReconciliation::RESOLVED, 'write_off', 'too small to be worth contesting'],
+            [$row->fresh()->status, $row->fresh()->resolution, $row->fresh()->note],
+        );
+    }
+
+    public function test_a_resolution_that_does_not_exist_or_has_no_note_is_refused(): void
+    {
+        $shipment = $this->shipment(2001, 'TP-AAA');
+        $this->estimateShipping($shipment, '100');
+        $invoice = $this->serviceInvoice('INV-1', [['cost_component' => 'shipping', 'amount' => '130', 'external_reference' => 'TP-AAA']], '130')->invoice;
+        $this->invoices->approve($invoice, 1);
+        $row = $this->reconciliation->reconcile($invoice->fresh())[0];
+
+        foreach ([['keep_the_estimate', 'a note'], ['accept', '   ']] as [$resolution, $note]) {
+            try {
+                $this->reconciliation->resolve($row, $resolution, 1, $note);
+                $this->fail("'{$resolution}' with the note '{$note}' should have been refused.");
+            } catch (InvalidArgumentException) {
+                $this->assertSame(OperationalCostReconciliation::VARIANCE, $row->fresh()->status, 'Nothing is decided by a refused resolution.');
+            }
+        }
     }
 
     public function test_a_decision_already_taken_is_not_undone_by_reconciling_again(): void

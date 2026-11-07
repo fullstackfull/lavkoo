@@ -99,8 +99,10 @@ class ScheduleDefinition
         /*
         | Sales channels (Amazon, Trendyol) and operational costs.
         |
-        | Every command here does nothing unless SALES_CHANNELS_ENABLED is on and an account is enabled and holds the matching capability, and the publishing ones write only with
+        | The channel commands do nothing unless SALES_CHANNELS_ENABLED is on and an account is enabled and holds the matching capability, and the publishing ones write only with
         | the environment write switch, the account's write switch and a recorded approval. Reads and writes are separate commands so each can be scheduled, paused or removed alone.
+        | The cost commands and channels:prune have no such switch: once the four migrations have run they write estimates (or "missing" entries) for recent store orders into the
+        | module's own tables and trim old logs, and they call nothing outside the server.
         */
         $schedule->command('channels:sync --due')->everyFiveMinutes()->withoutOverlapping(30)->runInBackground();
         $schedule->command('channels:publish --only=stock,price,shipments')->everyFifteenMinutes()->withoutOverlapping(30)->runInBackground();

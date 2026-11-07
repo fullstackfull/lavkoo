@@ -145,6 +145,27 @@ class ListingSyncServiceTest extends TestCase
         $this->assertSame('exact_barcode_auto', $row->match_method);
     }
 
+    public function test_an_amazon_account_links_by_exact_sku_only_when_its_own_setting_says_so(): void
+    {
+        $this->product(1, 'P-1', '111');
+        $amazon = SalesChannelAccount::create(['channel' => 'amazon', 'name' => 'Amazon KSA', 'external_account_id' => 'A1SELLER', 'enabled' => true, 'settings' => ['auto_link_exact_barcode' => true]]);
+
+        $withoutTheSetting = $this->listings->sync($amazon->fresh(), [$this->listing('SKU-1', sku: 'P-1')]);
+        $suggested = SalesChannelProductMapping::where('account_id', $amazon->id)->firstOrFail();
+
+        $this->assertSame([0, 1], [$withoutTheSetting['linked'], $withoutTheSetting['suggested']], "The Trendyol setting (barcode) does not switch on linking by SKU for Amazon.");
+        $this->assertSame(['suggested', 1], [$suggested->status, $suggested->suggested_product_id]);
+        $this->assertNull($suggested->product_id);
+
+        $amazon->forceFill(['settings' => ['auto_link_exact_sku' => true]])->save();
+        $this->product(2, 'P-2', '222');
+        $stats = $this->listings->sync($amazon->fresh(), [$this->listing('SKU-2', sku: 'P-2')]);
+
+        $linked = SalesChannelProductMapping::where('account_id', $amazon->id)->where('listing_key', 'SKU-2')->firstOrFail();
+        $this->assertSame(1, $stats['linked']);
+        $this->assertSame(['mapped', 2, 'exact_product_code_auto'], [$linked->status, $linked->product_id, $linked->match_method], 'The SKU matched the code of the product.');
+    }
+
     public function test_a_second_listing_cannot_take_a_product_already_linked_in_the_account(): void
     {
         $this->account->forceFill(['settings' => ['auto_link_exact_barcode' => true]])->save();
