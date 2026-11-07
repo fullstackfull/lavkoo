@@ -17,16 +17,24 @@ class StockNeverWritesPlatformTablesTest extends TestCase
 
     private const WRITE_VERBS = 'insert|insertOrIgnore|insertGetId|upsert|update|updateOrInsert|delete|truncate|increment|decrement';
 
+    /**
+     * The dispatcher makes the internal order of a channel order, and a line of an order has a `variation` column of its own (the JSON text of the chosen options), which is not the product's
+     * `variation` the check looks for. It is the one writer allowed to name that key; the product's stock and variants stay off limits to it like everyone else.
+     */
+    private const MAY_NAME_AN_ORDER_LINES_VARIATION = ['app/Services/SalesChannels/Dispatch/ChannelOrderMaterializer.php'];
+
     public function test_no_module_file_writes_a_platform_table(): void
     {
         $offenders = [];
         foreach ($this->moduleFiles() as $file) {
             $source = (string) file_get_contents($file);
             $writesATable = preg_match('/DB::table\(\s*[\'"](' . self::PLATFORM_TABLES . ')[\'"]\s*\)(?:(?!;).)*->(' . self::WRITE_VERBS . ')\(/s', $source) === 1;
-            $writesTheStock = preg_match('/[\'"]current_stock[\'"]\s*=>|[\'"]variation[\'"]\s*=>|->(increment|decrement)\(\s*[\'"]current_stock[\'"]/', $source) === 1;
+            $relative = str_replace(base_path() . '/', '', $file);
+            $namesVariation = !in_array($relative, self::MAY_NAME_AN_ORDER_LINES_VARIATION, true) && preg_match('/[\'"]variation[\'"]\s*=>/', $source) === 1;
+            $writesTheStock = $namesVariation || preg_match('/[\'"]current_stock[\'"]\s*=>|->(increment|decrement)\(\s*[\'"]current_stock[\'"]/', $source) === 1;
             $usesTheLedger = preg_match('/\b(StockMovement|WarehouseStock|PurchaseOrder|InventoryService|WarehouseService|PurchaseOrderService)\b/', $source) === 1;
             if ($writesATable || $writesTheStock || $usesTheLedger) {
-                $offenders[] = str_replace(base_path() . '/', '', $file);
+                $offenders[] = $relative;
             }
         }
 
