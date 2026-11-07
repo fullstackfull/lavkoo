@@ -90,9 +90,11 @@ jobs:
         include:
           - engine: MySQL 8.0
             image: mysql:8.0
+            version: '^8\.'
             health: mysqladmin ping -h 127.0.0.1 -pci-root-password
           - engine: MariaDB 11.4.2
             image: mariadb:11.4.2
+            version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
     services:
       mysql:
@@ -109,6 +111,7 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=12
     env:
       EXPECT_DB_DRIVER: mysql
+      EXPECT_DB_VERSION: ${{ matrix.version }}
       DB_CONNECTION: mysql
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
@@ -200,9 +203,11 @@ jobs:
         include:
           - engine: MySQL 8.0
             image: mysql:8.0
+            version: '^8\.'
             health: mysqladmin ping -h 127.0.0.1 -pci-root-password
           - engine: MariaDB 11.4.2
             image: mariadb:11.4.2
+            version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: sales channels
             # tests/Feature/Concurrency and the dispatch/stock concurrency tests start several PHP processes at the same instant against this database; they skip on SQLite.
@@ -224,6 +229,7 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=12
     env:
       EXPECT_DB_DRIVER: mysql
+      EXPECT_DB_VERSION: ${{ matrix.version }}
       DB_CONNECTION: mysql
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
@@ -270,6 +276,7 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=12
     env:
       EXPECT_DB_DRIVER: mysql
+      EXPECT_DB_VERSION: '^11\.4\.2-MariaDB'
       DB_CONNECTION: mysql
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
