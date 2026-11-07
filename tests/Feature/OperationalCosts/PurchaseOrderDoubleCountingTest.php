@@ -151,7 +151,8 @@ class PurchaseOrderDoubleCountingTest extends TestCase
 
         $this->assertSame([1, 10], [$run->created, $run->createdUnits]);
         $this->assertSame(['purchase_invoice', 'purchase_order'], InventoryCostLayer::orderBy('id')->pluck('source_type')->all());
-        $this->assertStringContainsString('"included_lines":[' . $line->id . ']', (string) DB::table('audit_logs')->where('action', 'operational_cost.layers_from_purchase_orders')->orderByDesc('id')->value('context'));
+        $context = json_decode((string) DB::table('audit_logs')->where('action', 'operational_cost.layers_from_purchase_orders')->orderByDesc('id')->value('context'), true);
+        $this->assertSame([$line->id], $context['included_lines'], 'The decision is written down.');
     }
 
     public function test_a_cost_typed_by_hand_before_the_receipt_is_not_layered_a_second_time_either(): void
