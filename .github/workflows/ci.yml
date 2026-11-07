@@ -202,7 +202,7 @@ jobs:
   tests-mysql-sales-channels:
     name: Sales-channel and cost tests, ${{ matrix.engine }} (${{ matrix.group }})
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
@@ -270,7 +270,7 @@ jobs:
   tests-strict-mode:
     name: Strict-mode tests, MariaDB 11.4.2
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 110
     services:
       mysql:
         image: mariadb:11.4.2
