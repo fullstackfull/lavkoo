@@ -43,7 +43,7 @@ normal `AWAITING_APPROVAL` / dry-run path. The order row itself (`100002`) is ne
 ## Candidates and approval
 
 * A candidate is a Torod city whose **exact comparison key** equals ours (`AddressText::key()`: Arabic letter variants, the article *ال*, kind words, case and punctuation folded). A city that merely
-  *contains* or *resembles* our name is not a candidate.
+  *contains* or *resembles* our name is not a candidate. Candidates are matched by name and region name only: nothing here reads a country from Torod's city records (question 9), so a namesake in another country would be offered as one more candidate (a unique match becomes ambiguous and a person decides), never chosen silently. A mapping's `country_code` stays empty until the provider says which country its city is in.
 * Each candidate carries a **region check**: `confirmed` (Torod's region name matches our region), `unknown` (Torod gave no region) or `unplaceable` (a region name we cannot map to one of ours). A candidate
   whose region names *another* of our regions is dropped.
 * Candidates are stored as `pending` mapping rows with their evidence (names, ids, region check, sync run). **Nothing is approved without a person**, except the automatic rule below.
@@ -60,7 +60,7 @@ city, it is not already mapped to another of ours, Torod does not mark it as not
 reading never approves anything, and a reading whose completeness rests only on the weakest evidence (see below) only *proposes*. The write is conditional on the proposal still waiting: a rejection, or
 the approval of another candidate, that a person recorded while the run was working is never overwritten.
 
-**The weekly schedule runs this rule too.** The existing Sunday 03:30 schedule (`fulfillment:sync --only=cities`) refreshes the list and, after a reading that proves it complete, applies the automatic rule unattended, like the console and the Integration Center button. Nothing is sent to Torod either way (the shipments stay behind the dry run and the approval gate), and every approval is audited with its evidence and can be retired. If the owner wants no approval without a person at all, leave the provider's city sync off (`FULFILLMENT_INTEGRATIONS_ENABLED` off, or the provider disabled) until the first reading has been looked at by hand.
+**The weekly schedule runs this rule too.** The existing Sunday 03:30 schedule (`fulfillment:sync --only=cities`) refreshes the list and, after a reading that proves it complete, applies the automatic rule unattended, like the console and the Integration Center button. Nothing is sent to Torod either way (the shipments stay behind the dry run and the approval gate), and every approval is audited with its evidence and can be retired. No setting turns the rule off: only a *Partial* reading prevents it, and with the integrations or the provider switched off no sync runs at all.
 
 ## The city list sync is completeness-aware
 
@@ -69,7 +69,7 @@ the approval of another candidate, that a person recorded while the run was work
 1. one request with `returnAll=true`;
 2. when that response does not settle it — it states a larger total or more pages, or it holds **fewer than 1000 cities** (no national delivery list does) — the pages are walked (`page`,
    `pageSize=100`) for as long as each page adds cities not seen yet, up to the configured ceilings
-   (`fulfillment.providers.torod_point.cities.max_pages`, `.max_seconds`, `.complete_floor`; defaults 100 pages, 45 s on the web / 600 s on the console, 1000 cities);
+   (code defaults of `TorodCityDirectory`: 100 pages, 45 s on the web / 600 s on the console, 1000 cities; `config/fulfillment.php` has no block for them, but `fulfillment.providers.torod_point.cities.max_pages`, `.max_seconds` and `.complete_floor` are read when a site's own config sets them);
 3. everything is read first and written afterwards, in one transaction, in chunks. Cities are **added or updated, never deleted**.
 
 The verdict is recorded in `provider_city_sync_runs` and on the provider's sync state:
@@ -86,7 +86,7 @@ Because the paging behaviour of the Lastmile list is **not documented**, the cod
 ## Finding a city's candidates when the list is partial
 
 `php artisan address:discover-provider-cities torod_point --city=<our city id> [--city=…] [--held] [--apply]` (also the *Find candidates at Torod Point* button on the matching screen) asks Torod
-for the cities named like ours with the one filter the documentation promises (`search`), caches what it finds and proposes the exact-name ones. It is a **read** (`lastmile_cities`, a GET) — without `--apply` it only asks Torod and reports, and it stores nothing — it skips when the
+for the cities named like ours with the one filter the documentation promises (`search`), caches what it finds and proposes the exact-name ones. It is a **read** (`lastmile_cities`, a GET) — without `--apply` it only asks Torod and reports, and it stores no city and no mapping (each request is recorded in the provider API log, like every call to Torod) — it skips when the
 integration is switched off or not migrated, and it only ever *proposes*: a discovery result is never "unique at Torod", because the search itself may be paged.
 
 ## What reaches Torod in the order payload
@@ -100,8 +100,8 @@ same street-plus-district line Torod gets (an old copy has no district, so it re
 
 ## Operating it on the pilot server (only *reads* from Torod: nothing is created, sent or changed there)
 
-1. Deploy the files (no database change), then run the four address migrations by explicit `--path`, then `address:import` — see [deployment-runbook.md](deployment-runbook.md). **Restart the queue workers**
-   afterwards: the "migrated" answer is remembered for the life of a process.
+1. Deploy the files (no database change), then run the four address migrations by explicit `--path`, then `address:import` — see [deployment-runbook.md](deployment-runbook.md). A worker started before the migrations asks again
+   and notices the new tables within 30 seconds (only a *yes* is remembered for the life of a process), so no restart is needed for that; restart the queue workers after the files of a release and after a rollback that drops the tables.
 2. *Integration Center → Torod Point → City matching*: press **Sync cities now**. Read the banner: *Complete* or *Partial* (with the reason, the number of cities read and the provider's total if it
    gave one). Do not treat a *Partial* list as the provider's truth.
 3. If partial, use *Find candidates at Torod Point* for the cities that held orders are waiting for.
@@ -121,6 +121,7 @@ Approved is **not** verified: whether the v2 city and region ids are accepted by
 6. Does Fulfillment v5 accept the **National Address / short address** anywhere? (If yes, we will send it only after you confirm the field and the format.)
 7. What are the **length limits** of `addressLine1` and the other address fields?
 8. Is there a **regions endpoint**, so regions can be matched by id instead of by name?
+9. Does a city record say **which country** it is in (the name of the field), or is the list Saudi Arabia only?
 
 ## Troubleshooting
 

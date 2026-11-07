@@ -22,7 +22,7 @@
 | `shipping_addresses` (+4 nullable columns) | `region_id`, `city_id`, `district`, `national_address`; `city`, `country`, `zip`, `address` stay and are still written for old readers; `state` is never written by the structured address (the shipping zones read it, and what a customer pays must not depend on which form created the address) |
 | `provider_city_mappings` | provider-agnostic link *internal city → provider city id + region id*, with status, method, evidence, approver, date; **the database allows one approved mapping per provider and city** |
 | `provider_city_sync_runs` | every refresh of a provider's city list and whether it was complete |
-| `provider_cities` (+6 nullable columns) | what the provider says about each city (region names, prefix, selected flag, first/last seen) |
+| `provider_cities` (+6 nullable columns) | what the provider says about each city (region names, prefix, selected flag, last seen, missing since) |
 
 No foreign keys to store tables, nothing renamed or dropped, no backfill in a migration. Rolling back drops only what this feature added.
 
@@ -47,7 +47,7 @@ never lock customers out) and while the ZIP allow-list restriction is on (the ch
   old rules, so the server cannot tell a mistyped Saudi Arabia from a country it does not know; the pages offer a closed list, so only another client can send one, and such an order reaches fulfilment with a typed city that is used only when it is certain.
 * **Order** — the snapshot is built once from the address at that moment (all old keys, `zip` included, plus ids, National Address and the *names* of region and city then). Editing or renaming
   afterwards never changes a past order.
-* **Old addresses** — kept as they are. A saved Saudi address without a city id is matched **only** when an administrator alias or exactly one registered city agrees (a small place that merely shares the typed name, as a district typed in the city box does, waits for a person); ambiguity, a region that points elsewhere, or no
+* **Old addresses** — kept as they are. A saved Saudi address without a city id is matched **only** when an administrator alias or exactly one registered city agrees, or when several places share the typed name and the typed state names the region in which exactly one of them lies (a small place that merely shares the typed name, as a district typed in the city box does, waits for a person); ambiguity, a region that points elsewhere, or no
   candidate are never guessed. Reusing such an address at checkout requires completing it first (the app is exempt in `soft` mode).
 * **Shipping** — the provider adapter receives the order snapshot, finds the approved mapping for that internal city and sends the provider's own ids. No mapping, a pending one or several candidates ⇒ the
   fulfilment is **held** with a reviewable reason; nothing is sent, nothing is guessed, no "nearest city". Preflight and submit read only the local database.
