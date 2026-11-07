@@ -9,14 +9,14 @@ use Illuminate\Support\Facades\DB;
 /**
  * Gives old addresses their region and city where that is certain, and nowhere else.
  *
- * Certain means what LegacyCityMatcher calls Matched: an alias an administrator confirmed, or exactly one city of that name. An
- * ambiguous name, a state text that points at another region, or a city that is not in the list are counted and left alone for a
+ * Certain means what LegacyCityMatcher calls Matched: an alias an administrator confirmed, or exactly one registered city of that name.
+ * A small place that merely has the name, an ambiguous name, a state text that points at another region, or a city that is not in the list are counted and left alone for a
  * person to decide (see LegacyReview), as is a match with a city that has been switched off. Only region_id and city_id are written,
  * only to addresses that have no city yet, so a second run finds nothing to do and nothing else about an address ever changes.
  */
 class LegacyBackfill
 {
-    public const STATUSES = ['matched', 'ambiguous', 'conflict', 'none', 'inactive'];
+    public const STATUSES = ['matched', 'unconfirmed', 'ambiguous', 'conflict', 'none', 'inactive'];
 
     /** @var array<string, CityMatch> */
     private array $readings = [];

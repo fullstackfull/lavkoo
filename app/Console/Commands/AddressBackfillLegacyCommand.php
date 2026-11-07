@@ -12,6 +12,7 @@ class AddressBackfillLegacyCommand extends Command
 
     private const LABELS = [
         'matched' => 'Matched (one city, confirmed)',
+        'unconfirmed' => 'Unconfirmed (only a small place has the name; a person confirms it)',
         'ambiguous' => 'Ambiguous (several cities share the name)',
         'conflict' => 'Conflict (the state text points at another region)',
         'none' => 'No city of the list',

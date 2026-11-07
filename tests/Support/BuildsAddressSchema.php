@@ -88,7 +88,8 @@ trait BuildsAddressSchema
 
     /**
      * A small catalog with the cases that matter: a name shared by two cities of one region, a name shared across regions,
-     * and the same city written in Arabic and English.
+     * and the same city written in Arabic and English. Every city has a rank, like the registered cities of the real list (the
+     * small places a district name can collide with have none).
      *
      * @return array<string, int> city ids by handle
      */
@@ -121,7 +122,7 @@ trait BuildsAddressSchema
             $cities[$handle] = DB::table('address_cities')->insertGetId([
                 'region_id' => $regions[$region], 'name_ar' => $ar, 'name_en' => $en,
                 'normalized_ar' => AddressText::key($ar), 'normalized_en' => AddressText::key($en),
-                'is_active' => true, 'source' => 'test', 'source_ref' => $handle, 'created_at' => now(), 'updated_at' => now(),
+                'sort_order' => 50, 'is_active' => true, 'source' => 'test', 'source_ref' => $handle, 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
         AddressSchema::flush();

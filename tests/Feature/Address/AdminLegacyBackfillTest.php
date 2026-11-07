@@ -60,11 +60,29 @@ class AdminLegacyBackfillTest extends AdminAddressTestCase
         $report = $this->backfill()->run(apply: false);
 
         $this->assertFalse($report['applied']);
-        $this->assertSame(['matched' => 4, 'ambiguous' => 2, 'conflict' => 1, 'none' => 3, 'inactive' => 0], $report['rows']);
-        $this->assertSame(['matched' => 3, 'ambiguous' => 2, 'conflict' => 1, 'none' => 2, 'inactive' => 0], $report['texts'], 'distinct typed texts; the two blank cities are one text');
+        $this->assertSame(['matched' => 4, 'unconfirmed' => 0, 'ambiguous' => 2, 'conflict' => 1, 'none' => 3, 'inactive' => 0], $report['rows']);
+        $this->assertSame(['matched' => 3, 'unconfirmed' => 0, 'ambiguous' => 2, 'conflict' => 1, 'none' => 2, 'inactive' => 0], $report['texts'], 'distinct typed texts; the two blank cities are one text');
         $this->assertSame(0, $report['updated']);
         $this->assertSame($before, $this->allRows());
         $this->assertSame([], $this->auditActions());
+    }
+
+    public function test_a_district_typed_as_a_city_is_counted_as_unconfirmed_and_left_for_a_person(): void
+    {
+        $village = AddressCity::query()->create([
+            'region_id' => $this->ids['region_EAS'], 'name_ar' => 'الشفا', 'name_en' => 'Ash Shafa', 'normalized_ar' => AddressText::key('الشفا'),
+            'normalized_en' => AddressText::key('Ash Shafa'), 'sort_order' => 0, 'is_active' => true, 'source' => 'test', 'source_ref' => 'shafa',
+        ]);
+        $district = $this->address(['city' => 'الشفا']);
+        $village_with_its_state = $this->address(['city' => 'الشفا', 'state' => 'المنطقة الشرقية']);
+
+        $dry = $this->backfill()->run(apply: false);
+        $applied = $this->backfill()->run(apply: true);
+
+        $this->assertSame([1, 1], [$dry['rows']['unconfirmed'], $dry['rows']['matched']]);
+        $this->assertSame(1, $applied['updated']);
+        $this->assertNull($this->allRows()[$district]['city_id'], 'the district typed in the city box is not given a village of another region');
+        $this->assertSame($village->id, (int) $this->allRows()[$village_with_its_state]['city_id'], 'the typed state confirms the region of the place');
     }
 
     public function test_applying_writes_only_the_unique_confirmed_matches_and_changes_nothing_else_about_them(): void
@@ -161,7 +179,7 @@ class AdminLegacyBackfillTest extends AdminAddressTestCase
 
         $report = $this->backfill()->run(apply: true);
 
-        $this->assertSame(['matched' => 1, 'ambiguous' => 0, 'conflict' => 0, 'none' => 0, 'inactive' => 2], $report['rows']);
+        $this->assertSame(['matched' => 1, 'unconfirmed' => 0, 'ambiguous' => 0, 'conflict' => 0, 'none' => 0, 'inactive' => 2], $report['rows']);
         $this->assertNull($this->addressRow($riyadh)['city_id']);
         $this->assertNull($this->addressRow($jeddah)['city_id']);
         $this->assertSame($this->ids['khobar'], (int) $this->addressRow($khobar)['city_id']);

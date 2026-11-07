@@ -2708,6 +2708,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'address_legacy_summary' => 'ما تقوله العناوين القديمة',
 	'address_match_matched' => 'مطابقة واحدة مؤكدة',
 	'address_match_ambiguous' => 'عدة مدن بالاسم نفسه',
+	'address_match_unconfirmed' => 'اسم مطابق لمكان صغير فقط: يلزم تأكيده',
 	'address_match_conflict' => 'المنطقة المكتوبة تشير إلى مكان آخر',
 	'address_match_none' => 'غير موجودة في القائمة',
 	'address_match_inactive' => 'المدينة موقوفة',

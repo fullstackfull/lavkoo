@@ -127,7 +127,7 @@ class LegacyReview
      */
     private function summarise(Collection $matches): CityMatch
     {
-        foreach ([CityMatchStatus::Conflict, CityMatchStatus::Ambiguous] as $status) {
+        foreach ([CityMatchStatus::Conflict, CityMatchStatus::Ambiguous, CityMatchStatus::Unconfirmed] as $status) {
             $found = $matches->filter(static fn (CityMatch $match): bool => $match->status === $status);
             if ($found->isNotEmpty()) {
                 return new CityMatch(status: $status, city: null, candidates: $this->cities($found), reason: $found->first()->reason);

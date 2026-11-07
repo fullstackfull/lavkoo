@@ -107,6 +107,21 @@ class AdminLegacyReviewTest extends AdminAddressTestCase
         $this->assertStringContainsString('data-city-picker', $html, 'a person can still choose one city for the whole text');
     }
 
+    public function test_a_small_place_that_only_shares_the_typed_name_is_offered_to_a_person_not_applied(): void
+    {
+        $village = AddressCity::query()->create([
+            'region_id' => $this->ids['region_EAS'], 'name_ar' => 'الشفا', 'name_en' => 'Ash Shafa', 'normalized_ar' => AddressText::key('الشفا'),
+            'normalized_en' => AddressText::key('Ash Shafa'), 'sort_order' => 0, 'is_active' => true, 'source' => 'test', 'source_ref' => 'shafa',
+        ]);
+        $this->address(['city' => 'الشفا']);
+
+        $html = $this->get(route('admin.address-system.legacy.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString(e(translate('address_match_unconfirmed')), $html);
+        $this->assertStringContainsString('name="city_id" value="' . $village->id . '"', $html, 'the place is offered with a button, the way a candidate of an ambiguous name is');
+        $this->assertSame(0, DB::table('shipping_addresses')->whereNotNull('city_id')->count());
+    }
+
     public function test_a_candidate_that_has_been_switched_off_is_shown_but_cannot_be_chosen(): void
     {
         AddressCity::whereKey($this->ids['hafuf_eas'])->update(['is_active' => false]);

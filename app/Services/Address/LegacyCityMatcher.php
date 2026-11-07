@@ -11,9 +11,11 @@ use Illuminate\Support\Collection;
 /**
  * Reads the free-text city of an old address and says which city of the master list it is — only when that is certain.
  *
- * Certain means: an administrator-confirmed alias, or exactly one city whose Arabic or English name has the same key. Two cities
- * with that name (the list has many repeated names), a region text that points somewhere else, a city text that is really the name of
- * a region ("المنطقة الشرقية", "Asir"), or no city at all are NOT matches, and nothing is ever matched to a "nearest" or "similar" city.
+ * Certain means: an administrator-confirmed alias, or exactly one city whose Arabic or English name has the same key and that is a
+ * registered city (or whose region the typed state names). Two cities with that name (the list has many repeated names), exactly one
+ * small place with it (a district typed as a city looks just like that), a region text that points somewhere else, a city text that is
+ * really the name of a region ("المنطقة الشرقية", "Asir"), or no city at all are NOT matches, and nothing is ever matched to a
+ * "nearest" or "similar" city.
  * The old text is never changed by this class.
  */
 class LegacyCityMatcher
@@ -50,7 +52,7 @@ class LegacyCityMatcher
 
         return match ($candidates->count()) {
             0 => $this->result(CityMatchStatus::None, null, collect(), 'no_candidate'),
-            1 => $this->confirmRegion($candidates->first(), $regionText, 'unique_name'),
+            1 => $this->uniqueName($candidates->first(), $regionText),
             default => $this->narrowByRegion($candidates, $regionText),
         };
     }
@@ -66,6 +68,21 @@ class LegacyCityMatcher
         $named = $this->regionWithKey($key);
 
         return $named !== null && $candidates->every(static fn (AddressCity $city): bool => $city->region_id !== $named->id);
+    }
+
+    /**
+     * One place has this name. For a registered city (one the register lists districts for) that is certain enough; for a small place the
+     * list is simply missing the districts, and a typed district is as likely as a typed village, so unless the typed state names that
+     * place's region a person looks at it first.
+     */
+    private function uniqueName(AddressCity $city, ?string $regionText): CityMatch
+    {
+        $match = $this->confirmRegion($city, $regionText, 'unique_name');
+        if (!$match->matched() || $city->sort_order > 0 || $this->regionOf($regionText)?->id === $city->region_id) {
+            return $match;
+        }
+
+        return $this->result(CityMatchStatus::Unconfirmed, null, collect([$city]), 'unique_name_of_a_small_place');
     }
 
     /** @param Collection<int, AddressCity> $candidates */

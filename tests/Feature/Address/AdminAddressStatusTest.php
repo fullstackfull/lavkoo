@@ -70,7 +70,7 @@ class AdminAddressStatusTest extends AdminAddressTestCase
         $this->assertSame(5, $addresses['legacy']);
         $this->assertSame(2, $addresses['legacy_matched']);
         $this->assertSame(3, $addresses['legacy_unmatched']);
-        $this->assertSame(['matched' => 2, 'ambiguous' => 1, 'conflict' => 1, 'none' => 1, 'inactive' => 0], $addresses['legacy_by_outcome']);
+        $this->assertSame(['matched' => 2, 'unconfirmed' => 0, 'ambiguous' => 1, 'conflict' => 1, 'none' => 1, 'inactive' => 0], $addresses['legacy_by_outcome']);
         $this->assertSame(6, $addresses['needing_completion'], 'five without a city, one with a city but no National Address');
         $this->assertSame(2, $addresses['without_zip'], 'a blank ZIP, in any form, of a Saudi address');
     }

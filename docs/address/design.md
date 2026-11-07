@@ -44,7 +44,7 @@ never lock customers out) and while the ZIP allow-list restriction is on (the ch
   mobile, lengths, no provider ids accepted from clients, every address id scoped to its owner.
 * **Order** — the snapshot is built once from the address at that moment (all old keys, `zip` included, plus ids, National Address and the *names* of region and city then). Editing or renaming
   afterwards never changes a past order.
-* **Old addresses** — kept as they are. A saved Saudi address without a city id is matched **only** when an administrator alias or exactly one city agrees; ambiguity, a region that points elsewhere, or no
+* **Old addresses** — kept as they are. A saved Saudi address without a city id is matched **only** when an administrator alias or exactly one registered city agrees (a small place that merely shares the typed name, as a district typed in the city box does, waits for a person); ambiguity, a region that points elsewhere, or no
   candidate are never guessed. Reusing such an address at checkout requires completing it first (the app is exempt in `soft` mode).
 * **Shipping** — the provider adapter receives the order snapshot, finds the approved mapping for that internal city and sends the provider's own ids. No mapping, a pending one or several candidates ⇒ the
   fulfilment is **held** with a reviewable reason; nothing is sent, nothing is guessed, no "nearest city". Preflight and submit read only the local database.

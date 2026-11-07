@@ -9174,6 +9174,7 @@ return [
 	'address_legacy_summary' => 'What the old addresses say',
 	'address_match_matched' => 'One certain match',
 	'address_match_ambiguous' => 'Several cities share the name',
+	'address_match_unconfirmed' => 'Only a small place has the name: confirm it',
 	'address_match_conflict' => 'The typed state points elsewhere',
 	'address_match_none' => 'Not in the list',
 	'address_match_inactive' => 'City switched off',

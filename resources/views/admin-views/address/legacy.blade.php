@@ -6,7 +6,7 @@
 
 @section('content')
     @php
-        $matchTone = ['matched' => 'success', 'ambiguous' => 'warning', 'conflict' => 'danger', 'none' => 'neutral'];
+        $matchTone = ['matched' => 'success', 'unconfirmed' => 'warning', 'ambiguous' => 'warning', 'conflict' => 'danger', 'none' => 'neutral'];
         $regionLabels = $regions->mapWithKeys(static fn ($region): array => [$region->id => $region->name_ar . ' / ' . $region->name_en])->all();
     @endphp
     <div class="content container-fluid">

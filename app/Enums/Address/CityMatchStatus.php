@@ -6,6 +6,8 @@ namespace App\Enums\Address;
 enum CityMatchStatus: string
 {
     case Matched = 'matched';
+    /** Exactly one place has the name, but it is a small one and nothing else confirms it: as likely a district typed in the city box. */
+    case Unconfirmed = 'unconfirmed';
     case Ambiguous = 'ambiguous';
     case Conflict = 'conflict';
     case None = 'none';

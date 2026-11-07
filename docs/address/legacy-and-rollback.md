@@ -21,7 +21,8 @@ There is no "nearest city", no fuzzy matching and no guess anywhere: a place is 
 
    | Result | Meaning | Applied? |
    |---|---|---|
-   | `matched` | an administrator-confirmed spelling points at one city, or exactly one city of the list has that name and the typed state does not point elsewhere | yes, **only when you press apply** |
+   | `matched` | an administrator-confirmed spelling points at one city, or exactly one *registered* city (one the register lists districts for, rank above 0) has that name and the typed state does not point elsewhere, or exactly one place has it and the typed state names its region | yes, **only when you press apply** |
+   | `unconfirmed` | exactly one place has the name but it is a small one (rank 0) and nothing confirms it: the list lacks most districts, so a district typed in the city box looks just like a village of that name in another region (for example *الشفا*, a village in Asir) | never automatically: the review page offers it with a button |
    | `ambiguous` | several cities share the name (for example *الهفوف* or *جدة*, which the source data also lists as villages) | never automatically |
    | `conflict` | the typed state belongs to another region than the only city of that name | never automatically |
    | `none` | the typed text is not in the list | never automatically |

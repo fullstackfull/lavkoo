@@ -418,6 +418,28 @@ class AddressServicesTest extends AddressTestCase
         ];
     }
 
+    public function test_a_name_only_a_small_place_has_waits_for_a_person_unless_the_typed_state_names_its_region(): void
+    {
+        $village = AddressCity::query()->create([
+            'region_id' => $this->ids['region_EAS'], 'name_ar' => 'الشفا', 'name_en' => 'Ash Shafa', 'normalized_ar' => AddressText::key('الشفا'),
+            'normalized_en' => AddressText::key('Ash Shafa'), 'sort_order' => 0, 'is_active' => true, 'source' => 'test', 'source_ref' => 'shafa',
+        ]);
+        $matcher = app(LegacyCityMatcher::class);
+
+        $alone = $matcher->match('الشفا');
+        $this->assertSame(
+            [CityMatchStatus::Unconfirmed, null, [$village->id], 'unique_name_of_a_small_place'],
+            [$alone->status, $alone->city, $alone->candidates->pluck('id')->all(), $alone->reason],
+            'a district typed as a city is as likely as a village, so it is never applied by itself',
+        );
+        $this->assertFalse($alone->matched());
+
+        $withItsRegion = $matcher->match('الشفا', 'المنطقة الشرقية');
+        $this->assertSame([CityMatchStatus::Matched, $village->id], [$withItsRegion->status, $withItsRegion->city?->id], 'the typed state names the region of that place');
+        $this->assertSame(CityMatchStatus::Conflict, $matcher->match('الشفا', 'منطقة الرياض')->status, 'a state that points elsewhere is still a conflict');
+        $this->assertSame(CityMatchStatus::Matched, $matcher->match('الخبر')->status, 'a registered city needs no help');
+    }
+
     public function test_an_administrator_alias_settles_an_otherwise_unknown_spelling(): void
     {
         DB::table('address_city_aliases')->insert(['city_id' => $this->ids['jeddah'], 'alias' => 'Jiddah', 'normalized_alias' => AddressText::key('Jiddah'), 'source' => 'admin', 'created_at' => now(), 'updated_at' => now()]);
