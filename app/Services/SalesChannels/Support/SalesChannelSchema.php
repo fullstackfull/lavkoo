@@ -17,7 +17,8 @@ final class SalesChannelSchema
 
     /**
      * The columns later migrations added to tables the first ones created: the ledger writes the first on every entry, the statement importer the next two on every event, the
-     * refund reader the next two on every line and the invoice reconciliation the last on every comparison, so without them every one of those writes would fail.
+     * refund reader the next two on every line and the invoice reconciliation the next on every comparison, the stock division reads and writes the listings', the policies' and the
+     * reservations' on every run, so without them every one of those would fail. A migration that stopped halfway (the pool table made, a column not yet added) is not ready either.
      *
      * @var array<string, list<string>>
      */
@@ -26,6 +27,9 @@ final class SalesChannelSchema
         'sales_channel_events' => ['charge_key', 'duplicate_of_id'],
         'external_order_lines' => ['refunded_total', 'refunded_tax'],
         'operational_cost_reconciliations' => ['basis'],
+        'sales_channel_product_mappings' => ['stock_share_mode', 'stock_share_value', 'stock_priority', 'allocation'],
+        'inventory_source_policies' => ['stock_share_mode', 'stock_share_value', 'stock_priority'],
+        'inventory_reservations' => ['sales_channel', 'account_id', 'applied_to_platform_at'],
     ];
 
     public static function ready(): bool

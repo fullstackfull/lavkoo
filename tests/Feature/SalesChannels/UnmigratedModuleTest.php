@@ -80,6 +80,34 @@ class UnmigratedModuleTest extends TestCase
         }
     }
 
+    /** @return array<string, array{string, string}> the columns the stock division added to tables that were there already */
+    public static function stockDivisionColumns(): array
+    {
+        return [
+            'the share mode of a listing' => ['sales_channel_product_mappings', 'stock_share_mode'],
+            'the share value of a listing' => ['sales_channel_product_mappings', 'stock_share_value'],
+            'the priority of a listing' => ['sales_channel_product_mappings', 'stock_priority'],
+            'what the last division said about a listing' => ['sales_channel_product_mappings', 'allocation'],
+            'the share mode of a policy' => ['inventory_source_policies', 'stock_share_mode'],
+            'the share value of a policy' => ['inventory_source_policies', 'stock_share_value'],
+            'the priority of a policy' => ['inventory_source_policies', 'stock_priority'],
+            'the channel of a reservation' => ['inventory_reservations', 'sales_channel'],
+            'the account of a reservation' => ['inventory_reservations', 'account_id'],
+            'when a reservation was applied to the storefront' => ['inventory_reservations', 'applied_to_platform_at'],
+        ];
+    }
+
+    #[DataProvider('stockDivisionColumns')]
+    public function test_a_stock_division_migration_that_stopped_halfway_keeps_the_module_off(string $table, string $column): void
+    {
+        $this->buildSalesChannelSchema();
+        $this->assertTrue(SalesChannelSchema::ready());
+
+        Schema::table($table, static fn ($blueprint) => $blueprint->dropColumn($column));
+
+        $this->assertFalse(SalesChannelSchema::ready(), "Without {$table}.{$column} the division and the publisher would fail on every run.");
+    }
+
     /** @return array<string, array{string}> the migrations added after the first four, by what each one adds */
     public static function laterMigrations(): array
     {

@@ -10745,4 +10745,5 @@ return [
 	'attention_stock_not_updated' => 'Showing stock that is no longer being updated',
 	'publish_skip_outside_the_pool' => 'Takes no part in sharing its stock (publishing is off or the listing is refused) while the channel still shows a quantity',
 	'publish_skip_variant_figure_missing' => 'The warehouse holds one figure for the whole product and none for this variant: nothing is offered until it has one for the variant',
+	'location_source_platform' => 'The store\'s own stock (read from the storefront, never copied)',
 ];

@@ -45,6 +45,18 @@ class AdminSalesChannelsInventoryTest extends AdminSalesChannelsTestCase
         return InventoryLocation::where('type', $type)->firstOrFail();
     }
 
+    public function test_a_location_whose_source_is_the_storefronts_own_stock_says_so_in_words(): void
+    {
+        $this->stock();
+        $own = $this->locationOf('own_warehouse');
+        $own->forceFill(['source_of_truth' => InventoryLocation::TRUTH_PLATFORM])->save();
+
+        $html = $this->stock(['location' => $own->id]);
+
+        $this->assertStringContainsString(e(translate('location_source_platform')), $html);
+        $this->assertStringNotContainsString('>platform<', $html, 'the code is not what the page shows');
+    }
+
     public function test_the_default_locations_exist_after_the_first_visit_and_each_one_is_a_tab(): void
     {
         $this->assertSame(0, InventoryLocation::count());
