@@ -55,7 +55,8 @@ class ManagedShipmentMirrorTest extends DispatchTestCase
         $mapping->refresh();
         $this->assertNull($mapping->shipment_reference);
         $this->assertNotSame(ExternalOrderMapping::LINK_LINKED, $mapping->shipment_link_state);
-        $this->assertSame(InventoryReservation::RESERVED, $this->reservationState($mapping), 'the units stay promised until the provider has the order');
+        $this->assertSame(InventoryReservation::RELEASED, $this->reservationState($mapping), 'the channel hold is handed over to the internal order, which counts the units now');
+        $this->assertSame([2, 0, 48], $this->figures(), 'and they are counted once');
     }
 
     public function test_once_the_provider_accepts_the_order_is_linked_and_its_reservation_is_committed(): void
@@ -67,7 +68,7 @@ class ManagedShipmentMirrorTest extends DispatchTestCase
 
         $mapping->refresh();
         $this->assertSame(['torod_point', ExternalOrderMapping::LINK_LINKED, 'O-TOROD-1', 'TRK-TOROD-1', 'submitted', 'managed'], [$mapping->provider, $mapping->shipment_link_state, $mapping->shipment_reference, $mapping->tracking_number, $mapping->shipment_status, $mapping->execution_policy]);
-        $this->assertSame(InventoryReservation::COMMITTED, $this->reservationState($mapping));
+        $this->assertSame([InventoryReservation::RELEASED, [2, 0, 48]], [$this->reservationState($mapping), $this->figures()], 'the internal order counts the units, before and after the provider holds them');
         $row = ChannelOrderDispatch::firstOrFail();
         $this->assertSame(DispatchState::Accepted->value, $row->state);
         $this->assertNotNull($row->accepted_at);

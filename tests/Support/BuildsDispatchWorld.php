@@ -16,6 +16,7 @@ use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Dispatch\ChannelOrderDispatcher;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
+use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Routing\DynamicFulfillmentRoutingEngine;
 use App\Services\SalesChannels\Support\PlatformSchemaCheck;
 use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
@@ -106,6 +107,14 @@ trait BuildsDispatchWorld
                 });
             }
         }
+    }
+
+    /** @return array{0: int, 1: int, 2: int} units the store's own orders hold, units the channel orders hold, and what can be offered, for the product at the provider's location */
+    protected function figures(): array
+    {
+        $pool = app(PoolNet::class)->for($this->torodLocation, 10);
+
+        return [$pool->storeHolds, $pool->channelHolds, $pool->net()];
     }
 
     protected function approveAtTorod(int $productId): void

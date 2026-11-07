@@ -64,14 +64,18 @@ class ReservationService
         return $reservation;
     }
 
-    /** An order whose provider shipment was unlinked is ours to fulfil again: its committed units are promised again, from now on. */
+    /**
+     * An order whose provider shipment was unlinked, or whose internal order went away (the dispatch was reset), is ours to fulfil again: its committed units, and units released only because
+     * an internal order counted them, are promised again, from now on. Any other released hold stays released.
+     */
     public function reopen(string $key): ?InventoryReservation
     {
         $reservation = InventoryReservation::where('reservation_key', $key)->first();
-        if ($reservation === null || $reservation->state !== InventoryReservation::COMMITTED) {
+        $countedByAnInternalOrder = $reservation?->state === InventoryReservation::RELEASED && $reservation->release_reason === ChannelOrderReservations::INTERNAL_ORDER_COUNTS_IT;
+        if ($reservation === null || ($reservation->state !== InventoryReservation::COMMITTED && !$countedByAnInternalOrder)) {
             return $reservation;
         }
-        $reservation->forceFill(['state' => InventoryReservation::RESERVED, 'committed_at' => null])->save();
+        $reservation->forceFill(['state' => InventoryReservation::RESERVED, 'committed_at' => null, 'released_at' => null, 'release_reason' => null])->save();
 
         return $reservation;
     }

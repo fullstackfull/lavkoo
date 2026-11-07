@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Repositories\OrderRepository;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\Fulfillment\Support\ProviderCurrency;
+use App\Services\SalesChannels\Dispatch\BuyerDataPurger;
 use App\Services\SalesChannels\Dispatch\DispatchOutcome;
 use App\Utils\OrderManager;
 use Illuminate\Database\QueryException;
@@ -23,6 +24,19 @@ class DispatchSideEffectsTest extends DispatchTestCase
     private function stock(): int
     {
         return (int) DB::table('products')->where('id', 10)->value('current_stock');
+    }
+
+    public function test_the_units_of_an_order_are_counted_once_through_its_whole_life(): void
+    {
+        $mapping = $this->placed();
+        $this->assertSame([0, 2, 48], $this->figures(), 'placed: the channel hold counts them');
+
+        $this->dispatcher()->dispatch($mapping);
+        $this->assertSame([2, 0, 48], $this->figures(), 'made: the internal order counts them, and nothing else does');
+
+        $this->travel(73)->hours();
+        app(BuyerDataPurger::class)->run();
+        $this->assertSame([0, 2, 48], $this->figures(), 'reset: the order is open again and the channel counts them again, not nobody');
     }
 
     public function test_moving_a_dispatched_order_forward_or_cancelling_it_by_hand_never_takes_or_gives_back_stock(): void

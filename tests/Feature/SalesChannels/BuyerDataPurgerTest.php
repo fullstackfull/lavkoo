@@ -84,7 +84,7 @@ class BuyerDataPurgerTest extends DispatchTestCase
         $this->assertSame(['canceled', '{"city":"Riyadh","country":"SA","redacted":true}'], [DB::table('orders')->where('id', $firstOrderId)->value('order_status'), (string) DB::table('orders')->where('id', $firstOrderId)->value('shipping_address_data')]);
         $row = ChannelOrderDispatch::firstOrFail();
         $this->assertSame([null, DispatchState::Blocked->value, 'buyer_data_expired', 0], [$mapping->refresh()->order_id, $row->state, $row->reason_code, $row->attempts]);
-        $this->assertSame(InventoryReservation::RESERVED, InventoryReservation::where('external_order_mapping_id', $mapping->id)->value('state'), 'the units are promised again');
+        $this->assertSame([InventoryReservation::RESERVED, [0, 2, 48]], [InventoryReservation::where('external_order_mapping_id', $mapping->id)->value('state'), $this->figures()], 'the units are promised again, by the channel hold');
         $this->assertSame(1, app(FulfillmentRecovery::class)->cancelForClosedOrders(), 'the platform drops the rehearsal shipment by its own rules');
 
         $second = $this->dispatcher()->dispatch($mapping->refresh());
