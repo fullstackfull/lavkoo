@@ -18,7 +18,8 @@ use LogicException;
  * variants, a cost above zero, a currency with a rate, a known place): anything else is left alone and reported, never made at zero. Running it again makes nothing; two runs at the same
  * moment make one layer between them, because the layer table is unique on a line and where its units start.
  *
- * `preview()` writes nothing anywhere. Making layers needs the purchase-order source switched on and the cost module's master switch on.
+ * `preview()` writes nothing anywhere, and counts the default stock locations that do not exist yet as there, because `apply()` is run after the sales-channel set-up has made them. Making layers
+ * needs the purchase-order source switched on and the cost module's master switch on.
  */
 class PurchaseOrderLayerService
 {
@@ -32,11 +33,15 @@ class PurchaseOrderLayerService
     ) {
     }
 
-    /** What a run would do, written nowhere. */
-    public function preview(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null, int $sample = 50): LayerRun
+    /**
+     * What a run would do, written nowhere.
+     *
+     * @param list<int> $included the lines a person has said are separate purchases (see PurchaseOrderLayerPlanner::plans)
+     */
+    public function preview(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null, int $sample = 50, array $included = []): LayerRun
     {
         $run = new LayerRun($sample);
-        foreach ($this->planner->plans(productId: $productId, lineId: $lineId, since: $since) as $plan) {
+        foreach ($this->planner->plans(productId: $productId, lineId: $lineId, since: $since, included: $included, assumeDefaultLocations: true) as $plan) {
             $this->count($run, $plan);
         }
 
@@ -46,17 +51,18 @@ class PurchaseOrderLayerService
     /**
      * Makes the layers.
      *
+     * @param list<int> $included the lines a person has said are separate purchases: they are layered although an invoice or a typed cost may hold the same goods
      * @throws LogicException when the purchase-order source is not on (the caller says so to the person; this is the last line of defence)
      */
-    public function apply(CarbonImmutable $since, ?int $productId = null, ?int $lineId = null, int $sample = 50): LayerRun
+    public function apply(CarbonImmutable $since, ?int $productId = null, ?int $lineId = null, int $sample = 50, array $included = []): LayerRun
     {
         $this->mustBeOn();
         $run = new LayerRun($sample);
-        foreach ($this->planner->plans(productId: $productId, lineId: $lineId, since: $since) as $plan) {
+        foreach ($this->planner->plans(productId: $productId, lineId: $lineId, since: $since, included: $included) as $plan) {
             $this->count($run, $plan);
-            $this->make($run, $plan, $since);
+            $this->make($run, $plan, $since, $included);
         }
-        $this->audit->record(action: 'operational_cost.layers_from_purchase_orders', context: $run->toArray() + ['since' => $since->toDateString(), 'product_id' => $productId, 'line_id' => $lineId]);
+        $this->audit->record(action: 'operational_cost.layers_from_purchase_orders', context: $run->toArray() + ['since' => $since->toDateString(), 'product_id' => $productId, 'line_id' => $lineId, 'included_lines' => $included]);
 
         return $run;
     }
@@ -70,8 +76,8 @@ class PurchaseOrderLayerService
     public function layerTranche(LinePlan $plan): TrancheOutcome
     {
         $this->mustBeOn();
-        if ($plan->tranche === null || !$plan->verdict->isEligible()) {
-            throw new LogicException('Only a line with units to layer and a layer it may have is made into one.');
+        if ($plan->tranche === null || !$plan->verdict->isEligible() || $plan->verdict->locationId === null) {
+            throw new LogicException('Only a line with units to layer, a layer it may have and a place to put it is made into one.');
         }
         $line = $plan->line;
         $tranche = $plan->tranche;
@@ -116,6 +122,9 @@ class PurchaseOrderLayerService
         if (!$plan->verdict->isEligible()) {
             $reason = $plan->verdict->refusal->value;
             $run->refused[$reason] = ($run->refused[$reason] ?? 0) + 1;
+            if ($plan->verdict->refusal === PurchaseLineRefusal::CoveredByOtherLayers) {
+                $run->rememberCovered($plan->line->id);
+            }
 
             return;
         }
@@ -142,8 +151,12 @@ class PurchaseOrderLayerService
         ]);
     }
 
-    /** Makes the layer of a planned tranche; when another run made the layer of the same units first, the line is looked at again (a few times) for what is left. */
-    private function make(LayerRun $run, LinePlan $plan, CarbonImmutable $since): void
+    /**
+     * Makes the layer of a planned tranche; when another run made the layer of the same units first, the line is looked at again (a few times) for what is left.
+     *
+     * @param list<int> $included
+     */
+    private function make(LayerRun $run, LinePlan $plan, CarbonImmutable $since, array $included): void
     {
         for ($attempt = 1; $plan->tranche !== null && $plan->verdict->isEligible() && $attempt <= self::ATTEMPTS; $attempt++) {
             $outcome = $this->layerTranche($plan);
@@ -161,7 +174,7 @@ class PurchaseOrderLayerService
                 return;
             }
             $run->alreadyMade++;
-            $plan = $this->planner->plans(lineId: $plan->line->id, since: $since)->current() ?? $plan;
+            $plan = $this->planner->plans(lineId: $plan->line->id, since: $since, included: $included)->current() ?? $plan;
         }
     }
 

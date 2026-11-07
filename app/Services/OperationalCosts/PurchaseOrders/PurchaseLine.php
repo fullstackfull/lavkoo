@@ -5,8 +5,8 @@ namespace App\Services\OperationalCosts\PurchaseOrders;
 use Carbon\CarbonImmutable;
 
 /**
- * One received line of a platform purchase order, as the platform stores it (read, never written). `unitCost` and `currency` are exactly what the order holds: a line with no cost
- * is zero there, and the order's currency is free text that may be empty.
+ * One line of a platform purchase order, as the platform stores it (read, never written). `unitCost` and `currency` are exactly what the order holds: a line with no cost
+ * is zero there, and the order's currency is free text that may be empty. `quantityOrdered` is null where the platform's table has no such column.
  */
 final readonly class PurchaseLine
 {
@@ -23,6 +23,7 @@ final readonly class PurchaseLine
         public mixed $unitCost,
         public ?CarbonImmutable $createdAt,
         public ?CarbonImmutable $updatedAt,
+        public ?int $quantityOrdered = null,
     ) {
     }
 }

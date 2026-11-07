@@ -39,6 +39,7 @@ class RecordPurchaseCostRequest extends FormRequest
             'source_type' => ['required', Rule::in(self::SOURCE_TYPES)],
             'reference' => ['required', 'string', 'max:120'],
             'supplier_name' => ['nullable', 'string', 'max:160'],
+            'confirm_separate_purchase' => ['nullable', 'boolean'],
         ];
     }
 
@@ -57,6 +58,7 @@ class RecordPurchaseCostRequest extends FormRequest
             'source_type' => translate('source'),
             'reference' => translate('reference'),
             'supplier_name' => translate('supplier'),
+            'confirm_separate_purchase' => translate('this_is_a_separate_purchase'),
         ];
     }
 

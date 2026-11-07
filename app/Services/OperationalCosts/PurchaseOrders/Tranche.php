@@ -34,6 +34,12 @@ final readonly class Tranche
 
     public function identity(int $lineId): string
     {
-        return "po-item:{$lineId}:{$this->from}-{$this->to}";
+        return self::identityOf(lineId: $lineId, from: $this->from, to: $this->to);
+    }
+
+    /** The name of the layer of units `from` + 1 to `to` of a line (the layer's `dedupe_key` is made from it). */
+    public static function identityOf(int $lineId, int $from, int $to): string
+    {
+        return "po-item:{$lineId}:{$from}-{$to}";
     }
 }

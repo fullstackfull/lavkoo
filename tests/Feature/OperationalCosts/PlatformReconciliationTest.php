@@ -15,6 +15,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsPlatformProcurementSchema;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\FakeCurrencyRates;
@@ -53,7 +54,7 @@ class PlatformReconciliationTest extends TestCase
     {
         return app(InventoryCostLayerService::class)->receive(new LayerReceipt(
             locationId: ($at ?? $this->own)->id, productId: $product, quantity: $units, unitCost: Money::of('10'), currency: 'SAR', receivedAt: CarbonImmutable::parse('2026-11-01'),
-            sourceType: 'purchase_invoice', identity: $reference . ':' . $product,
+            sourceType: 'purchase_invoice', identity: $reference . ':' . $product, supplierName: 'Layer Supplier',
         ));
     }
 
@@ -192,6 +193,19 @@ class PlatformReconciliationTest extends TestCase
         $this->assertSame([$plain => 10, $torod => 6], $wherePut);
     }
 
+    public function test_a_received_line_an_invoice_or_a_typed_cost_may_already_hold_is_reported_as_covered_and_not_as_a_layer_still_to_make(): void
+    {
+        $product = $this->platformProduct();
+        $this->openLayer($product, 5);
+        $order = $this->purchaseOrder($this->supplier('Layer Supplier'), [[$product, 5, 5]]);
+        $this->receiveOnPlatform($order->items->first(), 5);
+
+        $orders = $this->report()['purchase_orders'];
+
+        $this->assertSame(['covered_by_other_layers' => [1, 5]], array_map(static fn (array $figures): array => [$figures['lines'], $figures['units']], $orders['never_layered']['by_reason']));
+        $this->assertSame(0, $orders['units_without_layer'], 'Nothing is left to layer unless a person names the line.');
+    }
+
     public function test_a_receipt_is_dated_from_the_stock_ledger_when_it_adds_up_and_from_the_line_when_it_does_not(): void
     {
         $product = $this->platformProduct();
@@ -271,6 +285,41 @@ class PlatformReconciliationTest extends TestCase
         $this->assertSame(4, $orders['units_without_layer']);
         $this->assertNull($orders['without_layer']['rows'][0]['supplier']);
         $this->assertTrue($orders['without_layer']['rows'][0]['date_is_approximate'], 'With no stock ledger there is no receipt date to take.');
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: bool}> the core columns the report reads, and whether losing one leaves the store orders out of the comparison */
+    public static function coreColumnsTheReportReads(): array
+    {
+        return [
+            'products.name' => ['products', 'name', false],
+            'orders.order_status' => ['orders', 'order_status', true],
+            'orders.seller_is' => ['orders', 'seller_is', true],
+            'order_details.qty' => ['order_details', 'qty', true],
+            'order_details.product_id' => ['order_details', 'product_id', true],
+        ];
+    }
+
+    #[DataProvider('coreColumnsTheReportReads')]
+    public function test_a_core_column_of_the_platform_that_is_not_there_is_skipped_and_named_and_never_an_exception(string $table, string $column, bool $leavesStoreOrdersOut): void
+    {
+        $product = $this->platformProduct(['name' => 'Gauze', 'current_stock' => 4]);
+        $this->openLayer($product, 6);
+        $order = $this->purchaseOrder($this->supplier(), [[$product, 10, 12.5]]);
+        $this->receiveOnPlatform($order->items->first(), 10);
+        Schema::table($table, static fn ($blueprint) => $blueprint->dropColumn($column));
+
+        $report = $this->report();
+
+        $this->assertTrue($report['available']);
+        $this->assertSame($leavesStoreOrdersOut ? ['store_orders' => ["{$table}.{$column}"]] : [], $report['skipped']);
+        $this->assertSame(10, $report['purchase_orders']['units_received'], 'Everything the columns that are there say is still reported.');
+        $this->artisan('costs:reconcile-platform')->expectsOutputToContain($leavesStoreOrdersOut ? "{$table}.{$column} is not there" : 'Nothing was written')->assertExitCode(0);
+        $this->artisan('costs:reconcile-platform', ['--json' => true])->assertExitCode(0);
+    }
+
+    public function test_a_report_over_the_whole_platform_skips_nothing(): void
+    {
+        $this->assertSame([], $this->report()['skipped']);
     }
 
     public function test_the_command_obeys_the_module_switch_and_the_migrations(): void

@@ -23,7 +23,8 @@ class PurchaseLineEvaluator
     ) {
     }
 
-    public function verdict(PurchaseLine $line, ?ProductFacts $product): LineVerdict
+    /** @param bool $assumeDefaultLocations a dry run counts a default place that does not exist yet as there, because the run that makes the layers makes it first */
+    public function verdict(PurchaseLine $line, ?ProductFacts $product, bool $assumeDefaultLocations = false): LineVerdict
     {
         $refusal = match (true) {
             $line->orderSellerId !== null => PurchaseLineRefusal::VendorOrder,
@@ -50,7 +51,7 @@ class PurchaseLineEvaluator
             return LineVerdict::refused(PurchaseLineRefusal::NoExchangeRate);
         }
         $location = $this->locations->forProduct($product->fulfillmentProvider);
-        if ($location === null) {
+        if ($location === null && !($assumeDefaultLocations && $this->locations->isMadeByDefaults($product->fulfillmentProvider))) {
             return LineVerdict::refused(PurchaseLineRefusal::NoLocation);
         }
 

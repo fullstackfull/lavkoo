@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\SalesChannels;
 
+use App\Http\Controllers\Admin\OperationalCosts\CostLabels;
 use App\Models\InventoryCostLayer;
 use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostInvoiceItem;
@@ -10,6 +11,7 @@ use App\Services\OperationalCosts\PurchaseOrders\PurchaseOrderLayerService;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsPlatformProcurementSchema;
 use Tests\Support\CreatesOperationalCostData;
 
@@ -112,5 +114,59 @@ class AdminPurchaseOrderLinksTest extends AdminPagesTestCase
         $this->assertStringContainsString(e(translate('layer_source_purchase_order')), $list);
         $this->assertStringContainsString(e(translate('layer_source_purchase_order')) . ' · ' . e($layer->source_ref) . ' · Acme Pharma Supply', $detail, 'The order, and the supplier as it was named when the goods came in.');
         $this->assertSame('Purchase order', translate('layer_source_purchase_order'));
+    }
+
+    /** @return array<string, mixed> */
+    private function typedCost(int $product, array $overrides = []): array
+    {
+        return $overrides + [
+            'location_id' => $this->location, 'product_id' => $product, 'quantity' => 4, 'unit_cost' => '13', 'currency' => 'SAR', 'received_at' => '2026-11-10', 'source_type' => 'manual',
+            'reference' => 'typed-1', 'supplier_name' => 'Acme Pharma Supply',
+        ];
+    }
+
+    public function test_a_cost_typed_for_goods_an_order_received_is_refused_with_the_order_line_until_the_person_says_it_is_a_separate_purchase(): void
+    {
+        [$product, $line] = $this->layeredReceipt();
+        $form = route('admin.operational-costs.product-costs.index');
+
+        $this->from($form)->post(route('admin.operational-costs.product-costs.store'), $this->typedCost($product))->assertRedirect($form)->assertSessionHasErrors('confirm_separate_purchase');
+
+        $this->assertSame(1, InventoryCostLayer::count(), 'Nothing was recorded.');
+        $page = $this->get($form)->assertOk()->getContent();
+        $this->assertStringContainsString(e(CostLabels::filled(sentence: translate('a_purchase_order_received_these_goods_confirm_a_separate_purchase'), values: ['lines' => $line])), $page);
+        $this->assertStringContainsString('name="confirm_separate_purchase"', $page);
+
+        $this->post(route('admin.operational-costs.product-costs.store'), $this->typedCost($product, ['confirm_separate_purchase' => '1']))->assertRedirect();
+        $this->assertSame(['purchase_order', 'manual'], InventoryCostLayer::orderBy('id')->pluck('source_type')->all(), 'A person said it is a separate purchase.');
+    }
+
+    public function test_the_box_is_not_on_the_form_until_a_typed_cost_needs_it(): void
+    {
+        $this->layeredReceipt();
+
+        $this->assertStringNotContainsString('name="confirm_separate_purchase"', $this->get(route('admin.operational-costs.product-costs.index'))->assertOk()->getContent());
+    }
+
+    /** @return array<string, array{0: array<string, mixed>, 1: string}> */
+    public static function typedCostsThatAreNotHeld(): array
+    {
+        return [
+            'an opening balance is the owner\'s own count' => [['source_type' => 'opening_balance'], 'on'],
+            'another supplier' => [['supplier_name' => 'Somebody Else'], 'on'],
+            'the source is not on' => [[], 'off'],
+        ];
+    }
+
+    /** @param array<string, mixed> $overrides */
+    #[DataProvider('typedCostsThatAreNotHeld')]
+    public function test_a_typed_cost_that_cannot_be_goods_an_order_received_is_recorded_as_it_always_was(array $overrides, string $mode): void
+    {
+        [$product] = $this->layeredReceipt();
+        config(['operational_costs.sources.purchase_orders' => $mode]);
+
+        $this->post(route('admin.operational-costs.product-costs.store'), $this->typedCost($product, $overrides))->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame(2, InventoryCostLayer::count());
     }
 }

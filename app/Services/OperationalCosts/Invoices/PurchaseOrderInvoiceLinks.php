@@ -6,12 +6,12 @@ use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostInvoiceItem;
 use App\Services\Fulfillment\Support\CurrencyCode;
 use App\Services\OperationalCosts\Exceptions\InvalidContractChange;
-use App\Services\OperationalCosts\PurchaseOrders\PurchaseOrderSchema;
-use App\Services\OperationalCosts\PurchaseOrders\PurchaseOrderSourceMode;
+use App\Services\OperationalCosts\PurchaseOrders\OrderLineCandidates;
+use App\Services\OperationalCosts\PurchaseOrders\PlatformProcurement;
+use App\Services\OperationalCosts\PurchaseOrders\PurchaseLine;
+use App\Services\OperationalCosts\PurchaseOrders\PurchaseLineEvaluator;
 use App\Services\OperationalCosts\Support\Money;
-use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -19,15 +19,23 @@ use Illuminate\Support\Facades\Schema;
  *
  *  - a line that names the purchase-order line it bills (`purchase_order_item_id`) makes no layer of its own, because the order's receipt is the layer; it records a cost variance
  *    against what the order says the goods cost;
- *  - a line that names none but looks like goods an order already received (same supplier, same product, same quantity) holds the invoice for a person, who links it or says it is
- *    a separate purchase (`markNotDuplicate`).
+ *  - a line that names none but may be goods an order covers (the same product from the same supplier while an order line has received units that no linked invoice line has
+ *    billed, whatever the quantity) holds the invoice for a person, who links it or says it is a separate purchase (`markNotDuplicate`). The hold is decided when the invoice is
+ *    saved and again when it is approved, until a person has looked. Goods of an order that has received nothing yet are not held here: if the invoice is approved first, the
+ *    order's receipt is not layered a second time (see CoveringLayers).
  *
  * With the source off nothing here does anything: a line is costed exactly as it always was.
  */
 class PurchaseOrderInvoiceLinks
 {
-    public function __construct(private readonly PurchaseOrderSchema $schema)
-    {
+    /** The mark of a line a person has looked at and said is a separate purchase (NULL: never looked at, or nothing to compare it with; an order line's id: held). */
+    public const REVIEWED = 0;
+
+    public function __construct(
+        private readonly OrderLineCandidates $candidates,
+        private readonly PlatformProcurement $procurement,
+        private readonly PurchaseLineEvaluator $evaluator,
+    ) {
     }
 
     /**
@@ -48,14 +56,15 @@ class PurchaseOrderInvoiceLinks
             if ($invoice['kind'] !== 'purchase' || !$this->enabled()) {
                 throw new InvalidContractChange("Line {$line}: a line can be linked to a purchase order line only on a purchase invoice, with the purchase-order source switched on (OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS=on) and the platform's purchase orders available.");
             }
-            $target = $this->purchaseOrderLine((int) $row['purchase_order_item_id']);
-            if ($target === null || $target->seller_id !== null) {
+            $target = $this->procurement->line((int) $row['purchase_order_item_id']);
+            if ($target === null || $target->orderSellerId !== null) {
                 throw new InvalidContractChange("Line {$line}: purchase order line {$row['purchase_order_item_id']} does not exist among the platform's own purchase orders.");
             }
-            if (!isset($row['product_id']) || (int) $row['product_id'] !== (int) $target->product_id || !isset($row['quantity']) || !Money::of($row['quantity'])->isPositive()) {
+            if (!isset($row['product_id']) || (int) $row['product_id'] !== $target->productId || !isset($row['quantity']) || !Money::of($row['quantity'])->isPositive()) {
                 throw new InvalidContractChange("Line {$line}: a line linked to a purchase order line names the same product and a quantity.");
             }
-            $suppliers[(int) $target->supplier_id] = (int) $target->supplier_id;
+            $this->assertMakesALayer(target: $target, where: "Line {$line}");
+            $suppliers[(int) $target->supplierId] = (int) $target->supplierId;
         }
         $suppliers = array_filter($suppliers);
         if (count($suppliers) > 1) {
@@ -66,8 +75,7 @@ class PurchaseOrderInvoiceLinks
     }
 
     /**
-     * The received purchase-order line each unlinked purchase line looks like, by the line's position: the same supplier (the platform's supplier of the invoice, or one of the
-     * invoice's company name), product and quantity, received, and not billed by another invoice line yet.
+     * The order line each unlinked purchase line may be the goods of, by the line's position (see OrderLineCandidates).
      *
      * @param array<string, mixed> $invoice
      * @param list<array<string, mixed>> $rows
@@ -75,7 +83,7 @@ class PurchaseOrderInvoiceLinks
      */
     public function resemblances(array $invoice, array $rows): array
     {
-        if ($invoice['kind'] !== 'purchase' || !$this->enabled()) {
+        if ($invoice['kind'] !== 'purchase' || !$this->candidates->enabled()) {
             return [];
         }
 
@@ -84,7 +92,7 @@ class PurchaseOrderInvoiceLinks
             if (isset($row['purchase_order_item_id']) || !isset($row['product_id'], $row['quantity']) || !Money::of($row['quantity'])->isPositive()) {
                 continue;
             }
-            $candidate = $this->receivedLineLike($invoice, (int) $row['product_id'], (int) round($row['quantity']));
+            $candidate = $this->candidates->lines(productId: (int) $row['product_id'], supplierId: $invoice['supplier_id'] ?? null, supplierName: $invoice['party_name'] ?? null, limit: 1)[0] ?? null;
             if ($candidate !== null) {
                 $found[$index] = $candidate;
             }
@@ -93,64 +101,106 @@ class PurchaseOrderInvoiceLinks
         return $found;
     }
 
-    /** What the order says the goods of a linked line cost, in the order's currency: its unit cost for the quantity billed. Null when the order line is not there any more. */
+    /**
+     * Looks again, as the invoice is about to be approved, at the lines nobody has looked at: an order may have been made since the invoice was saved, or the invoice was saved
+     * while the source was not on. A line that may be goods an order covers is marked and the invoice put under review. True when anything is held.
+     */
+    public function holdForReview(OperationalCostInvoice $invoice): bool
+    {
+        if ($invoice->kind !== 'purchase' || !$this->candidates->enabled()) {
+            return false;
+        }
+
+        $held = false;
+        foreach ($invoice->items()->whereNull('purchase_order_item_id')->whereNull('resembles_purchase_order_item_id')->whereNotNull('product_id')->where('quantity', '>', 0)->get() as $item) {
+            $candidate = $this->candidates->lines(productId: (int) $item->product_id, supplierId: $invoice->supplier_id, supplierName: $invoice->party_name, limit: 1)[0] ?? null;
+            if ($candidate !== null) {
+                $item->forceFill(['resembles_purchase_order_item_id' => $candidate])->save();
+                $held = true;
+            }
+        }
+        if ($held) {
+            $invoice->forceFill(['status' => OperationalCostInvoice::STATUS_UNDER_REVIEW])->save();
+        }
+
+        return $held;
+    }
+
+    /**
+     * What the order says the goods of a linked line cost, in the order's currency: its unit cost for the units of the line that no other approved invoice has billed, up to the
+     * quantity of this line. A line holds the units it received, or the units it ordered while the goods have not come, so a second invoice for the same units, or one for more units
+     * than the line holds, is compared with what is left (nothing, or only the units that are there) and shows as a variance. Null when the order line is not there any more.
+     *
+     * @return array{amount: Money, currency: ?string}|null
+     */
     public function expectedCost(OperationalCostInvoiceItem $item): ?array
     {
-        $target = $this->purchaseOrderLine((int) $item->purchase_order_item_id);
+        $target = $this->procurement->line((int) $item->purchase_order_item_id);
+        if ($target === null) {
+            return null;
+        }
+        $left = Money::of(max($target->quantityReceived, $target->quantityOrdered ?? 0))->minus($this->unitsBilledByOtherInvoices($item));
+        $units = Money::of($item->quantity)->min($left)->max(Money::zero());
 
-        return $target === null ? null : ['amount' => Money::of($target->unit_cost)->times($item->quantity), 'currency' => CurrencyCode::canonical($target->currency)];
+        return ['amount' => Money::of($target->unitCost)->times($units), 'currency' => CurrencyCode::canonical($target->currency)];
     }
 
-    /** @throws InvalidContractChange when the invoice cannot be approved while it is held, or while a link has nothing to link to */
+    /** The units of the order line that approved invoice lines other than this one have billed. */
+    private function unitsBilledByOtherInvoices(OperationalCostInvoiceItem $item): Money
+    {
+        return Money::sum(OperationalCostInvoiceItem::query()
+            ->where('purchase_order_item_id', $item->purchase_order_item_id)->where('invoice_id', '!=', $item->invoice_id)
+            ->whereHas('invoice', static fn ($invoices) => $invoices->where('status', OperationalCostInvoice::STATUS_APPROVED))
+            ->pluck('quantity')->map(static fn ($quantity): Money => Money::of($quantity)));
+    }
+
+    /** @throws InvalidContractChange when the invoice cannot be approved while it is held, or while a link has nothing to link to or leads to a line that makes no layer */
     public function assertMayBeApproved(OperationalCostInvoice $invoice, Collection $items): void
     {
-        if ($items->contains(static fn (OperationalCostInvoiceItem $item): bool => $item->purchase_order_item_id === null && $item->resembles_purchase_order_item_id !== null)) {
-            throw new InvalidContractChange('This invoice has lines that look like goods already received on a purchase order: confirm it is a separate purchase before approving it.');
+        if ($items->contains(static fn (OperationalCostInvoiceItem $item): bool => $item->purchase_order_item_id === null && (int) $item->resembles_purchase_order_item_id > self::REVIEWED)) {
+            throw new InvalidContractChange('This invoice has lines that may be goods a purchase order already received: link them to the order line or confirm it is a separate purchase before approving it.');
         }
-        if ($invoice->kind === 'purchase' && $items->contains(static fn (OperationalCostInvoiceItem $item): bool => $item->purchase_order_item_id !== null) && !$this->enabled()) {
+        $linked = $items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->purchase_order_item_id !== null);
+        if ($invoice->kind !== 'purchase' || $linked->isEmpty()) {
+            return;
+        }
+        if (!$this->enabled()) {
             throw new InvalidContractChange('This invoice is linked to purchase order lines, whose layers come from the purchase-order source: switch it on (OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS=on) before approving it, or the goods would have no layer at all.');
+        }
+        foreach ($linked as $item) {
+            $target = $this->procurement->line((int) $item->purchase_order_item_id);
+            if ($target === null) {
+                throw new InvalidContractChange("Line {$item->line_no}: purchase order line {$item->purchase_order_item_id} is not there any more, so the goods would have no cost layer at all.");
+            }
+            $this->assertMakesALayer(target: $target, where: "Line {$item->line_no}");
         }
     }
 
-    /** A person has looked: the lines are not copies of goods an order received. */
+    /** A person has looked: the lines are not the goods of an order. They are marked so, and are not held again. */
     public function release(OperationalCostInvoice $invoice): void
     {
         if (Schema::hasColumn('operational_cost_invoice_items', 'resembles_purchase_order_item_id')) {
-            OperationalCostInvoiceItem::where('invoice_id', $invoice->id)->whereNotNull('resembles_purchase_order_item_id')->update(['resembles_purchase_order_item_id' => null]);
+            OperationalCostInvoiceItem::where('invoice_id', $invoice->id)->where('resembles_purchase_order_item_id', '>', self::REVIEWED)->update(['resembles_purchase_order_item_id' => self::REVIEWED]);
         }
     }
 
-    private function enabled(): bool
+    /** True while the purchase-order source is on and everything it needs is there. */
+    public function enabled(): bool
     {
-        return PurchaseOrderSourceMode::active() && $this->schema->ready();
+        return $this->candidates->enabled();
     }
 
-    private function purchaseOrderLine(int $id): ?object
+    /**
+     * A linked line makes no layer of its own, because the order's receipt is the layer: so the order line has to be able to make one. The reason it cannot is the one the layers
+     * report (a cost of zero, a product with variants, a currency with no rate, ...).
+     *
+     * @throws InvalidContractChange
+     */
+    private function assertMakesALayer(PurchaseLine $target, string $where): void
     {
-        return DB::table('purchase_order_items as item')->join('purchase_orders as po', 'po.id', '=', 'item.purchase_order_id')
-            ->where('item.id', $id)->first(['item.product_id', 'item.unit_cost', 'po.seller_id', 'po.supplier_id', 'po.currency']);
-    }
-
-    private function receivedLineLike(array $invoice, int $productId, int $quantity): ?int
-    {
-        $query = DB::table('purchase_order_items as item')->join('purchase_orders as po', 'po.id', '=', 'item.purchase_order_id')
-            ->whereNull('po.seller_id')->where('item.product_id', $productId)->where('item.qty_received', $quantity)
-            ->whereNotIn('item.id', DB::table('operational_cost_invoice_items')->whereNotNull('purchase_order_item_id')->select('purchase_order_item_id'));
-
-        $query = $this->fromTheSupplierOf($query, $invoice);
-
-        return $query === null ? null : $query->orderByDesc('item.id')->value('item.id');
-    }
-
-    private function fromTheSupplierOf(Builder $query, array $invoice): ?Builder
-    {
-        if (isset($invoice['supplier_id'])) {
-            return $query->where('po.supplier_id', $invoice['supplier_id']);
+        $refusal = $this->evaluator->verdict(line: $target, product: $this->procurement->products([(int) $target->productId])[(int) $target->productId] ?? null)->refusal;
+        if ($refusal !== null) {
+            throw new InvalidContractChange("{$where}: purchase order line {$target->id} cannot be made into a cost layer ({$refusal->value}: {$refusal->meaning()}), and a linked line makes none of its own, so the goods would have no cost layer at all. Correct the order line, or enter this line without the link and confirm that it is a separate purchase.");
         }
-        if (!Schema::hasTable('suppliers') || !Schema::hasColumn('suppliers', 'name')) {
-            return null;
-        }
-
-        return $query->whereIn('po.supplier_id', DB::table('suppliers')->whereRaw('lower(name) = ?', [mb_strtolower(trim((string) $invoice['party_name']))])->select('id'));
     }
 }

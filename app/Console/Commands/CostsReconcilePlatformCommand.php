@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Console\Commands\Concerns\Refusal;
 use App\Console\Commands\Concerns\SkipsUntilSalesChannelsMigrated;
 use App\Console\Commands\Concerns\SkipsWhileOperationalCostsAreOff;
 use App\Services\OperationalCosts\PurchaseOrders\PlatformReconciliation;
@@ -23,7 +24,7 @@ class CostsReconcilePlatformCommand extends Command
         }
         $product = $this->option('product');
         if ($product !== null && !ctype_digit((string) $product)) {
-            $this->error('The product must be an id.');
+            Refusal::say(command: $this, message: 'The product must be an id.', error: true);
 
             return self::FAILURE;
         }
@@ -61,6 +62,10 @@ class CostsReconcilePlatformCommand extends Command
             static fn (array $row): array => [$row['line_id'], $row['purchase_order'], $row['product_id'], $row['units_received'], $row['layered_up_to']],
             $orders['received_below_layered']['rows'],
         ), $orders['received_below_layered']['truncated']);
+
+        if (isset($report['skipped']['store_orders'])) {
+            $this->line(sprintf('Not compared: store orders (%s is not there). The units of store orders that already left the stock and are not delivered yet are counted as none.', implode(', ', $report['skipped']['store_orders'])));
+        }
 
         $products = $report['products'];
         $this->line(sprintf('Products compared: %d (balanced %d, layers above the platform %d, layers below the platform %d, not in the catalogue %d). Expected layer units = platform stock + store-order units not delivered yet.', $products['examined'], $products['balanced'], $products['layers_above_platform'], $products['layers_below_platform'], $products['product_not_found']));

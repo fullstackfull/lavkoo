@@ -2,14 +2,30 @@
 
 namespace App\Services\Fulfillment\Support;
 
+use App\Models\BusinessSetting;
 use App\Models\Currency;
+use Illuminate\Support\Facades\Cache;
 
 /** Reads the store's own currency configuration, the same data `webCurrencyConverter()` uses. */
 final class StoreCurrencyRateSource implements CurrencyRateSource
 {
+    /**
+     * Asking never fills the platform's settings cache (the platform's reader does, on a cold start): a report that only reads the store's rates must not write anything, not even
+     * there. Once the platform has filled it, its reader is used.
+     */
     public function model(): string
     {
-        return (string) (getWebConfig(name: 'currency_model') ?? 'single_currency');
+        $configured = Cache::has(CACHE_BUSINESS_SETTINGS_TABLE) ? getWebConfig(name: 'currency_model') : $this->storedCurrencyModel();
+
+        return (string) ($configured ?? 'single_currency');
+    }
+
+    /** The setting as the platform's reader hands it out: JSON decoded when it is JSON, the stored text when it is not. */
+    private function storedCurrencyModel(): ?string
+    {
+        $stored = BusinessSetting::where('type', 'currency_model')->value('value');
+
+        return $stored === null ? null : (string) (json_decode((string) $stored, true) ?? $stored);
     }
 
     /**

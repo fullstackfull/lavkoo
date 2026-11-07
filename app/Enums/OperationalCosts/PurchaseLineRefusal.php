@@ -25,6 +25,8 @@ enum PurchaseLineRefusal: string
     case NoLocation = 'no_location';
     /** With a cutover date: the line was not received in one go and nothing says how many of its units came in before the date. */
     case DateUncertain = 'date_uncertain';
+    /** An invoice or a hand-typed cost already holds goods of this product from this supplier, dated after the order line was made: the same goods may be costed twice. */
+    case CoveredByOtherLayers = 'covered_by_other_layers';
 
     /** What it means, in the words the report prints. */
     public function meaning(): string
@@ -41,6 +43,7 @@ enum PurchaseLineRefusal: string
             self::NoExchangeRate => 'the purchase order\'s currency has no exchange rate to the reporting currency',
             self::NoLocation => 'the stock location the goods would sit at does not exist yet',
             self::DateUncertain => 'the cutover date falls inside what was received and the receipt dates cannot be told apart',
+            self::CoveredByOtherLayers => 'an invoice or a hand-typed cost already holds goods of this product from the same supplier, dated after this order line was made: layering the receipt as well may count the same goods twice (name the line with --include when it is not the same goods)',
         };
     }
 }

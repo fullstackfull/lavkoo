@@ -3,7 +3,6 @@
 namespace App\Services\OperationalCosts\PurchaseOrders;
 
 use App\Enums\OperationalCosts\PurchaseLineRefusal;
-use App\Models\InventoryCostLayer;
 use Carbon\CarbonImmutable;
 use Generator;
 
@@ -17,6 +16,8 @@ use Generator;
  *
  * A tranche is dated from the platform's stock ledger when the receipts it recorded for the order and product add up to exactly what the line received; otherwise the date is the
  * line's last change and the tranche is marked approximate. With a cutover date, units received before it are left to the opening balance and no layer is made for them.
+ *
+ * The first layer of a line is not made when an invoice or a hand-typed cost may already hold the same goods (see CoveringLayers) unless a person named the line as a separate purchase.
  */
 class PurchaseOrderLayerPlanner
 {
@@ -27,24 +28,36 @@ class PurchaseOrderLayerPlanner
     public function __construct(
         private readonly PlatformProcurement $procurement,
         private readonly PurchaseLineEvaluator $evaluator,
-        private readonly PurchaseOrderSchema $schema,
+        private readonly LayeredUnits $layered,
+        private readonly CoveringLayers $covering,
     ) {
     }
 
     /**
      * Every received line, in the order the layers are made in.
      *
+     * @param list<int> $included the lines a person has said are separate purchases, whatever invoices and typed costs the module holds for the same product
+     * @param bool $assumeDefaultLocations a dry run counts the default stock locations that do not exist yet as there, because the real run makes them first
      * @return Generator<int, LinePlan>
      */
-    public function plans(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null): Generator
+    public function plans(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null, array $included = [], bool $assumeDefaultLocations = false): Generator
     {
         $after = 0;
         while (($lines = $this->procurement->receivedLines($after, self::PAGE, $productId, $lineId)) !== []) {
             $products = $this->procurement->products(array_map(static fn (PurchaseLine $line): ?int => $line->productId, $lines));
             $receipts = $this->procurement->receiptsByOrderAndProduct($lines);
-            $accounted = $this->accountedUnits(array_map(static fn (PurchaseLine $line): int => $line->id, $lines));
+            $accounted = $this->layered->forLines($lines);
+            $covered = $this->covering->coveredLines(lines: array_values(array_filter($lines, static fn (PurchaseLine $line): bool => ($accounted[$line->id] ?? 0) === 0 && !in_array($line->id, $included, true))), since: $since);
             foreach ($lines as $line) {
-                yield $this->plan($line, $products[$line->productId] ?? null, $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [], $accounted[$line->id] ?? 0, $since);
+                yield $this->plan(
+                    line: $line,
+                    product: $products[$line->productId] ?? null,
+                    receipts: $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [],
+                    accounted: $accounted[$line->id] ?? 0,
+                    since: $since,
+                    covered: isset($covered[$line->id]),
+                    assumeDefaultLocations: $assumeDefaultLocations,
+                );
             }
             $after = $lines[array_key_last($lines)]->id;
         }
@@ -53,9 +66,9 @@ class PurchaseOrderLayerPlanner
     /**
      * @param list<array{quantity: int, at: CarbonImmutable|null}> $receipts the receipts the platform's stock ledger holds for this line's order and product
      */
-    private function plan(PurchaseLine $line, ?ProductFacts $product, array $receipts, int $accounted, ?CarbonImmutable $since): LinePlan
+    private function plan(PurchaseLine $line, ?ProductFacts $product, array $receipts, int $accounted, ?CarbonImmutable $since, bool $covered, bool $assumeDefaultLocations): LinePlan
     {
-        $verdict = $this->evaluator->verdict($line, $product);
+        $verdict = $this->evaluator->verdict(line: $line, product: $product, assumeDefaultLocations: $assumeDefaultLocations);
         if ($line->quantityReceived < $accounted) {
             return new LinePlan($line, $verdict, $accounted, null, $accounted - $line->quantityReceived);
         }
@@ -70,14 +83,19 @@ class PurchaseOrderLayerPlanner
         }
 
         $from = max($accounted, $before);
-        $tranche = $from >= $line->quantityReceived ? null : new Tranche(
+        if ($from >= $line->quantityReceived) {
+            return new LinePlan($line, $verdict, $accounted, null, 0);
+        }
+        if ($covered) {
+            return new LinePlan($line, LineVerdict::refused(PurchaseLineRefusal::CoveredByOtherLayers), $accounted, null, 0);
+        }
+
+        return new LinePlan($line, $verdict, $accounted, new Tranche(
             from: $from,
             to: $line->quantityReceived,
             receivedAt: $dated === null ? ($line->updatedAt ?? CarbonImmutable::now()) : $dated[array_key_last($dated)]['at'],
             dateBasis: $dated === null ? Tranche::BASIS_LINE_DATE : Tranche::BASIS_MOVEMENTS,
-        );
-
-        return new LinePlan($line, $verdict, $accounted, $tranche, 0);
+        ), 0);
     }
 
     /**
@@ -124,22 +142,5 @@ class PurchaseOrderLayerPlanner
         }
 
         return $units;
-    }
-
-    /**
-     * The units each line's purchase-order layers account for: how far their tranches reach.
-     *
-     * @param list<int> $lineIds
-     * @return array<int, int>
-     */
-    private function accountedUnits(array $lineIds): array
-    {
-        if ($this->schema->missingOwnColumns() !== []) {
-            return [];
-        }
-
-        return InventoryCostLayer::query()->where('source_type', self::SOURCE_TYPE)->whereIn('source_id', $lineIds)
-            ->selectRaw('source_id, max(source_to) as reaches')->groupBy('source_id')->pluck('reaches', 'source_id')
-            ->map(static fn ($units): int => (int) $units)->all();
     }
 }

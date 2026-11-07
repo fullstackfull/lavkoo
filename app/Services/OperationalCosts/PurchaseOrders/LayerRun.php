@@ -36,6 +36,9 @@ final class LayerRun
     /** @var list<array<string, mixed>> the layers (to be) made, the first few */
     public array $tranches = [];
 
+    /** @var list<int> the first few lines held back because an invoice or a typed cost may hold the same goods: the ids a person names to layer them anyway */
+    public array $coveredLines = [];
+
     public function __construct(private readonly int $sample = 50)
     {
     }
@@ -45,6 +48,13 @@ final class LayerRun
     {
         if (count($this->tranches) < $this->sample) {
             $this->tranches[] = $row;
+        }
+    }
+
+    public function rememberCovered(int $lineId): void
+    {
+        if (count($this->coveredLines) < $this->sample) {
+            $this->coveredLines[] = $lineId;
         }
     }
 
@@ -62,6 +72,7 @@ final class LayerRun
             'received_below_layered' => $this->receivedBelowLayered,
             'approximate_dates' => $this->approximateDates,
             'refused' => $this->refused,
+            'covered_lines' => $this->coveredLines,
             'layers' => $this->tranches,
         ];
     }

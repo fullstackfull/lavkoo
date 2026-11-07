@@ -4,6 +4,7 @@ namespace App\Services\OperationalCosts\Support;
 
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\InventoryLocation;
+use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -38,6 +39,17 @@ class StockLocationResolver
     public function forProduct(?string $fulfillmentProvider): ?int
     {
         return $this->forProvider($fulfillmentProvider === ProviderCode::TorodPoint->value ? $fulfillmentProvider : null);
+    }
+
+    /**
+     * True when the pool the goods of a product are sold from does not exist yet but is one of the default places the sales-channel set-up makes the first time a command or a screen of
+     * the modules runs (see InventoryLocationService::ensureDefaults): a dry run of a command that makes the layers counts the place as there, because the real run makes it first.
+     */
+    public function isMadeByDefaults(?string $fulfillmentProvider): bool
+    {
+        $code = $fulfillmentProvider === ProviderCode::TorodPoint->value ? InventoryLocationService::TOROD_CODE : InventoryLocationService::OWN_CODE;
+
+        return Schema::hasTable('inventory_locations') && !InventoryLocation::query()->where('code', $code)->exists();
     }
 
     /** @return array<string, int> location ids by provider code, 'own_warehouse' and 'amazon_fba:{account}' */
