@@ -2,10 +2,12 @@
 
 namespace App\Providers;
 
+use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\Readiness\Compatibility\MigrationsSection;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
+use App\Services\Fulfillment\Support\NoChannelHolds;
 use App\Services\Fulfillment\Support\StoreCurrencyRateSource;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Migrations\Migrator;
@@ -24,6 +26,8 @@ class FulfillmentServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(CurrencyRateSource::class, StoreCurrencyRateSource::class);
+        // On its own the fulfilment module knows of no other seller of a provider's stock; the sales-channel module replaces this with its own holds.
+        $this->app->bind(ReportsChannelHolds::class, NoChannelHolds::class);
         $this->app->singleton(ProviderRegistry::class);
         $this->app->singleton(ProviderConnectionManager::class);
 

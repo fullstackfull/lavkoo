@@ -5,6 +5,7 @@ namespace Tests\Feature\OperationalCosts;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryCostLayer;
 use App\Models\InventoryLocation;
+use App\Models\InventoryReservation;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\OperationalCosts\Data\LayerReceipt;
 use App\Services\OperationalCosts\InventoryCostLayerService;
@@ -133,6 +134,36 @@ class PlatformReconciliationTest extends TestCase
 
         $this->assertSame(0, $row['undelivered_store_units'], 'The internal order only carries the channel order: the channel order is the sale.');
         $this->assertSame([6, 8, -2, 2], [$row['layer_units'], $row['expected_layer_units'], $row['difference'], $row['channel_units_taken']], 'The platform never saw the 2 units the channel took: the difference is theirs.');
+    }
+
+    public function test_units_an_open_channel_order_holds_of_a_provider_shelf_are_not_a_difference_between_the_layers_and_the_stock(): void
+    {
+        // The provider sync takes a channel order's hold off the storefront's mirror of the provider's count; the provider still holds the goods and no layer has been consumed for them.
+        $product = $this->platformProduct(['current_stock' => 8, 'fulfillment_provider' => 'torod_point']);
+        $this->openLayer($product, 10, at: $this->torod);
+        InventoryReservation::create([
+            'reservation_key' => 'channel-order:1:1', 'location_id' => $this->torod->id, 'product_id' => $product, 'variant_key' => '', 'quantity' => 2,
+            'state' => InventoryReservation::RESERVED, 'reserved_at' => CarbonImmutable::parse('2026-11-10'),
+        ]);
+
+        $report = $this->report()['products'];
+
+        $this->assertSame([1, 0], [$report['balanced'], $report['layers_above_platform']], '8 shown + 2 the channel holds = the 10 the layers hold');
+        $this->assertSame([], $report['rows']);
+    }
+
+    public function test_a_hold_at_a_place_no_provider_owns_is_not_added_back(): void
+    {
+        $product = $this->platformProduct(['current_stock' => 8]);
+        $this->openLayer($product, 10);
+        InventoryReservation::create([
+            'reservation_key' => 'channel-order:2:1', 'location_id' => $this->own->id, 'product_id' => $product, 'variant_key' => '', 'quantity' => 2,
+            'state' => InventoryReservation::RESERVED, 'reserved_at' => CarbonImmutable::parse('2026-11-10'),
+        ]);
+
+        $row = $this->report()['products']['rows'][0];
+
+        $this->assertSame([0, 8, 2], [$row['channel_units_held'], $row['expected_layer_units'], $row['difference']], 'the store\'s own stock is not lowered for a channel hold, so nothing is added back');
     }
 
     public function test_platform_stock_with_no_layer_and_negative_platform_stock_are_listed_and_a_product_assigned_to_m5azn_is_left_out(): void

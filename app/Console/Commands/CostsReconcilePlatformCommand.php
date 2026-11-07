@@ -68,9 +68,9 @@ class CostsReconcilePlatformCommand extends Command
         }
 
         $products = $report['products'];
-        $this->line(sprintf('Products compared: %d (balanced %d, layers above the platform %d, layers below the platform %d, not in the catalogue %d). Expected layer units = platform stock + store-order units not delivered yet.', $products['examined'], $products['balanced'], $products['layers_above_platform'], $products['layers_below_platform'], $products['product_not_found']));
-        $this->section('Layers against the platform', ['product', 'name', 'platform stock', 'undelivered', 'layers', 'difference', 'channel took', 'PO received', 'PO layered', 'status'], array_map(
-            static fn (array $row): array => [$row['product_id'], $row['name'] ?? '-', $row['platform_stock'] ?? '-', $row['undelivered_store_units'], $row['layer_units'], $row['difference'], $row['channel_units_taken'], $row['purchase_order_units_received'], $row['purchase_order_units_layered'], $row['status'] . ($row['has_variants'] ? ' (variants)' : '')],
+        $this->line(sprintf('Products compared: %d (balanced %d, layers above the platform %d, layers below the platform %d, not in the catalogue %d). Expected layer units = platform stock + store-order units not delivered yet + units open channel orders hold at a provider\'s shelf.', $products['examined'], $products['balanced'], $products['layers_above_platform'], $products['layers_below_platform'], $products['product_not_found']));
+        $this->section('Layers against the platform', ['product', 'name', 'platform stock', 'undelivered', 'channel holds', 'layers', 'difference', 'channel took', 'PO received', 'PO layered', 'status'], array_map(
+            static fn (array $row): array => [$row['product_id'], $row['name'] ?? '-', $row['platform_stock'] ?? '-', $row['undelivered_store_units'], $row['channel_units_held'], $row['layer_units'], $row['difference'], $row['channel_units_taken'], $row['purchase_order_units_received'], $row['purchase_order_units_layered'], $row['status'] . ($row['has_variants'] ? ' (variants)' : '')],
             $products['rows'],
         ), $products['truncated']);
 

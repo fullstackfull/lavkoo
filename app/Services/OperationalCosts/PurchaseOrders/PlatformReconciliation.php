@@ -3,6 +3,7 @@
 namespace App\Services\OperationalCosts\PurchaseOrders;
 
 use App\Models\InventoryCostLayer;
+use App\Models\InventoryReservation;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
@@ -148,8 +149,9 @@ class PlatformReconciliation
             $facts = $this->procurement->products($page);
             $undelivered = $this->undeliveredStoreUnits($page);
             $channel = $this->channelUnitsTaken($page);
+            $held = $this->channelUnitsHeldOnAProviderShelf($page);
             foreach ($page as $id) {
-                $row = $this->productRow($id, $facts[$id] ?? null, $layers[$id] ?? 0, $undelivered[$id] ?? 0, $channel[$id] ?? 0, $orderUnits[$id] ?? ['received' => 0, 'pending' => 0], $layered[$id] ?? 0);
+                $row = $this->productRow($id, $facts[$id] ?? null, $layers[$id] ?? 0, $undelivered[$id] ?? 0, $channel[$id] ?? 0, $held[$id] ?? 0, $orderUnits[$id] ?? ['received' => 0, 'pending' => 0], $layered[$id] ?? 0);
                 $counts[$row['status']]++;
                 if ($row['status'] !== self::BALANCED) {
                     $rows[] = $row;
@@ -165,9 +167,9 @@ class PlatformReconciliation
      * @param array{received: int, pending: int} $orders
      * @return array<string, mixed>
      */
-    private function productRow(int $id, ?ProductFacts $product, int $layerUnits, int $undelivered, int $channelTaken, array $orders, int $layered): array
+    private function productRow(int $id, ?ProductFacts $product, int $layerUnits, int $undelivered, int $channelTaken, int $channelHeld, array $orders, int $layered): array
     {
-        $expected = $product === null ? null : $product->currentStock + $undelivered;
+        $expected = $product === null ? null : $product->currentStock + $undelivered + $channelHeld;
         $difference = $expected === null ? $layerUnits : $layerUnits - $expected;
 
         return [
@@ -176,6 +178,7 @@ class PlatformReconciliation
             'has_variants' => $product?->hasVariants,
             'platform_stock' => $product?->currentStock,
             'undelivered_store_units' => $undelivered,
+            'channel_units_held' => $channelHeld,
             'expected_layer_units' => $expected,
             'layer_units' => $layerUnits,
             'difference' => $difference,
@@ -246,7 +249,29 @@ class PlatformReconciliation
     }
 
     /**
-     * Units that channel orders took from the layers and have not given back. The platform's stock never saw them: a channel order decrements nothing there.
+     * Units open channel orders hold at a provider's location and that no layer has been consumed for yet (a channel order's cost of goods is taken when the sale is recognised, not
+     * when the order arrives). The provider's own count still has them, so they are part of the stock the layers should cover; the storefront's mirror of that count does not, because
+     * the provider sync takes them off it (see operations.md, *The storefront's side of a provider's shelf*). Added back here, they are not a difference between layers and stock.
+     *
+     * @param list<int> $productIds
+     * @return array<int, int>
+     */
+    private function channelUnitsHeldOnAProviderShelf(array $productIds): array
+    {
+        if (!Schema::hasTable('inventory_reservations') || !Schema::hasTable('inventory_locations')) {
+            return [];
+        }
+
+        return DB::table('inventory_reservations as hold')->join('inventory_locations as place', 'place.id', '=', 'hold.location_id')
+            ->whereNotNull('place.provider')->where('hold.state', InventoryReservation::RESERVED)
+            ->whereIn('hold.product_id', $productIds)
+            ->selectRaw('hold.product_id as product, sum(hold.quantity) as units')->groupBy('hold.product_id')->get()
+            ->mapWithKeys(static fn (object $row): array => [(int) $row->product => (int) $row->units])->all();
+    }
+
+    /**
+     * Units that channel orders took from the layers and have not given back. The platform's stock never saw them as a sale of its own: a channel order decrements nothing there (a unit
+     * an OPEN channel order holds of a provider's shelf is another matter: `channelUnitsHeldOnAProviderShelf`).
      *
      * @param list<int> $productIds
      * @return array<int, int>
