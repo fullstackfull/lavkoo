@@ -91,3 +91,4 @@ Registering is a write (needs *Order Import*, the *webhook management* approval,
 * The same marketplace fee imported from the API and again from a manual statement file is counted twice (and `25` and `25.00` are two rows): import a file only for what the API does not give.
 * Telling a channel about a shipment has no lock and no lease: the scheduled run and the *Tell the channel* button can overlap and send the same tracking number twice. A carrier with no Trendyol code is retried every cycle with a read of the package and no write until the code is set.
 * `sales_channels.managed_dispatch_enabled` (default off, not an environment value) makes the engine record rule decisions to create provider shipments that nothing executes; keep it off until the dispatcher exists.
+* *Sync now* and *Publish now* on an account page run inside the web request: a slow channel can outlast the browser's or the proxy's timeout. For a long run use the artisan commands above.
