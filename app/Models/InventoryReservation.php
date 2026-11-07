@@ -24,6 +24,7 @@ class InventoryReservation extends Model
         'quantity' => 'integer',
         'external_order_mapping_id' => 'integer',
         'order_id' => 'integer',
+        'account_id' => 'integer',
         'reserved_at' => 'datetime',
         'committed_at' => 'datetime',
         'released_at' => 'datetime',

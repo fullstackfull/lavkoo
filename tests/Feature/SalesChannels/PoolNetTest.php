@@ -204,7 +204,7 @@ class PoolNetTest extends TestCase
         $mapping->forceFill(['order_id' => 100])->save();
 
         foreach (['2026-11-10 10:05:00', '2026-11-10 10:10:00'] as $updatedAt) {
-            $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2, $updatedAt, ['status' => ChannelOrderStatus::Processing]);
+            $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2, $updatedAt, status: ChannelOrderStatus::Processing);
         }
         app(ChannelOrderReservations::class)->sync($mapping->refresh());
 

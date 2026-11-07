@@ -1,4 +1,4 @@
-{{-- One channel listing. Expects $listing, $products (id => Product), $locations (collection of id/name), $priceSources, $labels, $errors. --}}
+{{-- One channel listing. Expects $listing, $products (id => Product), $locations (collection of id/name), $priceSources, $shareModes, $labels, $errors. --}}
 @php
     $account = $listing->account;
     $bag = 'listing_' . $listing->id;

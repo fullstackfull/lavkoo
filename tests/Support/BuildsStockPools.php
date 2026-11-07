@@ -5,6 +5,7 @@ namespace Tests\Support;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\StockSource;
+use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryLocation;
 use App\Models\ProviderFulfillmentItem;
@@ -14,7 +15,9 @@ use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * The records a stock-allocation test needs: a store product, the provider's figure for it, store orders at different stages of their journey to the provider, channel
@@ -22,6 +25,26 @@ use Illuminate\Support\Facades\DB;
  */
 trait BuildsStockPools
 {
+    /** The platform's audit trail (the table comes from the installation dump, so a test that reads it builds it). */
+    protected function buildAuditLog(): void
+    {
+        Schema::create('audit_logs', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('actor_type')->nullable();
+            $table->unsignedBigInteger('actor_id')->nullable();
+            $table->string('actor_name')->nullable();
+            $table->string('action');
+            $table->string('subject_type')->nullable();
+            $table->string('subject_id')->nullable();
+            $table->json('before')->nullable();
+            $table->json('after')->nullable();
+            $table->json('context')->nullable();
+            $table->string('ip_address')->nullable();
+            $table->text('user_agent')->nullable();
+            $table->timestamps();
+        });
+    }
+
     protected function torodLocation(): InventoryLocation
     {
         return app(InventoryLocationService::class)->ensureDefaults()[0];
@@ -85,10 +108,10 @@ trait BuildsStockPools
         ]);
     }
 
-    /** A channel order read from the channel and recorded as the poller records it (its units are held when it is stored). */
-    protected function ingestOrder(SalesChannelAccount $account, string $orderId, string $listingKey, int $quantity, string $updatedAt = '2026-11-10 10:00:00', array $overrides = []): ExternalOrderMapping
+    /** A channel order read from the channel and recorded as the poller records it (its units are held when it is stored). Reading it again with another status is how it moves on. */
+    protected function ingestOrder(SalesChannelAccount $account, string $orderId, string $listingKey, int $quantity, string $updatedAt = '2026-11-10 10:00:00', array $overrides = [], ChannelOrderStatus $status = ChannelOrderStatus::New): ExternalOrderMapping
     {
-        app(ChannelOrderIngestor::class)->ingest($account, $this->remoteOrder(orderId: $orderId, lines: [$this->remoteLine('L1', $listingKey, $listingKey, $quantity, (string) ($quantity * 100))], updatedAt: $updatedAt, overrides: $overrides));
+        app(ChannelOrderIngestor::class)->ingest($account, $this->remoteOrder(orderId: $orderId, status: $status, lines: [$this->remoteLine('L1', $listingKey, $listingKey, $quantity, (string) ($quantity * 100))], updatedAt: $updatedAt, overrides: $overrides));
 
         return ExternalOrderMapping::where('account_id', $account->id)->where('external_order_id', $orderId)->firstOrFail();
     }

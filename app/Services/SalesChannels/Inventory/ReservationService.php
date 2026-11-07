@@ -18,12 +18,16 @@ use Illuminate\Database\UniqueConstraintViolationException;
  */
 class ReservationService
 {
-    public function reserve(string $key, int $locationId, int $productId, string $variantKey, int $quantity, ?string $sku = null, ?int $mappingId = null, ?int $orderId = null): InventoryReservation
+    /** @param string|null $salesChannel the channel and account the order came from: which channel promised how many units of a pool is what the division's margin is worked out from */
+    public function reserve(string $key, int $locationId, int $productId, string $variantKey, int $quantity, ?string $sku = null, ?int $mappingId = null, ?int $orderId = null, ?string $salesChannel = null, ?int $accountId = null): InventoryReservation
     {
         $existing = InventoryReservation::where('reservation_key', $key)->first();
         if ($existing !== null) {
             if ($existing->state === InventoryReservation::RESERVED && (int) $existing->quantity !== $quantity) {
                 $existing->forceFill(['quantity' => $quantity])->save();
+            }
+            if ($existing->account_id === null && $accountId !== null) {
+                $existing->forceFill(['sales_channel' => $salesChannel, 'account_id' => $accountId])->save();
             }
 
             return $existing;
@@ -40,6 +44,8 @@ class ReservationService
                 'state' => InventoryReservation::RESERVED,
                 'external_order_mapping_id' => $mappingId,
                 'order_id' => $orderId,
+                'sales_channel' => $salesChannel,
+                'account_id' => $accountId,
                 'reserved_at' => now(),
             ]);
         } catch (UniqueConstraintViolationException) {

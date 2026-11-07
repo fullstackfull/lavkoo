@@ -44,7 +44,7 @@ final class ChannelLabels
         'publish_skip_' => [
             'fba_listing', 'fulfillment_mode_unknown', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
             'channel_owns_price', 'storefront_price_not_supported', 'no_manual_price', 'price_not_positive',
-            'variant_key_required', 'storefront_owned_needs_owner_decision',
+            'variant_key_required', 'storefront_owned_needs_owner_decision', 'order_sync_stale', 'deficit_block', 'awaiting_siblings', 'not_in_the_pool', 'not_worth_lowering_now',
         ],
         'publish_state_' => ['queued', 'applied', 'failed', 'unconfirmed'],
         'listing_status_' => ['unmapped', 'suggested', 'mapped', 'ignored', 'conflict'],
@@ -56,6 +56,7 @@ final class ChannelLabels
         'location_type_' => ['torod_warehouse', 'm5azn_supplier', 'amazon_fba', 'own_warehouse', 'other'],
         'location_source_' => ['provider', 'channel', 'manual'],
         'price_source_' => ['internal', 'channel', 'manual'],
+        'stock_share_mode_' => ['fixed', 'percent', 'priority'],
         'price_source_help_' => ['internal', 'channel', 'manual'],
         'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management'],
         'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management'],
@@ -100,7 +101,8 @@ final class ChannelLabels
         'publish_skip_fba_listing', 'publish_skip_fulfillment_mode_unknown', 'publish_skip_no_stock_source', 'publish_skip_location_not_for_this_channel', 'publish_skip_stock_not_confirmed', 'publish_skip_unchanged',
         'publish_skip_awaiting_result', 'publish_skip_failed_repeatedly', 'publish_skip_channel_owns_price', 'publish_skip_storefront_price_not_supported',
         'publish_skip_no_manual_price', 'publish_skip_price_not_positive',
-        'publish_skip_variant_key_required', 'publish_skip_storefront_owned_needs_owner_decision',
+        'publish_skip_variant_key_required', 'publish_skip_storefront_owned_needs_owner_decision', 'publish_skip_order_sync_stale', 'publish_skip_deficit_block',
+        'publish_skip_awaiting_siblings', 'publish_skip_not_in_the_pool', 'publish_skip_not_worth_lowering_now',
         'publish_state_queued', 'publish_state_applied', 'publish_state_failed', 'publish_state_unconfirmed',
         'listing_status_unmapped', 'listing_status_suggested', 'listing_status_mapped', 'listing_status_ignored', 'listing_status_conflict',
         'match_method_ambiguous', 'match_method_already_linked_elsewhere', 'match_method_product_code', 'match_method_barcode', 'match_method_variant_sku',
@@ -113,6 +115,7 @@ final class ChannelLabels
         'location_type_torod_warehouse', 'location_type_m5azn_supplier', 'location_type_amazon_fba', 'location_type_own_warehouse', 'location_type_other',
         'location_source_provider', 'location_source_channel', 'location_source_manual',
         'price_source_internal', 'price_source_channel', 'price_source_manual',
+        'stock_share_mode_fixed', 'stock_share_mode_percent', 'stock_share_mode_priority',
         'price_source_help_internal', 'price_source_help_channel', 'price_source_help_manual',
         'approval_scope_product_writes', 'approval_scope_webhook_management', 'approval_scope_notification_management',
         'approval_scope_help_product_writes', 'approval_scope_help_webhook_management', 'approval_scope_help_notification_management',
@@ -253,6 +256,12 @@ final class ChannelLabels
     public function priceSource(?string $source): string
     {
         return $this->label('price_source_', $source);
+    }
+
+    /** How a listing takes its part of the stock it shares with other listings. */
+    public function stockShareMode(?string $mode): string
+    {
+        return $this->label('stock_share_mode_', $mode);
     }
 
     public function priceSourceHelp(string $source): string

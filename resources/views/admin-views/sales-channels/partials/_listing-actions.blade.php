@@ -1,4 +1,4 @@
-{{-- What can be decided about one listing. Expects $listing, $account, $locations, $priceSources, $bag, $errors. Saving settings publishes nothing. --}}
+{{-- What can be decided about one listing. Expects $listing, $account, $locations, $priceSources, $shareModes, $bag, $errors. Saving settings publishes nothing. --}}
 @php($manualPrice = $listing->snapshot['manual_price'] ?? null)
 <div class="d-flex flex-column gap-2">
     @if ($listing->status === 'suggested' && $listing->suggested_product_id)
@@ -59,6 +59,26 @@
                         <label class="form-label fs-12 mb-0" for="cap-{{ $listing->id }}">{{ translate('maximum_quantity') }}</label>
                         <input class="form-control form-control-sm" type="number" min="0" id="cap-{{ $listing->id }}" name="max_publish_quantity" value="{{ $listing->max_publish_quantity }}">
                     </div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-4">
+                        <label class="form-label fs-12 mb-0" for="share-mode-{{ $listing->id }}">{{ translate('stock_share') }}</label>
+                        <select class="form-select form-select-sm" id="share-mode-{{ $listing->id }}" name="stock_share_mode">
+                            <option value="">{{ translate('stock_share_equal') }}</option>
+                            @foreach ($shareModes as $mode)
+                                <option value="{{ $mode }}" @selected($listing->stock_share_mode === $mode)>{{ $labels->stockShareMode($mode) }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fs-12 mb-0" for="share-value-{{ $listing->id }}">{{ translate('stock_share_value') }}</label>
+                        <input class="form-control form-control-sm" type="number" min="0" id="share-value-{{ $listing->id }}" name="stock_share_value" value="{{ $listing->stock_share_value }}">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fs-12 mb-0" for="share-priority-{{ $listing->id }}">{{ translate('stock_priority') }}</label>
+                        <input class="form-control form-control-sm" type="number" min="0" id="share-priority-{{ $listing->id }}" name="stock_priority" value="{{ $listing->stock_priority }}">
+                    </div>
+                    <div class="col-12 fs-12 text-muted">{{ translate('stock_share_help') }}</div>
                 </div>
                 <div><button class="btn btn-outline-primary btn-sm" type="submit">{{ translate('save_settings') }}</button></div>
             </form>

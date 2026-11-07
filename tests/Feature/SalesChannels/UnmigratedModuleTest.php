@@ -75,4 +75,18 @@ class UnmigratedModuleTest extends TestCase
             $this->assertStringContainsString('migrations have not been run', Artisan::output(), $command);
         }
     }
+
+    public function test_the_stock_allocation_migration_keeps_the_module_off_until_it_has_run(): void
+    {
+        $this->buildSalesChannelSchema();
+        $this->assertTrue(SalesChannelSchema::ready());
+
+        Schema::drop('inventory_pools');
+
+        $this->assertFalse(SalesChannelSchema::ready(), 'The publisher and the order import read and write the pool rows: without the table they would fail on every run.');
+        foreach (self::SCHEDULED as [$command, $arguments]) {
+            $this->assertSame(0, Artisan::call($command, $arguments), $command);
+            $this->assertStringContainsString('migrations have not been run', Artisan::output(), $command);
+        }
+    }
 }

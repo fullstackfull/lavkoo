@@ -6,8 +6,11 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
+use App\Models\InventoryReservation;
 use App\Models\SalesChannelProductMapping;
+use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
+use Illuminate\Support\Collection;
 
 /**
  * Keeps the units that open channel orders have promised out of the quantity offered to the channels, so that stock is neither sold twice nor pushed back over a channel's own
@@ -35,10 +38,32 @@ class ChannelOrderReservations
     public function __construct(
         private readonly ReservationService $reservations,
         private readonly PublishPolicyResolver $policies,
+        private readonly DirtyPools $dirtyPools,
     ) {
     }
 
+    /** Brings the order's reservations in line with the order, and marks the pools whose promises that changed so that their division is worked out again. */
     public function sync(ExternalOrderMapping $mapping): void
+    {
+        $before = $this->holdsOf($mapping);
+        $this->bringIntoLine($mapping);
+        $after = $this->holdsOf($mapping);
+
+        if ($before->all() !== $after->all()) {
+            $this->dirtyPools->mark($before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey($hold['location_id'], $hold['product_id'], $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values());
+        }
+    }
+
+    /** @return Collection<string, array{location_id: int, product_id: int, variant_key: string, state: string, quantity: int}> what the order holds now, by reservation */
+    private function holdsOf(ExternalOrderMapping $mapping): Collection
+    {
+        return InventoryReservation::where('external_order_mapping_id', $mapping->id)->orderBy('id')->get(['reservation_key', 'location_id', 'product_id', 'variant_key', 'state', 'quantity'])->toBase()
+            ->mapWithKeys(static fn (InventoryReservation $hold): array => [$hold->reservation_key => [
+                'location_id' => (int) $hold->location_id, 'product_id' => (int) $hold->product_id, 'variant_key' => (string) $hold->variant_key, 'state' => $hold->state, 'quantity' => (int) $hold->quantity,
+            ]]);
+    }
+
+    private function bringIntoLine(ExternalOrderMapping $mapping): void
     {
         $mapping->loadMissing('lines');
         $holds = $this->mayHold($mapping);
@@ -66,7 +91,7 @@ class ChannelOrderReservations
                 continue;
             }
             $this->reservations->reopen($key);
-            $this->reservations->reserve($key, $location, (int) $line->product_id, (string) $line->variant_key, $units, $line->sku, (int) $mapping->id);
+            $this->reservations->reserve($key, $location, (int) $line->product_id, (string) $line->variant_key, $units, $line->sku, (int) $mapping->id, salesChannel: $mapping->sales_channel, accountId: (int) $mapping->account_id);
         }
     }
 
