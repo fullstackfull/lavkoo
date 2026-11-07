@@ -111,7 +111,8 @@ class AdminAddressPagesTest extends AdminAddressTestCase
     public function test_every_route_has_the_guard_chain_and_every_post_is_throttled(): void
     {
         foreach ($this->addressRoutes() as $route) {
-            $middleware = array_map(static fn ($item): string => is_string($item) ? $item : 'closure', (array) $route->middleware());
+            $declared = array_map(static fn ($item): string => is_string($item) ? $item : 'closure', (array) $route->middleware());
+            $middleware = array_values(array_diff($declared, array_map('strval', $route->excludedMiddleware())));
             $label = implode('|', $route->methods()) . ' /' . $route->uri();
 
             foreach (['admin', 'actch:admin_panel', 'module:business_settings', EnsureAddressMigrated::class] as $required) {
