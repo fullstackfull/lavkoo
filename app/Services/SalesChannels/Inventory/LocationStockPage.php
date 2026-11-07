@@ -32,7 +32,11 @@ class LocationStockPage
      */
     public function for(InventoryLocation $location, ?string $sku, int $perPage): array
     {
-        $page = $location->provider !== null ? $this->providerRows($location, $sku, $perPage) : $this->balanceRows($location, $sku, $perPage);
+        $page = match (true) {
+            $location->provider !== null => $this->providerRows($location, $sku, $perPage),
+            $this->reader->readsPlatform($location) => $this->platformRows($location, $sku, $perPage),
+            default => $this->balanceRows($location, $sku, $perPage),
+        };
 
         return ['rows' => $this->withPools($location, $page), 'skus' => $page->total()];
     }
@@ -72,6 +76,27 @@ class LocationStockPage
                 availability: $this->reader->ofMapping($location, $mapping),
                 extras: null,
             ));
+    }
+
+    /** The store's own products, a page of them at a time and read where they are kept: a product sold per variant is one row for each variant. */
+    private function platformRows(InventoryLocation $location, ?string $sku, int $perPage): LengthAwarePaginator
+    {
+        $page = $this->reader->storeOwnedProducts()
+            ->when($sku, static fn ($query, string $term) => $query->where(static fn ($inner) => $inner->where('code', 'like', '%' . $term . '%')->orWhere('name', 'like', '%' . $term . '%')))
+            ->orderBy('id')->select(['id', 'code', 'added_by', 'product_type', 'current_stock', 'variation'])
+            ->paginate($perPage)->withQueryString();
+
+        return $page->setCollection($page->getCollection()->flatMap(function (object $product) use ($location): array {
+            $variationTypes = collect(json_decode((string) $product->variation, true) ?: [])->filter(static fn (mixed $variation): bool => is_array($variation))->map(static fn (array $variation): string => (string) ($variation['type'] ?? ''))->values();
+
+            return ($variationTypes->isEmpty() ? collect(['']) : $variationTypes)->map(fn (string $variantKey): array => $this->row(
+                sku: $product->code,
+                productId: (int) $product->id,
+                variantKey: $variantKey,
+                availability: $this->reader->ofProduct($location, $product, $variantKey),
+                extras: null,
+            ))->all();
+        }));
     }
 
     private function balanceRows(InventoryLocation $location, ?string $sku, int $perPage): LengthAwarePaginator

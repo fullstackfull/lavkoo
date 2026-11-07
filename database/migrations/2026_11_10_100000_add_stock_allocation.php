@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Schema;
  *  - `allocation` on listings: the last division of the pool, as it concerns this listing. A column of its own: the snapshot is rewritten as a whole by the publisher, the
  *    follow-up of a publish and the listing sync, and a division written into it could be lost to any of them.
  *  - `sales_channel` and `account_id` on reservations, with the index a pool reads them by: which channel promised how many units, and how many in the last hours.
+ *  - `applied_to_platform_at` on reservations: when the storefront's own stock was lowered for the units of a shipped channel order (nothing sets it in this version).
  */
 return new class extends Migration
 {
@@ -60,6 +61,7 @@ return new class extends Migration
         $this->addColumn('sales_channel_product_mappings', 'allocation', fn (Blueprint $blueprint) => $blueprint->json('allocation')->nullable());
         $this->addColumn('inventory_reservations', 'sales_channel', fn (Blueprint $blueprint) => $blueprint->string('sales_channel', 24)->nullable());
         $this->addColumn('inventory_reservations', 'account_id', fn (Blueprint $blueprint) => $blueprint->unsignedBigInteger('account_id')->nullable());
+        $this->addColumn('inventory_reservations', 'applied_to_platform_at', fn (Blueprint $blueprint) => $blueprint->timestamp('applied_to_platform_at')->nullable());
 
         if (Schema::hasTable('inventory_reservations') && !Schema::hasIndex('inventory_reservations', self::RESERVATION_INDEX)) {
             Schema::table('inventory_reservations', function (Blueprint $table) {
@@ -73,7 +75,7 @@ return new class extends Migration
         if (Schema::hasTable('inventory_reservations') && Schema::hasIndex('inventory_reservations', self::RESERVATION_INDEX)) {
             Schema::table('inventory_reservations', fn (Blueprint $table) => $table->dropIndex(self::RESERVATION_INDEX));
         }
-        $this->dropColumns('inventory_reservations', ['sales_channel', 'account_id']);
+        $this->dropColumns('inventory_reservations', ['sales_channel', 'account_id', 'applied_to_platform_at']);
         $this->dropColumns('sales_channel_product_mappings', ['allocation']);
         foreach (self::SHARE_TABLES as $table) {
             $this->dropColumns($table, ['stock_share_mode', 'stock_share_value', 'stock_priority']);

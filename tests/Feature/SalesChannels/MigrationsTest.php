@@ -163,7 +163,7 @@ class MigrationsTest extends TestCase
         $this->assertTrue(Schema::hasTable('inventory_pools'));
         $this->assertSame(['stock_share_mode', 'stock_share_value', 'stock_priority', 'allocation'], array_values(array_diff(Schema::getColumnListing('sales_channel_product_mappings'), $columns['sales_channel_product_mappings'])));
         $this->assertSame(['stock_share_mode', 'stock_share_value', 'stock_priority'], array_values(array_diff(Schema::getColumnListing('inventory_source_policies'), $columns['inventory_source_policies'])));
-        $this->assertSame(['sales_channel', 'account_id'], array_values(array_diff(Schema::getColumnListing('inventory_reservations'), $columns['inventory_reservations'])));
+        $this->assertSame(['sales_channel', 'account_id', 'applied_to_platform_at'], array_values(array_diff(Schema::getColumnListing('inventory_reservations'), $columns['inventory_reservations'])));
         $row = DB::table('sales_channel_product_mappings')->first();
         $this->assertSame([null, null, null, null], [$row->stock_share_mode, $row->stock_share_value, $row->stock_priority, $row->allocation], 'Existing listings keep today\'s behaviour: nothing is set.');
         $this->assertNull(DB::table('inventory_reservations')->value('account_id'));

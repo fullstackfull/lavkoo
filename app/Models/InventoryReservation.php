@@ -28,5 +28,6 @@ class InventoryReservation extends Model
         'reserved_at' => 'datetime',
         'committed_at' => 'datetime',
         'released_at' => 'datetime',
+        'applied_to_platform_at' => 'datetime',
     ];
 }
