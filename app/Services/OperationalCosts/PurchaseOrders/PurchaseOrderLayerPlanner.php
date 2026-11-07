@@ -3,7 +3,6 @@
 namespace App\Services\OperationalCosts\PurchaseOrders;
 
 use App\Enums\OperationalCosts\PurchaseLineRefusal;
-use App\Models\InventoryCostLayer;
 use Carbon\CarbonImmutable;
 use Generator;
 
@@ -29,7 +28,7 @@ class PurchaseOrderLayerPlanner
     public function __construct(
         private readonly PlatformProcurement $procurement,
         private readonly PurchaseLineEvaluator $evaluator,
-        private readonly PurchaseOrderSchema $schema,
+        private readonly LayeredUnits $layered,
         private readonly CoveringLayers $covering,
     ) {
     }
@@ -46,7 +45,7 @@ class PurchaseOrderLayerPlanner
         while (($lines = $this->procurement->receivedLines($after, self::PAGE, $productId, $lineId)) !== []) {
             $products = $this->procurement->products(array_map(static fn (PurchaseLine $line): ?int => $line->productId, $lines));
             $receipts = $this->procurement->receiptsByOrderAndProduct($lines);
-            $accounted = $this->accountedUnits(array_map(static fn (PurchaseLine $line): int => $line->id, $lines));
+            $accounted = $this->layered->forLines($lines);
             $covered = $this->covering->coveredLines(lines: array_values(array_filter($lines, static fn (PurchaseLine $line): bool => ($accounted[$line->id] ?? 0) === 0 && !in_array($line->id, $included, true))), since: $since);
             foreach ($lines as $line) {
                 yield $this->plan($line, $products[$line->productId] ?? null, $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [], $accounted[$line->id] ?? 0, $since, isset($covered[$line->id]));
@@ -134,22 +133,5 @@ class PurchaseOrderLayerPlanner
         }
 
         return $units;
-    }
-
-    /**
-     * The units each line's purchase-order layers account for: how far their tranches reach.
-     *
-     * @param list<int> $lineIds
-     * @return array<int, int>
-     */
-    private function accountedUnits(array $lineIds): array
-    {
-        if ($this->schema->missingOwnColumns() !== []) {
-            return [];
-        }
-
-        return InventoryCostLayer::query()->where('source_type', self::SOURCE_TYPE)->whereIn('source_id', $lineIds)
-            ->selectRaw('source_id, max(source_to) as reaches')->groupBy('source_id')->pluck('reaches', 'source_id')
-            ->map(static fn ($units): int => (int) $units)->all();
     }
 }

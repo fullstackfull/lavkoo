@@ -40,13 +40,19 @@ class InventoryCostLayerService
     ) {
     }
 
+    /** The name a layer is found again by: the same seller, place, product, variant, kind of source and identity are the same layer. */
+    public static function dedupeKey(int $sellerId, int $locationId, int $productId, string $variantKey, string $sourceType, string $identity): string
+    {
+        return hash('sha256', implode('|', ['layer', $sellerId, $locationId, $productId, $variantKey, $sourceType, $identity]));
+    }
+
     /** @throws CostInputMissing when the goods were paid for in a currency with no known rate */
     public function receive(LayerReceipt $receipt): InventoryCostLayer
     {
         if ($receipt->quantity < 1) {
             throw new InvalidArgumentException('A layer holds at least one unit.');
         }
-        $dedupeKey = hash('sha256', implode('|', ['layer', $receipt->sellerId, $receipt->locationId, $receipt->productId, $receipt->variantKey, $receipt->sourceType, $receipt->identity]));
+        $dedupeKey = self::dedupeKey(sellerId: $receipt->sellerId, locationId: $receipt->locationId, productId: $receipt->productId, variantKey: $receipt->variantKey, sourceType: $receipt->sourceType, identity: $receipt->identity);
         $existing = InventoryCostLayer::where('dedupe_key', $dedupeKey)->first() ?? $this->layerOfTheSameUnits($receipt);
         if ($existing !== null) {
             return $existing;
