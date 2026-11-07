@@ -230,6 +230,19 @@ class TorodCityDiscoveryTest extends TorodAddressTestCase
         Http::assertSentCount(4);
     }
 
+    public function test_held_finds_the_city_an_old_order_with_only_a_typed_city_waits_on(): void
+    {
+        $old = $this->torodFulfillment(['shipping_address_data' => json_encode(['contact_person_name' => 'A B', 'phone' => '0551234567', 'address' => 'x street', 'city' => 'الرياض'])], orderId: 100);
+        app(ProviderOrderDispatcher::class)->dispatch($old->id);
+        $this->fakeSearch($this->riyadhAnswers());
+
+        [$exit, $output] = $this->command(['--held' => true]);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('#' . $this->ids['riyadh'] . ' Riyadh', $output);
+        Http::assertSentCount(2);
+    }
+
     public function test_the_command_says_so_and_sends_nothing_when_there_is_nothing_to_look_for_or_it_may_not_run(): void
     {
         Http::fake();

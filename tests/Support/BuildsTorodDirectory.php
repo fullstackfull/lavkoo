@@ -65,7 +65,7 @@ trait BuildsTorodDirectory
         $this->torodCity('230194', 'الرياض', 'Riyadh', '1265', 'Riyadh', 'الرياض', true, 'RYH');
         $this->torodCity('41126', 'جدة', 'Jeddah', '1336', 'Makkah', 'مكة المكرمة', true, 'JED');
         $this->torodCity('41127', 'الدمام', 'Dammam', '1337', 'Eastern Province', 'المنطقة الشرقية', false, 'DMM');
-        $this->torodCity('50001', 'الخبر', 'Khobar', '1337');
+        $this->torodCity('50001', 'الخبر', 'Khobar', '1337', 'Eastern Province', 'المنطقة الشرقية');
         $this->torodCity('50002', 'الهفوف', 'Hofuf', '1337', 'Eastern Province', 'المنطقة الشرقية', true, 'HOF');
         $this->torodCity('50003', 'الهفوف', 'Hofuf', '1204', 'Riyadh', 'الرياض', true, 'HOF');
         $this->torodCity('50004', 'الطائف', 'Taif', '1999', 'Region 77');

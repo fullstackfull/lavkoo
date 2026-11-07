@@ -18,6 +18,7 @@ use App\Models\ProviderCity;
 use App\Models\ProviderCityMapping;
 use App\Models\ProviderCitySyncRun;
 use App\Services\Address\AddressSchema;
+use App\Services\Fulfillment\ProviderCityReview;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
 use Illuminate\Support\Facades\DB;
@@ -136,6 +137,21 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
         $this->assertStringContainsString(route('admin.fulfillment-providers.fulfillments.show', $shipment), $html, 'the order is one click away');
         $this->assertStringContainsString('k-badge--danger', $html, 'the conflict is marked');
         $this->assertStringContainsString(route('admin.fulfillment-providers.torod.cities.discover'), $html);
+    }
+
+    public function test_an_order_placed_before_the_structured_address_counts_as_waiting_on_the_city_its_typed_text_certainly_is(): void
+    {
+        $this->mappings()->proposeCandidates('torod_point', collect([\App\Models\AddressCity::findOrFail($this->ids['riyadh'])]));
+        $old = $this->torodFulfillment(['shipping_address_data' => json_encode(['contact_person_name' => 'A B', 'phone' => '0551234567', 'address' => 'x street', 'city' => 'الرياض'])]);
+        app(ProviderOrderDispatcher::class)->dispatch($old->id);
+        $this->assertSame(FulfillmentStatus::Held, $old->refresh()->status);
+
+        $review = app(ProviderCityReview::class);
+        $block = collect($review->overview('torod_point')['cities'])->first(fn (array $block): bool => $block['city']->id === $this->ids['riyadh']);
+
+        $this->assertSame([$this->ids['riyadh']], $review->heldCityIds('torod_point'), 'the discovery command can find the city the order waits on');
+        $this->assertSame(1, $block['orders'], 'the block says an order is waiting, as it does for an order with a structured copy');
+        $this->assertSame([], $review->overview('torod_point')['typed'], 'a text that certainly means one of our cities is not left for a person to find a city for');
     }
 
     public function test_the_legacy_card_lists_only_the_cities_typed_as_text_and_the_blocks_only_the_cities_of_ours(): void

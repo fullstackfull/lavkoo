@@ -453,7 +453,7 @@ class TorodCitySyncTest extends TorodAddressTestCase
         return [
             ['36189', 'الرياض', 'Riyadh', '1204', 'Riyadh', 'الرياض', true, 'RYH'], ['230194', 'الرياض', 'Riyadh', '1265', 'Riyadh', 'الرياض', true, 'RYH'],
             ['41126', 'جدة', 'Jeddah', '1336', 'Makkah', 'مكة المكرمة', true, 'JED'], ['41127', 'الدمام', 'Dammam', '1337', 'Eastern Province', 'المنطقة الشرقية', false, 'DMM'],
-            ['50001', 'الخبر', 'Khobar', '1337', null, null, null, null], ['50002', 'الهفوف', 'Hofuf', '1337', 'Eastern Province', 'المنطقة الشرقية', true, 'HOF'],
+            ['50001', 'الخبر', 'Khobar', '1337', 'Eastern Province', 'المنطقة الشرقية', null, null], ['50002', 'الهفوف', 'Hofuf', '1337', 'Eastern Province', 'المنطقة الشرقية', true, 'HOF'],
             ['50003', 'الهفوف', 'Hofuf', '1204', 'Riyadh', 'الرياض', true, 'HOF'], ['50004', 'الطائف', 'Taif', '1999', 'Region 77', null, null, null],
             ['50005', 'أم سليم', 'Umm Sulaym', '1204', 'Riyadh', 'الرياض', null, null], ['50006', 'مكة المكرمة', 'Makkah', '1336', 'Makkah', 'مكة المكرمة', true, 'MAK'],
         ];

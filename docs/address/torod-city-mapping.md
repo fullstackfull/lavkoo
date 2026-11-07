@@ -56,9 +56,11 @@ normal `AWAITING_APPROVAL` / dry-run path. The order row itself (`100002`) is ne
 
 After a city reading whose completeness is **proven**, our active city with exactly **one** exact candidate is approved automatically as `auto_unique` (one summary audit entry per run) when all of
 this holds: Torod lists that name **exactly once** (two Riyadh records are two records, whatever their regions say, so Riyadh is always a person's decision), no other of our cities also claims the Torod
-city, it is not already mapped to another of ours, Torod does not mark it as not selected (`isSelected: false`), its region is not contradicted, and nobody has ever decided on that city. A partial
+city, it is not already mapped to another of ours, Torod does not mark it as not selected (`isSelected: false`), its region name **agrees** with ours (a record that names no region, or one that cannot be placed, is only proposed: a name alone is not enough), and nobody has ever decided on that city. A partial
 reading never approves anything, and a reading whose completeness rests only on the weakest evidence (see below) only *proposes*. The write is conditional on the proposal still waiting: a rejection, or
 the approval of another candidate, that a person recorded while the run was working is never overwritten.
+
+**The weekly schedule runs this rule too.** The existing Sunday 03:30 schedule (`fulfillment:sync --only=cities`) refreshes the list and, after a reading that proves it complete, applies the automatic rule unattended, like the console and the Integration Center button. Nothing is sent to Torod either way (the shipments stay behind the dry run and the approval gate), and every approval is audited with its evidence and can be retired. If the owner wants no approval without a person at all, leave the provider's city sync off (`FULFILLMENT_INTEGRATIONS_ENABLED` off, or the provider disabled) until the first reading has been looked at by hand.
 
 ## The city list sync is completeness-aware
 

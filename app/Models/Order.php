@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Address\AddressSnapshot;
 use App\Traits\DemoMaskingTrait;
 use Carbon\Carbon;
 use DateTime;
@@ -338,6 +339,14 @@ class Order extends Model
     public function billingAddressSnapshot(): ?array
     {
         return self::decodeAddressSnapshot(stored: $this->attributes['billing_address_data'] ?? null);
+    }
+
+    /** The city the order delivers to: the one in the copy it kept, and the saved address it points to only when it kept no copy. */
+    public function deliveryCity(): ?string
+    {
+        $copy = $this->shippingAddressSnapshot();
+
+        return $copy === null ? $this->shippingAddress?->city : AddressSnapshot::cityName($copy);
     }
 
     private static function decodeAddressSnapshot(mixed $stored): ?array

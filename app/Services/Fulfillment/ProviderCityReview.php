@@ -10,6 +10,10 @@ use App\Models\ProviderCity;
 use App\Models\ProviderCityMapping;
 use App\Models\ProviderCitySyncRun;
 use App\Models\ProviderFulfillment;
+use App\Services\Address\AddressSchema;
+use App\Services\Address\AddressSnapshot;
+use App\Services\Address\CityMatch;
+use App\Services\Address\LegacyCityMatcher;
 use App\Services\Fulfillment\Data\CityResolution;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +36,7 @@ class ProviderCityReview
 
     private const SHOWN_RUNS = 5;
 
-    public function __construct(private readonly ProviderCityMappingService $mappings)
+    public function __construct(private readonly ProviderCityMappingService $mappings, private readonly LegacyCityMatcher $matcher)
     {
     }
 
@@ -94,7 +98,8 @@ class ProviderCityReview
     }
 
     /**
-     * Held shipments, each with the detail the dispatcher stored and the city of ours the order's snapshot carries.
+     * Held shipments, each with the detail the dispatcher stored and the city of ours the order's address means: the one its copy
+     * carries, or, for an order placed before the structured address, the one its typed text certainly is (the matcher the dispatcher used).
      *
      * @return Collection<int, array{id: int, reference: string, city_id: int, code: ?string, text: string}>
      */
@@ -109,18 +114,38 @@ class ProviderCityReview
             ->get(['id', 'order_id', 'reference', 'last_error_message']);
         $snapshots = DB::table('orders')->whereIn('id', $held->pluck('order_id')->all())->pluck('shipping_address_data', 'id');
 
-        return $held->map(static function (ProviderFulfillment $fulfillment) use ($snapshots): array {
+        $readings = [];
+
+        return $held->map(function (ProviderFulfillment $fulfillment) use ($snapshots, &$readings): array {
             $detail = CityResolution::parseDetail($fulfillment->last_error_message);
             $snapshot = json_decode((string) ($snapshots[$fulfillment->order_id] ?? ''), true);
 
             return [
                 'id' => (int) $fulfillment->id,
                 'reference' => (string) $fulfillment->reference,
-                'city_id' => is_array($snapshot) ? (int) ($snapshot['city_id'] ?? 0) : 0,
+                'city_id' => is_array($snapshot) ? $this->cityOf(snapshot: $snapshot, readings: $readings) : 0,
                 'code' => $detail['code'] ?? null,
                 'text' => trim($detail['city'] ?? (string) $fulfillment->last_error_message),
             ];
         });
+    }
+
+    /**
+     * @param array<array-key, mixed> $snapshot the order's address copy
+     * @param array<string, CityMatch> $readings what the matcher said about each typed city and state already, so a text typed by many orders is read once
+     */
+    private function cityOf(array $snapshot, array &$readings): int
+    {
+        $cityId = (int) ($snapshot['city_id'] ?? 0);
+        if ($cityId > 0 || !AddressSchema::hasCities()) {
+            return $cityId;
+        }
+
+        $city = AddressSnapshot::plain($snapshot, 'city');
+        $state = AddressSnapshot::plain($snapshot, 'state');
+        $match = $readings[$city . '|' . $state] ??= $this->matcher->match(cityText: $city, regionText: $state === '' ? null : $state);
+
+        return $match->matched() ? (int) $match->city->id : 0;
     }
 
     /**

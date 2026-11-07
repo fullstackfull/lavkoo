@@ -61,3 +61,12 @@ number. That predates this work and cannot be closed on the server alone: it nee
 ## Future integrations
 
 M5AZN/Amazon/Trendyol/Odoo reuse `provider_city_mappings` (a new `provider` value) and the snapshot; nothing in inventory, orders or shipping pricing changes for them.
+
+What a new provider implements to plug into the one address system (nothing here is Torod-specific by design, though only Torod is wired today):
+
+1. **A directory reader**: fetch the provider's cities and write them to `provider_cities` (`provider`, `external_id`, names, `region_external_id`, `raw`, `missing_since`), recording each reading in `provider_city_sync_runs` with its completeness evidence (`TorodCityDirectory` is the model; the weekly schedule and the Integration Center button call it through `ProviderSyncService`).
+2. **Mappings through `ProviderCityMappingService`**: candidates by exact name (`candidatesFor`), proposals, a person's approval (`approve`), and the automatic rule only after a proven-complete reading. Never a second city list, never an id of another provider.
+3. **A resolver in its order payload builder** that reads the order's copy (`AddressSnapshot`): the `city_id` it carries, or the certain match of its typed text, then `approvedFor(provider, cityId)`; anything else holds the shipment (see `TorodCityResolver`).
+4. **A review screen** over the same tables (`ProviderCityReview` and the matching screen are parametrised by provider code in their queries but wired to Torod's routes and views today).
+
+Only steps 1 and 4 are provider-specific code; the tables, the approval rules, the audit trail and the order copy are shared.

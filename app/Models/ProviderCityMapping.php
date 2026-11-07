@@ -24,7 +24,6 @@ class ProviderCityMapping extends Model
         'status' => MappingStatus::class,
         'approved_slot' => 'integer',
         'evidence' => 'array',
-        'verified_at' => 'datetime',
         'approved_by' => 'integer',
         'approved_at' => 'datetime',
     ];

@@ -107,7 +107,22 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
         $this->assertSame(['50004'], $taif->map(static fn (CityCandidate $candidate): string => (string) $candidate->city->external_id)->all());
         $this->assertSame(CityCandidate::REGION_UNPLACEABLE, $taif->first()->region);
         $this->assertFalse($taif->first()->canBeApprovedAutomatically());
-        $this->assertSame(CityCandidate::REGION_UNKNOWN, $this->service()->candidatesFor(self::PROVIDER, $this->city('khobar'))->first()->region, 'a provider city with no region name has nothing to contradict');
+        $this->torodCity('50007', 'الدرعية', 'Diriyah', '1204');
+        $this->assertSame(CityCandidate::REGION_UNKNOWN, $this->service()->candidatesFor(self::PROVIDER, $this->city('diriyah'))->first()->region, 'a provider city with no region name has nothing to contradict');
+        $this->assertFalse($this->service()->candidatesFor(self::PROVIDER, $this->city('diriyah'))->first()->canBeApprovedAutomatically(), 'and nothing to confirm either: a name alone is not enough');
+    }
+
+    public function test_a_candidate_that_names_no_region_is_left_for_a_person_by_the_automatic_approval(): void
+    {
+        $this->torodCity('50007', 'الدرعية', 'Diriyah', '1204');
+        $this->completeSync();
+
+        $this->service()->autoApproveUnique(self::PROVIDER);
+
+        $this->assertNotNull($this->mappingOf('khobar'), 'its region name agrees with ours');
+        $this->assertNull($this->mappingOf('diriyah'), 'the provider city names no region');
+        $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['diriyah'], externalCityId: '50007');
+        $this->assertNotNull($this->mappingOf('diriyah'), 'a person may approve it');
     }
 
     public function test_a_city_the_provider_no_longer_lists_is_not_offered(): void

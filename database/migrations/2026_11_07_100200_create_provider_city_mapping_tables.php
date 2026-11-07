@@ -35,7 +35,6 @@ return new class extends Migration
                 $table->unsignedTinyInteger('approved_slot')->nullable();
                 $table->json('evidence')->nullable();
                 $table->string('notes', 255)->nullable();
-                $table->timestamp('verified_at')->nullable();
                 $table->unsignedBigInteger('approved_by')->nullable();
                 $table->timestamp('approved_at')->nullable();
                 $table->timestamps();

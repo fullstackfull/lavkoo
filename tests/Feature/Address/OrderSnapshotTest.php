@@ -164,6 +164,18 @@ class OrderSnapshotTest extends ApiAddressTestCase
         $this->assertFalse(AddressSnapshot::isUnified($snapshot));
     }
 
+    public function test_the_delivery_city_comes_from_the_copy_the_order_kept_and_the_saved_address_only_when_it_kept_none(): void
+    {
+        $saved = $this->makeLegacyAddress(5, overrides: ['city' => 'جدة']);
+        $this->insertOrder(100, ['shipping_address' => $saved->id, 'shipping_address_data' => json_encode(['city' => 'الرياض'])]);
+        $this->insertOrder(101, ['shipping_address' => $saved->id, 'shipping_address_data' => null]);
+        $this->insertOrder(102, ['shipping_address' => null, 'shipping_address_data' => null]);
+
+        $this->assertSame('الرياض', Order::findOrFail(100)->deliveryCity(), 'the customer moving the saved address later does not move a past order');
+        $this->assertSame('جدة', Order::findOrFail(101)->deliveryCity());
+        $this->assertNull(Order::findOrFail(102)->deliveryCity());
+    }
+
     public function test_the_existing_property_accessors_of_the_order_are_unchanged(): void
     {
         $this->insertOrder(100, ['shipping_address_data' => json_encode(['city' => 'x']), 'billing_address_data' => null]);
