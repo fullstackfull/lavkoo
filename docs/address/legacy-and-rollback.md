@@ -82,7 +82,7 @@ Each step is independent; do only as many as you need.
 
 | Situation | Answer |
 |---|---|
-| A city was imported under the wrong region | edit it (*Address system → Cities*); saved addresses follow the new region, past orders keep theirs |
+| A city was imported under the wrong region | edit it (*Address system → Cities*); the saved addresses of that city follow the new region (`region_id`; the old `state` text they were saved with stays as it was written), past orders keep theirs |
 | A city should no longer be offered | switch it off; it is never deleted (addresses, mappings and order copies point at it) |
-| The data file has newer information | `address:import` is idempotent and keeps administrator edits; names are only refreshed with `--refresh-names` |
+| The data file has newer information | `address:import` is idempotent. It never changes whether a place is active, and it changes names only with `--refresh-names`; it does refresh the rank, the coordinates and the source date of the places the file lists, so an administrator's edit of those two is overwritten by the next import that lists the place |
 | The structured mode must not start while ZIP-based delivery rules are in use | the mode cannot be switched on while `delivery_zip_code_area_restriction` is on, and is paused if it is turned on later; see [zip-compatibility.md](zip-compatibility.md) |

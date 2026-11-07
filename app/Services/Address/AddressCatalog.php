@@ -51,6 +51,14 @@ class AddressCatalog
         return $city?->setRelation('region', $this->region($regionId, onlyActive: true));
     }
 
+    /** The city with this id, active or not, if it lies in the given region: what an order that already names a place may keep. */
+    public function cityInRegion(int $cityId, int $regionId): ?AddressCity
+    {
+        $city = AddressCity::query()->whereKey($cityId)->where('region_id', $regionId)->first();
+
+        return $city?->setRelation('region', $this->region($regionId, onlyActive: false));
+    }
+
     /**
      * @return Collection<int, AddressCity> cities of the region (or of the whole country when no region is given), best matches first
      */

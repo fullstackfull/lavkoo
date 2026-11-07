@@ -347,6 +347,42 @@ class ApiAddressCrudTest extends ApiAddressTestCase
         $this->assertSame([$this->ids['riyadh'], $this->ids['region_RUH'], 'RAGI2929'], [$fresh->city_id, $fresh->region_id, $fresh->national_address]);
     }
 
+    public function test_an_old_app_may_still_edit_an_address_that_only_a_backfill_gave_a_city(): void
+    {
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $customer = $this->makeCustomer();
+        $address = $this->makeStructuredAddress($this->ids, $customer->id, overrides: ['national_address' => null, 'district' => null, 'state' => null]);
+
+        $this->asCustomer($customer)->postJson(self::UPDATE, $this->legacyPayload(['id' => $address->id, 'phone' => '0559999999']))->assertOk();
+
+        $fresh = $address->fresh();
+        $this->assertSame('0559999999', $fresh->phone);
+        $this->assertSame([$this->ids['riyadh'], $this->ids['region_RUH']], [$fresh->city_id, $fresh->region_id], 'the same city: its ids stay');
+
+        $this->asCustomer($customer)->postJson(self::UPDATE, $this->legacyPayload(['id' => $address->id, 'city' => 'جدة']))->assertOk();
+
+        $moved = $address->fresh();
+        $this->assertSame('جدة', $moved->city);
+        $this->assertSame([null, null, null, null], [$moved->city_id, $moved->region_id, $moved->national_address, $moved->state], 'another city: the ids no longer name where the address is');
+    }
+
+    public function test_a_new_app_correcting_only_the_national_address_keeps_the_district(): void
+    {
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $customer = $this->makeCustomer();
+        $address = $this->makeStructuredAddress($this->ids, $customer->id);
+        $payload = $this->structuredPayload(['id' => $address->id, 'national_address' => 'RAGI2930']);
+        unset($payload['district']);
+
+        $this->asCustomer($customer)->postJson(self::UPDATE, $payload)->assertOk();
+
+        $fresh = $address->fresh();
+        $this->assertSame(['RAGI2930', 'Al Olaya'], [$fresh->national_address, $fresh->district]);
+
+        $this->asCustomer($customer)->postJson(self::UPDATE, $this->structuredPayload(['id' => $address->id, 'district' => '']))->assertOk();
+        $this->assertNull($address->fresh()->district, 'sent empty, it is cleared');
+    }
+
     public function test_a_new_app_changes_the_place_of_a_structured_address_and_the_old_text_follows(): void
     {
         $this->setAddressMode(AddressSchema::MODE_SOFT);

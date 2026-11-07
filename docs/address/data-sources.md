@@ -3,7 +3,7 @@
 ## What ships
 
 `database/data/address/regions.json` (13 regions) and `database/data/address/cities.json` (4,581 places) — loaded by `php artisan address:import` (dry run by default,
-`--apply` to write, never deletes, keeps administrator edits). Every file records its source, snapshot date and origin in `_meta`; every row keeps the source's own id
+`--apply` to write, never deletes, keeps whether a place is active and what an administrator renamed). Every file records its source, snapshot date and origin in `_meta`; every row keeps the source's own id
 (`ref`) so a later import updates the same row. Our own primary key is the internal `id`: third-party ids and names are attributes, never keys.
 
 | | |

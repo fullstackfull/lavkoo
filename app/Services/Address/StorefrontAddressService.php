@@ -214,9 +214,7 @@ class StorefrontAddressService
      */
     public function structured(array $input, ?ShippingAddress $existing = null): array
     {
-        $structured = $this->addresses->structuredAttributes(input: $input, channel: AddressChannel::Web, existing: $existing);
-
-        return array_key_exists('city_id', $structured) && $structured['city_id'] === null ? $structured + ['state' => null] : $structured;
+        return $this->addresses->structuredAttributes(input: $input, channel: AddressChannel::Web, existing: $existing);
     }
 
     private function createSaved(array $attributes, array $structured): ShippingAddress

@@ -230,7 +230,105 @@ class AddressServicesTest extends AddressTestCase
 
         $attributes = $this->service()->structuredAttributes(['country' => 'Kuwait'], AddressChannel::Web, $saved);
 
-        $this->assertSame(['region_id' => null, 'city_id' => null, 'district' => null, 'national_address' => null], $attributes);
+        $this->assertSame(['region_id' => null, 'city_id' => null, 'district' => null, 'national_address' => null, 'state' => null], $attributes, 'the old region text goes with the ids');
+    }
+
+    public function test_an_old_client_may_edit_an_address_that_only_has_a_city_for_as_long_as_it_keeps_naming_that_city(): void
+    {
+        AddressSchema::setMode(AddressSchema::MODE_SOFT);
+        $matchedOnly = (object) ['city_id' => $this->ids['riyadh'], 'region_id' => $this->ids['region_RUH'], 'city' => 'الرياض', 'country' => 'Saudi Arabia', 'national_address' => null];
+        $reset = array_fill_keys(['region_id', 'city_id', 'district', 'national_address', 'state'], null);
+
+        $this->assertSame([], $this->service()->structuredAttributes(['city' => 'الرياض', 'country' => 'Saudi Arabia', 'phone' => '0551234567'], AddressChannel::Api, $matchedOnly), 'the same city');
+        $this->assertSame([], $this->service()->structuredAttributes(['city' => 'رياض', 'country' => 'SA'], AddressChannel::Api, $matchedOnly), 'the same city, spelled differently');
+        $this->assertSame($reset, $this->service()->structuredAttributes(['city' => 'جدة', 'country' => 'Saudi Arabia'], AddressChannel::Api, $matchedOnly), 'another city takes the ids away');
+        $this->assertSame($reset, $this->service()->structuredAttributes(['city' => 'الرياض', 'country' => 'Egypt'], AddressChannel::Api, $matchedOnly), 'another country takes the ids away');
+    }
+
+    public function test_an_old_client_cannot_edit_an_address_that_has_a_national_address(): void
+    {
+        AddressSchema::setMode(AddressSchema::MODE_SOFT);
+        $complete = (object) ['city_id' => $this->ids['riyadh'], 'region_id' => $this->ids['region_RUH'], 'city' => 'الرياض', 'country' => 'Saudi Arabia', 'national_address' => 'RAGI2929'];
+
+        $errors = $this->errorsOf(fn () => $this->service()->structuredAttributes(['city' => 'الرياض', 'country' => 'Saudi Arabia'], AddressChannel::Api, $complete));
+
+        $this->assertSame([translate('address_update_app_required')], $errors['address']);
+    }
+
+    public function test_a_district_that_was_not_sent_is_kept_unless_the_address_moves_to_another_city(): void
+    {
+        AddressSchema::setMode(AddressSchema::MODE_SOFT);
+        $saved = (object) ['city_id' => $this->ids['khobar'], 'region_id' => $this->ids['region_EAS'], 'country' => 'Saudi Arabia', 'district' => 'Al Rakah'];
+        $withoutDistrict = $this->submitted();
+        unset($withoutDistrict['district']);
+
+        $this->assertArrayNotHasKey('district', $this->service()->structuredAttributes($withoutDistrict, AddressChannel::Api, $saved), 'a correction of the National Address alone leaves the district');
+        $this->assertNull($this->service()->structuredAttributes($withoutDistrict, AddressChannel::Api)['district'], 'a new address has none');
+        $this->assertNull($this->service()->structuredAttributes([...$withoutDistrict, 'city_id' => $this->ids['dammam']], AddressChannel::Api, $saved)['district'], 'the district belonged to the old city');
+        $this->assertNull($this->service()->structuredAttributes([...$withoutDistrict, 'district' => ''], AddressChannel::Api, $saved)['district'], 'sent empty means cleared');
+        $this->assertSame('Olaya', $this->service()->structuredAttributes([...$withoutDistrict, 'district' => 'Olaya'], AddressChannel::Api, $saved)['district']);
+    }
+
+    public function test_the_copy_an_order_holds_may_keep_a_place_that_was_switched_off_but_nothing_else_may_choose_it(): void
+    {
+        AddressSchema::setMode(AddressSchema::MODE_SOFT);
+        DB::table('address_cities')->whereIn('id', [$this->ids['khobar'], $this->ids['dammam']])->update(['is_active' => false]);
+        $copy = (object) ['city_id' => $this->ids['khobar'], 'region_id' => $this->ids['region_EAS'], 'country' => 'Saudi Arabia', 'national_address' => 'RAGI2929'];
+
+        $kept = $this->service()->structuredAttributes($this->submitted(), AddressChannel::Panel, $copy, mayKeepSwitchedOffPlace: true);
+        $this->assertSame($this->ids['khobar'], $kept['city_id'], 'a phone number is corrected without moving the delivery');
+
+        $this->assertArrayHasKey('city_id', $this->errorsOf(fn () => $this->service()->structuredAttributes($this->submitted(), AddressChannel::Panel, $copy)), 'a saved address may not');
+        $this->assertArrayHasKey('city_id', $this->errorsOf(fn () => $this->service()->structuredAttributes($this->submitted(['city_id' => $this->ids['dammam']]), AddressChannel::Panel, $copy, mayKeepSwitchedOffPlace: true)), 'moving to another switched-off city is a new choice');
+        $this->assertArrayHasKey('city_id', $this->errorsOf(fn () => $this->service()->structuredAttributes($this->submitted(), AddressChannel::Panel, (object) ['city_id' => $this->ids['dammam'], 'region_id' => $this->ids['region_EAS']], mayKeepSwitchedOffPlace: true)), 'only the place the copy already has');
+    }
+
+    public function test_a_text_that_names_a_region_is_not_read_as_a_city_of_that_name_elsewhere(): void
+    {
+        DB::table('address_cities')->insert([
+            'region_id' => $this->ids['region_MAK'], 'name_ar' => 'الشرقية', 'name_en' => 'Ash Sharqiyyah',
+            'normalized_ar' => AddressText::key('الشرقية'), 'normalized_en' => AddressText::key('Ash Sharqiyyah'),
+            'is_active' => true, 'source' => 'test', 'source_ref' => 'sharqiyyah', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $matcher = app(LegacyCityMatcher::class);
+
+        $conflict = $matcher->match('الشرقية');
+        $this->assertSame([CityMatchStatus::Conflict, null, 'city_text_names_another_region'], [$conflict->status, $conflict->city, $conflict->reason], 'the Eastern Province is not a village of Makkah');
+        $this->assertCount(1, $conflict->candidates, 'a person still sees the coincidence');
+        $this->assertSame('region_typed_as_city', $matcher->match('المنطقة الشرقية')->reason);
+        $this->assertSame('region_typed_as_city', $matcher->match('Eastern Province')->reason);
+        $this->assertSame('region_typed_as_city', $matcher->match('منطقة الرياض')->reason);
+        $this->assertSame('region_typed_as_city', $matcher->match('Riyadh Region')->reason);
+
+        $riyadh = $matcher->match('الرياض');
+        $this->assertSame([CityMatchStatus::Matched, $this->ids['riyadh']], [$riyadh->status, $riyadh->city?->id], 'a city that shares the name of its own region is still the city');
+        $this->assertSame($this->ids['makkah'], $matcher->match('مكة المكرمة')->city?->id);
+
+        DB::table('address_city_aliases')->insert(['city_id' => $this->ids['dammam'], 'alias' => 'الشرقية', 'normalized_alias' => AddressText::key('الشرقية'), 'source' => 'admin', 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertSame($this->ids['dammam'], $matcher->match('الشرقية')->city?->id, 'what an administrator decided about the text wins');
+    }
+
+    #[DataProvider('regionWords')]
+    public function test_a_text_that_calls_itself_a_region_is_recognised(?string $text, bool $names): void
+    {
+        $this->assertSame($names, AddressText::namesRegion($text));
+    }
+
+    /** @return array<string, array{0: ?string, 1: bool}> */
+    public static function regionWords(): array
+    {
+        return [
+            'region in arabic' => ['منطقة الرياض', true],
+            'region with the article' => ['المنطقة الشرقية', true],
+            'region in english' => ['Riyadh Region', true],
+            'province in english' => ['Eastern Province', true],
+            'a city' => ['الرياض', false],
+            'a city called so' => ['مدينة الرياض', false],
+            'a governorate is a city level' => ['محافظة جدة', false],
+            'a word that only starts like it' => ['Provincetown', false],
+            'blank' => ['  ', false],
+            'nothing' => [null, false],
+        ];
     }
 
     public function test_the_country_may_be_written_as_a_code_or_in_arabic(): void

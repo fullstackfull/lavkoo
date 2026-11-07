@@ -14,9 +14,10 @@ use InvalidArgumentException;
  * Loads a region and city data file into the master lists, repeatably and without ever deleting anything.
  *
  * A file is `{"_meta": {"source": ..., "snapshot_date": ...}, "regions": [...]}` or `{"_meta": ..., "cities": [...]}`. Every row keeps
- * the id the source gave it (`ref`), so running the same file again changes nothing and a newer file updates the same rows. An
- * administrator's choices survive an import: whether a place is active, and (unless names are explicitly refreshed) what it is called.
- * Places that a newer file no longer lists are reported, never removed — an address or an order may point at them.
+ * the id the source gave it (`ref`), so running the same file again changes nothing and a newer file updates the same rows: its
+ * rank, coordinates and source date. An administrator's choices survive an import: whether a place is active, and (unless names are
+ * explicitly refreshed) what it is called. Places that a newer file no longer lists are reported, never removed — an address or an
+ * order may point at them.
  */
 class AddressImporter
 {

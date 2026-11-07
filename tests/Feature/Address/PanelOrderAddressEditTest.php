@@ -230,6 +230,24 @@ class PanelOrderAddressEditTest extends PanelAddressTestCase
         $this->assertContains('error', $this->toastTypes());
     }
 
+    public function test_a_phone_can_be_corrected_on_an_order_whose_city_was_switched_off_since_but_the_delivery_cannot_move_to_another_switched_off_city(): void
+    {
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $this->insertPanelOrder(self::ORDER_ID, $this->unifiedSnapshot($this->ids));
+        AddressCity::whereKey([$this->ids['riyadh'], $this->ids['jeddah']])->update(['is_active' => false]);
+
+        $this->submit($this->structuredForm(['region_id' => $this->ids['region_RUH'], 'city_id' => $this->ids['riyadh'], 'phone_number' => '0558888888']))->assertRedirect();
+
+        $copy = $this->storedCopy(self::ORDER_ID);
+        $this->assertSame(['0558888888', $this->ids['riyadh']], [$copy['phone'], $copy['city_id']], 'the delivery stays where the order was placed');
+        $this->assertNotContains('error', $this->toastTypes());
+
+        $this->submit($this->structuredForm(['phone_number' => '0557777777']))->assertRedirect();
+
+        $this->assertSame(['0558888888', $this->ids['riyadh']], [$this->storedCopy(self::ORDER_ID)['phone'], $this->storedCopy(self::ORDER_ID)['city_id']], 'choosing another switched-off city is a new choice and is refused');
+        $this->assertContains('error', $this->toastTypes());
+    }
+
     public function test_entering_the_location_again_reads_the_names_again(): void
     {
         $this->setAddressMode(AddressSchema::MODE_SOFT);

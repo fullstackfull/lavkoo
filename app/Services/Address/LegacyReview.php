@@ -83,8 +83,8 @@ class LegacyReview
         }
 
         return DB::transaction(function () use ($typedText, $key, $city, $alias, $adminId): int {
-            $ids = $this->addresses->idsWithCityKey($key);
-            if ($ids === []) {
+            $spellings = $this->addresses->pairs()->filter(static fn (LegacyPair $pair): bool => $pair->cityKey === $key && $pair->city !== null);
+            if ($spellings->isEmpty()) {
                 throw ValidationException::withMessages(['text' => [translate('address_legacy_text_gone')]]);
             }
 
@@ -97,7 +97,7 @@ class LegacyReview
                 'created_by' => $adminId,
             ]);
 
-            $updated = $this->addresses->assign(ids: $ids, city: $city);
+            $updated = $spellings->sum(fn (LegacyPair $pair): int => $this->addresses->assignTypedAs(city: $pair->city, state: $pair->state, target: $city));
             $this->audit->record(action: 'address.legacy_city_confirmed', subject: $city, after: ['alias_id' => $alias->id, 'alias_created' => $created, 'addresses' => $updated]);
 
             return $updated;

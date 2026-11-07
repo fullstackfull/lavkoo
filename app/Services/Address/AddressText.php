@@ -20,6 +20,9 @@ final class AddressText
         'city', 'town', 'village', 'governorate', 'province', 'region', 'district', 'of',
     ];
 
+    /** The kind words that say a name is a whole region ("منطقة الرياض", "Riyadh Region", "Eastern Province"), never a city. */
+    private const REGION_KIND_WORDS = ['منطقه', 'region', 'province'];
+
     private const ENGLISH_ARTICLES = ['al', 'ar', 'as', 'ash', 'at', 'ath', 'ad', 'adh', 'an', 'az', 'el'];
 
     /** Longest first, so "ash" is tried before "as". */
@@ -39,6 +42,14 @@ final class AddressText
         $words = self::withoutLeadingArticle($words);
 
         return implode('', $words);
+    }
+
+    /** Does the text call itself a region? A region is not a city, so such a text is never read as one. */
+    public static function namesRegion(?string $text): bool
+    {
+        $normalized = ArabicText::normalize($text);
+
+        return $normalized !== '' && array_intersect(explode(' ', $normalized), self::REGION_KIND_WORDS) !== [];
     }
 
     /**

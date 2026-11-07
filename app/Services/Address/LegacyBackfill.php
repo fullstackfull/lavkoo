@@ -68,7 +68,7 @@ class LegacyBackfill
             $texts[$status][$pair->readingKey()] = true;
 
             if ($apply && $status === 'matched') {
-                $report['updated'] += DB::transaction(fn (): int => $this->addresses->assign(ids: $this->addresses->idsTypedAs(city: $pair->city, state: $pair->state), city: $match->city));
+                $report['updated'] += DB::transaction(fn (): int => $this->addresses->assignTypedAs(city: $pair->city, state: $pair->state, target: $match->city));
             }
         }
         $report['texts'] = array_map('count', $texts);

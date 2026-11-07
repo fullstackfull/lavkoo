@@ -12,8 +12,9 @@ use Illuminate\Support\Collection;
  * Reads the free-text city of an old address and says which city of the master list it is — only when that is certain.
  *
  * Certain means: an administrator-confirmed alias, or exactly one city whose Arabic or English name has the same key. Two cities
- * with that name (the list has many repeated names), a region text that points somewhere else, or no city at all are NOT matches,
- * and nothing is ever matched to a "nearest" or "similar" city. The old text is never changed by this class.
+ * with that name (the list has many repeated names), a region text that points somewhere else, a city text that is really the name of
+ * a region ("المنطقة الشرقية", "Asir"), or no city at all are NOT matches, and nothing is ever matched to a "nearest" or "similar" city.
+ * The old text is never changed by this class.
  */
 class LegacyCityMatcher
 {
@@ -33,17 +34,38 @@ class LegacyCityMatcher
                 : $this->confirmRegion($city, $regionText, 'alias');
         }
 
+        if (AddressText::namesRegion($cityText)) {
+            return $this->result(CityMatchStatus::None, null, collect(), 'region_typed_as_city');
+        }
+
         $candidates = AddressCity::query()
             ->with('region')
             ->where(static fn ($query) => $query->where('normalized_ar', $key)->orWhere('normalized_en', $key))
             ->orderBy('id')
             ->get();
 
+        if ($candidates->isNotEmpty() && $this->lieElsewhereThanTheRegionNamed($key, $candidates)) {
+            return $this->result(CityMatchStatus::Conflict, null, $candidates, 'city_text_names_another_region');
+        }
+
         return match ($candidates->count()) {
             0 => $this->result(CityMatchStatus::None, null, collect(), 'no_candidate'),
             1 => $this->confirmRegion($candidates->first(), $regionText, 'unique_name'),
             default => $this->narrowByRegion($candidates, $regionText),
         };
+    }
+
+    /**
+     * A typed "الشرقية" is the Eastern Province before it is a village called Al Sharqiyyah in Asir: when the text is the name of a region
+     * and none of the cities that share it lies in that region, the text names the region and the cities are coincidences.
+     *
+     * @param Collection<int, AddressCity> $candidates
+     */
+    private function lieElsewhereThanTheRegionNamed(string $key, Collection $candidates): bool
+    {
+        $named = $this->regionWithKey($key);
+
+        return $named !== null && $candidates->every(static fn (AddressCity $city): bool => $city->region_id !== $named->id);
     }
 
     /** @param Collection<int, AddressCity> $candidates */
@@ -73,7 +95,11 @@ class LegacyCityMatcher
     /** The region an old "state" text names, if it names exactly one. */
     private function regionOf(?string $regionText): ?AddressRegion
     {
-        $key = AddressText::key($regionText);
+        return $this->regionWithKey(AddressText::key($regionText));
+    }
+
+    private function regionWithKey(string $key): ?AddressRegion
+    {
         if ($key === '') {
             return null;
         }

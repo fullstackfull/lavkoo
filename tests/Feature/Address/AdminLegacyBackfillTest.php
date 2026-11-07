@@ -206,11 +206,36 @@ class AdminLegacyBackfillTest extends AdminAddressTestCase
         $free = $this->address(['city' => 'الرياض']);
         $taken = $this->address(['city' => 'الرياض', 'city_id' => $this->ids['jeddah'], 'region_id' => $this->ids['region_MAK']]);
 
-        $written = app(SavedSaudiAddresses::class)->assign(ids: [$free, $taken], city: $this->city('riyadh'));
+        $written = app(SavedSaudiAddresses::class)->assignTypedAs(city: 'الرياض', state: null, target: $this->city('riyadh'));
 
         $this->assertSame(1, $written);
         $this->assertSame($this->ids['riyadh'], (int) $this->addressRow($free)['city_id']);
         $this->assertSame($this->ids['jeddah'], (int) $this->addressRow($taken)['city_id'], 'a decision someone else made first stands');
+    }
+
+    public function test_an_address_its_owner_retyped_between_reading_and_writing_is_left_alone(): void
+    {
+        $stays = $this->address(['city' => 'الرياض']);
+        $retyped = $this->address(['city' => 'الرياض']);
+        $this->retypeBeforeTheNextAddressUpdate(addressId: $retyped, changes: ['city' => 'جدة']);
+
+        $written = app(SavedSaudiAddresses::class)->assignTypedAs(city: 'الرياض', state: null, target: $this->city('riyadh'));
+
+        $this->assertSame(1, $written);
+        $this->assertSame($this->ids['riyadh'], (int) $this->addressRow($stays)['city_id']);
+        $this->assertNull($this->addressRow($retyped)['city_id'], 'the row no longer says Riyadh, so Riyadh is not written to it');
+        $this->assertSame('جدة', $this->addressRow($retyped)['city']);
+    }
+
+    public function test_a_state_changed_between_reading_and_writing_is_left_alone_too(): void
+    {
+        $retyped = $this->address(['city' => 'الهفوف', 'state' => 'المنطقة الشرقية']);
+        $this->retypeBeforeTheNextAddressUpdate(addressId: $retyped, changes: ['state' => 'منطقة الرياض']);
+
+        $written = app(SavedSaudiAddresses::class)->assignTypedAs(city: 'الهفوف', state: 'المنطقة الشرقية', target: $this->city('hafuf_eas'));
+
+        $this->assertSame(0, $written, 'the match was certain only together with the state it was made for');
+        $this->assertNull($this->addressRow($retyped)['city_id']);
     }
 
     public function test_a_long_list_is_written_in_chunks_without_missing_a_row(): void

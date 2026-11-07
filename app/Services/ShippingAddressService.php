@@ -68,35 +68,57 @@ class ShippingAddressService
      * Returns [] when the structured address does not apply (mode off, a country other than Saudi Arabia, or a client that may
      * still send the old fields). Otherwise returns region_id, city_id, district, national_address plus the legacy `city`, `state`
      * and `country` text that go with them, or throws a ValidationException keyed by the input names. Nothing a client sends about
-     * a provider (city ids of a courier) is ever read. With the mode off, an old-form edit that moves an address which already has a
-     * region and city (matched by the backfill, or made while the mode was on) to another city or country returns those columns as
-     * null: the ids must never name a place the address no longer says.
+     * a provider (city ids of a courier) is ever read. An old-form edit that moves an address which already has a region and city
+     * (matched by the backfill, or made while the mode was on) to another city or country returns those columns as null: the ids must
+     * never name a place the address no longer says. A field the client did not send (the district) keeps its value, unless the city changed.
      *
      * @param array<string, mixed> $input region_id, city_id, district, national_address, country, phone
-     * @param object|null $existing the saved address being edited, so a missing country or a legacy edit of a structured address is judged correctly
+     * @param object|null $existing the saved address (or the order's copy) being edited, so a missing country or a legacy edit of a structured address is judged correctly
+     * @param bool $mayKeepSwitchedOffPlace the copy an order holds may keep the region and city it already has after they were switched off: a phone number is corrected without moving the delivery
      * @return array<string, mixed>
      * @throws ValidationException
      */
-    public function structuredAttributes(array $input, AddressChannel $channel, ?object $existing = null): array
+    public function structuredAttributes(array $input, AddressChannel $channel, ?object $existing = null, bool $mayKeepSwitchedOffPlace = false): array
     {
         if (!AddressSchema::enabled()) {
-            return $this->resetsStalePlace(input: $input, existing: $existing) ? array_fill_keys([...self::STRUCTURED_COLUMNS, 'state'], null) : [];
+            return $this->resetsStalePlace(input: $input, existing: $existing) ? $this->clearedPlace() : [];
         }
 
         $country = $input['country'] ?? $existing?->country ?? null;
         if (!AddressCountry::isSaudi($country)) {
-            return $existing !== null && $this->isStructured($existing) ? array_fill_keys(self::STRUCTURED_COLUMNS, null) : [];
+            return $existing !== null && $this->isStructured($existing) ? $this->clearedPlace() : [];
         }
 
         if (!$this->sentStructuredFields($input) && $this->mayStayLegacy($channel)) {
-            if ($existing !== null && $this->isStructured($existing)) {
-                throw ValidationException::withMessages(['address' => [translate('address_update_app_required')]]);
-            }
+            return $this->legacyClientEdit(input: $input, existing: $existing);
+        }
 
+        return $this->validated(input: $input, existing: $existing, mayKeepSwitchedOffPlace: $mayKeepSwitchedOffPlace);
+    }
+
+    /** The columns of an address that no longer names a place of the list, and the old region text that went with it. */
+    private function clearedPlace(): array
+    {
+        return array_fill_keys([...self::STRUCTURED_COLUMNS, 'state'], null);
+    }
+
+    /**
+     * A client that predates the structured address edits a Saudi address while the store is in `soft` mode. It cannot state a region,
+     * city or National Address, so it may only change an address that makes no claim on them: one with a National Address is refused
+     * (the old fields would leave it half changed), one that merely has a city (matched by the backfill) keeps it for as long as the
+     * old form still names the same city and country.
+     */
+    private function legacyClientEdit(array $input, ?object $existing): array
+    {
+        if ($existing === null || !$this->isStructured($existing)) {
             return [];
         }
 
-        return $this->validated($input);
+        if (trim((string) ($existing->national_address ?? '')) !== '') {
+            throw ValidationException::withMessages(['address' => [translate('address_update_app_required')]]);
+        }
+
+        return $this->resetsStalePlace(input: $input, existing: $existing) ? $this->clearedPlace() : [];
     }
 
     /** Does an old-form edit of a structured address change where it is? */
@@ -125,18 +147,22 @@ class ShippingAddressService
      * @param array<string, mixed> $input
      * @return array<string, mixed>
      */
-    private function validated(array $input): array
+    private function validated(array $input, ?object $existing, bool $mayKeepSwitchedOffPlace): array
     {
         $errors = [];
 
-        $region = $this->integer($input['region_id'] ?? null);
-        $region = $region === null ? null : $this->catalog->region($region);
+        $regionId = $this->integer($input['region_id'] ?? null);
+        $cityId = $this->integer($input['city_id'] ?? null);
+        $keepsPlace = $mayKeepSwitchedOffPlace && $this->holdsPlace(existing: $existing, regionId: $regionId, cityId: $cityId);
+
+        $region = $regionId === null ? null : $this->catalog->region($regionId, onlyActive: !$keepsPlace);
         if ($region === null) {
             $errors['region_id'] = [translate('address_region_invalid')];
         }
 
-        $city = $this->integer($input['city_id'] ?? null);
-        $city = ($city === null || $region === null) ? null : $this->catalog->activeCityInRegion($city, $region->id);
+        $city = ($cityId === null || $region === null)
+            ? null
+            : ($keepsPlace ? $this->catalog->cityInRegion($cityId, $region->id) : $this->catalog->activeCityInRegion($cityId, $region->id));
         if ($city === null) {
             $errors['city_id'] = [translate('address_city_invalid')];
         }
@@ -159,7 +185,7 @@ class ShippingAddressService
             throw ValidationException::withMessages($errors);
         }
 
-        return [
+        $attributes = [
             'region_id' => $region->id,
             'city_id' => $city->id,
             'district' => $district,
@@ -168,6 +194,22 @@ class ShippingAddressService
             'state' => $region->name_ar,
             'country' => AddressCountry::LEGACY_NAME,
         ];
+
+        // A district the client did not send stays as it was, unless the address moved to another city: it belongs to the old one.
+        if (!array_key_exists('district', $input) && (int) ($existing->city_id ?? 0) === $city->id) {
+            unset($attributes['district']);
+        }
+
+        return $attributes;
+    }
+
+    private function holdsPlace(?object $existing, ?int $regionId, ?int $cityId): bool
+    {
+        return $existing !== null
+            && $regionId !== null
+            && $cityId !== null
+            && (int) ($existing->region_id ?? 0) === $regionId
+            && (int) ($existing->city_id ?? 0) === $cityId;
     }
 
     /** @param array<string, mixed> $input */

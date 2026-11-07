@@ -26,8 +26,9 @@ use Illuminate\Support\Collection;
  * waiting for a person) — the order is held, and is never sent to a "nearest" city. The region of an address is a filter, never a
  * second guess at the city.
  *
- * Until the address and mapping tables have been migrated the resolver behaves as it always did: an alias, then a unique exact
- * match on the normalised name in the cached list.
+ * Until the address and mapping tables have been migrated the resolver keeps the old name matching: an alias, then a unique exact
+ * match on the normalised name in the cached list. The one difference is deliberate: the address's state text is no longer tried as
+ * a second city, because a region is not a guess at the city.
  *
  * Resolving only reads the local database, because the dispatcher asks while it holds a row lock.
  */

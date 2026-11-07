@@ -224,6 +224,20 @@ class AdminLegacyReviewTest extends AdminAddressTestCase
         $this->assertContains(translate('address_legacy_confirmed') . ' ' . translate('address_addresses_updated') . ': 3', $this->toasts());
     }
 
+    public function test_an_address_retyped_while_a_person_confirms_the_text_does_not_get_the_city(): void
+    {
+        $stays = $this->address(['city' => 'الهفوف']);
+        $retyped = $this->address(['city' => 'الهفوف']);
+        $this->retypeBeforeTheNextAddressUpdate(addressId: $retyped, changes: ['city' => 'جدة']);
+
+        $this->confirm('الهفوف', $this->ids['hafuf_eas'])->assertRedirect();
+
+        $this->assertSame($this->ids['hafuf_eas'], (int) $this->addressRow($stays)['city_id']);
+        $this->assertNull($this->addressRow($retyped)['city_id']);
+        $this->assertSame('جدة', $this->addressRow($retyped)['city']);
+        $this->assertSame(1, (int) json_decode(DB::table('audit_logs')->where('action', 'address.legacy_city_confirmed')->sole()->after, true)['addresses']);
+    }
+
     public function test_the_same_text_typed_with_other_spellings_of_it_is_covered_too(): void
     {
         $withArticle = $this->address(['city' => 'الهفوف']);

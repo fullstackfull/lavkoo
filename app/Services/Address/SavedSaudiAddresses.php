@@ -57,63 +57,37 @@ class SavedSaudiAddresses
     }
 
     /**
-     * The addresses typed with exactly this city and state text. The database finds them by comparing text, the keys then confirm each
-     * one, so a collation that treats two different spellings as equal can never make an address join a decision about another text.
+     * Gives the addresses typed with exactly this city and state text the city.
      *
-     * @return list<int>
-     */
-    public function idsTypedAs(?string $city, ?string $state): array
-    {
-        $query = $this->withoutCity()
-            ->when($city === null, static fn (Builder $inner) => $inner->whereNull('city'), static fn (Builder $inner) => $inner->where('city', $city))
-            ->when($state === null, static fn (Builder $inner) => $inner->whereNull('state'), static fn (Builder $inner) => $inner->where('state', $state));
-
-        $cityKey = AddressText::key($city);
-        $stateKey = AddressText::key($state);
-
-        return $this->confirmed($query, static fn (object $row): bool => AddressText::key($row->city) === $cityKey && AddressText::key($row->state) === $stateKey);
-    }
-
-    /**
-     * The addresses whose typed city has this key, whatever state they came with.
+     * The database finds them by comparing text and the keys then confirm each one, so a collation that treats two different spellings as
+     * equal can never make an address join a decision about another text. The write repeats the text condition, so an address whose owner
+     * retyped it in the meantime, or one that someone else has already given a city, is left alone.
      *
-     * @return list<int>
-     */
-    public function idsWithCityKey(string $cityKey): array
-    {
-        $spellings = $this->pairs()
-            ->filter(static fn (LegacyPair $pair): bool => $pair->cityKey === $cityKey && $pair->city !== null)
-            ->map(static fn (LegacyPair $pair): string => (string) $pair->city)
-            ->unique()
-            ->values()
-            ->all();
-
-        if ($spellings === []) {
-            return [];
-        }
-
-        return $this->confirmed($this->withoutCity()->whereIn('city', $spellings), static fn (object $row): bool => AddressText::key($row->city) === $cityKey);
-    }
-
-    /**
-     * Points these addresses at a city. An address that has meanwhile been given a city by someone else is left alone.
-     *
-     * @param list<int> $ids
      * @return int addresses written
      */
-    public function assign(array $ids, AddressCity $city): int
+    public function assignTypedAs(?string $city, ?string $state, AddressCity $target): int
     {
+        $cityKey = AddressText::key($city);
+        $stateKey = AddressText::key($state);
+        $ids = $this->confirmed($this->typedAs($city, $state), static fn (object $row): bool => AddressText::key($row->city) === $cityKey && AddressText::key($row->state) === $stateKey);
+
         $written = 0;
         foreach (array_chunk($ids, self::WRITE_CHUNK) as $chunk) {
             // The base query builder, not the model: the model would also move updated_at, which says when a customer last changed an address.
-            $written += ShippingAddress::query()
+            $written += $this->typedAs($city, $state)
                 ->whereIn('id', $chunk)
-                ->whereNull('city_id')
                 ->toBase()
-                ->update(['region_id' => $city->region_id, 'city_id' => $city->id]);
+                ->update(['region_id' => $target->region_id, 'city_id' => $target->id]);
         }
 
         return $written;
+    }
+
+    private function typedAs(?string $city, ?string $state): Builder
+    {
+        return $this->withoutCity()
+            ->when($city === null, static fn (Builder $inner) => $inner->whereNull('city'), static fn (Builder $inner) => $inner->where('city', $city))
+            ->when($state === null, static fn (Builder $inner) => $inner->whereNull('state'), static fn (Builder $inner) => $inner->where('state', $state));
     }
 
     /**

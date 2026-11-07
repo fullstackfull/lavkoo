@@ -108,6 +108,20 @@ abstract class AdminAddressTestCase extends TestCase
         ]);
     }
 
+    /** Lets the owner of this address retype it at the moment the next UPDATE of the address book is about to run: the race a batch write must survive. */
+    protected function retypeBeforeTheNextAddressUpdate(int $addressId, array $changes): void
+    {
+        $done = false;
+        DB::beforeExecuting(static function (string $query) use (&$done, $addressId, $changes): void {
+            if ($done || preg_match('/^update\s+[`"]shipping_addresses[`"]/i', $query) !== 1) {
+                return;
+            }
+
+            $done = true;
+            DB::table('shipping_addresses')->where('id', $addressId)->update($changes);
+        });
+    }
+
     /** @return array<string, mixed> the stored row, for comparing before and after */
     protected function addressRow(int $id): array
     {

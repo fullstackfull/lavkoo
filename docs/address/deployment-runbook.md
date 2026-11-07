@@ -74,7 +74,7 @@ If any of this differs from before, run `deploy.php rollback` (pilot runbook, se
 
    ```bash
    php artisan address:import                    # dry run: counts of regions, cities and aliases it would add or change
-   php artisan address:import --apply            # 13 regions, 4,581 places, 57 curated spellings; never deletes, keeps administrator edits
+   php artisan address:import --apply            # 13 regions, 4,581 places, 57 curated spellings; never deletes, keeps which places are switched off and what was renamed
    ```
 
    The same is available in the admin panel (*Address system → Import*: preview, then a confirmed apply). Open *Address system → Cities* and look: the capital cities are listed first in each region; switch off what you do not want offered.
