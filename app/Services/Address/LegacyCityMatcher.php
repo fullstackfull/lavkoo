@@ -24,7 +24,7 @@ class LegacyCityMatcher
     {
         $key = AddressText::key($cityText);
         if ($key === '') {
-            return $this->result(CityMatchStatus::None, null, collect(), 'empty_city');
+            return $this->result(status: CityMatchStatus::None, city: null, candidates: collect(), reason: 'empty_city');
         }
 
         $alias = AddressCityAlias::query()->where('normalized_alias', $key)->first();
@@ -32,12 +32,12 @@ class LegacyCityMatcher
             $city = AddressCity::query()->with('region')->find($alias->city_id);
 
             return $city === null
-                ? $this->result(CityMatchStatus::None, null, collect(), 'alias_city_missing')
+                ? $this->result(status: CityMatchStatus::None, city: null, candidates: collect(), reason: 'alias_city_missing')
                 : $this->confirmRegion($city, $regionText, 'alias');
         }
 
         if (AddressText::namesRegion($cityText)) {
-            return $this->result(CityMatchStatus::None, null, collect(), 'region_typed_as_city');
+            return $this->result(status: CityMatchStatus::None, city: null, candidates: collect(), reason: 'region_typed_as_city');
         }
 
         $candidates = AddressCity::query()
@@ -47,11 +47,11 @@ class LegacyCityMatcher
             ->get();
 
         if ($candidates->isNotEmpty() && $this->lieElsewhereThanTheRegionNamed($key, $candidates)) {
-            return $this->result(CityMatchStatus::Conflict, null, $candidates, 'city_text_names_another_region');
+            return $this->result(status: CityMatchStatus::Conflict, city: null, candidates: $candidates, reason: 'city_text_names_another_region');
         }
 
         return match ($candidates->count()) {
-            0 => $this->result(CityMatchStatus::None, null, collect(), 'no_candidate'),
+            0 => $this->result(status: CityMatchStatus::None, city: null, candidates: collect(), reason: 'no_candidate'),
             1 => $this->uniqueName($candidates->first(), $regionText),
             default => $this->narrowByRegion($candidates, $regionText),
         };
@@ -82,7 +82,7 @@ class LegacyCityMatcher
             return $match;
         }
 
-        return $this->result(CityMatchStatus::Unconfirmed, null, collect([$city]), 'unique_name_of_a_small_place');
+        return $this->result(status: CityMatchStatus::Unconfirmed, city: null, candidates: collect([$city]), reason: 'unique_name_of_a_small_place');
     }
 
     /** @param Collection<int, AddressCity> $candidates */
@@ -92,21 +92,21 @@ class LegacyCityMatcher
         if ($region !== null) {
             $inRegion = $candidates->where('region_id', $region->id)->values();
             if ($inRegion->count() === 1) {
-                return $this->result(CityMatchStatus::Matched, $inRegion->first(), collect(), 'unique_name_in_region');
+                return $this->result(status: CityMatchStatus::Matched, city: $inRegion->first(), candidates: collect(), reason: 'unique_name_in_region');
             }
         }
 
-        return $this->result(CityMatchStatus::Ambiguous, null, $candidates, 'ambiguous_name');
+        return $this->result(status: CityMatchStatus::Ambiguous, city: null, candidates: $candidates, reason: 'ambiguous_name');
     }
 
     private function confirmRegion(AddressCity $city, ?string $regionText, string $reason): CityMatch
     {
         $region = $this->regionOf($regionText);
         if ($region !== null && $region->id !== $city->region_id) {
-            return $this->result(CityMatchStatus::Conflict, null, collect([$city]), 'region_conflict');
+            return $this->result(status: CityMatchStatus::Conflict, city: null, candidates: collect([$city]), reason: 'region_conflict');
         }
 
-        return $this->result(CityMatchStatus::Matched, $city, collect(), $reason);
+        return $this->result(status: CityMatchStatus::Matched, city: $city, candidates: collect(), reason: $reason);
     }
 
     /** The region an old "state" text names, if it names exactly one. */

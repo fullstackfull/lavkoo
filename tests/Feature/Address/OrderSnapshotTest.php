@@ -30,10 +30,7 @@ class OrderSnapshotTest extends ApiAddressTestCase
         return json_decode((string) DB::table('orders')->where('id', $orderId)->value($column), true);
     }
 
-    /**
-     * @param array<int|string, mixed> $carts
-     * @return array<int, array<string, mixed>>
-     */
+    /** @return array<int, array<string, mixed>> */
     private function cartGroups(?int $shippingId, ?int $billingId, int $groups = 1): array
     {
         return array_fill(0, $groups, ['cart_group_id' => 'g', 'shipping_address_id' => $shippingId, 'billing_address_id' => $billingId]);
@@ -175,16 +172,18 @@ class OrderSnapshotTest extends ApiAddressTestCase
         $this->assertFalse(AddressSnapshot::isUnified($snapshot));
     }
 
-    public function test_the_delivery_city_comes_from_the_copy_the_order_kept_and_the_saved_address_only_when_it_kept_none(): void
+    public function test_the_delivery_city_comes_from_the_copy_the_order_kept_and_the_saved_address_only_when_the_copy_names_none(): void
     {
         $saved = $this->makeLegacyAddress(5, overrides: ['city' => 'جدة']);
         $this->insertOrder(100, ['shipping_address' => $saved->id, 'shipping_address_data' => json_encode(['city' => 'الرياض'])]);
         $this->insertOrder(101, ['shipping_address' => $saved->id, 'shipping_address_data' => null]);
         $this->insertOrder(102, ['shipping_address' => null, 'shipping_address_data' => null]);
+        $this->insertOrder(103, ['shipping_address' => $saved->id, 'shipping_address_data' => json_encode(['address' => 'King Fahd Rd', 'city' => ' '])]);
 
         $this->assertSame('الرياض', Order::findOrFail(100)->deliveryCity(), 'the customer moving the saved address later does not move a past order');
         $this->assertSame('جدة', Order::findOrFail(101)->deliveryCity());
         $this->assertNull(Order::findOrFail(102)->deliveryCity());
+        $this->assertSame('جدة', Order::findOrFail(103)->deliveryCity(), 'a sparse copy that names no city reads like the old page: the saved address');
     }
 
     public function test_the_existing_property_accessors_of_the_order_are_unchanged(): void
@@ -430,7 +429,7 @@ class OrderSnapshotTest extends ApiAddressTestCase
         $this->assertSame(['21589', 'Tahlia St', $this->ids['jeddah'], $this->ids['region_MAK'], 'Jeddah', 'JEDD1111', 'unified'], [
             $copy['zip'], $copy['address'], $copy['city_id'], $copy['region_id'], $copy['city_name_en'], $copy['national_address'], $copy['address_schema'],
         ]);
-        $this->assertSame($claim, auction_address_snapshot($claim), 'a claim from the module\'s own form, which still sends the old fields, keeps exactly the keys it was given in every mode');
+        $this->assertSame($claim, auction_address_snapshot($claim), 'a claim from the claim page, which still posts the old fields, keeps exactly the keys it was given in every mode');
         $this->assertSame(['city' => 'Jeddah'], auction_address_snapshot(['city' => 'Jeddah']), 'no technical key is added to what the claim page prints');
     }
 }

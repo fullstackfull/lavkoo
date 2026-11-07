@@ -418,8 +418,9 @@ if (!function_exists('auction_entry_fee_fail')) {
     }
 }
 
-// The address a claim was paid with. The claim form is the auction module's own and still sends the old fields, so a claim keeps exactly the keys it was
-// given; only one that already names a city of the list is turned into a copy that also carries the names of its region and city.
+// The address a claim was paid with. The claim page (a view of this repository) still posts the old fields, a typed city and ZIP, to the auction module's own
+// route, which is not in this repository, so a claim keeps exactly the keys it was given; only one that already names a city of the list is turned into
+// a copy that also carries the names of its region and city.
 if (!function_exists('auction_address_snapshot')) {
     function auction_address_snapshot(mixed $addressInfo): mixed
     {

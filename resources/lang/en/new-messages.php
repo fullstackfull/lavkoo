@@ -9075,8 +9075,6 @@ return [
 	'address_choose_region_first' => 'Choose a region first',
 	'address_no_cities_found' => 'No city matches your search',
 	'address_loading' => 'Loading…',
-	'address_postal_code_optional' => 'Postal code (optional)',
-	'address_search_region' => 'Search regions',
 	'address_city_load_failed' => 'The city list could not be loaded. Try again in a moment.',
 	'address_select_from_list' => 'Choose a city from the list.',
 	'address_national_address_format_hint' => 'Use four English letters (A–Z) followed by four digits, for example RAGI2929.',

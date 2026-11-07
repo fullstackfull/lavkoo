@@ -165,18 +165,22 @@
                     var chosen = document.getElementById(chosenId);
                     var hidden = document.getElementById(hiddenId);
                     var timer = null;
+                    var latest = 0;
                     input.addEventListener('input', function () {
                         hidden.value = '';
                         chosen.textContent = '';
                         form.querySelector('#manual-city-submit').disabled = true;
                         clearTimeout(timer);
+                        latest++;
                         timer = setTimeout(function () {
+                            var current = ++latest;
                             fetch(input.dataset.url + '?q=' + encodeURIComponent(input.value), {headers: {'Accept': 'application/json'}})
                                 .then(function (response) {
                                     if (!response.ok) { throw new Error('status ' + response.status); }
                                     return response.json();
                                 })
                                 .then(function (found) {
+                                    if (current !== latest) { return; }
                                     results.textContent = '';
                                     found.forEach(function (item) {
                                         var option = document.createElement('button');
@@ -193,6 +197,7 @@
                                     });
                                 })
                                 .catch(function () {
+                                    if (current !== latest) { return; }
                                     var failure = document.createElement('div');
                                     failure.className = 'list-group-item text-danger py-1';
                                     failure.textContent = form.dataset.error;

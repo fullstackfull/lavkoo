@@ -274,7 +274,6 @@ class SystemController extends Controller
         $failedFormPrefix = '';
         try {
             [$addressId, $billingAddressId] = DB::transaction(function () use ($shipping, $billing, $billingFormPosted, &$failedFormPrefix): array {
-                $failedFormPrefix = '';
                 $addressId = isset($shipping['shipping_method_id']) ? $this->storefrontAddresses->saveFromCheckout(posted: $shipping, billing: false) : 0;
                 $billingAddressId = $addressId;
                 if ($billingFormPosted) {

@@ -5,11 +5,15 @@ namespace Tests\Feature\Address;
 use App\Models\AddressCity;
 use App\Models\AddressRegion;
 use App\Services\Address\AddressCatalog;
+use App\Services\Address\AddressCatalogEditor;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Address\AddressText;
+use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use PDOException;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Administering the lists: regions are renamed and switched on or off; cities are searched, added, edited and switched on or off.
@@ -452,6 +456,62 @@ class AdminAddressCatalogTest extends AdminAddressTestCase
         $this->assertSame($otherRow, $this->addressRow($other), 'other cities are untouched');
         $this->assertSame($snapshot, DB::table('orders')->where('id', 501)->value('shipping_address_data'), 'the order keeps the region it was placed with');
         $this->assertNotNull(app(AddressCatalog::class)->activeCityInRegion($city->id, $this->ids['region_RUH']), 'and the pair still validates');
+    }
+
+    /** Makes the statements that match the pattern fail, a given number of times, the way InnoDB reports a deadlock: Laravel runs the transaction again. */
+    private function failWithADeadlockBefore(string $statementPattern, int $times): void
+    {
+        $failures = 0;
+        DB::beforeExecuting(static function (string $query, array $bindings, Connection $connection) use (&$failures, $statementPattern, $times): void {
+            if ($failures >= $times || preg_match($statementPattern, $query) !== 1) {
+                return;
+            }
+
+            $failures++;
+            throw new QueryException($connection->getName(), $query, $bindings, new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction', 40001));
+        });
+    }
+
+    /** @return array<string, array{0: string}> the statement of the move that is made to fail once */
+    public static function statementsOfAMove(): array
+    {
+        return [
+            'the update of the saved addresses' => ['/^update\s+[`"]shipping_addresses[`"]/i'],
+            'the save of the city itself' => ['/^update\s+[`"]address_cities[`"]/i'],
+        ];
+    }
+
+    #[DataProvider('statementsOfAMove')]
+    public function test_a_move_of_a_city_that_is_run_again_after_a_deadlock_still_moves_the_city_and_its_addresses_and_is_audited_once(string $failingStatement): void
+    {
+        $this->signInWithTheCatalog();
+        $city = $this->city('taif');
+        $address = $this->address(['city' => $city->name_ar, 'region_id' => $city->region_id, 'city_id' => $city->id, 'national_address' => 'TAIF1234']);
+        $this->failWithADeadlockBefore(statementPattern: $failingStatement, times: 1);
+
+        $returned = app(AddressCatalogEditor::class)->updateCity($city, ['region_id' => $this->ids['region_RUH'], 'name_ar' => $city->name_ar, 'name_en' => $city->name_en]);
+
+        $this->assertSame($this->ids['region_RUH'], (int) $returned->region_id);
+        $this->assertSame($this->ids['region_RUH'], (int) DB::table('address_cities')->where('id', $city->id)->value('region_id'), 'the city really moved');
+        $this->assertSame($this->ids['region_RUH'], (int) $this->addressRow($address)['region_id'], 'and its saved address followed');
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'address.city_updated')->count());
+    }
+
+    public function test_a_move_of_a_city_that_keeps_meeting_a_deadlock_fails_and_leaves_the_city_the_addresses_and_the_audit_log_as_they_were(): void
+    {
+        $this->signInWithTheCatalog();
+        $city = $this->city('taif');
+        $address = $this->address(['city' => $city->name_ar, 'region_id' => $city->region_id, 'city_id' => $city->id, 'national_address' => 'TAIF1234']);
+        $this->failWithADeadlockBefore(statementPattern: '/^update\s+[`"]shipping_addresses[`"]/i', times: 100);
+
+        try {
+            app(AddressCatalogEditor::class)->updateCity($city, ['region_id' => $this->ids['region_RUH'], 'name_ar' => $city->name_ar, 'name_en' => $city->name_en]);
+            $this->fail('The deadlock was not reported.');
+        } catch (QueryException) {
+            $this->assertSame($this->ids['region_MAK'], (int) DB::table('address_cities')->where('id', $city->id)->value('region_id'));
+            $this->assertSame($this->ids['region_MAK'], (int) $this->addressRow($address)['region_id']);
+            $this->assertSame(0, DB::table('audit_logs')->where('action', 'address.city_updated')->count());
+        }
     }
 
     public function test_the_edit_form_remembers_what_was_typed_when_a_save_is_refused(): void

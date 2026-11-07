@@ -6,6 +6,7 @@ use App\Models\AddressCity;
 use App\Models\BusinessSetting;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
 
 /**
  * Is the structured address available on this database, and how strictly is it applied?
@@ -145,7 +146,7 @@ final class AddressSchema
     public static function setMode(string $mode): void
     {
         if (!in_array($mode, self::MODES, true)) {
-            throw new \InvalidArgumentException('Unknown address mode.');
+            throw new InvalidArgumentException('Unknown address mode.');
         }
 
         BusinessSetting::updateOrCreate(['type' => self::SETTING], ['value' => json_encode($mode)]);

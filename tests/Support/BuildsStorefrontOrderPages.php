@@ -85,7 +85,6 @@ trait BuildsStorefrontOrderPages
         return Order::findOrFail($id);
     }
 
-    /** @param array<string, mixed> $overrides */
     protected function renderOrderDetails(Order $order): string
     {
         return view('web-views.users-profile.account-order-details', [

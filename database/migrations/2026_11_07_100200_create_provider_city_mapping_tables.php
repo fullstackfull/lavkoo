@@ -29,7 +29,7 @@ return new class extends Migration
                 $table->unsignedBigInteger('address_city_id');
                 $table->string('external_city_id', 32);
                 $table->string('external_region_id', 32)->nullable();
-                $table->string('country_code', 2)->default('SA');
+                $table->string('country_code', 2)->nullable()->comment('null: the provider did not say which country its city is in');
                 $table->string('status', 16)->default('pending');
                 $table->string('method', 24)->nullable();
                 $table->unsignedTinyInteger('approved_slot')->nullable();

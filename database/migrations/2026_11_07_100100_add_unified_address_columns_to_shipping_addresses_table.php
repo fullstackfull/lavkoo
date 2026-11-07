@@ -11,9 +11,10 @@ use Illuminate\Support\Facades\Schema;
  * default, no backfill, no foreign key. `city`, `zip`, `state` and `address` stay exactly as they are — old rows, reports, the
  * ZIP-based delivery restriction and every API that reads them keep working. A row without `city_id` is a legacy address.
  *
- * Rolling back drops the columns this migration made and nothing else: a column of the same name that the table already had carries
- * none of this migration's indexes, so it is recognised as not ours and left alone. (The installation dump has none of the four names;
- * the runbook asks for a look at the table before migrating.) No existing value is touched either way.
+ * Rolling back drops a column only together with the index this migration created for it: `region_id`, `city_id` and
+ * `national_address` each have one, and the district has none of its own, so it goes with the National Address index. A column of
+ * one of these names that the table already had would therefore be dropped with its data, which is why the runbook has the table
+ * looked at before migrating (the installation dump has none of the four names). Going up touches no existing value.
  */
 return new class extends Migration
 {
