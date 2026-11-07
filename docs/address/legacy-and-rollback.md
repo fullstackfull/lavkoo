@@ -63,7 +63,7 @@ Do only as many steps as you need, in this order: step 3 needs the files that st
    Always with the four `--path` options and never without them: a bare `migrate:rollback` would undo the *last batch*, whatever it contains.
 
    ```bash
-   php artisan migrate:status | grep 2026_11_07_10                       # all four must show the same batch number
+   php artisan migrate:status | grep -E 'create_address_master_tables|unified_address_columns|provider_city_mapping_tables|directory_columns_to_provider_cities'   # all four must show the same batch number
    php artisan migrate:rollback \
        --path=database/migrations/2026_11_07_100000_create_address_master_tables.php \
        --path=database/migrations/2026_11_07_100100_add_unified_address_columns_to_shipping_addresses_table.php \
