@@ -62,6 +62,12 @@ class PlatformProcurement
             ->limit($limit));
     }
 
+    /** One line of any order, received or not (null when the platform has no such line). */
+    public function line(int $lineId): ?PurchaseLine
+    {
+        return $this->lines(DB::table('purchase_order_items as item')->join('purchase_orders as po', 'po.id', '=', 'item.purchase_order_id')->where('item.id', $lineId)->limit(1))[0] ?? null;
+    }
+
     /**
      * The lines of one product that were received most recently (by their last change), newest first.
      *
