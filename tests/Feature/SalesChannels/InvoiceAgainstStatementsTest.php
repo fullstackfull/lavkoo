@@ -209,6 +209,19 @@ class InvoiceAgainstStatementsTest extends AdminPagesTestCase
         $this->assertStringContainsString(e(translate('compared_with_the_channel_statements_not_an_estimate')), $html);
     }
 
+    public function test_reconciling_from_the_screen_sets_the_statement_lines_against_the_statements_again_and_says_how_many(): void
+    {
+        $this->statementsOfNovember();
+        $invoice = $this->invoice('TY-NOV');
+        app(InvoiceService::class)->approve($invoice, 1);
+
+        $this->post(route('admin.operational-costs.invoices.reconcile', $invoice->id))->assertRedirect();
+
+        $this->assertContains(translate('invoice_lines_compared_with_the_channel_statements') . ': 1', $this->flashedToasts());
+        $this->assertSame(1, OperationalCostReconciliation::where('invoice_id', $invoice->id)->count(), 'The same row, set again.');
+        $this->assertSame('55.000000', $this->effectiveCommission());
+    }
+
     // ---- one fee, four sources ------------------------------------------------------------------------------------------
 
     public function test_the_same_fee_told_by_the_estimate_the_api_a_statement_file_and_an_invoice_is_one_cost_in_the_profit(): void

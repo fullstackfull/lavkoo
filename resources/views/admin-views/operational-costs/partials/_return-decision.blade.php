@@ -2,7 +2,6 @@
      Expects $line (ExternalOrderLine), $standing (ReturnDecisionService::standing()), $locations (the active locations of the order's seller) and $canDecide (may this admin decide). --}}
 @use('App\Http\Controllers\Admin\OperationalCosts\CostFormat')
 @use('App\Services\OperationalCosts\Returns\ReturnDecisionService')
-@use('Illuminate\Support\Str')
 @php
     $awaiting = $standing['awaiting'];
     $recording = $awaiting === [] && $standing['canRecordAReturn'];
@@ -38,7 +37,7 @@
             @include('admin-views.operational-costs.partials._return-decision-form', ['claim' => substr($event, strlen(ReturnDecisionService::CLAIM_PREFIX)), 'token' => null, 'units' => $units, 'restockUnits' => $units])
         @endforeach
         @if ($recording)
-            @include('admin-views.operational-costs.partials._return-decision-form', ['claim' => null, 'token' => (string) Str::uuid(), 'units' => null, 'restockUnits' => 1])
+            @include('admin-views.operational-costs.partials._return-decision-form', ['claim' => null, 'token' => (string) $standing['decidedUnits'], 'units' => null, 'restockUnits' => 1])
         @endif
     @endif
 </div>

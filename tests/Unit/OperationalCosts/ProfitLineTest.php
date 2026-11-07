@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\OperationalCosts;
 
+use App\Services\OperationalCosts\Profit\ConversionGaps;
 use App\Services\OperationalCosts\Profit\CostBucket;
 use App\Services\OperationalCosts\Profit\ProfitResult;
 use App\Services\OperationalCosts\Profit\ProfitRow;
@@ -75,5 +76,29 @@ class ProfitLineTest extends TestCase
         $this->assertTrue($line->costed);
         $this->assertSame('0.00', $line->estimatedCost()->toDisplay());
         $this->assertSame('300.00', $line->estimatedProfit()->toDisplay());
+    }
+
+    public function test_a_line_is_complete_only_when_no_sale_has_a_gap_no_cost_is_missing_and_no_amount_was_left_out(): void
+    {
+        $plain = new ProfitRow('50', '50');
+        $leftOut = new ProfitRow('51', '51');
+        $leftOut->gaps = (new ConversionGaps())->withRevenue('EUR');
+        $missing = new ProfitRow('52', '52');
+        $missing->missingCosts = 1;
+        $counted = new ProfitRow('trendyol', 'trendyol');
+        $counted->incompleteActual = 2;
+
+        $this->assertTrue(ProfitLine::ofRow($plain, 'A', groupsSales: false)->complete(settled: false));
+        $this->assertFalse(ProfitLine::ofRow($leftOut, 'B', groupsSales: false)->complete(settled: false), 'A product adds up sale lines, not sales: its counters say nothing about its gaps.');
+        $this->assertFalse(ProfitLine::ofRow($leftOut, 'B', groupsSales: false)->complete(settled: true));
+        $this->assertFalse(ProfitLine::ofRow($missing, 'C', groupsSales: false)->complete(settled: false));
+        $this->assertTrue(ProfitLine::ofRow($counted, 'D', groupsSales: true)->complete(settled: false), 'Its estimated figures have no gap; its actual ones do.');
+        $this->assertFalse(ProfitLine::ofRow($counted, 'D', groupsSales: true)->complete(settled: true));
+    }
+
+    public function test_a_sale_is_complete_when_the_profit_service_says_so(): void
+    {
+        $this->assertTrue(ProfitLine::ofResult($this->sale(['shipping' => new CostBucket('shipping', 'fulfillment')]))->complete(settled: true));
+        $this->assertFalse(ProfitLine::ofResult($this->sale([]))->complete(settled: false), 'Nothing was recorded for it.');
     }
 }

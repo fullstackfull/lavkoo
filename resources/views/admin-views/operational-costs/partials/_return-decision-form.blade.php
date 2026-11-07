@@ -1,5 +1,6 @@
-{{-- One return decision: units to put back on the shelf and where, and damaged units to write off. For a claim the channel accepted the two numbers must add up to its units ($units); for a
-     return a person records ($claim is null) the token makes a double submit one decision. Expects $line, $locations, $claim, $token, $units, $restockUnits and $defaultLocation. --}}
+{{-- One return decision: units to put back on the shelf and where, and damaged units to write off. For a claim the channel accepted the two numbers must add up to the units it
+     has not had decided ($units); for a return a person records ($claim is null) the token is the number of units already decided on the line, the same for every form opened at the
+     same moment, so a double submit and two people recording one parcel are one decision. Expects $line, $locations, $claim, $token, $units, $restockUnits and $defaultLocation. --}}
 <form method="POST" action="{{ route('admin.operational-costs.returns.decide', $line->id) }}" class="row g-2 align-items-end mt-1" data-return-form>@csrf
     @if ($claim !== null)<input type="hidden" name="claim" value="{{ $claim }}">@else<input type="hidden" name="token" value="{{ $token }}">@endif
     <div class="col-12 fs-12 fw-semibold">{{ $claim !== null ? translate('return_accepted_by_the_channel') . ' · ' . $units . ' ' . translate('units') : translate('return_received') }}</div>

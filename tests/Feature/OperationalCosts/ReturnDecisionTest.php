@@ -9,29 +9,13 @@ use App\Models\InventoryCostLayer;
 use App\Models\InventoryLocation;
 use App\Models\OperationalCostEntry;
 use App\Models\OperationalCostReturnDecision;
-use App\Models\SalesChannelAccount;
-use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\OperationalCosts\Profit\ProfitabilityService;
-use App\Services\OperationalCosts\Returns\InvalidReturnDecision;
-use App\Services\OperationalCosts\Returns\ReturnDecisionResult;
-use App\Services\OperationalCosts\Returns\ReturnDecisionService;
 use App\Services\OperationalCosts\Sales\SaleCostService;
 use App\Services\OperationalCosts\Sales\SaleDocumentReader;
-use App\Services\OperationalCosts\Support\Money;
 use App\Services\SalesChannels\Support\ChannelSettings;
 use App\Services\SalesChannels\Sync\ChannelSyncService;
-use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Sleep;
-use Tests\Support\BuildsAuditLogTable;
-use Tests\Support\BuildsSalesChannelSchema;
-use Tests\Support\CreatesChannelAccounts;
-use Tests\Support\CreatesOperationalCostData;
-use Tests\Support\CreatesReturnableSales;
-use Tests\Support\FakeCurrencyRates;
 use Tests\Support\Fixtures\TrendyolFixtures as Trendyol;
-use Tests\TestCase;
 
 /**
  * Returned units are decided, not assumed: put back on the shelf at the cost they left at (a layer, and that part of the cost of goods reversed), or written off as damaged (the cost
@@ -40,70 +24,8 @@ use Tests\TestCase;
  *
  * The figures are invented: a line of 3 units sold from the own warehouse, bought at 10.00 each, so its cost of goods is 30.00.
  */
-class ReturnDecisionTest extends TestCase
+class ReturnDecisionTest extends ReturnsTestCase
 {
-    use BuildsAuditLogTable;
-    use BuildsSalesChannelSchema;
-    use CreatesChannelAccounts;
-    use CreatesOperationalCostData;
-    use CreatesReturnableSales;
-
-    private const TY = 'https://apigw.trendyol.com/integration';
-
-    private SalesChannelAccount $account;
-
-    private InventoryLocation $warehouse;
-
-    private ReturnDecisionService $returns;
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->buildSalesChannelSchema();
-        $this->buildAuditLogTable();
-        $this->app->bind(CurrencyRateSource::class, fn () => new FakeCurrencyRates());
-        config(['operational_costs.base_currency' => 'SAR', 'fulfillment.currency' => 'SAR', 'sales_channels.enabled' => true]);
-        Http::preventStrayRequests();
-        Sleep::fake();
-        Cache::flush();
-        $this->travelTo(CarbonImmutable::parse('2026-11-06 12:00:00 UTC'));
-        $this->account = $this->trendyolAccount();
-        $this->costChannelAccounts['trendyol'] = $this->account;
-        $this->warehouse = $this->stockLocation('Own warehouse', type: InventoryLocation::TYPE_OWN, provider: null);
-        $this->returns = app(ReturnDecisionService::class);
-    }
-
-    private function soldLine(int $stock = 10, string $status = 'shipped'): ExternalOrderLine
-    {
-        return $this->returnableSale($this->account, $this->warehouse, $stock, $status);
-    }
-
-    private function cogsNet(ExternalOrderLine $line): string
-    {
-        return Money::sum(OperationalCostEntry::where('subject_type', 'channel_order_line')->where('subject_id', $line->id)->where('cost_component', 'cogs')->where('is_effective', true)->pluck('amount'))->toStorage();
-    }
-
-    private function onShelf(): int
-    {
-        return (int) InventoryCostLayer::where('status', 'open')->sum('quantity_remaining');
-    }
-
-    private function decide(ExternalOrderLine $line, string $event, int $restock, int $writeOff = 0, ?int $location = null, ?int $admin = 1): ReturnDecisionResult
-    {
-        return $this->returns->decide($line, $event, $restock, $writeOff, $location ?? $this->warehouse->id, $admin, 'checked at the counter');
-    }
-
-    /** @param callable(): mixed $action */
-    private function assertRefused(string $reason, callable $action): void
-    {
-        try {
-            $action();
-            $this->fail("Expected the decision to be refused: {$reason}.");
-        } catch (InvalidReturnDecision $refused) {
-            $this->assertSame($reason, $refused->reason);
-        }
-    }
-
     // ---- restock ---------------------------------------------------------------------------------------------------------
 
     public function test_units_of_an_accepted_claim_go_back_at_the_cost_they_left_at_and_that_part_of_the_cost_of_goods_is_reversed(): void
@@ -222,10 +144,10 @@ class ReturnDecisionTest extends TestCase
     {
         $line = $this->soldLine();
 
-        $this->assertRefused('more_than_sold', fn () => $this->decide($line, 'manual:token-1', restock: 4));
-        $this->decide($line, 'manual:token-1', restock: 2);
-        $this->assertRefused('more_than_sold', fn () => $this->decide($line->fresh(), 'manual:token-2', restock: 2));
-        $this->decide($line->fresh(), 'manual:token-2', restock: 0, writeOff: 1);
+        $this->assertRefused('more_than_sold', fn () => $this->decide($line, 'manual:0', restock: 4));
+        $this->decide($line, 'manual:0', restock: 2);
+        $this->assertRefused('more_than_sold', fn () => $this->decide($line->fresh(), 'manual:2', restock: 2));
+        $this->decide($line->fresh(), 'manual:2', restock: 0, writeOff: 1);
 
         $this->assertSame(2, (int) OperationalCostReturnDecision::sum('units_restocked'));
         $this->assertSame(1, (int) OperationalCostReturnDecision::sum('units_written_off'));
@@ -236,8 +158,8 @@ class ReturnDecisionTest extends TestCase
     {
         $line = $this->soldLine();
 
-        $this->decide($line, 'manual:token-1', restock: 1);
-        $this->decide($line->fresh(), 'manual:token-1', restock: 1);
+        $this->decide($line, 'manual:0', restock: 1);
+        $this->decide($line->fresh(), 'manual:0', restock: 1);
 
         $this->assertSame(1, OperationalCostReturnDecision::count());
         $this->assertSame(8, $this->onShelf());
@@ -247,7 +169,7 @@ class ReturnDecisionTest extends TestCase
     {
         $line = $this->acceptedReturn($this->soldLine(), ['CLM-1' => 2]);
 
-        $this->assertRefused('use_the_claim', fn () => $this->decide($line, 'manual:token-1', restock: 1));
+        $this->assertRefused('use_the_claim', fn () => $this->decide($line, 'manual:0', restock: 1));
     }
 
     public function test_nothing_can_be_put_back_when_no_cost_of_goods_was_recognised_but_damaged_units_can_still_be_written_off(): void
@@ -256,8 +178,8 @@ class ReturnDecisionTest extends TestCase
         $line = $this->soldLine();
         $this->assertSame(0, InventoryCostConsumption::count(), 'The module was off: no unit was taken from the layers.');
 
-        $this->assertRefused('no_cost_recognised', fn () => $this->decide($line, 'manual:token-1', restock: 1));
-        $this->decide($line, 'manual:token-2', restock: 0, writeOff: 1);
+        $this->assertRefused('no_cost_recognised', fn () => $this->decide($line, 'manual:0', restock: 1));
+        $this->decide($line, 'manual:0', restock: 0, writeOff: 1);
 
         $this->assertSame(1, OperationalCostReturnDecision::count());
     }
@@ -269,13 +191,13 @@ class ReturnDecisionTest extends TestCase
         $closed = $this->stockLocation('Closed', type: InventoryLocation::TYPE_OWN, provider: null);
         $closed->forceFill(['is_active' => false])->save();
 
-        $this->assertRefused('no_location', fn () => $this->returns->decide($line, 'manual:a', 1, 0, null, 1));
-        $this->assertRefused('location_unknown', fn () => $this->returns->decide($line, 'manual:b', 1, 0, 99999, 1));
-        $this->assertRefused('location_unknown', fn () => $this->returns->decide($line, 'manual:c', 1, 0, $other->id, 1));
-        $this->assertRefused('location_unknown', fn () => $this->returns->decide($line, 'manual:d', 1, 0, $closed->id, 1));
+        $this->assertRefused('no_location', fn () => $this->returns->decide($line, 'manual:0', 1, 0, null, 1));
+        $this->assertRefused('location_unknown', fn () => $this->returns->decide($line, 'manual:0', 1, 0, 99999, 1));
+        $this->assertRefused('location_unknown', fn () => $this->returns->decide($line, 'manual:0', 1, 0, $other->id, 1));
+        $this->assertRefused('location_unknown', fn () => $this->returns->decide($line, 'manual:0', 1, 0, $closed->id, 1));
 
         $line->forceFill(['product_id' => null])->save();
-        $this->assertRefused('not_linked', fn () => $this->decide($line->fresh(), 'manual:e', restock: 1));
+        $this->assertRefused('not_linked', fn () => $this->decide($line->fresh(), 'manual:0', restock: 1));
         $this->assertSame(0, OperationalCostReturnDecision::count());
     }
 
@@ -361,17 +283,6 @@ class ReturnDecisionTest extends TestCase
     }
 
     // ---- the owner's automatic setting ------------------------------------------------------------------------------------
-
-    private function claimIsAccepted(string $status = 'Accepted'): void
-    {
-        Http::fake([self::TY . '/order/sellers/1234567/claims*' => Http::response(Trendyol::claimsPage([Trendyol::claim([$status, $status], 'claim-1')]))]);
-    }
-
-    private function autoRestock(bool $on): void
-    {
-        $this->account->forceFill(['settings' => array_replace((array) $this->account->settings, ['auto_restock_accepted_returns' => $on])])->save();
-        $this->account = $this->account->fresh();
-    }
 
     public function test_the_setting_is_off_by_default_and_an_accepted_claim_waits_for_a_person(): void
     {

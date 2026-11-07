@@ -10,12 +10,14 @@ use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelEvent;
 use App\Services\OperationalCosts\CostLedger;
 use App\Services\OperationalCosts\Data\CostDraft;
+use App\Services\OperationalCosts\Invoices\ReconciliationService;
 use App\Services\OperationalCosts\Sales\SaleDocument;
 use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
 use App\Services\OperationalCosts\Support\OperationalCostsSwitch;
 use App\Services\SalesChannels\Data\RemoteFinancialEntry;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -29,10 +31,13 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *    order's service is the NET of everything posted for it, recorded as one actual in the same slot as the estimate, so it supersedes the estimate and any earlier net
  *    (a posting in a currency other than the order's gets a slot of its own). A fee that belongs to no order we hold
  *    (a subscription, a storage charge) is its own entry on the account, marked unallocated, and is never spread over orders by guesswork.
- *  - One charge is one cost however many sources report it. Each fee event carries its canonical identity (ChargeIdentity: the fee type, currency and amount to six decimals, and
- *    what it is about) and a manual statement row that repeats a charge the API already gave is recorded as `duplicate` and not counted (ChargeOverlapMatcher: the same
- *    references, or the same day and exactly one candidate); one that may overlap is counted and marked `possible_overlap` for a person. The same match is made from the API's side
- *    when the statement came first. Refunds are applied to the revenue of the order lines (ChannelRefundApplier).
+ *  - A charge the API and a statement file both report is counted once when the two name the same thing. Each fee event carries its canonical identity (ChargeIdentity: the fee
+ *    type, currency and amount to six decimals, and what it is about) and a manual statement row that repeats a charge the API already gave is recorded as `duplicate` and not
+ *    counted (ChargeOverlapMatcher: the same order, with or without its package, or the same settlement; or, naming neither, the same day and exactly one candidate); one that
+ *    may overlap is counted and marked `possible_overlap` for a person. The same match is made from the API's side when the statement came first, once the cost module is on (it
+ *    writes the ledger). An invoice line that bills a fee as one total for a period is set against the statements whichever came first, as the posting is made (see
+ *    ReconciliationService). What is NOT guaranteed: a row that names nothing and meets several candidates (or none yet) is counted until a person looks, and a charge reported
+ *    with a different amount by the two sources is two charges. Refunds are applied to the revenue of the order lines (ChannelRefundApplier).
  *  - The stored event IS the queue: a fee or adjustment event says `received` until its cost is in the ledger and `applied` afterwards, and the ledger is written from
  *    the events that are still `received`, whenever this runs. So a posting is made exactly once however it came about: a statement read twice, a write the database
  *    refused once, a statement read while the cost module was switched off (OPERATIONAL_COSTS_ENABLED, off by default: the events are stored and nothing is posted) and
@@ -62,6 +67,7 @@ class ChannelFeeImporter
         private readonly FxConverter $fx,
         private readonly ChargeOverlapMatcher $overlaps,
         private readonly ChannelRefundApplier $refunds,
+        private readonly ReconciliationService $invoiceLines,
     ) {
     }
 
@@ -92,7 +98,9 @@ class ChannelFeeImporter
     }
 
     /**
-     * Posts the stored fee and adjustment events of an account whose cost is not in the ledger yet. Nothing while OPERATIONAL_COSTS_ENABLED is off: they wait. Safe to repeat.
+     * Posts the stored fee and adjustment events of an account whose cost is not in the ledger yet. Nothing while OPERATIONAL_COSTS_ENABLED is off: they wait (and so does
+     * everything else that writes the ledger: the statement rows an API event repeats are taken back, and the invoice lines the statements now cover are set against them,
+     * only here). Safe to repeat.
      *
      * @return int the cost entries written
      */
@@ -102,19 +110,38 @@ class ChannelFeeImporter
             return 0;
         }
 
+        $touched = $this->recogniseRepeatsOfStatementRows($account);
         $recorded = 0;
-        $this->pendingEvents($account)->chunkById(self::POST_CHUNK, function (Collection $events) use ($account, &$recorded): void {
+        $this->pendingEvents($account)->chunkById(self::POST_CHUNK, function (Collection $events) use ($account, &$recorded, &$touched): void {
             $slots = [];
             foreach ($events as $event) {
                 $entry = $this->entryOf($event);
                 $slots[$this->slotKey($entry)] = $entry;
+                $this->touch($touched, $entry->component, $entry->currency, $entry->postedAt);
             }
             foreach ($slots as $entry) {
                 $recorded += $this->recordSlot($account, $entry) ? 1 : 0;
             }
         });
 
+        foreach ($touched as ['component' => $component, 'currency' => $currency, 'from' => $from, 'to' => $to]) {
+            $this->invoiceLines->settleLinesAffectedBy($account, $component, $currency, $from, $to);
+        }
+
         return $recorded;
+    }
+
+    /**
+     * Notes the days a fee was posted on, so that the invoice lines billing that fee in a period holding one of them can be set against the statements.
+     *
+     * @param array<string, array{component: CostComponent, currency: string, from: CarbonImmutable, to: CarbonImmutable}> $touched
+     */
+    private function touch(array &$touched, CostComponent $component, string $currency, CarbonInterface|string $postedAt): void
+    {
+        $day = CarbonImmutable::parse($postedAt)->setTimezone(date_default_timezone_get())->startOfDay();
+        $key = $component->value . '|' . $currency;
+        $held = $touched[$key] ?? ['component' => $component, 'currency' => $currency, 'from' => $day, 'to' => $day];
+        $touched[$key] = ['component' => $component, 'currency' => $currency, 'from' => $held['from']->min($day), 'to' => $held['to']->max($day)];
     }
 
     /** How many fee and adjustment events wait to be posted (of one account, or of all). */
@@ -183,7 +210,7 @@ class ChannelFeeImporter
             : [ChargeOverlapMatcher::NONE, null];
 
         try {
-            $event = SalesChannelEvent::create([
+            SalesChannelEvent::create([
                 'account_id' => $account->id,
                 'channel' => $account->channel,
                 'source' => $source,
@@ -206,9 +233,6 @@ class ChannelFeeImporter
             $costPending = OperationalCostsSwitch::enabled() && SalesChannelEvent::where('account_id', $account->id)->where('dedupe_key', $entry->identity)->where('outcome', self::PENDING)->exists();
 
             return $costPending ? self::COST_NOT_RECORDED_YET : self::ALREADY_HANDLED;
-        }
-        if ($identity !== null && $source !== self::SOURCE_MANUAL) {
-            $this->recogniseStatementRowsRepeatedBy($account, $event);
         }
 
         return self::STORED_NOW;
@@ -235,19 +259,30 @@ class ChannelFeeImporter
     }
 
     /**
-     * An API event arrives after a statement a person imported: the row that repeats it stops counting (its order's net is made again when this event is posted), and rows that
-     * only may repeat it are marked for a person. A repeat that was already posted as a fee of no order we hold is taken back with an equal and opposite entry.
+     * The API events that wait are matched against the statement rows a person imported earlier: the row that repeats one stops counting (its order's net is made again when
+     * the event is posted), and rows that only may repeat it are marked for a person. A repeat that was already posted as a fee of no order we hold is taken back with an equal
+     * and opposite entry, which is why this is done where the ledger is written (and so only while the cost module is on) and not as the event is stored.
+     *
+     * @return array<string, array{component: CostComponent, currency: string, from: CarbonImmutable, to: CarbonImmutable}> the days of the rows that stopped counting
      */
-    private function recogniseStatementRowsRepeatedBy(SalesChannelAccount $account, SalesChannelEvent $event): void
+    private function recogniseRepeatsOfStatementRows(SalesChannelAccount $account): array
     {
-        [$kind, $rows] = $this->overlaps->forApiEvent($account, $event);
-        if ($kind === ChargeOverlapMatcher::DUPLICATE) {
-            $row = $rows->first();
-            $this->takeBackPostedFactOfNoOrder($account, $row);
-            $row->forceFill(['outcome' => SalesChannelEvent::DUPLICATE, 'duplicate_of_id' => $event->id, 'outcome_note' => null])->save();
-        } elseif ($kind === ChargeOverlapMatcher::POSSIBLE_OVERLAP) {
-            SalesChannelEvent::whereIn('id', $rows->pluck('id'))->update(['outcome_note' => SalesChannelEvent::NOTE_POSSIBLE_OVERLAP]);
-        }
+        $touched = [];
+        $this->pendingEvents($account)->where('source', '!=', self::SOURCE_MANUAL)->whereNotNull('charge_key')->chunkById(self::POST_CHUNK, function (Collection $events) use ($account, &$touched): void {
+            foreach ($events as $event) {
+                [$kind, $rows] = $this->overlaps->forApiEvent($account, $event);
+                if ($kind === ChargeOverlapMatcher::DUPLICATE) {
+                    $row = $rows->first();
+                    $this->takeBackPostedFactOfNoOrder($account, $row);
+                    $row->forceFill(['outcome' => SalesChannelEvent::DUPLICATE, 'duplicate_of_id' => $event->id, 'outcome_note' => null])->save();
+                    $this->touch($touched, CostComponent::from((string) $row->payload['component']), (string) $row->payload['currency'], $row->occurred_at);
+                } elseif ($kind === ChargeOverlapMatcher::POSSIBLE_OVERLAP) {
+                    SalesChannelEvent::whereIn('id', $rows->pluck('id'))->update(['outcome_note' => SalesChannelEvent::NOTE_POSSIBLE_OVERLAP]);
+                }
+            }
+        });
+
+        return $touched;
     }
 
     private function takeBackPostedFactOfNoOrder(SalesChannelAccount $account, SalesChannelEvent $row): void
@@ -271,7 +306,7 @@ class ChannelFeeImporter
         $mapping = $entry->orderId === null ? null : $this->mappingFor($account, $entry);
 
         if ($mapping === null) {
-            return $this->record($account, $entry, subjectType: 'channel_account', subjectId: (int) $account->id, mapping: null, net: $entry->amount, identity: $entry->identity, serviceRef: 'fact:' . $entry->identity, postedAt: CarbonImmutable::parse($entry->postedAt), identities: [$entry->identity]);
+            return $this->record($account, $entry, subjectType: 'channel_account', subjectId: (int) $account->id, mapping: null, net: $entry->amount, identity: $entry->identity, serviceRef: 'fact:' . $entry->identity, postedAt: CarbonImmutable::parse($entry->postedAt), identities: [$entry->identity], days: [$this->dayOf($entry->postedAt) => $entry->amount->toStorage()]);
         }
 
         // A report that names only the order and one that names its package are about the same order: every posting of it, whichever way it was written, is netted.
@@ -292,7 +327,31 @@ class ChannelFeeImporter
         $identities = $postings->pluck('dedupe_key')->all();
         $latest = $postings->max('occurred_at') ?? $entry->postedAt;
 
-        return $this->record($account, $entry, subjectType: SaleDocument::SUBJECT_CHANNEL_ORDER, subjectId: (int) $mapping->id, mapping: $mapping, net: $net, identity: 'net:' . hash('sha256', implode(',', $identities)), serviceRef: $entry->currency === $mapping->currency ? '' : 'channel-net:' . $entry->currency, postedAt: CarbonImmutable::parse($latest), identities: $identities);
+        return $this->record($account, $entry, subjectType: SaleDocument::SUBJECT_CHANNEL_ORDER, subjectId: (int) $mapping->id, mapping: $mapping, net: $net, identity: 'net:' . hash('sha256', implode(',', $identities)), serviceRef: $entry->currency === $mapping->currency ? '' : 'channel-net:' . $entry->currency, postedAt: CarbonImmutable::parse($latest), identities: $identities, days: $this->daysOf($postings));
+    }
+
+    /**
+     * What an order's net is made of, day by day (the day each posting was made, in the application's timezone): the net is dated at its latest posting, and the invoice
+     * lines that are set against the statements need to know which month each posting belongs to.
+     *
+     * @param Collection<int, SalesChannelEvent> $postings
+     * @return array<string, string> the day => what was posted on it
+     */
+    private function daysOf($postings): array
+    {
+        $days = [];
+        foreach ($postings as $posting) {
+            $day = $this->dayOf($posting->occurred_at);
+            $days[$day] = ($days[$day] ?? Money::zero())->plus(Money::of($posting->payload['amount']));
+        }
+        ksort($days);
+
+        return array_map(static fn (Money $amount): string => $amount->toStorage(), $days);
+    }
+
+    private function dayOf(CarbonInterface|string $at): string
+    {
+        return CarbonImmutable::parse($at)->setTimezone(date_default_timezone_get())->toDateString();
     }
 
     private function mappingFor(SalesChannelAccount $account, RemoteFinancialEntry $entry): ?ExternalOrderMapping
@@ -305,8 +364,11 @@ class ChannelFeeImporter
         return $found->count() === 1 ? $found->first() : null;
     }
 
-    /** @param list<string> $identities */
-    private function record(SalesChannelAccount $account, RemoteFinancialEntry $entry, string $subjectType, int $subjectId, ?ExternalOrderMapping $mapping, Money $net, string $identity, string $serviceRef, CarbonImmutable $postedAt, array $identities): bool
+    /**
+     * @param list<string> $identities
+     * @param array<string, string> $days the day => what was posted on it
+     */
+    private function record(SalesChannelAccount $account, RemoteFinancialEntry $entry, string $subjectType, int $subjectId, ?ExternalOrderMapping $mapping, Money $net, string $identity, string $serviceRef, CarbonImmutable $postedAt, array $identities, array $days): bool
     {
         $converted = $this->fx->convert($net, $entry->currency, $this->fx->baseCurrency());
 
@@ -327,7 +389,7 @@ class ChannelFeeImporter
             orderId: $mapping?->order_id,
             externalOrderMappingId: $mapping?->id,
             externalReference: $entry->orderId === null ? null : $entry->orderId . ($entry->packageId === null ? '' : '/' . $entry->packageId),
-            calcInputs: ['postings' => count($identities), 'raw_type' => $entry->rawType],
+            calcInputs: ['postings' => count($identities), 'raw_type' => $entry->rawType, 'days' => $days],
             note: $mapping === null ? 'not_linked_to_an_order' : null,
             occurredAt: $postedAt,
             fxRate: $converted === null ? null : Money::of($converted['rate']),

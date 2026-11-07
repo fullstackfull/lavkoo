@@ -188,6 +188,24 @@ class InventoryCostLayerService
     }
 
     /**
+     * Takes a layer off the shelf: what is left of it is no longer stock (units that were put back for a sale that is then cancelled are counted once more by the sale giving its
+     * units back). Units other sales already took from it stay theirs. Returns the units that were taken off; a layer taken off already gives none.
+     */
+    public function void(int $layerId): int
+    {
+        return DB::transaction(function () use ($layerId): int {
+            $layer = InventoryCostLayer::whereKey($layerId)->lockForUpdate()->first();
+            if ($layer === null || $layer->status === InventoryCostLayer::VOID) {
+                return 0;
+            }
+            $removed = (int) $layer->quantity_remaining;
+            $layer->forceFill(['quantity_remaining' => 0, 'status' => InventoryCostLayer::VOID])->save();
+
+            return $removed;
+        }, attempts: 3);
+    }
+
+    /**
      * Moves stock from one location to another without selling it. The layers consumed at the source reappear at the destination with
      * the same cost, plus `$extraCostPerUnit` (the freight of the move) when that cost is meant to be part of the stock. Repeating a
      * transfer reference changes nothing.

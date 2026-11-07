@@ -19,11 +19,15 @@ use Illuminate\Support\Facades\DB;
  * cost of goods reversed in the ledger), or written off as damaged (no layer, and the cost stays in the profit). A deliberate decision, made once per line and return event.
  *
  * A return event is a claim the channel accepted (`claim:<id>`, with the units the channel says came back, never more than were sold: all of them are decided together) or, for a
- * line the channel reports no returned units for (Amazon), a return a person recorded (`manual:<token>`, the token making a double click one decision). Deciding the same event
- * again changes nothing.
+ * line the channel reports no returned units for (Amazon), a return a person recorded. Deciding the same event again changes nothing.
  *
- * The caps are the ones that keep the stock and the profit honest: a claim is decided for exactly its units; a recorded return never exceeds what was sold less what was already
- * decided; and units put back never exceed what was taken from the cost layers for the line, over all of its returns. Every decision is audited, with who made it, or that it
+ * A claim can GROW after it was decided (the channel accepts a second item of it later): the units it gained are decided as a follow-up, `claim:<id>+<units decided so far>`,
+ * so each growth step has an event of its own and a repeated submit of it is still one decision. A recorded return is `manual:<units decided so far on the line>`: the position
+ * is the same for every form opened at the same moment, so two people recording the one parcel that came back decide it once, and a form opened before another decision was
+ * made does nothing (it finds its event decided) or is refused as stale.
+ *
+ * The caps are the ones that keep the stock and the profit honest: a claim is decided for exactly the units it has not had decided; a recorded return never exceeds what was
+ * sold less what was already decided; and units put back never exceed what was taken from the cost layers for the line, over all of its returns. Every decision is audited, with who made it, or that it
  * was automatic. Writing a decision needs no switch (a person is deciding), but putting units back needs a cost of goods that was recognised: with OPERATIONAL_COSTS_ENABLED
  * off none was, and there is nothing to put back.
  */
@@ -60,13 +64,14 @@ class ReturnDecisionService
 
             $document = $this->documents->forChannelOrder((int) $locked->mapping_id) ?? throw new InvalidReturnDecision(InvalidReturnDecision::UNKNOWN_RETURN_EVENT);
             $saleLine = $this->saleLineOf($document->lines, $locked);
-            $this->checkTheUnits($locked, $saleLine, $returnEvent, $restock + $writeOff);
+            $decisions = $locked->returnDecisions()->orderBy('id')->get();
+            $this->checkTheUnits($locked, $saleLine, $returnEvent, $restock + $writeOff, $decisions);
 
             $layerId = null;
             $entryId = null;
             if ($restock > 0) {
-                $locationId = $this->checkTheRestock($locked, $saleLine, $restock, $locationId, $document->sellerId);
-                $entryId = $this->sales->restock($document, $saleLine, $restock, $returnEvent, $locationId)?->entry->id;
+                $locationId = $this->checkTheRestock($locked, $saleLine, $restock, $locationId, $document->sellerId, (int) $decisions->sum('units_restocked'));
+                $entryId = $this->sales->restock($document, $saleLine, $restock, $returnEvent, $locationId, alreadyRestocked: (int) $decisions->sum('units_restocked'))?->entry->id;
                 $layerId = InventoryCostLayer::where('source_type', 'return')->where('source_id', $locked->id)->where('source_ref', $returnEvent)->value('id');
             }
 
@@ -104,42 +109,82 @@ class ReturnDecisionService
     }
 
     /**
-     * What a line's returns stand at: the claims nobody decided about (event => units), the decisions made, and whether a person may record a return of their own for it.
+     * What a line's returns stand at: the claims (or the units of a claim) nobody decided about (event => units), the decisions made, the units decided so far (the position a
+     * recorded return is made at), and whether a person may record a return of their own for it.
      *
-     * @return array{awaiting: array<string, int>, decisions: Collection<int, OperationalCostReturnDecision>, canRecordAReturn: bool, restockable: int}
+     * @return array{awaiting: array<string, int>, decisions: Collection<int, OperationalCostReturnDecision>, decidedUnits: int, canRecordAReturn: bool, restockable: int}
      */
     public function standing(ExternalOrderLine $line): array
     {
         $decisions = $line->returnDecisions()->orderBy('id')->get();
-        $decided = $decisions->pluck('return_event')->all();
-        $sold = $line->activeQuantity() - (int) $decisions->sum(static fn (OperationalCostReturnDecision $decision): int => $decision->units());
-        $awaiting = [];
-        foreach ((array) ($line->snapshot['returned_by_claim'] ?? []) as $claimId => $units) {
-            $units = min((int) $units, $sold);
-            if ($units > 0 && !in_array(self::CLAIM_PREFIX . $claimId, $decided, true)) {
-                $awaiting[self::CLAIM_PREFIX . $claimId] = $units;
-                $sold -= $units;
-            }
-        }
 
         return [
-            'awaiting' => $awaiting,
+            'awaiting' => $this->awaitingClaims($line, $decisions),
             'decisions' => $decisions,
+            'decidedUnits' => $this->decidedUnits($decisions),
             'canRecordAReturn' => $line->quantity_returned < 1 && $line->product_id !== null,
             'restockable' => max(0, $this->takenFromStock($line) - (int) $decisions->sum('units_restocked')),
         ];
     }
 
-    /** The units of a claim that can be decided now: those the channel accepted, never more than were sold and not yet accounted for by another decision. */
-    public function decidableUnits(ExternalOrderLine $line, string $returnEvent): int
+    /**
+     * The next decision a claim waits for: its event and the units, or null when everything the channel accepted of it has been decided. A claim that grew since it was decided
+     * waits for a follow-up decision about the units it gained.
+     *
+     * @return array{event: string, units: int}|null
+     */
+    public function nextClaimDecision(ExternalOrderLine $line, string $claimId): ?array
     {
-        if (!str_starts_with($returnEvent, self::CLAIM_PREFIX)) {
-            return 0;
+        foreach ($this->awaitingClaims($line, $line->returnDecisions()->orderBy('id')->get()) as $event => $units) {
+            if ($this->belongsToClaim($event, $claimId)) {
+                return ['event' => $event, 'units' => $units];
+            }
         }
-        $claimed = (int) ($line->snapshot['returned_by_claim'][substr($returnEvent, strlen(self::CLAIM_PREFIX))] ?? 0);
-        $decided = (int) $line->returnDecisions()->get()->sum(static fn (OperationalCostReturnDecision $decision): int => $decision->units());
 
-        return max(0, min($claimed, $line->activeQuantity() - $decided));
+        return null;
+    }
+
+    /**
+     * The units of each claim of the line that nobody decided about, by the event that decides them: never more than the channel accepted of the claim, and never more than
+     * the units of the line that are still undecided.
+     *
+     * @param Collection<int, OperationalCostReturnDecision> $decisions
+     * @return array<string, int>
+     */
+    private function awaitingClaims(ExternalOrderLine $line, Collection $decisions): array
+    {
+        $undecided = $line->activeQuantity() - $this->decidedUnits($decisions);
+        $awaiting = [];
+        foreach ((array) ($line->snapshot['returned_by_claim'] ?? []) as $claimId => $accepted) {
+            $decidedOfTheClaim = (int) $decisions->filter(fn (OperationalCostReturnDecision $decision): bool => $this->belongsToClaim($decision->return_event, (string) $claimId))
+                ->sum(static fn (OperationalCostReturnDecision $decision): int => $decision->units());
+            $units = min((int) $accepted - $decidedOfTheClaim, $undecided);
+            if ($units > 0) {
+                $awaiting[self::claimEvent((string) $claimId, $decidedOfTheClaim)] = $units;
+                $undecided -= $units;
+            }
+        }
+
+        return $awaiting;
+    }
+
+    /** The event that decides a claim: the claim itself the first time, and `claim:<id>+<units decided so far>` for the units it gained since. */
+    private static function claimEvent(string $claimId, int $decidedSoFar): string
+    {
+        return self::CLAIM_PREFIX . $claimId . ($decidedSoFar > 0 ? '+' . $decidedSoFar : '');
+    }
+
+    private function belongsToClaim(string $event, string $claimId): bool
+    {
+        $own = self::CLAIM_PREFIX . $claimId;
+
+        return $event === $own || (str_starts_with($event, $own . '+') && ctype_digit(substr($event, strlen($own) + 1)));
+    }
+
+    /** @param Collection<int, OperationalCostReturnDecision> $decisions */
+    private function decidedUnits(Collection $decisions): int
+    {
+        return (int) $decisions->sum(static fn (OperationalCostReturnDecision $decision): int => $decision->units());
     }
 
     /** @param list<SaleLine> $lines */
@@ -154,10 +199,11 @@ class ReturnDecisionService
         throw new InvalidReturnDecision(InvalidReturnDecision::UNKNOWN_RETURN_EVENT);
     }
 
-    private function checkTheUnits(ExternalOrderLine $line, SaleLine $saleLine, string $returnEvent, int $units): void
+    /** @param Collection<int, OperationalCostReturnDecision> $decisions */
+    private function checkTheUnits(ExternalOrderLine $line, SaleLine $saleLine, string $returnEvent, int $units, Collection $decisions): void
     {
         if (str_starts_with($returnEvent, self::CLAIM_PREFIX)) {
-            $decidable = $this->decidableUnits($line, $returnEvent);
+            $decidable = $this->awaitingClaims($line, $decisions)[$returnEvent] ?? 0;
             if ($decidable < 1) {
                 throw new InvalidReturnDecision(InvalidReturnDecision::UNKNOWN_RETURN_EVENT);
             }
@@ -167,19 +213,24 @@ class ReturnDecisionService
 
             return;
         }
-        if (!str_starts_with($returnEvent, self::MANUAL_PREFIX) || strlen($returnEvent) <= strlen(self::MANUAL_PREFIX)) {
+        $position = str_starts_with($returnEvent, self::MANUAL_PREFIX) ? substr($returnEvent, strlen(self::MANUAL_PREFIX)) : '';
+        if ($position === '' || !ctype_digit($position)) {
             throw new InvalidReturnDecision(InvalidReturnDecision::UNKNOWN_RETURN_EVENT);
         }
         if ($line->quantity_returned > 0) {
             throw new InvalidReturnDecision(InvalidReturnDecision::USE_THE_CLAIM);
         }
-        if ($units > $saleLine->quantity - (int) $line->returnDecisions()->get()->sum(static fn (OperationalCostReturnDecision $decision): int => $decision->units())) {
+        $decided = $this->decidedUnits($decisions);
+        if ((int) $position !== $decided) {
+            throw new InvalidReturnDecision(InvalidReturnDecision::STALE_FORM);
+        }
+        if ($units > $saleLine->quantity - $decided) {
             throw new InvalidReturnDecision(InvalidReturnDecision::MORE_THAN_SOLD);
         }
     }
 
     /** @return int the location the units go to */
-    private function checkTheRestock(ExternalOrderLine $line, SaleLine $saleLine, int $restock, ?int $locationId, int $sellerId): int
+    private function checkTheRestock(ExternalOrderLine $line, SaleLine $saleLine, int $restock, ?int $locationId, int $sellerId, int $alreadyRestocked): int
     {
         if ($saleLine->productId === null) {
             throw new InvalidReturnDecision(InvalidReturnDecision::NOT_LINKED);
@@ -194,7 +245,7 @@ class ReturnDecisionService
         if ($taken < 1) {
             throw new InvalidReturnDecision(InvalidReturnDecision::NO_COST_RECOGNISED);
         }
-        if ($restock > $taken - (int) $line->returnDecisions()->sum('units_restocked')) {
+        if ($restock > $taken - $alreadyRestocked) {
             throw new InvalidReturnDecision(InvalidReturnDecision::MORE_THAN_TAKEN_FROM_STOCK);
         }
 

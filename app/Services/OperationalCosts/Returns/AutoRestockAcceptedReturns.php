@@ -30,15 +30,15 @@ class AutoRestockAcceptedReturns
         }
 
         $made = 0;
-        foreach ($return->acceptedUnits as $lineId => $units) {
-            $line = $units < 1 ? null : ExternalOrderLine::where('mapping_id', $mapping->id)->where('external_line_id', (string) $lineId)->first();
-            if ($line === null || $line->inventory_location_id === null) {
+        foreach (array_keys($return->acceptedUnits) as $lineId) {
+            $line = ExternalOrderLine::where('mapping_id', $mapping->id)->where('external_line_id', (string) $lineId)->first();
+            $next = $line === null || $line->inventory_location_id === null ? null : $this->decisions->nextClaimDecision($line, $return->claimId);
+            if ($next === null) {
                 continue;
             }
-            $event = ReturnDecisionService::CLAIM_PREFIX . $return->claimId;
             try {
                 $result = $this->decisions->decide(
-                    line: $line, returnEvent: $event, restock: $this->decisions->decidableUnits($line, $event), writeOff: 0,
+                    line: $line, returnEvent: $next['event'], restock: $next['units'], writeOff: 0,
                     locationId: (int) $line->inventory_location_id, adminId: null, note: 'Put back automatically: the channel accepted the return.', automatic: true,
                 );
                 $made += $result->alreadyDecided ? 0 : 1;

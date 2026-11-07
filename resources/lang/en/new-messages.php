@@ -10739,4 +10739,7 @@ return [
 	'stock_expected_sales_margin' => 'margin for sales not imported yet',
 	'stock_may_be_shown' => 'may be shown',
 	'channel_not_recorded' => 'channel not recorded',
+	// --- costs audit fixes (lane-costs) ---
+	'return_refused_stale_form' => 'The line changed since this form was opened: reload the page and check what was already recorded.',
+	'needs_the_operational_costs_permission' => 'Needs the Operational costs permission: only a role that holds it can change this.',
 ];

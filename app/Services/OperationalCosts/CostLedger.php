@@ -20,8 +20,8 @@ use InvalidArgumentException;
  *    maps to the row that already exists);
  *  - one service of one subject is one cost: a better-known cost of the slot (actual over estimate, estimate over missing)
  *    supersedes the weaker one, and a weaker one never displaces a better one, so an estimate and the real charge are never both counted;
- *  - an approved or reconciled entry is never rewritten: a different charge that arrives for its slot is stored beside it, outside the totals, as a
- *    disputed entry for a person to resolve;
+ *  - an approved or reconciled entry, and a charge a person has disputed, is never rewritten by a posting: a different charge that arrives for its slot is stored beside it,
+ *    outside the totals, as a disputed entry for a person to resolve (a reconciliation's own confirmation of a contested charge is the one thing that takes its place);
  *  - nothing is ever deleted: a mistake is reversed with a new entry.
  */
 class CostLedger
@@ -172,8 +172,13 @@ class CostLedger
             variantKey: (string) $entry->variant_key,
             sku: $entry->sku,
             externalReference: $entry->external_reference,
+            calcInputs: ['reverses' => (int) $entry->id],
             note: mb_substr($reason, 0, 500),
             occurredAt: now(),
+            // The totals add up the amounts in the reporting currency: a reversal that did not carry the original's would leave the original counted there.
+            fxRate: $entry->fx_rate === null ? null : Money::of($entry->fx_rate),
+            baseAmount: $entry->base_amount === null ? null : Money::of($entry->base_amount)->negated(),
+            baseCurrency: $entry->base_currency,
         );
 
         $outcome = $this->record($reversal);
@@ -191,15 +196,19 @@ class CostLedger
         $superseded = [];
         $effective = true;
         $conflict = false;
+        $conflictNote = null;
 
         foreach ($current as $held) {
             $heldRank = $held->state->rank();
-            $heldIsFinal = $held->approved_at !== null || $held->state === CostState::Reconciled;
+            // A charge a person contests is as final as an approved one: what becomes of it is for a person to decide (resolveDispute), never for a later automatic posting to
+            // settle by replacing it. Only a reconciliation's confirmation (a reconciled figure) takes its place.
+            $heldIsFinal = $held->approved_at !== null || $held->state === CostState::Reconciled || ($held->state === CostState::Disputed && $draft->state !== CostState::Reconciled);
 
             if ($heldIsFinal && $draft->state->isSettled() && $this->isAnotherCharge($held, $draft)) {
                 // A different charge for a figure that was approved or reconciled is never dropped without a trace, whatever its rank: a person looks at both.
                 $effective = false;
                 $conflict = true;
+                $conflictNote = $this->conflictNote($held);
                 continue;
             }
             if ($heldRank > $incomingRank) {
@@ -210,6 +219,7 @@ class CostLedger
                 // A figure that was approved is not displaced by a different one. The newer one is kept for a person to look at.
                 $effective = false;
                 $conflict = true;
+                $conflictNote = $this->conflictNote($held);
                 continue;
             }
             if ($heldRank === $incomingRank && $draft->state === CostState::Missing) {
@@ -260,7 +270,7 @@ class CostLedger
             'external_reference' => $draft->externalReference,
             'calc_inputs' => $draft->calcInputs === [] ? null : $draft->calcInputs,
             'missing_reason' => $draft->missingReason,
-            'note' => $conflict ? 'conflicts_with_approved_entry' : $draft->note,
+            'note' => $conflict ? $conflictNote : $draft->note,
             'occurred_at' => $draft->occurredAt,
         ]);
 
@@ -269,6 +279,11 @@ class CostLedger
         }
 
         return new RecordOutcome($conflict ? RecordOutcome::CONFLICT : RecordOutcome::CREATED, $entry, array_map(static fn (OperationalCostEntry $held): int => (int) $held->id, $superseded));
+    }
+
+    private function conflictNote(OperationalCostEntry $held): string
+    {
+        return $held->state === CostState::Disputed ? 'conflicts_with_disputed_entry' : 'conflicts_with_approved_entry';
     }
 
     private function isAnotherCharge(OperationalCostEntry $held, CostDraft $draft): bool

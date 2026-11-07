@@ -9,11 +9,13 @@ use App\Models\OperationalCostEntry;
 use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostInvoiceItem;
 use App\Models\OperationalCostReconciliation;
+use App\Models\SalesChannelAccount;
 use App\Services\AuditLogger;
 use App\Services\OperationalCosts\CostLedger;
 use App\Services\OperationalCosts\Data\CostDraft;
 use App\Services\OperationalCosts\Support\Money;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
 
@@ -26,9 +28,14 @@ use InvalidArgumentException;
  *  - An estimate in the invoice's period that no line charged is UNMATCHED ESTIMATE, so a shipment the provider forgot to bill, or billed under
  *    another number, is seen.
  *
- * A marketplace invoice line that is a total for a period with no order on it is compared with what the channel's statements already booked for the same fee and period
- * (`compareWithStatements`), within the same tolerance, instead of being posted as a second set of actual costs. A difference beyond the tolerance waits for a person; when it is
- * accepted (or written off) the difference is booked as an adjustment, so the books say what the invoice says without counting any fee twice.
+ * A marketplace invoice line that is a total for a period with no order on it is set against what the channel's statements booked for the same fee and period
+ * (`settleAgainstStatements`), within the same tolerance, instead of being posted as a second set of actual costs, and it does not matter which came first:
+ *  - the statements first: the line is compared at approval and posts nothing;
+ *  - the invoice first: the line is posted in full (the statements had booked nothing), and when the statements arrive (the importer, the catch-up after the cost module was
+ *    switched on, a statement file) every approved line their days fall in is set against them: the full posting is taken back with an equal and opposite entry and the line is
+ *    compared like any other, so the fee is counted once;
+ *  - a difference beyond the tolerance waits for a person; when it is accepted (or written off) the difference is booked as an adjustment, so the books say what the invoice says
+ *    without counting any fee twice, and it follows the statements if more of them arrive afterwards (the earlier adjustment is reversed and the new difference booked).
  *
  * The tolerance is the contract's own (`settings.tolerance_percent`) or the configured default. Running it again changes nothing that a
  * person already decided.
@@ -38,6 +45,7 @@ class ReconciliationService
     public function __construct(
         private readonly CostLedger $ledger,
         private readonly AuditLogger $audit,
+        private readonly ChannelStatementActuals $statements,
     ) {
     }
 
@@ -53,10 +61,77 @@ class ReconciliationService
     }
 
     /**
-     * Compares an invoice line that bills a fee for a whole period with the total the statements booked for it. Nothing is posted: within the tolerance the statements stand; beyond
-     * it the line is a VARIANCE for a person. Running it again leaves a row a person already decided alone.
+     * Sets an invoice line that bills a fee for a whole period against what the channel's statements booked for it. Returns false when the statements booked nothing (the line
+     * is then posted as an actual cost like any invoice line, and is set against the statements again when they arrive), true when the line is not to be posted in full:
+     * within the tolerance the statements stand; beyond it the line is a VARIANCE for a person. A line already posted in full is taken back with an equal and opposite entry.
+     * Running it again leaves a row a person already decided alone, except that an accepted difference follows the statements.
      */
-    public function compareWithStatements(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, Money $booked): OperationalCostReconciliation
+    public function settleAgainstStatements(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item): bool
+    {
+        $booked = $this->statements->totalFor($invoice, $item);
+        if ($booked === null) {
+            return false;
+        }
+        $existing = OperationalCostReconciliation::where('invoice_item_id', $item->id)->first();
+        if ($existing !== null && $existing->basis !== OperationalCostReconciliation::BASIS_STATEMENTS && in_array($existing->status, [OperationalCostReconciliation::RESOLVED, OperationalCostReconciliation::DISPUTED], true)) {
+            return true;
+        }
+
+        $this->takeBackWhatWasPostedInFull($item);
+        $this->followTheStatements($this->compareWithStatements($invoice, $item, $booked), $invoice, $item, $booked);
+
+        return true;
+    }
+
+    /**
+     * Fee facts of an account were just posted: every approved invoice line that bills the same fee in a period their days fall in is set against the statements again, so a
+     * line approved before the statements arrived does not count the fee a second time.
+     *
+     * @return int the lines that were set against the statements
+     */
+    public function settleLinesAffectedBy(SalesChannelAccount $account, CostComponent $component, string $currency, CarbonInterface $from, CarbonInterface $to): int
+    {
+        $items = OperationalCostInvoiceItem::query()
+            ->with('invoice')
+            ->where('cost_component', $component->value)->where('currency', $currency)
+            ->whereNull('provider_fulfillment_id')->whereNull('external_order_mapping_id')
+            ->where('match_status', '!=', OperationalCostInvoiceItem::IGNORED)
+            ->whereHas('invoice', static fn ($invoice) => $invoice->where('status', OperationalCostInvoice::STATUS_APPROVED)->where('provider_code', $account->channel)->where('seller_id', $account->seller_id)
+                ->where(static fn ($scope) => $scope->whereNull('account_id')->orWhere('account_id', $account->id)))
+            ->get();
+
+        $settled = 0;
+        foreach ($items as $item) {
+            $period = $this->statements->periodOf($item->invoice, $item);
+            if ($period !== null && $period[1]->toDateString() >= $from->toDateString() && $period[0]->toDateString() <= $to->toDateString()) {
+                $settled += $this->settleAgainstStatements($item->invoice, $item) ? 1 : 0;
+            }
+        }
+
+        return $settled;
+    }
+
+    /** Sets every line of an invoice that a statement can book against the statements again (a person asking for the invoice to be reconciled gets this too). @return int the lines set against them */
+    public function settleStatementLines(OperationalCostInvoice $invoice): int
+    {
+        $settled = 0;
+        foreach ($invoice->items()->where('match_status', '!=', OperationalCostInvoiceItem::IGNORED)->get() as $item) {
+            $settled += $this->statements->periodOf($invoice, $item) !== null && $this->settleAgainstStatements($invoice, $item) ? 1 : 0;
+        }
+
+        return $settled;
+    }
+
+    /** A line that was posted in full before the statements arrived: the statements are what is counted now, so its posting is cancelled. A charge a person contests is in no total, so there is nothing to cancel. */
+    private function takeBackWhatWasPostedInFull(OperationalCostInvoiceItem $item): void
+    {
+        $posted = $item->entry_id === null ? null : OperationalCostEntry::find($item->entry_id);
+        if ($posted !== null && $posted->state->isSettled()) {
+            $this->ledger->reverse($posted, null, 'The channel statements booked this fee: the invoice line is compared with them instead.');
+        }
+    }
+
+    private function compareWithStatements(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, Money $booked): OperationalCostReconciliation
     {
         $existing = OperationalCostReconciliation::where('invoice_item_id', $item->id)->first();
         if ($existing !== null && in_array($existing->status, [OperationalCostReconciliation::RESOLVED, OperationalCostReconciliation::DISPUTED], true)) {
@@ -84,6 +159,36 @@ class ReconciliationService
         $item->forceFill(['match_status' => $within ? OperationalCostInvoiceItem::MATCHED : OperationalCostInvoiceItem::PARTIAL, 'entry_id' => null])->save();
 
         return $row;
+    }
+
+    /**
+     * A person accepted (or wrote off) the difference between the invoice and the statements: the invoice stands, so the difference is the invoice less what the statements
+     * booked NOW. When more statements arrive after that decision the adjustment already booked is reversed and the new difference is booked in its place.
+     */
+    private function followTheStatements(OperationalCostReconciliation $row, OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, Money $booked): void
+    {
+        if ($row->basis !== OperationalCostReconciliation::BASIS_STATEMENTS || $row->status !== OperationalCostReconciliation::RESOLVED || !in_array($row->resolution, ['accept', 'write_off'], true)) {
+            return;
+        }
+        $difference = Money::of($item->amount)->minus($booked);
+        if ($difference->equals(Money::ofNullable($row->variance_amount) ?? Money::zero())) {
+            return;
+        }
+
+        $previous = $row->actual_entry_id === null ? null : OperationalCostEntry::find($row->actual_entry_id);
+        if ($previous !== null && $previous->state->isSettled()) {
+            $this->ledger->reverse($previous, null, 'The channel statements changed: the difference to the invoice is booked again.');
+        }
+        $entry = $this->bookDifference($row, $invoice, $item, $difference, (string) $row->note);
+        if ($entry !== null) {
+            $this->ledger->markReconciled($entry, null);
+        }
+        $row->forceFill([
+            'estimated_amount' => $booked->toStorage(),
+            'variance_amount' => $difference->toStorage(),
+            'variance_percent' => $booked->isZero() ? null : $difference->times(100)->dividedBy($booked->abs(), 4)->toScale(4),
+            'actual_entry_id' => $entry?->id,
+        ])->save();
     }
 
     /** How many lines of an invoice were compared with the statements instead of being posted. */
@@ -122,7 +227,9 @@ class ReconciliationService
         }
         $entry = $reconciliation->actual_entry_id === null ? null : OperationalCostEntry::find($reconciliation->actual_entry_id);
         if ($entry === null && $reconciliation->basis === OperationalCostReconciliation::BASIS_STATEMENTS && $resolution !== 'dispute') {
-            $entry = $this->bookDifference($reconciliation, $note);
+            $item = OperationalCostInvoiceItem::find($reconciliation->invoice_item_id);
+            $invoice = $item === null ? null : OperationalCostInvoice::find($item->invoice_id);
+            $entry = $item === null || $invoice === null ? null : $this->bookDifference($reconciliation, $invoice, $item, Money::ofNullable($reconciliation->variance_amount) ?? Money::zero(), $note);
             $reconciliation->actual_entry_id = $entry?->id;
         }
 
@@ -150,15 +257,12 @@ class ReconciliationService
     }
 
     /**
-     * The invoice stands: what it bills beyond (or below) what the statements booked is booked as an adjustment of the same fee, once, so that the books say what the invoice says.
-     * A difference of nothing books nothing.
+     * The invoice stands: what it bills beyond (or below) what the statements booked is booked as an adjustment of the same fee, so that the books say what the invoice says.
+     * A difference of nothing books nothing; each difference has a slot of its own, so a newer one never meets the entry of an older one.
      */
-    private function bookDifference(OperationalCostReconciliation $reconciliation, string $note): ?OperationalCostEntry
+    private function bookDifference(OperationalCostReconciliation $reconciliation, OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, Money $difference, string $note): ?OperationalCostEntry
     {
-        $difference = Money::ofNullable($reconciliation->variance_amount);
-        $item = OperationalCostInvoiceItem::find($reconciliation->invoice_item_id);
-        $invoice = $item === null ? null : OperationalCostInvoice::find($item->invoice_id);
-        if ($difference === null || $difference->isZero() || $item === null || $invoice === null) {
+        if ($difference->isZero()) {
             return null;
         }
 
@@ -171,7 +275,8 @@ class ReconciliationService
             currency: $item->currency,
             periodDate: CarbonImmutable::parse($item->service_date ?? $invoice->period_end ?? $invoice->invoice_date),
             source: 'invoice',
-            identity: 'statement-difference:' . $reconciliation->id,
+            identity: 'statement-difference:' . $reconciliation->id . ':' . $difference->toStorage(),
+            serviceRef: 'statement-difference:' . $difference->toStorage(),
             sellerId: (int) $invoice->seller_id,
             salesChannel: $invoice->provider_code,
             accountId: $invoice->account_id,

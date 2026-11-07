@@ -75,7 +75,7 @@ final class CostLabels
 
         // Why a return decision was refused.
         'return_refused_nothing_to_decide', 'return_refused_unknown_return_event', 'return_refused_claim_units_must_all_be_decided', 'return_refused_use_the_claim',
-        'return_refused_more_than_sold', 'return_refused_not_linked', 'return_refused_no_location', 'return_refused_location_unknown', 'return_refused_no_cost_recognised',
+        'return_refused_stale_form', 'return_refused_more_than_sold', 'return_refused_not_linked', 'return_refused_no_location', 'return_refused_location_unknown', 'return_refused_no_cost_recognised',
         'return_refused_more_than_taken_from_stock',
 
         // The exports.
@@ -128,11 +128,12 @@ final class CostLabels
      * How complete a figure is, in words: what was missing in the sales it adds up, never a bare total.
      *
      * For a group of sales it counts the sales with a gap and the costs missing in them; for one sale (`$pendingCosts` given) it names the gap itself: the costs
-     * that could not be determined and the ones still waiting for the real charge.
+     * that could not be determined and the ones still waiting for the real charge. A figure with a gap in its amounts (`$hasGaps`: no exchange rate) or a cost nobody
+     * determined is never "Complete", even when no sale of it is counted (a product row adds up sale lines, not sales).
      */
-    public static function completeness(int $incompleteSales, int $missingCosts, ?int $pendingCosts = null): string
+    public static function completeness(int $incompleteSales, int $missingCosts, ?int $pendingCosts = null, bool $hasGaps = false): string
     {
-        if ($incompleteSales === 0) {
+        if ($incompleteSales === 0 && $missingCosts === 0 && !$hasGaps) {
             return (string) translate('complete');
         }
         if ($pendingCosts !== null) {
@@ -142,6 +143,9 @@ final class CostLabels
             ]);
 
             return translate('incomplete') . ($gaps === [] ? '' : ': ' . implode(', ', $gaps));
+        }
+        if ($incompleteSales === 0) {
+            return translate('incomplete') . ($missingCosts > 0 ? ': ' . $missingCosts . ' ' . translate('missing') : '');
         }
         $text = translate('incomplete') . ': ' . $incompleteSales . ' ' . translate('sales');
 
@@ -161,6 +165,7 @@ final class CostLabels
             $settled ? $line->incompleteActual : $line->incompleteEstimated,
             $line->missing,
             $line->pending === null ? null : ($settled ? $line->pending : 0),
+            hasGaps: !$line->gaps()->isEmpty(),
         );
     }
 

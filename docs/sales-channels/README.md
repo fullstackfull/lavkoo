@@ -8,7 +8,7 @@ A multi-channel layer on top of the storefront: **Amazon** (Selling Partner API)
 |---|---|
 | [architecture.md](architecture.md) | layers, tables, flows, the safety model, the decisions made and the assumptions they rest on |
 | [api-reference.md](api-reference.md) | which official API versions and endpoints are used, the permissions each needs, rate limits, what is documented but not built, what could not be verified |
-| [costs.md](costs.md) | the operational-cost ledger: contracts, fee types and calculation methods, product cost layers, one charge one cost (API, statement, invoice), profit, refunds and returns |
+| [costs.md](costs.md) | the operational-cost ledger: contracts, fee types and calculation methods, product cost layers, the same fee told by the API, a statement file and an invoice, profit, refunds and returns |
 | [operations.md](operations.md) | deployment (exact migrations), switches, scheduler, runbooks (connect, sync, link, route, publish, returns, roll back) |
 | [shared-file-changes.md](shared-file-changes.md) | every change to a file that existed before this work, for the other workstream |
 | [final-report.md](final-report.md) | the delivery report, in Arabic, in the 20 points the task asked for: what exists, what was tested and how, what is not built, the open risks |

@@ -8,6 +8,7 @@ use App\Enums\SalesChannels\SalesChannel;
 use App\Models\SalesChannelAccount;
 use App\Models\Seller;
 use App\Services\SalesChannels\Support\ChannelSettings;
+use App\Utils\Helpers;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Request;
@@ -45,8 +46,17 @@ final class AccountForm
         'trendyol' => ['storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns', 'torod_reference_field', 'carrier_codes', 'shipment_creation', 'dispatch_mode'],
     ];
 
+    /** A setting that decides something another module owns: changing it needs that module's permission, whichever page the form is on (the account pages need only Sales channels). */
+    private const SETTING_PERMISSIONS = ['auto_restock_accepted_returns' => 'operational_costs'];
+
     public function __construct(private readonly ValidationFactory $validation)
     {
+    }
+
+    /** May the signed-in administrator change this setting? */
+    public function mayChange(string $setting): bool
+    {
+        return !isset(self::SETTING_PERMISSIONS[$setting]) || Helpers::module_permission_check(self::SETTING_PERMISSIONS[$setting]);
     }
 
     public function validator(Request $request, SalesChannel $channel, ?SalesChannelAccount $account = null): Validator
@@ -76,7 +86,11 @@ final class AccountForm
      */
     public function payload(array $validated, SalesChannel $channel, bool $creating): array
     {
-        $settings = Arr::only((array) ($validated['settings'] ?? []), self::SETTING_FIELDS[$channel->value]);
+        $settings = array_filter(
+            Arr::only((array) ($validated['settings'] ?? []), self::SETTING_FIELDS[$channel->value]),
+            fn (string $setting): bool => $this->mayChange($setting),
+            ARRAY_FILTER_USE_KEY,
+        );
         $data = [
             'name' => $validated['name'],
             'external_account_id' => $validated['external_account_id'],

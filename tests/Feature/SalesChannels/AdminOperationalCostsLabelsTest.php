@@ -56,6 +56,16 @@ class AdminOperationalCostsLabelsTest extends AdminPagesTestCase
         }
     }
 
+    public function test_a_figure_is_called_complete_only_when_nothing_is_missing_and_nothing_was_left_out(): void
+    {
+        $this->assertSame(translate('complete'), CostLabels::completeness(0, 0));
+        $this->assertSame(translate('incomplete'), CostLabels::completeness(0, 0, hasGaps: true), 'An amount left out for want of an exchange rate, in a figure that counts no sales (a product).');
+        $this->assertSame(translate('incomplete') . ': 2 ' . translate('missing'), CostLabels::completeness(0, 2), 'A cost nobody determined, in a figure that counts no sales.');
+        $this->assertSame(translate('incomplete') . ': 3 ' . translate('sales') . ' · 1 ' . translate('missing'), CostLabels::completeness(3, 1));
+        $this->assertSame(translate('incomplete') . ': 1 ' . translate('pending'), CostLabels::completeness(1, 0, pendingCosts: 1), 'One sale names its own gap.');
+        $this->assertSame(translate('complete'), CostLabels::completeness(0, 0, pendingCosts: 0));
+    }
+
     public function test_every_refusal_a_return_decision_can_give_has_words(): void
     {
         foreach (InvalidReturnDecision::reasons() as $reason) {

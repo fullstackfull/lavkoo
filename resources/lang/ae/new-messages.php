@@ -17328,4 +17328,7 @@ return [
 	'stock_expected_sales_margin' => 'هامش المبيعات غير المستوردة بعد',
 	'stock_may_be_shown' => 'يجوز عرضه',
 	'channel_not_recorded' => 'القناة غير مسجلة',
+	// --- costs audit fixes (lane-costs) ---
+	'return_refused_stale_form' => 'تغيّر البند منذ فتح هذا النموذج: أعد تحميل الصفحة وراجع ما سُجّل بالفعل.',
+	'needs_the_operational_costs_permission' => 'يتطلب صلاحية «التكاليف التشغيلية»: لا يغيّره إلا دور يملكها.',
 ];

@@ -70,6 +70,15 @@ final readonly class ProfitLine
         );
     }
 
+    /**
+     * Whether the line is a finished figure: no sale of it has a gap, no cost of it is missing and no amount of it was left out for want of an exchange rate. A product line
+     * counts sale lines, not sales, so its own counters say nothing about its gaps and its costs: they are looked at here.
+     */
+    public function complete(bool $settled): bool
+    {
+        return ($settled ? $this->incompleteActual : $this->incompleteEstimated) === 0 && $this->missing === 0 && $this->gaps()->isEmpty();
+    }
+
     /** Null when the revenue could not be converted: unknown, not zero. */
     public function revenue(): ?Money
     {
