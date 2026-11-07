@@ -48,6 +48,7 @@ class ManagedShipmentMirror
         private readonly ChannelOrderReservations $reservations,
         private readonly FulfillmentHooks $hooks,
         private readonly AuditLogger $audit,
+        private readonly BuyerEchoScrubber $scrubber,
     ) {
     }
 
@@ -80,6 +81,8 @@ class ManagedShipmentMirror
             if ($fulfillment === null) {
                 return self::UNTOUCHED;
             }
+            // Whatever a provider's error text repeated of the buyer goes out of the stored texts at once, not when the details are removed.
+            $this->scrubber->scrubOrder((int) $locked->order_id);
 
             if (in_array($locked->orderStatus(), [ChannelOrderStatus::Cancelled, ChannelOrderStatus::Failed], true)) {
                 return $this->mirrorCancellation($locked, $fulfillment, $cancelledOrderId);
