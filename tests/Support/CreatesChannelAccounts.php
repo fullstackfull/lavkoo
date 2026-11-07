@@ -33,11 +33,11 @@ trait CreatesChannelAccounts
         return $this->switchOn($account, $capabilities, $writes);
     }
 
-    /** The order import of these accounts has just finished a complete sweep: the proof a quantity of their listings needs before it may be raised. */
+    /** The order import of these accounts has just started and finished a complete sweep: the proof a quantity of their listings needs before it may be raised. */
     protected function completeOrderSweep(SalesChannelAccount ...$accounts): void
     {
         foreach ($accounts as $account) {
-            SalesChannelSyncState::updateOrCreate(['account_id' => $account->id, 'resource' => 'orders'], ['last_success_at' => now(), 'cursor' => null]);
+            SalesChannelSyncState::updateOrCreate(['account_id' => $account->id, 'resource' => 'orders'], ['last_attempt_at' => now(), 'last_success_at' => now(), 'cursor' => null]);
         }
     }
 

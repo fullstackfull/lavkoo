@@ -24,8 +24,9 @@ use Illuminate\Support\Collection;
  *    the units, and they count; a newer one does, and they do not;
  *  - an order that is cancelled, failed or returned gives its units back (RELEASED);
  *  - an order the channel ships itself (FBA, channel-managed) or whose mode is not known draws no stock of ours and holds nothing;
- *  - an order that has an internal order (one the application created for it) holds nothing either: that order is a store order, and the pool already counts it (the provider
- *    items of an internal order, or the store's own stock decrement), so a hold besides would take the same unit off twice. Its hold is released and never made again.
+ *  - an order whose internal order (one the application created for it) is a store order that still counts the units holds nothing: the pool counts the internal order's provider
+ *    items, so a hold besides would take the same unit off twice. Its hold is released, and it comes back as soon as the internal order stops counting them (it was closed, the
+ *    provider cancelled its shipment, the dispatch was reset) while the channel order is still open.
  *
  * A line linked to no product, or whose listing and routing name no location, holds nothing: no pool can be told about it (`unattributedUnits` says how many units that is).
  *
@@ -42,6 +43,7 @@ class ChannelOrderReservations
         private readonly ReservationService $reservations,
         private readonly PublishPolicyResolver $policies,
         private readonly DirtyPools $dirtyPools,
+        private readonly StoreOrderItems $storeOrders,
     ) {
     }
 
@@ -75,7 +77,7 @@ class ChannelOrderReservations
             $key = self::keyOf($mapping, $line);
             $units = $line->activeQuantity();
 
-            if ($mapping->order_id !== null) {
+            if ($this->aStoreOrderCounts($mapping, $line)) {
                 $this->reservations->release($key, self::INTERNAL_ORDER_COUNTS_IT);
                 continue;
             }
@@ -89,15 +91,19 @@ class ChannelOrderReservations
             }
 
             $shipped = $this->hasLeftTheShelf($mapping);
-            if (!$shipped) {
-                $this->reservations->reopen($key);
-            }
+            $this->reservations->reopen($key, committedToo: !$shipped);
             $reservation = $this->reservations->reserve($key, $location, (int) $line->product_id, (string) $line->variant_key, $units, $line->sku, (int) $mapping->id, salesChannel: $mapping->sales_channel, accountId: (int) $mapping->account_id);
             if ($shipped) {
                 // An order first heard of after it shipped left the shelf when the channel says it did, not when we found out: a count taken since then shows it, an older one does not.
                 $this->reservations->commit($key, at: $reservation->wasRecentlyCreated ? $this->leftTheShelfAt($mapping) : null);
             }
         }
+    }
+
+    /** Does the internal order made for this channel order still count the line's units, so that a hold of the channel order's own would count them twice? */
+    private function aStoreOrderCounts(ExternalOrderMapping $mapping, ExternalOrderLine $line): bool
+    {
+        return $mapping->order_id !== null && $line->product_id !== null && $this->storeOrders->holds((int) $mapping->order_id, (int) $line->product_id, (string) $line->variant_key);
     }
 
     public static function keyOf(ExternalOrderMapping $mapping, ExternalOrderLine $line): string
@@ -108,12 +114,14 @@ class ChannelOrderReservations
     /**
      * Units that open orders of ours to fulfil have promised and that no pool knows about, per account: lines linked to no product, and lines whose listing and routing name no location.
      *
+     * @param int|null $accountId only this account's orders
      * @return array<int, int> units by account id
      */
-    public function unattributedUnits(): array
+    public function unattributedUnits(?int $accountId = null): array
     {
         $units = [];
         ExternalOrderMapping::query()
+            ->when($accountId !== null, static fn ($query) => $query->where('account_id', $accountId))
             ->whereNull('order_id')
             ->whereIn('status', self::RESERVING_STATUSES)
             ->where(static fn ($query) => $query->whereNull('shipment_link_state')->orWhere('shipment_link_state', '!=', ExternalOrderMapping::LINK_LINKED))

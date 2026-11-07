@@ -6,7 +6,9 @@ use App\Models\InventoryLocation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocation;
+use App\Services\SalesChannels\Inventory\Allocation\OrderFreshness;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
+use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Inventory\PoolNet;
 
@@ -35,6 +37,8 @@ class StockPlanner
         private readonly StockListingGate $gate,
         private readonly PoolNet $pools,
         private readonly PoolAllocationService $allocations,
+        private readonly OrderFreshness $freshness,
+        private readonly ChannelOrderReservations $reservations,
     ) {
     }
 
@@ -142,14 +146,28 @@ class StockPlanner
         };
     }
 
+    /**
+     * A channel that was read after our last write and shows less than we wrote sold the difference, and writing our older figure again would put those units back on sale. So the
+     * quantity stays at what the channel shows, unless the pool has more than when we wrote, or the orders explain the difference: a complete order sweep that began after the channel
+     * was read has imported every sale it had made, and none of its units is left out of every pool (an order cancelled since gave its units back, and they are the pool's again).
+     */
     private function notAboveTheChannel(SalesChannelProductMapping $listing, PoolAllocation $allocation, int $quantity): int
     {
         $remote = $listing->remote_quantity;
         $lowered = $listing->readBackIsNewer() && $remote !== null && $listing->last_published_quantity !== null && (int) $remote < (int) $listing->last_published_quantity;
         $netAtLastWrite = $listing->snapshot['publish']['stock_net'] ?? null;
         $poolHasMore = $netAtLastWrite !== null && (int) $allocation->net > (int) $netAtLastWrite;
+        if (!$lowered || $quantity <= (int) $remote || $poolHasMore) {
+            return $quantity;
+        }
 
-        return $lowered && $quantity > (int) $remote && !$poolHasMore ? (int) $remote : $quantity;
+        return $this->everySaleIsKnown($listing) ? $quantity : (int) $remote;
+    }
+
+    private function everySaleIsKnown(SalesChannelProductMapping $listing): bool
+    {
+        return $this->freshness->importedSince((int) $listing->account_id, $listing->last_seen_at)
+            && ($this->reservations->unattributedUnits(accountId: (int) $listing->account_id)[(int) $listing->account_id] ?? 0) === 0;
     }
 
     private function othersAreAboveTheirShare(SalesChannelProductMapping $listing, PoolAllocation $allocation): bool

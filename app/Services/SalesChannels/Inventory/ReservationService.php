@@ -14,7 +14,8 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *  - RESERVED: the order is ours, the location has not been told yet. It counts against what may be published.
  *  - COMMITTED: the location accepted the order. It keeps counting only until the location reports a stock figure taken AFTER that moment,
  *    because from then on its own count already has the units off, and subtracting them again would take them off twice. Unlinking the shipment reopens it.
- *  - RELEASED: the order was cancelled or never went out. It counts for nothing.
+ *  - RELEASED: the order was cancelled or never went out, or an internal order (a store order made for it) counts the units instead. It counts for nothing; the second kind comes back
+ *    when the internal order stops counting them.
  */
 class ReservationService
 {
@@ -66,14 +67,19 @@ class ReservationService
     }
 
     /**
-     * An order whose provider shipment was unlinked, or whose internal order went away (the dispatch was reset), is ours to fulfil again: its committed units, and units released only because
-     * an internal order counted them, are promised again, from now on. Any other released hold stays released.
+     * Promises the units of an order again, from now on, when they stopped being promised without the order being done with: an order whose provider shipment was unlinked (its
+     * committed units, unless it has shipped meanwhile), and an order whose internal order stopped counting them (closed, or the dispatch was reset), whose units were released only
+     * because that order counted them. Any other released hold stays released.
      */
-    public function reopen(string $key): ?InventoryReservation
+    public function reopen(string $key, bool $committedToo = true): ?InventoryReservation
     {
         $reservation = InventoryReservation::where('reservation_key', $key)->first();
-        $countedByAnInternalOrder = $reservation?->state === InventoryReservation::RELEASED && $reservation->release_reason === ChannelOrderReservations::INTERNAL_ORDER_COUNTS_IT;
-        if ($reservation === null || ($reservation->state !== InventoryReservation::COMMITTED && !$countedByAnInternalOrder)) {
+        $reopens = match ($reservation?->state) {
+            InventoryReservation::COMMITTED => $committedToo,
+            InventoryReservation::RELEASED => $reservation->release_reason === ChannelOrderReservations::INTERNAL_ORDER_COUNTS_IT,
+            default => false,
+        };
+        if (!$reopens) {
             return $reservation;
         }
         $reservation->forceFill(['state' => InventoryReservation::RESERVED, 'committed_at' => null, 'released_at' => null, 'release_reason' => null])->save();
@@ -84,7 +90,15 @@ class ReservationService
     public function release(string $key, string $reason): ?InventoryReservation
     {
         $reservation = InventoryReservation::where('reservation_key', $key)->first();
-        if ($reservation === null || $reservation->state === InventoryReservation::RELEASED) {
+        if ($reservation === null) {
+            return null;
+        }
+        if ($reservation->state === InventoryReservation::RELEASED) {
+            // Units handed to an internal order that has since closed along with the channel order are free for good: they must not come back with a later reopen.
+            if ($reservation->release_reason === ChannelOrderReservations::INTERNAL_ORDER_COUNTS_IT && $reason !== ChannelOrderReservations::INTERNAL_ORDER_COUNTS_IT) {
+                $reservation->forceFill(['release_reason' => mb_substr($reason, 0, 120)])->save();
+            }
+
             return $reservation;
         }
         $reservation->forceFill(['state' => InventoryReservation::RELEASED, 'released_at' => now(), 'release_reason' => mb_substr($reason, 0, 120)])->save();

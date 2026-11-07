@@ -17,6 +17,7 @@ use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
 use App\Services\SalesChannels\Inventory\Allocation\StockAllocator;
 use App\Services\SalesChannels\Inventory\Allocation\StorefrontReserve;
 use App\Services\SalesChannels\Inventory\PoolKey;
+use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Inventory\ReservationService;
 use App\Services\SalesChannels\Publishing\DirtyPoolRun;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
@@ -413,6 +414,48 @@ class StockAllocationTest extends TestCase
         $this->assertSame([20, 30], $this->sent(self::SELLER_A), 'stock has arrived: the pool has more than when we wrote');
     }
 
+    public function test_the_units_of_a_cancelled_order_are_offered_again_once_the_orders_explain_what_the_channel_shows(): void
+    {
+        $listing = $this->channelThatSoldTwoOfTen();
+
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2, '2026-11-10 11:00:00', status: ChannelOrderStatus::Cancelled);
+        $this->completeOrderSweep($this->first);
+        $this->assertSame(10, app(PoolNet::class)->for($this->torodLocation(), self::PRODUCT)->net());
+        $this->publish($this->first);
+
+        $this->assertSame([10, 10], $this->sent(self::SELLER_A), 'the order was cancelled and a sweep that began after the channel was read saw it: the 2 units are the pool\'s again');
+        $this->assertSame(10, $listing->refresh()->last_published_quantity);
+    }
+
+    public function test_a_channels_own_lowering_is_kept_while_no_order_sweep_began_after_it_was_read(): void
+    {
+        $this->channelThatSoldTwoOfTen();
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2, '2026-11-10 11:00:00', status: ChannelOrderStatus::Cancelled);
+        $this->completeOrderSweep($this->first);
+        SalesChannelSyncState::where('account_id', $this->first->id)->update(['last_attempt_at' => now()->subMinutes(30)]);
+
+        $result = app(StockPricePublisher::class)->publishStock($this->first);
+
+        $this->assertSame(['unchanged' => 1], $result['stats']['skipped'], 'the sweep that finished just now began before the channel was read: a sale made before then may still be unknown');
+        $this->assertSame([10], $this->sent(self::SELLER_A));
+    }
+
+    public function test_a_channels_own_lowering_is_kept_while_an_order_of_the_account_is_linked_to_no_stock(): void
+    {
+        $this->channelThatSoldTwoOfTen();
+        $this->ingestOrder($this->first, 'ORD-9', 'NOT-A-LISTING', 3);
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2, '2026-11-10 11:00:00', status: ChannelOrderStatus::Cancelled);
+        $this->completeOrderSweep($this->first);
+
+        $result = app(StockPricePublisher::class)->publishStock($this->first);
+
+        $this->assertSame(['unchanged' => 1], $result['stats']['skipped'], '3 units were sold that no pool knows about: the channel\'s own lowering may be theirs');
+        $this->assertSame([10], $this->sent(self::SELLER_A));
+    }
+
     public function test_a_read_back_older_than_our_write_changes_nothing_about_what_is_sent(): void
     {
         $this->figure(20);
@@ -425,6 +468,29 @@ class StockAllocationTest extends TestCase
         $this->publish($this->first);
 
         $this->assertSame([20, 20], $this->sent(self::SELLER_A), 'a channel read before our write says nothing about what it shows now: the existing rule sends again');
+    }
+
+    /** A listing published at 10; the channel then sold 2 and lowered its own quantity, the order was imported (hold 2, net 8) and the channel was read back showing 8. */
+    private function channelThatSoldTwoOfTen(): SalesChannelProductMapping
+    {
+        $this->figure(10);
+        $listing = $this->stockListing($this->first, self::PRODUCT, $this->torodLocation(), 'BAR-A');
+        $this->completeOrderSweep($this->first);
+        $this->publish($this->first);
+        $this->assertSame([10], $this->sent(self::SELLER_A));
+        $snapshot = $listing->refresh()->snapshot;
+        $snapshot['publish']['stock']['state'] = 'applied';
+        $listing->forceFill(['snapshot' => $snapshot])->save();
+
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2);
+        $this->travel(1)->minutes();
+        $listing->refresh()->forceFill(['remote_quantity' => 8, 'last_seen_at' => now()])->save();
+        $this->completeOrderSweep($this->first);
+        $this->publish($this->first);
+        $this->assertSame([10], $this->sent(self::SELLER_A), 'nothing to send: the channel already shows 8');
+
+        return $listing;
     }
 
     // ---- a division another process wrote meanwhile ----------------------------------------------------------------------------------------------

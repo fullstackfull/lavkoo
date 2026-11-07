@@ -41,6 +41,17 @@ class OrderFreshness
     }
 
     /**
+     * Did the account's order import finish a COMPLETE sweep that began after the given moment? Then every order the channel held at that moment has been imported, so a quantity the
+     * channel showed then is explained by the orders we know: a sale it made is a hold (or a cancelled order that gave its units back), and nothing it sold is still unknown.
+     */
+    public function importedSince(int $accountId, CarbonInterface $moment): bool
+    {
+        return SalesChannelSyncState::where('account_id', $accountId)->where('resource', ChannelSyncService::ORDERS)
+            ->whereNull('cursor')->whereColumn('last_success_at', '>=', 'last_attempt_at')->where('last_attempt_at', '>=', $moment)
+            ->exists();
+    }
+
+    /**
      * Why each of these accounts has no proof, for a screen: it does not import orders at all, its last sweep stopped part of the way through a backlog, none ever finished, or the
      * last one finished too long ago.
      *

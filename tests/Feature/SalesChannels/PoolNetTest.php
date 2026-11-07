@@ -255,7 +255,7 @@ class PoolNetTest extends TestCase
         $this->assertSame([InventoryReservation::RELEASED, ChannelOrderReservations::INTERNAL_ORDER_COUNTS_IT], [$hold->state, $hold->release_reason]);
     }
 
-    public function test_the_hold_of_an_order_with_an_internal_order_never_comes_back_however_often_the_order_is_read(): void
+    public function test_the_hold_of_an_order_whose_internal_order_stands_does_not_come_back_however_often_the_order_is_read(): void
     {
         $this->providerFigure(self::PRODUCT, 20, now()->subHour());
         $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
@@ -288,7 +288,41 @@ class PoolNetTest extends TestCase
         $this->assertSame(18, $this->pool()->net());
     }
 
-    public function test_the_internal_order_gives_its_units_back_when_it_is_cancelled(): void
+    public function test_when_the_internal_order_is_closed_while_the_channel_order_is_open_the_channel_orders_hold_comes_back(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
+        $mapping = $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2);
+        $this->storeOrder(100, self::PRODUCT, 2);
+        $mapping->forceFill(['order_id' => 100])->save();
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+        $this->assertSame(18, $this->pool()->net());
+
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'canceled']);
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+
+        $hold = InventoryReservation::firstOrFail();
+        $this->assertSame([InventoryReservation::RESERVED, null], [$hold->state, $hold->release_reason]);
+        $this->assertSame([0, 2, 18], [$this->pool()->storeHolds, $this->pool()->channelHolds, $this->pool()->net()], 'the channel order still owes the 2 units and nobody else counts them: it does');
+    }
+
+    public function test_when_the_provider_cancels_the_shipment_of_an_internal_order_that_is_still_open_the_channel_orders_hold_comes_back(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
+        $mapping = $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2);
+        $this->storeOrder(100, self::PRODUCT, 2, FulfillmentStatus::Submitted, now()->subMinutes(30));
+        $mapping->forceFill(['order_id' => 100])->save();
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+        $this->assertSame([2, 0, 18], [$this->pool()->storeHolds, $this->pool()->channelHolds, $this->pool()->net()]);
+
+        DB::table('provider_fulfillments')->where('order_id', 100)->update(['status' => FulfillmentStatus::Cancelled->value]);
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+
+        $this->assertSame([0, 2, 18], [$this->pool()->storeHolds, $this->pool()->channelHolds, $this->pool()->net()], 'the platform no longer counts the cancelled shipment, and the channel order is open and flagged for a person: its hold is back');
+    }
+
+    public function test_when_both_orders_are_closed_the_units_are_free(): void
     {
         $this->providerFigure(self::PRODUCT, 20, now()->subHour());
         $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
@@ -298,8 +332,26 @@ class PoolNetTest extends TestCase
         app(ChannelOrderReservations::class)->sync($mapping->refresh());
 
         DB::table('orders')->where('id', 100)->update(['order_status' => 'canceled']);
+        $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2, '2026-11-10 10:05:00', status: ChannelOrderStatus::Cancelled);
 
+        $this->assertSame([InventoryReservation::RELEASED, 'order_cancelled'], [InventoryReservation::firstOrFail()->state, InventoryReservation::firstOrFail()->release_reason]);
         $this->assertSame(20, $this->pool()->net());
+    }
+
+    public function test_a_shipped_channel_order_whose_internal_order_was_closed_holds_its_units_as_committed(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
+        $mapping = $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2);
+        $this->storeOrder(100, self::PRODUCT, 2);
+        $mapping->forceFill(['order_id' => 100])->save();
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'returned']);
+
+        $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2, '2026-11-10 10:05:00', status: ChannelOrderStatus::Shipped);
+
+        $this->assertSame(InventoryReservation::COMMITTED, InventoryReservation::firstOrFail()->state, 'it left the shelf by another way: counted until a figure taken after that');
+        $this->assertSame(18, $this->pool()->net());
     }
 
     public function test_once_the_provider_has_the_internal_order_and_the_figure_is_newer_the_unit_is_in_the_figure(): void
