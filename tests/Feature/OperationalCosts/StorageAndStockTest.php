@@ -219,6 +219,22 @@ class StorageAndStockTest extends TestCase
         $this->assertSame('stock_unknown', $entry->missing_reason);
     }
 
+    public function test_a_default_location_that_holds_nothing_and_has_no_contract_records_no_missing_cost_but_one_that_holds_stock_does(): void
+    {
+        [$torod, $m5azn] = $this->locations->ensureDefaults();
+        $day = CarbonImmutable::parse('2026-11-10');
+
+        $this->assertSame([], app(StorageCostService::class)->accrue($torod, $day), 'Nothing is stored there and nobody prices it: it is not in use, so there is nothing to be missing.');
+        $this->assertSame(0, OperationalCostEntry::count());
+
+        $this->mapping(1, 30, StockSource::ProviderSync);
+        $outcomes = app(StorageCostService::class)->accrue($torod, $day);
+
+        $this->assertNotSame([], $outcomes);
+        $this->assertSame(['no_contract'], OperationalCostEntry::where('inventory_location_id', $torod->id)->pluck('missing_reason')->unique()->values()->all(), 'Stock sits there and nothing prices it: that is a cost nobody knows.');
+        $this->assertSame(0, OperationalCostEntry::where('inventory_location_id', $m5azn->id)->count());
+    }
+
     public function test_amazon_fba_storage_is_never_priced_from_a_contract(): void
     {
         $account = SalesChannelAccount::create(['channel' => 'amazon', 'name' => 'Amazon KSA']);

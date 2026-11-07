@@ -62,7 +62,7 @@ class StorageCostService
         foreach ($components as $component) {
             $dayContext = $component === CostComponent::StorageMonthly ? $this->monthContext($context, $day) : $context;
             $cost = $this->calculator->price((string) $location->provider, [$component], $dayContext, (int) $location->seller_id)[0];
-            if ($cost->kind === ComputedCost::NOT_PRICED) {
+            if ($cost->kind === ComputedCost::NOT_PRICED || $this->isNotInUse($rows, $cost)) {
                 continue;
             }
             $outcome = $this->ledger->record($this->draft($location, $day, $cost, $units, $rows === []));
@@ -73,6 +73,12 @@ class StorageCostService
         }
 
         return $outcomes;
+    }
+
+    /** A location that holds nothing and that no contract prices has no storage cost to be missing: it is not in use (a day it holds nothing under a contract is still missing). @param list<array<string, mixed>> $rows */
+    private function isNotInUse(array $rows, ComputedCost $cost): bool
+    {
+        return $rows === [] && $cost->isMissing() && $cost->missingReason === 'no_contract';
     }
 
     private function monthContext(ServiceContext $context, CarbonImmutable $day): ServiceContext

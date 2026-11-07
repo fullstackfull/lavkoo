@@ -4,6 +4,7 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Console\ScheduleDefinition;
 use App\Models\ExternalOrderMapping;
+use App\Models\InventoryLocation;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
@@ -48,6 +49,18 @@ class SalesChannelsCommandsTest extends TestCase
         $this->artisan('channels:publish')->expectsOutputToContain('switched off')->assertSuccessful();
 
         Http::assertNothingSent();
+    }
+
+    public function test_a_scheduled_command_creates_the_default_stock_locations_once_the_modules_are_ready(): void
+    {
+        $this->assertSame(0, InventoryLocation::count());
+
+        $this->artisan('costs:accrue-storage')->assertSuccessful();
+        $this->assertSame(['m5azn-supplier', 'own-warehouse', 'torod-warehouse'], InventoryLocation::orderBy('code')->pluck('code')->all());
+
+        Cache::flush();
+        $this->artisan('costs:accrue-storage')->assertSuccessful();
+        $this->assertSame(3, InventoryLocation::count(), 'Only what was missing is created.');
     }
 
     public function test_sync_reads_the_chosen_resource_of_the_chosen_account(): void
