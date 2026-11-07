@@ -155,6 +155,66 @@ class PoolNetTest extends TestCase
         $this->assertSame(2, $this->pool()->storeHolds);
     }
 
+    public function test_a_store_order_accepted_after_a_figure_was_typed_keeps_counting_after_it_is_delivered(): void
+    {
+        $typedAt = now()->subDays(3);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 5, FulfillmentStatus::Submitted, $typedAt->copy()->addHour());
+        $this->assertSame(15, $this->pool()->net(), 'accepted after the figure was typed: its 5 units are not in it');
+
+        DB::table('orders')->where('id', 1)->update(['order_status' => 'delivered']);
+        DB::table('provider_fulfillments')->where('order_id', 1)->update(['status' => FulfillmentStatus::Delivered->value]);
+
+        $this->assertSame(15, $this->pool()->net(), 'the parcel is delivered and the typed figure is still what a person typed three days ago: the 5 units stay off it');
+        $this->assertSame(5, $this->pool()->storeHolds);
+    }
+
+    public function test_a_typed_figure_keeps_a_delivered_shipment_whose_order_has_not_moved_on_and_a_delivered_order_the_provider_never_got(): void
+    {
+        $typedAt = now()->subDays(2);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 2, FulfillmentStatus::Delivered, $typedAt->copy()->addHour());
+        $this->storeOrder(2, self::PRODUCT, 3, orderStatus: 'delivered');
+        DB::table('orders')->where('id', 2)->update(['created_at' => $typedAt->copy()->addHours(2)]);
+
+        $this->assertSame(5, $this->pool()->storeHolds, 'both left the shelf after the figure was typed, whatever state their orders are in');
+    }
+
+    public function test_a_typed_figure_stops_counting_an_order_that_was_cancelled_returned_or_accepted_before_it_was_typed(): void
+    {
+        $typedAt = now()->subDays(2);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 1, FulfillmentStatus::Delivered, $typedAt->copy()->subHour(), orderStatus: 'delivered');
+        $this->storeOrder(2, self::PRODUCT, 2, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'returned');
+        $this->storeOrder(3, self::PRODUCT, 3, FulfillmentStatus::Returned, $typedAt->copy()->addHour(), orderStatus: 'delivered');
+        $this->storeOrder(4, self::PRODUCT, 4, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'delivered');
+        DB::table('provider_fulfillment_items')->where('order_id', 4)->update(['status' => 'cancelled']);
+        $this->storeOrder(5, self::PRODUCT, 5, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'canceled');
+
+        $this->assertSame(0, $this->pool()->storeHolds, 'before the figure: in it; returned, cancelled or closed: back on the shelf or never off it');
+        $this->assertSame(20, $this->pool()->net());
+    }
+
+    public function test_a_new_typed_figure_counts_only_the_orders_accepted_after_it(): void
+    {
+        $typedAt = now()->subDays(3);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 5, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'delivered');
+        $this->assertSame(15, $this->pool()->net());
+
+        $this->providerFigure(self::PRODUCT, 15, now()->subHour(), StockSource::Manual);
+
+        $this->assertSame(15, $this->pool()->net(), 'the person counted the shelf again after the delivery: the 5 units are in the new figure and are not taken off twice');
+    }
+
+    public function test_a_figure_the_provider_synced_does_not_keep_a_delivered_order_because_the_provider_counts_it(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->storeOrder(1, self::PRODUCT, 5, FulfillmentStatus::Delivered, now()->subMinutes(30), orderStatus: 'delivered');
+
+        $this->assertSame(0, $this->pool()->storeHolds);
+    }
+
     public function test_store_orders_of_another_provider_and_of_another_variant_are_not_this_pools(): void
     {
         $this->providerFigure(self::PRODUCT, 20, now()->subHour());

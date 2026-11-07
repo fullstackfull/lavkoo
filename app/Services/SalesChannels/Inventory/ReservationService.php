@@ -53,13 +53,14 @@ class ReservationService
         }
     }
 
-    public function commit(string $key): ?InventoryReservation
+    /** @param CarbonInterface|null $at when the units left the shelf, when that is known to be earlier than now (an order first heard of after it shipped) */
+    public function commit(string $key, ?CarbonInterface $at = null): ?InventoryReservation
     {
         $reservation = InventoryReservation::where('reservation_key', $key)->first();
         if ($reservation === null || $reservation->state !== InventoryReservation::RESERVED) {
             return $reservation;
         }
-        $reservation->forceFill(['state' => InventoryReservation::COMMITTED, 'committed_at' => now()])->save();
+        $reservation->forceFill(['state' => InventoryReservation::COMMITTED, 'committed_at' => $at ?? now()])->save();
 
         return $reservation;
     }

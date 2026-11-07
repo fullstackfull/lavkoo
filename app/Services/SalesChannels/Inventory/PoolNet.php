@@ -14,7 +14,8 @@ use App\Services\Fulfillment\InventorySyncService;
  *
  *  - Hc, the units on open channel orders (the reservations of this location, product and variant);
  *  - Hs, the units on STORE orders the provider has not counted yet (a provider pool only): the storefront sells provider stock minus exactly these (`InventorySyncService`),
- *    and a figure taken before they were accepted does not show them. A figure a person typed counts from the time it was typed;
+ *    and a figure taken before they were accepted does not show them. A figure a person typed counts from the time it was typed, and a figure nobody reads again keeps every
+ *    order accepted since, delivered ones included (`DeliveredStoreOrders`);
  *  - B, the pool's safety buffer.
  *
  * Never subtracted: units on store orders at a pool the store itself owns (they are off `current_stock` already) and units on an internal order made for a channel order (the
@@ -25,6 +26,7 @@ class PoolNet
     public function __construct(
         private readonly LocationStockReader $stock,
         private readonly InventorySyncService $storeOrders,
+        private readonly DeliveredStoreOrders $deliveredStoreOrders,
         private readonly ProductVariations $variations,
     ) {
     }
@@ -57,7 +59,12 @@ class PoolNet
             return 0;
         }
 
-        return $this->storeOrders->reservedNotYetWithProvider($provider, $productId, $variantKey, $availability->syncedAt);
+        $notDeliveredYet = $this->storeOrders->reservedNotYetWithProvider($provider, $productId, $variantKey, $availability->syncedAt);
+        if ($availability->quality !== StockAvailability::MANUAL || $availability->syncedAt === null) {
+            return $notDeliveredYet;
+        }
+
+        return $notDeliveredYet + $this->deliveredStoreOrders->unitsSince($provider, $productId, $variantKey, $availability->syncedAt);
     }
 
     private function refusal(InventoryLocation $location, int $productId, string $variantKey): ?string

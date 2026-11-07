@@ -154,14 +154,39 @@ class ChannelOrderReservationsTest extends TestCase
         $this->assertSame(20, $this->offered());
     }
 
-    public function test_an_order_first_seen_after_it_shipped_holds_nothing_because_the_count_already_shows_it(): void
+    public function test_an_order_first_seen_after_it_shipped_does_not_count_against_a_figure_taken_after_the_shipment(): void
+    {
+        $this->listing();
+        $shippedAt = now()->subHours(2);
+
+        $this->order(status: ChannelOrderStatus::Delivered, updatedAt: $shippedAt->toDateTimeString());
+
+        $hold = InventoryReservation::firstOrFail();
+        $this->assertSame(InventoryReservation::COMMITTED, $hold->state);
+        $this->assertTrue($hold->committed_at->eq($shippedAt), 'the units left the shelf when the channel says the order was last changed, not when we heard of it');
+        $this->assertSame(20, $this->offered(), 'the count was typed an hour ago, after that: it shows the 2 units gone');
+    }
+
+    public function test_an_order_first_seen_after_it_shipped_counts_against_a_figure_taken_before_the_shipment_until_a_newer_figure_shows_it(): void
     {
         $this->listing();
 
-        $this->order(status: ChannelOrderStatus::Delivered);
+        $this->order(status: ChannelOrderStatus::Delivered, updatedAt: now()->subMinutes(30)->toDateTimeString());
 
-        $this->assertSame(0, InventoryReservation::count());
-        $this->assertSame(20, $this->offered());
+        $this->assertSame(18, $this->offered(), 'the figure was typed an hour ago and does not show the 2 units that left half an hour ago');
+
+        InventoryLocationBalance::query()->update(['available' => 18, 'source_synced_at' => now()->subMinutes(10)]);
+        $this->assertSame(18, $this->offered(), 'a figure typed after the shipment shows them gone: nothing more is taken off');
+    }
+
+    public function test_an_order_first_seen_after_it_shipped_with_a_time_in_the_future_counts_from_now(): void
+    {
+        $this->listing();
+
+        $this->order(status: ChannelOrderStatus::Shipped, updatedAt: now()->addHour()->toDateTimeString());
+
+        $this->assertTrue(InventoryReservation::firstOrFail()->committed_at->eq(now()), 'a channel clock that runs ahead cannot make a shipment look older than the figure it is not in');
+        $this->assertSame(18, $this->offered());
     }
 
     public function test_an_order_whose_listing_was_linked_later_starts_holding_its_units_then(): void
