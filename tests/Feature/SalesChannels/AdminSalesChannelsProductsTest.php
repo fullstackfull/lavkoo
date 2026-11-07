@@ -276,7 +276,7 @@ class AdminSalesChannelsProductsTest extends AdminSalesChannelsTestCase
 
         $this->backTo()->post(route('admin.sales-channels.products.settings', $listing), ['price_source' => 'internal', 'inventory_publish' => 0])->assertRedirect()->assertSessionHasNoErrors();
 
-        $this->assertSame($record, $listing->refresh()->allocation, 'the record names the pool the listing is part of; the next division brings it up to date, and until then the hub still knows which pool the listing belongs to');
+        $this->assertEquals($record, $listing->refresh()->allocation, 'the record names the pool the listing is part of; the next division brings it up to date, and until then the hub still knows which pool the listing belongs to');
     }
 
     /** @return array<string, array{0: array<string, mixed>, 1: string}> */

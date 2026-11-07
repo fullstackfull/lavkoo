@@ -64,7 +64,7 @@ class PoolAllocationService
         $startedAt = now();
         $location = InventoryLocation::find($key->locationId);
         $members = $this->members->of($key, $location);
-        $outsiders = $this->outsiders->of($key, $members);
+        $outsiders = $this->outsiders->of(key: $key, members: $members);
         $figures = $location === null ? null : $this->net->for($location, $key->productId, $key->variantKey, buffer: (int) $pool->safety_buffer);
         $reason = $figures === null ? 'no_stock_source' : ($figures->refusal ?? ($figures->isPublishable() ? null : 'stock_not_confirmed:' . $figures->quality));
         $accountIds = array_values(array_unique(array_map(static fn (PoolMember $member): int => (int) $member->account->id, $members)));
@@ -78,7 +78,7 @@ class PoolAllocationService
 
         $holdBefore = (int) $pool->deficit_hold_cycles;
         $stale = $this->freshness->staleAccounts($accountIds);
-        $fingerprint = $this->fingerprint($net, $deficit, PoolAllocation::raisingBlockedBy($deficit, $holdBefore > 0, $stale), $reason, $result, $members, $outsiders);
+        $fingerprint = $this->fingerprint(net: $net, deficit: $deficit, raisingBlockedBy: PoolAllocation::raisingBlockedBy($deficit, $holdBefore > 0, $stale), reason: $reason, result: $result, members: $members, outsiders: $outsiders);
         $allocation = new PoolAllocation(
             key: $key,
             version: (int) $pool->version + ($fingerprint !== $pool->fingerprint ? 1 : 0),
@@ -91,7 +91,7 @@ class PoolAllocationService
             staleAccounts: $stale,
         );
 
-        $this->store($members, $outsiders, $allocation, everyone: $allocation->version !== (int) $pool->version);
+        $this->store(members: $members, outsiders: $outsiders, allocation: $allocation, everyone: $allocation->version !== (int) $pool->version);
         $this->keepBooks($pool, $allocation, $fingerprint, $reason === null ? $this->holdAfter($holdBefore, $deficit) : $holdBefore, $startedAt);
 
         return $allocation;

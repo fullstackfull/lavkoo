@@ -64,12 +64,12 @@ class PoolNet
             return 0;
         }
 
-        $notDeliveredYet = $this->storeOrders->reservedNotYetWithProvider($provider, $productId, $variantKey, $availability->syncedAt);
+        $notDeliveredYet = $this->storeOrders->reservedNotYetWithProvider(provider: $provider, productId: $productId, variantKey: $variantKey, acceptedSince: $availability->syncedAt);
         if ($availability->quality !== StockAvailability::MANUAL || $availability->syncedAt === null) {
             return $notDeliveredYet;
         }
 
-        return $notDeliveredYet + $this->deliveredStoreOrders->unitsSince($provider, $productId, $variantKey, $availability->syncedAt);
+        return $notDeliveredYet + $this->deliveredStoreOrders->unitsSince(provider: $provider, productId: $productId, variantKey: $variantKey, typedAt: $availability->syncedAt);
     }
 
     private function refusal(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $availability): ?string

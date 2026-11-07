@@ -24,7 +24,7 @@ class DeliveredStoreOrders
     /** @param CarbonInterface $typedAt when the figure was typed: an order the provider accepted before that is in the figure, as it is for an order that is still on its way */
     public function unitsSince(ProviderCode $provider, int $productId, string $variantKey, CarbonInterface $typedAt): int
     {
-        return (int) $this->items->standing($productId, $variantKey)
+        return (int) $this->items->standing(productId: $productId, variantKey: $variantKey)
             ->where('items.provider', $provider->value)
             ->where(static fn ($delivered) => $delivered->where('orders.order_status', 'delivered')->orWhere('pf.status', FulfillmentStatus::Delivered->value))
             ->whereRaw('COALESCE(pf.submitted_at, pf.last_received_at, pf.updated_at, orders.created_at) >= ?', [$typedAt])

@@ -166,7 +166,7 @@ class StockPlanner
 
     private function everySaleIsKnown(SalesChannelProductMapping $listing): bool
     {
-        return $this->freshness->importedSince((int) $listing->account_id, $listing->last_seen_at)
+        return $this->freshness->importedSince(accountId: (int) $listing->account_id, moment: $listing->last_seen_at)
             && ($this->reservations->unattributedUnits(accountId: (int) $listing->account_id)[(int) $listing->account_id] ?? 0) === 0;
     }
 

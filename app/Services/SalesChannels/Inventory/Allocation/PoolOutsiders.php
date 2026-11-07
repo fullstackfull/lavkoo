@@ -34,7 +34,7 @@ class PoolOutsiders
             ->whereNotNull('last_published_quantity')->whereNotIn('id', $memberIds)->orderBy('id')->get();
         foreach ($listings as $listing) {
             $shown = $listing->shownQuantity() ?? 0;
-            if ($shown > 0 && $listing->fulfillment_mode !== 'fba' && $this->takesItsStockFrom($listing, $key)) {
+            if ($shown > 0 && $listing->fulfillment_mode !== 'fba' && $this->takesItsStockFrom(listing: $listing, key: $key)) {
                 $outsiders[] = new PoolOutsider($listing, $shown);
             }
         }

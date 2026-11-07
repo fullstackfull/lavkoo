@@ -32,6 +32,6 @@ class StoreOrderItems
     /** Does this order still hold a line of the product (or variant) that the store's side counts? */
     public function holds(int $orderId, int $productId, string $variantKey): bool
     {
-        return $this->standing($productId, $variantKey)->where('items.order_id', $orderId)->exists();
+        return $this->standing(productId: $productId, variantKey: $variantKey)->where('items.order_id', $orderId)->exists();
     }
 }

@@ -3,7 +3,6 @@
 namespace Tests\Feature\SalesChannels;
 
 use App\Models\SalesChannelAccount;
-use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocation;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;

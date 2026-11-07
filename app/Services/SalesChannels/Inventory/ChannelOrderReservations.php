@@ -103,7 +103,7 @@ class ChannelOrderReservations
     /** Does the internal order made for this channel order still count the line's units, so that a hold of the channel order's own would count them twice? */
     private function aStoreOrderCounts(ExternalOrderMapping $mapping, ExternalOrderLine $line): bool
     {
-        return $mapping->order_id !== null && $line->product_id !== null && $this->storeOrders->holds((int) $mapping->order_id, (int) $line->product_id, (string) $line->variant_key);
+        return $mapping->order_id !== null && $line->product_id !== null && $this->storeOrders->holds(orderId: (int) $mapping->order_id, productId: (int) $line->product_id, variantKey: (string) $line->variant_key);
     }
 
     public static function keyOf(ExternalOrderMapping $mapping, ExternalOrderLine $line): string
