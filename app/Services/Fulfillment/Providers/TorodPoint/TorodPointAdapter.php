@@ -448,18 +448,28 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
      * The shipment an event is about, found by the references it carries — and only when all of them agree. Two references
      * pointing at DIFFERENT shipments, or one reference that two shipments both carry, leave the event unmatched instead of
      * binding it to whichever row happens to be read first; an unmatched event is kept and retried, never discarded.
+     *
+     * A Lastmile event that NAMES an invoice number we do not know is left unmatched too, however well its barcode fits: an
+     * invoice number is the one field of the body that says which order the event is about, so a number that belongs to no
+     * shipment of ours contradicts the barcode rather than saying nothing, and the event waits for a person. Only a body that
+     * names no invoice number at all is matched by its barcode alone.
      */
     public function locateFulfillment(NormalizedEvent $event): ?ProviderFulfillment
     {
-        $found = $event->type === 'lastmile'
-            ? [
-                $this->shipmentsCarrying(columns: ['provider_secondary_reference'], value: $event->reference('barcode')),
-                $this->shipmentsCarrying(columns: self::INVOICE_COLUMNS, value: $event->reference('invoice')),
-            ]
-            : [
+        if ($event->type === 'lastmile') {
+            $invoice = $event->reference('invoice');
+            $byInvoice = $this->shipmentsCarrying(columns: self::INVOICE_COLUMNS, value: $invoice);
+            if ($invoice !== null && $byInvoice === []) {
+                return null;
+            }
+
+            $found = [$this->shipmentsCarrying(columns: ['provider_secondary_reference'], value: $event->reference('barcode')), $byInvoice];
+        } else {
+            $found = [
                 $this->shipmentsCarrying(columns: ['provider_reference'], value: $event->reference('barcode')),
                 $this->shipmentsCarrying(columns: ['provider_secondary_reference'], value: $event->reference('package_barcode')),
             ];
+        }
 
         $ids = array_values(array_unique(array_merge(...$found)));
 
