@@ -3,6 +3,7 @@
 namespace Tests\Feature\SalesChannels;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
 use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
@@ -11,6 +12,7 @@ use App\Models\InventoryLocationBalance;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
+use App\Services\Fulfillment\InventorySyncService;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Inventory\LocationStockReader;
 use App\Services\SalesChannels\Inventory\PoolFigures;
@@ -107,6 +109,25 @@ class PoolNetTest extends TestCase
         $pool = $this->pool();
 
         $this->assertSame([0, 1], [$pool->net(), $pool->deficit()]);
+    }
+
+    /**
+     * KNOWN AND LEFT TO THE OWNER (operations.md, *Owner decisions*): the platform holds back the orders a provider accepted since the read of its list BEGAN, the module those accepted
+     * since the figure was STAMPED, which is when the figure is written, after the read. An order accepted in between is in neither the figure nor the module's count. This test pins
+     * what is true today so that closing the gap is noticed here and in the document.
+     */
+    public function test_a_store_order_accepted_while_the_warehouse_list_was_being_read_is_held_back_by_the_platform_and_not_by_the_module(): void
+    {
+        $this->storeProduct(70, 'torod_point', 50);
+        $this->providerFigure(70, 20, now()->subDay());
+        $readStartedAt = now();
+        $this->storeOrder(9, 70, 2, FulfillmentStatus::Submitted, $readStartedAt->copy()->addSeconds(30));
+        $this->travel(90)->seconds();
+
+        app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-70' => 20], $readStartedAt);
+
+        $this->assertSame(18, (int) DB::table('products')->where('id', 70)->value('current_stock'), 'the platform holds the 2 units back: accepted after the read began');
+        $this->assertSame(20, $this->net->for($this->torodLocation(), 70)->net(), 'the module does not: accepted before the figure was stamped, 90 seconds after the read began');
     }
 
     // ---- a variant needs a figure of its own ----------------------------------------------------------------------------------

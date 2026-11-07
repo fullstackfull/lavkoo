@@ -35,7 +35,7 @@ use Tests\Support\CreatesChannelAccounts;
 use Tests\TestCase;
 
 /**
- * One physical stock offered by several listings of several accounts: what all of them are shown never adds up to more than is left, a quantity is raised only when that is
+ * One physical stock offered by several listings of several accounts: what all of them may be shown adds up to no more than is left, a quantity is raised only when that is
  * safe, and a sale on one channel lowers what every channel is shown within one quick run.
  */
 class StockAllocationTest extends TestCase

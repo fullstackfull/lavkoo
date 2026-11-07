@@ -21,8 +21,10 @@ use App\Services\Fulfillment\InventorySyncService;
  * A pool is REFUSED (it offers nothing) when it is the store's own stock, when a product sold per variant is asked for without a variant, and when a variant is asked for at a
  * location that holds one figure for the whole product and none for the variant (every variant would be offered all of it).
  *
- * Never subtracted: units on store orders at a pool the store itself owns (they are off `current_stock` already) and units on an internal order made for a channel order (the
- * hold of such an order is released, see ChannelOrderReservations, because Hs counts it).
+ * Never subtracted twice: units on store orders at a pool that keeps no provider's orders (a typed balance, the store's own stock: no provider whose orders could be attributed to it,
+ * and the store's sales are off `current_stock` already) and units on an internal order made for a channel order, while that order stands (the hold of the channel order is released,
+ * see ChannelOrderReservations, because Hs counts it; it comes back when the internal order stops counting them). "Once" depends on the listings being in the pool, the orders being
+ * imported and the figures being current: see operations.md.
  */
 class PoolNet
 {
