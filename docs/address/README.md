@@ -67,7 +67,7 @@ Everything that depends on the structured address is dormant, and the pages, API
 ## Running the tests
 
 ```bash
-vendor/bin/phpunit tests/Feature/Address            # the address work on SQLite (770+ tests)
+vendor/bin/phpunit tests/Feature/Address            # the address work on SQLite (1,000+ tests)
 vendor/bin/phpunit                                  # everything
 # the same address tests on a real MySQL / MariaDB (the CI "MySQL" job does this on MySQL 8):
 EXPECT_DB_DRIVER=mysql DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=pharmacy_testing DB_USERNAME=root DB_PASSWORD=… \
