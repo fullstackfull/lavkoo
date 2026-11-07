@@ -21,7 +21,10 @@ class AddressModeCommand extends Command
             return self::INVALID;
         }
 
-        $this->forgetCachedSettings();
+        // Business settings are cached for hours: the gate must compare with what the database says, not with what was cached.
+        clearWebConfigCacheKeys();
+        AddressSchema::flush();
+
         $problems = $gate->switchTo($mode);
         if ($problems !== []) {
             foreach ($problems as $problem) {
@@ -31,16 +34,8 @@ class AddressModeCommand extends Command
             return self::FAILURE;
         }
 
-        $this->forgetCachedSettings();
         $this->line(sprintf('Address mode: %s configured, %s in force.', AddressSchema::configuredMode(), AddressSchema::mode()));
 
         return self::SUCCESS;
-    }
-
-    /** Business settings are cached for hours: without this a value edited in the database would not be seen. */
-    private function forgetCachedSettings(): void
-    {
-        clearWebConfigCacheKeys();
-        AddressSchema::flush();
     }
 }

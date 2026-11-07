@@ -139,6 +139,20 @@ class AdminAddressModeTest extends AdminAddressTestCase
         $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::mode());
     }
 
+    public function test_the_command_judges_the_request_by_what_the_database_says_not_by_what_was_cached(): void
+    {
+        $this->signInWithTheCatalog();
+        $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::configuredMode(), 'the settings cache now holds off');
+
+        DB::table('business_settings')->insert(['type' => AddressSchema::SETTING, 'value' => json_encode('soft'), 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::configuredMode(), 'a raw edit to soft is hidden by that cache');
+
+        $this->artisan('address:mode', ['mode' => 'off'])->assertExitCode(0);
+
+        $this->assertSame('off', json_decode((string) BusinessSetting::query()->where('type', AddressSchema::SETTING)->value('value')), 'off was written, not skipped as "already off"');
+        $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::mode());
+    }
+
     public function test_the_command_refuses_what_the_panel_refuses_and_an_unknown_mode(): void
     {
         $this->signIn();
