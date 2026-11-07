@@ -10,6 +10,7 @@ use App\Models\SalesChannelProductMapping;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\RemoteOrderLine;
+use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Support\SnapshotState;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -25,9 +26,13 @@ use Illuminate\Support\Facades\DB;
  */
 class ChannelOrderIngestor
 {
+    public function __construct(private readonly ChannelOrderReservations $reservations)
+    {
+    }
+
     public function ingest(SalesChannelAccount $account, RemoteOrder $remote): IngestResult
     {
-        return DB::transaction(function () use ($account, $remote): IngestResult {
+        $result = DB::transaction(function () use ($account, $remote): IngestResult {
             $mapping = $this->lockedMapping($account, $remote);
             if ($mapping === null) {
                 try {
@@ -38,7 +43,11 @@ class ChannelOrderIngestor
             }
 
             return $this->update($mapping, $remote);
-        });
+        }, attempts: 3);
+        // What the order now promises of our stock is recorded beside it, so what is offered to the channels is never more than is left.
+        $this->reservations->sync($result->mapping);
+
+        return $result;
     }
 
     /** Re-links the lines of an order to products after a person linked a listing. Returns how many lines it linked. */
@@ -53,6 +62,7 @@ class ChannelOrderIngestor
             }
         }
         $this->refreshReview($mapping);
+        $this->reservations->sync($mapping);
 
         return $linked;
     }
@@ -135,12 +145,13 @@ class ChannelOrderIngestor
             $mapping->forceFill(['review_reason' => 'modified_after_routing'])->save();
             $changes[] = 'needs_review';
         }
-        if (in_array('cancelled', $changes, true) && ($mapping->order_id !== null || $mapping->shipment_reference !== null)) {
+        $dispatched = $mapping->order_id !== null || $mapping->shipment_reference !== null;
+        if (in_array('cancelled', $changes, true) && $dispatched) {
             $mapping->forceFill(['review_reason' => 'cancelled_after_dispatch'])->save();
             $changes[] = 'needs_review';
         }
         if ($remote->externalStatus === 'UnPacked') {
-            $mapping->forceFill(['review_reason' => $mapping->order_id !== null ? 'split_after_dispatch' : 'split_replaced'])->save();
+            $mapping->forceFill(['review_reason' => $dispatched ? 'split_after_dispatch' : 'split_replaced'])->save();
         }
         $this->refreshReview($mapping);
 

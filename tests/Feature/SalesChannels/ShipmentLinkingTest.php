@@ -291,6 +291,58 @@ class ShipmentLinkingTest extends TestCase
         $this->assertCount(2, $this->puts(), 'Picking and the tracking number, once.');
     }
 
+    /** @return int how many times the package was read from Trendyol */
+    private function packageReads(): int
+    {
+        return Http::recorded(fn (Request $request): bool => $request->method() === 'GET' && str_contains($request->url(), '/order/sellers/'))->count();
+    }
+
+    public function test_a_channel_that_keeps_saying_no_is_left_alone_until_the_tracking_number_changes_or_a_person_asks(): void
+    {
+        $this->fakeTrendyol(['whoPays' => 1, 'status' => 'Shipped', 'shipmentPackageStatus' => 'Shipped']);
+        $mapping = $this->linkedWithTracking();
+        $notifier = app(ChannelShipmentNotifier::class);
+
+        $reasons = [];
+        foreach (range(1, 5) as $cycle) {
+            $reasons[] = $notifier->notify($mapping->refresh()->load('lines', 'account'))['reason'];
+        }
+
+        $this->assertSame(['channel_did_not_confirm', 'channel_did_not_confirm', 'channel_did_not_confirm', 'channel_refused_repeatedly', 'channel_refused_repeatedly'], $reasons);
+        $this->assertSame(3, $this->packageReads(), 'Three questions, then no more.');
+        $this->assertCount(0, $this->puts());
+
+        $byAPerson = $notifier->notify($mapping->refresh()->load('lines', 'account'), byAPerson: true);
+        $this->assertSame('channel_did_not_confirm', $byAPerson['reason'], 'A person pressing the button is always heard.');
+        $this->assertSame(4, $mapping->refresh()->snapshot['channel_notify_error']['refusals']);
+
+        $mapping->forceFill(['tracking_number' => 'TRK-10'])->save();
+        $this->assertSame('channel_did_not_confirm', $notifier->notify($mapping->refresh()->load('lines', 'account'))['reason'], 'A new tracking number is a new question.');
+        $this->assertSame(1, $mapping->refresh()->snapshot['channel_notify_error']['refusals']);
+    }
+
+    private function assertOnlyTheTrackingNumberIsSentFor(string $status): void
+    {
+        $this->fakeTrendyol(['whoPays' => 1, 'status' => $status, 'shipmentPackageStatus' => $status]);
+        $mapping = $this->linkedWithTracking();
+
+        $result = app(ChannelShipmentNotifier::class)->notify($mapping->refresh()->load('lines', 'account'));
+
+        $this->assertSame('sent', $result['outcome']);
+        $this->assertCount(1, $this->puts(), 'A package that is already ' . $status . ' is never moved back to Picking.');
+        $this->assertStringContainsString('tracking-details', $this->puts()[0]->url());
+    }
+
+    public function test_a_package_already_picking_gets_only_its_tracking_number(): void
+    {
+        $this->assertOnlyTheTrackingNumberIsSentFor('Picking');
+    }
+
+    public function test_a_package_already_invoiced_gets_only_its_tracking_number(): void
+    {
+        $this->assertOnlyTheTrackingNumberIsSentFor('Invoiced');
+    }
+
     public function test_a_carrier_trendyol_has_no_code_for_is_reported_as_a_failure_a_person_can_read(): void
     {
         $this->fakeTrendyol(['whoPays' => 1]);

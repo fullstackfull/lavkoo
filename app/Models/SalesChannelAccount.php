@@ -57,6 +57,31 @@ class SalesChannelAccount extends Model
         'last_synced_at' => 'datetime',
     ];
 
+    /** The switches that decide whether a call may leave the host. */
+    public const GATE_COLUMNS = ['enabled', 'capabilities', 'dry_run', 'write_enabled', 'capability_approvals'];
+
+    /**
+     * Re-reads the gate switches (and nothing else) from the database into this object, so that a person's "stop" (disable, forbid writes, back to rehearsal, withdraw an
+     * approval) reaches a run that has been holding this object since it started. False when the account no longer exists.
+     */
+    public function refreshGates(): bool
+    {
+        if (!$this->exists) {
+            return true;
+        }
+        $stored = static::query()->whereKey($this->getKey())->first(self::GATE_COLUMNS);
+        if ($stored === null) {
+            return false;
+        }
+        $stored = $stored->getAttributes();
+        foreach (self::GATE_COLUMNS as $column) {
+            $this->attributes[$column] = $stored[$column];
+            $this->original[$column] = $stored[$column];
+        }
+
+        return true;
+    }
+
     public function channelCode(): ?SalesChannel
     {
         return SalesChannel::tryFrom($this->channel);

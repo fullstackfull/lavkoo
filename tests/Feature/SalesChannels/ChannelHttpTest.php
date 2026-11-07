@@ -70,6 +70,19 @@ class ChannelHttpTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /** Refused, and nothing more left the host than had already left before the call. */
+    private function assertRefusedAfterEarlierCalls(string $reason, callable $call): void
+    {
+        $sentBefore = count(Http::recorded());
+        try {
+            $call();
+            $this->fail("Expected the call to be refused with '{$reason}'.");
+        } catch (ChannelUnavailableException $exception) {
+            $this->assertSame($reason, $exception->reason);
+        }
+        Http::assertSentCount($sentBefore);
+    }
+
     public function test_nothing_is_sent_while_the_global_switch_is_off(): void
     {
         config(['sales_channels.enabled' => false]);
@@ -92,6 +105,69 @@ class ChannelHttpTest extends TestCase
         $account = $this->account();
         $this->assertRefused(ChannelUnavailableException::UNREGISTERED_OPERATION, fn () => $this->http->send($account, 'trendyol.made_up', 'GET', 'https://channel.example/x'));
         $this->assertRefused(ChannelUnavailableException::UNREGISTERED_OPERATION, fn () => $this->http->send($account, self::READ, 'DELETE', 'https://channel.example/x'));
+    }
+
+    /** The account object a run was started with, and the same account as a person changes it while that run is going on. */
+    private function changedByAPersonMeanwhile(SalesChannelAccount $held, array $changes): void
+    {
+        SalesChannelAccount::whereKey($held->id)->firstOrFail()->forceFill($changes)->save();
+    }
+
+    public function test_switching_the_account_off_stops_the_next_call_of_a_run_that_is_already_going(): void
+    {
+        Http::fake(['channel.example/*' => Http::response(['content' => []])]);
+        $held = $this->account();
+        $this->assertTrue($this->callRead($held)->ok());
+
+        $this->changedByAPersonMeanwhile($held, ['enabled' => false]);
+
+        $this->assertRefusedAfterEarlierCalls(ChannelUnavailableException::ACCOUNT_OFF, fn () => $this->callRead($held));
+        $this->assertFalse($held->enabled, 'the object the run holds learns it too');
+        Http::assertSentCount(1);
+    }
+
+    public function test_forbidding_writes_withdrawing_an_approval_or_switching_the_capability_off_stops_a_run_that_is_already_going(): void
+    {
+        Http::fake(['channel.example/*' => Http::response(['batchRequestId' => 'abc'])]);
+        $held = $this->account();
+        $this->assertTrue($this->callWrite($held)->ok());
+
+        $this->changedByAPersonMeanwhile($held, ['write_enabled' => false]);
+        $this->assertRefusedAfterEarlierCalls(ChannelUnavailableException::WRITES_OFF_ACCOUNT, fn () => $this->callWrite($held));
+
+        $this->changedByAPersonMeanwhile($held, ['write_enabled' => true, 'capability_approvals' => []]);
+        $this->assertRefusedAfterEarlierCalls(ChannelUnavailableException::NOT_APPROVED, fn () => $this->callWrite($held));
+
+        $this->changedByAPersonMeanwhile($held, ['capability_approvals' => ['inventory_publishing' => ['by' => 1]], 'capabilities' => ['connection_test']]);
+        $this->assertRefusedAfterEarlierCalls(ChannelUnavailableException::CAPABILITY_OFF, fn () => $this->callWrite($held));
+        Http::assertSentCount(1);
+    }
+
+    public function test_going_back_to_a_rehearsal_turns_the_next_write_of_a_running_job_into_a_rehearsal(): void
+    {
+        Http::fake(['channel.example/*' => Http::response(['batchRequestId' => 'abc'])]);
+        $held = $this->account();
+        $this->assertTrue($this->callWrite($held)->ok());
+
+        $this->changedByAPersonMeanwhile($held, ['dry_run' => true]);
+
+        $this->assertTrue($this->callWrite($held)->isDryRun());
+        Http::assertSentCount(1);
+    }
+
+    public function test_an_account_deleted_while_a_run_holds_it_is_refused_and_unsaved_changes_to_other_fields_survive_the_refresh(): void
+    {
+        Http::fake(['channel.example/*' => Http::response(['content' => []])]);
+        $held = $this->account();
+        $held->name = 'Renamed in memory';
+        $this->assertTrue($this->callRead($held)->ok());
+        $this->assertSame('Renamed in memory', $held->name);
+        $this->assertTrue($held->isDirty('name'));
+
+        SalesChannelAccount::whereKey($held->id)->delete();
+
+        $this->assertRefusedAfterEarlierCalls(ChannelUnavailableException::ACCOUNT_OFF, fn () => $this->callRead($held));
+        Http::assertSentCount(1);
     }
 
     public function test_reads_go_out_when_writes_are_off_everywhere(): void

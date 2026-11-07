@@ -21,7 +21,7 @@ use Throwable;
  * The only way this module reaches a sales channel.
  *
  * Before ANYTHING leaves the host it checks, in this order, that the call is one we know (registered, with an allowed method), that the global switch
- * is on, that the account is switched on and holds a capability the call belongs to, and, for a call that changes something at the channel: if the
+ * is on, that the account (as it is stored at that moment, not as the run found it) is switched on and holds a capability the call belongs to, and, for a call that changes something at the channel: if the
  * account is in dry run the call is logged and nothing is sent; otherwise the environment must allow writes, the account must allow writes and a
  * person must have approved this kind of write. Each refusal is a ChannelUnavailableException with a stable reason.
  *
@@ -112,6 +112,10 @@ class ChannelHttp
         }
         if (!config('sales_channels.enabled', false)) {
             throw new ChannelUnavailableException(ChannelUnavailableException::GLOBAL_OFF, 'Sales channel integrations are switched off (SALES_CHANNELS_ENABLED); nothing was sent.');
+        }
+        // The caller may have been holding this object for a whole run: what a person switched off since then must stop the very next call.
+        if (!$account->refreshGates()) {
+            throw new ChannelUnavailableException(ChannelUnavailableException::ACCOUNT_OFF, 'This channel account no longer exists; nothing was sent.');
         }
         if (!$account->enabled) {
             throw new ChannelUnavailableException(ChannelUnavailableException::ACCOUNT_OFF, 'This channel account is disabled; nothing was sent.');

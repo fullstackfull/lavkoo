@@ -63,6 +63,21 @@ class TrendyolWebhookTest extends TestCase
         $this->assertSame(0, SalesChannelEvent::count());
     }
 
+    public function test_an_id_that_is_too_long_to_be_an_id_never_makes_the_endpoint_fail(): void
+    {
+        foreach (['99999999999999999999', '9223372036854775808', '0', '00012'] as $id) {
+            $status = $this->postJson('/api/sales-channel-webhooks/' . $id, Trendyol::package(), $this->key())->getStatusCode();
+            $this->assertContains($status, [401, 404], "id {$id} answered {$status}, never a server error.");
+        }
+    }
+
+    public function test_before_the_migrations_have_run_the_endpoint_answers_the_flat_401_and_queries_nothing(): void
+    {
+        \Illuminate\Support\Facades\Schema::drop('sales_channel_accounts');
+
+        $this->postJson($this->url(), Trendyol::package(), $this->key())->assertStatus(401)->assertExactJson(['success' => false, 'message' => 'Unauthorized request']);
+    }
+
     public function test_an_account_with_no_registered_key_accepts_nothing(): void
     {
         app(ChannelCredentialStore::class)->save($this->account, [], clear: ['webhook_api_key']);

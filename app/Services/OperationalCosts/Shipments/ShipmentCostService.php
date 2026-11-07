@@ -164,7 +164,21 @@ class ShipmentCostService
 
     private function split(ShipmentFacts $facts, OperationalCostEntry $entry, ComputedCost $cost): void
     {
-        $targets = array_map(static fn (ShipmentItemFact $item): AllocationTarget => new AllocationTarget(
+        $this->allocator->allocate($entry, $this->targetsOf($facts), $this->basisFor($cost));
+    }
+
+    /** The real charge for a service of the shipment (an invoice line) is shared over the shipment's items like its estimate was, by the component's usual basis. */
+    public function allocateActual(OperationalCostEntry $entry, ShipmentFacts $facts): void
+    {
+        $basis = config('operational_costs.allocation.by_component.' . $entry->cost_component) ?? config('operational_costs.allocation.default_basis', 'value');
+
+        $this->allocator->allocate($entry, $this->targetsOf($facts), $basis);
+    }
+
+    /** @return list<AllocationTarget> */
+    private function targetsOf(ShipmentFacts $facts): array
+    {
+        return array_map(static fn (ShipmentItemFact $item): AllocationTarget => new AllocationTarget(
             type: $item->targetType,
             id: $item->targetId,
             productId: $item->productId,
@@ -173,8 +187,6 @@ class ShipmentCostService
             weight: $item->weightKg,
             value: $item->value,
         ), $facts->items);
-
-        $this->allocator->allocate($entry, $targets, $this->basisFor($cost));
     }
 
     private function basisFor(ComputedCost $cost): string

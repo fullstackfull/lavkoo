@@ -39,7 +39,7 @@ class AdminOperationalCostsProfitTest extends AdminPagesTestCase
     }
 
     /**
-     * Two channel sales and their costs: a Trendyol one (revenue 200) whose picking is still an estimate, and an Amazon one (revenue 100) with a commission nobody could determine.
+     * Two channel sales and their costs: a Trendyol one (revenue 200, goods 60) whose picking is still an estimate, and an Amazon one (revenue 100, goods 40) with a commission nobody could determine.
      *
      * @return array{trendyol: ExternalOrderMapping, amazon: ExternalOrderMapping}
      */
@@ -48,6 +48,8 @@ class AdminOperationalCostsProfitTest extends AdminPagesTestCase
         $trendyol = $this->channelSale('200', 'trendyol', '2026-11-05 09:00:00');
         $amazon = $this->channelSale('100', 'amazon', '2026-11-08 12:00:00', productId: 51);
         $of = static fn (ExternalOrderMapping $sale, int $product): array => ['mappingId' => $sale->id, 'channel' => $sale->sales_channel, 'accountId' => $sale->account_id, 'productId' => $product];
+        $this->recordCost(CostState::Actual, '60', CostComponent::Cogs, '2026-11-05', $of($trendyol, 50));
+        $this->recordCost(CostState::Actual, '40', CostComponent::Cogs, '2026-11-08', $of($amazon, 51));
         $this->recordCost(CostState::Actual, '30', CostComponent::Shipping, '2026-11-05', $of($trendyol, 50) + ['provider' => 'torod_point']);
         $this->recordCost(CostState::Estimated, '12', CostComponent::Picking, '2026-11-05', $of($trendyol, 50) + ['provider' => 'torod_point']);
         $this->recordCost(CostState::Actual, '20', CostComponent::Shipping, '2026-11-08', $of($amazon, 51) + ['provider' => 'torod_point']);
@@ -114,9 +116,9 @@ class AdminOperationalCostsProfitTest extends AdminPagesTestCase
             }
         }
         $this->assertSame('200.00', $rows['trendyol']->revenue->toDisplay());
-        $this->assertSame('158.00', $rows['trendyol']->estimatedProfit()->toDisplay(), '200 - 30 - 12.');
-        $this->assertSame('170.00', $rows['trendyol']->actualProfit()->toDisplay(), 'The estimated picking is not an actual cost.');
-        $this->assertSame('80.00', $rows['amazon']->estimatedProfit()->toDisplay());
+        $this->assertSame('98.00', $rows['trendyol']->estimatedProfit()->toDisplay(), '200 - 60 goods - 30 - 12.');
+        $this->assertSame('110.00', $rows['trendyol']->actualProfit()->toDisplay(), 'The estimated picking is not an actual cost.');
+        $this->assertSame('40.00', $rows['amazon']->estimatedProfit()->toDisplay(), '100 - 40 goods - 20 shipping; the commission is a gap, not a zero.');
     }
 
     public function test_the_total_is_the_sum_of_the_services_lines_and_estimated_and_actual_stay_two_figures(): void
@@ -130,7 +132,7 @@ class AdminOperationalCostsProfitTest extends AdminPagesTestCase
 
         $html = $this->profit(['dimension' => 'channel']);
 
-        $this->assertSame(['300.00', '62.00', '50.00'], array_map(static fn (Money $total): string => $total->toDisplay(), array_values($totals)));
+        $this->assertSame(['300.00', '162.00', '150.00'], array_map(static fn (Money $total): string => $total->toDisplay(), array_values($totals)));
         foreach ($totals as $label => $total) {
             $this->assertStringContainsString('<div class="k-stat__value k-num">' . CostFormat::amount($total, 'SAR') . '</div>', $html, $label);
         }
@@ -373,7 +375,7 @@ class AdminOperationalCostsProfitTest extends AdminPagesTestCase
         $this->assertStringContainsString('30.00 SAR', $html);
         $this->assertStringContainsString('12.00 SAR', $html);
         $this->assertStringContainsString(e(translate('incomplete')) . ': 1 ' . e(translate('pending')), $html);
-        $this->assertSame(2, substr_count($html, '/admin/operational-costs/entries/'), 'Both entries of the sale are linked.');
+        $this->assertSame(3, substr_count($html, '/admin/operational-costs/entries/'), 'All three entries of the sale (goods, shipping, picking) are linked.');
     }
 
     public function test_a_sale_nobody_recorded_a_cost_for_shows_no_cost_and_no_profit_instead_of_a_perfect_margin(): void
@@ -417,7 +419,7 @@ class AdminOperationalCostsProfitTest extends AdminPagesTestCase
         $html = $this->get(route('admin.operational-costs.profit.order', ['type' => 'channel_order', 'id' => $sale->id]))->assertOk()->getContent();
 
         preg_match_all('#<div class="k-stat__value k-num">([^<]*)</div>#', $html, $tiles);
-        $this->assertSame(['200.00 SAR', '42.00 SAR', '30.00 SAR', '158.00 SAR', '170.00 SAR'], $tiles[1]);
+        $this->assertSame(['200.00 SAR', '102.00 SAR', '90.00 SAR', '98.00 SAR', '110.00 SAR'], $tiles[1]);
         $this->assertStringNotContainsString(e(translate('nothing_recorded')), $html);
     }
 

@@ -3860,4 +3860,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'capability_matrix_notifications' => 'الإشعارات',
 	'capability_matrix_reports' => 'التقارير',
 	'capability_matrix_sandbox' => 'بيئة الاختبار',
+	'channel_reason_channel_refused_repeatedly' => 'رفضت القناة رقم التتبع هذا ثلاث مرات. استخدم «إبلاغ القناة بهذه الشحنة» لإعادة المحاولة بعد معالجة السبب.',
+	'run_stat_unreadable' => 'تعذّرت قراءتها',
+	'profit_note_tax_not_separated' => 'قدّمت القناة أسعارًا شاملة ضريبة القيمة المضافة دون ذكر مبلغ الضريبة، لذلك لا تزال الإيرادات تتضمن الضريبة وهي غير مؤكدة.',
 ];

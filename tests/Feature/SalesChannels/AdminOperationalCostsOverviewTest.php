@@ -90,6 +90,7 @@ class AdminOperationalCostsOverviewTest extends AdminPagesTestCase
     public function test_a_gap_in_the_costs_is_stated_beside_the_figure_it_qualifies(): void
     {
         $sale = $this->channelSale('100');
+        $this->recordCost(CostState::Actual, '40', CostComponent::Cogs, '2026-11-05', ['mappingId' => $sale->id, 'channel' => 'trendyol']);
         $this->recordCost(CostState::Missing, null, CostComponent::Shipping, '2026-11-05', ['mappingId' => $sale->id, 'channel' => 'trendyol', 'reason' => 'no_contract']);
 
         $html = $this->get(route('admin.operational-costs.index', self::MONTH))->assertOk()->getContent();

@@ -10284,4 +10284,7 @@ return [
 	'capability_matrix_notifications' => 'Notifications',
 	'capability_matrix_reports' => 'Reports',
 	'capability_matrix_sandbox' => 'Sandbox',
+	'channel_reason_channel_refused_repeatedly' => 'The channel refused this tracking number three times; use "Tell the channel about this shipment" to try again once the cause is fixed',
+	'run_stat_unreadable' => 'Could not be read',
+	'profit_note_tax_not_separated' => 'The channel gave prices that include VAT but no VAT amount, so the revenue still contains the VAT and is unverified.',
 ];

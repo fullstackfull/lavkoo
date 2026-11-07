@@ -11,12 +11,15 @@ final readonly class PublishResult
     /**
      * @param array<int, string> $accepted mapping ids the channel accepted
      * @param array<int, string> $failed mapping id => reason
+     * @param list<int> $transient the failed mapping ids whose failure says nothing about the value sent (it never arrived, the channel was busy or failing): they are retried
+     *                             without counting against the value
      */
     public function __construct(
         public array $accepted,
         public array $failed,
         public ?string $batchId = null,
         public bool $dryRun = false,
+        public array $transient = [],
     ) {
     }
 }

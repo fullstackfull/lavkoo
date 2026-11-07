@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
+use App\Services\SalesChannels\Support\SalesChannelSchema;
 use App\Services\SalesChannels\Trendyol\TrendyolWebhookIngestor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,7 @@ use Illuminate\Http\Request;
  * Trendyol publishes no signature and no source addresses, so the endpoint is authenticated by the API key chosen at registration and sent in `x-api-key`,
  * compared in constant time. Every authentication failure (unknown account, no key registered, wrong key) is the same flat 401. A delivery is stored and applied
  * through the idempotent ingestor, so the repeated and out-of-order deliveries Trendyol documents are harmless; the answer is fast and carries only counts.
+ * Until the migrations have run there is no account to authenticate against: the answer is the same flat 401 and nothing is queried.
  */
 class TrendyolWebhookController extends Controller
 {
@@ -26,7 +28,7 @@ class TrendyolWebhookController extends Controller
 
     public function receive(Request $request, int $account): JsonResponse
     {
-        $channelAccount = SalesChannelAccount::where('id', $account)->where('channel', 'trendyol')->first();
+        $channelAccount = SalesChannelSchema::ready() ? SalesChannelAccount::where('id', $account)->where('channel', 'trendyol')->first() : null;
         if ($channelAccount === null || !$this->authorised($request, $channelAccount)) {
             return response()->json(['success' => false, 'message' => 'Unauthorized request'], 401);
         }

@@ -8,6 +8,7 @@ use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Models\SalesChannelAccount;
+use App\Models\SalesChannelSyncState;
 use App\Services\AuditLogger;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
@@ -37,6 +38,13 @@ class ChannelAccountService
 
     /** Approvals a person can record besides the write capabilities themselves. */
     public const EXTRA_SCOPES = [ChannelOperations::SCOPE_PRODUCT_WRITES, ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT, ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT];
+
+    /** The capability each of those approvals belongs to: switching the capability off withdraws the approval with it. */
+    private const SCOPE_CAPABILITY = [
+        ChannelOperations::SCOPE_PRODUCT_WRITES => IntegrationCapability::ProductSync,
+        ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT => IntegrationCapability::OrderImport,
+        ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT => IntegrationCapability::OrderImport,
+    ];
 
     public function __construct(
         private readonly ChannelCredentialStore $credentials,
@@ -102,6 +110,8 @@ class ChannelAccountService
     {
         $before = $account->only(['name', 'environment', 'market', 'external_account_id', 'currency', 'execution_policy', 'settings']);
         $identityBefore = $this->identityOf($account);
+        // The secrets first: a write that is refused (stored credentials nobody can read) must not have changed the rest of the account either.
+        $changed = $secrets !== [] || $clearSecrets !== [] ? $this->credentials->save($account, $secrets, $clearSecrets) : [];
         $account->fill(array_filter([
             'name' => isset($data['name']) ? mb_substr(trim((string) $data['name']), 0, 120) : null,
             'environment' => isset($data['environment']) ? (AccountEnvironment::tryFrom((string) $data['environment'])?->value ?? throw new InvalidArgumentException('The environment is production or sandbox.')) : null,
@@ -118,12 +128,10 @@ class ChannelAccountService
                 $account->market = $this->marketFor($account->channel, $account->settings) ?? $account->market;
             }
         }
-        $credentialsChanged = $secrets !== [] || $clearSecrets !== [];
         $account->updated_by = $adminId;
         $account->save();
 
-        $changed = $this->credentials->save($account, $secrets, $clearSecrets);
-        if ($credentialsChanged && $changed !== []) {
+        if ($changed !== []) {
             // New credentials have not been proven: the account must be tested again before anything leans on the old result.
             $this->forgetConnection($account);
         }
@@ -155,6 +163,7 @@ class ChannelAccountService
     private function resetForNewIdentity(SalesChannelAccount $account, ?int $adminId): void
     {
         $this->forgetConnection($account);
+        $this->forgetSyncProgress($account);
         $account->forceFill([
             'capabilities' => array_values(array_intersect($this->held($account), [IntegrationCapability::ConnectionTest->value])),
             'capability_approvals' => [],
@@ -162,6 +171,15 @@ class ChannelAccountService
             'dry_run' => true,
         ])->save();
         $this->audit->record(action: 'sales_channel.identity_changed', subject: $account, context: ['by' => $adminId, 'withdrawn' => 'connection result, approvals, write permission and every step above the connection test']);
+    }
+
+    /** What was read from the old seller or storefront (the point it was read up to, a paused page, a back-off) means nothing for the new one, which starts from its own backfill. */
+    private function forgetSyncProgress(SalesChannelAccount $account): void
+    {
+        SalesChannelSyncState::where('account_id', $account->id)->update([
+            'cursor' => null, 'watermark' => null, 'backfill' => null, 'stats' => null, 'last_attempt_at' => null, 'last_success_at' => null, 'last_failure_at' => null,
+            'last_error' => null, 'consecutive_failures' => 0, 'backoff_until' => null,
+        ]);
     }
 
     private function forgetConnection(SalesChannelAccount $account): void
@@ -251,6 +269,11 @@ class ChannelAccountService
         $approvals = (array) ($account->capability_approvals ?? []);
         foreach ($off as $value) {
             unset($approvals[$value]);
+        }
+        foreach (self::SCOPE_CAPABILITY as $scope => $owner) {
+            if (in_array($owner->value, $off, true)) {
+                unset($approvals[$scope]);
+            }
         }
         $account->forceFill([
             'capabilities' => array_values(array_diff($this->held($account), $off)),

@@ -4,6 +4,7 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
+use App\Models\SalesChannelSyncState;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\OperationalCosts\Sales\SaleDocumentReader;
 use App\Services\SalesChannels\Support\ChannelOperations;
@@ -105,6 +106,28 @@ class TrendyolReturnsTest extends TestCase
 
         $this->assertSame(3, $line->refresh()->quantity_returned);
         $this->assertSame(1, $result['stats']['unknown_order']);
+    }
+
+    public function test_a_claim_for_an_order_that_arrives_later_is_read_again_and_applied_then(): void
+    {
+        $account = $this->trendyolAccount();
+        $claim = Trendyol::claim(['Accepted'], 'claim-late', ['claimDate' => Trendyol::CREATED_MS, 'lastModifiedDate' => Trendyol::CREATED_MS + 3_600_000]);
+        Http::fake([self::TY . '/order/sellers/1234567/claims*' => Http::response(Trendyol::claimsPage([$claim]))]);
+        $sync = app(ChannelSyncService::class);
+
+        $first = $sync->syncReturns($account);
+        $state = SalesChannelSyncState::where(['account_id' => $account->id, 'resource' => 'returns'])->firstOrFail();
+
+        $this->assertSame(1, $first['stats']['unknown_order']);
+        $this->assertSame('2026-11-05T09:00:00+00:00', $state->watermark->utc()->toIso8601String(), 'The watermark stays at the claim whose order is not held yet, not at the newest claim.');
+
+        $mapping = ExternalOrderMapping::create(['account_id' => $account->id, 'sales_channel' => 'trendyol', 'seller_id' => 0, 'external_order_id' => '10234567890', 'external_package_id' => '3012345678', 'status' => 'delivered', 'currency' => 'SAR', 'purchased_at' => '2026-11-05 09:00:00']);
+        $line = ExternalOrderLine::create(['mapping_id' => $mapping->id, 'external_line_id' => '4400000001', 'sku' => 'SKU-1', 'quantity' => 3, 'quantity_cancelled' => 0, 'line_total' => '300.000000', 'currency' => 'SAR', 'status' => 'open']);
+        $this->travel(40)->minutes();
+        $second = $sync->syncReturns($account);
+
+        $this->assertSame(1, $second['stats']['applied'], 'The order has arrived: the claim is applied now.');
+        $this->assertSame(1, $line->refresh()->quantity_returned);
     }
 
     public function test_the_claims_request_asks_for_a_window_and_pages_on(): void

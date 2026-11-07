@@ -69,7 +69,7 @@ final class CostLabels
         // Profitability.
         'profit_dimension_product', 'profit_dimension_order', 'profit_dimension_channel', 'profit_dimension_provider',
         'sale_state_open', 'sale_state_shipped', 'sale_state_delivered', 'sale_state_cancelled', 'sale_state_returned',
-        'profit_note_revenue_not_convertible', 'profit_note_channel_amounts_missing', 'profit_note_amount_not_convertible', 'profit_note_total_does_not_add_up',
+        'profit_note_revenue_not_convertible', 'profit_note_channel_amounts_missing', 'profit_note_amount_not_convertible', 'profit_note_total_does_not_add_up', 'profit_note_tax_not_separated',
         'profit_note_cost_not_convertible',
 
         // The exports.

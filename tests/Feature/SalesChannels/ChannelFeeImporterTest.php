@@ -88,6 +88,65 @@ class ChannelFeeImporterTest extends TestCase
         $this->assertSame(1, OperationalCostEntry::count());
     }
 
+    /** @param list<array<string, mixed>> $lines */
+    private function marketplaceInvoice(string $number, ExternalOrderMapping $mapping, array $lines): \App\Models\OperationalCostInvoice
+    {
+        $invoices = app(\App\Services\OperationalCosts\Invoices\InvoiceService::class);
+        $total = Money::sum(array_map(static fn (array $line): Money => Money::of($line['amount']), $lines))->toStorage();
+        $items = array_map(static fn (array $line): array => $line + ['external_order_mapping_id' => $mapping->id], $lines);
+
+        return $invoices->create([
+            'kind' => 'marketplace_statement', 'party_type' => 'marketplace', 'provider_code' => $mapping->sales_channel, 'party_name' => 'Marketplace', 'invoice_number' => $number,
+            'invoice_date' => '2026-11-30', 'period_start' => '2026-11-01', 'period_end' => '2026-11-30', 'currency' => 'SAR', 'total' => $total,
+        ], $items, adminId: 1)->invoice;
+    }
+
+    private function approve(\App\Models\OperationalCostInvoice $invoice): void
+    {
+        app(\App\Services\OperationalCosts\Invoices\InvoiceService::class)->approve($invoice, 1);
+    }
+
+    public function test_a_commission_on_the_invoice_is_the_same_cost_as_the_one_from_the_statement_and_the_estimate(): void
+    {
+        $account = $this->trendyolAccount();
+        $mapping = $this->order($account);
+        $this->importer->import($account, [$this->entry('a', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, '25')]);
+
+        $this->approve($this->marketplaceInvoice('MP-1', $mapping, [['cost_component' => 'marketplace_commission', 'amount' => '25', 'description' => 'commission order 111']]));
+
+        $this->assertSame(['marketplace_commission' => '25.000000'], $this->actuals(), 'The fee the statement already carried is not counted a second time.');
+        $this->assertSame(1, OperationalCostEntry::where('is_effective', true)->where('cost_component', 'marketplace_commission')->count());
+    }
+
+    public function test_an_invoice_commission_replaces_the_estimate_of_the_order(): void
+    {
+        $account = $this->trendyolAccount();
+        $mapping = $this->order($account);
+        app(\App\Services\OperationalCosts\CostLedger::class)->record(new CostDraft(
+            subjectType: 'channel_order', subjectId: (int) $mapping->id, component: CostComponent::MarketplaceCommission, state: CostState::Estimated, amount: Money::of('20'), currency: 'SAR',
+            periodDate: now(), source: 'rule', identity: 'rule:1', externalOrderMappingId: (int) $mapping->id,
+        ));
+
+        $this->approve($this->marketplaceInvoice('MP-1', $mapping, [['cost_component' => 'marketplace_commission', 'amount' => '22']]));
+
+        $effective = OperationalCostEntry::where('is_effective', true)->where('cost_component', 'marketplace_commission')->get();
+        $this->assertCount(1, $effective, 'Estimate 20 plus invoice 22 is one cost of 22, not 42.');
+        $this->assertSame([CostState::Actual, '22.000000'], [$effective[0]->state, $effective[0]->amount]);
+    }
+
+    public function test_a_commission_and_its_refund_on_one_invoice_are_one_net_fee(): void
+    {
+        $account = $this->trendyolAccount();
+        $mapping = $this->order($account);
+
+        $this->approve($this->marketplaceInvoice('MP-1', $mapping, [
+            ['cost_component' => 'marketplace_commission', 'amount' => '25', 'description' => 'commission'],
+            ['cost_component' => 'marketplace_commission', 'amount' => '-10', 'description' => 'commission refunded with the return'],
+        ]));
+
+        $this->assertSame(['marketplace_commission' => '15.000000'], $this->actuals());
+    }
+
     public function test_a_commission_and_the_part_returned_with_a_refund_are_netted_into_one_actual(): void
     {
         $account = $this->trendyolAccount();

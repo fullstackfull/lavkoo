@@ -81,6 +81,35 @@ final class AmazonFixtures
     }
 
     /** @return array<string, mixed> */
+    /** One breakdown node with a single amount (no children). */
+    public static function leaf(string $type, string $amount): array
+    {
+        return ['breakdownType' => $type, 'breakdownAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => $amount], 'breakdowns' => []];
+    }
+
+    /**
+     * A Shipment transaction for two items. Amazon's model gives a transaction its own breakdowns (what the whole transaction adds up to) and each item its own: with
+     * `$transactionLevel` both are present and describe the same money; without it only the items carry breakdowns.
+     */
+    public static function twoItemTransaction(bool $transactionLevel, string $id = 'TX-2ITEMS'): array
+    {
+        $item = static fn (string $sku, string $itemId): array => [
+            'description' => 'Test product ' . $sku,
+            'totalAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => '80.00'],
+            'relatedIdentifiers' => [['relatedIdentifierName' => 'ORDER_ADJUSTMENT_ITEM_ID', 'relatedIdentifierValue' => $itemId]],
+            'contexts' => [['contextType' => 'ProductContext', 'asin' => 'B0' . $sku, 'sku' => $sku, 'quantityShipped' => 1]],
+            'breakdowns' => [self::leaf('Product Charges', '100.00'), ['breakdownType' => 'Expenses', 'breakdownAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => '-20.00'], 'breakdowns' => [self::leaf('Commission', '-20.00')]]],
+        ];
+        $transaction = self::transaction($id);
+        $transaction['totalAmount'] = ['currencyCode' => 'SAR', 'currencyAmount' => '160.00'];
+        $transaction['items'] = [$item('SKU-A', 'ITEM-A'), $item('SKU-B', 'ITEM-B')];
+        if ($transactionLevel) {
+            $transaction['breakdowns'] = [self::leaf('Product Charges', '200.00'), ['breakdownType' => 'Expenses', 'breakdownAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => '-40.00'], 'breakdowns' => [self::leaf('Commission', '-40.00')]]];
+        }
+
+        return $transaction;
+    }
+
     public static function transaction(string $id = 'TX-1', string $type = 'Shipment', ?array $breakdowns = null, string $posted = '2026-11-06T10:00:00Z'): array
     {
         return [

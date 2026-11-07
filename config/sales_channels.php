@@ -37,6 +37,7 @@ return [
     ],
 
     'logs' => [
+        // `channels:prune` (daily) deletes call logs older than this and clears the stored text of old webhook deliveries.
         'retention_days' => 60,
         'max_body_bytes' => 8192,
     ],
@@ -164,9 +165,15 @@ return [
     'sync' => [
         // One run reads at most this many pages and then pauses with its place saved, so a large backlog never holds the lease for hours.
         'max_pages_per_run' => 25,
+        // A read whose page tokens do not outlive the run (the stock a channel holds for us) is read in one go, up to this many pages.
+        'max_pages_one_go' => 400,
         // Fees and corrections reach a statement days after the sale: each finance run re-reads this far back.
         'finance_overlap_days' => 3,
         'finance_backfill_days' => 30,
+        // A statement is read up to a few minutes ago (Amazon refuses a range that ends later than two minutes ago) and a window is never longer than this many days
+        // (Amazon answers nothing for a span over 180): a longer gap is read window by window over several runs.
+        'finance_end_lag_minutes' => 3,
+        'finance_max_window_days' => 180,
         // A run re-reads this far before its watermark so that an order changed while the previous run was reading is not missed.
         'overlap_minutes' => 10,
         // A run that crashed loses its lease after this long.

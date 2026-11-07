@@ -95,7 +95,7 @@ return new class extends Migration
                 $table->string('state', 16)->index();
                 $table->unsignedBigInteger('external_order_mapping_id')->nullable()->index();
                 $table->unsignedBigInteger('order_id')->nullable()->index();
-                $table->timestamp('reserved_at');
+                $table->dateTime('reserved_at');
                 $table->timestamp('committed_at')->nullable();
                 $table->timestamp('released_at')->nullable();
                 $table->string('release_reason', 120)->nullable();
@@ -130,8 +130,9 @@ return new class extends Migration
                 $table->string('target_provider', 32)->nullable();
                 $table->unsignedBigInteger('target_location_id')->nullable();
                 $table->string('note', 500)->nullable();
-                $table->timestamp('valid_from')->nullable();
-                $table->timestamp('valid_to')->nullable();
+                // DATETIME: an administrator types these dates, and a TIMESTAMP cannot hold one after 19 January 2038 (the rule would silently never match).
+                $table->dateTime('valid_from')->nullable();
+                $table->dateTime('valid_to')->nullable();
                 $table->unsignedBigInteger('created_by')->nullable();
                 $table->unsignedBigInteger('updated_by')->nullable();
                 $table->timestamps();

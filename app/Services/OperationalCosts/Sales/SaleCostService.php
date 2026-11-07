@@ -5,6 +5,7 @@ namespace App\Services\OperationalCosts\Sales;
 use App\Enums\OperationalCosts\CostComponent;
 use App\Enums\OperationalCosts\CostState;
 use App\Models\InventoryCostConsumption;
+use App\Models\OperationalCostEntry;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\OperationalCosts\CostLedger;
 use App\Services\OperationalCosts\Data\CostDraft;
@@ -26,7 +27,8 @@ use InvalidArgumentException;
  *     the cost layers first in, first out, and the cost actually taken becomes the ACTUAL cost of the line, replacing the estimate. If the
  *     layers cannot cover every unit, the line is costed as far as it can be and the rest is reported as missing (or estimated, when an
  *     estimate exists) until the purchase invoice that covers it is recorded.
- *  3. A sale that is cancelled before it ships takes nothing from the layers; one already recognised puts its units back.
+ *  3. A sale that is cancelled before it ships takes nothing from the layers; one already recognised puts its units back. The same goes for one line of an order whose
+ *     units were all cancelled while the rest of the order stands: its units go back and what was recorded for it stops counting.
  *
  * Moving stock to another location is not a sale and never reaches this class.
  */
@@ -52,6 +54,10 @@ class SaleCostService
         $outcomes = [];
         foreach ($document->lines as $line) {
             if ($line->quantity < 1) {
+                $cancelled = $this->cancelLine($document, $line);
+                if ($cancelled !== null) {
+                    $outcomes[] = $cancelled;
+                }
                 continue;
             }
             $outcomes[] = $line->productId === null
@@ -64,6 +70,22 @@ class SaleCostService
         }
 
         return $outcomes;
+    }
+
+    /** What a line cost stops counting once all its units are cancelled: its units go back to the layers and its slot holds a settled zero. Nothing is recorded for a line that never had a cost. */
+    private function cancelLine(SaleDocument $document, SaleLine $line): ?RecordOutcome
+    {
+        $this->layers->reverse($line->targetType, $line->targetId);
+        $recorded = OperationalCostEntry::where('subject_type', $line->targetType)->where('subject_id', $line->targetId)
+            ->whereIn('cost_component', [CostComponent::Cogs->value, CostComponent::SupplierCost->value])->where('is_effective', true)->first();
+        if ($recorded === null) {
+            return null;
+        }
+
+        return $this->ledger->record($this->draft(
+            $document, $line, $recorded->component() ?? CostComponent::Cogs, CostState::Actual, Money::zero(), $this->fx->baseCurrency(),
+            identity: 'line-cancelled', source: 'layer', inputs: ['quantity' => 0],
+        ));
     }
 
     /** Takes back the units a recognised sale took, when that sale is cancelled. */

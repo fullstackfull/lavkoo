@@ -5,6 +5,9 @@ namespace Tests\Feature\OperationalCosts;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\OperationalCosts\CostState;
 use App\Models\InventoryCostLayer;
+use App\Models\OperationalCostAllocation;
+use App\Models\ExternalOrderMapping;
+use App\Models\ExternalOrderLine;
 use App\Models\OperationalCostEntry;
 use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostReconciliation;
@@ -12,12 +15,15 @@ use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\OperationalCosts\ContractService;
+use App\Services\OperationalCosts\Data\RecordOutcome;
+use App\Services\OperationalCosts\CostLedger;
 use App\Services\OperationalCosts\Exceptions\InvalidContractChange;
 use App\Services\OperationalCosts\Invoices\InvoiceResult;
 use App\Services\OperationalCosts\Invoices\InvoiceService;
 use App\Services\OperationalCosts\Invoices\ReconciliationService;
 use App\Services\OperationalCosts\Shipments\ShipmentCostService;
 use App\Services\OperationalCosts\Shipments\ShipmentFactsFactory;
+use App\Services\OperationalCosts\Support\Money;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use Tests\Support\BuildsSalesChannelSchema;
@@ -153,6 +159,102 @@ class InvoiceReconciliationTest extends TestCase
         $this->assertSame(CostState::Actual, $effective[0]->state);
         $this->assertSame('13.000000', $effective[0]->amount);
         $this->assertSame(2, OperationalCostEntry::where('cost_component', 'shipping')->count(), 'The estimate stays in the history; it just no longer counts.');
+    }
+
+    private function estimatePicking(ProviderFulfillment $fulfillment, string $perUnit): void
+    {
+        $contract = \App\Models\OperationalCostContract::where('provider_code', 'torod_point')->firstOrFail();
+        $contracts = app(ContractService::class);
+        $version = $contracts->startNewVersion($contract, '2026-06-01', 1, 'adds picking');
+        $contracts->addRule($version, ['service_type' => 'picking', 'calc_method' => 'per_unit', 'params' => ['amount' => $perUnit]], 1);
+        $contracts->activate($version, 1, 'test');
+        app(ShipmentCostService::class)->estimate(app(ShipmentFactsFactory::class)->forFulfillment($fulfillment));
+    }
+
+    /** @return \Illuminate\Support\Collection<int, OperationalCostEntry> what counts for the shipment now */
+    private function effective(ProviderFulfillment $fulfillment, string $component): \Illuminate\Support\Collection
+    {
+        return OperationalCostEntry::where('provider_fulfillment_id', $fulfillment->id)->where('cost_component', $component)->where('is_effective', true)->get();
+    }
+
+    public function test_the_estimate_of_a_service_that_is_not_shipping_stops_counting_once_the_invoice_bills_it(): void
+    {
+        $shipment = $this->shipment(2001, 'TP-AAA');
+        $this->estimateShipping($shipment, '12');
+        $this->estimatePicking($shipment, '2');
+        $this->assertSame(CostState::Estimated, $this->effective($shipment, 'picking')->first()->state);
+
+        $invoice = $this->serviceInvoice('INV-1', [
+            ['cost_component' => 'shipping', 'amount' => '12', 'external_reference' => 'TP-AAA'],
+            ['cost_component' => 'picking', 'amount' => '2.50', 'external_reference' => 'TP-AAA'],
+        ], '14.50')->invoice;
+        $this->invoices->approve($invoice, 1);
+
+        $picking = $this->effective($shipment, 'picking');
+        $this->assertCount(1, $picking, 'The estimate and the real charge are one cost, not two.');
+        $this->assertSame([CostState::Actual, '2.500000'], [$picking[0]->state, $picking[0]->amount]);
+
+        $rows = $this->reconciliation->reconcile($invoice->fresh());
+        $this->assertSame([OperationalCostReconciliation::MATCHED, OperationalCostReconciliation::VARIANCE], $rows->pluck('status')->all(), 'The picking line is compared with the picking estimate it replaced.');
+        $this->assertSame([], $this->reconciliation->unbilledEstimates($invoice->fresh())->all(), 'Nothing is left over as an unbilled estimate.');
+    }
+
+    public function test_several_lines_for_one_service_of_a_shipment_and_a_credit_note_add_up(): void
+    {
+        $shipment = $this->shipment(2001, 'TP-AAA');
+        $this->estimateShipping($shipment, '12');
+        $first = $this->serviceInvoice('INV-1', [
+            ['cost_component' => 'shipping', 'amount' => '8', 'external_reference' => 'TP-AAA'],
+            ['cost_component' => 'shipping', 'amount' => '4', 'description' => 'second parcel', 'external_reference' => 'TP-AAA'],
+        ], '12')->invoice;
+        $this->invoices->approve($first, 1);
+
+        $this->assertSame('12.000000', Money::sum($this->effective($shipment, 'shipping')->map(fn ($entry) => Money::of($entry->amount)))->toStorage(), 'Two lines are two charges, not one replacing the other.');
+
+        $credit = $this->serviceInvoice('CN-1', [['cost_component' => 'shipping', 'amount' => '-12', 'description' => 'credit note', 'external_reference' => 'TP-AAA']], '-12', ['invoice_date' => '2026-12-05', 'period_start' => '2026-12-01', 'period_end' => '2026-12-31'])->invoice;
+        $this->reconciliation->reconcile($first->fresh());
+        $this->invoices->approve($credit, 1);
+
+        $this->assertSame('0.000000', Money::sum($this->effective($shipment, 'shipping')->map(fn ($entry) => Money::of($entry->amount)))->toStorage(), 'The credit note cancels the charge, even though the charge was reconciled.');
+        $this->assertCount(3, $this->effective($shipment, 'shipping'), 'Nothing was dropped on the way.');
+    }
+
+    public function test_the_charge_for_a_shipment_is_split_over_its_items_like_the_estimate_was(): void
+    {
+        $shipment = $this->shipment(2001, 'TP-AAA');
+        ProviderFulfillmentItem::create([
+            'provider_fulfillment_id' => $shipment->id, 'order_id' => 2001, 'order_detail_id' => 20011, 'product_id' => 51, 'provider' => 'torod_point',
+            'name' => 'Second item', 'quantity' => 1, 'line_total' => 50, 'weight_kg' => '0.5', 'status' => 'routed',
+        ]);
+        $this->estimateShipping($shipment, '12');
+        $invoice = $this->serviceInvoice('INV-1', [['cost_component' => 'shipping', 'amount' => '12', 'external_reference' => 'TP-AAA']], '12')->invoice;
+
+        $this->invoices->approve($invoice, 1);
+
+        $entry = $this->effective($shipment, 'shipping')->firstOrFail();
+        $this->assertSame('allocated', $entry->allocation_status);
+        $this->assertSame(['6.000000', '6.000000'], OperationalCostAllocation::where('entry_id', $entry->id)->orderBy('product_id')->pluck('amount')->all(), 'Nothing slips into the unallocated row.');
+    }
+
+    public function test_a_different_charge_against_a_reconciled_figure_is_kept_for_a_person_not_dropped(): void
+    {
+        $shipment = $this->shipment(2001, 'TP-AAA');
+        $this->estimateShipping($shipment, '100');
+        $first = $this->serviceInvoice('INV-1', [['cost_component' => 'shipping', 'amount' => '100', 'external_reference' => 'TP-AAA']], '100')->invoice;
+        $this->invoices->approve($first, 1);
+        $this->reconciliation->reconcile($first->fresh());
+        $reconciled = $this->effective($shipment, 'shipping')->firstOrFail();
+        $this->assertSame(CostState::Reconciled, $reconciled->state);
+
+        $draft = new \App\Services\OperationalCosts\Data\CostDraft(
+            subjectType: 'shipment', subjectId: $shipment->id, component: \App\Enums\OperationalCosts\CostComponent::Shipping, state: CostState::Actual, amount: \App\Services\OperationalCosts\Support\Money::of('130'),
+            currency: 'SAR', periodDate: now(), source: 'invoice', identity: 'another-document', serviceRef: 'invoice-item:' . $first->items()->firstOrFail()->id, providerFulfillmentId: $shipment->id,
+        );
+        $outcome = app(CostLedger::class)->record($draft);
+
+        $this->assertSame(RecordOutcome::CONFLICT, $outcome->result);
+        $this->assertSame([false, CostState::Disputed], [(bool) $outcome->entry->is_effective, $outcome->entry->state], 'Kept beside the reconciled figure, outside the totals.');
+        $this->assertSame('100.000000', $this->effective($shipment, 'shipping')->firstOrFail()->amount, 'The reconciled figure still stands.');
     }
 
     public function test_an_actual_within_the_tolerance_is_matched_and_reconciled(): void

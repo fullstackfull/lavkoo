@@ -375,15 +375,17 @@ class AdminSalesChannelsOperationsTest extends AdminSalesChannelsTestCase
         $this->assertSame('failed', $listing->fresh()->snapshot['publish']['stock']['state']);
     }
 
-    public function test_a_follow_up_that_the_channel_cannot_answer_is_reported_as_failed(): void
+    public function test_a_follow_up_that_the_channel_cannot_answer_asks_for_attention_and_leaves_the_change_queued(): void
     {
         $account = $this->trendyolAccount(writes: true);
-        $this->publishable($account, ['snapshot' => ['publish' => ['stock' => ['state' => 'queued', 'ref' => 'batch-9', 'attempted' => '20', 'at' => now()->subMinutes(5)->toIso8601String(), 'failures' => 0]]]]);
+        $listing = $this->publishable($account, ['snapshot' => ['publish' => ['stock' => ['state' => 'queued', 'ref' => 'batch-9', 'attempted' => '20', 'at' => now()->subMinutes(5)->toIso8601String(), 'failures' => 0]]]]);
         $this->fakeOnly([self::TY . '/product/*' => Http::response('', 400)]);
 
         $this->post(route('admin.sales-channels.accounts.publish', ['account' => $account, 'kind' => 'settle']))->assertRedirect();
 
-        $this->assertToastContains(translate('run_failed_explained'));
+        $this->assertToastContains(translate('settle_needs_attention'));
+        $this->assertToastContains(translate('run_stat_unreadable') . ': 1');
+        $this->assertSame('queued', $listing->fresh()->snapshot['publish']['stock']['state']);
     }
 
     public function test_linked_shipments_are_reported_to_the_channel_only_as_a_rehearsal_from_a_rehearsing_account(): void

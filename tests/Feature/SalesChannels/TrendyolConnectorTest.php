@@ -382,6 +382,41 @@ class TrendyolConnectorTest extends TestCase
         $this->assertSame(['Image quality'], $unapproved->items[0]->snapshot['reject_reasons']);
     }
 
+    public function test_a_read_by_token_stays_a_read_by_token_until_the_token_runs_out(): void
+    {
+        Http::fake([self::API . '/*' => Http::sequence()
+            ->push(Trendyol::approvedPage([Trendyol::content('BC-1')], 99, 250, 'TOKEN-1'))
+            ->push(Trendyol::approvedPage([Trendyol::content('BC-2')], 0, 250, 'TOKEN-2'))
+            ->push(Trendyol::approvedPage([Trendyol::content('BC-3')], 0, 250, null))]);
+
+        $atTheWindow = $this->trendyol->listings($this->account, ['phase' => 'approved', 'page' => 99]);
+        $firstToken = $this->trendyol->listings($this->account, $atTheWindow->nextCursor);
+        $secondToken = $this->trendyol->listings($this->account, $firstToken->nextCursor);
+
+        $this->assertSame(['phase' => 'approved', 'token' => 'TOKEN-1', 'from' => null], $atTheWindow->nextCursor);
+        $this->assertSame(['phase' => 'approved', 'token' => 'TOKEN-2', 'from' => null], $firstToken->nextCursor, 'It goes on with the next token, not back to page 1.');
+        $this->assertSame('unapproved', $secondToken->nextCursor['phase'], 'No token left: the approved products are done.');
+    }
+
+    public function test_a_sweep_of_the_order_stream_ends_at_the_moment_it_began_even_when_each_call_takes_seconds(): void
+    {
+        Http::fake([self::API . '/*' => Http::response(Trendyol::stream([]))]);
+        $cursor = null;
+        $calls = 0;
+        $began = $this->ms('2026-11-06 12:00:00');
+        do {
+            $page = $this->trendyol->orders($this->account, CarbonImmutable::parse('2026-10-10 00:00:00 UTC'), $cursor);
+            $cursor = $page->nextCursor;
+            $this->travel(2)->seconds();
+            $calls++;
+        } while ($cursor !== null && $calls < 10);
+
+        $this->assertNull($cursor, 'The sweep ended instead of chasing the clock one tiny window after another.');
+        $this->assertLessThanOrEqual(3, $calls, '27 days in windows of at most 14.');
+        $ends = array_map(fn (Request $request): int => (int) $this->query($request)['lastModifiedEndDate'], $this->sentTo('/orders/stream'));
+        $this->assertSame($began, max($ends), 'No window reaches past the moment the sweep began.');
+    }
+
     public function test_an_incremental_listing_read_asks_for_what_changed(): void
     {
         Http::fake([self::API . '/*' => Http::response(Trendyol::approvedPage([]))]);
@@ -414,6 +449,17 @@ class TrendyolConnectorTest extends TestCase
         $this->assertSame(RemoteFinancialEntry::REFUND, $entries[0]->category);
         $this->assertSame('170.000000', $entries[0]->amount->toStorage());
         $this->assertSame('-25.000000', $entries[1]->amount->toStorage(), 'The commission returned is a negative cost.');
+    }
+
+    public function test_the_direction_of_the_commission_comes_from_the_kind_of_row_not_from_the_sign_of_the_number(): void
+    {
+        $mapper = app(TrendyolFinanceMapper::class);
+
+        $saleWithPositiveCommission = $mapper->settlement(Trendyol::settlement('row-3', 25.0), 'Sale', $this->account);
+        $returnWithNegativeCommission = $mapper->settlement(Trendyol::settlement('row-4', -25.0, 0.0, ['transactionType' => 'Return', 'debt' => 170.0]), 'Return', $this->account);
+
+        $this->assertSame('25.000000', $saleWithPositiveCommission[1]->amount->toStorage(), 'A commission is a cost on a sale whichever way the statement prints its sign.');
+        $this->assertSame('-25.000000', $returnWithNegativeCommission[1]->amount->toStorage(), 'And it is given back on a return.');
     }
 
     public function test_a_fact_has_the_same_identity_whatever_id_trendyol_gave_the_row(): void

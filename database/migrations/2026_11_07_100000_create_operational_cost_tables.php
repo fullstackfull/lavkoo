@@ -110,7 +110,8 @@ return new class extends Migration
                 $table->string('cost_class', 24)->index();
                 $table->string('state', 16)->index();
                 $table->boolean('is_effective')->default(true)->index();
-                $table->unsignedBigInteger('superseded_by_id')->nullable();
+                // Reconciliation looks up, for every invoice line, the estimate that line replaced.
+                $table->unsignedBigInteger('superseded_by_id')->nullable()->index();
                 // NULL when the state is `missing`: a cost nobody could determine is not a free one.
                 $table->decimal('amount', 20, 6)->nullable();
                 $table->string('currency', 8);
@@ -129,7 +130,8 @@ return new class extends Migration
                 $table->json('calc_inputs')->nullable();
                 $table->string('missing_reason', 120)->nullable();
                 $table->string('note', 500)->nullable();
-                $table->timestamp('occurred_at')->nullable();
+                // DATETIME, not TIMESTAMP: a person types these dates (an invoice's service date) and TIMESTAMP stops at 19 January 2038.
+                $table->dateTime('occurred_at')->nullable();
                 $table->timestamp('approved_at')->nullable();
                 $table->unsignedBigInteger('approved_by')->nullable();
                 $table->timestamps();
@@ -267,7 +269,9 @@ return new class extends Migration
                 $table->unsignedBigInteger('source_id')->nullable();
                 $table->string('source_ref', 120)->nullable();
                 $table->string('dedupe_key', 64)->unique();
-                $table->timestamp('received_at')->index();
+                // DATETIME on purpose: the first NOT NULL TIMESTAMP of a table renews itself on every update on servers that predate explicit_defaults_for_timestamp,
+                // which would rewrite the receipt date of a layer (the order the layers are used in) each time units are taken from it.
+                $table->dateTime('received_at')->index();
                 $table->unsignedInteger('quantity_received');
                 $table->unsignedInteger('quantity_remaining');
                 $table->decimal('unit_cost', 20, 6);
@@ -301,7 +305,7 @@ return new class extends Migration
                 $table->decimal('landed_unit_cost', 20, 6)->default(0);
                 $table->decimal('total_cost', 20, 6);
                 $table->string('currency', 8);
-                $table->timestamp('consumed_at');
+                $table->dateTime('consumed_at');
                 $table->timestamp('reversed_at')->nullable();
                 $table->unsignedBigInteger('entry_id')->nullable();
                 $table->timestamps();

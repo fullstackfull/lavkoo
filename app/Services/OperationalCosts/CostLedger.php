@@ -20,12 +20,15 @@ use InvalidArgumentException;
  *    maps to the row that already exists);
  *  - one service of one subject is one cost: a better-known cost of the slot (actual over estimate, estimate over missing)
  *    supersedes the weaker one, and a weaker one never displaces a better one, so an estimate and the real charge are never both counted;
- *  - an approved or reconciled entry is never rewritten: a conflicting newer figure is stored beside it, outside the totals, as a
+ *  - an approved or reconciled entry is never rewritten: a different charge that arrives for its slot is stored beside it, outside the totals, as a
  *    disputed entry for a person to resolve;
  *  - nothing is ever deleted: a mistake is reversed with a new entry.
  */
 class CostLedger
 {
+    /** A write that loses a lock race to another worker (a deadlock) is tried again this many times before it is reported; every write here is safe to repeat. */
+    private const DEADLOCK_ATTEMPTS = 3;
+
     public function __construct(private readonly AuditLogger $audit)
     {
     }
@@ -38,7 +41,7 @@ class CostLedger
         }
 
         try {
-            return DB::transaction(fn (): RecordOutcome => $this->write($draft));
+            return DB::transaction(callback: fn (): RecordOutcome => $this->write($draft), attempts: self::DEADLOCK_ATTEMPTS);
         } catch (UniqueConstraintViolationException) {
             // A concurrent worker recorded this very computation first.
             return new RecordOutcome(RecordOutcome::DUPLICATE, OperationalCostEntry::where('dedupe_key', $draft->dedupeKey())->firstOrFail());
@@ -193,6 +196,12 @@ class CostLedger
             $heldRank = $held->state->rank();
             $heldIsFinal = $held->approved_at !== null || $held->state === CostState::Reconciled;
 
+            if ($heldIsFinal && $draft->state->isSettled() && $this->isAnotherCharge($held, $draft)) {
+                // A different charge for a figure that was approved or reconciled is never dropped without a trace, whatever its rank: a person looks at both.
+                $effective = false;
+                $conflict = true;
+                continue;
+            }
             if ($heldRank > $incomingRank) {
                 // Something better is already known (the real charge exists, a weaker figure arrived late): keep what we have.
                 return new RecordOutcome(RecordOutcome::IGNORED, $held);
@@ -207,6 +216,10 @@ class CostLedger
                 return new RecordOutcome(RecordOutcome::IGNORED, $held);
             }
             $superseded[] = $held;
+        }
+
+        if ($draft->retiresEstimates && $effective) {
+            array_push($superseded, ...$this->estimatesOfTheSameService($draft));
         }
 
         $entry = OperationalCostEntry::create([
@@ -256,5 +269,22 @@ class CostLedger
         }
 
         return new RecordOutcome($conflict ? RecordOutcome::CONFLICT : RecordOutcome::CREATED, $entry, array_map(static fn (OperationalCostEntry $held): int => (int) $held->id, $superseded));
+    }
+
+    private function isAnotherCharge(OperationalCostEntry $held, CostDraft $draft): bool
+    {
+        return $held->amount === null || $held->currency !== $draft->currency || !Money::of($held->amount)->equals($draft->amount);
+    }
+
+    /**
+     * The estimates (and missing markers) of the same component of the same subject that sit in other slots: the real charge now says what that service cost.
+     *
+     * @return list<OperationalCostEntry>
+     */
+    private function estimatesOfTheSameService(CostDraft $draft): array
+    {
+        return OperationalCostEntry::where('seller_id', $draft->sellerId)->where('subject_type', $draft->subjectType)->where('subject_id', $draft->subjectId)
+            ->where('cost_component', $draft->component->value)->where('is_effective', true)->whereIn('state', [CostState::Estimated->value, CostState::Missing->value])
+            ->where('slot_key', '!=', $draft->slotKey())->lockForUpdate()->get()->all();
     }
 }

@@ -9,12 +9,16 @@ use App\Models\InventoryCostLayer;
 use App\Models\OperationalCostEntry;
 use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostInvoiceItem;
+use App\Models\ProviderFulfillment;
 use App\Services\AuditLogger;
 use App\Services\OperationalCosts\CostLedger;
 use App\Services\OperationalCosts\Data\CostDraft;
 use App\Services\OperationalCosts\Data\LayerReceipt;
+use App\Services\OperationalCosts\Data\RecordOutcome;
 use App\Services\OperationalCosts\Exceptions\InvalidContractChange;
 use App\Services\OperationalCosts\InventoryCostLayerService;
+use App\Services\OperationalCosts\Shipments\ShipmentCostService;
+use App\Services\OperationalCosts\Shipments\ShipmentFactsFactory;
 use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
 use Carbon\CarbonImmutable;
@@ -27,9 +31,12 @@ use InvalidArgumentException;
  *
  *  - CREATE keeps the invoice and its lines exactly as received. The same company and invoice number is refused as a duplicate (the same
  *    file, too); an invoice that merely looks like another (same company, currency, total and period) is kept but held for a person.
- *  - APPROVE turns the lines into costs. A service line becomes the ACTUAL cost of the service it is about, replacing the estimate of that
- *    service; a purchase line becomes a cost layer at the invoice's location (freight lines on the same invoice are added to those units).
- *    Approving twice changes nothing.
+ *  - APPROVE turns the lines into costs. A service line becomes the ACTUAL cost of the service it is about and the estimate of that service stops counting; a
+ *    purchase line becomes a cost layer at the invoice's location (freight lines on the same invoice are added to those units). Approving twice changes nothing.
+ *      - A line about a SHIPMENT is a charge of its own (a shipment can be billed in several lines, and a credit note is a line with a minus sign, so they add up); the
+ *        first positive one retires the estimate of the same service, and it is split over the shipment's items like the estimate was.
+ *      - A line about a MARKETPLACE order takes the channel's own slot for that fee (the one its estimate and its statement figure use), so the same commission arriving as
+ *        an estimate, in the statement and on the invoice is one cost; several lines of one order and fee in the same invoice (a commission and a refund of it) are netted.
  *
  * An invoice that is approved is never edited. A mistake is a new invoice, a credit note or a reversal.
  */
@@ -43,6 +50,8 @@ class InvoiceService
         private readonly InvoiceLinkResolver $links,
         private readonly FxConverter $fx,
         private readonly AuditLogger $audit,
+        private readonly ShipmentCostService $shipmentCosts,
+        private readonly ShipmentFactsFactory $shipmentFacts,
     ) {
     }
 
@@ -141,7 +150,7 @@ class InvoiceService
             $invoice->forceFill(['status' => OperationalCostInvoice::STATUS_APPROVED, 'approved_at' => now(), 'approved_by' => $adminId])->save();
 
             return $count;
-        });
+        }, attempts: 3);
         $this->audit->record(action: 'operational_cost.invoice_approved', subject: $invoice, context: ['invoice_id' => $invoice->id, 'lines' => $count, 'by' => $adminId]);
 
         return $count;
@@ -161,17 +170,23 @@ class InvoiceService
     /** @param \Illuminate\Support\Collection<int, OperationalCostInvoiceItem> $items */
     private function recordServices(OperationalCostInvoice $invoice, $items): int
     {
+        $mappings = ExternalOrderMapping::whereIn('id', $items->pluck('external_order_mapping_id')->filter()->unique()->all())->get()->keyBy('id');
+        $marketplaceNets = $this->marketplaceNets($invoice, $items, $mappings);
+
         $count = 0;
         foreach ($items as $item) {
             if ($item->match_status === OperationalCostInvoiceItem::IGNORED) {
                 continue;
             }
             $component = CostComponent::tryFrom($item->cost_component) ?? CostComponent::Other;
-            [$subjectType, $subjectId, $serviceRef] = $this->subjectOf($invoice, $item, $component);
+            $mapping = $item->external_order_mapping_id === null ? null : $mappings->get($item->external_order_mapping_id);
+            [$subjectType, $subjectId] = $this->subjectOf($invoice, $item, $mapping);
             $date = CarbonImmutable::parse($item->service_date ?? $invoice->period_end ?? $invoice->invoice_date);
-            $amount = Money::of($item->amount);
+
+            $net = $subjectType === 'channel_order' ? ($marketplaceNets[$this->netKey($item, $component)] ?? null) : null;
+            $amount = $net['amount'] ?? Money::of($item->amount);
             $fx = $this->fx->convert($amount, $item->currency, $this->fx->baseCurrency());
-            $mapping = $item->external_order_mapping_id === null ? null : ExternalOrderMapping::find($item->external_order_mapping_id);
+            $forAShipment = in_array($subjectType, ['shipment', 'external_shipment'], true);
 
             $outcome = $this->ledger->record(new CostDraft(
                 subjectType: $subjectType,
@@ -182,8 +197,12 @@ class InvoiceService
                 currency: $item->currency,
                 periodDate: $date,
                 source: 'invoice',
-                identity: 'invoice-item:' . $item->id,
-                serviceRef: $serviceRef,
+                identity: $net === null ? 'invoice-item:' . $item->id : 'invoice:' . $invoice->id . ':' . $net['key'],
+                serviceRef: match ($subjectType) {
+                    'channel_order' => $item->currency === $mapping?->currency ? '' : 'channel-net:' . $item->currency,
+                    'invoice_item' => '',
+                    default => 'invoice-item:' . $item->id,
+                },
                 sellerId: (int) $invoice->seller_id,
                 salesChannel: $mapping?->sales_channel,
                 accountId: $mapping?->account_id ?? $invoice->account_id,
@@ -205,8 +224,16 @@ class InvoiceService
                 fxRate: $fx['rate'] ?? null,
                 baseAmount: $fx['amount'] ?? null,
                 baseCurrency: $fx === null ? null : $this->fx->baseCurrency(),
-                allocationStatus: $subjectType === 'invoice_item' ? 'unallocated' : 'not_applicable',
+                allocationStatus: match (true) {
+                    $subjectType === 'invoice_item' => 'unallocated',
+                    $forAShipment => 'pending',
+                    default => 'not_applicable',
+                },
+                retiresEstimates: $subjectType !== 'invoice_item' && $amount->isPositive(),
             ));
+            if ($forAShipment && $outcome->result === RecordOutcome::CREATED) {
+                $this->allocateToItems($outcome->entry, $subjectType, $subjectId);
+            }
 
             $item->forceFill([
                 'entry_id' => $outcome->entry->id,
@@ -219,26 +246,61 @@ class InvoiceService
     }
 
     /**
-     * Where an invoice line belongs in the ledger. A line linked to a shipment or channel order takes the slot of that service (so it
-     * replaces the estimate of it); a line about nothing we know of becomes a cost of its own, unallocated until a person links it.
+     * Where an invoice line belongs in the ledger: the shipment it was billed for, the marketplace order it is a fee of, or, about nothing we know of, a cost of its own
+     * that stays unallocated until a person links it.
      *
-     * @return array{0: string, 1: int, 2: string} subject type, subject id, service reference
+     * @return array{0: string, 1: int} subject type, subject id
      */
-    private function subjectOf(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, CostComponent $component): array
+    private function subjectOf(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, ?ExternalOrderMapping $mapping): array
     {
-        $sharedService = $component->isShipmentLevel() ? '' : 'invoice-item:' . $item->id;
-
         if ($item->provider_fulfillment_id !== null) {
-            return ['shipment', (int) $item->provider_fulfillment_id, $sharedService];
+            return ['shipment', (int) $item->provider_fulfillment_id];
         }
-        if ($item->external_order_mapping_id !== null) {
-            $mapping = ExternalOrderMapping::find($item->external_order_mapping_id);
-            $isShipmentCost = $mapping?->provider !== null && $mapping->provider === $invoice->provider_code;
+        if ($mapping !== null) {
+            $isShipmentCost = $mapping->provider !== null && $mapping->provider === $invoice->provider_code;
 
-            return [$isShipmentCost ? 'external_shipment' : 'channel_order', (int) $item->external_order_mapping_id, $isShipmentCost ? $sharedService : 'invoice-item:' . $item->id];
+            return [$isShipmentCost ? 'external_shipment' : 'channel_order', (int) $mapping->id];
         }
 
-        return ['invoice_item', (int) $item->id, ''];
+        return ['invoice_item', (int) $item->id];
+    }
+
+    /**
+     * What each marketplace order and fee of this invoice comes to in total (a commission and the refund of part of it are one fee, as the statement nets them).
+     *
+     * @param \Illuminate\Support\Collection<int, OperationalCostInvoiceItem> $items
+     * @param \Illuminate\Support\Collection<int, ExternalOrderMapping> $mappings
+     * @return array<string, array{amount: Money, key: string}>
+     */
+    private function marketplaceNets(OperationalCostInvoice $invoice, $items, $mappings): array
+    {
+        $nets = [];
+        foreach ($items as $item) {
+            $mapping = $item->external_order_mapping_id === null ? null : $mappings->get($item->external_order_mapping_id);
+            if ($item->match_status === OperationalCostInvoiceItem::IGNORED || $item->provider_fulfillment_id !== null || $mapping === null || $this->subjectOf($invoice, $item, $mapping)[0] !== 'channel_order') {
+                continue;
+            }
+            $key = $this->netKey($item, CostComponent::tryFrom($item->cost_component) ?? CostComponent::Other);
+            $nets[$key] = ['key' => $key, 'amount' => ($nets[$key]['amount'] ?? Money::zero())->plus(Money::of($item->amount))];
+        }
+
+        return $nets;
+    }
+
+    private function netKey(OperationalCostInvoiceItem $item, CostComponent $component): string
+    {
+        return $item->external_order_mapping_id . ':' . $component->value . ':' . $item->currency;
+    }
+
+    private function allocateToItems(OperationalCostEntry $entry, string $subjectType, int $subjectId): void
+    {
+        $facts = match ($subjectType) {
+            'shipment' => ($fulfillment = ProviderFulfillment::find($subjectId)) === null ? null : $this->shipmentFacts->forFulfillment($fulfillment),
+            default => ($mapping = ExternalOrderMapping::find($subjectId)) === null ? null : $this->shipmentFacts->forExternalShipment($mapping),
+        };
+        if ($facts !== null) {
+            $this->shipmentCosts->allocateActual($entry, $facts);
+        }
     }
 
     /** @param \Illuminate\Support\Collection<int, OperationalCostInvoiceItem> $items */

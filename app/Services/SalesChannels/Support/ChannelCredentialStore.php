@@ -3,6 +3,7 @@
 namespace App\Services\SalesChannels\Support;
 
 use App\Models\SalesChannelAccount;
+use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +15,9 @@ use InvalidArgumentException;
  * never returned by any query or serialisation of the account, and are shown to nobody: the admin panel is told only WHICH secrets are present.
  *
  * Only the keys a channel declares can be stored. A blank value on save keeps what is stored (a form that does not repeat a secret must not
- * wipe it), and a secret is removed only by being named for clearing.
+ * wipe it), and a secret is removed only by being named for clearing. A stored blob that cannot be decrypted (the application key changed) reads as "no secrets", but it is
+ * never overwritten by accident: only a complete new set replaces it, anything less is refused and the old ciphertext stays, so restoring the key still recovers it.
+ * Changing a secret that identifies the authorisation drops the tokens obtained with the old one.
  */
 class ChannelCredentialStore
 {
@@ -22,6 +25,12 @@ class ChannelCredentialStore
     public const SECRET_KEYS = [
         'amazon' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token', 'aws_access_key_id', 'aws_secret_access_key'],
         'trendyol' => ['api_key', 'api_secret', 'webhook_api_key', 'webhook_password'],
+    ];
+
+    /** What a complete set of typed credentials is, for the one case where it replaces a blob nobody can read. */
+    private const COMPLETE_SET = [
+        'amazon' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token'],
+        'trendyol' => ['api_key', 'api_secret'],
     ];
 
     public const RUNTIME_KEYS = [
@@ -45,7 +54,7 @@ class ChannelCredentialStore
 
         return DB::transaction(function () use ($account, $secrets, $clear, $allowed): array {
             $row = SalesChannelAccount::whereKey($account->id)->lockForUpdate()->firstOrFail();
-            $values = $this->decrypt($row);
+            $values = $this->decryptForWrite($row, $secrets);
             $changed = [];
             foreach ($secrets as $key => $value) {
                 if (!in_array($key, $allowed, true)) {
@@ -61,6 +70,10 @@ class ChannelCredentialStore
                     unset($values[$key]);
                     $changed[] = $key . ':cleared';
                 }
+            }
+            if ($changed !== []) {
+                // A token was obtained with the previous secrets: it is not good for the new ones.
+                $values = array_diff_key($values, array_flip(self::RUNTIME_KEYS[$account->channel] ?? []));
             }
             $this->store($row, $values);
             $account->setRawAttributes($row->getAttributes(), true);
@@ -80,7 +93,7 @@ class ChannelCredentialStore
             if ($row === null) {
                 return;
             }
-            $values = $this->decrypt($row);
+            $values = $this->decryptForWrite($row, []);
             if ($value === null || $value === '') {
                 unset($values[$key]);
             } else {
@@ -104,22 +117,54 @@ class ChannelCredentialStore
         $row->forceFill(['credentials' => $values === [] ? null : Crypt::encryptString(json_encode($values, JSON_THROW_ON_ERROR))])->save();
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string, mixed> what is stored; nothing when nothing is stored or it cannot be read (reads carry on without secrets, they never write) */
     private function decrypt(SalesChannelAccount $account): array
     {
-        $blob = $account->getAttributes()['credentials'] ?? null;
-        if ($blob === null || $blob === '') {
-            return [];
-        }
-
         try {
-            $decoded = json_decode(Crypt::decryptString($blob), true, 8, JSON_THROW_ON_ERROR);
-
-            return is_array($decoded) ? $decoded : [];
+            return $this->readBlob($account) ?? [];
         } catch (DecryptException|\JsonException) {
             Log::warning('Sales channel credentials could not be decrypted; treating them as unset.', ['account_id' => $account->id, 'channel' => $account->channel]);
 
             return [];
         }
+    }
+
+    /**
+     * What is stored, as the starting point of a write. A blob that cannot be read is replaced only by a complete new set typed in at that moment; any smaller write would
+     * destroy the only copy of the other secrets, which the right application key can still decrypt.
+     *
+     * @param array<string, string|null> $incoming
+     * @return array<string, mixed>
+     * @throws ChannelUnavailableException
+     */
+    private function decryptForWrite(SalesChannelAccount $row, array $incoming): array
+    {
+        try {
+            return $this->readBlob($row) ?? [];
+        } catch (DecryptException|\JsonException) {
+            $typed = array_keys(array_filter($incoming, static fn ($value): bool => is_string($value) && trim($value) !== ''));
+            if (array_diff(self::COMPLETE_SET[$row->channel] ?? [], $typed) !== []) {
+                throw new ChannelUnavailableException(ChannelUnavailableException::AUTH_NEEDED, 'The stored credentials of this account cannot be decrypted with this server\'s application key. Restore the key, or enter the complete set of credentials again to replace them; nothing was changed.');
+            }
+            Log::warning('Sales channel credentials that could not be decrypted were replaced by a complete new set.', ['account_id' => $row->id, 'channel' => $row->channel]);
+
+            return [];
+        }
+    }
+
+    /**
+     * @return array<string, mixed>|null null when nothing is stored
+     * @throws DecryptException
+     * @throws \JsonException
+     */
+    private function readBlob(SalesChannelAccount $account): ?array
+    {
+        $blob = $account->getAttributes()['credentials'] ?? null;
+        if ($blob === null || $blob === '') {
+            return null;
+        }
+        $decoded = json_decode(Crypt::decryptString($blob), true, 8, JSON_THROW_ON_ERROR);
+
+        return is_array($decoded) ? $decoded : [];
     }
 }

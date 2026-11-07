@@ -88,6 +88,47 @@ class ManualStatementImportTest extends TestCase
         }
     }
 
+    public function test_dates_are_read_strictly_and_an_absurd_amount_is_refused(): void
+    {
+        $account = $this->trendyolAccount();
+        $importer = app(ManualStatementImporter::class);
+        $cases = [
+            self::HEADER . "1,2,today,fee,shipping,5.00,SAR,x\n" => 'not a date',
+            self::HEADER . "1,2,2026-02-31,fee,shipping,5.00,SAR,x\n" => 'not a day of the calendar',
+            self::HEADER . "1,2,0000-00-00,fee,shipping,5.00,SAR,x\n" => 'calendar',
+            self::HEADER . "1,2,05/11/2026,fee,shipping,5.00,SAR,x\n" => 'not a date',
+            self::HEADER . "1,2,2026-11-05,fee,shipping,99999999999999999999.5,SAR,x\n" => 'at most 14 digits',
+        ];
+        foreach ($cases as $csv => $needle) {
+            try {
+                $importer->import($account, (string) $csv);
+                $this->fail("Accepted: {$needle}");
+            } catch (InvalidArgumentException $exception) {
+                $this->assertStringContainsString($needle, $exception->getMessage());
+            }
+        }
+
+        $good = $importer->parse($account, self::HEADER . "1,2,2026-11-05 14:30:00,fee,shipping,5.00,SAR,x\n1,2,2026-11-05T14:30:00+03:00,fee,shipping,5.00,SAR,y\n");
+        $this->assertCount(2, $good);
+    }
+
+    public function test_two_identical_lines_in_one_file_are_two_charges_and_importing_the_file_again_still_adds_nothing(): void
+    {
+        $account = $this->trendyolAccount();
+        ExternalOrderMapping::create(['account_id' => $account->id, 'sales_channel' => 'trendyol', 'seller_id' => 0, 'external_order_id' => '111', 'external_package_id' => '900', 'status' => 'delivered', 'currency' => 'SAR']);
+        $csv = self::HEADER
+            . "111,900,2026-11-05,fee,marketplace_service_fee,5.00,SAR,Per unit fee\n"
+            . "111,900,2026-11-05,fee,marketplace_service_fee,5.00,SAR,Per unit fee\n";
+        $importer = app(ManualStatementImporter::class);
+
+        $first = $importer->import($account, $csv);
+        $second = $importer->import($account, $csv);
+
+        $this->assertSame([2, 0], [$first['new'], $first['duplicates']], 'Two fees of 5.00 are two facts.');
+        $this->assertSame([0, 2], [$second['new'], $second['duplicates']], 'The same file again is the same two facts.');
+        $this->assertSame('10.000000', OperationalCostEntry::where('is_effective', true)->where('cost_component', 'marketplace_service_fee')->value('amount'));
+    }
+
     public function test_semicolon_files_and_a_byte_order_mark_are_read(): void
     {
         $account = $this->trendyolAccount();

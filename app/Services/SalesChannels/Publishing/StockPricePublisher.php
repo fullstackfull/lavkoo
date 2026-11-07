@@ -15,6 +15,7 @@ use App\Services\SalesChannels\Inventory\LocationStockReader;
 use App\Services\SalesChannels\Sync\ChannelSyncRunner;
 use App\Services\SalesChannels\Sync\SyncLease;
 use Carbon\CarbonImmutable;
+use RuntimeException;
 
 /**
  * Decides what a channel is shown for a listing and sends only what is worth sending.
@@ -37,6 +38,9 @@ class StockPricePublisher
     public const STOCK = 'publish_stock';
     public const PRICE = 'publish_price';
     public const MAX_FAILURES = 3;
+
+    /** Both channels take prices with two decimals: a price is judged (and sent) as the channel will read it. */
+    private const PRICE_SCALE = 2;
 
     /** Trendyol keeps a batch result for four hours; a little less is trusted. */
     private const BATCH_KEPT_MINUTES = 230;
@@ -144,7 +148,7 @@ class StockPricePublisher
         if (!is_string($manual) && !is_numeric($manual)) {
             return 'no_manual_price';
         }
-        $price = Money::of((string) $manual);
+        $price = Money::of((string) $manual)->round(scale: self::PRICE_SCALE);
         if (!$price->isPositive()) {
             return 'price_not_positive';
         }
@@ -165,8 +169,12 @@ class StockPricePublisher
         $state = $mapping->snapshot['publish'][$field] ?? [];
         $sameAttempt = ($state['attempted'] ?? null) === $wanted;
 
+        $notTaken = in_array($state['state'] ?? null, ['failed', 'unconfirmed'], true);
+        if ($notTaken && $sameAttempt && (int) ($state['failures'] ?? 0) >= self::MAX_FAILURES) {
+            return 'failed_repeatedly';
+        }
         if (($state['state'] ?? null) === 'failed') {
-            return $sameAttempt && (int) ($state['failures'] ?? 0) >= self::MAX_FAILURES ? 'failed_repeatedly' : null;
+            return null;
         }
         if (($state['state'] ?? null) === 'queued' && $sameAttempt && CarbonImmutable::parse($state['at'])->gt(now()->subMinutes(60))) {
             return 'awaiting_result';
@@ -188,13 +196,23 @@ class StockPricePublisher
             $attempted = $kind === self::STOCK ? (string) $update->quantity : $update->price->toStorage();
             $snapshot = $mapping->snapshot ?? [];
             $previous = $snapshot['publish'][$field] ?? [];
+            // The streak belongs to the value: it carries over every time the same value is sent again, and starts over when the value changes or the channel applied it.
+            $streak = ($previous['attempted'] ?? null) === $attempted ? (int) ($previous['failures'] ?? 0) : 0;
 
             if (isset($result->accepted[$mappingId])) {
-                $snapshot['publish'][$field] = ['state' => 'queued', 'ref' => $result->accepted[$mappingId], 'attempted' => $attempted, 'at' => now()->toIso8601String(), 'failures' => 0];
+                $snapshot['publish'][$field] = ['state' => 'queued', 'ref' => $result->accepted[$mappingId], 'attempted' => $attempted, 'at' => now()->toIso8601String(), 'failures' => $streak];
                 $mapping->forceFill($kind === self::STOCK ? ['last_published_quantity' => $update->quantity, 'last_published_at' => now()] : ['last_published_price' => $update->price->toStorage(), 'last_published_at' => now()]);
             } else {
-                $failures = ($previous['attempted'] ?? null) === $attempted ? (int) ($previous['failures'] ?? 0) + 1 : 1;
-                $snapshot['publish'][$field] = ['state' => 'failed', 'error' => mb_substr((string) ($result->failed[$mappingId] ?? 'The channel did not take the update.'), 0, 300), 'attempted' => $attempted, 'at' => now()->toIso8601String(), 'failures' => $failures];
+                $transient = in_array($mappingId, $result->transient, true);
+                $snapshot['publish'][$field] = [
+                    'state' => 'failed',
+                    'error' => mb_substr((string) ($result->failed[$mappingId] ?? 'The channel did not take the update.'), 0, 300),
+                    'attempted' => $attempted,
+                    'at' => now()->toIso8601String(),
+                    // A request that never arrived, or met a busy or failing channel, says nothing against the value: it is tried again without counting.
+                    'failures' => $transient ? $streak : $streak + 1,
+                    'transient' => $transient,
+                ];
             }
             $mapping->forceFill(['snapshot' => $snapshot])->save();
         }
@@ -204,11 +222,14 @@ class StockPricePublisher
      * Follows up what the channel QUEUED: a batch result where the channel gives one, otherwise the listing as last read back. A change the channel reports failed is marked so it
      * can be corrected (and retried at most three times); one that the listing shows to be different long after it was sent is marked unconfirmed.
      *
-     * @return array{applied: int, failed: int, unconfirmed: int, pending: int}
+     * A batch the channel can not be asked about right now (a switch is off, the channel is busy or failing, the batch is gone) stays queued and is counted as unreadable;
+     * the other batches are followed all the same.
+     *
+     * @return array{applied: int, failed: int, unconfirmed: int, pending: int, unreadable: int}
      */
     public function settle(SalesChannelAccount $account): array
     {
-        $counts = ['applied' => 0, 'failed' => 0, 'unconfirmed' => 0, 'pending' => 0];
+        $counts = ['applied' => 0, 'failed' => 0, 'unconfirmed' => 0, 'pending' => 0, 'unreadable' => 0];
         $connector = $this->connectors->for($account);
         $batches = [];
 
@@ -248,7 +269,7 @@ class StockPricePublisher
             $this->setState($mapping, $field, 'applied');
             $counts['applied']++;
         } elseif ($readSince && CarbonImmutable::parse($state['at'])->lt(now()->subMinutes(60))) {
-            $this->setState($mapping, $field, 'unconfirmed');
+            $this->setState($mapping, $field, 'unconfirmed', failures: (int) ($state['failures'] ?? 0) + 1);
             $counts['unconfirmed']++;
         } else {
             $counts['pending']++;
@@ -261,7 +282,13 @@ class StockPricePublisher
      */
     private function settleBatch(SalesChannelAccount $account, ReportsPublishResults $connector, string $ref, array $members, array &$counts): void
     {
-        $outcome = $connector->batchResult($account, $ref);
+        try {
+            $outcome = $connector->batchResult($account, $ref);
+        } catch (RuntimeException) {
+            $counts['unreadable'] += count($members);
+
+            return;
+        }
         foreach ($members as [$mappingId, $field]) {
             $mapping = SalesChannelProductMapping::find($mappingId);
             $item = $outcome['items'][$mapping->external_barcode ?? $mapping->listing_key] ?? null;
@@ -282,11 +309,12 @@ class StockPricePublisher
         }
     }
 
-    private function setState(SalesChannelProductMapping $mapping, string $field, string $state): void
+    private function setState(SalesChannelProductMapping $mapping, string $field, string $state, ?int $failures = null): void
     {
         $snapshot = $mapping->snapshot;
         $snapshot['publish'][$field]['state'] = $state;
         $snapshot['publish'][$field]['settled_at'] = now()->toIso8601String();
+        $snapshot['publish'][$field]['failures'] = $state === 'applied' ? 0 : ($failures ?? (int) ($snapshot['publish'][$field]['failures'] ?? 0));
         $mapping->forceFill(['snapshot' => $snapshot])->save();
     }
 }

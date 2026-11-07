@@ -182,6 +182,8 @@ class AdminOperationalCostsReportsTest extends AdminPagesTestCase
     {
         $trendyol = $this->channelSale('200', 'trendyol', '2026-11-05 09:00:00');
         $amazon = $this->channelSale('100', 'amazon', '2026-11-08 12:00:00', productId: 51);
+        $this->recordCost(CostState::Actual, '60', CostComponent::Cogs, '2026-11-05', ['mappingId' => $trendyol->id, 'channel' => 'trendyol', 'productId' => 50]);
+        $this->recordCost(CostState::Actual, '40', CostComponent::Cogs, '2026-11-08', ['mappingId' => $amazon->id, 'channel' => 'amazon', 'productId' => 51]);
         $this->recordCost(CostState::Actual, '30', CostComponent::Shipping, '2026-11-05', ['mappingId' => $trendyol->id, 'channel' => 'trendyol', 'productId' => 50]);
         $this->recordCost(CostState::Missing, null, CostComponent::MarketplaceCommission, '2026-11-08', ['mappingId' => $amazon->id, 'channel' => 'amazon', 'productId' => 51, 'reason' => 'no_contract']);
         DB::table('products')->insert([['id' => 50, 'name' => '=Vitamin', 'added_by' => 'admin', 'product_type' => 'physical'], ['id' => 51, 'name' => 'Panadol', 'added_by' => 'admin', 'product_type' => 'physical']]);

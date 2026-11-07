@@ -19,6 +19,7 @@ class UnmigratedModuleTest extends TestCase
         ['channels:publish', ['--only' => 'stock,price,settle,shipments']],
         ['costs:refresh', ['--days' => 3]],
         ['costs:accrue-storage', []],
+        ['channels:prune', []],
     ];
 
     protected function setUp(): void

@@ -27,6 +27,7 @@ final readonly class ServiceContext
         public ?string $salesChannel = null,
         public ?string $serviceLevel = null,
         public int $days = 1,
+        public bool $valueWasNotConvertible = false,
     ) {
     }
 
@@ -35,6 +36,15 @@ final readonly class ServiceContext
         return new self(
             $this->serviceDate, $this->currency, $this->units, $this->shipments, $this->orders, $value, $this->weightKg,
             $this->volumeM3, $this->city, $this->country, $this->paymentMethod, $this->salesChannel, $this->serviceLevel, $this->days,
+        );
+    }
+
+    /** The same facts with the value stated in another currency; null when it could not be converted (then a rule that needs the value says the rate is missing). */
+    public function inCurrency(string $currency, ?Money $convertedValue): self
+    {
+        return new self(
+            $this->serviceDate, $currency, $this->units, $this->shipments, $this->orders, $convertedValue, $this->weightKg,
+            $this->volumeM3, $this->city, $this->country, $this->paymentMethod, $this->salesChannel, $this->serviceLevel, $this->days, valueWasNotConvertible: $convertedValue === null,
         );
     }
 }

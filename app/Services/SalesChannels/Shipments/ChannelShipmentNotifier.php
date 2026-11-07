@@ -17,20 +17,25 @@ use RuntimeException;
 /**
  * Tells the channel that an order shipped, with the tracking number of the shipment that is linked to it. A WRITE to the channel: it goes through the transport's switches
  * (environment, account, the Fulfilment Dispatch capability and its recorded approval), a dry-run account only rehearses, and a tracking number the channel has already been
- * given is not sent again. It never marks anything Shipped or Delivered by itself on a channel that decides that from the carrier.
+ * given is not sent again. It never marks anything Shipped or Delivered by itself on a channel that decides that from the carrier. A channel that answers "no" to the same tracking
+ * number three times is left alone until a person presses the button (or the tracking number changes), instead of being asked again every cycle.
  */
 class ChannelShipmentNotifier
 {
     public const SENT = 'sent';
     public const SKIPPED = 'skipped';
     public const FAILED = 'failed';
+    public const MAX_REFUSALS = 3;
 
     public function __construct(private readonly ChannelConnectorRegistry $connectors)
     {
     }
 
-    /** @return array{outcome: string, reason: string|null} */
-    public function notify(ExternalOrderMapping $mapping): array
+    /**
+     * @param bool $byAPerson a person asked for it: an earlier run of refusals does not stop it
+     * @return array{outcome: string, reason: string|null}
+     */
+    public function notify(ExternalOrderMapping $mapping, bool $byAPerson = false): array
     {
         $account = $mapping->account;
         if ($mapping->shipment_link_state !== ExternalOrderMapping::LINK_LINKED || blank($mapping->tracking_number)) {
@@ -41,6 +46,9 @@ class ChannelShipmentNotifier
         }
         if (($mapping->snapshot['channel_notified']['tracking'] ?? null) === $mapping->tracking_number) {
             return $this->result(self::SKIPPED, 'already_notified');
+        }
+        if (!$byAPerson && $this->refusalsOf($mapping) >= self::MAX_REFUSALS) {
+            return $this->result(self::SKIPPED, 'channel_refused_repeatedly');
         }
         if (!$account->enabled || !$account->hasCapability(IntegrationCapability::FulfillmentDispatch) || !$this->connectors->supports($account, ConfirmsShipments::class)) {
             return $this->result(self::SKIPPED, 'fulfillment_dispatch_off');
@@ -67,7 +75,12 @@ class ChannelShipmentNotifier
         }
 
         if (!$confirmed) {
-            return $this->result($account->dry_run ? self::SKIPPED : self::FAILED, $account->dry_run ? 'dry_run' : 'channel_did_not_confirm');
+            if ($account->dry_run) {
+                return $this->result(self::SKIPPED, 'dry_run');
+            }
+            $this->remember($mapping, ['error' => 'channel_did_not_confirm', 'tracking' => $mapping->tracking_number, 'refusals' => $this->refusalsOf($mapping) + 1, 'at' => now()->toIso8601String()], 'channel_notify_error');
+
+            return $this->result(self::FAILED, 'channel_did_not_confirm');
         }
         $this->remember($mapping, ['tracking' => $mapping->tracking_number, 'at' => now()->toIso8601String()], 'channel_notified');
 
@@ -89,6 +102,14 @@ class ChannelShipmentNotifier
         }
 
         return $counts;
+    }
+
+    /** How many times the channel has said no to the tracking number this order has now. */
+    private function refusalsOf(ExternalOrderMapping $mapping): int
+    {
+        $refused = (array) ($mapping->snapshot['channel_notify_error'] ?? []);
+
+        return ($refused['tracking'] ?? null) === $mapping->tracking_number ? (int) ($refused['refusals'] ?? 0) : 0;
     }
 
     /** @param array<string, mixed> $value */

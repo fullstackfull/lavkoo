@@ -99,6 +99,37 @@ class SaleCostServiceTest extends TestCase
         $this->assertSame(1, (int) InventoryCostLayer::sum('quantity_remaining'));
     }
 
+    public function test_a_line_whose_units_are_all_cancelled_stops_costing_and_gives_its_units_back_while_the_rest_of_the_order_stands(): void
+    {
+        $this->stock(10, '10', 'inv-1');
+        $kept = $this->line(11, 1);
+        $cancelled = $this->line(12, 2);
+        $this->sales->refresh($this->document('amazon', SaleDocument::STATE_OPEN, [$kept, $cancelled], 5));
+        $this->assertSame('20.000000', $this->cogs(12)->amount);
+
+        $this->sales->refresh($this->document('amazon', SaleDocument::STATE_SHIPPED, [$kept, $cancelled], 5));
+        $this->assertSame(7, (int) InventoryCostLayer::sum('quantity_remaining'), 'Both lines were recognised: 3 units left the shelf.');
+
+        $this->sales->refresh($this->document('amazon', SaleDocument::STATE_SHIPPED, [$kept, $this->line(12, 0)], 5));
+
+        $this->assertSame(9, (int) InventoryCostLayer::sum('quantity_remaining'), 'The cancelled line gave its 2 units back.');
+        $this->assertSame([CostState::Actual, '0.000000'], [$this->cogs(12)->state, $this->cogs(12)->amount], 'It now costs nothing.');
+        $this->assertSame('10.000000', $this->cogs(11)->amount, 'The line that stands is untouched.');
+        $before = [OperationalCostEntry::count(), (int) InventoryCostLayer::sum('quantity_remaining')];
+        $this->sales->refresh($this->document('amazon', SaleDocument::STATE_SHIPPED, [$kept, $this->line(12, 0)], 5));
+        $this->assertSame($before, [OperationalCostEntry::count(), (int) InventoryCostLayer::sum('quantity_remaining')], 'Repeating the refresh changes nothing.');
+    }
+
+    public function test_a_cancelled_line_that_never_had_a_cost_records_nothing(): void
+    {
+        $this->stock(10, '10', 'inv-1');
+
+        $outcomes = $this->sales->refresh($this->document('amazon', SaleDocument::STATE_SHIPPED, [$this->line(12, 0)], 6));
+
+        $this->assertSame([], $outcomes);
+        $this->assertSame(0, OperationalCostEntry::where('subject_id', 12)->count());
+    }
+
     public function test_a_line_that_is_not_linked_to_a_product_has_a_missing_cost_not_a_free_one_until_it_is_linked(): void
     {
         $this->stock(10, '10', 'inv-1');

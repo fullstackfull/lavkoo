@@ -168,28 +168,39 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             }
         }
 
-        return new Pages($items, $this->nextListingCursor($response, $phase, $page, $cursor['from'] ?? null), $newest);
+        return new Pages($items, $this->nextListingCursor($response, $phase, $page, $cursor['from'] ?? null, byToken: $token !== null), $newest);
     }
 
     /**
-     * Pages are followed by number while that stays inside Trendyol's 10,000-record window, then by the token the response carries; when a phase ends the unapproved
-     * products are read after the approved ones.
+     * Pages are followed by number while that stays inside Trendyol's 10,000-record window, then by the token the response carries for as long as it carries one (once
+     * a read is by token it stays by token: a token cursor has no page number to count on); when a phase ends the unapproved products are read after the approved ones.
      *
      * @return array<string, mixed>|null
      */
-    private function nextListingCursor(ChannelResponse $response, string $phase, int $page, mixed $from): ?array
+    private function nextListingCursor(ChannelResponse $response, string $phase, int $page, mixed $from, bool $byToken): ?array
     {
-        $totalPages = (int) $response->get('totalPages', 1);
         $token = $response->get('nextPageToken');
-        $withinWindow = ($page + 2) * self::LIST_PAGE_SIZE <= self::LIST_WINDOW_LIMIT;
+        $hasToken = is_string($token) && $token !== '';
 
+        if ($byToken) {
+            return $hasToken ? ['phase' => $phase, 'token' => $token, 'from' => $from] : $this->afterListingPhase($phase, $from);
+        }
+
+        $totalPages = (int) $response->get('totalPages', 1);
+        $withinWindow = ($page + 2) * self::LIST_PAGE_SIZE <= self::LIST_WINDOW_LIMIT;
         if ($withinWindow && $page + 1 < $totalPages) {
             return ['phase' => $phase, 'page' => $page + 1, 'from' => $from];
         }
-        if (!$withinWindow && $page + 1 < $totalPages && is_string($token) && $token !== '') {
+        if (!$withinWindow && $page + 1 < $totalPages && $hasToken) {
             return ['phase' => $phase, 'token' => $token, 'from' => $from];
         }
 
+        return $this->afterListingPhase($phase, $from);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function afterListingPhase(string $phase, mixed $from): ?array
+    {
         return $phase === 'approved' ? ['phase' => 'unapproved', 'page' => 0, 'from' => $from] : null;
     }
 
@@ -202,8 +213,11 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         $earliest = $nowMs - self::STREAM_HISTORY_DAYS * self::MILLISECONDS_PER_DAY;
         $windowMs = (int) config('sales_channels.trendyol.orders_window_days', 14) * self::MILLISECONDS_PER_DAY;
 
+        // The sweep reads up to the moment it began and no further: asking "up to now" afresh on every call would always leave one more tiny window to read, and the sweep
+        // would chase the clock for ever. Whatever changes after that moment is the next run's (it starts a little before the watermark).
+        $until = (int) ($cursor['until'] ?? $nowMs);
         $start = (int) ($cursor['start'] ?? max($this->milliseconds($since), $earliest));
-        $end = (int) ($cursor['end'] ?? min($start + $windowMs, $nowMs));
+        $end = (int) ($cursor['end'] ?? min($start + $windowMs, $until));
         $query = ['size' => self::STREAM_PAGE_SIZE, 'lastModifiedStartDate' => $start, 'lastModifiedEndDate' => $end];
         // Changing a filter while reusing a cursor is a 400: the window stays exactly as it was when the cursor was issued.
         if (isset($cursor['cursor'])) {
@@ -227,8 +241,8 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         }
 
         $next = match (true) {
-            (bool) $response->get('hasMore', false) && is_string($response->get('nextCursor')) => ['start' => $start, 'end' => $end, 'cursor' => $response->get('nextCursor')],
-            $end < $nowMs => ['start' => $end, 'end' => min($end + $windowMs, $nowMs), 'cursor' => null],
+            (bool) $response->get('hasMore', false) && is_string($response->get('nextCursor')) => ['start' => $start, 'end' => $end, 'cursor' => $response->get('nextCursor'), 'until' => $until],
+            $end < $until => ['start' => $end, 'end' => min($end + $windowMs, $until), 'cursor' => null, 'until' => $until],
             default => null,
         };
 
@@ -365,6 +379,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         $isPrice = $capability === IntegrationCapability::PricePublishing;
         $accepted = [];
         $failed = [];
+        $transient = [];
         $items = [];
 
         foreach ($updates as $update) {
@@ -387,13 +402,16 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             foreach (array_keys($chunk) as $mappingId) {
                 if ($batchId !== '') {
                     $accepted[$mappingId] = $batchId;
-                } else {
-                    $failed[$mappingId] = $response->ok() ? 'Trendyol returned no batch id.' : 'HTTP ' . $response->status . ': ' . $response->message();
+                    continue;
+                }
+                $failed[$mappingId] = $response->ok() ? 'Trendyol returned no batch id.' : 'HTTP ' . $response->status . ': ' . $response->message();
+                if (!$response->ok() && $response->isTransient()) {
+                    $transient[] = $mappingId;
                 }
             }
         }
 
-        return new PublishResult($accepted, $failed, $accepted === [] ? null : (string) reset($accepted), $dryRun);
+        return new PublishResult($accepted, $failed, $accepted === [] ? null : (string) reset($accepted), $dryRun, $transient);
     }
 
     /** @return array<string, mixed>|string the item to send, or the reason it cannot be sent */
@@ -415,8 +433,8 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         if ($update->price === null) {
             return 'No price to publish.';
         }
-        if (!$update->price->isPositive()) {
-            return 'A price of zero or less is refused: Trendyol treats a zero price as removing the listing.';
+        if (!$update->price->round(scale: 2)->isPositive()) {
+            return 'A price of zero or less (or one that rounds to zero) is refused: Trendyol treats a zero price as removing the listing.';
         }
         if ($update->listPrice !== null && $update->listPrice->compareTo($update->price) < 0) {
             return 'The list price may not be lower than the sale price.';
@@ -433,8 +451,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
     public function batchResult(SalesChannelAccount $account, string $batchId): array
     {
         $seller = $this->client->sellerId($account);
-        $capability = $account->hasCapability(IntegrationCapability::InventoryPublishing) ? IntegrationCapability::InventoryPublishing : IntegrationCapability::PricePublishing;
-        $response = $this->client->call($account, 'trendyol.batch_result', 'GET', "/product/sellers/{$seller}/products/batch-requests/" . rawurlencode($batchId), capability: $capability);
+        $response = $this->client->call($account, 'trendyol.batch_result', 'GET', "/product/sellers/{$seller}/products/batch-requests/" . rawurlencode($batchId));
         $this->assertOk($response, 'Trendyol batch result');
 
         $items = [];
@@ -474,9 +491,12 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             $lines[] = ['lineId' => (int) $lineId, 'quantity' => $quantity];
         }
 
-        $picking = $this->client->call($account, 'trendyol.orders_picking', 'PUT', "/order/sellers/{$seller}/shipment-packages/{$confirmation->packageId}", json: ['status' => 'Picking', 'lines' => $lines, 'params' => (object) []], capability: IntegrationCapability::FulfillmentDispatch);
-        if (!$picking->ok()) {
-            return false;
+        // Picking is the first step; a package that is already Picking or Invoiced is further along and is never moved back.
+        if ($package->externalStatus === 'Created') {
+            $picking = $this->client->call($account, 'trendyol.orders_picking', 'PUT', "/order/sellers/{$seller}/shipment-packages/{$confirmation->packageId}", json: ['status' => 'Picking', 'lines' => $lines, 'params' => (object) []], capability: IntegrationCapability::FulfillmentDispatch);
+            if (!$picking->ok()) {
+                return false;
+            }
         }
         if ($providerCode === null || $package->trackingNumber === $confirmation->trackingNumber) {
             return true;

@@ -16,7 +16,10 @@ use InvalidArgumentException;
  *
  * Columns (header row required, comma or semicolon separated): order_id, package_id, posted_at, category (fee, adjustment, sale, refund, payout, unclassified),
  * component (a cost component such as marketplace_commission), amount (a cost is positive, a credit negative), currency, description. A bad row refuses the WHOLE file and
- * names the line: a statement is never half-imported.
+ * names the line: a statement is never half-imported. Dates are written as 2026-11-05 (optionally with a time and a zone), never as a word or a day that does not exist.
+ *
+ * Importing the same file again records nothing twice. Two lines that are exactly alike within one file are two charges (a fee per unit of a two-unit order), so the second
+ * one carries its place among the alike ones in its identity.
  */
 class ManualStatementImporter
 {
@@ -55,16 +58,19 @@ class ManualStatementImporter
         }
 
         $entries = [];
+        $alike = [];
         foreach ($lines as $index => $line) {
             $row = array_combine($header, array_pad(array_slice(str_getcsv($line, $delimiter, '"', ''), 0, count($header)), count($header), ''));
-            $entries[] = $this->entry($account, $row, $index + 2);
+            $signature = hash('sha256', json_encode(array_map('trim', $row), JSON_THROW_ON_ERROR));
+            $alike[$signature] = ($alike[$signature] ?? -1) + 1;
+            $entries[] = $this->entry($account, $row, $index + 2, occurrence: $alike[$signature]);
         }
 
         return $entries;
     }
 
     /** @param array<string, string> $row */
-    private function entry(SalesChannelAccount $account, array $row, int $lineNumber): RemoteFinancialEntry
+    private function entry(SalesChannelAccount $account, array $row, int $lineNumber, int $occurrence): RemoteFinancialEntry
     {
         $category = strtolower(trim($row['category']));
         $component = CostComponent::tryFrom(strtolower(trim($row['component'])));
@@ -79,15 +85,15 @@ class ManualStatementImporter
         if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
             throw new InvalidArgumentException("Line {$lineNumber}: the currency must be a three-letter code.");
         }
-        if (preg_match('/^-?\d+(\.\d{1,6})?$/', $amount) !== 1) {
-            throw new InvalidArgumentException("Line {$lineNumber}: the amount must be a plain decimal number.");
+        if (preg_match('/^-?\d{1,14}(\.\d{1,6})?$/', $amount) !== 1) {
+            throw new InvalidArgumentException("Line {$lineNumber}: the amount must be a plain decimal number of at most 14 digits before the point.");
         }
         $postedAt = $this->date($row['posted_at'], $lineNumber);
         $orderId = trim($row['order_id']) === '' ? null : trim($row['order_id']);
         $packageId = trim($row['package_id']) === '' ? null : trim($row['package_id']);
 
         return new RemoteFinancialEntry(
-            identity: hash('sha256', json_encode(['manual', $account->id, $orderId, $packageId, $postedAt->toIso8601String(), $category, $component->value, $amount, $currency, trim($row['description'])], JSON_THROW_ON_ERROR)),
+            identity: hash('sha256', json_encode(array_filter(['manual', $account->id, $orderId, $packageId, $postedAt->toIso8601String(), $category, $component->value, $amount, $currency, trim($row['description']), $occurrence > 0 ? 'alike#' . $occurrence : null], static fn ($part): bool => $part !== null), JSON_THROW_ON_ERROR)),
             category: $category,
             component: $component,
             amount: Money::of($amount),
@@ -104,10 +110,20 @@ class ManualStatementImporter
 
     private function date(string $value, int $lineNumber): CarbonImmutable
     {
+        $value = trim($value);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})?)?$/', $value) !== 1) {
+            throw new InvalidArgumentException("Line {$lineNumber}: '{$value}' is not a date; write it as 2026-11-05 or 2026-11-05 14:30:00.");
+        }
         try {
-            return CarbonImmutable::parse(trim($value));
+            $parsed = CarbonImmutable::parse($value);
         } catch (InvalidFormatException) {
             throw new InvalidArgumentException("Line {$lineNumber}: '{$value}' is not a date.");
         }
+        // 2026-02-31 reads as the 3rd of March: a day that does not exist is refused, not moved.
+        if ($parsed->format('Y-m-d') !== substr($value, 0, 10)) {
+            throw new InvalidArgumentException("Line {$lineNumber}: '{$value}' is not a day of the calendar.");
+        }
+
+        return $parsed;
     }
 }

@@ -37,7 +37,7 @@ class SyncStateStore
             ])->save();
 
             return new SyncLease($accountId, $resource, $token, $state->watermark, $state->cursor);
-        });
+        }, attempts: 3);
     }
 
     /** Keeps the lease alive during a long run. */

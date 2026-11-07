@@ -130,7 +130,7 @@ class InventoryCostLayerService
             }
 
             return $this->resultFor($consumerType, $consumerId, $generation, $quantity);
-        });
+        }, attempts: 3);
     }
 
     /** @return Collection<int, InventoryCostLayer> the layers with units left, oldest first, locked for the transaction */
@@ -184,7 +184,7 @@ class InventoryCostLayerService
             }
 
             return $restored;
-        });
+        }, attempts: 3);
     }
 
     /**
@@ -252,7 +252,7 @@ class InventoryCostLayerService
             }
 
             return new ConsumptionResult($quantity, $quantity - $needed, $total, $currency, $pieces);
-        });
+        }, attempts: 3);
     }
 
     /**

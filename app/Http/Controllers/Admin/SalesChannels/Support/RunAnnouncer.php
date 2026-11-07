@@ -29,11 +29,11 @@ final class RunAnnouncer
         };
     }
 
-    /** @param array{applied: int, failed: int, unconfirmed: int, pending: int} $counts what StockPricePublisher::settle() returned */
+    /** @param array{applied: int, failed: int, unconfirmed: int, pending: int, unreadable: int} $counts what StockPricePublisher::settle() returned */
     public function announceSettled(array $counts): void
     {
         $line = $this->labels->statsLine($counts);
-        $counts['failed'] + $counts['unconfirmed'] > 0
+        $counts['failed'] + $counts['unconfirmed'] + $counts['unreadable'] > 0
             ? SafeToast::warning(translate('settle_needs_attention'), $line)
             : SafeToast::success(translate('settle_finished'), $line);
     }

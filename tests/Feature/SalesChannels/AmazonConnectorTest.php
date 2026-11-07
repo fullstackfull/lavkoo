@@ -22,6 +22,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Illuminate\Support\Sleep;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\Fixtures\AmazonFixtures as Amazon;
@@ -331,7 +332,7 @@ class AmazonConnectorTest extends TestCase
         $item = $page->items[0];
         $this->assertSame([7, 3, 1, 3, 10], [$item->available, $item->reserved, $item->unfulfillable, $item->inbound, $item->total]);
         $this->assertSame('X00TESTFNSKU', $item->fnSku);
-        $this->assertSame(['token' => 'T30'], $page->nextCursor);
+        $this->assertSame(['token' => 'T30', 'm' => 0], $page->nextCursor);
         $request = $this->sentTo('/fba/inventory/v1/summaries')[0];
         parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
         $this->assertSame(['Marketplace', Amazon::MARKETPLACE, Amazon::MARKETPLACE, 'true'], [$query['granularityType'], $query['granularityId'], $query['marketplaceIds'], $query['details']]);
@@ -358,6 +359,85 @@ class AmazonConnectorTest extends TestCase
         $this->assertSame(RemoteFinancialEntry::SALE, $sale->category, 'The sale is already counted from the order.');
         $this->assertSame('171-0000001-0000001', $commission->orderId);
         $this->assertSame('SKU-1', $commission->sku);
+    }
+
+    private function feesOf(array $transaction): array
+    {
+        Http::fake($this->token() + [self::SP . '/*' => Http::response(['payload' => ['transactions' => [$transaction]]])]);
+
+        return array_values(array_filter(
+            $this->amazon->finances($this->account, CarbonImmutable::parse('2026-11-01T00:00:00Z'), CarbonImmutable::parse('2026-11-07T00:00:00Z'), null)->items,
+            fn ($entry): bool => $entry->category === RemoteFinancialEntry::FEE && $entry->component->value === 'marketplace_commission',
+        ));
+    }
+
+    public function test_a_transaction_that_carries_the_same_money_at_both_levels_is_counted_once(): void
+    {
+        $fees = $this->feesOf(Amazon::twoItemTransaction(transactionLevel: true));
+
+        $this->assertCount(1, $fees, 'The transaction-level commission already adds up the items: reading the items too would count it twice.');
+        $this->assertSame('40.000000', $fees[0]->amount->toStorage());
+    }
+
+    public function test_two_items_with_the_same_fee_are_two_facts_when_only_the_items_carry_breakdowns(): void
+    {
+        $fees = $this->feesOf(Amazon::twoItemTransaction(transactionLevel: false));
+
+        $this->assertCount(2, $fees);
+        $this->assertCount(2, array_unique(array_map(fn ($entry): string => $entry->identity, $fees)), 'Same path, same amount, different item: two facts, not a duplicate.');
+        $this->assertSame(['SKU-A', 'SKU-B'], array_map(fn ($entry): ?string => $entry->sku, $fees), 'Each fact carries its own item\'s SKU.');
+        $this->assertSame('40.000000', collect($fees)->reduce(fn ($sum, $entry) => $sum->plus($entry->amount), Money::zero())->toStorage());
+    }
+
+    public function test_redelivering_a_multi_item_transaction_gives_the_same_identities(): void
+    {
+        $first = array_map(fn ($entry): string => $entry->identity, $this->feesOf(Amazon::twoItemTransaction(transactionLevel: false)));
+        $second = array_map(fn ($entry): string => $entry->identity, $this->feesOf(Amazon::twoItemTransaction(transactionLevel: false)));
+
+        $this->assertSame($first, $second);
+    }
+
+    public function test_every_marketplace_of_the_account_is_read_for_stock_statements_and_listings_one_after_the_other(): void
+    {
+        $this->account->forceFill(['marketplace_ids' => ['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG']])->save();
+        Http::fake($this->token() + [self::SP . '/*' => Http::response(['payload' => ['inventorySummaries' => [], 'transactions' => []], 'items' => [], 'numberOfResults' => 0])]);
+        $from = CarbonImmutable::parse('2026-11-01T00:00:00Z');
+        $to = CarbonImmutable::parse('2026-11-07T00:00:00Z');
+
+        $stock = $this->amazon->inventory($this->account, null);
+        $this->amazon->inventory($this->account, $stock->nextCursor);
+        $statement = $this->amazon->finances($this->account, $from, $to, null);
+        $this->amazon->finances($this->account, $from, $to, $statement->nextCursor);
+        $listings = $this->amazon->listings($this->account, null);
+        $this->amazon->listings($this->account, $listings->nextCursor);
+
+        $this->assertSame(['m' => 1], $stock->nextCursor);
+        $this->assertNull($this->amazon->inventory($this->account, $stock->nextCursor)->nextCursor, 'The last marketplace ends the read.');
+        $markets = fn (string $path, string $parameter): array => array_map(function ($request) use ($parameter): string {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return $query[$parameter];
+        }, $this->sentTo($path));
+        $this->assertSame(['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG'], array_slice($markets('/fba/inventory/v1/summaries', 'marketplaceIds'), 0, 2));
+        $this->assertSame(['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG'], array_slice($markets('/finances/2024-06-19/transactions', 'marketplaceId'), 0, 2));
+        $this->assertSame(['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG'], array_slice($markets('/listings/2021-08-01/items/', 'marketplaceIds'), 0, 2));
+    }
+
+    public function test_a_listing_window_is_split_down_to_a_couple_of_seconds_and_one_that_cannot_be_split_is_reported(): void
+    {
+        $capped = ['items' => [], 'numberOfResults' => 1000];
+        Http::fake($this->token() + [self::SP . '/*' => Http::response($capped)]);
+
+        $wide = $this->amazon->listings($this->account, null);
+        $this->assertCount(2, $wide->nextCursor['windows'], 'A full window is halved.');
+
+        $narrow = ['windows' => [['2026-11-05T10:00:00Z', '2026-11-05T10:30:00Z']], 'token' => null, 'm' => 0];
+        $half = $this->amazon->listings($this->account, $narrow);
+        $this->assertCount(2, $half->nextCursor['windows'], 'Half an hour is still worth halving: updates can come in bursts.');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cannot be read completely');
+        $this->amazon->listings($this->account, ['windows' => [['2026-11-05T10:00:00Z', '2026-11-05T10:00:01Z']], 'token' => null, 'm' => 0]);
     }
 
     public function test_a_breakdown_type_nobody_has_classified_is_kept_for_review_not_counted(): void

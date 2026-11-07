@@ -27,6 +27,7 @@ use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Support\ChannelResponseGuard;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use RuntimeException;
 
 /**
  * Amazon Selling Partner API: connection test, listings, orders (v2026-01-01), FBA stock, financial transactions (v2024-06-19), price and quantity publishing,
@@ -145,7 +146,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
     public function listings(SalesChannelAccount $account, ?array $cursor): Pages
     {
-        $marketplace = $this->primaryMarketplace($account);
+        [$position, $marketplace] = $this->marketplaceAt($account, $cursor);
         $seller = rawurlencode((string) $account->external_account_id);
         $windows = $cursor['windows'] ?? [[$cursor['from'] ?? null, null]];
         $token = $cursor['token'] ?? null;
@@ -165,12 +166,15 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         $response = $this->client->call($account, 'amazon.listings_search', 'GET', "/listings/2021-08-01/items/{$seller}", $query, capability: IntegrationCapability::ProductSync);
         $this->assertOk($response, 'Amazon listings search');
 
-        // A query returns at most 1000 items, however many exist: a window that holds that many is split in half and each half read on its own.
+        // A query returns at most 1000 items, however many exist: a window that holds that many is split in half and each half read on its own, down to a couple of
+        // seconds. A window that small which still holds that many cannot be read completely, and is reported rather than read short.
         if ($token === null && (int) $response->get('numberOfResults', 0) >= self::LISTINGS_CAP) {
             $split = $this->split($after, $before);
-            if ($split !== null) {
-                return new Pages([], ['windows' => [...$split, ...array_slice($windows, 1)], 'token' => null]);
+            if ($split === null) {
+                throw new RuntimeException('Amazon holds ' . self::LISTINGS_CAP . ' or more listings changed within the same couple of seconds, more than one search can return: the listings of this window cannot be read completely.');
             }
+
+            return new Pages([], ['windows' => [...$split, ...array_slice($windows, 1)], 'token' => null, 'm' => $position]);
         }
 
         $items = [];
@@ -183,12 +187,36 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
         $nextToken = $response->get('pagination.nextToken');
         $next = match (true) {
-            is_string($nextToken) && $nextToken !== '' => ['windows' => $windows, 'token' => $nextToken],
-            count($windows) > 1 => ['windows' => array_slice($windows, 1), 'token' => null],
-            default => null,
+            is_string($nextToken) && $nextToken !== '' => ['windows' => $windows, 'token' => $nextToken, 'm' => $position],
+            count($windows) > 1 => ['windows' => array_slice($windows, 1), 'token' => null, 'm' => $position],
+            default => $this->nextMarketplace($account, $position, ['windows' => [[null, null]], 'token' => null]),
         };
 
         return new Pages($items, $next, $newest);
+    }
+
+    /**
+     * An account may hold several marketplaces; each of the reads that Amazon takes one marketplace at a time (listings, FBA stock, statements) goes through them one after
+     * the other, the marketplace it is at being part of the saved place.
+     *
+     * @param array<string, mixed>|null $cursor
+     * @return array{0: int, 1: string} the position in the account's list and the marketplace id there
+     */
+    private function marketplaceAt(SalesChannelAccount $account, ?array $cursor): array
+    {
+        $ids = $this->marketplaceIds($account);
+        $position = min((int) ($cursor['m'] ?? 0), count($ids) - 1);
+
+        return [$position, $ids[$position]];
+    }
+
+    /**
+     * @param array<string, mixed> $start the place a read of the next marketplace starts from
+     * @return array<string, mixed>|null
+     */
+    private function nextMarketplace(SalesChannelAccount $account, int $position, array $start): ?array
+    {
+        return $position + 1 < count($this->marketplaceIds($account)) ? $start + ['m' => $position + 1] : null;
     }
 
     /** @return list<array{0: string|null, 1: string|null}>|null the two halves of a window, or null when it is too narrow to split */
@@ -196,7 +224,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
     {
         $from = $after === null ? CarbonImmutable::parse('2012-01-01') : CarbonImmutable::parse($after);
         $to = $before === null ? now()->subMinutes(3)->toImmutable() : CarbonImmutable::parse($before);
-        if ($to->diffInMinutes($from, true) < 120) {
+        if ($to->diffInSeconds($from, true) < 2) {
             return null;
         }
         $middle = $from->addSeconds((int) ($from->diffInSeconds($to, true) / 2));
@@ -261,7 +289,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
     public function inventory(SalesChannelAccount $account, ?array $cursor): Pages
     {
-        $marketplace = $this->primaryMarketplace($account);
+        [$position, $marketplace] = $this->marketplaceAt($account, $cursor);
         $query = ['granularityType' => 'Marketplace', 'granularityId' => $marketplace, 'marketplaceIds' => $marketplace, 'details' => 'true'];
         if (isset($cursor['token'])) {
             $query['nextToken'] = $cursor['token'];
@@ -289,19 +317,21 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         }
         $nextToken = $response->get('pagination.nextToken');
 
-        // The page token lives 30 seconds: the next page is fetched at once, in the same run.
-        return new Pages($items, is_string($nextToken) && $nextToken !== '' ? ['token' => $nextToken] : null);
+        // The page token lives 30 seconds: the next page is fetched at once, in the same run (the sync never keeps this place for a later one).
+        return new Pages($items, is_string($nextToken) && $nextToken !== '' ? ['token' => $nextToken, 'm' => $position] : $this->nextMarketplace($account, $position, []));
     }
 
     // ---- finances -----------------------------------------------------------------------------------------------
 
     public function finances(SalesChannelAccount $account, CarbonInterface $from, CarbonInterface $to, ?array $cursor): Pages
     {
+        [$position, $marketplace] = $this->marketplaceAt($account, $cursor);
         $query = [
             'postedAfter' => $from->toIso8601ZuluString(),
-            // listTransactions refuses a range ending less than two minutes ago and returns nothing for a span over 180 days.
+            // listTransactions refuses a range ending less than two minutes ago and returns nothing for a span over 180 days. The sync asks for a window inside both, and
+            // asks for the very same one on every page: a next-page token is only good for the arguments it was issued for.
             'postedBefore' => min($to, now()->subMinutes(3))->toIso8601ZuluString(),
-            'marketplaceId' => $this->primaryMarketplace($account),
+            'marketplaceId' => $marketplace,
         ];
         if (isset($cursor['token'])) {
             $query['nextToken'] = $cursor['token'];
@@ -316,7 +346,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         }
         $nextToken = $response->get('payload.nextToken');
 
-        return new Pages($entries, is_string($nextToken) && $nextToken !== '' ? ['token' => $nextToken] : null);
+        return new Pages($entries, is_string($nextToken) && $nextToken !== '' ? ['token' => $nextToken, 'm' => $position] : $this->nextMarketplace($account, $position, []));
     }
 
     // ---- publishing ---------------------------------------------------------------------------------------------
@@ -341,6 +371,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
     {
         $accepted = [];
         $failed = [];
+        $transient = [];
         $dryRun = false;
         $marketplace = $this->primaryMarketplace($account);
         $seller = rawurlencode((string) $account->external_account_id);
@@ -349,6 +380,10 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
         foreach ($updates as $update) {
             $sku = $update->sku ?? $update->listingKey;
+            if ($field === 'price' && $update->price !== null && !$update->price->round(scale: 2)->isPositive()) {
+                $failed[$update->mappingId] = 'A price of zero or less (or one that rounds to zero) is refused.';
+                continue;
+            }
             $patch = $field === 'price' ? $this->pricePatch($account, $update, $marketplace) : $this->quantityPatch($update);
             if ($patch === null) {
                 $failed[$update->mappingId] = $field === 'price' ? 'No price to publish.' : 'No quantity to publish.';
@@ -365,6 +400,9 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
                 }
                 if (!$preview->ok()) {
                     $failed[$update->mappingId] = 'Validation preview failed (' . $preview->status . '): ' . $preview->message();
+                    if ($preview->isTransient()) {
+                        $transient[] = $update->mappingId;
+                    }
                     continue;
                 }
             }
@@ -376,12 +414,15 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             }
             if ($response->ok() && $response->get('status') === 'ACCEPTED') {
                 $accepted[$update->mappingId] = (string) $response->get('submissionId', '');
-            } else {
-                $failed[$update->mappingId] = $response->ok() ? ($this->firstIssue($response) ?? 'Amazon did not accept the update (' . $response->get('status') . ').') : 'HTTP ' . $response->status . ': ' . $response->message();
+                continue;
+            }
+            $failed[$update->mappingId] = $response->ok() ? ($this->firstIssue($response) ?? 'Amazon did not accept the update (' . $response->get('status') . ').') : 'HTTP ' . $response->status . ': ' . $response->message();
+            if (!$response->ok() && $response->isTransient()) {
+                $transient[] = $update->mappingId;
             }
         }
 
-        return new PublishResult($accepted, $failed, null, $dryRun);
+        return new PublishResult($accepted, $failed, null, $dryRun, $transient);
     }
 
     /** @return array<string, mixed>|null */

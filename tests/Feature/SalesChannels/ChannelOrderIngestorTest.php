@@ -200,6 +200,16 @@ class ChannelOrderIngestorTest extends TestCase
         $this->assertFalse($result->mapping->orderStatus()->allowsFulfilment());
     }
 
+    public function test_a_package_that_already_has_a_linked_shipment_is_not_called_replaced_when_it_is_split(): void
+    {
+        $this->ingestor->ingest($this->account, $this->remoteOrder('ORD-1', '9001', ChannelOrderStatus::New));
+        ExternalOrderMapping::firstOrFail()->forceFill(['shipment_link_state' => ExternalOrderMapping::LINK_LINKED, 'provider' => 'torod_point', 'shipment_reference' => 'TOR-1'])->save();
+
+        $result = $this->ingestor->ingest($this->account, $this->remoteOrder('ORD-1', '9001', ChannelOrderStatus::Cancelled, overrides: ['externalStatus' => 'UnPacked']));
+
+        $this->assertSame('split_after_dispatch', $result->mapping->review_reason, 'A shipment exists for the dead package: someone has to take it back.');
+    }
+
     public function test_cancelled_units_are_kept_on_the_line_and_do_not_count_as_active(): void
     {
         $this->ingestor->ingest($this->account, $this->remoteOrder(lines: [$this->remoteLine('L1', 'SKU-1', 'BAR-1', 3, '90', cancelled: 1)]));

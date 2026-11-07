@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\ConnectionStatus;
 use App\Enums\SalesChannels\IntegrationCapability as Capability;
 use App\Models\InventoryLocation;
 use App\Models\SalesChannelAccount;
+use App\Models\SalesChannelSyncState;
 use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
@@ -78,6 +79,62 @@ class ChannelAccountServiceTest extends TestCase
 
         $this->accounts->update($account->fresh(), [], [], ['api_secret'], 1);
         $this->assertFalse($this->credentials->get($account->fresh())->has('api_secret'));
+    }
+
+    /** The blob as another application key leaves it: still there, but nobody here can read it. */
+    private function withUnreadableCredentials(SalesChannelAccount $account): string
+    {
+        $foreign = \Illuminate\Support\Facades\Crypt::encryptString(json_encode(['api_key' => 'key-aaa111', 'api_secret' => 'secret-bbb222']));
+        $tampered = substr($foreign, 0, -6) . 'AAAAAA';
+        DB::table('sales_channel_accounts')->where('id', $account->id)->update(['credentials' => $tampered]);
+
+        return $tampered;
+    }
+
+    public function test_credentials_nobody_can_read_are_not_destroyed_by_a_rename_or_by_typing_only_some_of_them(): void
+    {
+        $account = $this->trendyol();
+        $unreadable = $this->withUnreadableCredentials($account);
+        $this->assertSame([], $this->credentials->get($account->fresh())->presence(), 'They read as unset.');
+
+        $this->accounts->update($account->fresh(), ['name' => 'Renamed only'], [], [], 1);
+        $this->assertSame('Renamed only', $account->fresh()->name);
+        $this->assertSame($unreadable, DB::table('sales_channel_accounts')->where('id', $account->id)->value('credentials'), 'A rename does not touch the credentials at all.');
+
+        try {
+            $this->accounts->update($account->fresh(), ['name' => 'Not saved'], ['api_key' => 'key-typed-alone'], [], 1);
+            $this->fail('A partial set replaced credentials that might be recoverable.');
+        } catch (ChannelUnavailableException $exception) {
+            $this->assertStringContainsString('cannot be decrypted', $exception->getMessage());
+        }
+        $this->assertSame($unreadable, DB::table('sales_channel_accounts')->where('id', $account->id)->value('credentials'), 'The old ciphertext is still there: the right key still opens it.');
+        $this->assertSame('Renamed only', $account->fresh()->name, 'A refused write changed nothing else either.');
+    }
+
+    public function test_a_complete_new_set_replaces_credentials_nobody_can_read(): void
+    {
+        $account = $this->trendyol();
+        $this->withUnreadableCredentials($account);
+
+        $this->accounts->update($account->fresh(), [], ['api_key' => 'key-new-1', 'api_secret' => 'secret-new-2'], [], 1);
+
+        $this->assertSame(['key-new-1', 'secret-new-2'], [$this->credentials->get($account->fresh())->secret('api_key'), $this->credentials->get($account->fresh())->secret('api_secret')]);
+    }
+
+    public function test_changing_the_refresh_token_drops_the_access_token_obtained_with_the_old_one(): void
+    {
+        $account = $this->accounts->create(['channel' => 'amazon', 'name' => 'Amazon', 'external_account_id' => 'A1', 'settings' => ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP']]], ['lwa_client_id' => 'cid', 'lwa_client_secret' => 'csecret', 'refresh_token' => 'rtoken-old'], 1);
+        $this->credentials->putRuntime($account, 'access_token', 'Atza|OLD-TOKEN');
+        $this->credentials->putRuntime($account, 'access_token_expires_at', now()->addMinutes(50)->toIso8601String());
+        $this->assertSame('Atza|OLD-TOKEN', $this->credentials->get($account->fresh())->secret('access_token'));
+
+        $this->accounts->update($account->fresh(), [], ['refresh_token' => 'rtoken-new'], [], 1);
+
+        $now = $this->credentials->get($account->fresh());
+        $this->assertSame('rtoken-new', $now->secret('refresh_token'));
+        $this->assertNull($now->secret('access_token'), 'The old token belongs to the old authorisation.');
+        $this->assertNull($now->secret('access_token_expires_at'));
+        $this->assertSame('cid', $now->secret('lwa_client_id'), 'The secrets that did not change stay.');
     }
 
     public function test_a_credential_the_channel_does_not_have_is_refused(): void
@@ -174,6 +231,27 @@ class ChannelAccountServiceTest extends TestCase
 
         $this->assertEqualsCanonicalizing(['connection_test', 'read_only_sync'], $off->capabilities);
         $this->assertSame([], $off->capability_approvals);
+    }
+
+    public function test_switching_a_capability_off_withdraws_the_separate_approvals_that_belong_to_it(): void
+    {
+        $account = $this->verified($this->trendyol());
+        foreach ([Capability::ConnectionTest, Capability::ReadOnlySync, Capability::ProductSync, Capability::OrderImport] as $capability) {
+            $this->accounts->enableCapability($account->fresh(), $capability, 1);
+        }
+        foreach (['product_writes', 'webhook_management', 'notification_management'] as $scope) {
+            $this->accounts->approveScope($account->fresh(), $scope, 1, 'reviewed');
+        }
+
+        $this->accounts->disableCapability($account->fresh(), Capability::OrderImport, 1);
+        $afterOrderImport = $account->fresh()->capability_approvals;
+        $this->assertSame(['product_writes'], array_keys($afterOrderImport), 'Webhook and notification approvals went with Order Import; the product-writes approval belongs to Product Sync.');
+
+        $this->accounts->disableCapability($account->fresh(), Capability::ProductSync, 1);
+        $this->assertSame([], $account->fresh()->capability_approvals);
+
+        $this->accounts->enableCapability($account->fresh(), Capability::OrderImport, 1);
+        $this->assertArrayNotHasKey('webhook_management', $account->fresh()->capability_approvals, 'Switching a capability back on does not bring an old approval back.');
     }
 
     public function test_writing_can_only_be_allowed_on_a_proven_account_and_other_scopes_need_their_own_approval(): void
@@ -274,6 +352,26 @@ class ChannelAccountServiceTest extends TestCase
         $this->assertFalse($fresh->write_enabled);
         $this->assertTrue($fresh->dry_run);
         $this->assertTrue($fresh->enabled, 'The account itself is not switched off.');
+    }
+
+    public function test_what_was_read_for_the_old_seller_is_not_carried_over_to_the_new_one(): void
+    {
+        $account = $this->fullyTrusted();
+        SalesChannelSyncState::create([
+            'account_id' => $account->id, 'resource' => 'orders', 'watermark' => now()->subMinutes(5), 'cursor' => ['page' => 3], 'last_success_at' => now()->subMinutes(5), 'last_attempt_at' => now()->subMinutes(5),
+            'consecutive_failures' => 2, 'last_error' => 'HTTP 500', 'backoff_until' => now()->addMinutes(20),
+        ]);
+        $other = SalesChannelAccount::create(['channel' => 'trendyol', 'name' => 'Other', 'external_account_id' => '777']);
+        SalesChannelSyncState::create(['account_id' => $other->id, 'resource' => 'orders', 'watermark' => now()->subMinutes(5)]);
+
+        $this->accounts->update($account, ['external_account_id' => '999999'], [], [], 1);
+
+        $state = SalesChannelSyncState::where(['account_id' => $account->id, 'resource' => 'orders'])->firstOrFail();
+        $this->assertNull($state->watermark, 'The new seller starts from its own backfill, not from where the old one was read up to.');
+        $this->assertNull($state->cursor);
+        $this->assertNull($state->backoff_until);
+        $this->assertSame([0, null], [$state->consecutive_failures, $state->last_error]);
+        $this->assertNotNull(SalesChannelSyncState::where('account_id', $other->id)->firstOrFail()->watermark, 'Another account is not touched.');
     }
 
     public function test_a_change_of_storefront_or_environment_is_a_new_identity_too(): void

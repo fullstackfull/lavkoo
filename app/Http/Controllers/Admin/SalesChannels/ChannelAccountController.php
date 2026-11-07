@@ -125,7 +125,7 @@ class ChannelAccountController extends Controller
 
         try {
             $this->accounts->update($account, $payload['data'], $payload['secrets'], $payload['clear'], auth('admin')->id());
-        } catch (InvalidArgumentException $exception) {
+        } catch (InvalidArgumentException|ChannelUnavailableException $exception) {
             return $this->rejected($request, $exception->getMessage(), $back);
         }
 

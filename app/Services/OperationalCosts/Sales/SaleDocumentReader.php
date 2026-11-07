@@ -89,6 +89,41 @@ class SaleDocumentReader
         }
     }
 
+    /**
+     * Storefront orders placed OR changed since then: a sale is delivered or cancelled days after it was placed, and that is when its cost of goods is recognised or given back.
+     *
+     * @return \Generator<int, SaleDocument>
+     */
+    public function storeOrdersChangedSince(CarbonImmutable $since): \Generator
+    {
+        if (!Schema::hasTable('orders') || !Schema::hasTable('order_details')) {
+            return;
+        }
+
+        $query = $this->storeOrderQuery()
+            ->where(static fn ($changed) => $changed->where('orders.created_at', '>=', $since)->orWhere('orders.updated_at', '>=', $since))
+            ->select('orders.*')->orderBy('orders.id');
+        foreach ($query->lazyById(200, 'orders.id', 'id') as $row) {
+            yield $this->fromStoreOrderRow($row);
+        }
+    }
+
+    /**
+     * Channel orders bought OR changed since then (a status change, a shipment, a cancellation, a return all touch the row).
+     *
+     * @return \Generator<int, SaleDocument>
+     */
+    public function channelOrdersChangedSince(CarbonImmutable $since): \Generator
+    {
+        $query = ExternalOrderMapping::query()->with('lines')
+            ->where(static fn ($changed) => $changed->where('purchased_at', '>=', $since)->orWhere('updated_at', '>=', $since))
+            ->orderBy('id');
+
+        foreach ($query->lazyById(200) as $mapping) {
+            yield $this->fromChannelOrder($mapping);
+        }
+    }
+
     private function storeOrderQuery(): \Illuminate\Database\Query\Builder
     {
         $query = DB::table('orders')->where('orders.seller_is', 'admin');
@@ -148,7 +183,7 @@ class SaleDocumentReader
                 sku: null,
                 quantity: (int) $detail->qty,
                 revenue: $revenue,
-                refunded: isset($refunds[$detail->id]) ? $convert($refunds[$detail->id]) : Money::zero(),
+                refunded: isset($refunds[$detail->id]) ? $this->withoutTax($convert($refunds[$detail->id]), $revenue, $lineTax) : Money::zero(),
                 inventoryLocationId: $locations[$provider ?? 'own_warehouse'] ?? null,
                 costBasis: $basis,
                 provider: $provider,
@@ -189,6 +224,19 @@ class SaleDocumentReader
         );
     }
 
+    /**
+     * The platform records a refund with the tax of the line in it, while the revenue it is taken from is shown without tax. A refund takes back the same share of the
+     * revenue as it takes of the tax-inclusive line, and never more than the line's revenue: a fully refunded 100.00 line (tax 15.00) loses 100.00 of revenue, not 115.00.
+     */
+    private function withoutTax(Money $refund, Money $revenue, Money $lineTax): Money
+    {
+        if ($refund->isZero() || !$revenue->isPositive()) {
+            return Money::zero();
+        }
+
+        return $refund->times($revenue)->dividedBy($revenue->plus($lineTax))->min($revenue);
+    }
+
     private function fromChannelOrder(ExternalOrderMapping $mapping): SaleDocument
     {
         $status = $mapping->orderStatus();
@@ -198,6 +246,10 @@ class SaleDocumentReader
         $mode = $mapping->fulfillmentMode();
         if ($mapping->currency === null || $mapping->items_total === null) {
             $notes[] = 'channel_amounts_missing';
+        }
+        // Prices that include VAT but come with no VAT figure leave the VAT in the revenue; there is no rate here to take it out, so the revenue is said to be unverified.
+        if ($includesTax && $mapping->lines->isNotEmpty() && Money::of($mapping->items_total ?? 0)->isPositive() && Money::sum($mapping->lines->map(static fn (ExternalOrderLine $line): Money => Money::of($line->tax_total ?? 0)))->isZero()) {
+            $notes[] = 'tax_not_separated';
         }
 
         $lines = $mapping->lines->map(function (ExternalOrderLine $line) use ($includesTax, $mode, $mapping, $locations): SaleLine {

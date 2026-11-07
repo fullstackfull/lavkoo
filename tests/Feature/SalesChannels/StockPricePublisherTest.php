@@ -13,6 +13,7 @@ use App\Services\SalesChannels\Publishing\StockPricePublisher;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -85,6 +86,24 @@ class StockPricePublisherTest extends TestCase
         Http::swap(new Factory());
         Http::preventStrayRequests();
         Http::fake($stubs);
+    }
+
+    /** Trendyol as it really behaves: every POST is accepted with a batch id, and the batch is read later with the outcome the test chose. */
+    private function fakeBatches(string $outcome, string $reason = 'Product is locked'): void
+    {
+        $batches = [];
+        $this->fakeOnly([self::TY . '/*' => function (Request $request) use (&$batches, $outcome, $reason) {
+            if ($request->method() === 'POST') {
+                $id = 'batch-' . (count($batches) + 1);
+                $batches[$id] = $request->data()['items'];
+
+                return Http::response(['batchRequestId' => $id]);
+            }
+            $id = basename((string) parse_url($request->url(), PHP_URL_PATH));
+            $items = array_map(static fn (array $item): array => ['requestItem' => $item, 'status' => $outcome, 'failureReasons' => $outcome === 'FAILED' ? [$reason] : []], $batches[$id] ?? []);
+
+            return Http::response(['batchRequestId' => $id, 'itemCount' => count($items), 'items' => $items]);
+        }]);
     }
 
     // ---- stock ------------------------------------------------------------------------------------------
@@ -238,6 +257,88 @@ class StockPricePublisherTest extends TestCase
         $this->assertNull($mapping->last_published_quantity, 'A refused change is not remembered as published.');
     }
 
+    public function test_a_change_the_channel_accepts_and_then_reports_failed_is_left_for_a_person_after_three_tries(): void
+    {
+        $this->stock(20);
+        $mapping = $this->listing();
+        $this->fakeBatches('FAILED');
+
+        for ($cycle = 1; $cycle <= 5; $cycle++) {
+            $result = $this->publisher->publishStock($this->account);
+            $this->publisher->settle($this->account);
+        }
+
+        $this->assertCount(3, $this->sentTo('price-and-inventory'), 'The accepted-then-failed value is sent three times and then left alone.');
+        $this->assertSame(['failed_repeatedly' => 1], $result['stats']['skipped']);
+        $state = $mapping->refresh()->snapshot['publish']['stock'];
+        $this->assertSame(['failed', 3, false], [$state['state'], $state['failures'], $state['transient'] ?? false]);
+    }
+
+    public function test_a_value_the_channel_finally_applies_starts_its_count_over(): void
+    {
+        $this->stock(20);
+        $mapping = $this->listing();
+        $this->fakeBatches('FAILED');
+        foreach ([1, 2] as $cycle) {
+            $this->publisher->publishStock($this->account);
+            $this->publisher->settle($this->account);
+        }
+        $this->assertSame(2, $mapping->refresh()->snapshot['publish']['stock']['failures']);
+
+        $this->fakeBatches('SUCCESS');
+        $this->publisher->publishStock($this->account);
+        $this->publisher->settle($this->account);
+
+        $state = $mapping->refresh()->snapshot['publish']['stock'];
+        $this->assertSame(['applied', 0], [$state['state'], $state['failures']]);
+    }
+
+    public function test_an_outage_or_a_dropped_connection_never_counts_against_the_value(): void
+    {
+        $this->stock(20);
+        $mapping = $this->listing();
+        Http::fake([self::TY . '/*' => Http::response('Service Unavailable', 503)]);
+
+        for ($cycle = 1; $cycle <= 5; $cycle++) {
+            $result = $this->publisher->publishStock($this->account);
+        }
+
+        $state = $mapping->refresh()->snapshot['publish']['stock'];
+        $this->assertSame(['failed', 0, true], [$state['state'], $state['failures'], $state['transient']], 'Five failing cycles are not five refusals.');
+        $this->assertSame(1, $result['stats']['sent'], 'The next cycle still tries.');
+
+        $this->fakeOnly([self::TY . '/*' => fn () => throw new ConnectionException('cURL error 6: Could not resolve host: apigw.trendyol.com')]);
+        $this->publisher->publishStock($this->account);
+        $this->assertSame(0, $mapping->refresh()->snapshot['publish']['stock']['failures'], 'A request that never left this host says nothing about the value.');
+
+        $this->accept('batch-7');
+        $recovered = $this->publisher->publishStock($this->account);
+        $this->assertSame(1, $recovered['stats']['accepted'], 'Once the channel is back the value goes out without anyone editing it.');
+    }
+
+    public function test_a_price_that_rounds_to_zero_is_never_published(): void
+    {
+        $mapping = $this->listing(['snapshot' => ['manual_price' => '0.004']]);
+        Http::fake();
+
+        $result = $this->publisher->publishPrices($this->account);
+
+        $this->assertSame(['price_not_positive' => 1], $result['stats']['skipped']);
+        Http::assertNothingSent();
+        $this->assertNull($mapping->refresh()->last_published_price);
+    }
+
+    public function test_a_price_is_judged_and_sent_as_the_channel_will_read_it(): void
+    {
+        $mapping = $this->listing(['snapshot' => ['manual_price' => '49.955']]);
+        $this->accept();
+
+        $this->publisher->publishPrices($this->account);
+
+        $this->assertEquals(['items' => [['barcode' => 'BC-1', 'salePrice' => 49.96]]], $this->sentTo('price-and-inventory')[0]->data());
+        $this->assertSame('49.960000', $mapping->refresh()->last_published_price);
+    }
+
     public function test_a_dry_run_account_only_rehearses_and_remembers_nothing(): void
     {
         $this->stock(20);
@@ -309,10 +410,52 @@ class StockPricePublisherTest extends TestCase
 
         $counts = $this->publisher->settle($this->account);
 
-        $this->assertSame(['applied' => 1, 'failed' => 1, 'unconfirmed' => 0, 'pending' => 0], $counts);
+        $this->assertSame(['applied' => 1, 'failed' => 1, 'unconfirmed' => 0, 'pending' => 0, 'unreadable' => 0], $counts);
         $this->assertSame('applied', $applied->refresh()->snapshot['publish']['stock']['state']);
         $failed = $refused->refresh()->snapshot['publish']['stock'];
         $this->assertSame(['failed', 'Stock limit exceeded'], [$failed['state'], $failed['error']]);
+    }
+
+    public function test_a_batch_that_can_not_be_read_stays_queued_and_the_other_batches_are_still_followed(): void
+    {
+        $this->stock(20);
+        $first = $this->listing();
+        $second = $this->listing(['listing_key' => 'BC-2', 'external_barcode' => 'BC-2']);
+        InventoryLocationBalance::create(['location_id' => $this->own->id, 'product_id' => self::PRODUCT, 'variant_key' => '', 'sku' => 'SKU-2', 'available' => 20, 'quality' => 'manual', 'source_synced_at' => now()]);
+        foreach ([[$first, 'batch-1'], [$second, 'batch-2']] as [$mapping, $batch]) {
+            $mapping->forceFill(['snapshot' => ['publish' => ['stock' => ['state' => 'queued', 'ref' => $batch, 'attempted' => '20', 'at' => now()->toIso8601String(), 'failures' => 0]]]])->save();
+        }
+        $this->fakeOnly([
+            self::TY . '/product/*batch-1' => Http::response('Bad gateway', 502),
+            self::TY . '/product/*batch-2' => Http::response(['batchRequestId' => 'batch-2', 'itemCount' => 1, 'items' => [['requestItem' => ['barcode' => 'BC-2', 'quantity' => 20], 'status' => 'SUCCESS', 'failureReasons' => []]]]),
+        ]);
+
+        $counts = $this->publisher->settle($this->account);
+
+        $this->assertSame(['applied' => 1, 'failed' => 0, 'unconfirmed' => 0, 'pending' => 0, 'unreadable' => 1], $counts);
+        $this->assertSame('queued', $first->refresh()->snapshot['publish']['stock']['state']);
+        $this->assertSame('applied', $second->refresh()->snapshot['publish']['stock']['state']);
+    }
+
+    public function test_following_up_a_batch_works_with_read_only_access_and_survives_publishing_being_switched_off(): void
+    {
+        $this->stock(20);
+        $mapping = $this->listing();
+        $mapping->forceFill(['snapshot' => ['publish' => ['stock' => ['state' => 'queued', 'ref' => 'batch-3', 'attempted' => '20', 'at' => now()->toIso8601String(), 'failures' => 0]]]])->save();
+        $this->account->forceFill(['capabilities' => ['connection_test', 'read_only_sync']])->save();
+        $this->fakeOnly([self::TY . '/product/*' => Http::response(['batchRequestId' => 'batch-3', 'itemCount' => 1, 'items' => [['requestItem' => ['barcode' => 'BC-1', 'quantity' => 20], 'status' => 'SUCCESS', 'failureReasons' => []]]])]);
+
+        $counts = $this->publisher->settle($this->account->fresh());
+
+        $this->assertSame(1, $counts['applied'], 'Reading a batch result is a read: it needs no publishing switch.');
+
+        $mapping->forceFill(['snapshot' => ['publish' => ['stock' => ['state' => 'queued', 'ref' => 'batch-4', 'attempted' => '20', 'at' => now()->toIso8601String(), 'failures' => 0]]]])->save();
+        $this->account->forceFill(['capabilities' => ['connection_test']])->save();
+
+        $counts = $this->publisher->settle($this->account->fresh());
+
+        $this->assertSame(1, $counts['unreadable'], 'With every switch off the batch simply stays queued; nothing throws.');
+        $this->assertSame('queued', $mapping->refresh()->snapshot['publish']['stock']['state']);
     }
 
     public function test_a_batch_still_running_stays_pending(): void
@@ -341,7 +484,7 @@ class StockPricePublisherTest extends TestCase
 
         $counts = $this->publisher->settle($amazon);
 
-        $this->assertSame(['applied' => 1, 'failed' => 0, 'unconfirmed' => 1, 'pending' => 0], $counts);
+        $this->assertSame(['applied' => 1, 'failed' => 0, 'unconfirmed' => 1, 'pending' => 0, 'unreadable' => 0], $counts);
         $this->assertSame('applied', $mapping->refresh()->snapshot['publish']['stock']['state']);
         $this->assertSame('unconfirmed', $differs->refresh()->snapshot['publish']['stock']['state']);
     }

@@ -7,6 +7,7 @@ use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\ExternalOrderMapping;
 use App\Services\AuditLogger;
+use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -30,6 +31,7 @@ class ExternalShipmentLinker
     public function __construct(
         private readonly ExternalShipmentLookup $lookup,
         private readonly AuditLogger $audit,
+        private readonly ChannelOrderReservations $reservations,
     ) {
     }
 
@@ -101,6 +103,8 @@ class ExternalShipmentLinker
                 throw new ShipmentLinkRefused('That shipment is already linked to another order.');
             }
             $this->audit->record(action: 'sales_channel.shipment_linked', subject: $locked, context: ['mapping_id' => $locked->id, 'provider' => $provider, 'reference' => $reference, 'by' => $adminId ?? 'lookup']);
+            // A provider holds the order now: its units have left our shelf as far as the stock offered is concerned.
+            $this->reservations->sync($locked);
 
             return $locked;
         });

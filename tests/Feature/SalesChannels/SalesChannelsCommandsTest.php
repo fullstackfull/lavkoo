@@ -9,6 +9,7 @@ use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Tests\Support\BuildsSalesChannelSchema;
@@ -143,13 +144,34 @@ class SalesChannelsCommandsTest extends TestCase
         $this->artisan('costs:accrue-storage')->expectsOutputToContain('storage cost entries')->assertSuccessful();
     }
 
+    public function test_old_call_logs_and_webhook_texts_are_pruned_but_statement_postings_and_recent_rows_stay(): void
+    {
+        $account = $this->trendyolAccount();
+        $row = static fn (string $at): array => ['account_id' => null, 'channel' => 'trendyol', 'operation' => 'trendyol.orders_list', 'correlation_id' => 'c-' . $at, 'method' => 'GET', 'url' => 'https://channel.example/orders', 'created_at' => $at];
+        DB::table('sales_channel_api_logs')->insert([$row('2026-08-01 10:00:00') + ['id' => 1], $row(now()->subDays(2)->toDateTimeString()) + ['id' => 2]]);
+        $event = static fn (string $key, string $source, string $at): array => ['account_id' => null, 'channel' => 'trendyol', 'source' => $source, 'event_type' => 'x', 'dedupe_key' => $key, 'payload' => json_encode(['a' => 1]), 'outcome' => 'applied', 'created_at' => $at, 'updated_at' => $at];
+        DB::table('sales_channel_events')->insert([
+            $event('old-webhook', 'webhook', '2026-08-01 10:00:00'), $event('old-fee', 'poll', '2026-08-01 10:00:00'), $event('new-webhook', 'webhook', now()->subDay()->toDateTimeString()),
+        ]);
+
+        $this->artisan('channels:prune')->expectsOutputToContain('Deleted 1 API log row(s) and cleared 1 stored webhook payload(s)')->assertSuccessful();
+
+        $this->assertSame([2], DB::table('sales_channel_api_logs')->pluck('id')->map(fn ($id): int => (int) $id)->all());
+        $payloads = DB::table('sales_channel_events')->pluck('payload', 'dedupe_key')->all();
+        $this->assertNull($payloads['old-webhook'], 'The package the old delivery carried is gone, the delivery itself stays.');
+        $this->assertNotNull($payloads['old-fee'], 'A statement posting is what the fee of an order is netted from.');
+        $this->assertNotNull($payloads['new-webhook']);
+        $this->assertSame(3, DB::table('sales_channel_events')->count());
+        $this->assertNotNull($account);
+    }
+
     public function test_everything_is_on_the_schedule_and_nothing_is_a_write_without_its_own_command(): void
     {
         $schedule = new Schedule();
         ScheduleDefinition::define($schedule);
         $commands = array_map(static fn ($event): string => (string) $event->command, $schedule->events());
 
-        foreach (['channels:sync --due', 'channels:publish --only=stock,price,shipments', 'channels:publish --only=settle', 'costs:refresh --days=3', 'costs:accrue-storage'] as $expected) {
+        foreach (['channels:sync --due', 'channels:publish --only=stock,price,shipments', 'channels:publish --only=settle', 'costs:refresh --days=3', 'costs:accrue-storage', 'channels:prune'] as $expected) {
             $this->assertNotEmpty(array_filter($commands, static fn (string $command): bool => str_contains($command, $expected)), "{$expected} is not scheduled.");
         }
         $this->assertEmpty(array_filter($commands, static fn (string $command): bool => str_contains($command, 'channels:sync') && str_contains($command, 'publish')), 'Reading and writing are separate commands.');

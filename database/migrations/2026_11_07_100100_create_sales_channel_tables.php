@@ -151,6 +151,10 @@ return new class extends Migration
 
                 $table->unique(['account_id', 'external_order_id', 'external_package_id'], 'eom_account_order_package_unique');
                 $table->index(['sales_channel', 'status'], 'eom_channel_status_idx');
+                // An invoice line names an order, a shipment or a tracking number, and each of them is looked up on its own.
+                $table->index('external_order_id', 'eom_external_order_idx');
+                $table->index('shipment_reference', 'eom_shipment_reference_idx');
+                $table->index('tracking_number', 'eom_tracking_number_idx');
                 // One provider shipment belongs to one channel order package: a second link to the same shipment is refused by the database as well as by the linker.
                 $table->unique(['provider', 'shipment_reference'], 'eom_provider_reference_unique');
             });

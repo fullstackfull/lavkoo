@@ -9,7 +9,8 @@ use Illuminate\Database\UniqueConstraintViolationException;
 /**
  * Promises units of a location's stock to open orders so that the quantity published to the channels does not sell the same unit twice.
  *
- *  - A reservation is keyed by its order line: reserving the same line again changes nothing.
+ *  - A reservation is keyed by its order line: reserving the same line again changes nothing, except that while it is still only reserved the number of units follows the
+ *    line (a unit cancelled gives its place back).
  *  - RESERVED: the order is ours, the location has not been told yet. It counts against what may be published.
  *  - COMMITTED: the location accepted the order. It keeps counting only until the location reports a stock figure taken AFTER that moment,
  *    because from then on its own count already has the units off, and subtracting them again would take them off twice.
@@ -21,6 +22,10 @@ class ReservationService
     {
         $existing = InventoryReservation::where('reservation_key', $key)->first();
         if ($existing !== null) {
+            if ($existing->state === InventoryReservation::RESERVED && (int) $existing->quantity !== $quantity) {
+                $existing->forceFill(['quantity' => $quantity])->save();
+            }
+
             return $existing;
         }
 

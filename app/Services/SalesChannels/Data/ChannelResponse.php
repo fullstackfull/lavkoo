@@ -55,6 +55,15 @@ final readonly class ChannelResponse
         return $this->kind === self::DRY_RUN;
     }
 
+    /**
+     * True when the failure says nothing about whether the request itself was acceptable: it never reached the channel, the channel was busy or failing, the answer was lost,
+     * or our credentials were refused. Sending the same request again later can succeed, so it is no reason to give up on the value it carried.
+     */
+    public function isTransient(): bool
+    {
+        return in_array($this->kind, [self::NOT_SENT, self::RATE_LIMITED, self::SERVER_ERROR, self::AMBIGUOUS, self::AUTH_ERROR], true);
+    }
+
     /** True when the channel certainly did NOT act on a write. */
     public function certainlyNotProcessed(): bool
     {

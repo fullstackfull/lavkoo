@@ -11,8 +11,9 @@ use Carbon\CarbonImmutable;
 /**
  * Turns rows of the Current Account Statement (`settlements` and `otherfinancials`) into financial facts.
  *
- *  - `Sale` and `Return` settlements carry the commission on the sale: `commissionAmount` is negative on a sale and positive on a return, so the cost to us is its negation
- *    (a return gives part of the commission back). The sale and the refund themselves are reported but are not costs: the order already is the revenue.
+ *  - `Sale` and `Return` settlements carry the commission on the sale. Its direction comes from the kind of row, never from the sign of the number (Trendyol's own samples
+ *    print it positive on a sale, its sign table says negative): on a sale the commission is a cost of its size, on a return that much is given back (a negative cost). The
+ *    sale and the refund themselves are reported but are not costs: the order already is the revenue.
  *  - `CommissionInvoice` rows bill the commission the Sale rows already carry, so they are reported as duplicates and never counted a second time.
  *  - `DeductionInvoices` are amounts taken from the payout; what they are is read from the description with the patterns in config (`trendyol.finance_map`), and a description
  *    that matches none stays UNCLASSIFIED for a person.
@@ -30,7 +31,7 @@ class TrendyolFinanceMapper
     public function settlement(array $row, string $type, SalesChannelAccount $account): array
     {
         $isReturn = $type === 'Return';
-        $commission = Money::of((string) ($row['commissionAmount'] ?? 0));
+        $commission = Money::of((string) ($row['commissionAmount'] ?? 0))->abs();
         $entries = [
             $this->entry(
                 row: $row, type: $type, part: $isReturn ? 'refund' : 'sale', account: $account,
@@ -42,7 +43,7 @@ class TrendyolFinanceMapper
         if (!$commission->isZero()) {
             $entries[] = $this->entry(
                 row: $row, type: $type, part: 'commission', account: $account,
-                category: RemoteFinancialEntry::FEE, component: CostComponent::MarketplaceCommission, amount: $commission->negated(),
+                category: RemoteFinancialEntry::FEE, component: CostComponent::MarketplaceCommission, amount: $isReturn ? $commission->negated() : $commission,
             );
         }
 

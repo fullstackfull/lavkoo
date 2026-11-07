@@ -14,6 +14,9 @@ use InvalidArgumentException;
  *
  * `serviceRef` says WHICH service of the subject this is (the same component can be charged twice for one subject: two parcels, two
  * invoice lines); `identity` says which COMPUTATION or DOCUMENT produced it. Same identity, same row: that is the whole idempotency rule.
+ *
+ * `retiresEstimates`: this is a real charge that sits in a slot of its own (an invoice line), so the estimate (or the missing marker) of the same component of the same
+ * subject, which sits in another slot, must stop counting once it is recorded.
  */
 final readonly class CostDraft
 {
@@ -57,6 +60,7 @@ final readonly class CostDraft
         public ?Money $baseAmount = null,
         public ?string $baseCurrency = null,
         public string $allocationStatus = 'not_applicable',
+        public bool $retiresEstimates = false,
     ) {
         if ($state === CostState::Missing && $amount !== null) {
             throw new InvalidArgumentException('A missing cost has no amount: it is NULL, not zero.');
