@@ -12,6 +12,7 @@ use App\Models\SalesChannelSyncState;
 use App\Services\SalesChannels\Inventory\Allocation\AllocationResult;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Inventory\Allocation\MemberShare;
+use App\Services\SalesChannels\Inventory\Allocation\PoolAllocation;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
 use App\Services\SalesChannels\Inventory\Allocation\StockAllocator;
 use App\Services\SalesChannels\Inventory\Allocation\StorefrontReserve;
@@ -119,8 +120,8 @@ class StockAllocationTest extends TestCase
 
         $this->assertSame([8], $this->sent(self::SELLER_A));
         $this->assertSame([8], $this->sent(self::SELLER_B));
-        $this->assertLessThanOrEqual(17, 8 + 8, '20 on the shelf less the 3 units of the store order: 17 at most, in total');
         $pool = $this->pool();
+        $this->assertLessThanOrEqual($pool->last_net, array_sum($this->sent(self::SELLER_A)) + array_sum($this->sent(self::SELLER_B)), 'what the two channels are shown together never adds up to more than 20 on the shelf less the 3 units of the store order');
         $this->assertSame([1, 17, 0], [$pool->version, $pool->last_net, $pool->deficit]);
         $this->assertSame(['equal', 8, 8, 17], [$a->refresh()->allocation['rule'], $a->allocation['entitlement'], $a->allocation['publish'], $a->allocation['net']]);
         $this->assertSame((string) $this->key(), $b->refresh()->allocation['pool']);
@@ -431,7 +432,7 @@ class StockAllocationTest extends TestCase
         $this->travel(2)->hours();
         $this->figure(20);
         $this->app->bind(PoolAllocationService::class, RacingAllocations::class);
-        RacingAllocations::fireAtCheck(1, function (): void {
+        RacingAllocations::fireBeforeDivision(2, function (): void {
             app(ReservationService::class)->reserve('channel-order:9:9', $this->torodLocation()->id, self::PRODUCT, '', 6, accountId: $this->second->id);
         });
         $this->storeOrder(1, self::PRODUCT, 2);
@@ -449,7 +450,7 @@ class StockAllocationTest extends TestCase
             $this->stockListing($this->first, 100 + $number, $this->torodLocation(), sprintf('B-%02d', $number));
         }
         $this->app->bind(PoolAllocationService::class, RacingAllocations::class);
-        RacingAllocations::fireAtCheck(51, fn (PoolKey $key) => $this->storeOrder(9000, $key->productId, 4));
+        RacingAllocations::fireBeforeDivision(111, fn (PoolKey $key) => $this->storeOrder(9000, $key->productId, 4));
 
         app(StockPricePublisher::class)->publishStock($this->first);
 
@@ -459,6 +460,31 @@ class StockAllocationTest extends TestCase
         $second = array_column($calls[1], 'quantity', 'barcode');
         $this->assertSame(6, $second['B-51'], 'a store order arrived for the first listing of the second chunk: it is planned again from the pool as it is, not sent as planned');
         $this->assertSame([10], array_values(array_unique(array_diff_key($second, ['B-51' => 0]))));
+    }
+
+    public function test_a_store_order_placed_while_a_run_is_sending_lowers_what_its_later_chunks_send(): void
+    {
+        foreach (range(101, 151) as $product) {
+            $this->storeProduct($product);
+            $this->providerFigure($product, 10, now()->subMinutes(30));
+            $this->stockListing($this->first, $product, $this->torodLocation(), 'BAR-' . $product);
+        }
+        $placed = false;
+        Http::fake(['apigw.trendyol.com/*' => function () use (&$placed) {
+            if (!$placed) {
+                $placed = true;
+                $this->storeOrder(900, 151, 8);
+            }
+
+            return Http::response(['batchRequestId' => 'batch-' . (int) $placed]);
+        }]);
+
+        $this->publish($this->first);
+
+        $sent = Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'price-and-inventory'))->flatMap(fn (array $pair): array => $pair[0]->data()['items'])->keyBy('barcode');
+        $this->assertTrue($placed, 'a customer bought 8 units of the last product while the first 50 were being sent');
+        $this->assertSame(10, $sent['BAR-101']['quantity'], 'the first chunk was already on its way');
+        $this->assertSame(2, $sent['BAR-151']['quantity'], 'the last product is in the second chunk: it is sent as the 2 units that were left, not as the 10 planned at the start of the run');
     }
 
     public function test_a_division_that_would_give_away_more_than_the_net_is_a_defect_and_is_never_stored_or_sent(): void
@@ -543,38 +569,38 @@ class StockAllocationTest extends TestCase
     }
 }
 
-/** A pool writer that lets something else happen between a plan and the check just before it is sent. */
+/** A pool writer that lets something else happen just before one of its divisions is worked out, as a customer or an import does while a run is sending. */
 class RacingAllocations extends PoolAllocationService
 {
-    private static int $checks = 0;
+    private static int $divisions = 0;
 
     private static ?int $fireAt = null;
 
     /** @var (callable(PoolKey): void)|null */
-    private static $beforeTheCheck;
+    private static $beforeTheDivision;
 
-    /** @param callable(PoolKey): void $hook runs once, just before the given check (1 is the first) and works the pool being checked out again */
-    public static function fireAtCheck(int $number, callable $hook): void
+    /** @param callable(PoolKey): void $hook runs once, just before the given division is worked out (1 is the first), with the pool it is worked out for */
+    public static function fireBeforeDivision(int $number, callable $hook): void
     {
-        self::$checks = 0;
+        self::$divisions = 0;
         self::$fireAt = $number;
-        self::$beforeTheCheck = $hook;
+        self::$beforeTheDivision = $hook;
     }
 
     public static function reset(): void
     {
-        self::$beforeTheCheck = null;
+        self::$beforeTheDivision = null;
     }
 
-    public function isCurrent(PoolKey $key, int $version): bool
+    public function allocate(PoolKey $key): PoolAllocation
     {
-        if (self::$beforeTheCheck !== null && ++self::$checks === self::$fireAt) {
-            (self::$beforeTheCheck)($key);
-            self::$beforeTheCheck = null;
-            $this->allocate($key);
+        if (self::$beforeTheDivision !== null && ++self::$divisions === self::$fireAt) {
+            $hook = self::$beforeTheDivision;
+            self::$beforeTheDivision = null;
+            $hook($key);
         }
 
-        return parent::isCurrent($key, $version);
+        return parent::allocate($key);
     }
 }
 

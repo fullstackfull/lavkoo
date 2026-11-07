@@ -66,16 +66,29 @@ class StockPlanner
         return $this->afterTheGuards($listing, $allocation, $share->publish());
     }
 
-    /** Is what was planned still the pool's division? Waits for a division being written. A plan made with the division switched off has nothing to go stale. */
-    public function isCurrent(PlannedStock $plan): bool
+    /**
+     * Works the divisions the given plans were made on out again, from the figures as they are now: a store order placed, a channel order imported or a figure read since the plan was
+     * made changes the net, and nothing else tells a run that is about to send. Each pool is worked out once however many of the plans belong to it.
+     *
+     * @param array<int, PlannedStock> $plans
+     */
+    public function workOutAgain(array $plans): void
     {
-        return $plan->allocation === null || $this->allocations->isCurrent($plan->allocation->key, $plan->allocation->version);
+        $keys = [];
+        foreach ($plans as $plan) {
+            if ($plan->allocation !== null) {
+                $keys[(string) $plan->allocation->key] = $plan->allocation->key;
+            }
+        }
+        foreach ($keys as $key) {
+            $this->run[(string) $key] = $this->allocations->allocate($key);
+        }
     }
 
-    /** Forgets what was worked out for the pool of a listing, so that the next plan works it out again. */
-    public function forget(PoolKey $key): void
+    /** Is what was planned still the division the pool has, as last worked out in this run? A plan made with the division switched off has nothing to go stale. */
+    public function isCurrent(PlannedStock $plan): bool
     {
-        unset($this->run[(string) $key]);
+        return $plan->allocation === null || ($this->run[(string) $plan->allocation->key]?->version ?? null) === $plan->allocation->version;
     }
 
     /** @return PlannedStock|string */

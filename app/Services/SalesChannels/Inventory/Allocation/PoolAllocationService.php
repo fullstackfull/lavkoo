@@ -128,12 +128,6 @@ class PoolAllocationService
         return md5((string) json_encode([$net, $deficit, $raisingBlockedBy, $reason, $result?->storefrontReserve, $shares]));
     }
 
-    /** Is the division a publisher planned on still the pool's? Waits for a division that is being written, so it never reads one half done. */
-    public function isCurrent(PoolKey $key, int $version): bool
-    {
-        return DB::transaction(static fn (): bool => (int) InventoryPool::where($key->columns())->lockForUpdate()->value('version') === $version);
-    }
-
     private function reserveOf(InventoryPool $pool): StorefrontReserve
     {
         [$mode, $value] = $pool->storefront_reserve_mode !== null

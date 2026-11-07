@@ -146,8 +146,10 @@ class StockPricePublisher
     }
 
     /**
-     * A division another process wrote since a quantity was planned is not the one the quantity was worked out from: it is planned again from the pool as it is now, which may
-     * lower it, or leave nothing to send. This is checked under the pool's lock, once, just before the call, for the updates that are about to go out.
+     * Nothing a run was planned on is still true when its last chunk goes out: a store order, a channel order or a stock figure that came in meanwhile changes what the pool has
+     * left, and no one tells the run. So just before a chunk is sent the divisions of its pools are worked out again, from the figures as they are then (under each pool's lock),
+     * and an update whose division is no longer the pool's is planned again from it: it may be lowered, or leave nothing to send. Only an update that is still what the pool offers
+     * goes out.
      *
      * @param array<int, PublishUpdate> $updates the updates of one chunk
      * @param array<int, PlannedStock> $plans
@@ -156,12 +158,12 @@ class StockPricePublisher
      */
     private function planAgainWhatWentStale(array &$updates, array &$plans, array $planned, array &$stats, bool $reductionsOnly): void
     {
+        $this->stock->workOutAgain(array_intersect_key($plans, $updates));
         foreach (array_intersect_key($plans, $updates) as $mappingId => $plan) {
             if ($this->stock->isCurrent($plan)) {
                 continue;
             }
             [$account, $mapping, $policy] = $planned[$mappingId];
-            $this->stock->forget($plan->allocation->key);
             $update = $this->planStock($account, $mapping, $policy, $plans, $reductionsOnly);
             if (is_string($update)) {
                 unset($updates[$mappingId], $plans[$mappingId]);
