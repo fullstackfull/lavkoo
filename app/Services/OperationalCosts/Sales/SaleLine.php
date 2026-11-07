@@ -15,6 +15,8 @@ final readonly class SaleLine
 {
     public const BASIS_OWNED_STOCK = 'owned_stock';
     public const BASIS_SUPPLIER = 'supplier_cost';
+    /** The goods are a vendor's, not the platform's: a line of a channel order that was made into an internal order for a vendor's product. Never costed from our layers or estimated. */
+    public const BASIS_VENDOR_STOCK = 'vendor_stock';
     public const BASIS_UNKNOWN = 'unknown';
 
     public function __construct(

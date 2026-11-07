@@ -10708,4 +10708,5 @@ return [
 	'this_invoice_looks_like_goods_already_received' => 'This invoice looks like goods already received on a purchase order.',
 	'these_lines_look_like_goods_a_purchase_order_received' => 'The lines below have the supplier, product and quantity of goods a purchase order already received and are not linked to it: costing them again would count the same goods twice. Void this invoice and enter it again with the purchase order line number, or confirm that it is a separate purchase.',
 	'this_is_a_separate_purchase' => 'This is a separate purchase',
+	'missing_reason_vendor_owned_goods' => 'The goods belong to a vendor, not to the platform: their cost is not ours to know',
 ];
