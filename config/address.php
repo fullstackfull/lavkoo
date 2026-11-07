@@ -42,4 +42,14 @@ return [
         'cities' => database_path('data/address/cities.json'),
         'aliases' => database_path('data/address/aliases.json'),
     ],
+
+    /*
+    | The official source of the lists: Saudi Post's (SPL) National Address Lookups API, read with the store owner's own key by
+    | `address:fetch-spl`. The key is given at run time (--key or the SPL_API_KEY environment variable), not kept in a file of the project.
+    */
+    'spl' => [
+        'base_url' => env('SPL_LOOKUPS_BASE_URL', 'https://apina.address.gov.sa/NationalAddress/v3.1/lookup'),
+        'api_key' => env('SPL_API_KEY'),
+        'directory' => storage_path('app/address/spl'),
+    ],
 ];
