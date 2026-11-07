@@ -20,6 +20,7 @@ class MigrationsTest extends TestCase
         '2026_11_07_100100_create_sales_channel_tables.php',
         '2026_11_07_100200_create_inventory_and_routing_tables.php',
         '2026_11_08_100000_add_state_before_dispute_to_operational_cost_entries.php',
+        '2026_11_09_100000_create_channel_order_dispatches_table.php',
     ];
 
     private const NEW_TABLES = [
@@ -27,7 +28,7 @@ class MigrationsTest extends TestCase
         'operational_cost_invoices', 'operational_cost_invoice_items', 'operational_cost_reconciliations', 'inventory_cost_layers', 'inventory_cost_consumptions',
         'sales_channel_accounts', 'sales_channel_product_mappings', 'external_order_mappings', 'external_order_lines', 'sales_channel_sync_states', 'sales_channel_api_logs',
         'sales_channel_events', 'inventory_locations', 'inventory_location_balances', 'inventory_source_policies', 'inventory_reservations', 'fulfillment_routing_rules',
-        'fulfillment_routing_decisions',
+        'fulfillment_routing_decisions', 'channel_order_dispatches',
     ];
 
     protected function setUp(): void

@@ -12,6 +12,8 @@ final class ChannelSettings
 {
     public const AMAZON_REGIONS = ['na', 'eu', 'fe'];
     public const TRENDYOL_STOREFRONTS = ['SA', 'AE', 'KW'];
+    /** unset: nobody said (nothing is ever created); app: this application creates the shipments; provider_direct: the provider imports the channel's orders itself (Trendyol connected straight to Torod), so the application only follows them. */
+    public const SHIPMENT_CREATION = ['unset', 'app', 'provider_direct'];
 
     /** @return array<string, mixed> */
     public static function defaults(string $channel): array
@@ -24,6 +26,8 @@ final class ChannelSettings
                 'request_buyer_data' => false,
                 'auto_link_exact_sku' => false,
                 'route_cod_orders' => false,
+                'shipment_creation' => 'unset',
+                'dispatch_mode' => 'manual',
             ],
             'trendyol' => [
                 'storefront_code' => 'SA',
@@ -34,6 +38,8 @@ final class ChannelSettings
                 'route_cod_orders' => false,
                 'torod_reference_field' => 'order_number',
                 'carrier_codes' => [],
+                'shipment_creation' => 'unset',
+                'dispatch_mode' => 'manual',
             ],
             default => [],
         };
@@ -50,6 +56,16 @@ final class ChannelSettings
         foreach (['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders'] as $flag) {
             if (array_key_exists($flag, $merged)) {
                 $merged[$flag] = filter_var($merged[$flag], FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+
+        if (array_key_exists('shipment_creation', $merged)) {
+            $allowed = $channel === 'trendyol' ? self::SHIPMENT_CREATION : ['unset', 'app'];
+            if (!in_array($merged['shipment_creation'], $allowed, true)) {
+                throw new InvalidArgumentException('Who creates the shipments of this account must be one of: ' . implode(', ', $allowed) . '.');
+            }
+            if (!in_array($merged['dispatch_mode'], ['manual', 'auto'], true)) {
+                throw new InvalidArgumentException('The dispatch mode must be manual or auto.');
             }
         }
 

@@ -1,0 +1,431 @@
+<?php
+
+namespace Tests\Feature\SalesChannels;
+
+use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\MappingStatus;
+use App\Enums\Fulfillment\ProviderCode;
+use App\Enums\Fulfillment\StockSource;
+use App\Enums\SalesChannels\ChannelOrderStatus;
+use App\Enums\SalesChannels\DispatchState;
+use App\Enums\SalesChannels\FulfillmentMode;
+use App\Models\ChannelOrderDispatch;
+use App\Models\ExternalOrderMapping;
+use App\Models\FulfillmentRoutingRule;
+use App\Models\InventoryLocation;
+use App\Models\ProviderFulfillment;
+use App\Models\ProviderProductMapping;
+use App\Models\SalesChannelAccount;
+use App\Models\SalesChannelProductMapping;
+use App\Services\Fulfillment\Data\SubmissionResult;
+use App\Services\Fulfillment\FulfillmentRouter;
+use App\Services\Fulfillment\ProviderOrderDispatcher;
+use App\Services\SalesChannels\Dispatch\ChannelOrderDispatcher;
+use App\Services\SalesChannels\Dispatch\DispatchOutcome;
+use App\Services\SalesChannels\Inventory\InventoryLocationService;
+use App\Services\SalesChannels\Routing\DynamicFulfillmentRoutingEngine;
+use App\Services\SalesChannels\Support\ChannelOperations;
+use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Client\Factory;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Feature\Fulfillment\FulfillmentTestCase;
+use Tests\Support\BuildsRemoteOrders;
+use Tests\Support\BuildsSalesChannelSchema;
+use Tests\Support\CreatesChannelAccounts;
+use Tests\Support\Fixtures\TrendyolFixtures as Trendyol;
+
+/**
+ * A Trendyol order that a rule sends to Torod Point, from the channel to the provider's door, with the platform's own fulfilment (router, dispatcher, a scripted provider) doing the part it owns.
+ * Every Trendyol answer is a fixture and the provider is the platform's fake adapter: nothing here reaches a real service.
+ */
+class ChannelDispatchTest extends FulfillmentTestCase
+{
+    use BuildsRemoteOrders;
+    use BuildsSalesChannelSchema;
+    use CreatesChannelAccounts;
+
+    private const TY = 'https://apigw.trendyol.com/integration';
+    private const NAME = 'Test Buyer';
+    private const PHONE_NATIONAL = '0500000000';
+    private const STREET = '1 Test Street';
+
+    private SalesChannelAccount $account;
+
+    private InventoryLocation $torodLocation;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->runSalesChannelMigrations();
+        // The platform's own default for this column is 1: units never taken off the store's stock must not be given back by a cancellation.
+        Schema::table('order_details', static fn (Blueprint $table) => $table->boolean('is_stock_decreased')->default(true));
+        Schema::create('audit_logs', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('actor_type')->nullable();
+            $table->unsignedBigInteger('actor_id')->nullable();
+            $table->string('actor_name')->nullable();
+            $table->string('action');
+            $table->string('subject_type')->nullable();
+            $table->string('subject_id')->nullable();
+            $table->json('before')->nullable();
+            $table->json('after')->nullable();
+            $table->json('context')->nullable();
+            $table->string('ip_address')->nullable();
+            $table->text('user_agent')->nullable();
+            $table->timestamps();
+        });
+        config([
+            'sales_channels.enabled' => true, 'sales_channels.managed_dispatch_enabled' => true, 'sales_channels.buyer_data_transfer_enabled' => true,
+            'sales_channels.dispatch.retry_minutes' => [5, 15, 60], 'sales_channels.dispatch.max_attempts' => 3, 'operational_costs.base_currency' => 'SAR',
+        ]);
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => true, 'auto_dispatch' => false]);
+        [$this->torodLocation] = app(InventoryLocationService::class)->ensureDefaults();
+
+        $account = $this->trendyolAccount();
+        $account->forceFill([
+            'settings' => ['shipment_creation' => 'app'] + (array) $account->settings,
+            'capability_approvals' => ['buyer_data_transfer' => ['by' => 1, 'at' => now()->toIso8601String(), 'reason' => 'owner approved']] + (array) $account->capability_approvals,
+        ])->save();
+        $this->account = $account->fresh();
+
+        $this->makeProduct(10);
+        $this->approveAtTorod(10);
+        SalesChannelProductMapping::create(['account_id' => $this->account->id, 'product_id' => 10, 'listing_key' => 'SKU-1', 'external_sku' => 'SKU-1', 'external_barcode' => 'SKU-1', 'status' => 'mapped', 'stock_location_id' => $this->torodLocation->id]);
+        FulfillmentRoutingRule::create(['name' => 'Torod for everything', 'priority' => 1, 'is_active' => true, 'action' => 'route_to_provider', 'target_provider' => 'torod_point']);
+        $this->recipientAnswers();
+    }
+
+    private function approveAtTorod(int $productId): void
+    {
+        ProviderProductMapping::create([
+            'provider' => 'torod_point', 'product_id' => $productId, 'variant_key' => '', 'external_id' => 'ext-' . $productId, 'external_sku' => 'XSKU' . $productId,
+            'status' => MappingStatus::Approved, 'stock_source' => StockSource::ProviderSync, 'provider_stock' => 50, 'provider_stock_synced_at' => now(),
+        ]);
+    }
+
+    private function recipientAnswers(array $packageOverrides = []): void
+    {
+        Http::swap(new Factory());
+        Http::preventStrayRequests();
+        Http::fake([self::TY . '/order/*' => Http::response(Trendyol::stream([Trendyol::package($packageOverrides)]))]);
+    }
+
+    private function placed(array $overrides = [], string $orderId = '10234567890', string $package = '3012345678'): ExternalOrderMapping
+    {
+        $order = $this->remoteOrder($orderId, $package, ChannelOrderStatus::New, [$this->remoteLine('L1', 'SKU-1', 'SKU-1', 2, '200')], overrides: $overrides + ['fulfillmentChannelRaw' => 'seller_pays', 'fulfillmentMode' => FulfillmentMode::MerchantManaged]);
+        $mapping = app(ChannelOrderIngestor::class)->ingest($this->account, $order)->mapping;
+        app(DynamicFulfillmentRoutingEngine::class)->route($mapping->refresh());
+
+        return $mapping->refresh();
+    }
+
+    private function dispatcher(): ChannelOrderDispatcher
+    {
+        return app(ChannelOrderDispatcher::class);
+    }
+
+    private function recipientReads(): int
+    {
+        return count(Http::recorded(fn ($request): bool => str_contains($request->url(), '/v2/orders')));
+    }
+
+    /** Everything stored anywhere except the internal order itself and the product/order tables, as one string. */
+    private function storedOutsideTheOrder(): string
+    {
+        $skip = ['orders', 'order_details', 'migrations'];
+        $all = '';
+        foreach (Schema::getTables(schema: Schema::getCurrentSchemaListing()) as $table) {
+            if (in_array($table['name'], $skip, true)) {
+                continue;
+            }
+            $all .= $table['name'] . json_encode(DB::table($table['name'])->get()->all(), JSON_UNESCAPED_UNICODE);
+        }
+
+        return $all;
+    }
+
+    // ---- the gate ----------------------------------------------------------------------------------------
+
+    public function test_with_everything_open_one_dispatch_makes_one_internal_order_with_no_customer_and_no_stock_taken(): void
+    {
+        $mapping = $this->placed();
+
+        $outcome = $this->dispatcher()->dispatch($mapping);
+
+        $this->assertSame(DispatchOutcome::MATERIALIZED, $outcome->state);
+        $order = DB::table('orders')->where('id', $outcome->internalOrderId)->first();
+        $this->assertSame([0, 0, 'paid', 'confirmed', 'marketplace_prepaid', 'default_type'], [(int) $order->customer_id, (int) $order->is_guest, $order->payment_status, $order->order_status, $order->payment_method, $order->order_type]);
+        $this->assertEqualsWithDelta(200.0, (float) $order->order_amount, 0.01);
+        $this->assertSame('Channel order 10234567890', $order->order_note);
+        $detail = DB::table('order_details')->where('order_id', $outcome->internalOrderId)->get();
+        $this->assertCount(1, $detail);
+        $this->assertSame([2, 0], [(int) $detail[0]->qty, (int) $detail[0]->is_stock_decreased]);
+        $this->assertSame(50, (int) DB::table('products')->where('id', 10)->value('current_stock'), 'No stock is taken off the store');
+        $mapping->refresh();
+        $this->assertSame([$outcome->internalOrderId, 'managed', 'torod_point'], [$mapping->order_id, $mapping->execution_policy, $mapping->provider]);
+        $row = ChannelOrderDispatch::firstOrFail();
+        $this->assertSame([DispatchState::Materialized->value, 1, $outcome->internalOrderId], [$row->state, $row->attempts, $row->internal_order_id]);
+        $this->assertNull($row->claim_token);
+    }
+
+    public function test_the_recipient_is_written_where_the_provider_builders_read_it_and_nowhere_else(): void
+    {
+        $outcome = $this->dispatcher()->dispatch($this->placed());
+
+        $address = json_decode((string) DB::table('orders')->where('id', $outcome->internalOrderId)->value('shipping_address_data'), true);
+        $this->assertSame(['contact_person_name' => self::NAME, 'phone' => self::PHONE_NATIONAL, 'address' => self::STREET, 'city' => 'Riyadh', 'state' => 'Riyadh Region', 'country' => 'SA', 'email' => '', 'zip' => null], $address);
+        $everywhereElse = $this->storedOutsideTheOrder();
+        foreach ([self::NAME, self::PHONE_NATIONAL, '500000000', self::STREET, 'buyer@'] as $detail) {
+            $this->assertStringNotContainsString($detail, $everywhereElse, "'{$detail}' was stored outside the internal order");
+        }
+    }
+
+    /** @return array<string, array{0: array<string, mixed>, 1: string}> */
+    public static function closedGates(): array
+    {
+        return [
+            'managed dispatch off' => [['sales_channels.managed_dispatch_enabled' => false], 'managed_dispatch_off'],
+            'buyer data switch off' => [['sales_channels.buyer_data_transfer_enabled' => false], 'buyer_data_transfer_off'],
+        ];
+    }
+
+    #[DataProvider('closedGates')]
+    public function test_a_closed_switch_stops_everything_before_the_buyer_is_read_and_before_anything_is_written(array $config, string $reason): void
+    {
+        $mapping = $this->placed();
+        config($config);
+
+        $outcome = $this->dispatcher()->dispatch($mapping);
+
+        $this->assertSame([DispatchOutcome::BLOCKED, true], [$outcome->state, in_array($reason, $outcome->blockers, true)]);
+        $this->assertSame([0, 0, 0], [$this->recipientReads(), DB::table('orders')->count(), ChannelOrderDispatch::count()]);
+    }
+
+    public function test_an_account_that_has_not_declared_who_creates_its_shipments_never_gets_any(): void
+    {
+        $this->account->forceFill(['settings' => ['shipment_creation' => 'unset'] + (array) $this->account->settings])->save();
+        $mapping = $this->placed();
+
+        $this->assertContains('shipment_creation_not_declared', $this->dispatcher()->dispatch($mapping)->blockers);
+
+        $this->account->forceFill(['settings' => ['shipment_creation' => 'provider_direct'] + (array) $this->account->settings])->save();
+        $this->assertContains('shipments_are_created_by_the_provider_directly', $this->dispatcher()->dispatch($mapping->refresh())->blockers);
+        $this->assertSame(0, DB::table('orders')->count());
+    }
+
+    public function test_without_the_masters_approval_or_the_dispatch_capability_the_order_waits(): void
+    {
+        $approvals = (array) $this->account->capability_approvals;
+        unset($approvals['buyer_data_transfer']);
+        $this->account->forceFill(['capability_approvals' => $approvals])->save();
+        $mapping = $this->placed();
+
+        $this->assertContains('buyer_data_approval_missing', $this->dispatcher()->dispatch($mapping)->blockers);
+
+        $this->account->forceFill(['capabilities' => array_values(array_diff((array) $this->account->capabilities, ['fulfillment_dispatch']))])->save();
+        $this->assertContains('dispatch_capability_off', $this->dispatcher()->dispatch($mapping->refresh())->blockers);
+    }
+
+    public function test_what_the_channel_ships_itself_or_cash_on_delivery_or_another_country_is_never_dispatched(): void
+    {
+        $this->assertContains('fulfilment_not_ours', $this->dispatcher()->dispatch($this->placed(['fulfillmentMode' => FulfillmentMode::Fba, 'fulfillmentChannelRaw' => 'AFN'], 'FBA-1', ''))->blockers);
+        $this->assertContains('destination_not_supported', $this->dispatcher()->dispatch($this->placed(['destination' => ['city' => 'Dubai', 'country' => 'AE']], 'UAE-1', 'P2'))->blockers);
+        $this->assertSame([0, 0], [DB::table('orders')->count(), $this->recipientReads()]);
+    }
+
+    public function test_a_line_without_an_approved_provider_mapping_or_owned_by_another_provider_is_refused(): void
+    {
+        $mapping = $this->placed();
+        ProviderProductMapping::query()->update(['status' => MappingStatus::Pending]);
+        $this->assertContains('provider_mapping_not_approved', $this->dispatcher()->dispatch($mapping)->blockers);
+
+        ProviderProductMapping::query()->update(['status' => MappingStatus::Approved]);
+        DB::table('products')->where('id', 10)->update(['fulfillment_provider' => 'm5azn']);
+        $this->assertContains('product_owned_by_other_provider', $this->dispatcher()->dispatch($mapping->refresh())->blockers);
+    }
+
+    public function test_a_shipment_that_is_already_known_is_never_given_a_second_one(): void
+    {
+        $mapping = $this->placed();
+        $mapping->forceFill(['shipment_link_state' => ExternalOrderMapping::LINK_LINKED, 'shipment_reference' => 'TOR-1', 'provider' => 'torod_point'])->save();
+
+        $outcome = $this->dispatcher()->dispatch($mapping->refresh());
+
+        $this->assertContains('shipment_already_known', $outcome->blockers);
+        $this->assertSame(0, DB::table('orders')->count());
+    }
+
+    // ---- the buyer's details ----------------------------------------------------------------------------
+
+    public function test_a_recipient_that_cannot_be_shipped_to_waits_with_a_reason_and_comes_back_later(): void
+    {
+        $this->recipientAnswers(['shipmentAddress' => ['phone' => '', 'fullName' => 'X', 'address1' => 'Street', 'city' => 'Riyadh', 'countryCode' => 'SA']]);
+        $mapping = $this->placed();
+
+        $first = $this->dispatcher()->dispatch($mapping, 'auto');
+
+        $this->assertSame('recipient_incomplete:phone_missing', $first->reason);
+        $row = ChannelOrderDispatch::firstOrFail();
+        $this->assertSame([DispatchState::Blocked->value, 1], [$row->state, $row->attempts]);
+        $this->assertTrue($row->next_attempt_at->between(now()->addMinutes(4), now()->addMinutes(6)));
+        $this->assertSame(0, DB::table('orders')->count());
+
+        $this->assertSame(DispatchOutcome::WAITING, $this->dispatcher()->dispatch($mapping->refresh(), 'auto')->state, 'the scheduled run honours the waiting time');
+        $this->assertSame(1, $this->recipientReads(), 'and does not read the buyer again meanwhile');
+    }
+
+    public function test_a_person_asking_overrides_the_waiting_time_and_a_fixed_recipient_goes_through(): void
+    {
+        $this->recipientAnswers(['shipmentAddress' => ['phone' => '', 'fullName' => 'X', 'address1' => 'Street', 'city' => 'Riyadh', 'countryCode' => 'SA']]);
+        $mapping = $this->placed();
+        $this->dispatcher()->dispatch($mapping, 'auto');
+        $this->recipientAnswers();
+
+        $outcome = $this->dispatcher()->dispatch($mapping->refresh(), 'manual', 7);
+
+        $this->assertSame(DispatchOutcome::MATERIALIZED, $outcome->state);
+        $this->assertSame([2, 7], [ChannelOrderDispatch::firstOrFail()->attempts, ChannelOrderDispatch::firstOrFail()->requested_by]);
+    }
+
+    public function test_after_the_last_allowed_attempt_the_scheduled_run_stops_asking_the_channel(): void
+    {
+        $this->recipientAnswers(['shipmentAddress' => ['phone' => '', 'fullName' => 'X', 'address1' => 'Street', 'city' => 'Riyadh', 'countryCode' => 'SA']]);
+        $mapping = $this->placed();
+
+        foreach (range(1, 3) as $attempt) {
+            $this->dispatcher()->dispatch($mapping->refresh(), 'auto');
+            ChannelOrderDispatch::query()->update(['next_attempt_at' => null]);
+        }
+        $reads = $this->recipientReads();
+
+        $this->assertSame('attempts_exhausted', $this->dispatcher()->dispatch($mapping->refresh(), 'auto')->reason);
+        $this->assertSame($reads, $this->recipientReads());
+        $this->assertNull(ChannelOrderDispatch::firstOrFail()->next_attempt_at);
+    }
+
+    public function test_a_package_trendyol_ships_itself_is_blocked_for_good_not_retried(): void
+    {
+        $this->recipientAnswers(['is4P' => true]);
+
+        $outcome = $this->dispatcher()->dispatch($this->placed());
+
+        $this->assertSame('not_shipped_by_the_seller', $outcome->reason);
+        $this->assertNull(ChannelOrderDispatch::firstOrFail()->next_attempt_at);
+    }
+
+    public function test_when_the_master_switches_buyer_data_off_in_the_middle_the_read_is_refused_and_the_claim_is_given_back(): void
+    {
+        $mapping = $this->placed();
+        $this->account->forceFill(['capability_approvals' => collect((array) $this->account->capability_approvals)->except('buyer_data_transfer')->all()])->save();
+        // The gate already said yes for this run (it read the account before); the transport reads the account again and refuses.
+        $stale = SalesChannelAccount::find($this->account->id);
+        $stale->forceFill(['capability_approvals' => ['buyer_data_transfer' => ['by' => 1], 'fulfillment_dispatch' => ['by' => 1]]]);
+        $mapping->setRelation('account', $stale);
+
+        $outcome = $this->dispatcher()->dispatch($mapping);
+
+        $this->assertSame(DispatchOutcome::BLOCKED, $outcome->state);
+        $this->assertStringStartsWith('channel_', (string) $outcome->reason);
+        $this->assertNull(ChannelOrderDispatch::firstOrFail()->claim_token);
+        $this->assertSame(0, DB::table('orders')->count());
+    }
+
+    // ---- once and only once ------------------------------------------------------------------------------
+
+    public function test_dispatching_again_finds_the_order_already_made_and_reads_nothing(): void
+    {
+        $mapping = $this->placed();
+        $first = $this->dispatcher()->dispatch($mapping);
+        $reads = $this->recipientReads();
+
+        $second = $this->dispatcher()->dispatch($mapping->refresh());
+
+        $this->assertSame([DispatchOutcome::ALREADY_DONE, $first->internalOrderId], [$second->state, $second->internalOrderId]);
+        $this->assertSame([1, 1, $reads], [DB::table('orders')->count(), DB::table('order_details')->count(), $this->recipientReads()]);
+    }
+
+    public function test_an_attempt_that_is_still_running_makes_a_second_one_stand_back(): void
+    {
+        $mapping = $this->placed();
+        ChannelOrderDispatch::create(['mapping_id' => $mapping->id, 'account_id' => $mapping->account_id, 'state' => 'claimed', 'claim_token' => 'someone-else', 'claimed_at' => now()->subMinutes(2), 'attempts' => 1]);
+
+        $this->assertSame(DispatchOutcome::BUSY, $this->dispatcher()->dispatch($mapping)->state);
+        $this->assertSame([0, 0], [DB::table('orders')->count(), $this->recipientReads()]);
+    }
+
+    public function test_an_attempt_that_never_finished_is_given_up_after_its_time_and_the_order_is_made_once(): void
+    {
+        $mapping = $this->placed();
+        ChannelOrderDispatch::create(['mapping_id' => $mapping->id, 'account_id' => $mapping->account_id, 'state' => 'claimed', 'claim_token' => 'crashed', 'claimed_at' => now()->subMinutes(11), 'attempts' => 1]);
+
+        $outcome = $this->dispatcher()->dispatch($mapping);
+
+        $this->assertSame(DispatchOutcome::MATERIALIZED, $outcome->state);
+        $this->assertSame([1, 2], [DB::table('orders')->count(), ChannelOrderDispatch::firstOrFail()->attempts]);
+    }
+
+    public function test_a_failure_in_the_middle_of_making_the_order_leaves_nothing_behind(): void
+    {
+        $this->app->bind(\App\Services\Fulfillment\OrderItemOwnershipSnapshotter::class, fn () => new class(app(\App\Services\Fulfillment\Support\ProviderCurrency::class)) extends \App\Services\Fulfillment\OrderItemOwnershipSnapshotter {
+            public function capture(int $orderId, int $orderDetailId, array $product, ?string $variant, int $quantity, float $unitPrice, float $netAmount, float $lineTax, string $taxModel): ?\App\Models\ProviderFulfillmentItem
+            {
+                throw new \RuntimeException('the snapshot could not be written');
+            }
+        });
+        $mapping = $this->placed();
+
+        try {
+            $this->dispatcher()->dispatch($mapping);
+            $this->fail('The failure should have surfaced.');
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame([0, 0, 0], [DB::table('orders')->count(), DB::table('order_details')->count(), \App\Models\ProviderFulfillmentItem::count()]);
+        $this->assertNull($mapping->refresh()->order_id);
+        $this->assertSame(DispatchState::Claimed->value, ChannelOrderDispatch::firstOrFail()->state, 'the claim stays until it times out, so no second run piles on');
+    }
+
+    public function test_no_order_is_made_when_the_audit_trail_cannot_be_written(): void
+    {
+        $mapping = $this->placed();
+        Schema::drop('audit_logs');
+
+        $outcome = $this->dispatcher()->dispatch($mapping);
+
+        $this->assertSame('audit_not_written', $outcome->reason);
+        $this->assertSame(0, DB::table('orders')->count());
+    }
+
+    // ---- the platform's own fulfilment takes over --------------------------------------------------------
+
+    public function test_the_platforms_router_and_dispatcher_then_hold_the_shipment_in_rehearsal_and_send_it_once_when_allowed(): void
+    {
+        $mapping = $this->placed();
+        $orderId = (int) $this->dispatcher()->dispatch($mapping)->internalOrderId;
+
+        $created = app(FulfillmentRouter::class)->route($orderId);
+
+        $this->assertCount(1, $created);
+        $fulfillment = ProviderFulfillment::where('order_id', $orderId)->firstOrFail();
+        $this->assertSame([ProviderCode::TorodPoint->value, 1], [$fulfillment->provider, $fulfillment->items()->count()]);
+        $this->torod->submitQueue = [SubmissionResult::accepted('O-TOROD-1', providerInternalId: '55', trackingNumber: 'TRK-TOROD-1')];
+
+        $this->enableProvider(ProviderCode::TorodPoint, ['dry_run' => false, 'auto_dispatch' => true]);
+        $outcome = app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $this->assertSame(SubmissionResult::ACCEPTED, $outcome);
+        $this->assertSame([FulfillmentStatus::Submitted, 'O-TOROD-1'], [$fulfillment->fresh()->status, $fulfillment->fresh()->provider_reference]);
+        $this->assertSame(1, count($this->torod->submitted));
+        $this->assertSame(1, ProviderFulfillment::count());
+    }
+
+    public function test_only_the_buyer_registered_operations_read_the_recipient(): void
+    {
+        $this->assertTrue(ChannelOperations::readsBuyerData('trendyol.order_recipient'));
+        $this->assertFalse(ChannelOperations::readsBuyerData('trendyol.orders_list'));
+    }
+}
