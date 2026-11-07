@@ -175,6 +175,8 @@ return [
             // rate limits): a drop is sent at once when it is at least this percent of the quantity shown, or when the new quantity is at most `reduction_always_below_units`.
             'reduction_dead_band_percent' => (int) env('SALES_CHANNELS_STOCK_REDUCTION_DEAD_BAND_PERCENT', 10),
             'reduction_always_below_units' => (int) env('SALES_CHANNELS_STOCK_REDUCTION_ALWAYS_BELOW_UNITS', 10),
+            // A reservation of an order that is still open is listed on the hub as held for days after this many.
+            'aged_hold_days' => (int) env('SALES_CHANNELS_STOCK_AGED_HOLD_DAYS', 7),
             // Old released reservations are deleted by `channels:prune` after this many days.
             'released_reservation_days' => (int) env('SALES_CHANNELS_STOCK_RELEASED_RESERVATION_DAYS', 30),
         ],

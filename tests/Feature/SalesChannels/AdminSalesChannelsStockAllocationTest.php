@@ -41,7 +41,7 @@ class AdminSalesChannelsStockAllocationTest extends AdminSalesChannelsTestCase
     /** @param list<int> $figures the cells of one row: available, held by open channel orders, held by store orders, net */
     private function assertRowShows(array $figures, string $html): void
     {
-        $cells = implode('\s*', array_map(static fn (int $figure): string => '<td class="fs-12 k-table__num">' . $figure . '(?:<div>.*?<\/div>)?<\/td>', $figures));
+        $cells = implode('\s*', array_map(static fn (int $figure): string => '<td class="fs-12 k-table__num">' . $figure . '(?:\s*<div[^>]*>.*?<\/div>)*\s*<\/td>', $figures));
 
         $this->assertMatchesRegularExpression('/' . $cells . '/s', $html);
     }

@@ -5,7 +5,9 @@ namespace App\Services\SalesChannels\Inventory;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Models\InventoryLocation;
 use App\Models\InventoryLocationBalance;
+use App\Models\InventoryPool;
 use App\Models\ProviderProductMapping;
+use App\Services\SalesChannels\Inventory\Allocation\PoolListings;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
@@ -18,18 +20,41 @@ class LocationStockPage
     public function __construct(
         private readonly LocationStockReader $reader,
         private readonly PoolNet $pools,
+        private readonly ReservationService $reservations,
+        private readonly PoolListings $listings,
     ) {
     }
 
     /**
      * @return array{rows: LengthAwarePaginator, skus: int}
-     *     each row: {sku: string|null, product_id: int|null, variant_key: string, availability: StockAvailability, pool: PoolFigures, extras: array{reserved: int|null, unfulfillable: int|null, inbound: int|null, total: int|null}|null}
+     *     each row: {sku: string|null, product_id: int|null, variant_key: string, availability: StockAvailability, pool: PoolFigures, holds: array<string, int> (open orders' units by channel),
+     *     members: list<SalesChannelProductMapping> (the listings the pool was last shared between), extras: array{reserved: int|null, unfulfillable: int|null, inbound: int|null, total: int|null}|null}
      */
     public function for(InventoryLocation $location, ?string $sku, int $perPage): array
     {
         $page = $location->provider !== null ? $this->providerRows($location, $sku, $perPage) : $this->balanceRows($location, $sku, $perPage);
 
-        return ['rows' => $page, 'skus' => $page->total()];
+        return ['rows' => $this->withPools($location, $page), 'skus' => $page->total()];
+    }
+
+    /** Each row with the pool it belongs to: the pool's own buffer (so that the net is the one the publisher works from), who promised its units, and the listings that share it. */
+    private function withPools(InventoryLocation $location, LengthAwarePaginator $page): LengthAwarePaginator
+    {
+        $keys = $page->getCollection()->filter(static fn (array $row): bool => $row['product_id'] !== null)
+            ->map(static fn (array $row): PoolKey => new PoolKey((int) $location->id, (int) $row['product_id'], $row['variant_key']))->values();
+        $buffers = InventoryPool::where('location_id', $location->id)->whereIn('product_id', $keys->map(static fn (PoolKey $key): int => $key->productId)->unique()->all())->get()
+            ->mapWithKeys(static fn (InventoryPool $pool): array => [(string) new PoolKey($location->id, $pool->product_id, $pool->variant_key) => (int) $pool->safety_buffer]);
+        $members = $this->listings->of($keys->all());
+
+        return $page->setCollection($page->getCollection()->map(function (array $row) use ($location, $buffers, $members): array {
+            $key = new PoolKey((int) $location->id, (int) $row['product_id'], $row['variant_key']);
+
+            return $row + [
+                'pool' => $this->pools->of($location, $key->productId, $key->variantKey, $row['availability'], buffer: $buffers[(string) $key] ?? 0),
+                'holds' => $row['availability']->inFlight > 0 ? $this->reservations->inFlightByChannel($key->locationId, $key->productId, $key->variantKey, $row['availability']->syncedAt) : [],
+                'members' => $members[(string) $key] ?? [],
+            ];
+        }));
     }
 
     private function providerRows(InventoryLocation $location, ?string $sku, int $perPage): LengthAwarePaginator
@@ -41,7 +66,6 @@ class LocationStockPage
             ->orderBy('product_id')->orderBy('variant_key')
             ->paginate($perPage)->withQueryString()
             ->through(fn (ProviderProductMapping $mapping): array => $this->row(
-                location: $location,
                 sku: $mapping->external_sku,
                 productId: (int) $mapping->product_id,
                 variantKey: (string) $mapping->variant_key,
@@ -58,7 +82,6 @@ class LocationStockPage
             ->orderBy('sku')->orderBy('variant_key')
             ->paginate($perPage)->withQueryString()
             ->through(fn (InventoryLocationBalance $balance): array => $this->row(
-                location: $location,
                 sku: $balance->sku,
                 productId: $balance->product_id,
                 variantKey: (string) $balance->variant_key,
@@ -68,15 +91,8 @@ class LocationStockPage
     }
 
     /** @param array{reserved: int|null, unfulfillable: int|null, inbound: int|null, total: int|null}|null $extras */
-    private function row(InventoryLocation $location, ?string $sku, ?int $productId, string $variantKey, StockAvailability $availability, ?array $extras): array
+    private function row(?string $sku, ?int $productId, string $variantKey, StockAvailability $availability, ?array $extras): array
     {
-        return [
-            'sku' => $sku,
-            'product_id' => $productId,
-            'variant_key' => $variantKey,
-            'availability' => $availability,
-            'pool' => $this->pools->of($location, (int) $productId, $variantKey, $availability),
-            'extras' => $extras,
-        ];
+        return ['sku' => $sku, 'product_id' => $productId, 'variant_key' => $variantKey, 'availability' => $availability, 'extras' => $extras];
     }
 }

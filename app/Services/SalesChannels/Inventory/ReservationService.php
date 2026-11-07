@@ -105,4 +105,18 @@ class ReservationService
 
         return $reserved + (int) $committed;
     }
+
+    /**
+     * The same units `inFlight` counts, by the channel that promised them (a reservation made before the channel was recorded is under '').
+     *
+     * @return array<string, int>
+     */
+    public function inFlightByChannel(int $locationId, int $productId, string $variantKey, ?CarbonInterface $snapshotAt): array
+    {
+        return InventoryReservation::where('location_id', $locationId)->where('product_id', $productId)->where('variant_key', $variantKey)
+            ->where(static fn ($query) => $query->where('state', InventoryReservation::RESERVED)->orWhere(static fn ($committed) => $committed->where('state', InventoryReservation::COMMITTED)
+                ->when($snapshotAt !== null, static fn ($after) => $after->where('committed_at', '>', $snapshotAt))))
+            ->selectRaw('sales_channel, sum(quantity) as units')->groupBy('sales_channel')->orderBy('sales_channel')->pluck('units', 'sales_channel')
+            ->map(static fn ($units): int => (int) $units)->all();
+    }
 }
