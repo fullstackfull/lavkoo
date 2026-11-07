@@ -78,7 +78,7 @@ jobs:
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
   tests-mysql:
-    name: Fulfillment, sales-channel, cost + security tests, MySQL 8
+    name: Fulfillment + security tests, MySQL 8
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -119,7 +119,7 @@ jobs:
         run: cp .env.example .env
       - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Feature/CiDatabaseTest.php --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php --display-skipped
 
   # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
   # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.
@@ -170,3 +170,57 @@ jobs:
             build/overlay.tar.gz
             build/overlay.tar.gz.sha256
           retention-days: 14
+
+  # The sales-channel and operational-cost modules on a real MySQL. They are many (about 1,300 tests, each building its schema from the real migrations), so they run as their own job,
+  # in two groups side by side, with a timeout of their own; the job above is left as the Fulfillment workstream set it up.
+  tests-mysql-sales-channels:
+    name: Sales-channel and cost tests, MySQL 8 (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: sales channels
+            paths: tests/Feature/SalesChannels
+          - group: costs
+            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Feature/CiDatabaseTest.php
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: pharmacy_testing
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      EXPECT_DB_DRIVER: mysql
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: pharmacy_testing
+      DB_USERNAME: root
+      DB_PASSWORD: ci-root-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          coverage: none
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-8.3-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-8.3-
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Environment
+        run: cp .env.example .env
+      - name: Tests against real MySQL (unique keys, locks, JSON key order, collation, decimals, dates)
+        # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
+        run: vendor/bin/phpunit -c phpunit.mysql.xml ${{ matrix.paths }} --display-skipped
