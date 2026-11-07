@@ -44,7 +44,8 @@ jobs:
   tests-sqlite:
     name: Tests, SQLite (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The whole suite is now about 4,700 tests: 14 minutes on one runner, more than 20 on another, so the limit leaves room.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -196,7 +197,7 @@ jobs:
             build/overlay.tar.gz.sha256
           retention-days: 14
 
-  # The sales-channel and operational-cost modules on a real MySQL. They are many (about 1,300 tests, each building its schema from the real migrations), so they run as their own job,
+  # The sales-channel and operational-cost modules on a real MySQL. They are many (about 1,900 tests, each building its schema from the real migrations), so they run as their own job,
   # in two groups side by side, with a timeout of their own; the job above is left as the Fulfillment workstream set it up.
   tests-mysql-sales-channels:
     name: Sales-channel and cost tests, ${{ matrix.engine }} (${{ matrix.group }})
