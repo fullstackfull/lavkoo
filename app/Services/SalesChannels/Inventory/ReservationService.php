@@ -69,13 +69,19 @@ class ReservationService
         return $reservation;
     }
 
-    /** Units promised and not yet reflected in the location's own count. @param CarbonInterface|null $snapshotAt when the location's figure was taken */
-    public function inFlight(int $locationId, int $productId, string $variantKey, ?CarbonInterface $snapshotAt): int
+    /**
+     * Units promised and not yet reflected in the location's own count.
+     *
+     * @param CarbonInterface|null $snapshotAt when the location's figure was taken
+     * @param string|null $exceptKey a reservation to leave out: an order asking whether the shelf can cover IT must not be counted against itself
+     */
+    public function inFlight(int $locationId, int $productId, string $variantKey, ?CarbonInterface $snapshotAt, ?string $exceptKey = null): int
     {
+        $others = static fn ($query) => $query->when($exceptKey !== null, static fn ($inner) => $inner->where('reservation_key', '!=', $exceptKey));
         $reserved = (int) InventoryReservation::where('location_id', $locationId)->where('product_id', $productId)->where('variant_key', $variantKey)
-            ->where('state', InventoryReservation::RESERVED)->sum('quantity');
+            ->where('state', InventoryReservation::RESERVED)->tap($others)->sum('quantity');
         $committed = InventoryReservation::where('location_id', $locationId)->where('product_id', $productId)->where('variant_key', $variantKey)
-            ->where('state', InventoryReservation::COMMITTED)
+            ->where('state', InventoryReservation::COMMITTED)->tap($others)
             ->when($snapshotAt !== null, static fn ($query) => $query->where('committed_at', '>', $snapshotAt))
             ->sum('quantity');
 

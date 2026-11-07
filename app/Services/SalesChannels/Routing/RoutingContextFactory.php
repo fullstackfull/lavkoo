@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryLocation;
+use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Inventory\LocationStockReader;
 
 /** Reads an order and its lines into the facts a routing decision is allowed to use. */
@@ -39,15 +40,16 @@ class RoutingContextFactory
             orderTotal: $mapping->order_total === null ? null : (string) $mapping->order_total,
             currentExecutionPolicy: $mapping->execution_policy,
             alreadyDispatched: $mapping->order_id !== null || $mapping->shipment_link_state === ExternalOrderMapping::LINK_LINKED,
-            lines: $mapping->lines->map(fn (ExternalOrderLine $line): RoutingLine => $this->line($line, $locations->get($line->inventory_location_id)))->all(),
+            lines: $mapping->lines->map(fn (ExternalOrderLine $line): RoutingLine => $this->line($mapping, $line, $locations->get($line->inventory_location_id)))->all(),
             accountPolicy: ExecutionPolicy::tryFrom((string) $mapping->account?->execution_policy) ?? ExecutionPolicy::ManualReview,
         );
     }
 
-    private function line(ExternalOrderLine $line, ?InventoryLocation $location): RoutingLine
+    private function line(ExternalOrderMapping $mapping, ExternalOrderLine $line, ?InventoryLocation $location): RoutingLine
     {
+        // The units this very line holds are not counted against it: the order is asking whether the shelf covers it, and it was reserved a moment ago when it was read.
         $confirmed = $location !== null && $line->product_id !== null
-            && ($availability = $this->stock->availability($location, (int) $line->product_id, (string) $line->variant_key))->isPublishable()
+            && ($availability = $this->stock->availability($location, (int) $line->product_id, (string) $line->variant_key, ChannelOrderReservations::keyOf($mapping, $line)))->isPublishable()
             && (int) $availability->sellable() >= $line->activeQuantity();
 
         return new RoutingLine(

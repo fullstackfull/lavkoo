@@ -27,6 +27,7 @@ class TrendyolWebhookIngestor
     public const IGNORED_OFF = 'ignored_capability_off';
     public const IGNORED_INVALID = 'ignored_invalid';
     public const FAILED = 'failed';
+    private const RECEIVED = 'received';
 
     public function __construct(
         private readonly TrendyolOrderMapper $mapper,
@@ -81,11 +82,12 @@ class TrendyolWebhookIngestor
         return self::APPLIED;
     }
 
-    /** @return SalesChannelEvent|null null when this exact event was stored before */
+    /** @return SalesChannelEvent|null null when this exact event was stored before and has been dealt with */
     private function record(SalesChannelAccount $account, array $package, string $status): ?SalesChannelEvent
     {
         $packageId = (string) $package['shipmentPackageId'];
         $modified = (string) ($package['lastModifiedDate'] ?? '');
+        $dedupeKey = hash('sha256', implode('|', ['trendyol', $account->id, $packageId, $status, $modified]));
 
         try {
             return SalesChannelEvent::create([
@@ -93,15 +95,19 @@ class TrendyolWebhookIngestor
                 'channel' => $account->channel,
                 'source' => 'webhook',
                 'event_type' => mb_substr('order_package.' . strtolower($status), 0, 60),
-                'dedupe_key' => hash('sha256', implode('|', ['trendyol', $account->id, $packageId, $status, $modified])),
+                'dedupe_key' => $dedupeKey,
                 'external_reference' => $package['orderNumber'] . '/' . $packageId,
                 'payload' => ['order_number' => (string) $package['orderNumber'], 'shipment_package_id' => $packageId, 'status' => $status, 'last_modified' => $modified],
-                'outcome' => 'received',
+                'outcome' => self::RECEIVED,
                 'occurred_at' => is_numeric($modified) ? CarbonImmutable::createFromTimestampMsUTC((int) $modified) : null,
                 'received_at' => now(),
             ]);
         } catch (UniqueConstraintViolationException) {
-            return null;
+            // Stored before. A delivery whose application never finished (the server failed while applying it) is still `received`, and Trendyol sends it again expecting it to be applied now;
+            // one that was dealt with, applied or refused, is a repeat.
+            $stored = SalesChannelEvent::where('dedupe_key', $dedupeKey)->first();
+
+            return $stored?->outcome === self::RECEIVED ? $stored : null;
         }
     }
 

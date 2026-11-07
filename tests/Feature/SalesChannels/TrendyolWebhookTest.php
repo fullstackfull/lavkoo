@@ -10,11 +10,14 @@ use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
 use App\Services\SalesChannels\Support\ChannelOperations;
+use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
 use App\Services\SalesChannels\Trendyol\TrendyolWebhookManager;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
+use Mockery\MockInterface;
+use RuntimeException;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\Fixtures\TrendyolFixtures as Trendyol;
 use Tests\TestCase;
@@ -122,6 +125,28 @@ class TrendyolWebhookTest extends TestCase
 
         $this->assertSame(1, ExternalOrderMapping::count());
         $this->assertSame(1, SalesChannelEvent::count());
+    }
+
+    public function test_a_delivery_that_failed_while_being_applied_is_applied_when_trendyol_sends_it_again(): void
+    {
+        $real = app(ChannelOrderIngestor::class);
+        $calls = 0;
+        $this->partialMock(ChannelOrderIngestor::class, static fn (MockInterface $mock) => $mock->shouldReceive('ingest')->andReturnUsing(static function (mixed ...$arguments) use (&$calls, $real) {
+            if (++$calls === 1) {
+                throw new RuntimeException('deadlock found');
+            }
+
+            return $real->ingest(...$arguments);
+        }));
+        $this->postJson($this->url(), Trendyol::package(), $this->key())->assertStatus(500);
+        $this->assertSame(['received'], SalesChannelEvent::pluck('outcome')->all(), 'The event was kept, and never applied.');
+        $this->assertSame(0, ExternalOrderMapping::count());
+
+        $this->postJson($this->url(), Trendyol::package(), $this->key())->assertOk()->assertJsonPath('counts.applied', 1)->assertJsonPath('counts.duplicate', 0);
+
+        $this->assertSame(1, ExternalOrderMapping::count());
+        $this->assertSame(['applied'], SalesChannelEvent::pluck('outcome')->all(), 'Still one event: the same one, now dealt with.');
+        $this->postJson($this->url(), Trendyol::package(), $this->key())->assertOk()->assertJsonPath('counts.duplicate', 1);
     }
 
     public function test_an_old_event_arriving_after_a_newer_one_does_not_move_the_order_backwards(): void

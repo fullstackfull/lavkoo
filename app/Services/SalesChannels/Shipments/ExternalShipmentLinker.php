@@ -158,7 +158,7 @@ class ExternalShipmentLinker
         if ($mapping->fulfillmentMode() === FulfillmentMode::Unknown) {
             throw new ShipmentLinkRefused('Who fulfils this order is not known yet.');
         }
-        if ($mapping->shipment_link_state === ExternalOrderMapping::LINK_LINKED && $mapping->shipment_reference !== $reference) {
+        if ($mapping->shipment_link_state === ExternalOrderMapping::LINK_LINKED && ($mapping->shipment_reference !== $reference || $mapping->provider !== $provider)) {
             throw new ShipmentLinkRefused('This order is already linked to another shipment: unlink it first.');
         }
         $elsewhere = ExternalOrderMapping::where('provider', $provider)->where('shipment_reference', $reference)->where('id', '!=', $mapping->id)->exists();

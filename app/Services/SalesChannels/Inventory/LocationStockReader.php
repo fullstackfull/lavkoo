@@ -24,13 +24,14 @@ class LocationStockReader
     {
     }
 
-    public function availability(InventoryLocation $location, int $productId, string $variantKey = ''): StockAvailability
+    /** @param string|null $exceptReservation a reservation not to count against the figure (the order that is asking whether the shelf can cover it) */
+    public function availability(InventoryLocation $location, int $productId, string $variantKey = '', ?string $exceptReservation = null): StockAvailability
     {
         $found = $location->provider !== null
             ? $this->fromProviderMapping($location, $productId, $variantKey)
             : $this->fromBalance($location, $productId, $variantKey);
 
-        return $this->settled($location, $productId, $variantKey, $found);
+        return $this->settled($location, $productId, $variantKey, $found, $exceptReservation);
     }
 
     /** What a provider's own mapping says about one product, judged exactly as the engine and the publisher judge it (for a screen that lists a page of them). */
@@ -45,7 +46,7 @@ class LocationStockReader
         return $this->settled($location, (int) $balance->product_id, (string) $balance->variant_key, $this->readBalance($balance));
     }
 
-    private function settled(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $found): StockAvailability
+    private function settled(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $found, ?string $exceptReservation = null): StockAvailability
     {
         if ($found->available === null) {
             return $found;
@@ -56,7 +57,7 @@ class LocationStockReader
             quality: $this->withFreshness($found->quality, $found->syncedAt),
             syncedAt: $found->syncedAt,
             source: $found->source,
-            inFlight: $this->reservations->inFlight((int) $location->id, $productId, $variantKey, $found->syncedAt),
+            inFlight: $this->reservations->inFlight((int) $location->id, $productId, $variantKey, $found->syncedAt, $exceptReservation),
         );
     }
 

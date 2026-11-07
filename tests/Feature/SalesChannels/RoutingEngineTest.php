@@ -12,6 +12,7 @@ use App\Models\ExternalOrderMapping;
 use App\Models\FulfillmentRoutingDecision;
 use App\Models\FulfillmentRoutingRule;
 use App\Models\InventoryLocation;
+use App\Models\InventoryReservation;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderProductMapping;
 use App\Models\SalesChannelAccount;
@@ -293,6 +294,32 @@ class RoutingEngineTest extends TestCase
         $this->rule(['action' => 'monitor_only', 'requires_confirmed_stock' => true]);
 
         $this->assertSame('no_rule_matched', $this->decide($this->place())->reason_code);
+    }
+
+    public function test_an_order_is_not_turned_away_by_the_units_it_holds_itself(): void
+    {
+        $this->stocked('SKU-1', 10, $this->torod, providerStock: 3);
+        $this->rule(['action' => 'monitor_only', 'requires_confirmed_stock' => true]);
+        $mapping = $this->place();
+        $this->assertSame(2, (int) $mapping->lines->first()->activeQuantity(), 'The order asks for two of the three units on the shelf.');
+        $this->assertSame(2, (int) InventoryReservation::where('state', InventoryReservation::RESERVED)->sum('quantity'), 'Reading the order reserved them.');
+
+        $decision = $this->decide($mapping);
+
+        $this->assertSame('rule_monitor_only', $decision->reason_code, 'Three on the shelf cover an order of two; the order\'s own reservation is not subtracted from what it needs.');
+    }
+
+    public function test_another_orders_reservation_still_counts_against_the_shelf(): void
+    {
+        $this->stocked('SKU-1', 10, $this->torod, providerStock: 3);
+        $this->rule(['action' => 'monitor_only', 'requires_confirmed_stock' => true]);
+        $first = $this->place(orderId: 'ORD-1');
+        $second = $this->place(orderId: 'ORD-2');
+        $this->assertSame(4, (int) InventoryReservation::where('state', InventoryReservation::RESERVED)->sum('quantity'));
+
+        foreach ([$first, $second] as $order) {
+            $this->assertSame('no_rule_matched', $this->decide($order)->reason_code, 'Each order sees the other one\'s two units held: three on the shelf cannot cover two orders of two.');
+        }
     }
 
     // ---- what is kept, and what is not decided twice ----------------------------------------------------

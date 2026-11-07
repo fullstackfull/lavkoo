@@ -161,6 +161,22 @@ class ShipmentLinkingTest extends TestCase
         $this->assertSame('TOR-2', $mapping->refresh()->shipment_reference);
     }
 
+    public function test_the_same_reference_at_another_provider_is_another_shipment_and_needs_an_unlink_too(): void
+    {
+        $mapping = $this->order();
+        $this->linker->link($mapping, 'torod_point', 'REF-1', 1);
+
+        try {
+            $this->linker->link($mapping->refresh(), 'm5azn', 'REF-1', 1);
+            $this->fail('A linked order is not moved to another provider without an unlink.');
+        } catch (ShipmentLinkRefused $refused) {
+            $this->assertStringContainsString('unlink it first', $refused->getMessage());
+        }
+
+        $this->assertSame('torod_point', $mapping->refresh()->provider);
+        $this->assertSame('torod_point', $this->linker->link($mapping, 'torod_point', 'REF-1', 1)->provider, 'Saying the same thing again is not a change.');
+    }
+
     public function test_unlinking_puts_back_the_tracking_the_channel_reported_before_the_link(): void
     {
         $mapping = $this->order('111', '900', ['carrier' => 'Trendyol Express', 'trackingNumber' => 'CHANNEL-1', 'trackingUrl' => 'https://track.example/CHANNEL-1']);
