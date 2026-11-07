@@ -11,6 +11,7 @@ use App\Models\AddressCity;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderProductMapping;
+use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\CatalogStagingService;
 use App\Services\Fulfillment\Contracts\HandlesWebhooks;
 use App\Services\Fulfillment\Contracts\ProviderAdapter;
@@ -218,10 +219,10 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             }
         }
 
-        if (trim((string) ($address['address'] ?? '')) === '') {
+        if (AddressSnapshot::plain($address, 'address') === '') {
             return PreflightResult::hold(HoldReason::ADDRESS_INCOMPLETE);
         }
-        if (SaudiPhone::normalize((string) ($address['phone'] ?? '')) === null) {
+        if (SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone')) === null) {
             return PreflightResult::hold(HoldReason::PHONE_INVALID);
         }
         $resolution = $this->cities->resolveForAddress($address);

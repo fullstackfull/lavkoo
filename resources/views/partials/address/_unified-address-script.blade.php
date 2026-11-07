@@ -17,14 +17,16 @@
 
             var DEBOUNCE_MS = 180;
             var PAGE_SIZE = 50;
-            var LETTERS = {'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا', 'ى': 'ي', 'ئ': 'ي', 'ؤ': 'و', 'ة': 'ه'};
+            var LETTERS = {'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا', 'ى': 'ي', 'ئ': 'ي', 'ؤ': 'و', 'ة': 'ه', 'ی': 'ي', 'ک': 'ك', 'ھ': 'ه', 'ہ': 'ه', 'ە': 'ه'};
 
             function fold(text) {
                 return String(text || '')
                     .toLowerCase()
-                    .replace(/[٠-٩]/g, function (digit) { return String(digit.charCodeAt(0) - 1632); })
-                    .replace(/[ً-ٰٟـ]/g, '')
-                    .replace(/[أإآٱىئؤة]/g, function (letter) { return LETTERS[letter]; })
+                    .replace(/[\u0660-\u0669]/g, function (digit) { return String(digit.charCodeAt(0) - 1632); })
+                    .replace(/[\u06F0-\u06F9]/g, function (digit) { return String(digit.charCodeAt(0) - 1776); })
+                    .replace(/[\uFF10-\uFF19]/g, function (digit) { return String(digit.charCodeAt(0) - 65296); })
+                    .replace(/[\u064b-\u065f\u0670\u0640]/g, '')
+                    .replace(/[\u0623\u0625\u0622\u0671\u0649\u0626\u0624\u0629\u06CC\u06A9\u06BE\u06C1\u06D5]/g, function (letter) { return LETTERS[letter]; })
                     .replace(/[^\p{L}\p{N}]+/gu, '');
             }
 

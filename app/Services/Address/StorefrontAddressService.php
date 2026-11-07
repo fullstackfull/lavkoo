@@ -5,6 +5,7 @@ namespace App\Services\Address;
 use App\Enums\Address\AddressChannel;
 use App\Models\Order;
 use App\Models\ShippingAddress;
+use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\ShippingAddressService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -141,11 +142,12 @@ class StorefrontAddressService
     /**
      * Is this the phone number a guest order was placed with? The order's own copy of its addresses answers, so editing or removing
      * the saved address later does not decide who may look an order up; only an order that kept no copy falls back to the saved
-     * addresses it points to. A blank number matches nothing.
+     * addresses it points to. Only text can be a phone number (a JSON `true` or `551234567` is not one), a blank number matches
+     * nothing, and two Saudi numbers written differently (+966…, 05…) are the same number.
      */
     public function orderWasPlacedWithPhone(Order $order, mixed $phone): bool
     {
-        if (!is_scalar($phone) || trim((string) $phone) === '') {
+        if (!is_string($phone) || trim($phone) === '') {
             return false;
         }
 
@@ -155,12 +157,26 @@ class StorefrontAddressService
             : [$order->shippingAddress?->phone, $order->billingAddress?->phone];
 
         foreach ($knownPhones as $knownPhone) {
-            if (filled($knownPhone) && $knownPhone == $phone) {
+            if (is_string($knownPhone) && $this->isSamePhone(known: $knownPhone, given: $phone)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function isSamePhone(string $known, string $given): bool
+    {
+        $known = trim($known);
+        $given = trim($given);
+        if ($known === '' || $given === '') {
+            return false;
+        }
+
+        $knownSaudi = SaudiPhone::normalize($known);
+        $givenSaudi = SaudiPhone::normalize($given);
+
+        return $knownSaudi !== null && $givenSaudi !== null ? hash_equals($knownSaudi, $givenSaudi) : hash_equals($known, $given);
     }
 
     /** True when the posted shipping (or billing) form misses a field the checkout cannot do without. */

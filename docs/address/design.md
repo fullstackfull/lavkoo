@@ -34,7 +34,7 @@ No foreign keys to store tables, nothing renamed or dropped, no backfill in a mi
 ## Mode (the switch an administrator controls)
 
 `off` (default) — the old forms, validation and data model everywhere, plus the mode-independent fixes listed in the README · `soft` — the website and the panels must use the structured address for Saudi addresses, the mobile app and older API clients may still send the old fields
-(those orders wait for review at fulfilment instead of failing) · `strict` — every client. The mode in force is `off` when the migrations have not run, when no city exists (an empty list can
+(those orders are accepted; at fulfilment their typed city is used only when it is certain, otherwise a person looks at the order first) · `strict` — every client. The mode in force is `off` when the migrations have not run, when no city exists (an empty list can
 never lock customers out) and while the ZIP allow-list restriction is on (the chosen mode is kept and comes back when the restriction is turned off).
 
 ## The flows
@@ -52,7 +52,11 @@ never lock customers out) and while the ZIP allow-list restriction is on (the ch
 ## Security
 
 Server-side validation of country, region, city/region consistency, active flags, National Address, phone, lengths and Unicode; plain-integer ids; provider ids from clients ignored; owner-scoped lookups
-(fixing the existing IDOR fall-throughs in the checkout handlers); no addresses, phone numbers or National Addresses in logs or hold messages (city name only); staging scrubbing and log redaction cover the new keys.
+(fixing the existing IDOR fall-throughs in the checkout handlers); no addresses, phone numbers or National Addresses in logs or hold messages (city name only, with anything that looks like a phone number or e-mail address masked); staging scrubbing and log redaction cover the new keys.
+
+**What "owner" means for a guest.** A registered customer is proved by the sign-in. The website's guest is proved by the server-side session (the guest id never leaves it). A guest of the **mobile API** is only the `guest_id` the app sends:
+`GET /api/v1/get-guest-id` hands out a sequential number and no secret, so the platform cannot tell the guest from anyone who guesses the number. Address lists, edits, deletes and a signed-in customer's "carry my guest address over" all trust that
+number. That predates this work and cannot be closed on the server alone: it needs a per-guest secret issued by `get-guest-id`, sent by the app and required on every guest route (decision 9 in the README).
 
 ## Future integrations
 

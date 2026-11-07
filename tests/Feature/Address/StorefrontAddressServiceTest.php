@@ -271,6 +271,7 @@ class StorefrontAddressServiceTest extends StorefrontTestCase
 
         $this->assertSame([['label' => 'address_city', 'value' => 'الرياض'], ['label' => 'zip_code', 'value' => '12211']], AddressSnapshotLines::location(['city' => 'الرياض', 'zip' => '12211']));
         $this->assertSame([['label' => 'address_city', 'value' => 'الرياض']], AddressSnapshotLines::location((object) ['city' => 'الرياض', 'zip' => ' ']));
+        $this->assertSame([['label' => 'address_city', 'value' => 'الرياض'], ['label' => 'zip_code', 'value' => '12211']], AddressSnapshotLines::location(['city' => 'الرياض', 'zip' => 12211]), 'a postal code stored as a number is still a postal code');
         $this->assertSame([['label' => 'address_region', 'value' => 'Riyadh Province'], ['label' => 'address_city', 'value' => 'Riyadh']], AddressSnapshotLines::location(['state' => 'Riyadh Province', 'city' => 'Riyadh']), 'an old copy that has a state names it');
         $this->assertSame([], AddressSnapshotLines::location([]));
         $this->assertSame([], AddressSnapshotLines::location(null));

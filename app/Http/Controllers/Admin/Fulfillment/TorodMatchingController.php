@@ -158,8 +158,12 @@ class TorodMatchingController extends Controller
     public function alias(Request $request): RedirectResponse
     {
         $data = $request->validate(['alias' => ['required', 'string', 'max:191'], 'external_city_id' => ['required', 'string', 'max:32']]);
-        $this->cities->addAlias($data['alias'], $data['external_city_id'], auth('admin')->id());
-        ToastMagic::success(translate('city_alias_saved'));
+        try {
+            $this->cities->addAlias($data['alias'], $data['external_city_id'], auth('admin')->id());
+            ToastMagic::success(translate('city_alias_saved'));
+        } catch (InvalidArgumentException $exception) {
+            SafeToast::error('', $exception->getMessage());
+        }
 
         return back();
     }
@@ -249,7 +253,7 @@ class TorodMatchingController extends Controller
         $admin = auth('admin')->user();
 
         try {
-            $this->cityMappings->retire(mappingId: $mapping, adminId: $admin?->getKey(), adminName: $admin?->name);
+            $this->cityMappings->retire(provider: ProviderCode::TorodPoint->value, mappingId: $mapping, adminId: $admin?->getKey(), adminName: $admin?->name);
         } catch (InvalidArgumentException $exception) {
             SafeToast::error('', $exception->getMessage());
 

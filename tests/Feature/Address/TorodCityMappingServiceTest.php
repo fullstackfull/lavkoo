@@ -9,6 +9,7 @@ use App\Models\ProviderCityMapping;
 use App\Models\ProviderCitySyncRun;
 use App\Services\Fulfillment\Data\CityCandidate;
 use App\Services\Fulfillment\ProviderCityMappingService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
@@ -186,18 +187,30 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
     {
         $mapping = $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126', adminId: 7, adminName: 'Owner');
 
-        $this->service()->retire(mappingId: $mapping->id, adminId: 7, adminName: 'Owner');
+        $this->service()->retire(provider: self::PROVIDER, mappingId: $mapping->id, adminId: 7, adminName: 'Owner');
 
         $this->assertNull($this->mappingOf('jeddah'));
         $this->assertSame(MappingStatus::Retired, $mapping->refresh()->status);
         $this->assertSame('retired', collect($mapping->evidence['decisions'])->last()['decision']);
         try {
-            $this->service()->retire(mappingId: $mapping->id);
+            $this->service()->retire(provider: self::PROVIDER, mappingId: $mapping->id);
             $this->fail('a retired mapping was retired again');
         } catch (InvalidArgumentException $exception) {
             $this->assertStringContainsString('approved', $exception->getMessage());
         }
         $this->assertSame(MappingStatus::Approved, $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126')->status, 'a person can approve it again');
+    }
+
+    public function test_a_mapping_of_another_provider_cannot_be_retired_through_this_one(): void
+    {
+        $mapping = $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126');
+
+        try {
+            $this->service()->retire(provider: 'm5azn', mappingId: $mapping->id);
+            $this->fail('a mapping was retired under another provider\'s name');
+        } catch (ModelNotFoundException) {
+            $this->assertNotNull($this->mappingOf('jeddah'), 'it is still approved');
+        }
     }
 
     public function test_a_mapping_can_only_point_at_a_city_the_provider_lists_now(): void
@@ -257,7 +270,7 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
         $this->assertSame('sync_not_complete', $this->service()->autoApproveUnique(self::PROVIDER)['skipped'], 'a failed attempt does not make the earlier partial list complete');
 
         $this->completeSync('full');
-        $this->assertSame(['approved' => 6, 'skipped' => null], $this->service()->autoApproveUnique(self::PROVIDER));
+        $this->assertSame(['approved' => 3, 'skipped' => null], $this->service()->autoApproveUnique(self::PROVIDER));
     }
 
     public function test_a_list_that_is_only_long_enough_to_look_complete_never_approves_anything_by_itself(): void
@@ -287,11 +300,11 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
         $this->assertEquals([
             $this->ids['jeddah'] => '41126',
             $this->ids['makkah'] => '50006',
-            $this->ids['dammam'] => '41127',
             $this->ids['khobar'] => '50001',
-            $this->ids['hafuf_ruh'] => '50003',
-            $this->ids['hafuf_eas'] => '50002',
-        ], $approved->all(), 'each has exactly one candidate that nothing contradicts, and the two Hofufs get their own because the other region\'s listing is not a candidate');
+        ], $approved->all(), 'each has exactly one candidate that nothing contradicts, whose name the provider lists once, and that it does not say is not selected');
+        $this->assertNull($this->mappingOf('dammam'), 'Torod says its Dammam is not selected: a person looks at it');
+        $this->assertNull($this->mappingOf('hafuf_ruh'), 'Torod lists the name twice, even though the regions tell the two apart: a person approves each');
+        $this->assertNull($this->mappingOf('hafuf_eas'));
         $this->assertNull($this->mappingOf('riyadh'), 'Riyadh has two candidates: a person decides');
         $this->assertNull($this->mappingOf('taif'), 'its region name is none of ours: a person looks at it');
         $this->assertNull($this->mappingOf('umm_a'));
@@ -317,11 +330,80 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
         $this->assertSame([], $this->candidateIds('jeddah'));
     }
 
+    public function test_a_name_the_provider_lists_twice_is_never_approved_automatically_whatever_its_regions_say(): void
+    {
+        ProviderCity::query()->where('external_id', '230194')->update(['region_name_en' => 'Makkah', 'region_name_ar' => 'مكة المكرمة']);
+        $this->completeSync();
+
+        $this->assertSame(['36189'], $this->candidateIds('riyadh'), 'the second record names another of our regions, so it is no candidate for our Riyadh');
+        $this->service()->autoApproveUnique(self::PROVIDER);
+
+        $this->assertNull($this->mappingOf('riyadh'), 'but it is still a second Riyadh in Torod\'s list: nothing is chosen for a person');
+    }
+
+    public function test_a_provider_city_that_is_not_selected_is_left_for_a_person_and_one_with_no_say_is_not(): void
+    {
+        $this->completeSync();
+        ProviderCity::query()->where('external_id', '50001')->update(['is_selected' => false]);
+        ProviderCity::query()->where('external_id', '41127')->update(['is_selected' => null]);
+
+        $this->service()->autoApproveUnique(self::PROVIDER);
+
+        $this->assertNull($this->mappingOf('khobar'));
+        $this->assertSame('41127', (string) $this->mappingOf('dammam')?->external_city_id);
+    }
+
+    public function test_a_rejection_a_person_records_while_the_candidates_are_worked_out_is_never_overwritten(): void
+    {
+        $this->completeSync();
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('jeddah')]));
+        $pending = ProviderCityMapping::query()->where('address_city_id', $this->ids['jeddah'])->sole();
+        $this->beforeTheNextMappingUpdate(static fn () => DB::table('provider_city_mappings')->where('id', $pending->id)->update(['status' => MappingStatus::Rejected->value]));
+
+        $this->service()->autoApproveUnique(self::PROVIDER);
+
+        $this->assertSame(MappingStatus::Rejected, $pending->fresh()->status, 'the person\'s decision stands');
+        $this->assertNull($this->mappingOf('jeddah'));
+        $this->assertNotNull($this->mappingOf('khobar'), 'the rest of the run goes on');
+    }
+
+    public function test_a_candidate_a_person_approved_for_the_same_city_meanwhile_does_not_break_the_run(): void
+    {
+        $this->completeSync();
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('jeddah')]));
+        $pending = ProviderCityMapping::query()->where('address_city_id', $this->ids['jeddah'])->sole();
+        $this->beforeTheNextMappingUpdate(function (): void {
+            $this->torodCity('41999', 'جدة', 'Jeddah Old Town', '1336', 'Makkah', 'مكة المكرمة', true, 'JOT');
+            $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41999', adminId: 3, adminName: 'Owner');
+        });
+
+        $result = $this->service()->autoApproveUnique(self::PROVIDER);
+
+        $this->assertNull($result['skipped']);
+        $this->assertSame('41999', (string) $this->mappingOf('jeddah')?->external_city_id, 'the person\'s approval is the mapping');
+        $this->assertSame(MappingStatus::Pending, $pending->fresh()->status, 'the proposal it replaced is left as it was');
+        $this->assertNotNull($this->mappingOf('khobar'), 'the rest of the run goes on');
+    }
+
+    /** Runs this once, right before the first UPDATE of the mapping table the code under test makes: another person acting at that moment. */
+    private function beforeTheNextMappingUpdate(callable $action): void
+    {
+        $done = false;
+        DB::beforeExecuting(static function (string $query) use (&$done, $action): void {
+            if ($done || preg_match('/^update\s+[`"]provider_city_mappings[`"]/i', $query) !== 1) {
+                return;
+            }
+
+            $done = true;
+            $action();
+        });
+    }
+
     public function test_a_person_decision_is_never_overridden_by_the_automatic_approval(): void
     {
         $this->completeSync();
         $jeddah = $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126');
-        $this->service()->retire(mappingId: $jeddah->id);
+        $this->service()->retire(provider: self::PROVIDER, mappingId: $jeddah->id);
         $this->service()->reject(provider: self::PROVIDER, cityId: $this->ids['khobar'], externalCityId: '50001');
 
         $this->service()->autoApproveUnique(self::PROVIDER);
@@ -349,8 +431,8 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
 
         $this->assertSame(0, DB::table('audit_logs')->where('action', 'provider_city_mapping.approved')->count());
         $summary = DB::table('audit_logs')->where('action', 'provider_city_mapping.auto_approved')->first();
-        $this->assertSame(['provider' => self::PROVIDER, 'approved' => 6], json_decode((string) $summary->after, true));
-        $this->assertSame(6, ProviderCityMapping::query()->where('method', 'auto_unique')->count());
+        $this->assertSame(['provider' => self::PROVIDER, 'approved' => 3], json_decode((string) $summary->after, true));
+        $this->assertSame(3, ProviderCityMapping::query()->where('method', 'auto_unique')->count());
     }
 
     public function test_cities_with_several_candidates_are_listed_as_conflicts_until_one_is_approved(): void

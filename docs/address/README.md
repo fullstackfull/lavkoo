@@ -17,7 +17,7 @@ never a second list of its own. It extends what the store already had (`shipping
 ## How it behaves, in six lines
 
 1. **`off` (the default)**: the old forms, the old validation and the old data model for everyone. The code ships dormant; the tables do not exist until the migrations are run on purpose. A short list of fixes and hardening applies in every mode, listed below.
-2. **`soft`**: the website and the panels must use region / city / district / National Address for Saudi addresses; the mobile app may keep sending the old fields (its orders wait for review at fulfillment instead of failing).
+2. **`soft`**: the website and the panels must use region / city / district / National Address for Saudi addresses; the mobile app may keep sending the old fields (its orders are accepted; at fulfillment the typed city is used only when it is certain, otherwise a person looks at the order first).
 3. **`strict`**: every client must send the structured address.
 4. An order keeps an **immutable copy** of its address (all old keys, `zip` included, plus the ids and the names of the region and city that day).
 5. The provider adapter turns *our city id* into *the provider's city id* through an **approved mapping**; no mapping, a pending one or several candidates ⇒ the shipment is **held** with a reviewable reason, never sent, never guessed.
@@ -29,7 +29,7 @@ Everything that depends on the structured address is dormant, and the pages, API
 
 | # | Change | Why |
 |---|---|---|
-| 1 | every address id that arrives in a request is resolved among the caller's **own** addresses (checkout, account book, REST, payment, seller/POS); the checkout page lists only the signed-in customer's saved addresses (a guest sees none) | IDOR: ids used to be trusted |
+| 1 | every address id that arrives in a request is resolved among the caller's **own** addresses (checkout, account book, REST, payment, seller/POS); the checkout page lists only the signed-in customer's saved addresses (a guest sees none). For a **guest** of the mobile API, "own" means the `guest_id` the device sends, which is not a secret: see decision 9 | IDOR: ids used to be trusted |
 | 2 | the legacy `customer/choose-shipping-address` route checks the session token and behaves like `-other` (same service, same rules) | it was CSRF-exempt and applied different rules |
 | 3 | the courier (delivery-man) app is served the **order's copy** of the address when the order has one, not the live saved row | the copy is what the order was placed with; a staff edit now reaches the courier too |
 | 4 | the POS default delivery address is the customer's newest non-billing address (none for a walk-in customer) | it used to take the highest id of *any* row, including other shoppers' anonymous checkout addresses |
@@ -41,6 +41,12 @@ Everything that depends on the structured address is dormant, and the pages, API
 | 10 | after the migrations, address JSON (list API, order copies) carries four more keys (null) and `GET /api/v1/config` carries `unified_address` | additive |
 | 11 | a Torod order with no approved mapping is matched by an administrator's alias or one exact name in the cached list, **never** by the address's state text | the state used to be tried as a second city, which is a guess |
 | 12 | with the mode off, an old-form edit that moves an address which already has a region and city (matched by the backfill, or made while the mode was on) to another city or country clears those ids with it | the ids must never name a place the address no longer says |
+| 13 | guest order tracking (the website and `POST /api/v1/order/track-order`) accepts only a phone given as **text** and compares it as a number (`+966…` and `05…` are one number) | a JSON `true` or a bare number is "equal" to any phone in PHP's loose comparison and opened any guest order |
+| 14 | the courier app's `order-item` returns only an order assigned to that courier | any courier could read any order by its number |
+| 15 | the seller app's order-address edit goes through the same service as the panels (field limits, audit entry, no edit once a provider holds the shipment) | it had none of the three |
+| 16 | `/address/*` (the region and city typeahead) is not remembered as the page to return to after signing in | every keystroke replaced it with a JSON URL |
+| 17 | M5AZN's `shipping_info.address` is the street followed by the district (the line Torod gets); an old copy reads exactly as before | a structured order would otherwise tell M5AZN less than a typed one |
+| 18 | a Torod city alias is audited, must name a city Torod lists, cannot be empty, and holds the order once Torod stops listing that city | the alias path skipped the checks the approved mapping has |
 
 ## What needs a decision from the owner or from LogesTechs / Torod
 
@@ -54,6 +60,8 @@ Everything that depends on the structured address is dormant, and the pages, API
 | 6 | ZIP-based **delivery rules**: replace by region/city rules (stage S2) or keep the ZIP list and pause the feature while it is on | the store cannot use both at once | [zip-compatibility.md](zip-compatibility.md) |
 | 7 | Should the structured address also be used for **auction claim** checkouts and **externally imported** orders? | the module's backend is not in this repository; no external-order importer writes an address yet | [deployment-runbook.md](deployment-runbook.md) |
 | 8 | When to move from `soft` to `strict` | needs every mobile app version in use to send the structured fields | [deployment-runbook.md](deployment-runbook.md) |
+| 9 | **Guest identity in the mobile API.** A guest's saved addresses are keyed by `guest_id`, a sequential number `GET /api/v1/get-guest-id` hands out and the app sends back with no secret. Anyone who guesses it can list, edit or delete that guest's addresses (now including the region, city, district and National Address), and a signed-in customer who names it in a request can order to one of them. Pre-existing; everything else here is scoped to the caller. The fix is a per-guest secret issued by `get-guest-id` and required on every guest route, which needs a mobile release | the one hole this branch cannot close server-side alone | [design.md](design.md) |
+| 10 | `account-address-delete` deletes on a plain **GET** (the three themes' scripts link to it). Pre-existing; the action is scoped to the signed-in customer's own addresses | a link on another site can delete a saved address; making it a POST means touching the themes' scripts | — |
 
 ## Running the tests
 

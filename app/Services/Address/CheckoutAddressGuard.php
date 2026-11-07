@@ -9,7 +9,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * May this saved address be used for an order? An old Saudi address (a free-text city, or no National Address) is kept in the address
  * book untouched but must be completed before it ships again; the mobile app and other older clients are let through in `soft`
- * mode, and their orders wait for review instead of failing at the till.
+ * mode, and their orders are accepted instead of failing at the till (at fulfilment their typed city is used only when it is certain).
  */
 class CheckoutAddressGuard
 {

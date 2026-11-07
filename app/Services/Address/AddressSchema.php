@@ -15,7 +15,8 @@ use Illuminate\Support\Facades\Schema;
  *
  *   off     the old free-text address everywhere (the default)
  *   soft    customers on the website and staff in the panel must use the structured address for Saudi addresses; the mobile app
- *           and other older clients may still send the old fields, and those orders wait for review instead of failing
+ *           and other older clients may still send the old fields; those orders are accepted, and at fulfilment their
+ *           typed city is used only when it is certain, otherwise a person looks at the order first
  *   strict  every client must send the structured address for Saudi addresses
  */
 final class AddressSchema

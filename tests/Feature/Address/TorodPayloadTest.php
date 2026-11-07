@@ -79,13 +79,19 @@ class TorodPayloadTest extends TorodAddressTestCase
 
     // ---- M5AZN ---------------------------------------------------------------------------------------------------------------------
 
-    private function m5aznCity(string $snapshotJson): string
+    /** @return array<string, mixed> what M5AZN is told about where the order goes */
+    private function m5aznShippingInfo(string $snapshotJson): array
     {
         $this->enableProvider(ProviderCode::M5azn, [], ['email' => 'seller@example.test', 'password' => 'pw-very-secret-1']);
         $fulfillment = $this->routeSingleProviderOrder(ProviderCode::M5azn, ['shipping_address_data' => $snapshotJson]);
         $config = app(ProviderConnectionManager::class)->config(ProviderCode::M5azn);
 
-        return app(M5aznPayloadBuilder::class)->build($this->m5aznFulfillment($fulfillment), Order::findOrFail($fulfillment->order_id), $config)['shipping_info']['city'];
+        return app(M5aznPayloadBuilder::class)->build($this->m5aznFulfillment($fulfillment), Order::findOrFail($fulfillment->order_id), $config)['shipping_info'];
+    }
+
+    private function m5aznCity(string $snapshotJson): string
+    {
+        return $this->m5aznShippingInfo($snapshotJson)['city'];
     }
 
     private function m5aznFulfillment(ProviderFulfillment $fulfillment): ProviderFulfillment
@@ -98,6 +104,14 @@ class TorodPayloadTest extends TorodAddressTestCase
         $snapshot = $this->snapshotJson('jeddah', ['city' => 'Jiddah  (typed)']);
 
         $this->assertSame('جدة', $this->m5aznCity($snapshot));
+    }
+
+    public function test_m5azn_gets_the_district_after_the_street_as_torod_does_and_never_the_national_address(): void
+    {
+        $info = $this->m5aznShippingInfo($this->snapshotJson('riyadh', ['address' => 'King Fahd Rd 12', 'district' => 'Al Olaya']));
+
+        $this->assertSame('King Fahd Rd 12, Al Olaya', $info['address']);
+        $this->assertStringNotContainsString('RAGI', json_encode($info));
     }
 
     public function test_m5azn_is_given_the_typed_text_for_an_older_address(): void

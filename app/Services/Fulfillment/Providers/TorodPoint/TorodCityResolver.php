@@ -9,12 +9,14 @@ use App\Models\ProviderCityAlias;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Address\LegacyCityMatcher;
+use App\Services\AuditLogger;
 use App\Services\Fulfillment\Data\CityResolution;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\Support\ArabicText;
 use App\Services\Fulfillment\Support\FieldMap;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use Illuminate\Support\Collection;
+use InvalidArgumentException;
 
 /**
  * Finds the Torod Point city for an order's address — exactly, or not at all.
@@ -42,13 +44,14 @@ class TorodCityResolver
         private readonly TorodCityDirectory $directory,
         private readonly ProviderCityMappingService $mappings,
         private readonly LegacyCityMatcher $matcher,
+        private readonly AuditLogger $audit,
     ) {
     }
 
     /** @param array<array-key, mixed> $address the order's address snapshot as an array */
     public function resolveForAddress(array $address): CityResolution
     {
-        $typedCity = trim((string) ($address['city'] ?? ''));
+        $typedCity = AddressSnapshot::plain($address, 'city');
         if (!$this->mappings->available()) {
             $city = $this->resolve($typedCity);
 
@@ -60,9 +63,10 @@ class TorodCityResolver
             return $this->fromApprovedMapping(cityId: $cityId, cityName: AddressSnapshot::cityName($address, 'ar') ?? $typedCity);
         }
 
-        $aliased = $this->fromAlias(ArabicText::normalize($typedCity));
+        $normalized = ArabicText::normalize($typedCity);
+        $aliased = $normalized === '' ? null : $this->fromAlias($normalized);
         if ($aliased !== null) {
-            return CityResolution::resolved(city: $aliased);
+            return $aliased->missing_since === null ? CityResolution::resolved(city: $aliased) : CityResolution::providerCityMissing(cityName: $typedCity);
         }
 
         return $this->fromTypedCity(address: $address, typedCity: $typedCity);
@@ -93,12 +97,31 @@ class TorodCityResolver
         return $this->directory->discoverForCity(city: $city, apply: $apply);
     }
 
+    /**
+     * Remembers that an old spelling means a city the provider lists. The alias is a human routing decision, so it is audited, and it
+     * is refused when it would match every address with a blank city or point at a city the provider does not list.
+     *
+     * @throws InvalidArgumentException with a message fit for the administrator
+     */
     public function addAlias(string $alias, string $externalCityId, ?int $by = null): ProviderCityAlias
     {
-        return ProviderCityAlias::updateOrCreate(
-            ['provider' => self::PROVIDER, 'alias' => ArabicText::normalize($alias)],
+        $normalized = ArabicText::normalize($alias);
+        if ($normalized === '') {
+            throw new InvalidArgumentException('The spelling is empty once spaces and punctuation are removed.');
+        }
+
+        $city = ProviderCity::where('provider', self::PROVIDER)->where('external_id', $externalCityId)->first();
+        if ($city === null || $city->missing_since !== null) {
+            throw new InvalidArgumentException('Torod Point does not list a city with this id: refresh the city list, or find the city by search first.');
+        }
+
+        $saved = ProviderCityAlias::updateOrCreate(
+            ['provider' => self::PROVIDER, 'alias' => $normalized],
             ['external_city_id' => $externalCityId, 'created_by' => $by],
         );
+        $this->audit->record(action: 'provider_city_alias.saved', subject: ['type' => 'provider_city_alias', 'id' => $saved->id], after: ['provider' => self::PROVIDER, 'external_city_id' => $externalCityId]);
+
+        return $saved;
     }
 
     /** @return Collection<int, ProviderCity> cached cities whose name contains the query, for the mapping screen */

@@ -418,11 +418,12 @@ if (!function_exists('auction_entry_fee_fail')) {
     }
 }
 
-// The address a claim was paid with, as a copy that keeps its old keys and, once the structured address is in use, the names of its region and city.
+// The address a claim was paid with. The claim form is the auction module's own and still sends the old fields, so a claim keeps exactly the keys it was
+// given; only one that already names a city of the list is turned into a copy that also carries the names of its region and city.
 if (!function_exists('auction_address_snapshot')) {
     function auction_address_snapshot(mixed $addressInfo): mixed
     {
-        return is_array($addressInfo) ? (app(OrderAddressService::class)->snapshot(address: $addressInfo) ?? $addressInfo) : $addressInfo;
+        return is_array($addressInfo) && !empty($addressInfo['city_id']) ? (app(OrderAddressService::class)->snapshot(address: $addressInfo) ?? $addressInfo) : $addressInfo;
     }
 }
 

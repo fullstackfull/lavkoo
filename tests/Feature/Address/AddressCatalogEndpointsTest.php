@@ -43,6 +43,17 @@ class AddressCatalogEndpointsTest extends AddressTestCase
         }
     }
 
+    public function test_the_typeahead_requests_never_become_the_page_a_customer_returns_to_after_signing_in(): void
+    {
+        $this->seedAddressCatalog();
+
+        $this->withSession(['keep_customer_login_redirect_url' => 'http://localhost/shop-cart'])->getJson('/address/regions')->assertOk();
+        $this->getJson('/address/cities?q=' . rawurlencode('الخبر'))->assertOk();
+
+        $this->assertSame('http://localhost/shop-cart', session('keep_customer_login_redirect_url'));
+        $this->assertSame([], array_values(array_filter((array) session('recent_user_routes_history', []), static fn (string $url): bool => str_contains($url, '/address/'))));
+    }
+
     public function test_the_cities_endpoint_refuses_hostile_input_and_caps_the_page_size(): void
     {
         $this->seedAddressCatalog();

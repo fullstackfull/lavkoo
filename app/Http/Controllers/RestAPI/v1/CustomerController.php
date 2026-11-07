@@ -417,11 +417,15 @@ class CustomerController extends Controller
      */
     private function structuredAddress(Request $request, ?ShippingAddress $existing = null): array
     {
-        if ($existing !== null && !$request->hasAny(self::LOCATION_FIELDS)) {
-            return [[], null];
-        }
-
         try {
+            if ($existing !== null && !$request->hasAny(self::LOCATION_FIELDS)) {
+                if ($request->has('phone')) {
+                    $this->shippingAddressService->assertPhone(phone: $request->input('phone'), country: $existing->country, channel: AddressChannel::Api);
+                }
+
+                return [[], null];
+            }
+
             return [$this->shippingAddressService->structuredAttributes(input: $request->only(self::STRUCTURED_ADDRESS_FIELDS), channel: AddressChannel::Api, existing: $existing), null];
         } catch (ValidationException $exception) {
             return [[], $exception];

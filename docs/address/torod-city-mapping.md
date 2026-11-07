@@ -20,7 +20,7 @@ order snapshot city_id ──▶ approved mapping (provider + city) ──▶ Pr
 1. **The order carries one of our cities** (`city_id` in `shipping_address_data`, set by the checkout / panel / API when the Saudi address is structured). The resolver looks up the *approved*
    mapping of that city for `torod_point`. No name is compared and none of our ids is ever sent to Torod. The Torod id and region id in the payload are the ones stored on the mapping's
    `provider_cities` row.
-2. **An old order has only typed text.** The resolver tries, in this order: an administrator's Torod alias → the address system's own `LegacyCityMatcher` (unique and region-consistent, otherwise
+2. **An old order has only typed text.** The resolver tries, in this order: an administrator's Torod alias (which must name a city Torod lists, is audited, and holds the order as `provider_city_missing` once Torod stops listing that city; a spelling that is empty once punctuation is removed cannot be an alias) → the address system's own `LegacyCityMatcher` (unique and region-consistent, otherwise
    *no match*) → the mapping of the city that matcher found. The region the customer typed is only a filter; it is never a second guess at the city.
 3. **No Saudi catalogue, no mappings table or no directory columns yet** (code shipped, migrations not run or only partly run): the resolver keeps the old name matching (an administrator's alias, then one exact name in the cached list). One thing differs on purpose: the address's *state* text is no longer tried as a second city when the city matches nothing, because that was a guess (a typed city that matched nothing would have been sent to the city of the same name as its state).
 
@@ -54,16 +54,19 @@ normal `AWAITING_APPROVAL` / dry-run path. The order row itself (`100002`) is ne
 
 ### The one automatic rule
 
-After a **complete** city reading, our active city with exactly **one** exact candidate that no other of our cities also claims, whose region is not contradicted, and that nobody has decided on
-before, is approved automatically as `auto_unique` (one summary audit entry per run). A partial reading never approves anything, and a reading whose completeness rests only on the weakest evidence
-(see below) only *proposes*.
+After a city reading whose completeness is **proven**, our active city with exactly **one** exact candidate is approved automatically as `auto_unique` (one summary audit entry per run) when all of
+this holds: Torod lists that name **exactly once** (two Riyadh records are two records, whatever their regions say, so Riyadh is always a person's decision), no other of our cities also claims the Torod
+city, it is not already mapped to another of ours, Torod does not mark it as not selected (`isSelected: false`), its region is not contradicted, and nobody has ever decided on that city. A partial
+reading never approves anything, and a reading whose completeness rests only on the weakest evidence (see below) only *proposes*. The write is conditional on the proposal still waiting: a rejection, or
+the approval of another candidate, that a person recorded while the run was working is never overwritten.
 
 ## The city list sync is completeness-aware
 
 `fulfillment:sync --only=cities` (and the Integration Center button) calls `TorodCityDirectory::sync()`:
 
 1. one request with `returnAll=true`;
-2. when that response does not settle it, the pages are walked (`page`, `pageSize=100`) for as long as each page adds cities not seen yet — up to the configured ceilings
+2. when that response does not settle it — it states a larger total or more pages, or it holds **fewer than 1000 cities** (no national delivery list does) — the pages are walked (`page`,
+   `pageSize=100`) for as long as each page adds cities not seen yet, up to the configured ceilings
    (`fulfillment.providers.torod_point.cities.max_pages`, `.max_seconds`, `.complete_floor`; defaults 100 pages, 45 s on the web / 600 s on the console, 1000 cities);
 3. everything is read first and written afterwards, in one transaction, in chunks. Cities are **added or updated, never deleted**.
 
@@ -71,8 +74,8 @@ The verdict is recorded in `provider_city_sync_runs` and on the provider's sync 
 
 | Verdict | Evidence | Effect |
 |---|---|---|
-| `full` | the provider's own total was reached, or the page walk ended on an empty page and contained the first response, or the response flags its last page | cities the provider no longer lists get `missing_since`; the unique-match rule may run |
-| `full` (weakest) | at least 1000 distinct cities and nothing says more exist | same as above for display, but **no automatic approval** |
+| `full` | the page walk ended on an empty page and contained the first response (**the only proof for a list under 1000 cities**: a truncated answer states its own total, last page or page count truthfully, or leaves the count at zero); or, from 1000 cities on, the provider's own total was reached, or the response flags its last page | cities the provider no longer lists get `missing_since`; the unique-match rule may run |
+| `full` (weakest) | at least 1000 distinct cities and nothing says more exist | stored as `full` for display, but **nothing is marked missing and nothing is approved automatically**: a provider that caps its answer would otherwise put every city beyond the cap out of reach |
 | `partial` | anything else (for example *10 returned, paging not honoured*) | cities are added/updated only; **no** `missing_since`, **no** success stamp, last error `partial: <reason>`, `fulfillment:sync` exits non-zero and prints `PARTIAL` |
 | `failed` | the first request failed | nothing changes |
 
@@ -90,7 +93,8 @@ integration is switched off or not migrated, and it only ever *proposes*: a disc
 It does **not** send the National Address and does **not** send `villageId`: the Fulfillment v5 documentation lists `cityId`, `regionId` and `addressLine1` only, and the Lastmile v2 contract that
 documents `nationalAddress` belongs to a different product. Torod Fulfillment orders never go through *Lastmile Create Shipment*.
 
-M5AZN keeps receiving a city *name* in `shipping_info.city`; it now receives our canonical Arabic name when the order has a structured city, the typed text otherwise.
+M5AZN keeps receiving a city *name* in `shipping_info.city`; it now receives our canonical Arabic name when the order has a structured city, the typed text otherwise. Its `shipping_info.address` is the
+same street-plus-district line Torod gets (an old copy has no district, so it reads exactly as before); the National Address is not sent to M5AZN either, until M5AZN confirms a field for it.
 
 ## Operating it on the pilot server (only *reads* from Torod: nothing is created, sent or changed there)
 
@@ -122,6 +126,6 @@ Approved is **not** verified: whether the v2 city and region ids are accepted by
 |---|---|---|
 | Order held `no_mapping` | the city was never matched, or the last reading was partial | sync, then discover candidates, then approve |
 | Order held `ambiguous:…` | two or more Torod records share the name | choose by id **and** region on the matching screen |
-| Order held `provider_city_missing` | the approved city disappeared from a *complete* reading | sync again; re-map to the city Torod lists now |
+| Order held `provider_city_missing` | the approved city (or the Torod city an alias points at) disappeared from a *proven complete* reading | sync again; re-map to the city Torod lists now |
 | Sync says *Partial* every time | paging not honoured | send question 1 to LogesTechs; use discovery meanwhile |
 | Matching screen empty | migrations not run, or no city imported | `address:status`; run migrations / `address:import` |

@@ -40,9 +40,9 @@ The queue shows counts only; `address:status` prints no personal data.
 * **Website and panels (`soft` and `strict`)**: choosing an old Saudi address (free-text city, no valid National Address) at checkout shows a *Needs completion* badge and the structured fields pre-filled from what is known; the order cannot
   continue until region, city and National Address are given, and completing it updates the saved address (the "update this address" box is ticked for the customer).
   A panel user editing an old Saudi order must likewise give region, city and National Address even for a phone fix — the contact phone must also be a valid Saudi mobile.
-* **Mobile app / other API clients**: in `soft` an old app may keep sending the old fields; the order is accepted and its copy is marked `legacy`, so the **fulfillment layer holds it for review** instead of failing it. In `strict`
+* **Mobile app / other API clients**: in `soft` an old app may keep sending the old fields; the order is accepted and its copy is marked `legacy`; at fulfilment its typed city is used **only when it is certain** (an administrator's alias, or exactly one city of ours that has an approved Torod mapping) and the order is **held for a person** otherwise. In `strict`
   every client must send the structured address.
-* **Orders already paid** are never refused for their address after the money is taken (payment callbacks): an old Saudi address simply becomes a `legacy` copy that the fulfillment layer holds.
+* **Orders already paid** are never refused for their address after the money is taken (payment callbacks): an old Saudi address simply becomes a `legacy` copy, whose typed city the fulfillment layer uses only when it is certain and holds the order for a person otherwise.
 
 ## What the fulfillment layer does with old orders
 

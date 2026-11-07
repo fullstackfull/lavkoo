@@ -11,7 +11,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Staff correcting the address an order was placed with, from the order page of the admin panel or the vendor panel.
+ * Staff correcting the address an order was placed with, from the order page of the admin panel or the vendor panel, or from the seller app.
  *
  * Only the order's own copy changes, never the customer's saved address. A Saudi address is always entered with the region, city and
  * National Address once the structured address is in use, so editing an old order is also how it moves to the new form; the change is
@@ -35,8 +35,22 @@ class OrderAddressUpdateService
         'longitude' => 'longitude',
     ];
 
+    /** The seller app names the fields as the order's copy does. */
+    private const APP_FIELDS = [
+        'contact_person_name' => 'contact_person_name',
+        'phone' => 'phone',
+        'country' => 'country',
+        'city' => 'city',
+        'zip' => 'zip',
+        'email' => 'email',
+        'address' => 'address',
+        'latitude' => 'latitude',
+        'longitude' => 'longitude',
+    ];
+
     private const MAX_LENGTH = [
         'contact_person_name' => 191,
+        'email' => 191,
         'phone' => 40,
         'country' => 100,
         'city' => 191,
@@ -56,10 +70,10 @@ class OrderAddressUpdateService
     }
 
     /**
-     * @param array<string, mixed> $input what the order page's form sent
+     * @param array<string, mixed> $input what the order page's form (or the seller app) sent
      * @throws ValidationException
      */
-    public function update(Order $order, mixed $addressType, array $input): void
+    public function update(Order $order, mixed $addressType, array $input, AddressChannel $channel = AddressChannel::Panel): void
     {
         if (!in_array($addressType, self::ADDRESS_TYPES, true)) {
             return;
@@ -72,9 +86,9 @@ class OrderAddressUpdateService
         $current = $addressType === 'shipping' ? $order->shippingAddressSnapshot() : $order->billingAddressSnapshot();
         $revised = $this->addresses->revise(
             snapshot: $current,
-            changes: $this->changes(input: $input) + ['updated_at' => now()],
+            changes: $this->changes(input: $input, fields: $channel === AddressChannel::Panel ? self::FIELDS : self::APP_FIELDS) + ['updated_at' => now()],
             structuredInput: Arr::only($input, self::STRUCTURED_FIELDS),
-            channel: AddressChannel::Panel,
+            channel: $channel,
         );
 
         $this->orders->update(id: (string) $order->id, data: [$addressType . '_address_data' => json_encode($revised, JSON_THROW_ON_ERROR)]);
@@ -84,7 +98,7 @@ class OrderAddressUpdateService
             subject: ['type' => 'order', 'id' => $order->id],
             before: $this->summary(snapshot: $current),
             after: $this->summary(snapshot: $revised),
-            context: ['address_type' => $addressType, 'changed' => $this->changedKeys(before: $current ?? [], after: $revised)],
+            context: ['address_type' => $addressType, 'channel' => $channel->value, 'changed' => $this->changedKeys(before: $current ?? [], after: $revised)],
         );
     }
 
@@ -92,13 +106,14 @@ class OrderAddressUpdateService
      * The old-style fields the form sent, cleaned. A field the form did not send is not here, so it keeps what the order holds.
      *
      * @param array<string, mixed> $input
+     * @param array<string, string> $fields the input names and the key each one has in the order's copy
      * @return array<string, string|null>
      * @throws ValidationException
      */
-    private function changes(array $input): array
+    private function changes(array $input, array $fields): array
     {
         $changes = [];
-        foreach (self::FIELDS as $inputName => $key) {
+        foreach ($fields as $inputName => $key) {
             if (array_key_exists($inputName, $input)) {
                 $changes[$key] = $this->text(inputName: $inputName, key: $key, value: $input[$inputName]);
             }

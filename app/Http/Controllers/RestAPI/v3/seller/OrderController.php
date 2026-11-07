@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
 use App\Enums\Address\AddressChannel;
-use App\Services\Address\OrderAddressService;
+use App\Services\OrderAddressUpdateService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Events\OrderStatusEvent;
@@ -48,7 +48,7 @@ class OrderController extends Controller
         private DeliveryZipCode                   $delivery_zip_code,
         private Order                             $order,
         private readonly OrderRepositoryInterface $orderRepo,
-        private readonly OrderAddressService      $orderAddresses,
+        private readonly OrderAddressUpdateService $addressUpdates,
     )
     {
     }
@@ -568,25 +568,16 @@ class OrderController extends Controller
         }
 
         if (in_array($request->address_type, ['shipping', 'billing'], true)) {
-            if ($blocked = $this->orderAddresses->editBlockedReason(orderId: (int) $orderModel->id)) {
-                return response()->json(['errors' => [['code' => 'order', 'message' => $blocked]]], 403);
-            }
-
-            $addressColumn = $request->address_type . '_address_data';
             try {
-                $revisedAddress = $this->orderAddresses->revise(
-                    snapshot: $request->address_type == 'shipping' ? $orderModel->shippingAddressSnapshot() : $orderModel->billingAddressSnapshot(),
-                    changes: $request->only(['contact_person_name', 'phone', 'city', 'zip', 'email', 'address', 'latitude', 'longitude']) + ['updated_at' => now()],
-                    structuredInput: $request->only(['region_id', 'city_id', 'district', 'national_address']),
+                $this->addressUpdates->update(
+                    order: $orderModel,
+                    addressType: $request->address_type,
+                    input: $request->only(['contact_person_name', 'phone', 'city', 'zip', 'email', 'address', 'latitude', 'longitude', 'region_id', 'city_id', 'district', 'national_address']),
                     channel: AddressChannel::Api,
                 );
             } catch (ValidationException $exception) {
                 return response()->json(['errors' => Helpers::validationErrorProcessor($exception->validator)], 403);
             }
-
-            DB::table('orders')->where('id', $request->order_id)
-                ->where('seller_id', $seller['id'])->where('seller_is', 'seller')
-                ->update([$addressColumn => json_encode($revisedAddress)]);
         }
 
         return response()->json(['message' => 'Address updated successfully'], 200);

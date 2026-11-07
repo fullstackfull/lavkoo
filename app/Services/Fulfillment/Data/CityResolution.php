@@ -4,6 +4,7 @@ namespace App\Services\Fulfillment\Data;
 
 use App\Enums\Fulfillment\CityResolutionStatus;
 use App\Models\ProviderCity;
+use App\Services\Fulfillment\Support\PiiRedactor;
 
 /**
  * The provider's city for an order's address, or the reason there is none yet.
@@ -51,7 +52,7 @@ final readonly class CityResolution
         return self::held(status: CityResolutionStatus::Unmapped, code: self::NO_MAPPING, cityName: $cityName, addressCityId: $addressCityId);
     }
 
-    public static function providerCityMissing(string $cityName, int $addressCityId): self
+    public static function providerCityMissing(string $cityName, ?int $addressCityId = null): self
     {
         return self::held(status: CityResolutionStatus::Unmapped, code: self::PROVIDER_CITY_MISSING, cityName: $cityName, addressCityId: $addressCityId);
     }
@@ -106,11 +107,11 @@ final readonly class CityResolution
         return new self(status: $status, city: null, candidateIds: $candidateIds, addressCityId: $addressCityId, detail: $code . '|' . self::plainName($cityName));
     }
 
-    /** A name is one short line without the separator: whatever a customer typed as a "city" is cut down to that. */
+    /** A name is one short line without the separator, and without a phone number or e-mail address: whatever a customer typed as a "city" is cut down to that. */
     private static function plainName(string $name): string
     {
         $line = trim((string) preg_replace('/[\x00-\x1F\x7F|\s]+/u', ' ', $name));
 
-        return mb_substr($line, 0, self::MAX_NAME_LENGTH);
+        return PiiRedactor::scrubToFit($line, self::MAX_NAME_LENGTH);
     }
 }

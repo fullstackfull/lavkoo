@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\ProviderCity;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
+use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\SaudiPhone;
 
@@ -34,16 +35,16 @@ class TorodOrderPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
-        $local = (string) SaudiPhone::normalize((string) ($address['phone'] ?? ''));
+        $local = (string) SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone'));
 
         $payload = [
-            'receiverName' => trim((string) ($address['contact_person_name'] ?? '')),
+            'receiverName' => AddressSnapshot::plain($address, 'contact_person_name'),
             'receiverPhone' => $this->formatPhone($local, $config),
             'receiverPhone2' => '',
             'receiverAddress' => array_filter([
                 'cityId' => (string) $city->external_id,
                 'regionId' => $city->region_external_id,
-                'addressLine1' => $this->addressLine($address),
+                'addressLine1' => AddressSnapshot::streetLine($address),
             ], static fn ($value): bool => $value !== null && $value !== ''),
             'notes' => $this->notes($order),
             'weight' => $this->weight($fulfillment, $config),
@@ -75,15 +76,6 @@ class TorodOrderPayloadBuilder
         $raw = $order->shipping_address_data;
 
         return is_object($raw) ? (array) $raw : (is_array($raw) ? $raw : []);
-    }
-
-    /** The street text, with the district after it unless the street text already names it. @param array<string, mixed> $address */
-    private function addressLine(array $address): string
-    {
-        $street = trim((string) ($address['address'] ?? ''));
-        $district = trim((string) ($address['district'] ?? ''));
-
-        return $district === '' || mb_stripos($street, $district) !== false ? $street : ($street === '' ? $district : $street . ', ' . $district);
     }
 
     private function formatPhone(string $local, ProviderConfig $config): string

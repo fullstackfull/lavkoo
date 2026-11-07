@@ -8,6 +8,7 @@ use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Jobs\Fulfillment\DispatchProviderFulfillment;
 use App\Models\ProviderCity;
+use App\Models\ProviderCityAlias;
 use App\Models\ProviderCityMapping;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
@@ -24,6 +25,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -151,6 +153,24 @@ class TorodCityResolutionTest extends TorodAddressTestCase
         $this->assertFalse($result->ok);
         $this->assertSame(HoldReason::CITY_UNMAPPED, $result->holdReason);
         $this->assertSame('ambiguous:36189,230194|الرياض', $result->detail);
+        Http::assertNothingSent();
+    }
+
+    public function test_a_list_where_the_copy_should_hold_text_is_a_hold_with_a_reason_not_an_exception(): void
+    {
+        $this->approve('riyadh', '36189');
+        Http::fake();
+
+        $orderId = 100;
+        foreach (['phone' => HoldReason::PHONE_INVALID, 'address' => HoldReason::ADDRESS_INCOMPLETE] as $key => $reason) {
+            $result = $this->adapter()->preflight($this->orderFor('riyadh', $orderId++, [$key => ['not', 'text']]));
+
+            $this->assertFalse($result->ok, $key);
+            $this->assertSame($reason, $result->holdReason, $key);
+        }
+        $resolution = $this->resolver()->resolveForAddress(['city' => ['الرياض']]);
+        $this->assertFalse($resolution->isResolved());
+        $this->assertSame('no_mapping|', $resolution->holdDetail());
         Http::assertNothingSent();
     }
 
@@ -296,7 +316,7 @@ class TorodCityResolutionTest extends TorodAddressTestCase
         $mapping = $this->approve('riyadh', '36189');
         $fulfillment = $this->orderFor('riyadh');
         $this->assertTrue($this->adapter()->preflight($fulfillment)->ok);
-        $this->mappings()->retire(mappingId: $mapping->id);
+        $this->mappings()->retire(provider: 'torod_point', mappingId: $mapping->id);
         Http::fake();
 
         $result = $this->adapter()->submit($fulfillment, dryRun: false);
@@ -362,6 +382,62 @@ class TorodCityResolutionTest extends TorodAddressTestCase
 
         $this->assertSame('41126', (string) $this->resolver()->resolveForAddress(['city' => 'old riyadh spelling'])->city?->external_id);
         $this->assertSame('36189', (string) $this->resolver()->resolveForAddress($this->unifiedSnapshot('riyadh', ['city' => 'Old Riyadh Spelling']))->city?->external_id, 'an address with a city of ours is never re-read from its text');
+    }
+
+    public function test_what_a_customer_typed_into_the_city_box_never_puts_a_phone_number_or_address_in_the_hold(): void
+    {
+        $resolution = $this->resolver()->resolveForAddress(['city' => "Gotham 0551234567 sara@example.test\nbuilding 5 | flat 3"]);
+
+        $this->assertFalse($resolution->isResolved());
+        $this->assertStringStartsWith('no_mapping|Gotham', $resolution->holdDetail());
+        $this->assertStringNotContainsString('0551234567', $resolution->holdDetail());
+        $this->assertStringNotContainsString('sara@example.test', $resolution->holdDetail());
+        $this->assertStringNotContainsString("\n", $resolution->holdDetail());
+    }
+
+    public function test_an_alias_to_a_city_torod_no_longer_lists_holds_the_order_like_a_mapping_would(): void
+    {
+        $this->resolver()->addAlias('Old Jeddah Spelling', '41126', 1);
+        ProviderCity::where('external_id', '41126')->update(['missing_since' => now()]);
+
+        $resolution = $this->resolver()->resolveForAddress(['city' => 'old jeddah spelling']);
+
+        $this->assertFalse($resolution->isResolved());
+        $this->assertSame('provider_city_missing|old jeddah spelling', $resolution->holdDetail());
+    }
+
+    public function test_an_alias_is_a_decision_that_is_audited_and_that_cannot_match_every_blank_city(): void
+    {
+        $alias = $this->resolver()->addAlias('Old Jeddah Spelling', '41126', 1);
+
+        $entry = DB::table('audit_logs')->where('action', 'provider_city_alias.saved')->sole();
+        $this->assertSame([(string) $alias->id, ['provider' => 'torod_point', 'external_city_id' => '41126']], [$entry->subject_id, json_decode($entry->after, true)]);
+
+        foreach (['.', ' - ', ''] as $blank) {
+            try {
+                $this->resolver()->addAlias($blank, '41126', 1);
+                $this->fail("'{$blank}' became an alias");
+            } catch (InvalidArgumentException $exception) {
+                $this->assertStringContainsString('empty', $exception->getMessage());
+            }
+        }
+        $this->assertFalse($this->resolver()->resolveForAddress(['city' => ''])->isResolved());
+        $this->assertSame(1, ProviderCityAlias::count());
+    }
+
+    public function test_an_alias_can_only_name_a_city_torod_lists(): void
+    {
+        ProviderCity::where('external_id', '41127')->update(['missing_since' => now()]);
+
+        foreach (['99999', '41127'] as $unlisted) {
+            try {
+                $this->resolver()->addAlias('Somewhere', $unlisted, 1);
+                $this->fail("an alias to {$unlisted} was saved");
+            } catch (InvalidArgumentException $exception) {
+                $this->assertStringContainsString('does not list', $exception->getMessage());
+            }
+        }
+        $this->assertSame(0, ProviderCityAlias::count());
     }
 
     public function test_without_a_catalog_an_old_address_is_matched_by_the_cached_list_exactly_as_before(): void

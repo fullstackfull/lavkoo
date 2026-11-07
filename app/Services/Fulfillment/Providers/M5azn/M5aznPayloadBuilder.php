@@ -31,7 +31,7 @@ class M5aznPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
-        [$first, $last] = $this->splitName((string) ($address['contact_person_name'] ?? ''));
+        [$first, $last] = $this->splitName(AddressSnapshot::plain($address, 'contact_person_name'));
 
         return [
             'id' => (int) $order->id,
@@ -41,7 +41,7 @@ class M5aznPayloadBuilder
             'order_created_at' => $order->created_at?->format('Y-m-d H:i:s'),
             'platform_name' => $this->platformName($config),
             'shipping_info' => [
-                'address' => trim((string) ($address['address'] ?? '')),
+                'address' => AddressSnapshot::streetLine($address),
                 'country' => $config->string('country_name', 'Saudi Arabia'),
                 'country_code' => $config->string('country_code', 'SA'),
                 'city' => trim((string) AddressSnapshot::cityName($address, 'ar')),
@@ -49,8 +49,8 @@ class M5aznPayloadBuilder
             'customer_info' => [
                 'first_name' => $first,
                 'last_name' => $last,
-                'email' => trim((string) ($address['email'] ?? '')),
-                'phone' => SaudiPhone::normalize((string) ($address['phone'] ?? '')) ?? '',
+                'email' => AddressSnapshot::plain($address, 'email'),
+                'phone' => SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone')) ?? '',
             ],
             'items' => $fulfillment->items->map(fn (ProviderFulfillmentItem $item): array => [
                 'id' => (int) $item->order_detail_id,

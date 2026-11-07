@@ -739,6 +739,12 @@ class UserProfileController extends Controller
             ->first();
 
         if (!isset($user)) {
+            if (!is_string($request['phone_number'])) {
+                Toastr::error(translate('invalid_Order_Id_or_phone_Number'));
+
+                return redirect()->route('track-order.index', ['order_id' => $request['order_id']]);
+            }
+
             $userInfo = User::where('phone', $request['phone_number'])->orWhere('phone', 'like', "%{$request['phone_number']}%")->first();
 
             if ($order && $order->is_guest) {

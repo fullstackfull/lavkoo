@@ -347,6 +347,27 @@ class ApiAddressCrudTest extends ApiAddressTestCase
         $this->assertSame([$this->ids['riyadh'], $this->ids['region_RUH'], 'RAGI2929'], [$fresh->city_id, $fresh->region_id, $fresh->national_address]);
     }
 
+    public function test_a_phone_that_is_not_a_saudi_mobile_is_refused_even_when_nothing_else_is_sent_once_every_client_must_send_the_structured_address(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeStructuredAddress($this->ids, $customer->id);
+
+        $this->setAddressMode(AddressSchema::MODE_STRICT);
+        $response = $this->asCustomer($customer)->postJson(self::UPDATE, ['id' => $address->id, 'phone' => 'not-a-phone']);
+
+        $response->assertStatus(403);
+        $this->assertSame(['phone'], $this->errorCodes($response));
+        $this->assertSame('0551234567', $address->fresh()->phone);
+        $this->asCustomer($customer)->postJson(self::UPDATE, ['id' => $address->id, 'phone' => '+966559999999'])->assertOk();
+        $this->assertSame('+966559999999', $address->fresh()->phone);
+
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $this->asCustomer($customer)->postJson(self::UPDATE, ['id' => $address->id, 'phone' => '12345'])->assertOk();
+        $this->setAddressMode(AddressSchema::MODE_OFF);
+        $this->asCustomer($customer)->postJson(self::UPDATE, ['id' => $address->id, 'phone' => '999'])->assertOk();
+        $this->assertSame('999', $address->fresh()->phone, 'an older app, and a store that has not switched the structured address on, are asked for no more than before');
+    }
+
     public function test_an_old_app_may_still_edit_an_address_that_only_a_backfill_gave_a_city(): void
     {
         $this->setAddressMode(AddressSchema::MODE_SOFT);

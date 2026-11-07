@@ -316,6 +316,19 @@ class OrderSnapshotTest extends ApiAddressTestCase
         $this->assertSame('As ordered', $item['shipping_address']['address']);
     }
 
+    public function test_a_courier_is_shown_only_the_orders_assigned_to_them(): void
+    {
+        $this->insertOrder(100, ['delivery_man_id' => 3, 'shipping_address_data' => json_encode(['address' => 'Somebody else\'s delivery', 'phone' => '0551234567'])]);
+        $this->insertOrder(101, ['delivery_man_id' => 9, 'shipping_address_data' => json_encode(['address' => 'Mine', 'phone' => '0551234567'])]);
+        $controller = app(DeliveryManController::class);
+
+        $theirs = $controller->getOrderItem($this->courierRequest(['id' => 100]));
+        $mine = json_decode($controller->getOrderItem($this->courierRequest(['id' => 101]))->getContent(), true);
+
+        $this->assertSame([], json_decode($theirs->getContent(), true), 'the order of another courier is not there, as an order that does not exist is not');
+        $this->assertSame('Mine', $mine['shipping_address']['address']);
+    }
+
     /** @param array<string, mixed> $input */
     private function courierRequest(array $input = []): Request
     {
@@ -379,7 +392,7 @@ class OrderSnapshotTest extends ApiAddressTestCase
         ]);
     }
 
-    public function test_the_address_of_an_auction_claim_is_copied_like_any_other_and_a_value_that_is_not_an_address_is_left_alone(): void
+    public function test_the_address_of_an_auction_claim_is_left_as_it_was_given_unless_it_names_a_city_of_the_list_and_a_value_that_is_not_an_address_is_left_alone(): void
     {
         $claim = ['country' => 'Saudi Arabia', 'city' => 'Jeddah', 'zip' => '21589', 'address' => 'Tahlia St', 'region_id' => 'junk'];
 
@@ -394,7 +407,7 @@ class OrderSnapshotTest extends ApiAddressTestCase
         $this->assertSame(['21589', 'Tahlia St', $this->ids['jeddah'], $this->ids['region_MAK'], 'Jeddah', 'JEDD1111', 'unified'], [
             $copy['zip'], $copy['address'], $copy['city_id'], $copy['region_id'], $copy['city_name_en'], $copy['national_address'], $copy['address_schema'],
         ]);
-        $this->assertArrayHasKey('zip', auction_address_snapshot(['city' => 'Jeddah']));
-        $this->assertNull(auction_address_snapshot(['city' => 'Jeddah'])['zip']);
+        $this->assertSame($claim, auction_address_snapshot($claim), 'a claim from the module\'s own form, which still sends the old fields, keeps exactly the keys it was given in every mode');
+        $this->assertSame(['city' => 'Jeddah'], auction_address_snapshot(['city' => 'Jeddah']), 'no technical key is added to what the claim page prints');
     }
 }

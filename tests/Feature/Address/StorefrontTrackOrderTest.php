@@ -70,6 +70,25 @@ class StorefrontTrackOrderTest extends StorefrontTestCase
         $this->track(301, '')->assertRedirect();
     }
 
+    public function test_a_phone_that_is_not_text_opens_nothing(): void
+    {
+        $this->placeGuestOrder(305, ['phone' => '0551234567', 'address' => 'Street']);
+
+        foreach ([true, 1, 551234567, ['0551234567'], null] as $notAPhone) {
+            $this->postJson(route('track-order.result'), ['order_id' => 305, 'phone_number' => $notAPhone])->assertRedirect();
+        }
+        $this->postJson(route('track-order.result'), ['order_id' => 305, 'phone_number' => '0551234567'])->assertOk()->assertSee('TRACKING PAGE OF ORDER 305');
+    }
+
+    public function test_the_same_saudi_number_written_another_way_is_the_same_phone(): void
+    {
+        $this->placeGuestOrder(306, ['phone' => '0551234567']);
+
+        $this->track(306, '+966551234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 306');
+        $this->track(306, '00966 55 123 4567')->assertOk();
+        $this->track(306, '0551234568')->assertRedirect();
+    }
+
     public function test_an_order_whose_copy_has_no_phone_opens_for_nobody_instead_of_failing(): void
     {
         $this->placeGuestOrder(302, ['address' => 'Street only']);

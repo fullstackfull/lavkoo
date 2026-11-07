@@ -129,6 +129,9 @@ class OrderAddressService
     {
         $current = $snapshot ?? [];
         $locationEdited = $structuredInput !== [] || array_key_exists('city', $changes) || array_key_exists('country', $changes);
+        if (!$locationEdited && array_key_exists('phone', $changes)) {
+            $this->addresses->assertPhone(phone: $changes['phone'], country: $current['country'] ?? null, channel: $channel);
+        }
         $structured = $locationEdited
             ? $this->addresses->structuredAttributes(input: $structuredInput + Arr::only($changes, ['city', 'country', 'phone']), channel: $channel, existing: (object) $current, mayKeepSwitchedOffPlace: true)
             : [];

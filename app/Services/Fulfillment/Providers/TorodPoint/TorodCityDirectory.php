@@ -30,10 +30,12 @@ use Illuminate\Support\Facades\DB;
  *     brings cities the walk has not seen, and never past the page ceiling or the time budget;
  *  3. everything is read first and written afterwards, in one transaction, in chunks — and only ever added or updated, never deleted.
  *
- * The verdict is `full` only on evidence, in this order of strength: the provider's own total is reached; or the page walk ended on
- * an empty page and contained the first response (paging demonstrably works); or the response ends the list by its own flag; or
- * nothing says more exists and there are at least COMPLETE_FLOOR distinct cities. Anything else is `partial`, with the reason, and a
- * partial reading changes nothing but what it adds: no city is marked missing, no success is recorded.
+ * The verdict is `full` only on evidence. A list shorter than COMPLETE_FLOOR is never proven by what the provider says about itself
+ * (a truncated answer states its own total and its own last page truthfully): only a page walk that ended on an empty page and
+ * contained the first response proves it. From COMPLETE_FLOOR on, in this order of strength: the provider's own total is reached; or
+ * the response ends the list by its own flag; or (the weakest, and not a proof) nothing says more exists. Anything else is `partial`,
+ * with the reason, and a partial reading changes nothing but what it adds: no city is marked missing, no success is recorded. A
+ * reading on the weakest evidence adds and updates cities too, but never marks one missing and never approves anything.
  */
 class TorodCityDirectory
 {
@@ -170,7 +172,7 @@ class TorodCityDirectory
         }
 
         $read->addFirstResponse(items: $items, envelope: $this->envelope($first->json), status: $first->status);
-        if ($read->moreIsExpected() || (!$read->endIsStated() && $read->distinct() < $this->setting('complete_floor', self::COMPLETE_FLOOR))) {
+        if ($read->moreIsExpected() || $read->distinct() < $this->completeFloor()) {
             $this->readPages(read: $read, deadline: $deadline);
         }
 
@@ -224,21 +226,26 @@ class TorodCityDirectory
             $read->ceiling => [CitySyncVerdict::Partial, "stopped at the {$this->setting('max_pages', self::MAX_PAGES)}-page ceiling with {$distinct} cities; more may exist", 'none'],
             $read->deadline => [CitySyncVerdict::Partial, "stopped on the time budget after {$read->requests} requests with {$distinct} cities", 'none'],
             $total !== null && $distinct < $total => [CitySyncVerdict::Partial, "{$distinct} of {$total} returned", 'none'],
-            $total !== null => [CitySyncVerdict::Full, null, self::EVIDENCE_TOTAL],
             $read->emptyPage && !$read->pagesCoverFirstResponse() => [CitySyncVerdict::Partial, "{$distinct} returned; the pages do not contain the first response, so they cannot confirm it is complete", 'none'],
             $read->emptyPage => [CitySyncVerdict::Full, null, self::EVIDENCE_EMPTY_PAGE],
+            $distinct < $this->completeFloor() => [CitySyncVerdict::Partial, "{$distinct} returned, paging not honoured", 'none'],
+            $total !== null => [CitySyncVerdict::Full, null, self::EVIDENCE_TOTAL],
             $read->endIsStated() => [CitySyncVerdict::Full, null, self::EVIDENCE_LAST_PAGE],
             $read->moreIsExpected() => [CitySyncVerdict::Partial, "{$distinct} returned; the provider reports more pages than were read", 'none'],
-            $distinct >= $this->setting('complete_floor', self::COMPLETE_FLOOR) => [CitySyncVerdict::Full, null, self::EVIDENCE_FLOOR],
-            default => [CitySyncVerdict::Partial, "{$distinct} returned, paging not honoured", 'none'],
+            default => [CitySyncVerdict::Full, null, self::EVIDENCE_FLOOR],
         };
+    }
+
+    private function completeFloor(): int
+    {
+        return $this->setting('complete_floor', self::COMPLETE_FLOOR);
     }
 
     /** Writes what was read and the run that read it, together: both happen or neither does. */
     private function keep(CityListRead $read, CitySyncVerdict $verdict, ?string $reason, string $evidence, CarbonInterface $startedAt): int
     {
         return DB::transaction(function () use ($read, $verdict, $reason, $evidence, $startedAt): int {
-            $stored = $this->store(items: $read->items(), markMissing: $verdict === CitySyncVerdict::Full);
+            $stored = $this->store(items: $read->items(), markMissing: $verdict === CitySyncVerdict::Full && $evidence !== self::EVIDENCE_FLOOR);
             $this->recordRun(read: $read, verdict: $verdict, reason: $reason, evidence: $evidence, startedAt: $startedAt);
 
             return $stored;
@@ -287,8 +294,9 @@ class TorodCityDirectory
     }
 
     /**
-     * Adds and updates cities, in one transaction and in chunks. A complete reading first marks every city the provider lists no
-     * longer as missing (the ones this reading saw have the mark cleared by the update that follows); nothing is ever deleted.
+     * Adds and updates cities, in one transaction and in chunks. A reading whose completeness is proven first marks every city the
+     * provider lists no longer as missing (the ones this reading saw have the mark cleared by the update that follows); nothing is
+     * ever deleted.
      *
      * @param array<string, array<array-key, mixed>> $items the provider's records by id
      * @return int the cities written

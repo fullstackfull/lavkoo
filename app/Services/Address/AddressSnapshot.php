@@ -75,10 +75,30 @@ final class AddressSnapshot
         return self::text(self::value($snapshot, 'district'));
     }
 
+    /**
+     * The one line of address text a provider's address field takes: the street text, with the district after it unless the street
+     * text already names it. An old copy has no district and gives its address text exactly as it was typed.
+     */
+    public static function streetLine(object|array $snapshot): string
+    {
+        $street = trim((string) (self::value($snapshot, 'address') ?? ''));
+        $district = (string) self::district($snapshot);
+
+        return $district === '' || mb_stripos($street, $district) !== false ? $street : ($street === '' ? $district : $street . ', ' . $district);
+    }
+
     /** The postal code exactly as it was typed, or null: never anything derived from the National Address. */
     public static function zip(object|array $snapshot): ?string
     {
         return self::text(self::value($snapshot, 'zip'));
+    }
+
+    /** A value of the copy as one trimmed line of text; anything that is not text or a whole number (a list, an object, a flag) is nothing. */
+    public static function plain(object|array $snapshot, string $key): string
+    {
+        $value = self::value($snapshot, $key);
+
+        return is_string($value) || is_int($value) ? trim((string) $value) : '';
     }
 
     /** @param object|array<string, mixed> $snapshot */
@@ -104,7 +124,7 @@ final class AddressSnapshot
 
     private static function filled(mixed $value): bool
     {
-        return is_string($value) && trim($value) !== '';
+        return (is_string($value) && trim($value) !== '') || is_int($value);
     }
 
     private static function text(mixed $value): ?string

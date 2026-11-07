@@ -196,10 +196,10 @@ class ProviderCityMappingService
     }
 
     /** @throws InvalidArgumentException when the mapping is not an approved one */
-    public function retire(int $mappingId, ?int $adminId = null, ?string $adminName = null): ProviderCityMapping
+    public function retire(string $provider, int $mappingId, ?int $adminId = null, ?string $adminName = null): ProviderCityMapping
     {
-        return DB::transaction(function () use ($mappingId, $adminId, $adminName): ProviderCityMapping {
-            $mapping = ProviderCityMapping::query()->whereKey($mappingId)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($provider, $mappingId, $adminId, $adminName): ProviderCityMapping {
+            $mapping = ProviderCityMapping::query()->where('provider', $provider)->whereKey($mappingId)->lockForUpdate()->firstOrFail();
             if (!$mapping->isApproved()) {
                 throw new InvalidArgumentException('Only an approved mapping can be retired.');
             }
@@ -212,8 +212,9 @@ class ProviderCityMappingService
 
     /**
      * Approves, without a person, every city of ours that has exactly ONE candidate — when the provider's list was proven complete by its
-     * last synchronisation (not merely long), the provider city is not wanted by another of our cities or already mapped to one, its region
-     * (when it names one) does not contradict ours, and nobody ever approved, rejected or retired a mapping for that city.
+     * last synchronisation (not merely long), the provider lists that name exactly once (the region is no excuse: two Riyadh records are
+     * two records), the provider city is not wanted by another of our cities or already mapped to one, is not marked as not selected,
+     * its region (when it names one) does not contradict ours, and nobody ever approved, rejected or retired a mapping for that city.
      *
      * @return array{approved: int, skipped: ?string}
      */
@@ -252,8 +253,7 @@ class ProviderCityMappingService
             $evidence = $this->evidence(city: $city, providerCity: $only->city, why: 'unique_exact_name', extra: ['region_check' => $only->region, 'sync_run_id' => $run->id]);
             $fields = $this->approvedFields(method: self::METHOD_AUTO_UNIQUE, providerCity: $only->city, evidence: $evidence, adminId: null);
             if ($pending !== null) {
-                $pending->forceFill($fields)->save();
-                $approved++;
+                $approved += $this->approveWhileStillPending(pending: $pending, fields: $fields);
             } else {
                 $inserts[] = $this->insertRow(provider: $provider, cityId: $city->id, externalCityId: (string) $only->city->external_id, fields: $fields);
             }
@@ -273,6 +273,27 @@ class ProviderCityMappingService
         }
 
         return ['approved' => $approved, 'skipped' => null];
+    }
+
+    /**
+     * Approves a proposal nobody has looked at, only while it is still waiting: a person may have rejected it, or approved another
+     * candidate of the city, since the candidates were worked out. The write is conditional on the row's state, so a decision made
+     * meanwhile is never overwritten and the unique approved slot never throws out of the synchronisation.
+     *
+     * @param array<string, mixed> $fields
+     * @return int 1 when it was approved
+     */
+    private function approveWhileStillPending(ProviderCityMapping $pending, array $fields): int
+    {
+        try {
+            return ProviderCityMapping::query()
+                ->whereKey($pending->id)
+                ->where('status', MappingStatus::Pending->value)
+                ->toBase()
+                ->update($this->columnsOf($fields));
+        } catch (UniqueConstraintViolationException) {
+            return 0;
+        }
     }
 
     /** @return list<int> our cities with more than one candidate waiting and no approved mapping */
@@ -397,6 +418,19 @@ class ProviderCityMappingService
             'provider' => $provider,
             'address_city_id' => $cityId,
             'external_city_id' => $externalCityId,
+            'created_at' => now(),
+        ] + $this->columnsOf($fields);
+    }
+
+    /**
+     * The approved fields as the query builder writes them: no model is involved, so nothing encodes them.
+     *
+     * @param array<string, mixed> $fields what approvedFields() returned
+     * @return array<string, mixed>
+     */
+    private function columnsOf(array $fields): array
+    {
+        return [
             'external_region_id' => $fields['external_region_id'],
             'status' => $fields['status']->value,
             'method' => $fields['method'],
@@ -404,7 +438,6 @@ class ProviderCityMappingService
             'evidence' => json_encode($fields['evidence'], JSON_UNESCAPED_UNICODE),
             'approved_by' => $fields['approved_by'],
             'approved_at' => $fields['approved_at'],
-            'created_at' => now(),
             'updated_at' => now(),
         ];
     }
@@ -578,7 +611,7 @@ class ProviderCityMappingService
         foreach ($matches as $providerCity) {
             $region = $this->regionCheck(providerCity: $providerCity, regionId: (int) $city->region_id, regionIdsByKey: $regionIdsByKey);
             if ($region !== null) {
-                $candidates[] = new CityCandidate(city: $providerCity, region: $region);
+                $candidates[] = new CityCandidate(city: $providerCity, region: $region, providerNamesakes: count($matches));
             }
         }
 

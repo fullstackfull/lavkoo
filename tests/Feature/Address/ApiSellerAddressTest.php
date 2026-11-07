@@ -11,7 +11,9 @@ use App\Models\ShippingAddress;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\OrderAddressService;
 use Illuminate\Http\Request;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * The seller app: correcting the address of one of the seller's orders, and placing a delivery sale at the point of sale.
@@ -96,6 +98,65 @@ class ApiSellerAddressTest extends ApiAddressTestCase
         $this->assertSame(200, $this->updateAddress(['order_id' => 100, 'address_type' => 'shipping', 'contact_person_name' => 'Sara', 'phone' => '0551234567', 'city' => 'الرياض', 'address' => 'Somewhere'])->getStatusCode());
 
         $this->assertSame('الرياض', $this->storedCopy(100)['city']);
+    }
+
+    public function test_a_field_that_is_not_text_or_is_far_too_long_is_refused_and_nothing_changes(): void
+    {
+        $this->sellerOrder(100, ['address' => 'untouched', 'phone' => '0551234567']);
+
+        foreach ([['contact_person_name' => ['Sara']], ['address' => str_repeat('a', 5000)], ['phone' => true], ['email' => str_repeat('e', 300)]] as $bad) {
+            $response = $this->updateAddress(['order_id' => 100, 'address_type' => 'shipping'] + $bad);
+
+            $this->assertSame(403, $response->getStatusCode(), json_encode($bad));
+            $this->assertSame(array_key_first($bad), json_decode($response->getContent(), true)['errors'][0]['code'], 'the app is told which field it got wrong');
+        }
+        $this->assertSame(['untouched', '0551234567'], [$this->storedCopy(100)['address'], $this->storedCopy(100)['phone']]);
+    }
+
+    public function test_the_edit_is_audited_with_who_which_order_and_which_fields_but_no_address_text(): void
+    {
+        Schema::create('audit_logs', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('actor_type')->nullable();
+            $table->unsignedBigInteger('actor_id')->nullable();
+            $table->string('actor_name')->nullable();
+            $table->string('action');
+            $table->string('subject_type')->nullable();
+            $table->string('subject_id')->nullable();
+            $table->json('before')->nullable();
+            $table->json('after')->nullable();
+            $table->json('context')->nullable();
+            $table->string('ip_address')->nullable();
+            $table->text('user_agent')->nullable();
+            $table->timestamps();
+        });
+        $this->sellerOrder(100, ['contact_person_name' => 'Sara', 'phone' => '0551234567', 'city' => 'الرياض', 'address' => 'King Fahd Rd']);
+
+        $this->updateAddress(['order_id' => 100, 'address_type' => 'shipping', 'phone' => '0559999999', 'address' => 'Olaya St 3']);
+
+        $entry = DB::table('audit_logs')->where('action', 'order.address_updated')->sole();
+        $context = json_decode($entry->context, true);
+        $this->assertSame(['order', '100', 'shipping', 'api'], [$entry->subject_type, $entry->subject_id, $context['address_type'], $context['channel']]);
+        $this->assertEqualsCanonicalizing(['phone', 'address'], array_diff($context['changed'], ['updated_at']));
+        $this->assertStringNotContainsString('0559999999', json_encode($entry));
+        $this->assertStringNotContainsString('Olaya', json_encode($entry));
+    }
+
+    public function test_a_phone_that_is_not_a_saudi_mobile_is_refused_on_a_phone_only_edit_once_every_client_must_send_the_structured_address(): void
+    {
+        $this->setAddressMode(AddressSchema::MODE_STRICT);
+        $this->sellerOrder(100, $this->structuredCopy());
+
+        $refused = $this->updateAddress(['order_id' => 100, 'address_type' => 'shipping', 'phone' => 'call me']);
+
+        $this->assertSame(403, $refused->getStatusCode());
+        $this->assertSame('phone', json_decode($refused->getContent(), true)['errors'][0]['code']);
+        $this->assertSame('0551234567', $this->storedCopy(100)['phone']);
+        $this->assertSame(200, $this->updateAddress(['order_id' => 100, 'address_type' => 'shipping', 'phone' => '0558888888'])->getStatusCode());
+        $this->assertSame('0558888888', $this->storedCopy(100)['phone']);
+
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $this->assertSame(200, $this->updateAddress(['order_id' => 100, 'address_type' => 'shipping', 'phone' => '12345'])->getStatusCode(), 'an older app may keep sending what it always sent');
     }
 
     public function test_a_seller_cannot_edit_the_address_of_an_order_that_is_not_theirs(): void

@@ -83,7 +83,7 @@ If any of this differs from before, run `deploy.php rollback` (pilot runbook, se
    (the two Riyadh records are shown side by side and nothing is chosen for you). Order `100002` leaves its hold on the next sweep and stops at the normal approval gate — Dry Run stays on. Details: [torod-city-mapping.md](torod-city-mapping.md).
 8. **Turn the structured address on — `soft` first.** *Address system → Address mode → Soft*. The switch is refused while: the migrations are missing, no city is active, or the **ZIP-code delivery restriction** (*Business setup → Delivery zone*) is on. (If the restriction is turned on later, the store pauses the structured address and
    goes back to the old address with the ZIP code until it is turned off.) Then repeat the smoke tests of Release A, this time expecting: region / city / district / National Address on the website checkout, account book, admin and vendor order edit, POS add-customer; ZIP shown only for other countries.
-9. **`strict` later**, only when every mobile app version in use reads `unified_address` from `GET /api/v1/config` and sends the structured fields. `soft` lets the old app keep working (its orders wait for review at fulfillment instead of failing).
+9. **`strict` later**, only when every mobile app version in use reads `unified_address` from `GET /api/v1/config` and sends the structured fields. `soft` lets the old app keep working (its orders are accepted; at fulfillment the typed city is used only when it is certain, otherwise a person looks at the order first).
 
 ## What to watch after step 8
 

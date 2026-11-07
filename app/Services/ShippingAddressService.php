@@ -96,6 +96,20 @@ class ShippingAddressService
         return $this->validated(input: $input, existing: $existing, mayKeepSwitchedOffPlace: $mayKeepSwitchedOffPlace);
     }
 
+    /**
+     * The phone of an edit that carries no location, judged by the rule a full edit of the same address meets: a Saudi mobile number, for a
+     * Saudi address, on a channel that has to give the structured address. A client that may still send the old fields is not asked for more
+     * than it ever was.
+     *
+     * @throws ValidationException
+     */
+    public function assertPhone(mixed $phone, ?string $country, AddressChannel $channel): void
+    {
+        if ($this->requiresStructured($country, $channel) && SaudiPhone::normalize(is_scalar($phone) ? (string) $phone : null) === null) {
+            throw ValidationException::withMessages(['phone' => [translate('address_phone_invalid')]]);
+        }
+    }
+
     /** The columns of an address that no longer names a place of the list, and the old region text that went with it. */
     private function clearedPlace(): array
     {

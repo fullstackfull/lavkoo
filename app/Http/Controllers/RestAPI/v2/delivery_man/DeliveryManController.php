@@ -380,7 +380,7 @@ class DeliveryManController extends Controller
 
     public function getOrderItem(Request $request): JsonResponse
     {
-        $order = Order::with(['shippingAddress', 'customer', 'seller.shop'])->where(['id' => $request['id']])->first();
+        $order = Order::with(['shippingAddress', 'customer', 'seller.shop'])->where(['id' => $request['id'], 'delivery_man_id' => $request['delivery_man']['id']])->first();
         return response()->json($this->useSnapshotAddress(order: $order), 200);
     }
 

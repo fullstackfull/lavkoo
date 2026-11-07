@@ -7,6 +7,7 @@ use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Address\OrderAddressService;
+use App\Services\Address\StorefrontAddressService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
@@ -47,6 +48,7 @@ class OrderController extends Controller
     public function __construct(
         private readonly OrderService $orderService,
         private readonly OrderAddressService $orderAddresses,
+        private readonly StorefrontAddressService $storefrontAddresses,
     )
     {
     }
@@ -964,17 +966,7 @@ class OrderController extends Controller
 
         if ($user != 'offline') {
             if ($order && $order->is_guest) {
-                $shippingAddress = (array)($order['shipping_address_data'] ?? []);
-                $billingAddress = (array)($order['billing_address_data'] ?? []);
-                if ($order?->shippingAddress && $order?->shippingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($shippingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($order && $order?->billingAddress && $order?->billingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($billingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                }
+                $orderExist = $this->storefrontAddresses->orderWasPlacedWithPhone(order: $order, phone: $request['phone_number']) ? $order : null;
             } elseif ($user->phone == $request['phone_number']) {
                 $orderExist = Order::where(['id' => $request['order_id'], 'order_type' => 'default_type', 'customer_id' => auth('customer')->id()])
                     ->whereHas('details', function ($query) {
@@ -989,19 +981,13 @@ class OrderController extends Controller
             }
 
         } else {
+            if (!is_string($request['phone_number'])) {
+                return response()->json(['message' => 'Invalid Phone Number'], 403);
+            }
+
             $user_id = User::where('phone', $request['phone_number'])->first();
             if ($order && $order->is_guest) {
-                $shippingAddress = (array)($order['shipping_address_data'] ?? []);
-                $billingAddress = (array)($order['billing_address_data'] ?? []);
-                if ($order?->shippingAddress && $order?->shippingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($shippingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($order?->billingAddress && $order?->billingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($billingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                }
+                $orderExist = $this->storefrontAddresses->orderWasPlacedWithPhone(order: $order, phone: $request['phone_number']) ? $order : null;
             } elseif ($user_id) {
                 $orderExist = Order::where(['customer_id' => $user_id->id, 'id' => $request['order_id'], 'order_type' => 'default_type'])->whereHas('details', function ($query) {
                     return $query;

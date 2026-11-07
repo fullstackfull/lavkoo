@@ -14,7 +14,9 @@ final class NationalAddress
 {
     /**
      * Canonical spelling of whatever a person typed: ASCII digits, upper-case Latin letters, no spaces, hyphens or invisible
-     * direction marks. The result may still be invalid; use isValid() on it. Blank input gives null.
+     * direction marks. Only ASCII letters are upper-cased, so a letter outside A-Z stays what it is and the code is refused
+     * (full Unicode case mapping would turn "ß" into "SS" and "ſ" into "S"). The result may still be invalid; use isValid() on it.
+     * Blank input gives null.
      */
     public static function normalize(?string $raw): ?string
     {
@@ -28,7 +30,7 @@ final class NationalAddress
             '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4', '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
         ]);
         $text = preg_replace('/[\s\-_.\x{00A0}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}]+/u', '', $text) ?? $text;
-        $text = mb_strtoupper($text, 'UTF-8');
+        $text = strtoupper($text);
 
         return $text === '' ? null : $text;
     }

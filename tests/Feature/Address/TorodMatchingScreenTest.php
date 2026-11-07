@@ -277,6 +277,7 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
 
     public function test_the_sync_button_still_says_completed_for_a_complete_reading(): void
     {
+        config(['fulfillment.providers.torod_point.cities.complete_floor' => 10]);
         Http::fake([self::LASTMILE_CITIES => Http::response(['data' => $this->lastmileDirectory(10), 'totalElements' => 10])]);
 
         $this->post(route('admin.fulfillment-providers.sync', ['torod-point', 'cities']))->assertRedirect();

@@ -49,6 +49,7 @@ class LogUserBrowsingNavigationMiddleware
                 'chat/vendor*',
                 'chat/delivery-man*',
                 'account-address*',
+                'address/*',
                 'account-tickets',
                 'support-ticket*',
                 'refer-earn',

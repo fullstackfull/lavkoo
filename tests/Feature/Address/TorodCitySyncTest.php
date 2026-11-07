@@ -11,6 +11,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * The refresh of Torod's city list: read completely or said to be partial, never deleting, never calling a short list a success.
@@ -53,8 +54,9 @@ class TorodCitySyncTest extends TorodAddressTestCase
 
     // ---- complete readings ------------------------------------------------------------------------------------------------
 
-    public function test_a_list_that_states_its_total_and_reaches_it_is_full_in_one_request_and_is_a_success(): void
+    public function test_a_list_long_enough_to_be_a_national_one_that_states_its_total_and_reaches_it_is_full_in_one_request_and_is_a_success(): void
     {
+        config(['fulfillment.providers.torod_point.cities.complete_floor' => 20]);
         $this->fakeLastmileList($this->lastmileDirectory(25), ['total' => true]);
 
         $result = $this->sync();
@@ -71,6 +73,46 @@ class TorodCitySyncTest extends TorodAddressTestCase
         $this->assertNotNull($this->state()->last_success_at);
         $this->assertNull($this->state()->last_error);
         $this->assertSame('full', $this->state()->stats['verdict']);
+    }
+
+    public function test_a_short_list_is_full_only_when_paging_confirms_it_to_the_end(): void
+    {
+        $this->fakeLastmileList($this->lastmileDirectory(10), ['total' => true]);
+
+        $result = $this->sync();
+
+        $this->assertSame(['full', 'empty_page'], [$result['verdict'], $result['evidence']], 'its own total (ten of ten) is not what proves it');
+        $this->assertTrue($this->lastRun()->completenessProven());
+        Http::assertSentCount(3);
+    }
+
+    /** A truncated answer states its own total, its own last page and its own page count truthfully, or leaves the count at zero. */
+    #[DataProvider('envelopesOfATruncatedList')]
+    public function test_what_a_short_list_says_about_itself_proves_nothing_when_paging_does_not_confirm_it(array $envelope): void
+    {
+        $this->torodCity('36189', 'الرياض', 'Riyadh', '1204');
+        $this->torodCity('230194', 'الرياض', 'Riyadh', '1265');
+        Http::fake([self::LASTMILE_CITIES => Http::response(['data' => $this->lastmileDirectory(10)] + $envelope)]);
+
+        $result = $this->sync();
+
+        $this->assertSame('partial', $result['verdict']);
+        $this->assertSame('10 returned, paging not honoured', $result['reason']);
+        $this->assertFalse($this->lastRun()->completenessProven());
+        $this->assertSame(0, $result['approved'], 'a city that looks unique in a truncated list is not approved');
+        $this->assertSame(0, ProviderCity::whereNotNull('missing_since')->count(), 'and the cities that are not in it are not marked missing');
+        $this->assertNull($this->state()->last_success_at);
+    }
+
+    /** @return array<string, array{0: array<string, mixed>}> */
+    public static function envelopesOfATruncatedList(): array
+    {
+        return [
+            'the total it returned' => [['totalElements' => 10]],
+            'a total left at zero' => [['totalElements' => 0]],
+            'flagged as the last page' => [['last' => true]],
+            'one page' => [['totalPages' => 1]],
+        ];
     }
 
     public function test_what_the_provider_says_about_each_city_is_promoted_out_of_the_raw_record(): void
@@ -121,6 +163,7 @@ class TorodCitySyncTest extends TorodAddressTestCase
     public function test_a_list_that_gives_no_total_is_full_only_at_the_floor_and_a_shorter_one_is_walked_first(): void
     {
         config(['fulfillment.providers.torod_point.cities.complete_floor' => 20]);
+        $this->torodCity('36189', 'الرياض', 'Riyadh', '1204');
         $this->fakeLastmileList($this->lastmileDirectory(25), ['pages' => false]);
 
         $result = $this->sync();
@@ -128,6 +171,7 @@ class TorodCitySyncTest extends TorodAddressTestCase
         $this->assertSame(['full', 'distinct_floor'], [$result['verdict'], $result['evidence']]);
         $this->assertSame('distinct_floor', $this->lastRun()->request['evidence']);
         $this->assertFalse($this->lastRun()->completenessProven(), 'long enough to look complete is not proof, so nothing is approved from it automatically');
+        $this->assertSame(0, ProviderCity::whereNotNull('missing_since')->count(), 'and nothing is marked missing from it: a provider that caps its answer would put every city beyond the cap out of reach');
         Http::assertSentCount(1);
 
         config(['fulfillment.providers.torod_point.cities.complete_floor' => 30]);
@@ -138,8 +182,9 @@ class TorodCitySyncTest extends TorodAddressTestCase
         Http::assertSentCount(4);
     }
 
-    public function test_a_response_that_flags_itself_as_the_last_page_ends_the_reading(): void
+    public function test_a_response_that_flags_itself_as_the_last_page_ends_the_reading_once_it_is_long_enough_to_be_a_national_list(): void
     {
+        config(['fulfillment.providers.torod_point.cities.complete_floor' => 3]);
         Http::fake([self::LASTMILE_CITIES => Http::response(['content' => $this->lastmileDirectory(3), 'last' => true])]);
 
         $result = $this->sync();
@@ -401,10 +446,10 @@ class TorodCitySyncTest extends TorodAddressTestCase
         $result = $this->sync();
 
         $this->assertSame('full', $result['verdict']);
-        $this->assertSame(6, $result['approved']);
-        $this->assertSame(5, $result['proposed'], 'Riyadh twice, Taif, and the two cities that share one Umm Sulaym');
-        $this->assertSame(6, ProviderCityMapping::query()->approved()->where('method', 'auto_unique')->count());
-        $this->assertSame(['36189', '50004', '50005', '50005', '230194'], ProviderCityMapping::query()->where('status', 'pending')->pluck('external_city_id')->map(static fn ($id): string => (string) $id)->sort()->values()->all());
+        $this->assertSame(3, $result['approved']);
+        $this->assertSame(8, $result['proposed'], 'Riyadh twice, Taif, the two cities that share one Umm Sulaym, the Dammam Torod does not select, and the two Hofufs Torod lists under one name');
+        $this->assertSame(3, ProviderCityMapping::query()->approved()->where('method', 'auto_unique')->count());
+        $this->assertSame(['36189', '41127', '50002', '50003', '50004', '50005', '50005', '230194'], ProviderCityMapping::query()->where('status', 'pending')->pluck('external_city_id')->map(static fn ($id): string => (string) $id)->sort()->values()->all());
     }
 
     public function test_after_a_partial_reading_nothing_is_approved_and_every_candidate_waits_for_a_person(): void

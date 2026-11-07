@@ -9098,7 +9098,7 @@ return [
 	'address_mode_soft' => 'Soft',
 	'address_mode_strict' => 'Strict',
 	'address_mode_off_help' => 'The old address form everywhere: a typed city and a ZIP code. Nothing changes for customers or staff.',
-	'address_mode_soft_help' => 'The website and the staff panels must use the region, city and National Address for Saudi addresses. The mobile app and older clients may still send the old fields; their orders wait for review instead of failing.',
+	'address_mode_soft_help' => 'The website and the staff panels must use the region, city and National Address for Saudi addresses. The mobile app and older clients may still send the old fields; their orders are accepted, and at fulfilment their typed city is used only when it is certain, otherwise a person looks at the order first.',
 	'address_mode_strict_help' => 'Every client, including the mobile app, must send the region, city and National Address for Saudi addresses. Older app versions can no longer save a Saudi address.',
 	'address_mode_save' => 'Save mode',
 	'address_mode_saved' => 'The address mode was saved.',

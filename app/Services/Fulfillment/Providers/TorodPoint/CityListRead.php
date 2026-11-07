@@ -16,7 +16,7 @@ final class CityListRead
     /** Records seen across all responses, repeats included. */
     public int $fetched = 0;
 
-    /** The provider's own count of cities, when a response states it. */
+    /** The provider's own count of cities, when a response states one: a count of zero is an unpopulated field, not a count. */
     public ?int $expectedTotal = null;
 
     /** The provider said whether the response it just gave was the last page; null when it never says. */
@@ -132,7 +132,7 @@ final class CityListRead
     private function absorb(array $items, array $envelope, array &$seen): int
     {
         $this->fetched += count($items);
-        $this->expectedTotal = $envelope['total'] !== null ? max($this->expectedTotal ?? 0, $envelope['total']) : $this->expectedTotal;
+        $this->expectedTotal = $envelope['total'] !== null && $envelope['total'] > 0 ? max($this->expectedTotal ?? 0, $envelope['total']) : $this->expectedTotal;
         $this->pageCount = $envelope['pages'] ?? $this->pageCount;
         $this->lastPage = $envelope['last'] ?? $this->lastPage;
 
