@@ -238,14 +238,15 @@ class AdminSalesChannelsOperationsTest extends AdminSalesChannelsTestCase
         $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
     }
 
-    public function test_asking_to_read_what_the_channel_cannot_give_fails_honestly(): void
+    public function test_asking_to_read_what_the_channel_cannot_give_is_skipped_with_the_reason_and_leaves_no_failure_behind(): void
     {
         $account = $this->trendyolAccount();
 
         $this->post(route('admin.sales-channels.accounts.sync', ['account' => $account, 'resource' => 'inventory']))->assertRedirect();
 
-        $this->assertToastContains(translate('run_failed_explained'));
-        $this->assertToastContains('cannot do that');
+        $this->assertToastContains(translate('run_skipped_nothing_asked'));
+        $this->assertToastContains(translate('channel_reason_not_supported_by_channel'));
+        $this->assertSame(0, SalesChannelSyncState::where(['account_id' => $account->id, 'resource' => 'inventory'])->count(), 'a resource that can never be read must not start backing off');
         Http::assertNothingSent();
     }
 
