@@ -19,6 +19,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         @if ($period->wasInvalid)
             <div class="alert alert-warning fs-12" role="alert">{{ translate('the_dates_were_not_valid_the_current_month_is_shown') }}</div>
         @endif

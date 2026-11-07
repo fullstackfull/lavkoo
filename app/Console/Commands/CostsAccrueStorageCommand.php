@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\SkipsUntilSalesChannelsMigrated;
+use App\Console\Commands\Concerns\SkipsWhileOperationalCostsAreOff;
 use App\Models\InventoryLocation;
 use App\Services\OperationalCosts\StorageCostService;
 use Carbon\CarbonImmutable;
@@ -12,6 +13,7 @@ use Throwable;
 class CostsAccrueStorageCommand extends Command
 {
     use SkipsUntilSalesChannelsMigrated;
+    use SkipsWhileOperationalCostsAreOff;
 
     protected $signature = 'costs:accrue-storage {--date= : the day to accrue (default: yesterday)}';
 
@@ -19,7 +21,7 @@ class CostsAccrueStorageCommand extends Command
 
     public function handle(StorageCostService $storage): int
     {
-        if ($this->notMigratedYet()) {
+        if ($this->operationalCostsAreOff() || $this->notMigratedYet()) {
             return self::SUCCESS;
         }
         $day = $this->option('date') !== null ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : CarbonImmutable::yesterday();

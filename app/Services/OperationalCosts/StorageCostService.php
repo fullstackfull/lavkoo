@@ -14,6 +14,7 @@ use App\Services\OperationalCosts\Data\RecordOutcome;
 use App\Services\OperationalCosts\Data\ServiceContext;
 use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\OperationalCosts\Support\OperationalCostsSwitch;
 use App\Services\SalesChannels\Inventory\LocationStockReader;
 use App\Services\SalesChannels\Inventory\StockAvailability;
 use Carbon\CarbonImmutable;
@@ -24,7 +25,7 @@ use Carbon\CarbonImmutable;
  * For each day it reads the location's stock (only figures the location vouches for), prices the storage services of the provider's contract
  * (a daily rate per unit, a flat monthly fee charged on the month's last day, a per-unit charge) and records one ledger entry per service for the
  * location and day, allocated to products by their units. A day with no stock figure we can trust is a MISSING cost with that reason, never a
- * free day. Amazon FBA storage is not priced here: Amazon reports the real fee.
+ * free day. Amazon FBA storage is not priced here: Amazon reports the real fee. Nothing is accrued while OPERATIONAL_COSTS_ENABLED is off (the default).
  */
 class StorageCostService
 {
@@ -40,7 +41,7 @@ class StorageCostService
     /** @return list<RecordOutcome> */
     public function accrue(InventoryLocation $location, CarbonImmutable $day): array
     {
-        if ($location->provider === null || $location->type === InventoryLocation::TYPE_AMAZON_FBA) {
+        if (!OperationalCostsSwitch::enabled() || $location->provider === null || $location->type === InventoryLocation::TYPE_AMAZON_FBA) {
             return [];
         }
 

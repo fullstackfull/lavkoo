@@ -23,6 +23,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         @if ($invoice->status === OperationalCostInvoice::STATUS_VOID)
             <div class="alert alert-secondary fs-12" role="note">{{ translate('this_invoice_is_void_and_counts_for_nothing') }}</div>
         @endif

@@ -15,6 +15,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <div class="alert alert-info fs-12" role="note">
             <p class="mb-1"><strong>{{ translate('a_purchase_is_stock_not_an_expense') }}</strong> {{ translate('a_purchase_is_stock_not_an_expense_help') }}</p>
             <p class="mb-0"><strong>{{ translate('moving_stock_is_a_transfer_not_a_sale') }}</strong> {{ translate('moving_stock_is_a_transfer_not_a_sale_help') }}</p>

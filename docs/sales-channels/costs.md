@@ -2,6 +2,21 @@
 
 No price lives in code or configuration. Every price is a **contract rule** entered by an administrator, versioned and kept in the database; a service nobody priced is reported as **missing**, never as free.
 
+## Switches: the module ships off
+
+Running the migrations starts nothing. Two independent switches in `config/operational_costs.php`, both **off** by default and read with `FILTER_VALIDATE_BOOLEAN` (`off`, `no`, `0`, a typo all mean off):
+
+| Switch | Environment value | Off means |
+|---|---|---|
+| master | `OPERATIONAL_COSTS_ENABLED` | nothing posts a cost entry by itself: the scheduled `costs:refresh` and `costs:accrue-storage`, the same commands run by hand (they print one line, `Operational costs are switched off (OPERATIONAL_COSTS_ENABLED): nothing was calculated or written.`, and exit successfully), the sale-time recognition of goods sold (no FIFO consumption, no estimate, no cancellation reversal) and the storage accrual. The channel finance importer still **stores** every statement fact it reads but posts none of them (see below). |
+| schedule | `OPERATIONAL_COSTS_SCHEDULE_ENABLED` | only has an effect while the master switch is on: the scheduler does not run `costs:refresh` and `costs:accrue-storage` (they still run by hand). `channels:prune` is channel housekeeping, posts nothing and stays on the schedule whatever either switch says. |
+
+What a person enters stays available with the master switch off, because a person is deciding and nothing starts by itself: contracts, purchase invoices and their approval, opening stock and product costs (cost layers), reconciliation decisions, approving, disputing and reversing a ledger entry, and the return decisions of a person (see *Returns* below).
+
+**Statement postings and the catch-up.** The stored statement event is the queue: a fee or adjustment says `received` until its cost is in the ledger and `applied` afterwards. While the master switch is off the events are stored (nothing is lost, and a statement the channel never sends again is kept) and no ledger entry is written. When it is switched on the postings that were skipped are made exactly once, by the next finance import run and by `php artisan costs:post-pending-fees [account]`; a second run posts nothing, because an event that is `applied` is no longer waiting and the ledger refuses the same net twice. The cost screens show a banner while the master switch is off, and another while only the schedule is off; the Sales Channels hub lists both switches with the server switches.
+
+**Order of enabling** (see [operations.md](operations.md)): enter the contracts, purchase invoices or opening stock first; switch the master on (`config:clear`), run `costs:post-pending-fees` and `costs:refresh --days=365` once; then switch the schedule on.
+
 ## Contracts
 
 A contract belongs to one company (`provider_code`: `torod_point`, `m5azn`, `trendyol`, `amazon`, a gateway code …) of one party type (fulfilment provider, carrier, marketplace, payment gateway, supplier, other), in one currency, with an effective-from/to window, a reference number and notes.

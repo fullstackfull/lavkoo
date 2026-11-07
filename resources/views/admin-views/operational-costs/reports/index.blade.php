@@ -19,6 +19,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <div class="alert alert-info fs-12" role="note">{{ translate('exports_note_utf8_excel_and_formulas') }}</div>
 
         <div class="row g-3">

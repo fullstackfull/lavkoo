@@ -6,6 +6,7 @@ use App\Services\OperationalCosts\Contributors\CostContributor;
 use App\Services\OperationalCosts\Data\RecordOutcome;
 use App\Services\OperationalCosts\Sales\SaleDocument;
 use App\Services\OperationalCosts\Sales\SaleDocumentReader;
+use App\Services\OperationalCosts\Support\OperationalCostsSwitch;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use Throwable;
@@ -14,6 +15,8 @@ use Throwable;
  * Brings the cost ledger of a sale up to date by running every contributor listed in `operational_costs.contributors`.
  * Idempotent: running it for a sale that has not changed records nothing. One sale that cannot be brought up to date (a database refusal, bad data) is reported and counted
  * and never keeps the sales behind it from being looked at.
+ *
+ * Nothing is recorded while OPERATIONAL_COSTS_ENABLED is off (the default): it is what every automatic path into the ledger of a sale goes through.
  */
 class CostRefresher
 {
@@ -26,6 +29,10 @@ class CostRefresher
     /** @return list<RecordOutcome> */
     public function refresh(SaleDocument $document): array
     {
+        if (!OperationalCostsSwitch::enabled()) {
+            return [];
+        }
+
         $outcomes = [];
         foreach ($this->contributors() as $contributor) {
             $outcomes = [...$outcomes, ...$contributor->contribute($document)];
@@ -60,6 +67,10 @@ class CostRefresher
      */
     private function refreshAll(array $generators): array
     {
+        if (!OperationalCostsSwitch::enabled()) {
+            return ['documents' => 0, 'written' => 0, 'failed' => 0];
+        }
+
         $documents = 0;
         $written = 0;
         $failed = 0;

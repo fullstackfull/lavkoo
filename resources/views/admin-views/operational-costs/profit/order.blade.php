@@ -24,6 +24,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <div class="alert alert-info fs-12" role="note">{{ translate('a_marketplace_payout_is_not_revenue_note') }}</div>
 
         @if ($drillNotes !== [] || !$result->revenueTrusted || !$costed)

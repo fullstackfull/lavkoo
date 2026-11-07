@@ -14,6 +14,7 @@ use App\Services\OperationalCosts\Data\RecordOutcome;
 use App\Services\OperationalCosts\InventoryCostLayerService;
 use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\OperationalCosts\Support\OperationalCostsSwitch;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 
@@ -32,6 +33,8 @@ use InvalidArgumentException;
  *     stands.
  *
  * Moving stock to another location is not a sale and never reaches this class.
+ *
+ * refresh() does nothing while OPERATIONAL_COSTS_ENABLED is off (the default): no estimate, no FIFO consumption, no cancellation reversal.
  */
 class SaleCostService
 {
@@ -45,6 +48,9 @@ class SaleCostService
     /** @return list<RecordOutcome> */
     public function refresh(SaleDocument $document): array
     {
+        if (!OperationalCostsSwitch::enabled()) {
+            return [];
+        }
         if ($document->isCancelled()) {
             return $this->cancelAllLines($document);
         }

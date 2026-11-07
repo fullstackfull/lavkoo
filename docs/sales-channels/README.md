@@ -2,7 +2,7 @@
 
 A multi-channel layer on top of the storefront: **Amazon** (Selling Partner API) and **Trendyol** (Marketplace Integration API) accounts, listings mapped to our products, channel orders followed and routed, stock and price publishing, and an **operational cost ledger** that turns every sale into an honest estimated-versus-actual profit. Odoo is deferred: there is an extension point and nothing more.
 
-**Everything ships OFF.** Nothing leaves the server until `SALES_CHANNELS_ENABLED` is on, an account is enabled and holds the capability, and (for writes) `SALES_CHANNELS_EXTERNAL_WRITES_ENABLED` is on, the account allows writes, dry-run is off and a person has recorded an approval. Credentials are entered in the admin panel and stored encrypted; they are never in code, config, environment files, logs or responses.
+**Everything ships OFF.** Nothing leaves the server until `SALES_CHANNELS_ENABLED` is on, an account is enabled and holds the capability, and (for writes) `SALES_CHANNELS_EXTERNAL_WRITES_ENABLED` is on, the account allows writes, dry-run is off and a person has recorded an approval. Credentials are entered in the admin panel and stored encrypted; they are never in code, config, environment files, logs or responses. The cost module has switches of its own (`OPERATIONAL_COSTS_ENABLED`, then `OPERATIONAL_COSTS_SCHEDULE_ENABLED`, both off): running the migrations starts no FIFO consumption, no cost entry and no storage charge, and nothing is scheduled until the owner switches them on (see [operations.md](operations.md)).
 
 | Read this | For |
 |---|---|

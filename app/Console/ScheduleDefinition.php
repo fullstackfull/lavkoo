@@ -2,6 +2,7 @@
 
 namespace App\Console;
 
+use App\Services\OperationalCosts\Support\OperationalCostsSwitch;
 use Illuminate\Console\Scheduling\Schedule;
 
 /**
@@ -101,14 +102,17 @@ class ScheduleDefinition
         |
         | The channel commands do nothing unless SALES_CHANNELS_ENABLED is on and an account is enabled and holds the matching capability, and the publishing ones write only with
         | the environment write switch, the account's write switch and a recorded approval. Reads and writes are separate commands so each can be scheduled, paused or removed alone.
-        | The cost commands and channels:prune have no such switch: once the four migrations have run they write estimates (or "missing" entries) for recent store orders into the
-        | module's own tables and trim old logs, and they call nothing outside the server.
+        | The cost commands are scheduled only while OPERATIONAL_COSTS_ENABLED and OPERATIONAL_COSTS_SCHEDULE_ENABLED are both on (both ship off): running the migrations starts
+        | no cost entry, no FIFO consumption and no storage charge. channels:prune is channel housekeeping: it posts nothing, calls nothing outside the server, and stays scheduled
+        | whatever the cost switches say.
         */
         $schedule->command('channels:sync --due')->everyFiveMinutes()->withoutOverlapping(30)->runInBackground();
         $schedule->command('channels:publish --only=stock,price,shipments')->everyFifteenMinutes()->withoutOverlapping(30)->runInBackground();
         $schedule->command('channels:publish --only=settle')->everyTenMinutes()->withoutOverlapping(30);
-        $schedule->command('costs:refresh --days=3')->hourlyAt(37)->withoutOverlapping(60);
-        $schedule->command('costs:accrue-storage')->dailyAt('01:20')->withoutOverlapping(60);
+        if (OperationalCostsSwitch::scheduled()) {
+            $schedule->command('costs:refresh --days=3')->hourlyAt(37)->withoutOverlapping(60);
+            $schedule->command('costs:accrue-storage')->dailyAt('01:20')->withoutOverlapping(60);
+        }
         $schedule->command('channels:prune')->dailyAt('03:55');
 
         // Heartbeat: record the last scheduler run in the DB (not cache, which optimize:clear wipes) so
