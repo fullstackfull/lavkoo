@@ -16,8 +16,8 @@ final class SalesChannelSchema
     ];
 
     /**
-     * The columns later migrations added to tables the first ones created: the ledger writes the first on every entry, the statement importer the next two on every event
-     * the refund reader the next two on every line and the invoice reconciliation the last on every comparison, so without them every one of those writes would fail.
+     * The columns later migrations added to tables the first ones created: the ledger writes the first on every entry, the statement importer the next two on every event, the
+     * refund reader the next two on every line and the invoice reconciliation the last on every comparison, so without them every one of those writes would fail.
      *
      * @var array<string, list<string>>
      */

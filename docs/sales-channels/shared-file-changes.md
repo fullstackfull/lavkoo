@@ -1,6 +1,6 @@
 # Changes to files that existed before this work
 
-Everything else is new (new directories `app/Services/SalesChannels`, `app/Services/OperationalCosts`, the migrations dated `2026_11_07_*`, models, enums, commands, tests, docs). The Torod Point / M5AZN workstream (`app/Services/Fulfillment/**`, `app/Http/Controllers/Admin/Fulfillment/**`, `routes/admin/fulfillment.php`, `RouteServiceProvider`) is **not modified**. `main` (including its Hotfix 2) was merged into this branch cleanly; the combined Fulfillment, sales-channel and cost suites pass.
+Everything else is new (new directories `app/Services/SalesChannels`, `app/Services/OperationalCosts`, the migrations dated `2026_11_07_*`, `2026_11_08_*` and `2026_11_09_*`, models, enums, commands, tests, docs). The Torod Point / M5AZN workstream (`app/Services/Fulfillment/**`, `app/Http/Controllers/Admin/Fulfillment/**`, `routes/admin/fulfillment.php`, `RouteServiceProvider`) is **not modified**. `main` (including its Hotfix 2) was merged into this branch cleanly; the combined Fulfillment, sales-channel and cost suites pass.
 
 | File | Change | Why |
 |---|---|---|

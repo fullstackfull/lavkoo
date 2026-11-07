@@ -7,6 +7,7 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Enums\SalesChannels\SalesChannel;
+use App\Http\Controllers\Admin\OperationalCosts\ReturnPanel;
 use App\Http\Controllers\Admin\SalesChannels\Support\ProductDirectory;
 use App\Http\Controllers\Admin\SalesChannels\Support\ReadsFilters;
 use App\Http\Controllers\Admin\SalesChannels\Support\RunAnnouncer;
@@ -57,6 +58,7 @@ class ChannelOrderController extends Controller
         private readonly ProductDirectory $products,
         private readonly RunAnnouncer $announcer,
         private readonly ChannelLabels $labels,
+        private readonly ReturnPanel $returns,
     ) {
     }
 
@@ -72,6 +74,7 @@ class ChannelOrderController extends Controller
                 : $query->where('fulfillment_mode', $mode))
             ->when($filters['policy'], static fn ($query, string $policy) => $query->where('execution_policy', $policy))
             ->when($filters['review'], static fn ($query) => $query->whereNotNull('review_reason'))
+            ->when($filters['returns'], static fn ($query) => $query->whereHas('lines', static fn ($lines) => $lines->awaitingReturnDecision()))
             ->when($filters['link'], static fn ($query, string $link) => $link === 'undecided' ? $query->whereNull('shipment_link_state') : $query->where('shipment_link_state', $link))
             ->when($filters['from'], static fn ($query, string $from) => $query->whereDate('purchased_at', '>=', $from))
             ->when($filters['to'], static fn ($query, string $to) => $query->whereDate('purchased_at', '<=', $to))
@@ -115,6 +118,7 @@ class ChannelOrderController extends Controller
             'notified' => $mapping->snapshot['channel_notified'] ?? null,
             'notifyError' => $mapping->snapshot['channel_notify_error'] ?? null,
             'canUnlink' => in_array($mapping->shipment_link_state, self::UNLINKABLE, true),
+            'returns' => $this->returns->forOrder($mapping),
         ]);
     }
 
@@ -186,7 +190,7 @@ class ChannelOrderController extends Controller
     }
 
     /**
-     * @return array{channel: string|null, account: int|null, status: string|null, mode: string|null, policy: string|null, review: bool, link: string|null, from: string|null, to: string|null, q: string|null}
+     * @return array{channel: string|null, account: int|null, status: string|null, mode: string|null, policy: string|null, review: bool, returns: bool, link: string|null, from: string|null, to: string|null, q: string|null}
      */
     private function filters(Request $request): array
     {
@@ -197,6 +201,7 @@ class ChannelOrderController extends Controller
             'mode' => $this->oneOf('mode', array_map(static fn (FulfillmentMode $mode): string => $mode->value, FulfillmentMode::cases())),
             'policy' => $this->oneOf('policy', array_map(static fn (ExecutionPolicy $policy): string => $policy->value, ExecutionPolicy::cases())),
             'review' => $request->boolean('review'),
+            'returns' => $request->query('returns') === 'awaiting',
             'link' => $this->oneOf('link', self::LINK_FILTERS),
             'from' => $this->date('from'),
             'to' => $this->date('to'),

@@ -127,6 +127,15 @@
                     </dl>
                 </x-k.card>
 
+                @if ($returns !== null && $returns['items'] !== [])
+                    <x-k.card :title="translate('returned_units')" class="mb-3">
+                        <p class="fs-12 text-muted">{{ translate('return_decisions_help') }}</p>
+                        @foreach ($returns['items'] as $item)
+                            @include('admin-views.operational-costs.partials._return-decision', ['line' => $item['line'], 'standing' => $item['standing'], 'locations' => $returns['locations'], 'canDecide' => $returns['canDecide']])
+                        @endforeach
+                    </x-k.card>
+                @endif
+
                 <x-k.card :title="translate('lines_of_the_sale')" :padded="false">
                     <div class="k-table-wrap table-responsive">
                         <table class="k-table">

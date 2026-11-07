@@ -7,6 +7,7 @@ use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\ProfitInput;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\SellerScope;
 use App\Http\Controllers\Controller;
+use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Services\OperationalCosts\Profit\ProfitabilityService;
 use App\Services\OperationalCosts\Reports\ProfitLine;
@@ -39,6 +40,7 @@ class ProfitabilityController extends Controller
         private readonly SaleDocumentReader $documents,
         private readonly ReportExports $exports,
         private readonly FxConverter $fx,
+        private readonly ReturnPanel $returns,
     ) {
     }
 
@@ -74,6 +76,7 @@ class ProfitabilityController extends Controller
             'currency' => $this->fx->baseCurrency(),
             'result' => $this->profit->forDocument($document),
             'entries' => $this->profit->entriesForDocuments([$document])[$document->cacheKey()] ?? collect(),
+            'returns' => $document->mappingId === null ? null : $this->returns->forOrder(ExternalOrderMapping::findOrFail($document->mappingId)),
         ]);
     }
 

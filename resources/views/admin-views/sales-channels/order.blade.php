@@ -83,6 +83,7 @@
                                         {{ $line->quantity }}
                                         @if ($line->quantity_cancelled > 0)<div class="text-danger">{{ translate('cancelled') }}: {{ $line->quantity_cancelled }}</div>@endif
                                         @if ($line->quantity_returned > 0)<div class="text-warning">{{ translate('returned') }}: {{ $line->quantity_returned }}</div>@endif
+                                        @if ($line->refunded_total !== null && (float) $line->refunded_total > 0)<div class="text-warning">{{ translate('refunded') }}: @include('admin-views.sales-channels.partials._money', ['amount' => $line->refunded_total, 'currency' => $currency])</div>@endif
                                     </td>
                                     <td class="k-table__num">@include('admin-views.sales-channels.partials._money', ['amount' => $line->unit_price, 'currency' => $currency])</td>
                                     <td class="k-table__num">@include('admin-views.sales-channels.partials._money', ['amount' => $line->line_total, 'currency' => $currency])</td>
@@ -98,6 +99,15 @@
                         </table>
                     </div>
                 </x-k.card>
+
+                @if ($returns['items'] !== [])
+                    <x-k.card :title="translate('returned_units')" class="mb-3" id="returned-units">
+                        <p class="fs-12 text-muted">{{ translate('return_decisions_help') }}</p>
+                        @foreach ($returns['items'] as $item)
+                            @include('admin-views.operational-costs.partials._return-decision', ['line' => $item['line'], 'standing' => $item['standing'], 'locations' => $returns['locations'], 'canDecide' => $returns['canDecide']])
+                        @endforeach
+                    </x-k.card>
+                @endif
 
                 <x-k.card :title="translate('routing_decisions')" class="mb-3">
                     <x-slot:actions>

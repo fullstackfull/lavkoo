@@ -91,6 +91,9 @@
             <x-k.stat :label="translate('disputed_entries')" :value="$disputedEntries"
                       :caption="translate('all_periods')"
                       :href="route('admin.operational-costs.entries.index', ['state' => 'disputed', 'from' => '', 'to' => '', 'seller' => $range['seller']])" />
+            <x-k.stat :label="translate('returned_units_awaiting_a_decision')" :value="$awaitingReturns"
+                      :caption="translate('all_periods')"
+                      :href="route('admin.operational-costs.returns.index')" />
         </div>
 
         <div class="row g-3 mb-3">

@@ -86,6 +86,10 @@
                         <input class="form-check-input" type="checkbox" id="filter-review" name="review" value="1" @checked($filters['review'])>
                         <label class="form-check-label fs-12" for="filter-review">{{ translate('needs_review_only') }}</label>
                     </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="filter-returns" name="returns" value="awaiting" @checked($filters['returns'])>
+                        <label class="form-check-label fs-12" for="filter-returns">{{ translate('awaiting_a_restock_decision') }}</label>
+                    </div>
                 </div>
                 <div class="col-md-3 d-flex gap-2">
                     <button class="btn btn-primary btn-sm" type="submit">{{ translate('filter') }}</button>

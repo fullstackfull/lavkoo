@@ -32,6 +32,8 @@ final class ChannelSettings
                 'auto_link_exact_barcode' => false,
                 'prices_include_tax' => true,
                 'route_cod_orders' => false,
+                // An owner's decision (off by default): the units of a claim the channel accepted go back on the shelf by themselves (ReturnDecisionService).
+                'auto_restock_accepted_returns' => false,
                 'torod_reference_field' => 'order_number',
                 'carrier_codes' => [],
             ],
@@ -47,7 +49,7 @@ final class ChannelSettings
     {
         $merged = array_replace(self::defaults($channel), array_intersect_key($input, self::defaults($channel)));
 
-        foreach (['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders'] as $flag) {
+        foreach (['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns'] as $flag) {
             if (array_key_exists($flag, $merged)) {
                 $merged[$flag] = filter_var($merged[$flag], FILTER_VALIDATE_BOOLEAN);
             }

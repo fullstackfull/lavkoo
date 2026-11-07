@@ -117,6 +117,30 @@ class AdminSalesChannelsAccountsTest extends AdminSalesChannelsTestCase
         ]);
     }
 
+    public function test_a_trendyol_account_puts_no_returned_unit_back_by_itself_until_the_owner_switches_it_on(): void
+    {
+        $create = $this->get(route('admin.sales-channels.accounts.create', ['channel' => 'trendyol']))->assertOk()->getContent();
+        $this->assertStringContainsString('name="settings[auto_restock_accepted_returns]"', $create);
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]*id="trendyol-auto-restock"[^>]*checked/', $create, 'off on a new account');
+        $account = $this->freshAccount();
+        $this->assertFalse($account->setting('auto_restock_accepted_returns'), 'the form that does not say so leaves it off');
+
+        $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['settings' => ['auto_restock_accepted_returns' => 1]]))->assertRedirect();
+
+        $this->assertTrue($account->fresh()->setting('auto_restock_accepted_returns'));
+        $this->assertMatchesRegularExpression('/<input[^>]*id="trendyol-auto-restock"[^>]*checked/', $this->get(route('admin.sales-channels.accounts.show', $account))->assertOk()->getContent());
+
+        $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['settings' => ['auto_restock_accepted_returns' => 0]]))->assertRedirect();
+        $this->assertFalse($account->fresh()->setting('auto_restock_accepted_returns'), 'and it can be switched off again');
+    }
+
+    public function test_the_amazon_form_has_no_switch_for_putting_returned_units_back(): void
+    {
+        $html = $this->get(route('admin.sales-channels.accounts.create', ['channel' => 'amazon']))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('auto_restock_accepted_returns', $html, 'Amazon returns are not read as claims: there is nothing to accept automatically.');
+    }
+
     public function test_the_platform_admin_can_create_an_account_for_a_seller_that_exists(): void
     {
         Schema::create('sellers', static function (Blueprint $table): void {

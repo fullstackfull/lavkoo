@@ -6,6 +6,7 @@ use App\Enums\OperationalCosts\CostState;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\ReportPeriod;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\SellerScope;
 use App\Http\Controllers\Controller;
+use App\Models\ExternalOrderLine;
 use App\Models\OperationalCostEntry;
 use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostReconciliation;
@@ -56,6 +57,7 @@ class OverviewController extends Controller
             'unapprovedInvoices' => SellerScope::apply(OperationalCostInvoice::query()->whereIn('status', [OperationalCostInvoice::STATUS_DRAFT, OperationalCostInvoice::STATUS_UNDER_REVIEW]), $seller)->count(),
             'openDifferences' => $this->openDifferences($seller),
             'disputedEntries' => SellerScope::apply(OperationalCostEntry::query()->openDisputes(), $seller)->count(),
+            'awaitingReturns' => ExternalOrderLine::awaitingReturnDecision()->count(),
         ]);
     }
 

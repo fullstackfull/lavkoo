@@ -73,6 +73,11 @@ final class CostLabels
         'profit_note_revenue_not_convertible', 'profit_note_channel_amounts_missing', 'profit_note_amount_not_convertible', 'profit_note_total_does_not_add_up', 'profit_note_tax_not_separated',
         'profit_note_cost_not_convertible',
 
+        // Why a return decision was refused.
+        'return_refused_nothing_to_decide', 'return_refused_unknown_return_event', 'return_refused_claim_units_must_all_be_decided', 'return_refused_use_the_claim',
+        'return_refused_more_than_sold', 'return_refused_not_linked', 'return_refused_no_location', 'return_refused_location_unknown', 'return_refused_no_cost_recognised',
+        'return_refused_more_than_taken_from_stock',
+
         // The exports.
         'report_title_entries', 'report_title_missing', 'report_title_profit', 'report_title_invoices',
         'report_help_entries', 'report_help_missing', 'report_help_profit', 'report_help_invoices',
