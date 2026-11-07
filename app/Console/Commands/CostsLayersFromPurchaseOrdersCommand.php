@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Console\Commands\Concerns\Refusal;
 use App\Console\Commands\Concerns\SkipsUntilSalesChannelsMigrated;
 use App\Console\Commands\Concerns\SkipsWhileOperationalCostsAreOff;
 use App\Enums\OperationalCosts\PurchaseLineRefusal;
@@ -9,6 +10,7 @@ use App\Services\OperationalCosts\PurchaseOrders\LayerRun;
 use App\Services\OperationalCosts\PurchaseOrders\PurchaseOrderLayerService;
 use App\Services\OperationalCosts\PurchaseOrders\PurchaseOrderSchema;
 use App\Services\OperationalCosts\PurchaseOrders\PurchaseOrderSourceMode;
+use App\Services\SalesChannels\Support\SalesChannelSetup;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Throwable;
@@ -38,7 +40,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
     {
         $apply = (bool) $this->option('apply');
         if ($apply && $this->option('dry-run')) {
-            $this->error('Choose --dry-run or --apply, not both.');
+            Refusal::say($this, 'Choose --dry-run or --apply, not both.', error: true);
 
             return self::FAILURE;
         }
@@ -52,28 +54,31 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
             return $refused;
         }
         if (!PurchaseOrderSourceMode::reports()) {
-            $this->line(PurchaseOrderSourceMode::OFF_MESSAGE);
+            Refusal::say($this, PurchaseOrderSourceMode::OFF_MESSAGE);
 
             return $refused;
         }
         if ($apply && !PurchaseOrderSourceMode::active()) {
-            $this->line('The purchase-order source is in shadow mode: it only reports. Set OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS=on (and run `php artisan config:clear`) to make layers. Nothing was written.');
+            Refusal::say($this, 'The purchase-order source is in shadow mode: it only reports. Set OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS=on (and run `php artisan config:clear`) to make layers. Nothing was written.');
 
             return self::FAILURE;
         }
         if ($apply && $filters['since'] === null) {
-            $this->error('Making layers needs a cutover date: --since=YYYY-MM-DD. Units received before it belong to the opening balance; layering all history would count units that were sold long ago. Nothing was written.');
+            Refusal::say($this, 'Making layers needs a cutover date: --since=YYYY-MM-DD. Units received before it belong to the opening balance; layering all history would count units that were sold long ago. Nothing was written.', error: true);
 
             return self::FAILURE;
         }
-        if ($apply ? $this->notMigratedYet() : $this->salesChannelsNotMigrated()) {
+        if ($this->salesChannelsNotMigrated()) {
             return $refused;
         }
         $unavailable = $schema->unavailable();
         if ($unavailable !== null) {
-            $this->line($unavailable);
+            Refusal::say($this, $unavailable);
 
             return $refused;
+        }
+        if ($apply) {
+            SalesChannelSetup::prepare();
         }
 
         try {
@@ -82,7 +87,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
                 : $layers->preview(productId: $filters['product'], lineId: $filters['line'], since: $filters['since'], sample: $filters['limit'], included: $filters['included']);
         } catch (Throwable $exception) {
             report($exception);
-            $this->error('The layers could not be made: ' . $exception::class . '. What was made before it stays; run it again to carry on.');
+            Refusal::say($this, 'The layers could not be made: ' . $exception::class . '. What was made before it stays; run it again to carry on.', error: true);
 
             return self::FAILURE;
         }
@@ -99,7 +104,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         if ($since !== null) {
             $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $since) === 1 ? CarbonImmutable::createFromFormat('!Y-m-d', (string) $since) : null;
             if ($date === null || $date->toDateString() !== $since) {
-                $this->error('The cutover date must be a date written YYYY-MM-DD.');
+                Refusal::say($this, 'The cutover date must be a date written YYYY-MM-DD.', error: true);
 
                 return null;
             }
@@ -107,7 +112,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         }
         foreach (['product', 'line'] as $option) {
             if ($this->option($option) !== null && !ctype_digit((string) $this->option($option))) {
-                $this->error("The {$option} must be an id.");
+                Refusal::say($this, "The {$option} must be an id.", error: true);
 
                 return null;
             }
@@ -115,7 +120,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
 
         $included = $this->option('include') === null ? [] : explode(',', (string) $this->option('include'));
         if (array_filter($included, static fn (string $id): bool => !ctype_digit($id)) !== []) {
-            $this->error('The lines to include are ids separated by commas.');
+            Refusal::say($this, 'The lines to include are ids separated by commas.', error: true);
 
             return null;
         }
@@ -147,7 +152,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         }
         if ($run->tranches !== []) {
             $this->table(['line', 'order', 'product', 'location', 'units', 'from-to', 'unit cost', 'received at'], array_map(
-                static fn (array $row): array => [$row['line_id'], $row['purchase_order'], $row['product_id'], $row['location_id'], $row['units'], $row['from'] . '-' . $row['to'], $row['unit_cost'], $row['received_at'] . ($row['date_is_approximate'] ? ' (approximate)' : '')],
+                static fn (array $row): array => [$row['line_id'], $row['purchase_order'], $row['product_id'], $row['location_id'] ?? 'default', $row['units'], $row['from'] . '-' . $row['to'], $row['unit_cost'], $row['received_at'] . ($row['date_is_approximate'] ? ' (approximate)' : '')],
                 $run->tranches,
             ));
         }

@@ -16,7 +16,7 @@ trait SkipsWhileOperationalCostsAreOff
             return false;
         }
 
-        $this->line(OperationalCostsSwitch::OFF_MESSAGE);
+        Refusal::say($this, OperationalCostsSwitch::OFF_MESSAGE);
 
         return true;
     }

@@ -31,6 +31,9 @@ class PlatformReconciliation
 
     private const PRODUCT_PAGE = 500;
 
+    /** @var array<string, list<string>> the columns of the platform's store orders the comparison reads (the order's id, whose it is and how far it is; its lines' order, product and quantity) */
+    private const STORE_ORDER_COLUMNS = ['orders' => ['id', 'seller_is', 'order_status'], 'order_details' => ['order_id', 'product_id', 'qty']];
+
     public function __construct(
         private readonly PlatformProcurement $procurement,
         private readonly PurchaseOrderLayerPlanner $planner,
@@ -53,6 +56,7 @@ class PlatformReconciliation
 
         return [
             'available' => true,
+            'skipped' => $this->missingStoreOrderColumns() === [] ? [] : ['store_orders' => $this->missingStoreOrderColumns()],
             'generated_at' => CarbonImmutable::now()->toIso8601String(),
             'products' => $this->products($orderUnits, $limit, $productId),
             'purchase_orders' => $purchaseOrders,
@@ -215,7 +219,7 @@ class PlatformReconciliation
      */
     private function undeliveredStoreUnits(array $productIds): array
     {
-        if (!Schema::hasTable('orders') || !Schema::hasTable('order_details')) {
+        if ($this->missingStoreOrderColumns() !== []) {
             return [];
         }
         $leftTheStock = Schema::hasColumn('order_details', 'is_stock_decreased');
@@ -227,6 +231,18 @@ class PlatformReconciliation
             ->when(Schema::hasTable('external_order_mappings'), static fn ($query) => $query->whereNotIn('sale.id', DB::table('external_order_mappings')->whereNotNull('order_id')->select('order_id')))
             ->selectRaw('detail.product_id as product, sum(detail.qty) as units')->groupBy('detail.product_id')->get()
             ->mapWithKeys(static fn (object $row): array => [(int) $row->product => (int) $row->units])->all();
+    }
+
+    /** @return list<string> the columns ("orders.seller_is") of the platform's store orders the comparison needs and that are not there: it leaves the store orders out and says so */
+    private function missingStoreOrderColumns(): array
+    {
+        $missing = [];
+        foreach (self::STORE_ORDER_COLUMNS as $table => $columns) {
+            $present = Schema::hasTable($table) ? Schema::getColumnListing($table) : [];
+            array_push($missing, ...array_map(static fn (string $column): string => "{$table}.{$column}", array_values(array_diff($columns, $present))));
+        }
+
+        return $missing;
     }
 
     /**
@@ -280,12 +296,12 @@ class PlatformReconciliation
     private function productsAndUnits(QueryBuilder $query, string $column, int $limit, bool $descending): array
     {
         $total = (clone $query)->selectRaw("count(*) as products, coalesce(sum({$column}), 0) as units")->first();
-        $rows = (clone $query)->orderBy($column, $descending ? 'desc' : 'asc')->orderBy('product.id')->limit($limit)->get(['product.id', 'product.name', 'product.current_stock']);
+        $rows = (clone $query)->orderBy($column, $descending ? 'desc' : 'asc')->orderBy('product.id')->limit($limit)->get(['product.id', 'product.current_stock', ...(Schema::hasColumn('products', 'name') ? ['product.name'] : [])]);
 
         return [
             'products' => (int) $total->products,
             'units' => (int) $total->units,
-            'rows' => $rows->map(static fn (object $row): array => ['product_id' => (int) $row->id, 'name' => $row->name, 'platform_stock' => (int) $row->current_stock])->all(),
+            'rows' => $rows->map(static fn (object $row): array => ['product_id' => (int) $row->id, 'name' => $row->name ?? null, 'platform_stock' => (int) $row->current_stock])->all(),
             'truncated' => (int) $total->products > $limit,
         ];
     }

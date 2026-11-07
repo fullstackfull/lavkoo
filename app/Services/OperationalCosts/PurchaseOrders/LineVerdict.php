@@ -16,7 +16,8 @@ final readonly class LineVerdict
     ) {
     }
 
-    public static function eligible(int $locationId, Money $unitCost, string $currency): self
+    /** @param int|null $locationId where the layer goes; null in a dry run for a default place that the real run makes first */
+    public static function eligible(?int $locationId, Money $unitCost, string $currency): self
     {
         return new self(refusal: null, locationId: $locationId, unitCost: $unitCost, currency: $currency);
     }

@@ -15,6 +15,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsPlatformProcurementSchema;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\FakeCurrencyRates;
@@ -284,6 +285,41 @@ class PlatformReconciliationTest extends TestCase
         $this->assertSame(4, $orders['units_without_layer']);
         $this->assertNull($orders['without_layer']['rows'][0]['supplier']);
         $this->assertTrue($orders['without_layer']['rows'][0]['date_is_approximate'], 'With no stock ledger there is no receipt date to take.');
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: bool}> the core columns the report reads, and whether losing one leaves the store orders out of the comparison */
+    public static function coreColumnsTheReportReads(): array
+    {
+        return [
+            'products.name' => ['products', 'name', false],
+            'orders.order_status' => ['orders', 'order_status', true],
+            'orders.seller_is' => ['orders', 'seller_is', true],
+            'order_details.qty' => ['order_details', 'qty', true],
+            'order_details.product_id' => ['order_details', 'product_id', true],
+        ];
+    }
+
+    #[DataProvider('coreColumnsTheReportReads')]
+    public function test_a_core_column_of_the_platform_that_is_not_there_is_skipped_and_named_and_never_an_exception(string $table, string $column, bool $leavesStoreOrdersOut): void
+    {
+        $product = $this->platformProduct(['name' => 'Gauze', 'current_stock' => 4]);
+        $this->openLayer($product, 6);
+        $order = $this->purchaseOrder($this->supplier(), [[$product, 10, 12.5]]);
+        $this->receiveOnPlatform($order->items->first(), 10);
+        Schema::table($table, static fn ($blueprint) => $blueprint->dropColumn($column));
+
+        $report = $this->report();
+
+        $this->assertTrue($report['available']);
+        $this->assertSame($leavesStoreOrdersOut ? ['store_orders' => ["{$table}.{$column}"]] : [], $report['skipped']);
+        $this->assertSame(10, $report['purchase_orders']['units_received'], 'Everything the columns that are there say is still reported.');
+        $this->artisan('costs:reconcile-platform')->expectsOutputToContain($leavesStoreOrdersOut ? "{$table}.{$column} is not there" : 'Nothing was written')->assertExitCode(0);
+        $this->artisan('costs:reconcile-platform', ['--json' => true])->assertExitCode(0);
+    }
+
+    public function test_a_report_over_the_whole_platform_skips_nothing(): void
+    {
+        $this->assertSame([], $this->report()['skipped']);
     }
 
     public function test_the_command_obeys_the_module_switch_and_the_migrations(): void

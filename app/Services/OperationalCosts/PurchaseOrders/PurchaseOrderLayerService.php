@@ -18,7 +18,8 @@ use LogicException;
  * variants, a cost above zero, a currency with a rate, a known place): anything else is left alone and reported, never made at zero. Running it again makes nothing; two runs at the same
  * moment make one layer between them, because the layer table is unique on a line and where its units start.
  *
- * `preview()` writes nothing anywhere. Making layers needs the purchase-order source switched on and the cost module's master switch on.
+ * `preview()` writes nothing anywhere, and counts the default stock locations that do not exist yet as there, because `apply()` is run after the sales-channel set-up has made them. Making layers
+ * needs the purchase-order source switched on and the cost module's master switch on.
  */
 class PurchaseOrderLayerService
 {
@@ -40,7 +41,7 @@ class PurchaseOrderLayerService
     public function preview(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null, int $sample = 50, array $included = []): LayerRun
     {
         $run = new LayerRun($sample);
-        foreach ($this->planner->plans(productId: $productId, lineId: $lineId, since: $since, included: $included) as $plan) {
+        foreach ($this->planner->plans(productId: $productId, lineId: $lineId, since: $since, included: $included, assumeDefaultLocations: true) as $plan) {
             $this->count($run, $plan);
         }
 
@@ -75,8 +76,8 @@ class PurchaseOrderLayerService
     public function layerTranche(LinePlan $plan): TrancheOutcome
     {
         $this->mustBeOn();
-        if ($plan->tranche === null || !$plan->verdict->isEligible()) {
-            throw new LogicException('Only a line with units to layer and a layer it may have is made into one.');
+        if ($plan->tranche === null || !$plan->verdict->isEligible() || $plan->verdict->locationId === null) {
+            throw new LogicException('Only a line with units to layer, a layer it may have and a place to put it is made into one.');
         }
         $line = $plan->line;
         $tranche = $plan->tranche;

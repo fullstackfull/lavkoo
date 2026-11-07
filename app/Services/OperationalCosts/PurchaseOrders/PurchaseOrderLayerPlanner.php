@@ -37,9 +37,10 @@ class PurchaseOrderLayerPlanner
      * Every received line, in the order the layers are made in.
      *
      * @param list<int> $included the lines a person has said are separate purchases, whatever invoices and typed costs the module holds for the same product
+     * @param bool $assumeDefaultLocations a dry run counts the default stock locations that do not exist yet as there, because the real run makes them first
      * @return Generator<int, LinePlan>
      */
-    public function plans(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null, array $included = []): Generator
+    public function plans(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null, array $included = [], bool $assumeDefaultLocations = false): Generator
     {
         $after = 0;
         while (($lines = $this->procurement->receivedLines($after, self::PAGE, $productId, $lineId)) !== []) {
@@ -48,7 +49,7 @@ class PurchaseOrderLayerPlanner
             $accounted = $this->layered->forLines($lines);
             $covered = $this->covering->coveredLines(lines: array_values(array_filter($lines, static fn (PurchaseLine $line): bool => ($accounted[$line->id] ?? 0) === 0 && !in_array($line->id, $included, true))), since: $since);
             foreach ($lines as $line) {
-                yield $this->plan($line, $products[$line->productId] ?? null, $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [], $accounted[$line->id] ?? 0, $since, isset($covered[$line->id]));
+                yield $this->plan($line, $products[$line->productId] ?? null, $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [], $accounted[$line->id] ?? 0, $since, isset($covered[$line->id]), $assumeDefaultLocations);
             }
             $after = $lines[array_key_last($lines)]->id;
         }
@@ -57,9 +58,9 @@ class PurchaseOrderLayerPlanner
     /**
      * @param list<array{quantity: int, at: CarbonImmutable|null}> $receipts the receipts the platform's stock ledger holds for this line's order and product
      */
-    private function plan(PurchaseLine $line, ?ProductFacts $product, array $receipts, int $accounted, ?CarbonImmutable $since, bool $covered): LinePlan
+    private function plan(PurchaseLine $line, ?ProductFacts $product, array $receipts, int $accounted, ?CarbonImmutable $since, bool $covered, bool $assumeDefaultLocations): LinePlan
     {
-        $verdict = $this->evaluator->verdict($line, $product);
+        $verdict = $this->evaluator->verdict($line, $product, $assumeDefaultLocations);
         if ($line->quantityReceived < $accounted) {
             return new LinePlan($line, $verdict, $accounted, null, $accounted - $line->quantityReceived);
         }
