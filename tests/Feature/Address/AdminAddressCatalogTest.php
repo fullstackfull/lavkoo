@@ -392,7 +392,7 @@ class AdminAddressCatalogTest extends AdminAddressTestCase
         $city = $this->city('jeddah');
 
         $this->post(route('admin.address-system.cities.update', $city->id), $this->cityForm([
-            'region_id' => $city->region_id, 'name_ar' => $city->name_ar, 'name_en' => $city->name_en, 'latitude' => '', 'longitude' => '', 'sort_order' => 0,
+            'region_id' => $city->region_id, 'name_ar' => $city->name_ar, 'name_en' => $city->name_en, 'latitude' => '', 'longitude' => '', 'sort_order' => $city->sort_order,
         ]))->assertRedirect();
 
         $this->assertSame([], $this->auditActions());
