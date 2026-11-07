@@ -28,11 +28,11 @@ No shipping price, no report/export and neither courier integration reads the ZI
 | Stage | State | What happens |
 |---|---|---|
 | **S0 — ship** | unified mode `off` (default) | nothing changes: old form, old validation, old snapshot keys |
-| **S1 — gate** | switching the mode to `soft`/`strict` | refused while `delivery_zip_code_area_restriction` is ON: a ZIP allow-list cannot be evaluated for an address that carries only a National Address. The admin screen says why and links to the delivery restriction page, which shows a banner and the number of saved Saudi addresses without a ZIP |
+| **S1 — gate and pause** | switching the mode to `soft`/`strict`; and the ZIP restriction being turned on later | the switch is **refused** while `delivery_zip_code_area_restriction` is ON: a ZIP allow-list cannot be evaluated for an address that carries only a National Address. If the restriction is turned on **after** the mode was chosen, the structured address is **paused**: `AddressSchema::mode()` answers `off` while the restriction is on, so the store keeps the old address with its ZIP code and keeps judging it exactly as before; turning the restriction off brings the chosen mode back (nothing was changed or lost). The admin overview and the delivery-zone page say so and show the number of saved Saudi addresses without a ZIP |
 | **S2 — area rules** | future, needs the owner's decision | a region/city based "deliverable" rule edited in the address admin (default off) evaluated for addresses with ids, while the ZIP list keeps being evaluated for other countries and old addresses |
 | **S3 — import** | future, needs an official postal-code → city dataset | an optional, reviewed import of the ZIP list into area rules; never automatic |
 
-Why S1 instead of silently ignoring the restriction: a store that restricts delivery by ZIP would otherwise start accepting addresses the rule was meant to reject. Failing closed (the feature
-simply cannot be switched on) is the safe default.
+Why S1 instead of silently ignoring the restriction: a store that restricts delivery by ZIP would otherwise start accepting addresses the rule was meant to reject. Refusing the switch, and pausing the
+feature when the restriction appears later, keeps the ZIP rule authoritative without ever locking Saudi customers out of checkout (refusing every ZIP-less Saudi address while both are on would stop all Saudi orders after a single settings change).
 
 For non-Saudi addresses the ZIP box stays visible and the ZIP rule keeps working exactly as before.

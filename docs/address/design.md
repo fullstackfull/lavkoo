@@ -34,8 +34,8 @@ No foreign keys to store tables, nothing renamed or dropped, no backfill in a mi
 ## Mode (the switch an administrator controls)
 
 `off` (default) — nothing changes anywhere · `soft` — the website and the panels must use the structured address for Saudi addresses, the mobile app and older API clients may still send the old fields
-(those orders wait for review at fulfilment instead of failing) · `strict` — every client. The mode is forced to `off` when the migrations have not run, when no city exists (an empty list can
-never lock customers out) and — for `soft`/`strict` — while the ZIP allow-list restriction is on.
+(those orders wait for review at fulfilment instead of failing) · `strict` — every client. The mode in force is `off` when the migrations have not run, when no city exists (an empty list can
+never lock customers out) and while the ZIP allow-list restriction is on (the chosen mode is kept and comes back when the restriction is turned off).
 
 ## The flows
 
