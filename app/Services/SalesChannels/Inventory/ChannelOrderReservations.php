@@ -50,7 +50,7 @@ class ChannelOrderReservations
         $after = $this->holdsOf($mapping);
 
         if ($before->all() !== $after->all()) {
-            $this->dirtyPools->mark($before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey($hold['location_id'], $hold['product_id'], $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values());
+            $this->dirtyPools->mark($before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey(locationId: $hold['location_id'], productId: $hold['product_id'], variantKey: $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values());
         }
     }
 

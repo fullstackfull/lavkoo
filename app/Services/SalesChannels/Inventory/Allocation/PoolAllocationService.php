@@ -71,7 +71,17 @@ class PoolAllocationService
         $holdBefore = (int) $pool->deficit_hold_cycles;
         $stale = $this->freshness->staleAccounts($accountIds);
         $fingerprint = $this->fingerprint($net, $deficit, PoolAllocation::raisingBlockedBy($deficit, $holdBefore > 0, $stale), $reason, $result, $members);
-        $allocation = new PoolAllocation($key, (int) $pool->version + ($fingerprint !== $pool->fingerprint ? 1 : 0), $net, $deficit, $holdBefore > 0, $reason, $result?->storefrontReserve ?? 0, $result?->shares ?? [], $stale);
+        $allocation = new PoolAllocation(
+            key: $key,
+            version: (int) $pool->version + ($fingerprint !== $pool->fingerprint ? 1 : 0),
+            net: $net,
+            deficit: $deficit,
+            deficitHold: $holdBefore > 0,
+            reason: $reason,
+            storefrontReserve: $result?->storefrontReserve ?? 0,
+            shares: $result?->shares ?? [],
+            staleAccounts: $stale,
+        );
 
         if ($allocation->version !== (int) $pool->version) {
             $this->store($members, $allocation);

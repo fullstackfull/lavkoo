@@ -7,7 +7,6 @@ use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
 use App\Services\SalesChannels\Inventory\Allocation\PoolMembers;
-use App\Services\SalesChannels\Inventory\PoolKey;
 
 /**
  * The quick run after orders were imported: every pool whose promises changed is divided again, and what LOWERS a quantity at a channel is sent at once, so that stock another

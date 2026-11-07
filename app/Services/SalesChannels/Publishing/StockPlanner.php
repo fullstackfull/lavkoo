@@ -90,7 +90,7 @@ class StockPlanner
         }
         $quantity = max(0, (int) $pool->net() - $policy->safetyBuffer);
 
-        return new PlannedStock($policy->maxQuantity === null ? $quantity : min($quantity, $policy->maxQuantity), $this->shown($listing));
+        return new PlannedStock(quantity: $policy->maxQuantity === null ? $quantity : min($quantity, $policy->maxQuantity), shown: $this->shown($listing));
     }
 
     /** @return PlannedStock|string */
@@ -110,7 +110,7 @@ class StockPlanner
             return 'unchanged';
         }
 
-        return new PlannedStock($quantity, $shown, $allocation);
+        return new PlannedStock(quantity: $quantity, shown: $shown, allocation: $allocation);
     }
 
     private function notAboveTheChannel(SalesChannelProductMapping $listing, PoolAllocation $allocation, int $quantity): int

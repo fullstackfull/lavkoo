@@ -45,10 +45,16 @@ class StockAllocator
         $shares = [];
         foreach ($members as $member) {
             $rule = in_array($member->mode, StockShare::MODES, true) ? $member->mode : StockShare::EQUAL;
-            $shares[$member->listingId] = new MemberShare($member->listingId, $rule, intdiv($granted[$member->listingId], 100), max(0, $member->buffer), max(0, $member->lag));
+            $shares[$member->listingId] = new MemberShare(
+                listingId: $member->listingId,
+                rule: $rule,
+                entitlement: intdiv($granted[$member->listingId], 100),
+                buffer: max(0, $member->buffer),
+                lag: max(0, $member->lag),
+            );
         }
 
-        return new AllocationResult($net, intdiv($reserve->hundredths($net), 100), $shares);
+        return new AllocationResult(net: $net, storefrontReserve: intdiv($reserve->hundredths($net), 100), shares: $shares);
     }
 
     /**
