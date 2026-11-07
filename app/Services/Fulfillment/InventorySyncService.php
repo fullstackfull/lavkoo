@@ -235,7 +235,7 @@ class InventorySyncService
         }
 
         $promised = $this->reservedNotYetWithProvider($provider, (int) $product->id, $mapping->variant_key, $acceptedSince)
-            + $this->channelHolds->unitsHeld($provider, (int) $product->id, (string) $mapping->variant_key, $acceptedSince);
+            + $this->channelHolds->unitsHeld(provider: $provider, productId: (int) $product->id, variantKey: (string) $mapping->variant_key, figureReadAt: $acceptedSince);
         $available = max(0, $providerQuantity - $promised);
         $before = (int) $product->current_stock;
         $values = [];

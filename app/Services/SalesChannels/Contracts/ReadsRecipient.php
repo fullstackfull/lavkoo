@@ -13,6 +13,7 @@ interface ReadsRecipient
     /**
      * @throws RecipientUnavailable when the channel will not, or cannot, say
      * @throws \App\Services\SalesChannels\Exceptions\ChannelUnavailableException when a switch or approval stops the read before anything is sent
+     * @throws \App\Services\SalesChannels\Exceptions\ChannelRateLimitedException when the channel, or our own limiter, says wait before anything is sent (the caller gives the order's turn back)
      */
     public function recipient(SalesChannelAccount $account, ExternalOrderMapping $mapping): ChannelRecipient;
 }
