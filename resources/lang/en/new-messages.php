@@ -2389,7 +2389,7 @@ return [
 	'Explore_Auction' => 'Explore Auction',
 	'Explore_More_Items' => 'Explore More Items',
 	'export' => 'Export',
-	'export_csv' => 'Export CSV',
+	'export_csv' => 'Export csv',
 	'export_selected' => 'Export selected',
 	'export_the_current_experience' => 'Export the current experience',
 	'external' => 'External',
