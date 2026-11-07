@@ -29,6 +29,8 @@ class MigrationsTest extends TestCase
         '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php',
     ];
 
+    private const STOCK_MIGRATION = '2026_11_10_100000_add_stock_allocation.php';
+
     private const PURCHASE_ORDER_MIGRATION = '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php';
 
     private const NEW_TABLES = [
@@ -157,7 +159,7 @@ class MigrationsTest extends TestCase
 
     public function test_the_stock_allocation_migration_alone_adds_one_table_and_nullable_columns_and_removes_only_them(): void
     {
-        foreach (array_slice(self::MIGRATIONS, 0, -1) as $file) {
+        foreach (array_diff(self::MIGRATIONS, [self::STOCK_MIGRATION]) as $file) {
             (require database_path('migrations/' . $file))->up();
         }
         $columns = [];
@@ -166,7 +168,7 @@ class MigrationsTest extends TestCase
         }
         DB::table('sales_channel_product_mappings')->insert(['account_id' => 1, 'listing_key' => 'K-1']);
         DB::table('inventory_reservations')->insert(['location_id' => 1, 'product_id' => 5, 'quantity' => 2, 'reservation_key' => 'r-1', 'state' => 'reserved', 'reserved_at' => now()]);
-        $last = require database_path('migrations/' . self::MIGRATIONS[array_key_last(self::MIGRATIONS)]);
+        $last = require database_path('migrations/' . self::STOCK_MIGRATION);
 
         $last->up();
 
