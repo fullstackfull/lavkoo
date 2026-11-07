@@ -22,6 +22,7 @@ final class Operations
             'probe_insert' => self::probeInsert($args),
             'dispatch_channel_order' => DispatchOperations::dispatchChannelOrder($args),
             'mirror_managed_shipment' => DispatchOperations::mirrorManagedShipment($args),
+            'stock.ingest_many' => StockOperations::ingestMany($args),
             default => (self::$registered[$name] ?? throw new InvalidArgumentException("Unknown concurrent operation: {$name}"))($args, $index),
         };
     }
