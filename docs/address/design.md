@@ -63,7 +63,14 @@ number. That predates this work and cannot be closed on the server alone: it nee
 
 ## Future integrations
 
-M5AZN/Amazon/Trendyol/Odoo reuse `provider_city_mappings` (a new `provider` value) and the snapshot; nothing in inventory, orders or shipping pricing changes for them.
+M5AZN/Amazon/Trendyol/Odoo reuse `provider_city_mappings` (a new `provider` value) and the snapshot; nothing in inventory, orders or shipping pricing changes for them. **Only the shared structure and the integration points exist; none of the integrations below is built.**
+
+| Platform | What the shared structure already gives it | What it still needs (not built) |
+|---|---|---|
+| M5AZN | the order's copy (street plus district, the store's own Arabic city name) is what its payload builder reads | nothing for the address; its stock and order work are separate |
+| Amazon (FBA, FBM) | the immutable order copy, internal city ids, `provider_city_mappings` rows under another `provider` value | an importer that keeps Amazon's own ids and address as received; FBA orders are never auto-sent, FBM orders are converted for the courier the store chooses |
+| Trendyol | the same | an importer that keeps Trendyol's original order id and address next to our copy |
+| Odoo | the structured fields (region, city, district, National Address) are plain columns of the copy | a converter from the copy to Odoo contacts; nothing in it needs a free-text city for a Saudi address |
 
 What a new provider implements to plug into the one address system (nothing here is Torod-specific by design, though only Torod is wired today):
 

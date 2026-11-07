@@ -92,7 +92,7 @@ integration is switched off or not migrated, and it only ever *proposes*: a disc
 ## What reaches Torod in the order payload
 
 `TorodOrderPayloadBuilder` sends `cityId` and `regionId` (the provider's own ids from the approved mapping) and `addressLine1` = street text plus the district (unless the street already names it).
-It does **not** send the National Address and does **not** send `villageId`: the Fulfillment v5 documentation lists `cityId`, `regionId` and `addressLine1` only, and the Lastmile v2 contract that
+It does **not** send the National Address and does **not** send `villageId`: the Fulfillment v5 document shows `villageId`, `cityId`, `regionId` and `addressLine1` in `receiverAddress`, but what a village is and when it is needed is unexplained (question 4 below), and the Lastmile v2 contract that
 documents `nationalAddress` belongs to a different product. Torod Fulfillment orders never go through *Lastmile Create Shipment*.
 
 M5AZN keeps receiving a city *name* in `shipping_info.city`; it now receives our canonical Arabic name when the order has a structured city, the typed text otherwise. Its `shipping_info.address` is the
