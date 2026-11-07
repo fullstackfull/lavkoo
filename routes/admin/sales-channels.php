@@ -4,6 +4,7 @@ use App\Enums\SalesChannels\IntegrationCapability;
 use App\Http\Controllers\Admin\SalesChannels\ChannelAccountController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelAccountOperationsController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelHubController;
+use App\Http\Controllers\Admin\SalesChannels\ChannelInventoryController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelLogController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelOrderController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelProductController;
@@ -14,7 +15,7 @@ use App\Http\Middleware\EnsureSalesChannelsMigrated;
 use Illuminate\Support\Facades\Route;
 
 /*
-| Sales channels hub: accounts (Amazon, Trendyol), products and channels, unified orders, dynamic routing, API logs.
+| Sales channels hub: accounts (Amazon, Trendyol), products and channels, stock by location, unified orders, dynamic routing, API logs.
 |
 | An authenticated admin holding the `sales_channels` module. Until the migrations have run every page explains that instead of failing on a missing table.
 | Credentials are write-only on these screens: no response ever carries a stored secret. Anything that calls a channel is a POST, rate limited.
@@ -56,6 +57,9 @@ Route::group([
     Route::post('products/{mapping}/unignore', [ChannelProductController::class, 'unignore'])->whereNumber('mapping')->name('products.unignore');
     Route::post('products/{mapping}/accept-suggestion', [ChannelProductController::class, 'acceptSuggestion'])->whereNumber('mapping')->name('products.accept-suggestion');
     Route::post('products/{mapping}/settings', [ChannelProductController::class, 'settings'])->whereNumber('mapping')->name('products.settings');
+
+    // ---- stock by location (read only) ----------------------------------------------------------------------------
+    Route::get('inventory', [ChannelInventoryController::class, 'index'])->name('inventory.index');
 
     // ---- unified orders -------------------------------------------------------------------------------------------
     Route::get('orders', [ChannelOrderController::class, 'index'])->name('orders.index');

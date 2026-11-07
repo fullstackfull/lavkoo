@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Services\SalesChannels\Support\SalesChannelSchema;
+use App\Services\SalesChannels\Support\SalesChannelSetup;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -23,6 +24,8 @@ class EnsureSalesChannelsMigrated
     public function handle(Request $request, Closure $next): Response
     {
         if (SalesChannelSchema::ready()) {
+            SalesChannelSetup::prepare();
+
             return $next($request);
         }
 

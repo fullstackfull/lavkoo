@@ -8,6 +8,7 @@
             <x-slot:actions>
                 <a class="btn btn-primary btn-sm" href="{{ route('admin.sales-channels.accounts.create') }}">{{ translate('add_channel_account') }}</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.sales-channels.products.index') }}">{{ translate('Products_&_Channels') }}</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.sales-channels.inventory.index') }}">{{ translate('Stock_by_Location') }}</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.sales-channels.orders.index') }}">{{ translate('Unified_Orders') }}</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.sales-channels.routing.index') }}">{{ translate('Dynamic_Routing') }}</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.sales-channels.logs.index') }}">{{ translate('Channel_API_Logs') }}</a>

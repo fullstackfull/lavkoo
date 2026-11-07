@@ -10,6 +10,6 @@ Everything else is new (new directories `app/Services/SalesChannels`, `app/Servi
 | `resources/views/layouts/admin/partials/v2/_rail.blade.php`, `_side-bar.blade.php` | a rail button and a sidebar section "Sales Channels" (shown only to holders of the two permissions, links guarded by `Route::has`) | navigation |
 | `resources/lang/{en,sa,ae}/new-messages.php` | added keys only (English, Saudi Arabic, Emirati Arabic) | every visible phrase is translated; a test fails on any missing key |
 | `bootstrap/app.php` | `'secrets'` added to the existing `dontFlash` list | the account form's `secrets[...]` inputs are never flashed back into the session after a validation error |
-| `.github/workflows/ci.yml` | the MySQL job also runs `tests/Feature/SalesChannels`, `tests/Feature/OperationalCosts`, `tests/Unit/OperationalCosts` | the migrations and queries are verified on MySQL 8 when a pull request is opened |
+| `.github/workflows/ci.yml` | a new job `tests-mysql-sales-channels` added at the end of the file: `tests/Feature/SalesChannels`, `tests/Feature/OperationalCosts`, `tests/Unit/OperationalCosts` and `CiDatabaseTest` on MySQL 8, in two groups with a 75-minute limit (the Fulfillment workstream's `tests-mysql` job is untouched) | the module list is long (about half an hour on a fast MySQL), so it has its own job and limit instead of lengthening the Fulfillment job |
 
 No `composer.*`, `Modules/` or `public/` file is touched, so the deploy overlay builder accepts the release.

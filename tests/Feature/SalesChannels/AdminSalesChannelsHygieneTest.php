@@ -68,6 +68,7 @@ class AdminSalesChannelsHygieneTest extends AdminSalesChannelsTestCase
             route('admin.sales-channels.accounts.show', $trendyol),
             route('admin.sales-channels.accounts.show', $amazon),
             route('admin.sales-channels.products.index'),
+            route('admin.sales-channels.inventory.index'),
             route('admin.sales-channels.orders.index'),
             route('admin.sales-channels.orders.show', $order),
             route('admin.sales-channels.routing.index'),

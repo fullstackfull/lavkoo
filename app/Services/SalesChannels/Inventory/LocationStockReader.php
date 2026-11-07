@@ -30,6 +30,23 @@ class LocationStockReader
             ? $this->fromProviderMapping($location, $productId, $variantKey)
             : $this->fromBalance($location, $productId, $variantKey);
 
+        return $this->settled($location, $productId, $variantKey, $found);
+    }
+
+    /** What a provider's own mapping says about one product, judged exactly as the engine and the publisher judge it (for a screen that lists a page of them). */
+    public function ofMapping(InventoryLocation $location, ProviderProductMapping $mapping): StockAvailability
+    {
+        return $this->settled($location, (int) $mapping->product_id, (string) $mapping->variant_key, $this->readMapping($mapping));
+    }
+
+    /** What a stored balance says, judged exactly as the engine and the publisher judge it. */
+    public function ofBalance(InventoryLocation $location, InventoryLocationBalance $balance): StockAvailability
+    {
+        return $this->settled($location, (int) $balance->product_id, (string) $balance->variant_key, $this->readBalance($balance));
+    }
+
+    private function settled(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $found): StockAvailability
+    {
         if ($found->available === null) {
             return $found;
         }
@@ -76,7 +93,13 @@ class LocationStockReader
         $candidates = ProviderProductMapping::where('provider', $location->provider)->where('product_id', $productId)->where('status', MappingStatus::Approved->value)
             ->whereIn('variant_key', array_unique([$variantKey, '']))->get();
         $mapping = $candidates->firstWhere('variant_key', $variantKey) ?? $candidates->firstWhere('variant_key', '');
-        if ($mapping === null || $mapping->provider_stock === null) {
+
+        return $mapping === null ? StockAvailability::unknown('provider_mapping') : $this->readMapping($mapping);
+    }
+
+    private function readMapping(ProviderProductMapping $mapping): StockAvailability
+    {
+        if ($mapping->provider_stock === null) {
             return StockAvailability::unknown('provider_mapping');
         }
 
@@ -92,7 +115,13 @@ class LocationStockReader
     private function fromBalance(InventoryLocation $location, int $productId, string $variantKey): StockAvailability
     {
         $balance = InventoryLocationBalance::where('location_id', $location->id)->where('product_id', $productId)->where('variant_key', $variantKey)->first();
-        if ($balance === null || $balance->available === null) {
+
+        return $balance === null ? StockAvailability::unknown('balance') : $this->readBalance($balance);
+    }
+
+    private function readBalance(InventoryLocationBalance $balance): StockAvailability
+    {
+        if ($balance->available === null) {
             return StockAvailability::unknown('balance');
         }
 

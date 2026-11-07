@@ -570,6 +570,7 @@
                 $v2ChannelGroups[] = ['name' => 'Sales_Channels', 'items' => [
                     ['sales-channels-hub', 'Channels_Hub', 'admin.sales-channels.index', 'admin/sales-channels'],
                     ['sales-channels-products', 'Products_&_Channels', 'admin.sales-channels.products.index', 'admin/sales-channels/products*'],
+                    ['sales-channels-inventory', 'Stock_by_Location', 'admin.sales-channels.inventory.index', 'admin/sales-channels/inventory*'],
                     ['sales-channels-orders', 'Unified_Orders', 'admin.sales-channels.orders.index', 'admin/sales-channels/orders*'],
                     ['sales-channels-routing', 'Dynamic_Routing', 'admin.sales-channels.routing.index', 'admin/sales-channels/routing*'],
                     ['sales-channels-logs', 'Channel_API_Logs', 'admin.sales-channels.logs.index', 'admin/sales-channels/logs*'],

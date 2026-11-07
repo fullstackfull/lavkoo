@@ -52,6 +52,8 @@ final class ChannelLabels
         'event_outcome_' => ['received', 'recorded_only', 'needs_review', 'applied', 'ignored_capability_off', 'ignored_invalid', 'failed'],
         'event_source_' => ['webhook', 'notification', 'poll', 'system', 'manual'],
         'stock_quality_' => ['confirmed', 'manual', 'stale', 'unknown'],
+        'location_type_' => ['torod_warehouse', 'm5azn_supplier', 'amazon_fba', 'own_warehouse', 'other'],
+        'location_source_' => ['provider', 'channel', 'manual'],
         'price_source_' => ['internal', 'channel', 'manual'],
         'price_source_help_' => ['internal', 'channel', 'manual'],
         'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management'],
@@ -106,6 +108,8 @@ final class ChannelLabels
         'event_outcome_ignored_invalid', 'event_outcome_failed',
         'event_source_webhook', 'event_source_notification', 'event_source_poll', 'event_source_system', 'event_source_manual',
         'stock_quality_confirmed', 'stock_quality_manual', 'stock_quality_stale', 'stock_quality_unknown',
+        'location_type_torod_warehouse', 'location_type_m5azn_supplier', 'location_type_amazon_fba', 'location_type_own_warehouse', 'location_type_other',
+        'location_source_provider', 'location_source_channel', 'location_source_manual',
         'price_source_internal', 'price_source_channel', 'price_source_manual',
         'price_source_help_internal', 'price_source_help_channel', 'price_source_help_manual',
         'approval_scope_product_writes', 'approval_scope_webhook_management', 'approval_scope_notification_management',
@@ -231,6 +235,17 @@ final class ChannelLabels
     public function stockQuality(?string $quality): string
     {
         return $this->label('stock_quality_', $quality);
+    }
+
+    public function locationType(?string $type): string
+    {
+        return $this->label('location_type_', $type);
+    }
+
+    /** Who is the reference for the figures held at a location. */
+    public function locationSource(?string $source): string
+    {
+        return $this->label('location_source_', $source);
     }
 
     public function priceSource(?string $source): string

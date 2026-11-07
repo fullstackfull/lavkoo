@@ -26,6 +26,7 @@ class AdminSalesChannelsPagesTest extends AdminSalesChannelsTestCase
             route('admin.sales-channels.accounts.show', $trendyol),
             route('admin.sales-channels.accounts.show', $amazon),
             route('admin.sales-channels.products.index'),
+            route('admin.sales-channels.inventory.index'),
             route('admin.sales-channels.orders.index'),
             route('admin.sales-channels.orders.show', $order),
             route('admin.sales-channels.routing.index'),
@@ -47,11 +48,12 @@ class AdminSalesChannelsPagesTest extends AdminSalesChannelsTestCase
 
     public function test_the_pages_the_sidebar_links_to_exist_under_the_names_it_uses(): void
     {
-        foreach (['index', 'products.index', 'orders.index', 'routing.index', 'logs.index'] as $name) {
+        foreach (['index', 'products.index', 'inventory.index', 'orders.index', 'routing.index', 'logs.index'] as $name) {
             $this->assertTrue(Route::has('admin.sales-channels.' . $name), $name);
         }
         $this->assertSame('/admin/sales-channels', parse_url(route('admin.sales-channels.index'), PHP_URL_PATH));
         $this->assertSame('/admin/sales-channels/products', parse_url(route('admin.sales-channels.products.index'), PHP_URL_PATH));
+        $this->assertSame('/admin/sales-channels/inventory', parse_url(route('admin.sales-channels.inventory.index'), PHP_URL_PATH));
         $this->assertSame('/admin/sales-channels/orders', parse_url(route('admin.sales-channels.orders.index'), PHP_URL_PATH));
         $this->assertSame('/admin/sales-channels/routing', parse_url(route('admin.sales-channels.routing.index'), PHP_URL_PATH));
         $this->assertSame('/admin/sales-channels/logs', parse_url(route('admin.sales-channels.logs.index'), PHP_URL_PATH));
@@ -61,10 +63,10 @@ class AdminSalesChannelsPagesTest extends AdminSalesChannelsTestCase
     {
         $hub = $this->get(route('admin.sales-channels.index'))->getContent();
 
-        foreach (['accounts.create', 'products.index', 'orders.index', 'routing.index', 'logs.index'] as $name) {
+        foreach (['accounts.create', 'products.index', 'inventory.index', 'orders.index', 'routing.index', 'logs.index'] as $name) {
             $this->assertStringContainsString(route('admin.sales-channels.' . $name), $hub, $name);
         }
-        foreach (['products.index', 'orders.index', 'routing.index', 'logs.index'] as $name) {
+        foreach (['products.index', 'inventory.index', 'orders.index', 'routing.index', 'logs.index'] as $name) {
             $this->assertStringContainsString(route('admin.sales-channels.index'), $this->get(route('admin.sales-channels.' . $name))->getContent(), $name . ' leads back to the hub');
         }
     }
@@ -81,7 +83,7 @@ class AdminSalesChannelsPagesTest extends AdminSalesChannelsTestCase
     {
         Schema::drop('inventory_locations');
 
-        foreach ([route('admin.sales-channels.index'), route('admin.sales-channels.products.index'), route('admin.sales-channels.orders.index'), route('admin.sales-channels.routing.index'), route('admin.sales-channels.logs.index')] as $url) {
+        foreach ([route('admin.sales-channels.index'), route('admin.sales-channels.products.index'), route('admin.sales-channels.inventory.index'), route('admin.sales-channels.orders.index'), route('admin.sales-channels.routing.index'), route('admin.sales-channels.logs.index')] as $url) {
             $response = $this->get($url)->assertStatus(503);
             $this->assertStringContainsString(e(translate('sales_channels_not_migrated')), $response->getContent(), $url);
         }
