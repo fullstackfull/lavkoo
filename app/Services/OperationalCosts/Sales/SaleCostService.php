@@ -70,6 +70,7 @@ class SaleCostService
                 ? $this->missing($document, $line, CostComponent::Cogs, 'product_not_linked')
                 : match ($line->costBasis) {
                     SaleLine::BASIS_SUPPLIER => $this->supplierCost($document, $line),
+                    SaleLine::BASIS_VENDOR_STOCK => $this->missing($document, $line, CostComponent::Cogs, 'vendor_owned_goods'),
                     SaleLine::BASIS_OWNED_STOCK => $document->isRecognised($recognition) ? $this->recognise($document, $line) : $this->estimate($document, $line),
                     default => $this->missing($document, $line, CostComponent::Cogs, 'product_cost_unknown'),
                 };

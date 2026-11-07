@@ -43,6 +43,7 @@ trait BuildsSalesChannelSchema
             '2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php',
             '2026_11_09_200000_create_channel_order_dispatches_table.php',
             '2026_11_10_100000_add_stock_allocation.php',
+            '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

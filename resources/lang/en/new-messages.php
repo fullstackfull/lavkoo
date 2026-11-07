@@ -10742,4 +10742,14 @@ return [
 	// --- costs audit fixes (lane-costs) ---
 	'return_refused_stale_form' => 'The line changed since this form was opened: reload the page and check what was already recorded.',
 	'needs_the_operational_costs_permission' => 'Needs the Operational costs permission: only a role that holds it can change this.',
+
+	// --- purchase-order sources (lane-po) ---
+	'layer_source_purchase_order' => 'Purchase order',
+	'purchase_order_line' => 'Purchase order line',
+	'purchase_order_line_help' => 'To bill goods a purchase order already received, enter the number of its line: the invoice line then makes no second cost layer and only records how far it is from the order\'s cost. It needs the purchase-order source switched on.',
+	'invoice_saved_but_looks_like_goods_already_received' => 'Invoice saved, but a line looks like goods a purchase order already received. A person must link it to the order\'s line, or confirm it is a separate purchase, before it can be approved.',
+	'this_invoice_looks_like_goods_already_received' => 'This invoice looks like goods already received on a purchase order.',
+	'these_lines_look_like_goods_a_purchase_order_received' => 'The lines below have the supplier, product and quantity of goods a purchase order already received and are not linked to it: costing them again would count the same goods twice. Void this invoice and enter it again with the purchase order line number, or confirm that it is a separate purchase.',
+	'this_is_a_separate_purchase' => 'This is a separate purchase',
+	'missing_reason_vendor_owned_goods' => 'The goods belong to a vendor, not to the platform: their cost is not ours to know',
 ];

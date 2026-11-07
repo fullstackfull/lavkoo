@@ -130,7 +130,7 @@ class AdminOperationalCostsInvoicesTest extends AdminPagesTestCase
     {
         $html = $this->get(route('admin.operational-costs.invoices.create'))->assertOk()->getContent();
 
-        $this->assertSame(8, substr_count($html, 'name="items[') / 8, 'Eight blank lines, eight columns each.');
+        $this->assertSame(8, substr_count($html, 'name="items[') / 9, 'Eight blank lines, nine columns each (the last one is the purchase order line a purchase line bills).');
         preg_match_all('/<input[^>]*type="number"[^>]*>/', $html, $numberFields);
         foreach ($numberFields[0] as $field) {
             $this->assertDoesNotMatchRegularExpression('/value="[^"]+"/', $field);

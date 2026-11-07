@@ -30,6 +30,7 @@ class OperationalCostInvoice extends Model
         'tax_total' => 'decimal:6',
         'total' => 'decimal:6',
         'inventory_location_id' => 'integer',
+        'supplier_id' => 'integer',
         'account_id' => 'integer',
         'duplicate_of_id' => 'integer',
         'approved_at' => 'datetime',

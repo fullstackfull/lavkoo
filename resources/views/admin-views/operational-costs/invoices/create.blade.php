@@ -112,7 +112,7 @@
                     <table class="k-table" data-repeat="items">
                         <thead><tr>
                             <th>{{ translate('description') }}</th><th>{{ translate('cost_component') }}</th><th>{{ translate('amount') }}</th><th>{{ translate('quantity') }}</th>
-                            <th>{{ translate('line_reference') }}</th><th>{{ translate('service_date') }}</th><th>{{ translate('product_id') }}</th><th>{{ translate('variant_key') }}</th>
+                            <th>{{ translate('line_reference') }}</th><th>{{ translate('service_date') }}</th><th>{{ translate('product_id') }}</th><th>{{ translate('variant_key') }}</th><th>{{ translate('purchase_order_line') }}</th>
                         </tr></thead>
                         <tbody>
                         @for ($index = 0; $index < $rowCount; $index++)
@@ -133,6 +133,7 @@
                                 <td><input class="form-control form-control-sm" type="date" name="items[{{ $index }}][service_date]" value="{{ $line['service_date'] ?? '' }}" aria-label="{{ translate('service_date') }}"></td>
                                 <td><input class="form-control form-control-sm" type="number" min="1" step="1" name="items[{{ $index }}][product_id]" value="{{ $line['product_id'] ?? '' }}" aria-label="{{ translate('product_id') }}"></td>
                                 <td><input class="form-control form-control-sm" name="items[{{ $index }}][variant_key]" maxlength="191" value="{{ $line['variant_key'] ?? '' }}" aria-label="{{ translate('variant_key') }}"></td>
+                                <td><input class="form-control form-control-sm" type="number" min="1" step="1" name="items[{{ $index }}][purchase_order_item_id]" value="{{ $line['purchase_order_item_id'] ?? '' }}" aria-label="{{ translate('purchase_order_line') }}"></td>
                             </tr>
                         @endfor
                         </tbody>
@@ -140,7 +141,7 @@
                 </div>
                 <x-slot:footer>
                     <button class="btn btn-outline-secondary btn-sm" type="button" data-add-row="items">{{ translate('add_a_row') }}</button>
-                    <span class="fs-12 text-muted ms-2">{{ translate('a_purchase_line_is_goods_with_a_quantity_and_a_product_id') }}</span>
+                    <span class="fs-12 text-muted ms-2">{{ translate('a_purchase_line_is_goods_with_a_quantity_and_a_product_id') }} {{ translate('purchase_order_line_help') }}</span>
                 </x-slot:footer>
             </x-k.card>
 

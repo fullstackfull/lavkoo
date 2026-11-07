@@ -13,7 +13,7 @@ use Illuminate\Validation\Rule;
 class InvoiceRequest extends FormRequest
 {
     /** The columns of a line that say something; the component alone does not, because a select always has one chosen. */
-    private const LINE_CONTENT = ['description', 'amount', 'quantity', 'external_reference', 'service_date', 'product_id', 'variant_key'];
+    private const LINE_CONTENT = ['description', 'amount', 'quantity', 'external_reference', 'service_date', 'product_id', 'variant_key', 'purchase_order_item_id'];
 
     public function authorize(): bool
     {
@@ -58,6 +58,7 @@ class InvoiceRequest extends FormRequest
             'items.*.service_date' => ['nullable', 'date_format:Y-m-d'],
             'items.*.product_id' => ['nullable', 'integer', 'min:1', Rule::exists('products', 'id')],
             'items.*.variant_key' => ['nullable', 'string', 'max:191'],
+            'items.*.purchase_order_item_id' => ['nullable', 'integer', 'min:1'],
         ];
     }
 
@@ -89,6 +90,7 @@ class InvoiceRequest extends FormRequest
             'items.*.service_date' => translate('service_date'),
             'items.*.product_id' => translate('product'),
             'items.*.variant_key' => translate('variant_key'),
+            'items.*.purchase_order_item_id' => translate('purchase_order_line'),
         ];
     }
 

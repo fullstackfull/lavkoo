@@ -17,6 +17,9 @@ class OperationalCostReconciliation extends Model
     /** What an invoice line was compared with: the total the channel's statements booked for the same fee and period (the default is the estimate of the same service). */
     public const BASIS_STATEMENTS = 'statements';
 
+    /** The cost a purchase order says the goods of a purchase invoice line cost (an invoice line linked to the order's line). */
+    public const BASIS_PURCHASE_ORDER = 'purchase_order';
+
     protected $table = 'operational_cost_reconciliations';
 
     protected $guarded = [];

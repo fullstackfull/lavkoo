@@ -28,7 +28,7 @@ final class CostLabels
         'missing_reason_service_level_unknown', 'missing_reason_weight_unknown', 'missing_reason_value_unknown', 'missing_reason_volume_unknown',
         'missing_reason_destination_unknown', 'missing_reason_stock_unknown', 'missing_reason_awaiting_channel_statement', 'missing_reason_product_cost_unknown',
         'missing_reason_inventory_location_unknown', 'missing_reason_cost_layers_short', 'missing_reason_supplier_cost_unknown', 'missing_reason_fx_unavailable',
-        'missing_reason_product_not_linked',
+        'missing_reason_product_not_linked', 'missing_reason_vendor_owned_goods',
 
         // Where a cost entry came from, what it is about, and whether it has been split.
         'entry_source_rule', 'entry_source_invoice', 'entry_source_layer', 'entry_source_provider_field', 'entry_source_manual', 'entry_source_channel_api',
@@ -51,7 +51,7 @@ final class CostLabels
         'line_error_invalid_currency', 'line_error_invalid_quantity', 'line_error_too_many_lines',
 
         // Stock cost layers.
-        'layer_source_purchase_invoice', 'layer_source_manual', 'layer_source_opening_balance', 'layer_source_transfer', 'layer_source_transfer_in',
+        'layer_source_purchase_invoice', 'layer_source_purchase_order', 'layer_source_manual', 'layer_source_opening_balance', 'layer_source_transfer', 'layer_source_transfer_in',
         'layer_source_return', 'layer_source_adjustment',
         'layer_status_open', 'layer_status_depleted', 'layer_status_void',
         'consumer_type_order_line', 'consumer_type_channel_order_line', 'consumer_type_transfer', 'consumer_type_write_off',

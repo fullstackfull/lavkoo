@@ -27,6 +27,15 @@ return [
     // in their own currency and the report says the total is incomplete.
     'base_currency' => env('OPERATIONAL_COSTS_BASE_CURRENCY', env('FULFILLMENT_CURRENCY', 'SAR')),
 
+    // What the module takes from the platform's own tables instead of asking a person to type it a second time. The platform's tables stay the truth and are only ever read.
+    // Every value ships `off`, and only the exact words below count (`true`, `1`, `yes` and a typo all mean off).
+    'sources' => [
+        // The cost of goods received on a purchase order. `off`: nothing. `shadow`: the commands only REPORT what would be done and write nothing anywhere. `on`: the layers can be
+        // made by `costs:layers-from-purchase-orders --apply`, a purchase invoice line linked to an order line makes no second layer, and the latest order cost is an estimate of
+        // what a unit costs. It also needs OPERATIONAL_COSTS_ENABLED. Nothing makes the layers by itself: the command is run by hand.
+        'purchase_orders' => env('OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS', 'off'),
+    ],
+
     // Who writes cost entries for a sale, in order. Each one is idempotent and records a gap as MISSING.
     'contributors' => [
         \App\Services\OperationalCosts\Contributors\ProductCostContributor::class,

@@ -6,9 +6,9 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
-use App\Models\InventoryLocation;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\OperationalCosts\Support\StockLocationResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -27,11 +27,9 @@ use Illuminate\Support\Facades\Schema;
  */
 class SaleDocumentReader
 {
-    /** @var array<string, int>|null */
-    private ?array $locations = null;
-
     public function __construct(
         private readonly ProviderCurrency $storeCurrency,
+        private readonly StockLocationResolver $stockLocations,
     ) {
     }
 
@@ -142,7 +140,6 @@ class SaleDocumentReader
             ? DB::table('provider_fulfillment_items')->where('order_id', $order->id)->get()->keyBy('order_detail_id')
             : collect();
         $refunds = $this->refundsByDetail($details);
-        $locations = $this->locationsByProvider();
 
         $convert = function (mixed $stored) use (&$notes): Money {
             $converted = $this->storeCurrency->fromStored($stored ?? 0);
@@ -184,7 +181,7 @@ class SaleDocumentReader
                 quantity: (int) $detail->qty,
                 revenue: $revenue,
                 refunded: isset($refunds[$detail->id]) ? $this->withoutTax($convert($refunds[$detail->id]), $revenue, $lineTax) : Money::zero(),
-                inventoryLocationId: $locations[$provider ?? 'own_warehouse'] ?? null,
+                inventoryLocationId: $this->stockLocations->forProvider($provider),
                 costBasis: $basis,
                 provider: $provider,
                 weightKg: isset($providerItem->weight_kg) ? Money::of($providerItem->weight_kg) : null,
@@ -240,7 +237,6 @@ class SaleDocumentReader
     private function fromChannelOrder(ExternalOrderMapping $mapping): SaleDocument
     {
         $status = $mapping->orderStatus();
-        $locations = $this->locationsByProvider();
         $includesTax = (bool) $mapping->prices_include_tax;
         $notes = [];
         $mode = $mapping->fulfillmentMode();
@@ -252,7 +248,8 @@ class SaleDocumentReader
             $notes[] = 'tax_not_separated';
         }
 
-        $lines = $mapping->lines->map(function (ExternalOrderLine $line) use ($includesTax, $mode, $mapping, $locations): SaleLine {
+        $vendorProducts = $this->vendorProductsOnTheInternalOrder($mapping);
+        $lines = $mapping->lines->map(function (ExternalOrderLine $line) use ($includesTax, $mode, $mapping, $vendorProducts): SaleLine {
             $active = $line->activeQuantity();
             $ordered = max(1, $line->quantity);
             // The channel gives line amounts for the quantity ordered; cancelled units are not revenue.
@@ -269,7 +266,7 @@ class SaleDocumentReader
                 : Money::of($line->refunded_total)->min($revenue->plus(Money::of($line->shipping_total ?? 0)->times($active)->dividedBy($ordered)))->max(Money::zero());
 
             $location = $line->inventory_location_id
-                ?? ($mode === FulfillmentMode::Fba ? ($locations['amazon_fba:' . $mapping->account_id] ?? null) : ($locations[$line->provider ?? 'own_warehouse'] ?? null));
+                ?? ($mode === FulfillmentMode::Fba ? $this->stockLocations->forAmazonFba($mapping->account_id) : $this->stockLocations->forProvider($line->provider));
 
             return new SaleLine(
                 targetType: 'channel_order_line',
@@ -281,7 +278,11 @@ class SaleDocumentReader
                 revenue: $revenue,
                 refunded: $refunded,
                 inventoryLocationId: $location === null ? null : (int) $location,
-                costBasis: $line->provider === 'm5azn' ? SaleLine::BASIS_SUPPLIER : SaleLine::BASIS_OWNED_STOCK,
+                costBasis: match (true) {
+                    $line->provider === 'm5azn' => SaleLine::BASIS_SUPPLIER,
+                    isset($vendorProducts[$line->product_id]) => SaleLine::BASIS_VENDOR_STOCK,
+                    default => SaleLine::BASIS_OWNED_STOCK,
+                },
                 provider: $line->provider,
                 weightKg: $line->weight_kg === null ? null : Money::of($line->weight_kg),
                 quantityReturned: $returned,
@@ -308,6 +309,27 @@ class SaleDocumentReader
             reference: $mapping->external_order_id . ($mapping->external_package_id !== '' ? '/' . $mapping->external_package_id : ''),
             orderTotal: $mapping->order_total === null ? null : Money::of($mapping->order_total),
         );
+    }
+
+    /**
+     * The products of a channel order whose goods are a vendor's, not the platform's. Only an order that was made into an internal order is asked: the internal order says whose each
+     * line is (the line's own `seller_is`, else the product's owner), and only the platform's own lines are costed from the platform's stock. Where the platform credits a vendor
+     * for a line, the cost of its goods is not ours to know.
+     *
+     * @return array<int, true>
+     */
+    private function vendorProductsOnTheInternalOrder(ExternalOrderMapping $mapping): array
+    {
+        if ($mapping->order_id === null || !Schema::hasTable('order_details')) {
+            return [];
+        }
+        $details = DB::table('order_details')->where('order_id', $mapping->order_id)->get(Schema::hasColumn('order_details', 'seller_is') ? ['product_id', 'seller_is'] : ['product_id']);
+        $ownedByAVendor = $details->filter(static fn (object $detail): bool => isset($detail->seller_is) && $detail->seller_is !== 'admin')->pluck('product_id');
+        $productsOfAVendor = Schema::hasTable('products')
+            ? DB::table('products')->whereIn('id', $details->pluck('product_id')->filter()->all())->where('added_by', '!=', 'admin')->pluck('id')
+            : collect();
+
+        return array_fill_keys($ownedByAVendor->merge($productsOfAVendor)->filter()->map(static fn ($id): int => (int) $id)->all(), true);
     }
 
     private function storeState(string $status): string
@@ -361,29 +383,5 @@ class SaleDocumentReader
             ->pluck('refunded', 'order_details_id')
             ->map(static fn ($amount): float => (float) $amount)
             ->all();
-    }
-
-    /** @return array<string, int> location ids by provider code ('torod_point', 'm5azn'), 'own_warehouse' and 'amazon_fba:{account}' */
-    private function locationsByProvider(): array
-    {
-        if ($this->locations !== null) {
-            return $this->locations;
-        }
-        $map = [];
-        if (Schema::hasTable('inventory_locations')) {
-            foreach (InventoryLocation::query()->active()->orderBy('id')->get() as $location) {
-                if ($location->provider !== null) {
-                    $map[$location->provider] ??= (int) $location->id;
-                }
-                if ($location->type === InventoryLocation::TYPE_OWN) {
-                    $map['own_warehouse'] ??= (int) $location->id;
-                }
-                if ($location->type === InventoryLocation::TYPE_AMAZON_FBA && $location->sales_channel_account_id !== null) {
-                    $map['amazon_fba:' . $location->sales_channel_account_id] = (int) $location->id;
-                }
-            }
-        }
-
-        return $this->locations = $map;
     }
 }
