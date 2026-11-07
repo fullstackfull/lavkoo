@@ -411,7 +411,8 @@ class TorodCityResolutionTest extends TorodAddressTestCase
         $alias = $this->resolver()->addAlias('Old Jeddah Spelling', '41126', 1);
 
         $entry = DB::table('audit_logs')->where('action', 'provider_city_alias.saved')->sole();
-        $this->assertSame([(string) $alias->id, ['provider' => 'torod_point', 'external_city_id' => '41126']], [$entry->subject_id, json_decode($entry->after, true)]);
+        $this->assertSame((string) $alias->id, $entry->subject_id);
+        $this->assertEquals(['provider' => 'torod_point', 'external_city_id' => '41126'], json_decode($entry->after, true), 'MySQL keeps the keys of a JSON column in its own order');
 
         foreach (['.', ' - ', ''] as $blank) {
             try {

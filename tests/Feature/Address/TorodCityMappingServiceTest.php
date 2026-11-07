@@ -489,7 +489,7 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
 
         $this->assertSame(0, DB::table('audit_logs')->where('action', 'provider_city_mapping.approved')->count());
         $summary = DB::table('audit_logs')->where('action', 'provider_city_mapping.auto_approved')->first();
-        $this->assertSame(['provider' => self::PROVIDER, 'approved' => 3], json_decode((string) $summary->after, true));
+        $this->assertEquals(['provider' => self::PROVIDER, 'approved' => 3], json_decode((string) $summary->after, true), 'MySQL keeps the keys of a JSON column in its own order');
         $this->assertSame(3, ProviderCityMapping::query()->where('method', 'auto_unique')->count());
     }
 
