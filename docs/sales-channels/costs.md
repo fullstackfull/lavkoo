@@ -30,7 +30,7 @@ Product cost: `cogs`, `supplier_cost`, `inbound_freight`. Fulfilment: `receiving
 
 ## Product cost (what the goods cost)
 
-* **Inventory cost layers (FIFO).** A purchase creates a layer at a location (idempotent by source reference). Buying stock is an inventory movement, **not** an expense. The cost of goods is recognised **at the sale** (`operational_costs.cogs_recognition`: storefront at delivery, Amazon and Trendyol at shipment), consuming the oldest layers; cancelled-before-shipping sales reverse the consumption.
+* **Inventory cost layers (FIFO).** A purchase creates a layer at a location (idempotent by source reference). Buying stock is an inventory movement, **not** an expense. The cost of goods is recognised **at the sale** (`operational_costs.cogs_recognition`: storefront at delivery, Amazon and Trendyol at shipment), consuming the oldest layers. A cancelled sale gives its units back, and what was recorded for each of its lines (an estimate or the recognised cost) is replaced by a settled zero, so the ledger and its export stop counting it; nothing is deleted, the earlier entry stays as history.
 * A sale for which the layers hold less than the quantity records the shortfall (reported, never costed at zero).
 * A sale line that is not linked to a product has a **missing** cost of goods (reason `product_not_linked`), not no cost at all: the order's profit is provisional until the line is linked, and linking supersedes the missing entry with the estimate or the actual cost.
 * **Dropshipping (M5AZN):** the supplier cost is the cost of goods, taken from the supplier's price at the time.
@@ -43,7 +43,7 @@ Product cost: `cogs`, `supplier_cost`, `inbound_freight`. Fulfilment: `receiving
 * **Storage** is accrued per day per location from the stock figure the location vouches for; a day with no trustworthy figure is a missing cost with that reason, never a free day. Amazon FBA storage is Amazon's real fee, not priced here.
 * **Marketplace fees:** commission estimated from the channel's contract when one exists (otherwise missing); the statement's real charge replaces it. Postings for one order (a commission, then part of it returned with a refund) are netted into one actual. FBA fees can only come from the statement and are missing until it arrives. Payouts are **not revenue**; a commission invoice that bills commission already carried on the sale rows is a duplicate and is not counted again.
 * **Payment gateway** fees are priced from the gateway's contract (cash and wallet carry none).
-* **Cancelled sales** owe no commission or gateway fee that was only an estimate or a gap; a charge that really arrived (a cancellation fee, a commission actually billed) stays. A line whose units were all cancelled while the rest of the order stands gives its units back to the cost layers and its slot holds a settled zero.
+* **Cancelled sales** owe no commission or gateway fee that was only an estimate or a gap; a charge that really arrived (a cancellation fee, a commission actually billed) stays. A line whose units were all cancelled while the rest of the order stands, and a whole order that is cancelled, give their units back to the cost layers and the slot of each costed line holds a settled zero.
 
 ## Invoices and reconciliation
 
@@ -52,3 +52,16 @@ A company's invoice (number unique per company and seller; duplicates are detect
 ## Profit
 
 For each sale: revenue (storefront orders; channel orders — mapped internal orders are excluded so nothing is counted twice) less product cost, fulfilment, storage, marketplace and payment costs. Revenue is without tax: a refund (which the platform records with the tax of the line in it) takes back the same share of the revenue as of the tax-inclusive line and never more than the line earned; a channel that gave VAT-inclusive prices with no VAT amount leaves the VAT in the revenue and the sale says so (unverified). A sale of goods that nobody has costed yet (no cost-of-goods row at all, not even a "missing" one) is **not** a sale that costs nothing: its cost of goods is named missing until the refresh has looked at it. The refresh (`costs:refresh`) looks at every sale placed **or changed** in the last days, so goods delivered or shipped days after the order are recognised then. **Estimated and actual profit are separate**, each with a completeness flag and the counts of missing, pending and disputed costs; a missing cost is never treated as 0. Reports group by product, order, channel, provider, and date; refunds reduce revenue; Trendyol/Amazon payouts are not revenue.
+
+## Known limits of the cost module
+
+* **Volume.** A rule priced *by volume* can be entered in a contract, but nothing in the system knows the volume of a shipment, so it always records a *missing* cost (`volume_unknown`).
+* **Receiving.** A `receiving` fee is accepted as a contract line, but no service evaluates it; it is recorded only from an invoice line.
+* **Stock transfers.** Moving stock between locations without a sale (`InventoryCostLayerService::transfer`, and putting a returned unit back, `SaleCostService::restock`) is built and tested as a service but is called from no screen, command or event.
+* **Invoice allocation.** A shipping charge shared by several items is split on the basis the *estimate* used (the contract's `allocation_basis` setting, which has no field on the contract screen); an invoice is always split on the configured default (`operational_costs.allocation`).
+* **Storage.** A day with trustworthy figures for only some products is costed on those products' units and recorded as an estimate without a missing flag for the others.
+* **Reconciliation decisions** are *accept*, *dispute* and *write off* (the last two leave the billed charge as it is in the ledger, with the note in the audit trail); there is no "keep the estimate", because approving an invoice stops its estimate from counting.
+* **Invoices are entered by hand** (a typed table or pasted spreadsheet rows); there is no file upload, so the file-hash duplicate check the service has is reached by no screen.
+* **Floats.** `Money` never uses floats, but a few boundaries do before converting: price × quantity of a store order line and the sums of refunds (`SaleDocumentReader`), the VAT divisor of a Trendyol line, and the price sent to a channel (rounded to two decimals).
+* **Reports** read at most 5,000 sales (1,000 per product) and say so when they stop there.
+* `Money` uses `brick/math`, which comes with `laravel/framework` and is not declared in `composer.json`.
