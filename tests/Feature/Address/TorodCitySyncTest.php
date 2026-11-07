@@ -7,6 +7,8 @@ use App\Models\ProviderCity;
 use App\Models\ProviderCityMapping;
 use App\Models\ProviderCitySyncRun;
 use App\Models\ProviderSyncState;
+use App\Services\Fulfillment\Providers\TorodPoint\TorodCityDirectory;
+use App\Services\Fulfillment\ProviderCityMappingService;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -407,13 +409,89 @@ class TorodCitySyncTest extends TorodAddressTestCase
         $this->fakeLastmileList($this->lastmileDirectory(4), ['total' => true]);
         $this->sync();
         DB::table('address_cities')->insert(['id' => 900, 'region_id' => $this->ids['region_RUH'], 'name_ar' => 'مدينة 1003', 'name_en' => 'City 1003', 'normalized_ar' => 'x', 'normalized_en' => 'y', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
-        app(\App\Services\Fulfillment\ProviderCityMappingService::class)->approve(provider: 'torod_point', cityId: 900, externalCityId: '1003');
+        app(ProviderCityMappingService::class)->approve(provider: 'torod_point', cityId: 900, externalCityId: '1003');
 
         $this->fakeLastmileList($this->lastmileDirectory(3), ['total' => true]);
         $this->sync();
 
         $this->assertSame('approved', ProviderCityMapping::where('address_city_id', 900)->first()->status->value);
         $this->assertNotNull(ProviderCity::where('external_id', '1003')->first()->missing_since);
+    }
+
+    // ---- the limits the walk works within ------------------------------------------------------------------------------------------
+
+    /**
+     * The cached list is 20,858 cities at 100 a page, so a 100-page ceiling could not reach its end and the sync had to be
+     * raised by hand on the server. The limit the repository ships has to be able to read the whole list by itself.
+     */
+    public function test_the_limits_the_repository_ships_can_read_the_whole_cached_list(): void
+    {
+        $shipped = config('fulfillment.providers.torod_point.cities');
+
+        $this->assertSame(250, (int) $shipped['max_pages'], 'the page limit is a deployment default, not a hand edit on a server');
+        $this->assertGreaterThanOrEqual(20_858, (int) $shipped['max_pages'] * TorodCityDirectory::PAGE_SIZE, 'the cities already imported must fit inside it');
+        $this->assertSame(600, (int) $shipped['max_seconds_console']);
+        $this->assertSame(45, (int) $shipped['max_seconds_web']);
+        $this->assertSame(1000, (int) $shipped['complete_floor']);
+        $this->assertGreaterThan((int) $shipped['max_pages'], TorodCityDirectory::MAX_PAGES_CEILING, 'and there is room above it to raise without touching code');
+    }
+
+    public function test_a_limit_above_the_hard_ceiling_is_clamped_and_the_run_records_what_applied(): void
+    {
+        config([
+            'fulfillment.providers.torod_point.cities.max_pages' => 5_000,
+            'fulfillment.providers.torod_point.cities.max_seconds' => 99_999,
+        ]);
+        $this->fakeLastmileList($this->lastmileDirectory(3));
+
+        $this->sync();
+
+        $this->assertSame(TorodCityDirectory::MAX_PAGES_CEILING, (int) $this->lastRun()->request['max_pages'], 'no setting can ask for more pages than the code allows');
+        $this->assertSame(TorodCityDirectory::MAX_SECONDS_CEILING, (int) $this->lastRun()->request['max_seconds']);
+    }
+
+    public function test_a_limit_below_one_page_still_walks_one_page_and_stops(): void
+    {
+        config(['fulfillment.providers.torod_point.cities.max_pages' => 0]);
+        $this->fakeLastmileList($this->lastmileDirectory(500), ['first' => 10, 'size' => 10]);
+
+        $result = $this->sync();
+
+        $this->assertSame('partial', $result['verdict']);
+        $this->assertStringContainsString('1-page ceiling', $result['reason']);
+        $this->assertSame(1, (int) $this->lastRun()->request['max_pages']);
+        Http::assertSentCount(2, 'the first request and the one page it was allowed');
+    }
+
+    public function test_the_walk_stops_on_its_own_long_before_the_ceiling_when_the_list_ends(): void
+    {
+        $this->fakeLastmileList($this->lastmileDirectory(250), ['first' => 10, 'size' => 50]);
+
+        $result = $this->sync();
+
+        $this->assertSame(250, ProviderCity::count());
+        $this->assertSame('full', $result['verdict']);
+        $this->assertSame(7, $result['pages'], 'the first request, five pages of fifty, and the empty page that ended it');
+        $this->assertLessThan(TorodCityDirectory::MAX_PAGES_CEILING, $result['pages'], 'the ceiling is the last resort, not the normal end');
+    }
+
+    // ---- what an ordinary code update must never do ---------------------------------------------------------------------------------
+
+    public function test_running_the_address_migrations_again_keeps_every_city_mapping_and_address_row(): void
+    {
+        $this->fakeLastmileList($this->lastmileDirectory(4), ['total' => true]);
+        $this->sync();
+        app(ProviderCityMappingService::class)->approve(provider: 'torod_point', cityId: $this->ids['riyadh'], externalCityId: '1000', adminId: 7, adminName: 'Owner');
+        $counted = ['provider_cities', 'provider_city_mappings', 'provider_city_sync_runs', 'address_regions', 'address_cities'];
+        $before = collect($counted)->mapWithKeys(static fn (string $table): array => [$table => DB::table($table)->count()])->all();
+        $this->assertGreaterThan(0, min($before), 'the tables have to hold something for this to prove anything');
+
+        $this->runAddressMigrations();
+
+        foreach ($before as $table => $rows) {
+            $this->assertSame($rows, DB::table($table)->count(), "deploying the migrations again must not touch {$table}");
+        }
+        $this->assertSame('approved', ProviderCityMapping::where('external_city_id', '1000')->firstOrFail()->status->value, 'and an approved mapping is still approved');
     }
 
     // ---- what is asked ---------------------------------------------------------------------------------------------------------------

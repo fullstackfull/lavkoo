@@ -68,8 +68,15 @@ the approval of another candidate, that a person recorded while the run was work
 
 1. one request with `returnAll=true`;
 2. when that response does not settle it — it states a larger total or more pages, or it holds **fewer than 1000 cities** (no national delivery list does) — the pages are walked (`page`,
-   `pageSize=100`) for as long as each page adds cities not seen yet, up to the configured ceilings
-   (code defaults of `TorodCityDirectory`: 100 pages, 45 s on the web / 600 s on the console, 1000 cities; `config/fulfillment.php` has no block for them, but `fulfillment.providers.torod_point.cities.max_pages`, `.max_seconds` and `.complete_floor` are read when a site's own config sets them);
+   `pageSize=100`) for as long as each page adds cities not seen yet, up to the configured ceilings. The deployment defaults are
+   in `config/fulfillment.php` under `fulfillment.providers.torod_point.cities`: **250 pages** (25,000 cities — the list holds
+   20,858, so it is read to its end without a hand edit on a server; `TOROD_CITY_SYNC_MAX_PAGES` moves it), **600 s** on the
+   console and 45 s on the web (`.max_seconds_console`, `.max_seconds_web`, or `.max_seconds` for both; `TOROD_CITY_SYNC_MAX_SECONDS`
+   moves the console one) and **1000 cities** (`.complete_floor`). `TorodCityDirectory` clamps every one of them — at most
+   `MAX_PAGES_CEILING` = **500 pages** (50,000 cities) and 1800 s, at least one page — so no setting, and no typo in one, can
+   make the walk unbounded. The walk normally ends long before a ceiling: a page that repeats what was seen, an empty page or
+   the provider's own total stops it. Reaching a ceiling is a `partial` reading, which adds and updates what it read and
+   **deletes nothing, marks nothing missing and approves nothing**;
 3. everything is read first and written afterwards, in one transaction, in chunks. Cities are **added or updated, never deleted**.
 
 The verdict is recorded in `provider_city_sync_runs` and on the provider's sync state:

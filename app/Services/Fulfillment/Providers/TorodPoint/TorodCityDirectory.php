@@ -42,7 +42,22 @@ class TorodCityDirectory
 {
     public const PAGE_SIZE = 100;
 
-    public const MAX_PAGES = 100;
+    /**
+     * How far the page walk may go by default, and how far a site may raise that. The cached list is already 20,858 cities
+     * at 100 a page (about 209 pages), so the first version's 100-page ceiling could not read it to the end; the default
+     * leaves room for a list that keeps growing, and the ceiling keeps a mistyped setting from turning the walk into an
+     * unbounded crawl. Reaching either is `partial`, never a failure and never a deletion.
+     */
+    public const MAX_PAGES = 250;
+
+    public const MAX_PAGES_CEILING = 500;
+
+    /** The walk's time budget: a console run (command, queue worker, schedule) gets the long one, a web request the short one. */
+    public const MAX_SECONDS_CONSOLE = 600;
+
+    public const MAX_SECONDS_WEB = 45;
+
+    public const MAX_SECONDS_CEILING = 1800;
 
     /**
      * Fewer distinct cities than this cannot be a country's delivery list, so a reading below it is walked page by page and is never
@@ -62,10 +77,14 @@ class TorodCityDirectory
 
     private const STORE_CHUNK = 200;
 
-    /** One writer of the city list at a time (the console, the weekly schedule and the admin button all reach it), and for no longer than a sync can take. */
+    /** One writer of the city list at a time: the console, the weekly schedule, the admin button and a single-city discovery all reach it. */
     private const SYNC_LOCK = 'provider-city-sync:torod_point';
 
+    /** Long enough for one city's discovery, which asks the provider about two names. A full sync holds the lock for its own budget instead (see sync()). */
     private const SYNC_LOCK_SECONDS = 600;
+
+    /** The write that follows the walk. The sync holds its lock for the walk's budget plus this, so no second writer can start while the first is still storing. */
+    private const STORE_ALLOWANCE_SECONDS = 120;
 
     private const ALREADY_RUNNING = 'sync_already_running';
 
@@ -100,7 +119,7 @@ class TorodCityDirectory
      */
     public function sync(): array
     {
-        $result = Cache::lock(self::SYNC_LOCK, self::SYNC_LOCK_SECONDS)->get(fn (): array => $this->syncExclusively());
+        $result = Cache::lock(self::SYNC_LOCK, $this->timeBudget() + self::STORE_ALLOWANCE_SECONDS)->get(fn (): array => $this->syncExclusively());
 
         return $result === false ? ['ok' => false, 'error' => self::ALREADY_RUNNING, 'verdict' => CitySyncVerdict::Failed->value] : $result;
     }
@@ -182,7 +201,7 @@ class TorodCityDirectory
     private function read(): CityListRead
     {
         $read = new CityListRead();
-        $deadline = microtime(true) + $this->setting('max_seconds', app()->runningInConsole() ? 600 : 45);
+        $deadline = microtime(true) + $this->timeBudget();
 
         $first = $this->client->cities();
         $items = $this->listOf($first);
@@ -204,7 +223,7 @@ class TorodCityDirectory
     /** Walks the pages from the first, stopping on whatever proves there is nothing more to learn from asking again. */
     private function readPages(CityListRead $read, float $deadline): void
     {
-        $maxPages = $this->setting('max_pages', self::MAX_PAGES);
+        $maxPages = $this->pageCeiling();
         for ($page = 1; $page <= $maxPages; $page++) {
             if (microtime(true) >= $deadline) {
                 $read->deadline = true;
@@ -245,7 +264,7 @@ class TorodCityDirectory
         return match (true) {
             $distinct === 0 => [CitySyncVerdict::Partial, 'the provider returned an empty list', 'none'],
             $read->failure !== null => [CitySyncVerdict::Partial, "stopped early, {$distinct} cities read: {$read->failure}", 'none'],
-            $read->ceiling => [CitySyncVerdict::Partial, "stopped at the {$this->setting('max_pages', self::MAX_PAGES)}-page ceiling with {$distinct} cities; more may exist", 'none'],
+            $read->ceiling => [CitySyncVerdict::Partial, "stopped at the {$this->pageCeiling()}-page ceiling with {$distinct} cities; more may exist", 'none'],
             $read->deadline => [CitySyncVerdict::Partial, "stopped on the time budget after {$read->requests} requests with {$distinct} cities", 'none'],
             $total !== null && $distinct < $total => [CitySyncVerdict::Partial, "{$distinct} of {$total} returned", 'none'],
             $read->emptyPage && !$read->pagesCoverFirstResponse() => [CitySyncVerdict::Partial, "{$distinct} returned; the pages do not contain the first response, so they cannot confirm it is complete", 'none'],
@@ -294,7 +313,10 @@ class TorodCityDirectory
             'distinct_ids' => $read->distinct(),
             'expected_total' => $read->expectedTotal,
             'regions_seen' => $read->regionsSeen(),
-            'request' => ['strategy' => 'return_all_then_pages', 'page_size' => self::PAGE_SIZE, 'evidence' => $evidence, 'requests' => $read->trace],
+            'request' => [
+                'strategy' => 'return_all_then_pages', 'page_size' => self::PAGE_SIZE, 'max_pages' => $this->pageCeiling(),
+                'max_seconds' => $this->timeBudget(), 'evidence' => $evidence, 'requests' => $read->trace,
+            ],
             'reason' => $reason === null ? null : mb_substr($reason, 0, self::MAX_REASON_LENGTH),
             'started_at' => $startedAt,
             'finished_at' => now(),
@@ -492,6 +514,30 @@ class TorodCityDirectory
     private function flag(mixed $value): ?bool
     {
         return is_scalar($value) ? filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
+    }
+
+    /** How many pages the walk may ask for, as configured, within the bounds this class guarantees. */
+    private function pageCeiling(): int
+    {
+        return $this->bounded(value: $this->setting('max_pages', self::MAX_PAGES), floor: 1, ceiling: self::MAX_PAGES_CEILING);
+    }
+
+    /** How long the walk may spend, as configured for the surface it runs on, within the bounds this class guarantees. */
+    private function timeBudget(): int
+    {
+        $console = app()->runningInConsole();
+        $surface = $this->setting(
+            $console ? 'max_seconds_console' : 'max_seconds_web',
+            $console ? self::MAX_SECONDS_CONSOLE : self::MAX_SECONDS_WEB,
+        );
+
+        return $this->bounded(value: $this->setting('max_seconds', $surface), floor: 0, ceiling: self::MAX_SECONDS_CEILING);
+    }
+
+    /** A configured limit is honoured between these bounds, so neither a typo nor a missing setting can make the sync unbounded. */
+    private function bounded(int $value, int $floor, int $ceiling): int
+    {
+        return max($floor, min($value, $ceiling));
     }
 
     private function setting(string $key, int $default): int

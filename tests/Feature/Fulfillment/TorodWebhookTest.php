@@ -17,6 +17,12 @@ use Illuminate\Support\Facades\Queue;
 
 class TorodWebhookTest extends TorodTestCase
 {
+    private const OUR_INVOICE_NUMBER = '100002-TP1';
+
+    private const WAREHOUSE_BARCODE = 'O0714001615223';
+
+    private const PACKAGE_BARCODE = '100551776918';
+
     private function processor(): WebhookEventProcessor
     {
         return app(WebhookEventProcessor::class);
@@ -31,14 +37,29 @@ class TorodWebhookTest extends TorodTestCase
         return $ingested + ['outcome' => $outcome];
     }
 
-    private function submitted(array $attrs = []): ProviderFulfillment
+    private function submitted(array $attrs = [], int $orderId = 100): ProviderFulfillment
     {
-        $fulfillment = $this->torodFulfillment();
+        $fulfillment = $this->torodFulfillment(orderId: $orderId);
         $fulfillment->forceFill($attrs + [
             'status' => FulfillmentStatus::Submitted, 'provider_reference' => 'O0015030400001', 'submitted_at' => now(),
         ])->save();
 
         return $fulfillment->fresh();
+    }
+
+    /**
+     * The shipment of order 100002 as production has it: our invoice number is `100002-TP1`, the warehouse order's barcode is
+     * `O0714001615223`, and its last-mile package is `100551776918`.
+     */
+    private function productionShipment(): ProviderFulfillment
+    {
+        return $this->submitted(['provider_reference' => self::WAREHOUSE_BARCODE], orderId: 100002);
+    }
+
+    /** A Lastmile body as the live webhook sends it: `invoiceNumber` carries the WAREHOUSE barcode, not our invoice number. */
+    private function productionPayload(string $status, int|string|null $time = null, array $extra = []): array
+    {
+        return $this->lastmilePayload($status, barcode: self::PACKAGE_BARCODE, time: $time, extra: $extra + ['invoiceNumber' => self::WAREHOUSE_BARCODE]);
     }
 
     public function test_a_lastmile_event_is_matched_by_our_invoice_number_and_teaches_us_the_package_barcode(): void
@@ -184,6 +205,128 @@ class TorodWebhookTest extends TorodTestCase
         $this->assertSame(EventOutcome::IGNORED_UNMATCHED, $result['outcome']);
         $this->assertSame(FulfillmentStatus::Submitted, $first->fresh()->status);
         $this->assertSame(FulfillmentStatus::Submitted, $second->fresh()->status);
+    }
+
+    // ---- the invoice number the live webhook actually sends -------------------------------------------------------------
+
+    /**
+     * Order 100002 in production: every event of it was recorded `ignored_unmatched` because `invoiceNumber` carried the
+     * warehouse order's barcode (`O0714001615223`) and not our invoice number (`100002-TP1`), which is the only one the field
+     * was read against. Both name the same shipment of ours, and both are unique, so either must find it.
+     */
+    public function test_an_event_whose_invoice_number_is_the_warehouse_order_barcode_is_matched_to_our_shipment(): void
+    {
+        $fulfillment = $this->productionShipment();
+        $this->assertSame(self::OUR_INVOICE_NUMBER, $fulfillment->reference, 'the fixture is the production shipment');
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->productionPayload('OUT_FOR_DELIVERY'));
+
+        $this->assertSame(EventOutcome::APPLIED, $result['outcome']);
+        $fresh = $fulfillment->fresh();
+        $this->assertSame(FulfillmentStatus::OutForDelivery, $fresh->status);
+        $this->assertSame(self::PACKAGE_BARCODE, $fresh->provider_secondary_reference, 'the last-mile barcode is learned from the event that matched');
+        $this->assertSame(self::PACKAGE_BARCODE, $fresh->tracking_number);
+        $this->assertSame(self::WAREHOUSE_BARCODE, $fresh->provider_reference, 'and the warehouse barcode is left as it was');
+    }
+
+    public function test_an_event_whose_invoice_number_is_our_own_still_matches_the_same_shipment(): void
+    {
+        $fulfillment = $this->productionShipment();
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->lastmilePayload('OUT_FOR_DELIVERY', barcode: self::PACKAGE_BARCODE, extra: ['invoiceNumber' => self::OUR_INVOICE_NUMBER]));
+
+        $this->assertSame(EventOutcome::APPLIED, $result['outcome']);
+        $this->assertSame(FulfillmentStatus::OutForDelivery, $fulfillment->fresh()->status);
+        $this->assertSame(self::PACKAGE_BARCODE, $fulfillment->fresh()->provider_secondary_reference);
+    }
+
+    /** The production sequence: three events to delivered, a repeat of the last one, and a later scan that must not undo it. */
+    public function test_the_production_sequence_reaches_delivered_once_and_is_never_pulled_back(): void
+    {
+        $fulfillment = $this->productionShipment();
+        Http::fake([self::V2 . '/guests/packages/status*' => Http::response(['status' => 'DELIVERED_TO_RECIPIENT', 'cod' => 0])]);
+        $start = (int) (microtime(true) * 1000) - 300_000;
+
+        $accepted = $this->receive('lastmile', $this->productionPayload('ACCEPTED_BY_DRIVER_AND_PENDING_PICKUP', time: $start));
+        $out = $this->receive('lastmile', $this->productionPayload('OUT_FOR_DELIVERY', time: $start + 60_000));
+        $delivered = $this->receive('lastmile', $this->productionPayload('DELIVERED_TO_RECIPIENT', time: $start + 120_000));
+        $repeat = $this->receive('lastmile', $this->productionPayload('DELIVERED_TO_RECIPIENT', time: $start + 120_000));
+        $later = $this->receive('lastmile', $this->productionPayload('SCANNED_BY_DRIVER_AND_IN_CAR', time: $start + 180_000));
+
+        $this->assertSame(
+            [EventOutcome::APPLIED, EventOutcome::APPLIED, EventOutcome::APPLIED],
+            [$accepted['outcome'], $out['outcome'], $delivered['outcome']],
+        );
+        $this->assertSame('duplicate', $repeat['status'], 'the provider may send the same event again; it is stored and applied once');
+        $this->assertSame(EventOutcome::IGNORED_TERMINAL, $later['outcome']);
+        $this->assertSame(FulfillmentStatus::Delivered, $fulfillment->fresh()->status);
+        $this->assertNotNull($fulfillment->fresh()->delivered_at);
+        $this->assertSame(4, ProviderFulfillmentEvent::count(), 'four distinct events, the repeat not among them');
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'barcode=' . self::PACKAGE_BARCODE));
+    }
+
+    public function test_an_invoice_number_that_is_neither_of_ours_matches_nothing_and_teaches_nothing(): void
+    {
+        $fulfillment = $this->productionShipment();
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->lastmilePayload('OUT_FOR_DELIVERY', barcode: self::PACKAGE_BARCODE, extra: ['invoiceNumber' => 'O0714001615999']));
+
+        $this->assertSame(EventOutcome::IGNORED_UNMATCHED, $result['outcome']);
+        $this->assertSame('no_fulfillment_for_references', ProviderFulfillmentEvent::query()->latest('id')->first()->outcome_note);
+        $this->assertSame(FulfillmentStatus::Submitted, $fulfillment->fresh()->status);
+        $this->assertNull($fulfillment->fresh()->provider_secondary_reference);
+    }
+
+    public function test_a_package_barcode_and_an_invoice_number_naming_two_shipments_leave_the_event_unmatched(): void
+    {
+        $byPackage = $this->submitted(['provider_secondary_reference' => self::PACKAGE_BARCODE], orderId: 100002);
+        $byWarehouseBarcode = $this->submitted(['provider_reference' => self::WAREHOUSE_BARCODE], orderId: 100003);
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->productionPayload('DELIVERED_TO_RECIPIENT'));
+
+        $this->assertSame(EventOutcome::IGNORED_UNMATCHED, $result['outcome']);
+        $this->assertSame(FulfillmentStatus::Submitted, $byPackage->fresh()->status);
+        $this->assertSame(FulfillmentStatus::Submitted, $byWarehouseBarcode->fresh()->status);
+        Http::assertNothingSent();
+    }
+
+    public function test_an_invoice_number_two_shipments_both_answer_to_is_left_unmatched(): void
+    {
+        $asOurInvoiceNumber = $this->submitted(orderId: 100002);
+        $asAWarehouseBarcode = $this->submitted(['provider_reference' => self::OUR_INVOICE_NUMBER], orderId: 100003);
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->lastmilePayload('OUT_FOR_DELIVERY', barcode: self::PACKAGE_BARCODE, extra: ['invoiceNumber' => self::OUR_INVOICE_NUMBER]));
+
+        $this->assertSame(EventOutcome::IGNORED_UNMATCHED, $result['outcome'], 'one shipment carries it as our invoice number, the other as its warehouse barcode');
+        $this->assertSame(FulfillmentStatus::Submitted, $asOurInvoiceNumber->fresh()->status);
+        $this->assertSame(FulfillmentStatus::Submitted, $asAWarehouseBarcode->fresh()->status);
+        $this->assertNull($asOurInvoiceNumber->fresh()->provider_secondary_reference);
+    }
+
+    /**
+     * The event passes every plausibility check — it names OUR invoice number and our cash — and the package it names is still
+     * another shipment's. A reference is learned, never taken.
+     */
+    public function test_a_package_barcode_another_shipment_already_carries_is_never_moved_onto_this_one(): void
+    {
+        $theirs = $this->submitted(['provider_secondary_reference' => self::PACKAGE_BARCODE], orderId: 100003);
+        $ours = $this->productionShipment();
+        $event = $this->adapter()->normalizeWebhook('lastmile', $this->lastmilePayload(
+            'OUT_FOR_DELIVERY',
+            barcode: self::PACKAGE_BARCODE,
+            extra: ['invoiceNumber' => self::OUR_INVOICE_NUMBER],
+        ));
+
+        $this->adapter()->learnReferences($ours, $event);
+
+        $this->assertNull($ours->fresh()->provider_secondary_reference, 'that package belongs to the other shipment and stays there');
+        $this->assertNull($ours->fresh()->tracking_number);
+        $this->assertSame(self::PACKAGE_BARCODE, $theirs->fresh()->provider_secondary_reference);
     }
 
     public function test_a_package_reporting_different_cash_than_we_asked_for_does_not_confirm_a_claim(): void
