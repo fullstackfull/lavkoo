@@ -20,6 +20,7 @@
         </x-k.page-header>
 
         <div class="alert alert-info fs-12" role="note">{{ translate('stock_by_location_note') }}</div>
+        <div class="fs-12 text-muted mb-3">{{ translate('stock_net_note') }}</div>
 
         @if ($selected === null)
             <x-k.card>
@@ -71,6 +72,7 @@
                         <thead><tr>
                             <th>{{ translate('sku') }}</th><th>{{ translate('product') }}</th>
                             <th class="k-table__num">{{ translate('available') }}</th><th class="k-table__num">{{ translate('held_by_open_orders') }}</th>
+                            <th class="k-table__num">{{ translate('held_by_store_orders') }}</th><th class="k-table__num">{{ translate('net_to_offer') }}</th>
                             @if ($selected->provider === null)
                                 <th class="k-table__num">{{ translate('reserved') }}</th><th class="k-table__num">{{ translate('unfulfillable') }}</th>
                                 <th class="k-table__num">{{ translate('inbound') }}</th><th class="k-table__num">{{ translate('total') }}</th>
@@ -85,17 +87,19 @@
                                 <td class="fs-12">{{ $product?->name ?? ($row['product_id'] ? '#' . $row['product_id'] : translate('not_linked_to_a_product')) }}</td>
                                 <td class="fs-12 k-table__num">{{ $figure($row['availability']->available) }}</td>
                                 <td class="fs-12 k-table__num">{{ $row['availability']->available === null ? '—' : number_format($row['availability']->inFlight) }}</td>
+                                <td class="fs-12 k-table__num">{{ $row['availability']->available === null ? '—' : number_format($row['pool']->storeHolds) }}</td>
+                                <td class="fs-12 k-table__num">{{ $figure($row['pool']->net()) }}@if ($row['pool']->deficit() > 0)<div><x-k.badge tone="danger" :dot="false">{{ translate('promised_beyond_the_figure') }}: {{ number_format($row['pool']->deficit()) }}</x-k.badge></div>@endif</td>
                                 @if ($selected->provider === null)
                                     <td class="fs-12 k-table__num">{{ $figure($row['extras']['reserved'] ?? null) }}</td>
                                     <td class="fs-12 k-table__num">{{ $figure($row['extras']['unfulfillable'] ?? null) }}</td>
                                     <td class="fs-12 k-table__num">{{ $figure($row['extras']['inbound'] ?? null) }}</td>
                                     <td class="fs-12 k-table__num">{{ $figure($row['extras']['total'] ?? null) }}</td>
                                 @endif
-                                <td><x-k.badge :tone="$qualityTone($row['availability']->quality)">{{ $labels->stockQuality($row['availability']->quality) }}</x-k.badge></td>
+                                <td><x-k.badge :tone="$qualityTone($row['availability']->quality)">{{ $labels->stockQuality($row['availability']->quality) }}</x-k.badge>@if ($row['pool']->refusal)<div class="fs-10 text-warning">{{ $labels->publishSkip($row['pool']->refusal) }}</div>@endif</td>
                                 <td class="fs-12">{{ $row['availability']->syncedAt?->format('Y-m-d H:i') ?? '—' }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="{{ $selected->provider === null ? 10 : 6 }}">
+                            <tr><td colspan="{{ $selected->provider === null ? 12 : 8 }}">
                                 @if ($sku)
                                     <x-k.empty icon="search" :title="translate('no_stock_figure_matches')" :text="translate('no_stock_figure_matches_help')">
                                         <x-slot:action><a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.sales-channels.inventory.index', ['location' => $selected->id]) }}">{{ translate('reset') }}</a></x-slot:action>

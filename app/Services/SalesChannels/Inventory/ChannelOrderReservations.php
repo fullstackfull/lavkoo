@@ -3,6 +3,7 @@
 namespace App\Services\SalesChannels\Inventory;
 
 use App\Enums\SalesChannels\ChannelOrderStatus;
+use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelProductMapping;
@@ -16,12 +17,21 @@ use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
  *  - once the shipment is linked or the order has shipped or been delivered the units have left the shelf: the reservation is COMMITTED and counts only until the location
  *    reports a figure taken after that moment, so the same units are never taken off twice; an order whose link is removed and that has not shipped holds them again (RESERVED);
  *  - an order that is cancelled, failed or returned gives its units back (RELEASED);
- *  - an order the channel ships itself (FBA, channel-managed) or whose mode is not known draws no stock of ours and holds nothing.
+ *  - an order the channel ships itself (FBA, channel-managed) or whose mode is not known draws no stock of ours and holds nothing;
+ *  - an order that has an internal order (one the application created for it) holds nothing either: that order is a store order, and the pool already counts it (the provider
+ *    items of an internal order, or the store's own stock decrement), so a hold besides would take the same unit off twice. Its hold is released and never made again.
+ *
+ * A line linked to no product, or whose listing and routing name no location, holds nothing: no pool can be told about it (`unattributedUnits` says how many units that is).
  *
  * Safe to run as often as you like: it only brings the reservations in line with the order as it is now.
  */
 class ChannelOrderReservations
 {
+    public const INTERNAL_ORDER_COUNTS_IT = 'internal_order_counts_it';
+
+    /** The statuses in which an order of ours to fulfil is still on the shelf (its units are RESERVED). */
+    private const RESERVING_STATUSES = ['new', 'pending', 'awaiting_review', 'processing'];
+
     public function __construct(
         private readonly ReservationService $reservations,
         private readonly PublishPolicyResolver $policies,
@@ -31,17 +41,21 @@ class ChannelOrderReservations
     public function sync(ExternalOrderMapping $mapping): void
     {
         $mapping->loadMissing('lines');
-        $holds = !$mapping->fulfillmentMode()->isFulfilledByChannel() && $mapping->fulfillmentMode()->value !== 'unknown';
+        $holds = $this->mayHold($mapping);
 
         foreach ($mapping->lines as $line) {
             $key = self::keyOf($mapping, $line);
             $units = $line->activeQuantity();
-            $location = $this->locationOf($line);
 
+            if ($mapping->order_id !== null) {
+                $this->reservations->release($key, self::INTERNAL_ORDER_COUNTS_IT);
+                continue;
+            }
             if (!$holds || $units < 1 || in_array($mapping->orderStatus(), [ChannelOrderStatus::Cancelled, ChannelOrderStatus::Failed, ChannelOrderStatus::Returned], true)) {
                 $this->reservations->release($key, 'order_' . $mapping->status);
                 continue;
             }
+            $location = $this->locationOf($line);
             if ($location === null || $line->product_id === null) {
                 continue;
             }
@@ -59,6 +73,37 @@ class ChannelOrderReservations
     public static function keyOf(ExternalOrderMapping $mapping, ExternalOrderLine $line): string
     {
         return 'channel-order:' . $mapping->id . ':' . $line->id;
+    }
+
+    /**
+     * Units that open orders of ours to fulfil have promised and that no pool knows about, per account: lines linked to no product, and lines whose listing and routing name no location.
+     *
+     * @return array<int, int> units by account id
+     */
+    public function unattributedUnits(): array
+    {
+        $units = [];
+        ExternalOrderMapping::query()
+            ->whereNull('order_id')
+            ->whereIn('status', self::RESERVING_STATUSES)
+            ->where(static fn ($query) => $query->whereNull('shipment_link_state')->orWhere('shipment_link_state', '!=', ExternalOrderMapping::LINK_LINKED))
+            ->with('lines')
+            ->chunkById(200, function ($mappings) use (&$units): void {
+                foreach ($mappings->filter(fn (ExternalOrderMapping $mapping): bool => $this->mayHold($mapping)) as $mapping) {
+                    foreach ($mapping->lines as $line) {
+                        if ($line->activeQuantity() > 0 && ($line->product_id === null || $this->locationOf($line) === null)) {
+                            $units[(int) $mapping->account_id] = ($units[(int) $mapping->account_id] ?? 0) + $line->activeQuantity();
+                        }
+                    }
+                }
+            });
+
+        return $units;
+    }
+
+    private function mayHold(ExternalOrderMapping $mapping): bool
+    {
+        return !$mapping->fulfillmentMode()->isFulfilledByChannel() && $mapping->fulfillmentMode() !== FulfillmentMode::Unknown;
     }
 
     private function hasLeftTheShelf(ExternalOrderMapping $mapping): bool

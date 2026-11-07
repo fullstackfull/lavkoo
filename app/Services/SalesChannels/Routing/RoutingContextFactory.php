@@ -7,12 +7,12 @@ use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryLocation;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
-use App\Services\SalesChannels\Inventory\LocationStockReader;
+use App\Services\SalesChannels\Inventory\PoolNet;
 
 /** Reads an order and its lines into the facts a routing decision is allowed to use. */
 class RoutingContextFactory
 {
-    public function __construct(private readonly LocationStockReader $stock)
+    public function __construct(private readonly PoolNet $pools)
     {
     }
 
@@ -49,8 +49,8 @@ class RoutingContextFactory
     {
         // The units this very line holds are not counted against it: the order is asking whether the shelf covers it, and it was reserved a moment ago when it was read.
         $confirmed = $location !== null && $line->product_id !== null
-            && ($availability = $this->stock->availability($location, (int) $line->product_id, (string) $line->variant_key, ChannelOrderReservations::keyOf($mapping, $line)))->isPublishable()
-            && (int) $availability->sellable() >= $line->activeQuantity();
+            && ($pool = $this->pools->for($location, (int) $line->product_id, (string) $line->variant_key, ChannelOrderReservations::keyOf($mapping, $line)))->isPublishable()
+            && (int) $pool->net() >= $line->activeQuantity();
 
         return new RoutingLine(
             lineId: (int) $line->id,

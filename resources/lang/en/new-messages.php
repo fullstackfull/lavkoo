@@ -10555,4 +10555,11 @@ return [
 	'address_provider_requests' => 'API requests',
 	'address_results_available' => 'Results available:',
 	'address_copy_complete_required' => 'This address was saved before regions, cities and National Addresses were introduced. Choose the region and city and enter the National Address to complete it.',
+	// --- stock allocation (lane-stock) ---
+	'publish_skip_variant_key_required' => 'The product is sold per variant: link the listing to one variant',
+	'publish_skip_storefront_owned_needs_owner_decision' => 'This stock is the store\'s own: whether to offer it to channels is the owner\'s decision',
+	'held_by_store_orders' => 'held by store orders (not yet with the provider)',
+	'net_to_offer' => 'net to offer',
+	'promised_beyond_the_figure' => 'promised beyond the figure',
+	'stock_net_note' => 'Net to offer is the figure less the units held by open channel orders, less the store orders the provider has not counted yet, less the pool\'s safety buffer.',
 ];

@@ -11,7 +11,7 @@ use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
-use App\Services\SalesChannels\Inventory\LocationStockReader;
+use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Sync\ChannelSyncRunner;
 use App\Services\SalesChannels\Sync\SyncLease;
 use Carbon\CarbonImmutable;
@@ -21,8 +21,9 @@ use RuntimeException;
  * Decides what a channel is shown for a listing and sends only what is worth sending.
  *
  * STOCK. The quantity comes from the location the listing is set to take it from, and only a quantity that location's own source of truth confirmed recently (or a person
- * typed and labelled as such) is ever offered: an estimate, a stale figure or no figure means nothing is published. Units already promised to open orders are subtracted, then
- * the safety buffer, then the cap. Amazon FBA listings and FBA stock are never touched (Amazon holds that stock); a location may only feed the channels it lists.
+ * typed and labelled as such) is ever offered: an estimate, a stale figure or no figure means nothing is published. Units already promised (to open channel orders, and to store
+ * orders the provider has not counted yet: see PoolNet) are subtracted, then the safety buffer, then the cap. Amazon FBA listings and FBA stock are never touched (Amazon holds
+ * that stock); a location may only feed the channels it lists.
  *
  * PRICE. Only a price a person set for the listing (`price_source = manual`) is published. A channel that owns its price is left alone. Taking the storefront's own price is
  * not offered: the storefront price depends on variations, clearance sales and currency conversion, and publishing it to a marketplace needs a designed conversion and an owner's
@@ -50,7 +51,7 @@ class StockPricePublisher
     public function __construct(
         private readonly ChannelConnectorRegistry $connectors,
         private readonly ChannelSyncRunner $runner,
-        private readonly LocationStockReader $stock,
+        private readonly PoolNet $pools,
         private readonly PublishPolicyResolver $policies,
     ) {
     }
@@ -122,12 +123,15 @@ class StockPricePublisher
             return 'location_not_for_this_channel';
         }
 
-        $availability = $this->stock->availability($location, (int) $mapping->product_id, (string) $mapping->variant_key);
-        if (!$availability->isPublishable()) {
-            return 'stock_not_confirmed:' . $availability->quality;
+        $pool = $this->pools->for($location, (int) $mapping->product_id, (string) $mapping->variant_key);
+        if ($pool->refusal !== null) {
+            return $pool->refusal;
+        }
+        if (!$pool->isPublishable()) {
+            return 'stock_not_confirmed:' . $pool->quality;
         }
 
-        $quantity = max(0, (int) $availability->sellable() - $policy->safetyBuffer);
+        $quantity = max(0, (int) $pool->net() - $policy->safetyBuffer);
         if ($policy->maxQuantity !== null) {
             $quantity = min($quantity, $policy->maxQuantity);
         }
