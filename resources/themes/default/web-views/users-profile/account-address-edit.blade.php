@@ -118,7 +118,7 @@
                                 <div class="col-md-12">
                                     <div data-ua-saudi hidden>
                                         @if($needs_completion)
-                                            <div class="alert alert-warning py-2 px-3 fs-12" role="alert">
+                                            <div class="alert alert-warning ua-notice py-2 px-3 fs-12" role="alert">
                                                 {{ translate('address_complete_required') }}
                                                 @if(filled($shippingAddress->city))
                                                     <div>{{ translate('address_previous_city') }}: {{ $shippingAddress->city }}</div>

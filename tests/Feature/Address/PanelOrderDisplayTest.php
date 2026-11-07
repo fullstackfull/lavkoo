@@ -123,6 +123,27 @@ class PanelOrderDisplayTest extends PanelAddressTestCase
     }
 
     #[DataProvider('pages')]
+    public function test_an_old_copys_form_says_why_it_asks_for_the_structured_address_and_a_structured_copys_does_not(string $page): void
+    {
+        $notice = 'class="alert alert-warning ua-notice';
+
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $html = $this->{$page}($this->orderWithCopies($this->legacySnapshot(), $this->legacySnapshot(['city' => 'جدة'])));
+        $text = (string) preg_replace('/\s+/', ' ', strip_tags($html));
+
+        $this->assertSame(2, substr_count($html, $notice), 'the delivery form and the billing form each say it');
+        $this->assertStringContainsString('saved before regions, cities and National Addresses were introduced', $text);
+        $this->assertStringContainsString('Previous city: الرياض', $text, 'the delivery copy reminds of its city');
+        $this->assertStringContainsString('Previous city: جدة', $text, 'the billing copy reminds of its own');
+
+        $html = $this->{$page}($this->orderWithCopies($this->unifiedSnapshot($this->ids), $this->legacySnapshot()));
+        $this->assertSame(1, substr_count($html, $notice), 'only the billing copy, which is still old, says it');
+
+        $this->setAddressMode(AddressSchema::MODE_OFF);
+        $this->assertSame(0, substr_count($this->{$page}($this->orderWithCopies($this->legacySnapshot())), $notice), 'while the mode is off the forms are the old ones');
+    }
+
+    #[DataProvider('pages')]
     public function test_an_old_copy_missing_keys_the_pages_once_took_for_granted_still_renders(string $page): void
     {
         $bare = ['contact_person_name' => 'Sara Alharbi', 'phone' => '0551234567', 'address' => 'King Fahd Rd 12', 'city' => 'الرياض'];

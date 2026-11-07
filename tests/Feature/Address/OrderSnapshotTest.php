@@ -83,7 +83,7 @@ class OrderSnapshotTest extends ApiAddressTestCase
             $this->assertArrayHasKey($oldKey, $copy, "the copy lost {$oldKey}");
         }
         $this->assertSame('12211', $copy['zip']);
-        $this->assertSame([$address->id, 'الرياض', 'منطقة الرياض', 'Saudi Arabia'], [$copy['id'], $copy['city'], $copy['state'], $copy['country']]);
+        $this->assertSame([$address->id, 'الرياض', null, 'Saudi Arabia'], [$copy['id'], $copy['city'], $copy['state'], $copy['country']]);
         $this->assertSame([$this->ids['region_RUH'], $this->ids['riyadh'], 'Al Olaya', 'RAGI2929'], [$copy['region_id'], $copy['city_id'], $copy['district'], $copy['national_address']]);
         $this->assertSame(['منطقة الرياض', 'Riyadh', 'الرياض', 'Riyadh', 'unified'], [$copy['region_name_ar'], $copy['region_name_en'], $copy['city_name_ar'], $copy['city_name_en'], $copy['address_schema']]);
     }

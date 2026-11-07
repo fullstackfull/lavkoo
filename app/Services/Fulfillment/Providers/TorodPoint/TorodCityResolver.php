@@ -11,12 +11,12 @@ use App\Services\Address\AddressSnapshot;
 use App\Services\Address\LegacyCityMatcher;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Data\CityResolution;
+use App\Services\Fulfillment\Exceptions\CityMappingRefusedException;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\Support\ArabicText;
 use App\Services\Fulfillment\Support\FieldMap;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use Illuminate\Support\Collection;
-use InvalidArgumentException;
 
 /**
  * Finds the Torod Point city for an order's address — exactly, or not at all.
@@ -101,18 +101,18 @@ class TorodCityResolver
      * Remembers that an old spelling means a city the provider lists. The alias is a human routing decision, so it is audited, and it
      * is refused when it would match every address with a blank city or point at a city the provider does not list.
      *
-     * @throws InvalidArgumentException with a message fit for the administrator
+     * @throws CityMappingRefusedException with the key of a message fit for the administrator
      */
     public function addAlias(string $alias, string $externalCityId, ?int $by = null): ProviderCityAlias
     {
         $normalized = ArabicText::normalize($alias);
         if ($normalized === '') {
-            throw new InvalidArgumentException('The spelling is empty once spaces and punctuation are removed.');
+            throw new CityMappingRefusedException('city_alias_spelling_empty');
         }
 
         $city = ProviderCity::where('provider', self::PROVIDER)->where('external_id', $externalCityId)->first();
         if ($city === null || $city->missing_since !== null) {
-            throw new InvalidArgumentException('Torod Point does not list a city with this id: refresh the city list, or find the city by search first.');
+            throw new CityMappingRefusedException('city_alias_city_not_listed');
         }
 
         $saved = ProviderCityAlias::updateOrCreate(

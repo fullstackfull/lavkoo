@@ -9,6 +9,7 @@ use Illuminate\Validation\Rule;
 /** Adding a city and editing one take the same fields. Codes are not asked for: a city is known by its id. */
 class AddressCityRequest extends FormRequest
 {
+    use TranslatesValidationMessages;
     use ValidatesPlaceNames;
 
     private const MAX_RANK = 1000000;

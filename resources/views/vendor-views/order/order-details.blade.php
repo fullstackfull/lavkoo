@@ -1441,7 +1441,7 @@
                                     </div>
                                     @if($unifiedAddress)
                                         <div class="col-12">
-                                            @include('partials.address._unified-address-fields', ['address' => $shippingAddress, 'ui' => 'bs4', 'idPrefix' => 'order-shipping', 'countrySelector' => 'select[name="country"]'])
+                                            @include('partials.address._unified-address-fields', ['address' => $shippingAddress, 'ui' => 'bs4', 'idPrefix' => 'order-shipping', 'countrySelector' => 'select[name="country"]', 'notice' => AddressSnapshotLines::completionNotice($shippingAddress)])
                                         </div>
                                     @endif
                                     <div class="col-12">
@@ -1576,7 +1576,7 @@
                                             </div>
                                             @if($unifiedAddress)
                                                 <div class="col-12">
-                                                    @include('partials.address._unified-address-fields', ['address' => $billing, 'ui' => 'bs4', 'idPrefix' => 'order-billing', 'countrySelector' => 'select[name="country"]'])
+                                                    @include('partials.address._unified-address-fields', ['address' => $billing, 'ui' => 'bs4', 'idPrefix' => 'order-billing', 'countrySelector' => 'select[name="country"]', 'notice' => AddressSnapshotLines::completionNotice($billing)])
                                                 </div>
                                             @endif
                                             <div class="col-12">

@@ -24,7 +24,7 @@ class AddressStatusCommand extends Command
             'Mode: %s configured, %s in force%s. ZIP delivery restriction: %s.',
             $report['mode']['configured'],
             $report['mode']['in_force'],
-            $report['mode']['configured'] !== $report['mode']['in_force'] ? ' (the store is held at off until the migrations are run and a city is active)' : '',
+            $report['mode']['configured'] !== $report['mode']['in_force'] ? ' (the store is held at off until the migrations are run and an active city lies in an active region)' : '',
             $report['zip_restriction'] ? 'on' : 'off',
         ));
 

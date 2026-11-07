@@ -122,13 +122,13 @@ class StorefrontAddressServiceTest extends StorefrontTestCase
         $this->assertSame([false, 'Riyadh', 'الرياض', 'unified'], [$json['needs_completion'], $json['city_name_en'], $json['city_name_ar'], $json['address_schema']]);
     }
 
-    public function test_the_structured_columns_of_a_move_to_another_country_are_cleared_with_the_state(): void
+    public function test_the_structured_columns_of_a_move_to_another_country_are_cleared(): void
     {
         $this->setAddressMode(AddressSchema::MODE_SOFT);
         $structured = $this->makeStructuredAddress($this->ids, 1);
 
         $this->assertSame(
-            ['region_id' => null, 'city_id' => null, 'district' => null, 'national_address' => null, 'state' => null],
+            ['region_id' => null, 'city_id' => null, 'district' => null, 'national_address' => null],
             $this->service->structured(['country' => 'United Arab Emirates'], $structured),
         );
         $this->assertSame([], $this->service->structured(['country' => 'United Arab Emirates']), 'an address that never had them has nothing to clear');
@@ -276,6 +276,22 @@ class StorefrontAddressServiceTest extends StorefrontTestCase
         $this->assertSame([], AddressSnapshotLines::location([]));
         $this->assertSame([], AddressSnapshotLines::location(null));
         $this->assertSame([], AddressSnapshotLines::location(['contact_person_name' => 'Only a name']));
+    }
+
+    public function test_an_old_copy_gets_a_note_with_the_city_it_named_and_a_structured_copy_gets_none(): void
+    {
+        app()->setLocale('en');
+        $structured = AddressSnapshot::build($this->makeStructuredAddress($this->ids, 1));
+
+        $this->assertNull(AddressSnapshotLines::completionNotice($structured));
+        $this->assertNull(AddressSnapshotLines::completionNotice(null));
+        $this->assertNull(AddressSnapshotLines::completionNotice([]));
+
+        $note = AddressSnapshotLines::completionNotice(['city' => 'جدة', 'zip' => '12211']);
+        $this->assertStringContainsString('saved before regions, cities and National Addresses', (string) $note);
+        $this->assertStringContainsString('Previous city: جدة', (string) $note);
+
+        $this->assertStringNotContainsString('Previous city', (string) AddressSnapshotLines::completionNotice(['address' => 'King Fahd Rd 12']), 'a copy that names no city has no city to remind of');
     }
 
     public function test_two_copies_are_the_same_address_when_they_name_the_same_place(): void

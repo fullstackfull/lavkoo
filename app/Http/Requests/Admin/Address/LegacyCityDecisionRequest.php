@@ -7,6 +7,8 @@ use Illuminate\Foundation\Http\FormRequest;
 /** The decision on one old city text: this text means that city. */
 class LegacyCityDecisionRequest extends FormRequest
 {
+    use TranslatesValidationMessages;
+
     public function authorize(): bool
     {
         return true;

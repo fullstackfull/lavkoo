@@ -166,11 +166,11 @@
                                 <input type="hidden" id="latitude"
                                        name="latitude" class="form-control d-inline"
                                        placeholder="{{ translate('ex')}} : -94.22213"
-                                       value="{{ $unified_address ? '' : ($default_location?$default_location['lat']:0) }}" {{ $unified_address ? '' : 'required' }} readonly>
+                                       value="{{ $default_location?$default_location['lat']:0 }}" required readonly>
                                 <input type="hidden"
                                        name="longitude" class="form-control"
                                        placeholder="{{ translate('ex')}} : 103.344322" id="longitude"
-                                       value="{{ $unified_address ? '' : ($default_location?$default_location['lng']:0) }}" {{ $unified_address ? '' : 'required' }} readonly>
+                                       value="{{ $default_location?$default_location['lng']:0 }}" required readonly>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary"
                                             data-dismiss="modal">{{translate('close')}}</button>
@@ -233,7 +233,7 @@
                                                     {{translate($shippingAddress['address_type'])}}
                                                     <span class="font-semibold fs-12">( {{$shippingAddress['is_billing']==1?translate('Billing_address'):translate('shipping_address')}} )</span>
                                                     @if(in_array($shippingAddress->id, $incomplete_address_ids))
-                                                        <span class="badge badge-warning">{{ translate('address_needs_completion') }}</span>
+                                                        <span class="badge badge-warning ua-badge">{{ translate('address_needs_completion') }}</span>
                                                     @endif
                                                 </h6>
                                             </div>

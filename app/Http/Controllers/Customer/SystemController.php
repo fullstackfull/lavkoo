@@ -213,7 +213,7 @@ class SystemController extends Controller
             try {
                 $addressId = $this->storefrontAddresses->saveFromCheckout(posted: $shipping, billing: false);
             } catch (ValidationException $exception) {
-                return $this->refuseAddress($exception);
+                return $this->refuseAddress(exception: $exception, fieldPrefix: '');
             }
         }
         // Shipping End
@@ -238,7 +238,7 @@ class SystemController extends Controller
             try {
                 $billingAddressId = $this->storefrontAddresses->saveFromCheckout(posted: $billing, billing: true);
             } catch (ValidationException $exception) {
-                return $this->refuseAddress($exception);
+                return $this->refuseAddress(exception: $exception, fieldPrefix: 'billing_');
             }
         } elseif ($request['billing_addresss_same_shipping'] == 'false' && !isset($billing['billing_method_id']) && $physicalProduct != 'yes') {
             return response()->json([
@@ -302,12 +302,16 @@ class SystemController extends Controller
         return response()->json([], 200);
     }
 
-    /** The checkout script prints `errors` as one message; `fields` names what to correct, field by field. */
-    private function refuseAddress(ValidationException $exception): JsonResponse
+    /**
+     * The checkout script prints `errors` as one message; `fields` names what to correct, field by field, and `prefix` is what the form
+     * puts in front of those names (the billing form's inputs start with `billing_`).
+     */
+    private function refuseAddress(ValidationException $exception, string $fieldPrefix): JsonResponse
     {
         return response()->json([
             'errors' => $exception->validator->errors()->first(),
             'fields' => $exception->errors(),
+            'prefix' => $fieldPrefix,
         ], 403);
     }
 

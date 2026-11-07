@@ -3,6 +3,8 @@
 namespace Tests\Feature\Address;
 
 use App\Services\Address\AddressSchema;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
 class AddressCatalogEndpointsTest extends AddressTestCase
@@ -87,5 +89,17 @@ class AddressCatalogEndpointsTest extends AddressTestCase
         }
 
         $this->getJson('/address/regions')->assertStatus(429);
+        $this->getJson('/api/v1/address/regions')->assertOk();
+    }
+
+    public function test_each_group_of_endpoints_has_a_bucket_of_its_own_so_the_typeahead_never_spends_the_budget_of_another_route(): void
+    {
+        $expected = ['/address/regions' => 'throttle:120,1,address-catalog', '/api/v1/address/regions' => 'throttle:120,1,address-catalog-api'];
+
+        foreach ($expected as $uri => $throttle) {
+            $route = Route::getRoutes()->match(Request::create($uri, 'GET'));
+
+            $this->assertContains($throttle, (array) $route->middleware(), $uri);
+        }
     }
 }

@@ -55,7 +55,7 @@
                                                                         <div class="mb-1 text-capitalize">{{$address->address_type}}</div>
                                                                         <div class="text-muted fs-12 text-capitalize text-wrap">{{$address->address}}</div>
                                                                         @if(in_array($address->id, $incomplete_address_ids))
-                                                                            <span class="badge badge-warning">{{ translate('address_needs_completion') }}</span>
+                                                                            <span class="badge badge-warning ua-badge">{{ translate('address_needs_completion') }}</span>
                                                                         @endif
                                                                     </div>
                                                                 </div>
@@ -149,7 +149,7 @@
                                                         @if($unified_address)
                                                             <div class="col-12">
                                                                 <div data-ua-saudi hidden>
-                                                                    <div class="alert alert-warning py-2 px-3 fs-12" role="alert" data-ua-complete-notice hidden>{{ translate('address_complete_required') }}</div>
+                                                                    <div class="alert alert-warning ua-notice py-2 px-3 fs-12" role="alert" data-ua-complete-notice data-previous-city-label="{{ translate('address_previous_city') }}" hidden>{{ translate('address_complete_required') }}<div data-ua-previous-city></div></div>
                                                                 </div>
                                                                 @include('partials.address._unified-address-fields', ['address' => null, 'ui' => 'bs4', 'idPrefix' => 'ship', 'namePrefix' => '', 'countrySelector' => '#country'])
                                                             </div>
@@ -184,12 +184,12 @@
                                                     <input type="hidden" id="latitude"
                                                            name="latitude" class="form-control d-inline"
                                                            placeholder="{{ translate('ex')}} : -94.22213"
-                                                           value="{{ $unified_address ? '' : ($defaultLocation?$defaultLocation['lat']:0) }}" {{ $unified_address ? '' : 'required' }}
+                                                           value="{{ $defaultLocation?$defaultLocation['lat']:0 }}" required
                                                            readonly>
                                                     <input type="hidden"
                                                            name="longitude" class="form-control"
                                                            placeholder="{{ translate('ex')}} : 103.344322" id="longitude"
-                                                           value="{{ $unified_address ? '' : ($defaultLocation?$defaultLocation['lng']:0) }}" {{ $unified_address ? '' : 'required' }}
+                                                           value="{{ $defaultLocation?$defaultLocation['lng']:0 }}" required
                                                            readonly>
 
                                                     <button type="submit" class="btn btn--primary d--none" id="address_submit"></button>
@@ -297,7 +297,7 @@
                                                                             <div class="mb-1 text-capitalize">{{$address->address_type}}</div>
                                                                             <div class="text-muted fs-12 text-capitalize text-wrap">{{$address->address}}</div>
                                                                             @if(in_array($address->id, $incomplete_address_ids))
-                                                                                <span class="badge badge-warning">{{ translate('address_needs_completion') }}</span>
+                                                                                <span class="badge badge-warning ua-badge">{{ translate('address_needs_completion') }}</span>
                                                                             @endif
                                                                         </div>
                                                                     </div>
@@ -388,7 +388,7 @@
                                                             @if($unified_address)
                                                                 <div class="col-12">
                                                                     <div data-ua-saudi hidden>
-                                                                        <div class="alert alert-warning py-2 px-3 fs-12" role="alert" data-ua-complete-notice hidden>{{ translate('address_complete_required') }}</div>
+                                                                        <div class="alert alert-warning ua-notice py-2 px-3 fs-12" role="alert" data-ua-complete-notice data-previous-city-label="{{ translate('address_previous_city') }}" hidden>{{ translate('address_complete_required') }}<div data-ua-previous-city></div></div>
                                                                     </div>
                                                                     @include('partials.address._unified-address-fields', ['address' => null, 'ui' => 'bs4', 'idPrefix' => 'billing', 'namePrefix' => 'billing_', 'countrySelector' => '#billing_country'])
                                                                 </div>
@@ -426,12 +426,12 @@
                                                         <input type="hidden" id="billing_latitude"
                                                                name="billing_latitude" class="form-control d-inline"
                                                                placeholder="{{ translate('ex')}} : -94.22213"
-                                                               value="{{ $unified_address ? '' : ($defaultLocation?$defaultLocation['lat']:0) }}" {{ $unified_address ? '' : 'required' }}
+                                                               value="{{ $defaultLocation?$defaultLocation['lat']:0 }}" required
                                                                readonly>
                                                         <input type="hidden"
                                                                name="billing_longitude" class="form-control"
                                                                placeholder="{{ translate('ex')}} : 103.344322" id="billing_longitude"
-                                                               value="{{ $unified_address ? '' : ($defaultLocation?$defaultLocation['lng']:0) }}" {{ $unified_address ? '' : 'required' }}
+                                                               value="{{ $defaultLocation?$defaultLocation['lng']:0 }}" required
                                                                readonly>
 
                                                         <button type="submit" class="btn btn--primary d--none" id="address_submit"></button>

@@ -4,6 +4,7 @@ namespace Tests\Feature\Address;
 
 use App\Models\AddressCity;
 use App\Models\AddressRegion;
+use App\Models\BusinessSetting;
 use App\Services\Address\AddressModeGate;
 use App\Services\Address\AddressSchema;
 use Illuminate\Support\Facades\DB;
@@ -85,6 +86,68 @@ class AdminAddressModeTest extends AdminAddressTestCase
 
         $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::configuredMode());
         $this->assertContains(translate('address_mode_blocked_no_cities'), $this->toasts());
+    }
+
+    public function test_a_catalog_whose_regions_are_all_switched_off_counts_as_having_no_city_nobody_could_choose(): void
+    {
+        $this->signInWithTheCatalog();
+        AddressRegion::query()->update(['is_active' => false]);
+        AddressSchema::flush();
+
+        $this->assertSame(0, AddressRegion::query()->where('is_active', true)->count());
+        $this->assertGreaterThan(0, AddressCity::query()->where('is_active', true)->count(), 'the cities themselves are still on');
+        $this->assertFalse(AddressSchema::hasCities());
+
+        $this->switchMode('soft');
+
+        $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::configuredMode());
+        $this->assertContains(translate('address_mode_blocked_no_cities'), $this->toasts());
+    }
+
+    public function test_switching_off_the_last_region_holds_a_mode_that_is_on_at_off_and_switching_one_back_on_releases_it(): void
+    {
+        $this->signInWithTheCatalog();
+        $this->switchMode('soft');
+        $this->assertSame(AddressSchema::MODE_SOFT, AddressSchema::mode());
+
+        AddressRegion::query()->update(['is_active' => false]);
+        AddressSchema::flush();
+        $html = $this->get(route('admin.address-system.index'))->assertOk()->getContent();
+
+        $this->assertSame([AddressSchema::MODE_SOFT, AddressSchema::MODE_OFF], [AddressSchema::configuredMode(), AddressSchema::mode()], 'customers are not left without a region to choose');
+        $this->assertStringContainsString(e(translate('address_mode_held_off_no_cities')), $html);
+
+        AddressRegion::query()->orderBy('id')->first()->update(['is_active' => true]);
+        AddressSchema::flush();
+
+        $this->assertSame(AddressSchema::MODE_SOFT, AddressSchema::mode());
+    }
+
+    public function test_the_command_changes_the_mode_through_the_same_gate_and_drops_the_settings_cache(): void
+    {
+        $this->signInWithTheCatalog();
+
+        $this->artisan('address:mode', ['mode' => 'soft'])->expectsOutput('Address mode: soft configured, soft in force.')->assertExitCode(0);
+        $this->assertSame(AddressSchema::MODE_SOFT, AddressSchema::configuredMode());
+        $this->assertContains('address.mode_changed', $this->auditActions());
+
+        BusinessSetting::query()->where('type', AddressSchema::SETTING)->update(['value' => json_encode('off')]);
+        $this->assertSame(AddressSchema::MODE_SOFT, AddressSchema::configuredMode(), 'a value edited in the database is hidden by the settings cache');
+
+        $this->artisan('address:mode', ['mode' => 'off'])->assertExitCode(0);
+        $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::configuredMode(), 'the command makes the database value the one in force');
+        $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::mode());
+    }
+
+    public function test_the_command_refuses_what_the_panel_refuses_and_an_unknown_mode(): void
+    {
+        $this->signIn();
+
+        $this->artisan('address:mode', ['mode' => 'soft'])->expectsOutput(translate('address_mode_blocked_no_cities'))->assertExitCode(1);
+        $this->artisan('address:mode', ['mode' => 'everything'])->assertExitCode(2);
+        $this->assertSame(AddressSchema::MODE_OFF, AddressSchema::configuredMode());
+
+        $this->artisan('address:mode', ['mode' => 'off'])->assertExitCode(0);
     }
 
     public function test_soft_and_strict_are_refused_while_the_zip_restriction_is_on_stage_s1(): void

@@ -21,7 +21,7 @@ independent signal (GeoNames name + coordinates). It was checked that all 20 maj
 * There is no governorate layer and districts exist for 152 places only, so `district` is a free-text field for now (the register's 3,732 districts are *not* shipped because the list is
   too incomplete to enforce).
 
-## Licence — decision needed before shipping `cities.json` to production
+## Licence — decision needed before shipping `cities.json` to the server (Release A) and before importing it
 
 The republishing repository is licensed **GPL-2.0**; the underlying register is public government data (National Address, SPL). The ship-ready data file is a separate text file, not code,
 but the owner should decide (legal review) between: (a) keeping the file, (b) replacing it with an export from SPL's own **National Address Lookups API v3.1** (regions, cities with

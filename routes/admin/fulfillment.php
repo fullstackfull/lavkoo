@@ -43,11 +43,11 @@ Route::group([
     Route::post('torod-point/cities/alias', [TorodMatchingController::class, 'alias'])->name('torod.alias');
     Route::get('torod-point/cities/search', [TorodMatchingController::class, 'citySearch'])->name('torod.cities.search');
     Route::get('torod-point/cities/internal-search', [TorodMatchingController::class, 'internalCitySearch'])->name('torod.cities.internal-search');
-    Route::post('torod-point/cities/mappings/approve', [TorodMatchingController::class, 'approveCity'])->middleware('throttle:30,1')->name('torod.cities.approve');
-    Route::post('torod-point/cities/mappings/reject', [TorodMatchingController::class, 'rejectCity'])->middleware('throttle:30,1')->name('torod.cities.reject');
-    Route::post('torod-point/cities/mappings/{mapping}/retire', [TorodMatchingController::class, 'retireCity'])->whereNumber('mapping')->middleware('throttle:30,1')->name('torod.cities.retire');
+    Route::post('torod-point/cities/mappings/approve', [TorodMatchingController::class, 'approveCity'])->middleware('throttle:30,1,torod-city-approve')->name('torod.cities.approve');
+    Route::post('torod-point/cities/mappings/reject', [TorodMatchingController::class, 'rejectCity'])->middleware('throttle:30,1,torod-city-reject')->name('torod.cities.reject');
+    Route::post('torod-point/cities/mappings/{mapping}/retire', [TorodMatchingController::class, 'retireCity'])->whereNumber('mapping')->middleware('throttle:30,1,torod-city-retire')->name('torod.cities.retire');
     // Asks Torod Point which of its cities are named like one of ours: a read with our credentials, so a few a minute is plenty.
-    Route::post('torod-point/cities/discover', [TorodMatchingController::class, 'discoverCity'])->middleware('throttle:6,1')->name('torod.cities.discover');
+    Route::post('torod-point/cities/discover', [TorodMatchingController::class, 'discoverCity'])->middleware('throttle:6,1,torod-city-discover')->name('torod.cities.discover');
     Route::get('torod-point/products/search', [TorodMatchingController::class, 'productSearch'])->name('torod.products.search');
     // Recording (or withdrawing) the proof that the invoice number we send comes back in the order list; it calls no provider.
     Route::post('torod-point/invoice-round-trip', [IntegrationCenterController::class, 'confirmInvoiceRoundTrip'])->name('torod.invoice-round-trip.confirm');

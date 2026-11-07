@@ -13,6 +13,7 @@ use App\Models\ProviderCity;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderProductMapping;
 use App\Services\Address\AddressCatalog;
+use App\Services\Fulfillment\Exceptions\CityMappingRefusedException;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\ProductProviderAssignmentService;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodCityResolver;
@@ -141,6 +142,12 @@ class TorodMatchingController extends Controller
         return back();
     }
 
+    /** What an administrator is told about a refused decision: a city decision names its message by key, anything else says it itself. */
+    private function refusal(InvalidArgumentException $exception): string
+    {
+        return $exception instanceof CityMappingRefusedException ? translate($exception->translationKey) : $exception->getMessage();
+    }
+
     public function stock(Request $request): RedirectResponse
     {
         $data = $request->validate(['mapping_id' => ['required', 'integer'], 'quantity' => ['required', 'integer', 'min:0', 'max:100000000']]);
@@ -162,7 +169,7 @@ class TorodMatchingController extends Controller
             $this->cities->addAlias($data['alias'], $data['external_city_id'], auth('admin')->id());
             ToastMagic::success(translate('city_alias_saved'));
         } catch (InvalidArgumentException $exception) {
-            SafeToast::error('', $exception->getMessage());
+            SafeToast::error('', $this->refusal($exception));
         }
 
         return back();
@@ -212,7 +219,7 @@ class TorodMatchingController extends Controller
                 replacing: isset($data['replacing']) ? (int) $data['replacing'] : null,
             );
         } catch (InvalidArgumentException $exception) {
-            SafeToast::error('', $exception->getMessage());
+            SafeToast::error('', $this->refusal($exception));
 
             return back();
         }
@@ -237,7 +244,7 @@ class TorodMatchingController extends Controller
                 adminName: $admin?->name,
             );
         } catch (InvalidArgumentException $exception) {
-            SafeToast::error('', $exception->getMessage());
+            SafeToast::error('', $this->refusal($exception));
 
             return back();
         }
@@ -255,7 +262,7 @@ class TorodMatchingController extends Controller
         try {
             $this->cityMappings->retire(provider: ProviderCode::TorodPoint->value, mappingId: $mapping, adminId: $admin?->getKey(), adminName: $admin?->name);
         } catch (InvalidArgumentException $exception) {
-            SafeToast::error('', $exception->getMessage());
+            SafeToast::error('', $this->refusal($exception));
 
             return back();
         }

@@ -4,6 +4,7 @@ namespace App\Services\Address;
 
 use App\Models\AddressCity;
 use App\Models\BusinessSetting;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -87,14 +88,21 @@ final class AddressSchema
         return self::mastersReady() && self::columnsReady();
     }
 
-    /** Has anyone imported (or added) a city yet? An empty list must never lock customers out of checkout. */
+    /**
+     * Can a customer finish an address? Only a city that is active in a region that is active can be chosen, so an empty list, or a list
+     * whose regions are all switched off, must never lock customers out of checkout.
+     */
     public static function hasCities(): bool
     {
         if (!self::mastersReady()) {
             return false;
         }
 
-        return self::remembered('cities', static fn (): bool => AddressCity::query()->where('is_active', true)->exists(), keepYes: false);
+        return self::remembered(
+            'cities',
+            static fn (): bool => AddressCity::query()->active()->whereHas('region', static fn (Builder $query) => $query->active())->exists(),
+            keepYes: false,
+        );
     }
 
     public static function configuredMode(): string

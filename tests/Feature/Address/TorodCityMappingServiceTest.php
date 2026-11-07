@@ -8,11 +8,14 @@ use App\Models\ProviderCity;
 use App\Models\ProviderCityMapping;
 use App\Models\ProviderCitySyncRun;
 use App\Services\Fulfillment\Data\CityCandidate;
+use App\Services\Fulfillment\Exceptions\CityMappingRefusedException;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * Our city to the provider's city: candidates by exact name, decisions by a person, and the one automatic approval.
@@ -144,7 +147,7 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
                 $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['riyadh'], externalCityId: '230194', replacing: $replacing);
                 $this->fail('the second mapping was accepted');
             } catch (InvalidArgumentException $exception) {
-                $this->assertStringContainsString('already has an approved mapping', $exception->getMessage());
+                $this->assertSame('city_mapping_city_already_approved', $exception->getMessage());
             }
         }
         $this->assertSame('36189', (string) $this->mappingOf('riyadh')->external_city_id, 'nothing was demoted silently');
@@ -196,7 +199,7 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
             $this->service()->retire(provider: self::PROVIDER, mappingId: $mapping->id);
             $this->fail('a retired mapping was retired again');
         } catch (InvalidArgumentException $exception) {
-            $this->assertStringContainsString('approved', $exception->getMessage());
+            $this->assertSame('city_mapping_only_approved_can_be_retired', $exception->getMessage());
         }
         $this->assertSame(MappingStatus::Approved, $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126')->status, 'a person can approve it again');
     }
@@ -220,12 +223,12 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
                 $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids[$handle], externalCityId: $externalId);
                 $this->fail("{$externalId} was accepted");
             } catch (InvalidArgumentException $exception) {
-                $this->assertStringContainsString('provider\'s city list', $exception->getMessage());
+                $this->assertSame('city_mapping_city_not_in_provider_list', $exception->getMessage());
             }
         }
 
         ProviderCity::query()->where('external_id', '41126')->update(['missing_since' => now()]);
-        $this->expectExceptionMessage('no longer lists');
+        $this->expectExceptionMessage('city_mapping_provider_no_longer_lists_city');
         $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126');
     }
 
@@ -397,6 +400,46 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
             $done = true;
             $action();
         });
+    }
+
+    /** The next save of a mapping fails the way the second of two people deciding on the same new pair would: with a duplicate key. */
+    private function failTheNextMappingSaveWithADuplicateKey(): void
+    {
+        $failed = false;
+        ProviderCityMapping::saving(static function () use (&$failed): void {
+            if ($failed) {
+                return;
+            }
+
+            $failed = true;
+            throw new UniqueConstraintViolationException('sqlite', 'insert into provider_city_mappings', [], new RuntimeException('UNIQUE constraint failed'));
+        });
+    }
+
+    public function test_a_rejection_that_meets_a_duplicate_key_is_made_again_on_the_row_that_won(): void
+    {
+        $this->completeSync();
+        $this->failTheNextMappingSaveWithADuplicateKey();
+
+        $mapping = $this->service()->reject(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126');
+
+        $this->assertSame(MappingStatus::Rejected, $mapping->status);
+        $this->assertSame(1, ProviderCityMapping::query()->where('address_city_id', $this->ids['jeddah'])->count());
+    }
+
+    public function test_an_approval_that_meets_a_duplicate_key_is_refused_with_a_message_not_failed(): void
+    {
+        $this->completeSync();
+        $this->failTheNextMappingSaveWithADuplicateKey();
+
+        try {
+            $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126');
+            $this->fail('the approval was meant to be refused');
+        } catch (CityMappingRefusedException $refusal) {
+            $this->assertSame('city_mapping_approved_meanwhile', $refusal->translationKey);
+        }
+
+        $this->assertNull($this->mappingOf('jeddah'));
     }
 
     public function test_a_person_decision_is_never_overridden_by_the_automatic_approval(): void

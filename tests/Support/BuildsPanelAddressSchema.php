@@ -175,7 +175,7 @@ trait BuildsPanelAddressSchema
     {
         return $this->makeLegacyAddress($customerId, $overrides + [
             'region_id' => $ids['region_RUH'], 'city_id' => $ids['riyadh'], 'district' => 'Al Olaya', 'national_address' => 'RAGI2929',
-            'city' => 'الرياض', 'state' => 'منطقة الرياض', 'zip' => null,
+            'city' => 'الرياض', 'state' => null, 'zip' => null,
         ]);
     }
 

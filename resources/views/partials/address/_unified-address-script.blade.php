@@ -5,9 +5,13 @@
         .unified-address .ua-list[hidden] { display: none; }
         .unified-address .ua-option { display: flex; justify-content: space-between; align-items: center; gap: .75rem; min-height: 44px; padding: .5rem .75rem; cursor: pointer; text-align: start; }
         .unified-address .ua-option[aria-selected="true"], .unified-address .ua-option:hover { background: #e9f2ff; }
-        .unified-address .ua-option small, .unified-address .ua-status { color: #6c757d; }
+        .unified-address .ua-option small, .unified-address .ua-status { color: #565e64; }
         .unified-address .ua-status { padding: .5rem .75rem; text-align: start; }
-        .unified-address input[data-ua-input], .unified-address select[data-ua-region], .unified-address input[data-ua-national] { min-height: 44px; font-size: 16px; }
+        .unified-address input[data-ua-input], .unified-address input[data-ua-region-input], .unified-address input[data-ua-district], .unified-address select[data-ua-region], .unified-address input[data-ua-national] { min-height: 44px; font-size: 16px; }
+        .unified-address .form-text { color: #495057; font-size: 13px; }
+        .unified-address .ua-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        .alert.ua-notice { color: #5c3d00; background-color: #fff3cd; border-color: #ffe69c; font-size: 14px; }
+        .badge.ua-badge { color: #5c3d00; background-color: #fff3cd; border: 1px solid #ffe69c; font-size: 12px; font-weight: 600; }
         .unified-address input[data-ua-national] { direction: ltr; text-transform: uppercase; letter-spacing: .08em; }
         [dir="rtl"] .unified-address input[data-ua-national] { text-align: right; }
     </style>
@@ -17,6 +21,9 @@
 
             var DEBOUNCE_MS = 180;
             var PAGE_SIZE = 50;
+            var FETCH_TIMEOUT_MS = 10000;
+            var ENGLISH_ARTICLES = ['al', 'ar', 'as', 'ash', 'at', 'ath', 'ad', 'adh', 'an', 'az', 'el'];
+            var KIND_WORDS = ['\u0645\u062f\u064a\u0646\u0647', '\u0645\u062d\u0627\u0641\u0638\u0647', '\u0642\u0631\u064a\u0647', '\u0647\u062c\u0631\u0647', '\u0645\u0631\u0643\u0632', '\u0645\u0646\u0637\u0642\u0647', 'city', 'town', 'village', 'governorate', 'province', 'region', 'district', 'of'];
             var LETTERS = {'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا', 'ى': 'ي', 'ئ': 'ي', 'ؤ': 'و', 'ة': 'ه', 'ی': 'ي', 'ک': 'ك', 'ھ': 'ه', 'ہ': 'ه', 'ە': 'ه'};
 
             function fold(text) {
@@ -36,6 +43,28 @@
                     .replace(/[۰-۹]/g, function (digit) { return String(digit.charCodeAt(0) - 1776); })
                     .replace(/[\s\-_.​-‏‪-‮⁦-⁩﻿]+/g, '')
                     .toUpperCase();
+            }
+
+            function searchKey(text) {
+                var words = String(text || '').trim().split(/[\s\-]+/).map(fold).filter(Boolean);
+                var named = words.filter(function (word) { return KIND_WORDS.indexOf(word) === -1; });
+                words = named.length ? named : words;
+                if (words.length > 1 && ENGLISH_ARTICLES.indexOf(words[0]) !== -1) { words.shift(); }
+                if (words.length) { words[0] = words[0].replace(/^\u0627\u0644(?=.{2,})/, ''); }
+                return words.join('');
+            }
+
+            function sameName(item, typed) {
+                var wanted = searchKey(typed);
+                return wanted !== '' && (searchKey(item.name_ar) === wanted || searchKey(item.name_en) === wanted);
+            }
+
+            function matchesTyped(name, typed) {
+                var wanted = [fold(typed), searchKey(typed)];
+                var known = [fold(name), searchKey(name)];
+                return wanted.some(function (candidate) {
+                    return candidate !== '' && known.some(function (key) { return key.indexOf(candidate) !== -1; });
+                });
             }
 
             function debounce(callback, wait) {
@@ -61,9 +90,13 @@
                 var list = settings.list;
                 var selected = null;
                 var items = [];
+                var lastFound = [];
                 var activeIndex = -1;
                 var requestId = 0;
                 var identifier = 'ua-' + Math.random().toString(36).slice(2, 9);
+                var message = element('div', 'ua-list ua-status');
+                var announcer = element('div', 'ua-sr-only');
+                var fieldLabel = input.labels && input.labels[0];
 
                 list.id = identifier;
                 input.setAttribute('role', 'combobox');
@@ -72,6 +105,16 @@
                 input.setAttribute('aria-expanded', 'false');
                 input.setAttribute('autocomplete', 'off');
                 list.setAttribute('role', 'listbox');
+                if (fieldLabel) {
+                    fieldLabel.id = fieldLabel.id || identifier + '-label';
+                    list.setAttribute('aria-labelledby', fieldLabel.id);
+                }
+                message.hidden = true;
+                message.setAttribute('aria-hidden', 'true');
+                announcer.setAttribute('role', 'status');
+                announcer.setAttribute('aria-live', 'polite');
+                list.parentNode.appendChild(message);
+                list.parentNode.appendChild(announcer);
 
                 function label(item) {
                     return settings.locale === 'en' ? (item.name_en || item.name) : (item.name_ar || item.name);
@@ -84,6 +127,8 @@
 
                 function close() {
                     list.hidden = true;
+                    message.hidden = true;
+                    announcer.textContent = '';
                     input.setAttribute('aria-expanded', 'false');
                     input.removeAttribute('aria-activedescendant');
                     activeIndex = -1;
@@ -100,21 +145,26 @@
                     options[activeIndex].scrollIntoView({block: 'nearest'});
                 }
 
-                function showMessage(message) {
+                function showMessage(text) {
                     list.innerHTML = '';
+                    list.hidden = true;
                     items = [];
-                    list.appendChild(element('li', 'ua-status', message));
-                    list.hidden = false;
-                    input.setAttribute('aria-expanded', 'true');
+                    activeIndex = -1;
+                    message.textContent = text;
+                    message.hidden = false;
+                    announcer.textContent = text;
+                    input.setAttribute('aria-expanded', 'false');
+                    input.removeAttribute('aria-activedescendant');
                 }
 
                 function render(found) {
                     items = found;
-                    list.innerHTML = '';
+                    lastFound = found;
                     if (!found.length) {
                         showMessage(settings.text.empty);
                         return;
                     }
+                    list.innerHTML = '';
                     found.forEach(function (item, position) {
                         var option = element('li', 'ua-option');
                         option.id = identifier + '-' + position;
@@ -122,15 +172,22 @@
                         option.setAttribute('aria-selected', 'false');
                         option.appendChild(element('span', '', label(item)));
                         var secondary = otherLabel(item);
-                        if (secondary) { option.appendChild(element('small', '', secondary)); }
+                        if (secondary) {
+                            var other = element('small', '', secondary);
+                            other.setAttribute('lang', settings.locale === 'en' ? 'ar' : 'en');
+                            other.setAttribute('dir', settings.locale === 'en' ? 'rtl' : 'ltr');
+                            option.appendChild(other);
+                        }
                         option.addEventListener('mousedown', function (event) {
                             event.preventDefault();
                             choose(item);
                         });
                         list.appendChild(option);
                     });
+                    message.hidden = true;
                     list.hidden = false;
                     input.setAttribute('aria-expanded', 'true');
+                    announcer.textContent = settings.text.results + ' ' + found.length;
                     highlight(0);
                 }
 
@@ -178,12 +235,14 @@
                     scheduleSearch.cancel();
                     requestId++;
                     close();
-                    if (!selected && input.value !== '') { input.value = ''; }
+                    if (selected || input.value === '') { return; }
+                    var exact = lastFound.filter(function (item) { return sameName(item, input.value); });
+                    if (exact.length === 1) { choose(exact[0]); } else { input.value = ''; }
                 });
 
                 return {
                     select: function (item) { selected = item; input.value = item ? label(item) : ''; },
-                    clear: function () { selected = null; input.value = ''; scheduleSearch.cancel(); requestId++; close(); },
+                    clear: function () { selected = null; lastFound = []; input.value = ''; scheduleSearch.cancel(); requestId++; close(); },
                     selected: function () { return selected; },
                     close: close,
                 };
@@ -193,6 +252,8 @@
                 var locale = root.getAttribute('data-locale') || document.documentElement.lang || 'ar';
                 var text = {
                     empty: root.getAttribute('data-text-empty') || '',
+                    regionEmpty: root.getAttribute('data-text-region-empty') || '',
+                    results: root.getAttribute('data-text-results') || '',
                     loading: root.getAttribute('data-text-loading') || '',
                     failed: root.getAttribute('data-text-failed') || '',
                     blocked: root.getAttribute('data-text-region-first') || '',
@@ -212,6 +273,8 @@
                 var countrySelector = root.getAttribute('data-ua-country-selector');
                 var countryControl = countrySelector ? scope.querySelector(countrySelector) : null;
                 var regionRequired = regionSelect.required;
+                var cityPlaceholder = cityInput.getAttribute('placeholder') || '';
+                var currentRegion = regionSelect.value;
                 var cache = {};
                 var controller = null;
 
@@ -231,7 +294,9 @@
                 }
 
                 function setRegionDependentState() {
-                    cityInput.disabled = !isSaudi() || regionSelect.value === '';
+                    var regionChosen = regionSelect.value !== '';
+                    cityInput.disabled = !isSaudi() || !regionChosen;
+                    cityInput.setAttribute('placeholder', regionChosen || text.blocked === '' ? cityPlaceholder : text.blocked);
                     updateCityValidity();
                 }
 
@@ -239,11 +304,14 @@
                     var key = regionSelect.value + '|' + query;
                     if (cache[key]) { return Promise.resolve(cache[key]); }
                     if (controller) { controller.abort(); }
-                    controller = typeof AbortController === 'function' ? new AbortController() : null;
+                    var request = typeof AbortController === 'function' ? new AbortController() : null;
+                    controller = request;
+                    var timeout = request ? setTimeout(function () { request.abort(); }, FETCH_TIMEOUT_MS) : null;
                     var url = citiesUrl + '?region_id=' + encodeURIComponent(regionSelect.value) + '&limit=' + PAGE_SIZE + (query ? '&q=' + encodeURIComponent(query) : '');
-                    return fetch(url, {headers: {'Accept': 'application/json'}, credentials: 'same-origin', signal: controller ? controller.signal : undefined})
+                    return fetch(url, {headers: {'Accept': 'application/json'}, credentials: 'same-origin', signal: request ? request.signal : undefined})
                         .then(function (response) { if (!response.ok) { throw new Error('status ' + response.status); } return response.json(); })
-                        .then(function (body) { cache[key] = body.cities || []; return cache[key]; });
+                        .then(function (body) { cache[key] = body.cities || []; return cache[key]; })
+                        .finally(function () { clearTimeout(timeout); });
                 }
 
                 var cityCombobox = Combobox({
@@ -255,16 +323,18 @@
                 });
 
                 var regionCombobox = regionInput ? Combobox({
-                    input: regionInput, list: regionList, locale: locale, text: text,
+                    input: regionInput, list: regionList, locale: locale, text: Object.assign({}, text, {empty: text.regionEmpty}),
                     fetchItems: function (query) {
-                        var wanted = fold(query);
-                        return regionItems().filter(function (item) { return wanted === '' || fold(item.name_ar + item.name_en).indexOf(wanted) !== -1; });
+                        var typed = fold(query);
+                        return regionItems().filter(function (item) { return typed === '' || matchesTyped(item.name_ar, query) || matchesTyped(item.name_en, query); });
                     },
                     onChoose: function (item) { changeRegion(item.id); },
                     onClear: function () { changeRegion(''); },
                 }) : null;
 
                 function changeRegion(value) {
+                    if (value === currentRegion) { return; }
+                    currentRegion = value;
                     regionSelect.value = value;
                     cityCombobox.clear();
                     cityId.value = '';
@@ -333,6 +403,62 @@
                 applyCountry();
             }
 
+            function visibleControl(control) {
+                var root = control.closest('[data-unified-address]');
+                if (root && control.hasAttribute('data-ua-city-id')) { return root.querySelector('[data-ua-input]'); }
+                if (root && control.hasAttribute('data-ua-region') && control.hidden) { return root.querySelector('[data-ua-region-input]'); }
+                return control;
+            }
+
+            function renderedControl(name) {
+                var matches = document.querySelectorAll('[name="' + name + '"]');
+                for (var position = 0; position < matches.length; position++) {
+                    var visible = visibleControl(matches[position]);
+                    if (visible && visible.getClientRects().length > 0) { return visible; }
+                }
+                return null;
+            }
+
+            function markInvalid(control, text) {
+                var feedback = element('div', 'invalid-feedback d-block', text);
+                feedback.id = (control.id || 'ua-field') + '-error';
+                var anchor = control.closest('[data-ua-combobox]') || control;
+                anchor.insertAdjacentElement('afterend', feedback);
+                control.classList.add('is-invalid');
+                control.setAttribute('aria-invalid', 'true');
+                control.setAttribute('aria-describedby', ((control.getAttribute('aria-describedby') || '') + ' ' + feedback.id).trim());
+
+                function release() {
+                    feedback.remove();
+                    control.classList.remove('is-invalid');
+                    control.removeAttribute('aria-invalid');
+                    var described = (control.getAttribute('aria-describedby') || '').split(' ').filter(function (id) { return id !== feedback.id; }).join(' ');
+                    if (described) { control.setAttribute('aria-describedby', described); } else { control.removeAttribute('aria-describedby'); }
+                }
+
+                ['input', 'change'].forEach(function (name) { control.addEventListener(name, release, {once: true}); });
+                var root = control.closest('[data-unified-address]');
+                if (root) {
+                    root.addEventListener('unified-address:change', function settle(event) {
+                        var stillMissing = (control.hasAttribute('data-ua-input') && !event.detail.cityId) || (control.hasAttribute('data-ua-region-input') && !event.detail.regionId);
+                        if (stillMissing || !control.matches('[data-ua-input], [data-ua-region-input]')) { return; }
+                        root.removeEventListener('unified-address:change', settle);
+                        release();
+                    });
+                }
+            }
+
+            function markRefusedFields(refusal) {
+                var prefix = refusal.prefix || '';
+                var focused = false;
+                Object.keys(refusal.fields).forEach(function (field) {
+                    var control = renderedControl(prefix + field);
+                    if (!control) { return; }
+                    markInvalid(control, [].concat(refusal.fields[field])[0]);
+                    if (!focused) { control.focus(); focused = true; }
+                });
+            }
+
             function init(scope) {
                 (scope || document).querySelectorAll('[data-unified-address]:not([data-ua-ready])').forEach(function (root) {
                     root.setAttribute('data-ua-ready', '1');
@@ -343,7 +469,13 @@
             function initOpened(event) { init(event.target); }
 
             function ready() {
-                if (window.jQuery) { window.jQuery(document).on('shown.bs.modal shown.bs.offcanvas', initOpened); }
+                if (window.jQuery) {
+                    window.jQuery(document).on('shown.bs.modal shown.bs.offcanvas', initOpened);
+                    window.jQuery(document).on('ajaxError', function (event, request) {
+                        var refusal = request.responseJSON;
+                        if (refusal && refusal.fields && typeof refusal.fields === 'object') { markRefusedFields(refusal); }
+                    });
+                }
                 init(document);
             }
 

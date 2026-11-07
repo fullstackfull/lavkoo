@@ -67,7 +67,7 @@ Route::get('/cash', function () {
         Route::get('business-pages', 'getBusinessPagesList');
     });
 
-    Route::group(['prefix' => 'address', 'middleware' => ['throttle:120,1']], function () {
+    Route::group(['prefix' => 'address', 'middleware' => ['throttle:120,1,address-catalog-api']], function () {
         Route::get('regions', [AddressCatalogController::class, 'regions']);
         Route::get('cities', [AddressCatalogController::class, 'cities']);
     });

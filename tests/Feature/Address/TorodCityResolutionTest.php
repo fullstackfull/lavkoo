@@ -418,7 +418,7 @@ class TorodCityResolutionTest extends TorodAddressTestCase
                 $this->resolver()->addAlias($blank, '41126', 1);
                 $this->fail("'{$blank}' became an alias");
             } catch (InvalidArgumentException $exception) {
-                $this->assertStringContainsString('empty', $exception->getMessage());
+                $this->assertSame('city_alias_spelling_empty', $exception->getMessage());
             }
         }
         $this->assertFalse($this->resolver()->resolveForAddress(['city' => ''])->isResolved());
@@ -434,7 +434,7 @@ class TorodCityResolutionTest extends TorodAddressTestCase
                 $this->resolver()->addAlias('Somewhere', $unlisted, 1);
                 $this->fail("an alias to {$unlisted} was saved");
             } catch (InvalidArgumentException $exception) {
-                $this->assertStringContainsString('does not list', $exception->getMessage());
+                $this->assertSame('city_alias_city_not_listed', $exception->getMessage());
             }
         }
         $this->assertSame(0, ProviderCityAlias::count());

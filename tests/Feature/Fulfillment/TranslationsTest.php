@@ -89,7 +89,7 @@ class TranslationsTest extends FulfillmentTestCase
                 $arguments = $this->balancedArguments($source, $start);
                 $offset = $start + 1;
 
-                if (preg_match_all('/(?<![\[\w])([\'"])([A-Za-z][A-Za-z0-9_]*)\1(?!\s*\])/', $arguments, $matches)) {
+                if (preg_match_all('/(?<![\[\w])([\'"])([A-Za-z][A-Za-z0-9_\/]*)\1(?!\s*\])/', $arguments, $matches)) {
                     foreach ($matches[2] as $key) {
                         if (!str_ends_with($key, '_')) {
                             $keys[$key] = true;
@@ -299,6 +299,23 @@ class TranslationsTest extends FulfillmentTestCase
             foreach ($customerFacing as $key) {
                 $this->assertMatchesRegularExpression('/\p{Arabic}/u', $this->catalogue[$locale][$key], "{$locale}: {$key} must be Arabic");
             }
+        }
+    }
+
+    public function test_every_address_text_is_arabic_in_the_arabic_locales(): void
+    {
+        $addressKeys = array_values(array_filter(
+            $this->literalKeysUsedByTheFeature(),
+            static fn (string $key): bool => str_starts_with($key, 'address_') || str_starts_with($key, 'city_'),
+        ));
+        $this->assertNotEmpty($addressKeys);
+
+        foreach (['sa', 'ae'] as $locale) {
+            $notArabic = array_values(array_filter(
+                $addressKeys,
+                fn (string $key): bool => preg_match('/\p{Arabic}/u', $this->catalogue[$locale][$key] ?? '') !== 1,
+            ));
+            $this->assertSame([], $notArabic, "{$locale}: address texts that are not Arabic: " . implode(', ', $notArabic));
         }
     }
 

@@ -187,7 +187,7 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
         $first = $this->mappings()->approve(provider: 'torod_point', cityId: $this->ids['riyadh'], externalCityId: '36189');
 
         $this->post(route('admin.fulfillment-providers.torod.cities.approve'), ['address_city_id' => $this->ids['riyadh'], 'external_city_id' => '230194'])->assertRedirect();
-        $this->assertStringContainsString('already has an approved mapping', $this->toasts());
+        $this->assertStringContainsString(translate('city_mapping_city_already_approved'), $this->toasts());
         $this->assertSame('36189', (string) $this->mappings()->approvedFor('torod_point', $this->ids['riyadh'])->external_city_id);
 
         $page = $this->page();
@@ -210,7 +210,7 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
         $this->assertNull($this->mappings()->approvedFor('torod_point', $this->ids['riyadh']));
 
         $this->post(route('admin.fulfillment-providers.torod.cities.retire', $mapping->id))->assertRedirect();
-        $this->assertStringContainsString('Only an approved mapping can be retired', $this->toasts());
+        $this->assertStringContainsString(translate('city_mapping_only_approved_can_be_retired'), $this->toasts());
     }
 
     public function test_a_manual_match_picks_one_of_our_cities_and_one_cached_provider_city(): void
@@ -259,8 +259,24 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
         $this->assertSame(2, ProviderCity::count());
         $this->assertStringContainsString(translate('city_discovery_done'), $this->toasts());
         $middleware = Route::getRoutes()->getByName('admin.fulfillment-providers.torod.cities.discover')->gatherMiddleware();
-        $this->assertContains('throttle:6,1', $middleware);
+        $this->assertContains('throttle:6,1,torod-city-discover', $middleware);
         $this->assertContains('admin', $middleware);
+    }
+
+    public function test_the_city_decisions_each_have_a_rate_limit_bucket_of_their_own(): void
+    {
+        $prefixes = [];
+        foreach (['approve', 'reject', 'retire', 'discover'] as $action) {
+            $declared = (array) Route::getRoutes()->getByName("admin.fulfillment-providers.torod.cities.{$action}")->middleware();
+            $throttle = array_values(array_filter($declared, static fn ($name): bool => is_string($name) && str_starts_with($name, 'throttle:')));
+
+            $this->assertCount(1, $throttle, $action);
+            $parts = explode(',', substr($throttle[0], strlen('throttle:')));
+            $this->assertCount(3, $parts, "{$action}: a numeric throttle without a name shares one counter with every other one of the client");
+            $prefixes[] = $parts[2];
+        }
+
+        $this->assertSame($prefixes, array_values(array_unique($prefixes)), 'no two decisions share a bucket');
     }
 
     public function test_the_sync_button_says_partial_instead_of_completed(): void

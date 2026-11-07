@@ -315,9 +315,9 @@ class StorefrontCheckoutTest extends StorefrontTestCase
             [$this->ids['region_RUH'], $this->ids['riyadh'], 'Al Olaya', 'RAGI2929'],
             [$address->region_id, $address->city_id, $address->district, $address->national_address],
         );
-        $this->assertSame(['الرياض', 'منطقة الرياض', 'Saudi Arabia'], [$address->city, $address->state, $address->country], 'the old columns carry the names the readers expect');
+        $this->assertSame(['الرياض', null, 'Saudi Arabia'], [$address->city, $address->state, $address->country], 'the old city and country columns carry the names the readers expect; the state is not written (the shipping zones read it)');
         $this->assertNull($address->zip, 'a ZIP is never derived from the National Address');
-        $this->assertSame('', $address->latitude, 'coordinates stay empty unless the customer picked a point');
+        $this->assertSame('', $address->latitude, 'a post without coordinates stores none (the page itself posts the default location, as the old form did)');
         $this->assertSame($address->id, $this->sessionAddress());
     }
 
@@ -353,6 +353,7 @@ class StorefrontCheckoutTest extends StorefrontTestCase
 
         $response->assertStatus(403);
         $this->assertSame(['city_id'], array_keys($response->json('fields')));
+        $this->assertSame('', $response->json('prefix'), 'the shipping form names its inputs as the fields are named');
         $this->assertSame(0, ShippingAddress::count());
     }
 
@@ -448,7 +449,7 @@ class StorefrontCheckoutTest extends StorefrontTestCase
         $this->postCheckout($this->saudiForm(['shipping_method_id' => $old->id, 'update_address' => 'on', 'latitude' => '24.7', 'longitude' => '46.6']))->assertOk();
 
         $completed = $old->fresh();
-        $this->assertSame([$this->ids['riyadh'], 'RAGI2929', 'الرياض', 'منطقة الرياض'], [$completed->city_id, $completed->national_address, $completed->city, $completed->state]);
+        $this->assertSame([$this->ids['riyadh'], 'RAGI2929', 'الرياض', null], [$completed->city_id, $completed->national_address, $completed->city, $completed->state]);
         $this->assertSame('12211', $completed->zip, 'the postal code the customer once typed is kept');
         $this->assertSame(['24.7', '46.6'], [$completed->latitude, $completed->longitude]);
         $this->assertSame($old->id, $this->sessionAddress());
@@ -521,7 +522,7 @@ class StorefrontCheckoutTest extends StorefrontTestCase
         $shipping = ShippingAddress::findOrFail($this->sessionAddress());
         $billing = ShippingAddress::findOrFail($this->sessionAddress('billing_address_id'));
         $this->assertNotSame($shipping->id, $billing->id);
-        $this->assertSame([true, $this->ids['jeddah'], 'JEDA1234', 'جدة', 'منطقة مكة المكرمة'], [$billing->is_billing, $billing->city_id, $billing->national_address, $billing->city, $billing->state]);
+        $this->assertSame([true, $this->ids['jeddah'], 'JEDA1234', 'جدة', null], [$billing->is_billing, $billing->city_id, $billing->national_address, $billing->city, $billing->state]);
         $this->assertSame([false, $this->ids['riyadh']], [$shipping->is_billing, $shipping->city_id]);
     }
 
@@ -534,6 +535,7 @@ class StorefrontCheckoutTest extends StorefrontTestCase
 
         $response->assertStatus(403);
         $this->assertSame(['city_id'], array_keys($response->json('fields')));
+        $this->assertSame('billing_', $response->json('prefix'), 'the page needs the prefix to find the billing input the message belongs to');
     }
 
     public function test_soft_a_guest_gets_the_same_form_and_the_same_rules(): void

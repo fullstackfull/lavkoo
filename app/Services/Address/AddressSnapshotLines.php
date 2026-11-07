@@ -43,6 +43,23 @@ final class AddressSnapshotLines
     }
 
     /**
+     * Why a panel form asks for a region, city and National Address on an old copy: it was saved before they existed. Null when the copy
+     * is already structured. The city the old copy names is printed with it, so the person completing it knows which place was meant.
+     *
+     * @param object|array<string, mixed>|null $snapshot
+     */
+    public static function completionNotice(object|array|null $snapshot, ?string $locale = null): ?string
+    {
+        if (self::isBlank($snapshot) || AddressSnapshot::isUnified($snapshot)) {
+            return null;
+        }
+
+        $previousCity = AddressSnapshot::cityName($snapshot, $locale);
+
+        return translate('address_copy_complete_required') . ($previousCity === null ? '' : ' ' . translate('address_previous_city') . ': ' . $previousCity);
+    }
+
+    /**
      * Do two copies name the same place? The page prints "same as shipping address" instead of the billing address when they do. A
      * copy older than the structured address has no region, city id or National Address, and those then count as equal on both sides.
      *

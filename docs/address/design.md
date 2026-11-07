@@ -19,7 +19,7 @@
 | `address_regions` | the 13 regions (ids, names ar/en, ISO code, active, source + date) |
 | `address_cities` | places (id, region, names ar/en, centre, rank, active, source + source id + date). **Names are never unique keys** |
 | `address_city_aliases` | an administrator-confirmed spelling → exactly one city |
-| `shipping_addresses` (+4 nullable columns) | `region_id`, `city_id`, `district`, `national_address`; `city`, `state`, `country`, `zip`, `address` stay and are still written for old readers |
+| `shipping_addresses` (+4 nullable columns) | `region_id`, `city_id`, `district`, `national_address`; `city`, `country`, `zip`, `address` stay and are still written for old readers; `state` is never written by the structured address (the shipping zones read it, and what a customer pays must not depend on which form created the address) |
 | `provider_city_mappings` | provider-agnostic link *internal city → provider city id + region id*, with status, method, evidence, approver, date; **the database allows one approved mapping per provider and city** |
 | `provider_city_sync_runs` | every refresh of a provider's city list and whether it was complete |
 | `provider_cities` (+6 nullable columns) | what the provider says about each city (region names, prefix, selected flag, first/last seen) |

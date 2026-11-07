@@ -100,7 +100,7 @@ trait BuildsTorodDirectory
 
         return AddressSnapshot::build($overrides + [
             'contact_person_name' => 'Sara Alharbi', 'phone' => '0551234567', 'address' => 'King Fahd Rd 12', 'district' => 'Al Olaya',
-            'city' => $city->name_ar, 'state' => $city->region->name_ar, 'country' => 'Saudi Arabia', 'zip' => null, 'email' => 'sara@example.test',
+            'city' => $city->name_ar, 'state' => null, 'country' => 'Saudi Arabia', 'zip' => null, 'email' => 'sara@example.test',
             'city_id' => $city->id, 'region_id' => $city->region_id, 'national_address' => 'RAGI2929',
         ]);
     }

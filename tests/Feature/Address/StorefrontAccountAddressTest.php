@@ -153,9 +153,9 @@ class StorefrontAccountAddressTest extends StorefrontTestCase
         $address = ShippingAddress::sole();
         $this->assertSame((string) $customer->id, (string) $address->customer_id);
         $this->assertSame([$this->ids['region_RUH'], $this->ids['riyadh'], 'Al Olaya', 'RAGI2929'], [$address->region_id, $address->city_id, $address->district, $address->national_address]);
-        $this->assertSame(['الرياض', 'منطقة الرياض', 'Saudi Arabia'], [$address->city, $address->state, $address->country]);
+        $this->assertSame(['الرياض', null, 'Saudi Arabia'], [$address->city, $address->state, $address->country], 'the state is not written: the shipping zones read it');
         $this->assertNull($address->zip, 'a ZIP is never derived from the National Address');
-        $this->assertNull($address->latitude, 'no coordinates are invented');
+        $this->assertNull($address->latitude, 'a post without coordinates stores none (the page itself posts the default location, as the old form did)');
     }
 
     public function test_soft_a_free_text_city_is_not_accepted_for_a_saudi_address(): void
@@ -193,7 +193,7 @@ class StorefrontAccountAddressTest extends StorefrontTestCase
         $this->post(route('address-update'), $this->saudiForm(['id' => $old->id]))->assertRedirect(route('account-address'));
 
         $completed = $old->fresh();
-        $this->assertSame([$this->ids['riyadh'], 'RAGI2929', 'منطقة الرياض'], [$completed->city_id, $completed->national_address, $completed->state]);
+        $this->assertSame([$this->ids['riyadh'], 'RAGI2929', null], [$completed->city_id, $completed->national_address, $completed->state]);
         $this->assertSame('12211', $completed->zip, 'the Saudi form has no ZIP field, so the postal code the customer once typed stays');
         $this->assertSame(1, ShippingAddress::count());
     }

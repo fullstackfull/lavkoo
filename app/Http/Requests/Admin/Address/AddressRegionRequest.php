@@ -7,6 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 /** A region can be renamed, in both languages; its code comes from the source list and is not edited. */
 class AddressRegionRequest extends FormRequest
 {
+    use TranslatesValidationMessages;
     use ValidatesPlaceNames;
 
     public function authorize(): bool

@@ -8,6 +8,8 @@ use Illuminate\Validation\Rule;
 
 class AddressModeRequest extends FormRequest
 {
+    use TranslatesValidationMessages;
+
     public function authorize(): bool
     {
         return true;

@@ -7,6 +7,8 @@ use Illuminate\Foundation\Http\FormRequest;
 /** Switching a region or a city on or off: always an explicit state, so repeating a request changes nothing. */
 class AddressActiveRequest extends FormRequest
 {
+    use TranslatesValidationMessages;
+
     public function authorize(): bool
     {
         return true;

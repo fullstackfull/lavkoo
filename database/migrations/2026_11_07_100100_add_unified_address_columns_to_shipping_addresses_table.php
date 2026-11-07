@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\Schema;
  * default, no backfill, no foreign key. `city`, `zip`, `state` and `address` stay exactly as they are — old rows, reports, the
  * ZIP-based delivery restriction and every API that reads them keep working. A row without `city_id` is a legacy address.
  *
- * Rolling back drops the four columns; no existing value is touched either way.
+ * Rolling back drops the columns this migration made and nothing else: a column of the same name that the table already had carries
+ * none of this migration's indexes, so it is recognised as not ours and left alone. (The installation dump has none of the four names;
+ * the runbook asks for a look at the table before migrating.) No existing value is touched either way.
  */
 return new class extends Migration
 {
@@ -51,18 +53,19 @@ return new class extends Migration
             return;
         }
 
+        // The district has no index of its own: it goes with the National Address column, the last one this migration adds.
+        if (Schema::hasColumn(self::TABLE, 'district') && Schema::hasIndex(self::TABLE, 'shipping_addresses_national_idx')) {
+            Schema::table(self::TABLE, function (Blueprint $table) {
+                $table->dropColumn('district');
+            });
+        }
         foreach (['region_id' => 'shipping_addresses_region_idx', 'city_id' => 'shipping_addresses_city_idx', 'national_address' => 'shipping_addresses_national_idx'] as $column => $index) {
-            if (Schema::hasColumn(self::TABLE, $column)) {
+            if (Schema::hasColumn(self::TABLE, $column) && Schema::hasIndex(self::TABLE, $index)) {
                 Schema::table(self::TABLE, function (Blueprint $table) use ($index, $column) {
                     $table->dropIndex($index);
                     $table->dropColumn($column);
                 });
             }
-        }
-        if (Schema::hasColumn(self::TABLE, 'district')) {
-            Schema::table(self::TABLE, function (Blueprint $table) {
-                $table->dropColumn('district');
-            });
         }
     }
 };

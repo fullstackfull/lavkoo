@@ -101,15 +101,14 @@ class StorefrontCheckoutPageTest extends StorefrontTestCase
         $page->assertSee('<option value="United Arab Emirates">', false);
     }
 
-    public function test_soft_the_coordinates_are_empty_until_the_customer_picks_a_point(): void
+    public function test_soft_the_page_posts_the_default_location_until_the_customer_picks_a_point_as_the_old_form_did(): void
     {
         $this->setAddressMode(AddressSchema::MODE_SOFT);
         $this->setBusinessSetting('default_location', ['lat' => '24.5', 'lng' => '46.5']);
 
         $page = $this->openCheckout();
 
-        $this->assertSame(0, preg_match_all('/\svalue="24\.5"/', $page->getContent()), 'the default location is not posted as if it were the customer\'s point');
-        $this->assertSame(4, preg_match_all('/<input type="hidden"[^>]*name="(billing_)?(latitude|longitude)"[^>]*value=""/s', $page->getContent()));
+        $this->assertSame(4, preg_match_all('/<input type="hidden"[^>]*name="(billing_)?(latitude|longitude)"[^>]*value="(24\.5|46\.5)"/s', $page->getContent()), 'the apps, the courier and the order pages always saw numbers here');
         $page->assertSee('data-value="24.5"', false);
     }
 
@@ -177,6 +176,9 @@ class StorefrontCheckoutPageTest extends StorefrontTestCase
                 $completeData['region_name_ar'], $completeData['region_name_en'], $completeData['district'], $completeData['national_address']],
         );
         $this->assertSame('Old street', $oldData['address'], 'the old fields are still there for the page script that fills them');
+        $this->assertNotSame('', trim((string) $oldData['city']), 'the notice reminds the customer of the city the old address named, read from here');
+        $this->assertSame(2, substr_count($page->getContent(), 'class="alert alert-warning ua-notice py-2 px-3 fs-12" role="alert" data-ua-complete-notice'), 'one notice for the shipping form and one for the billing form');
+        $this->assertSame(2, substr_count($page->getContent(), 'data-ua-previous-city></div>'));
     }
 
     public function test_off_a_saved_address_is_embedded_as_the_row_it_is(): void

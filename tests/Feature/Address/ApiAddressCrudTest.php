@@ -120,7 +120,7 @@ class ApiAddressCrudTest extends ApiAddressTestCase
         $this->assertSame('Al Olaya', $address->district);
         $this->assertSame('RAGI2929', $address->national_address);
         $this->assertSame('الرياض', $address->city);
-        $this->assertSame('منطقة الرياض', $address->state);
+        $this->assertNull($address->state, 'the region text is not written: the shipping zones read that column');
         $this->assertSame('Saudi Arabia', $address->country, 'the old readers compare the English country name');
         $this->assertNull($address->zip, 'a postal code is never derived from the National Address');
         $this->assertNull($address->latitude);
@@ -328,6 +328,7 @@ class ApiAddressCrudTest extends ApiAddressTestCase
 
         $response->assertStatus(403);
         $this->assertSame(['address'], $this->errorCodes($response));
+        $this->assertSame(translate('address_update_app_required'), $response->json('message'), 'a build that reads `message`, as this endpoint always had, is told to update the app');
         $fresh = $address->fresh();
         $this->assertSame('الرياض', $fresh->city);
         $this->assertSame($this->ids['riyadh'], $fresh->city_id);
@@ -416,7 +417,7 @@ class ApiAddressCrudTest extends ApiAddressTestCase
 
         $fresh = $address->fresh();
         $this->assertSame([$this->ids['region_EAS'], $this->ids['khobar'], 'KHBR1234'], [$fresh->region_id, $fresh->city_id, $fresh->national_address]);
-        $this->assertSame(['الخبر', 'المنطقة الشرقية'], [$fresh->city, $fresh->state]);
+        $this->assertSame(['الخبر', null], [$fresh->city, $fresh->state]);
         $this->assertSame('12211', $fresh->zip, 'the postal code the customer once typed is not touched');
     }
 

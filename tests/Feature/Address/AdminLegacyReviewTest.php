@@ -8,7 +8,9 @@ use App\Models\AddressRegion;
 use App\Services\Address\AddressText;
 use App\Services\Address\LegacyReview;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 /**
  * The queue of old free-text cities: grouped by what they say, read with the matcher's verdict and candidates, settled one text at a time
@@ -379,6 +381,25 @@ class AdminLegacyReviewTest extends AdminAddressTestCase
 
         DB::unprepared('DROP TRIGGER fail_last_address');
         $this->assertSame(650, app(LegacyReview::class)->confirm(typedText: 'الهفوف', cityId: $this->ids['hafuf_eas'], adminId: 1));
+    }
+
+    public function test_a_spelling_that_someone_else_confirmed_a_moment_ago_is_settled_by_a_second_try_not_an_error(): void
+    {
+        $this->address(['city' => 'الهفوف']);
+        $failed = false;
+        AddressCityAlias::creating(static function () use (&$failed): void {
+            if ($failed) {
+                return;
+            }
+
+            $failed = true;
+            throw new UniqueConstraintViolationException('sqlite', 'insert into address_city_aliases', [], new RuntimeException('UNIQUE constraint failed'));
+        });
+
+        $updated = app(LegacyReview::class)->confirm(typedText: 'الهفوف', cityId: $this->ids['hafuf_eas'], adminId: 1);
+
+        $this->assertSame(1, $updated);
+        $this->assertSame(1, AddressCityAlias::count());
     }
 
     // ---- applying every certain match ----------------------------------------------------------------------------------------------

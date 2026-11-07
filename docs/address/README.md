@@ -52,7 +52,7 @@ Everything that depends on the structured address is dormant, and the pages, API
 
 | # | Decision / confirmation | Why it matters | Where |
 |---|---|---|---|
-| 1 | **Data licence** of the bundled city list (a GPL-2.0 snapshot of the National Address Directory) | it must be decided before the import is run on production; an alternative source or a hand-made list can be loaded in the same format | [data-sources.md](data-sources.md) |
+| 1 | **Data licence** of the bundled city list (a GPL-2.0 snapshot of the National Address Directory) | it must be decided before Release A is applied (the file is part of the package) and before the import is run; an alternative source or a hand-made list can be loaded in the same format | [data-sources.md](data-sources.md) |
 | 2 | Paging and `returnAll` behaviour of Torod's cities list; company scoping (`isSelected`, `isAddedByUser`) | decides whether a sync can be *complete*; until then it is reported *Partial* and nothing is approved automatically | [torod-city-mapping.md](torod-city-mapping.md) |
 | 3 | Are the **v2 city / region ids** the ones Fulfillment **v5** expects in `cityId` / `regionId`? Is `villageId` ever needed? | "approved" is not "verified"; the first real orders stay behind the approval gate | same |
 | 4 | Which **Riyadh** is canonical (36189 / region 1204 or 230194 / region 1265)? | a person approves one by id and region; nothing is chosen for them | same |

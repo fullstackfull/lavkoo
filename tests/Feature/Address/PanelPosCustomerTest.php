@@ -88,8 +88,9 @@ class PanelPosCustomerTest extends PanelAddressTestCase
 
         $address = ShippingAddress::sole();
         $this->assertSame(
-            [$this->ids['region_MAK'], $this->ids['jeddah'], 'Al Rawdah', 'JEDD4321', 'جدة', 'منطقة مكة المكرمة', 'Saudi Arabia'],
+            [$this->ids['region_MAK'], $this->ids['jeddah'], 'Al Rawdah', 'JEDD4321', 'جدة', null, 'Saudi Arabia'],
             [$address->region_id, $address->city_id, $address->district, $address->national_address, $address->city, $address->state, $address->country],
+            'the old city and country follow the structured fields; the zone-shipping `state` is left for the form that owns it',
         );
         $this->assertNull($address->zip, 'no ZIP is made up from the National Address or anything else');
         $customer = User::sole();

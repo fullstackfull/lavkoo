@@ -11,6 +11,7 @@ use App\Services\Address\AddressText;
 use App\Services\Address\LegacyCityMatcher;
 use App\Services\Address\NationalAddress;
 use App\Models\AddressCityAlias;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -42,6 +43,25 @@ class AddressDataLayerTest extends AddressTestCase
         $this->assertFalse(Schema::hasColumn('shipping_addresses', 'city_id'));
         $this->assertFalse(Schema::hasColumn('shipping_addresses', 'national_address'));
         $this->assertSame(['جدة', '21589'], [DB::table('shipping_addresses')->value('city'), DB::table('shipping_addresses')->value('zip')]);
+    }
+
+    public function test_rolling_back_leaves_a_column_it_did_not_add_and_does_not_stop_half_way(): void
+    {
+        $migration = require database_path('migrations/2026_11_07_100100_add_unified_address_columns_to_shipping_addresses_table.php');
+        $migration->down();
+        Schema::table('shipping_addresses', function (Blueprint $table) {
+            $table->string('city_id')->nullable();
+        });
+        DB::table('shipping_addresses')->insert(['city' => 'جدة', 'city_id' => 'foreign-7']);
+
+        $migration->up();
+        $migration->down();
+        $migration->down();
+
+        $this->assertSame('foreign-7', DB::table('shipping_addresses')->value('city_id'), 'a column the table already had is not ours to drop');
+        foreach (['region_id', 'district', 'national_address'] as $column) {
+            $this->assertFalse(Schema::hasColumn('shipping_addresses', $column), "{$column} was added by the migration and goes with it");
+        }
     }
 
     public function test_the_address_code_stays_dormant_until_the_tables_exist(): void
@@ -283,6 +303,16 @@ class AddressDataLayerTest extends AddressTestCase
         foreach (['الدمام', 'جدة', 'مكة المكرمة', 'المدينة المنورة', 'ابها', 'تبوك', 'بريدة', 'جازان', 'نجران', 'حائل'] as $major) {
             $this->assertGreaterThanOrEqual(1, AddressCity::where('name_ar', $major)->count(), $major);
         }
+    }
+
+    public function test_a_dry_run_reports_the_same_alias_counts_as_the_import_that_follows_it(): void
+    {
+        $dry = app(AddressImporter::class)->import(config('address.seed.regions'), config('address.seed.cities'), apply: false, aliasesPath: config('address.seed.aliases'));
+        $applied = $this->importShippedData();
+
+        $this->assertSame(0, AddressCityAlias::count() - $applied['aliases']['created'], 'the dry run itself wrote nothing');
+        $this->assertSame($applied['aliases'], $dry['aliases'], 'spellings that share a key are counted once by the preview, as the import does');
+        $this->assertGreaterThan(0, $dry['aliases']['unchanged']);
     }
 
     /** @return array<string, mixed> */

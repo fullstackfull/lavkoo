@@ -362,7 +362,11 @@ class CustomerController extends Controller
 
         [$structuredAttributes, $structuredError] = $this->structuredAddress(request: $request, existing: $shippingAddress);
         if ($structuredError !== null) {
-            return response()->json(['errors' => Helpers::validationErrorProcessor($structuredError->validator)], 403);
+            // The endpoint's older refusals carry a `message`; a build that reads it is told what to do, one that reads `errors` is too.
+            return response()->json([
+                'message' => (string) collect($structuredError->errors())->flatten()->first(),
+                'errors' => Helpers::validationErrorProcessor($structuredError->validator),
+            ], 403);
         }
 
         $zipRestrictStatus = getWebConfig(name: 'delivery_zip_code_area_restriction');

@@ -172,7 +172,10 @@
                         clearTimeout(timer);
                         timer = setTimeout(function () {
                             fetch(input.dataset.url + '?q=' + encodeURIComponent(input.value), {headers: {'Accept': 'application/json'}})
-                                .then(function (response) { return response.json(); })
+                                .then(function (response) {
+                                    if (!response.ok) { throw new Error('status ' + response.status); }
+                                    return response.json();
+                                })
                                 .then(function (found) {
                                     results.textContent = '';
                                     found.forEach(function (item) {
@@ -188,6 +191,13 @@
                                         });
                                         results.appendChild(option);
                                     });
+                                })
+                                .catch(function () {
+                                    var failure = document.createElement('div');
+                                    failure.className = 'list-group-item text-danger py-1';
+                                    failure.textContent = form.dataset.error;
+                                    results.textContent = '';
+                                    results.appendChild(failure);
                                 });
                         }, 250);
                     });

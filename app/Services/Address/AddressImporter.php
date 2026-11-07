@@ -234,6 +234,7 @@ class AddressImporter
         $problems = [];
         $citySource = (string) ($file['_meta']['city_source'] ?? '');
         $cityIds = AddressCity::query()->where('source', $citySource)->pluck('id', 'source_ref')->all();
+        $plannedCityRefs = [];
 
         foreach ($file['aliases'] as $row) {
             $alias = $this->name($row['alias'] ?? null);
@@ -249,12 +250,14 @@ class AddressImporter
             }
 
             $existing = AddressCityAlias::query()->where('normalized_alias', $key)->first();
-            if ($existing === null) {
+            if ($existing === null && !array_key_exists($key, $plannedCityRefs)) {
                 $counts['created']++;
                 if ($apply) {
                     AddressCityAlias::create(['city_id' => $cityId, 'alias' => $alias, 'normalized_alias' => $key, 'source' => 'curated']);
+                } else {
+                    $plannedCityRefs[$key] = $cityRef;
                 }
-            } elseif ($existing->city_id === $cityId) {
+            } elseif ($existing !== null ? $existing->city_id === $cityId : $plannedCityRefs[$key] === $cityRef) {
                 $counts['unchanged']++;
             } else {
                 $counts['skipped']++;

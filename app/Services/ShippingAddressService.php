@@ -16,8 +16,9 @@ use Illuminate\Validation\ValidationException;
  *
  * Every entry point (checkout, the account address book, the panels, the REST API) asks `structuredAttributes()` for the region,
  * city, district and National Address columns, so there is a single set of rules whatever screen or client the address came from.
- * The old columns (`city`, `state`, `country`, `zip`, `address`) are still written for the readers that depend on them — `zip`
- * only ever from what the customer typed, never derived from anything else.
+ * The old columns (`city`, `country`, `zip`, `address`) are still written for the readers that depend on them — `zip`
+ * only ever from what the customer typed, never derived from anything else. `state` is left alone: the shipping zones read it, and
+ * what a customer pays must not depend on which form created the address.
  */
 class ShippingAddressService
 {
@@ -66,7 +67,7 @@ class ShippingAddressService
      * The structured columns for an address that is being saved, checked against the master lists.
      *
      * Returns [] when the structured address does not apply (mode off, a country other than Saudi Arabia, or a client that may
-     * still send the old fields). Otherwise returns region_id, city_id, district, national_address plus the legacy `city`, `state`
+     * still send the old fields). Otherwise returns region_id, city_id, district, national_address plus the legacy `city`
      * and `country` text that go with them, or throws a ValidationException keyed by the input names. Nothing a client sends about
      * a provider (city ids of a courier) is ever read. An old-form edit that moves an address which already has a region and city
      * (matched by the backfill, or made while the mode was on) to another city or country returns those columns as null: the ids must
@@ -110,10 +111,10 @@ class ShippingAddressService
         }
     }
 
-    /** The columns of an address that no longer names a place of the list, and the old region text that went with it. */
+    /** The columns of an address that no longer names a place of the list. */
     private function clearedPlace(): array
     {
-        return array_fill_keys([...self::STRUCTURED_COLUMNS, 'state'], null);
+        return array_fill_keys(self::STRUCTURED_COLUMNS, null);
     }
 
     /**
@@ -205,7 +206,6 @@ class ShippingAddressService
             'district' => $district,
             'national_address' => $nationalAddress,
             'city' => $city->name_ar,
-            'state' => $region->name_ar,
             'country' => AddressCountry::LEGACY_NAME,
         ];
 

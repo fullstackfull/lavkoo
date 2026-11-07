@@ -226,7 +226,7 @@ Route::controller(WebController::class)->group(function () {
     Route::get('maintenance-mode', 'maintenance_mode')->name('maintenance-mode');
 });
 
-Route::group(['prefix' => 'address', 'as' => 'address.', 'middleware' => ['throttle:120,1']], function () {
+Route::group(['prefix' => 'address', 'as' => 'address.', 'middleware' => ['throttle:120,1,address-catalog']], function () {
     Route::get('regions', [AddressCatalogController::class, 'regions'])->name('regions');
     Route::get('cities', [AddressCatalogController::class, 'cities'])->name('cities');
 });

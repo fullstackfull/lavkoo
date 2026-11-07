@@ -136,7 +136,7 @@ class PanelOrderAddressEditTest extends PanelAddressTestCase
         $copy = $this->storedCopy(self::ORDER_ID);
         $this->assertSame('unified', $copy['address_schema']);
         $this->assertSame([$this->ids['region_MAK'], $this->ids['jeddah'], 'Al Rawdah', 'JEDD4321'], [$copy['region_id'], $copy['city_id'], $copy['district'], $copy['national_address']]);
-        $this->assertSame(['Jeddah', 'Makkah', 'جدة', 'منطقة مكة المكرمة'], [$copy['city_name_en'], $copy['region_name_en'], $copy['city'], $copy['state']], 'names are frozen into the copy, the old city and state follow');
+        $this->assertSame(['Jeddah', 'Makkah', 'جدة', null], [$copy['city_name_en'], $copy['region_name_en'], $copy['city'], $copy['state']], 'names are frozen into the copy and the old city follows; the state is not written');
         $this->assertSame('Saudi Arabia', $copy['country']);
         $this->assertSame('12211', $copy['zip'], 'the ZIP the order already had is kept, not derived from anything');
         $this->assertSame('legacy', $this->storedCopy(self::ORDER_ID, 'billing')['address_schema'] ?? 'legacy');

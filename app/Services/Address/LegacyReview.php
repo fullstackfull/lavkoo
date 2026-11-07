@@ -6,6 +6,7 @@ use App\Enums\Address\CityMatchStatus;
 use App\Models\AddressCity;
 use App\Models\AddressCityAlias;
 use App\Services\AuditLogger;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -22,6 +23,8 @@ class LegacyReview
     public const ALIAS_SOURCE = 'legacy_review';
 
     private const ALIAS_MAX_LENGTH = 191;
+
+    private const CONFIRM_ATTEMPTS = 3;
 
     public function __construct(
         private readonly SavedSaudiAddresses $addresses,
@@ -77,12 +80,25 @@ class LegacyReview
             throw ValidationException::withMessages(['city_id' => [translate('address_legacy_city_unavailable')]]);
         }
 
-        $alias = AddressCityAlias::query()->where('normalized_alias', $key)->first();
-        if ($alias !== null && (int) $alias->city_id !== $city->id) {
-            throw ValidationException::withMessages(['city_id' => [translate('address_legacy_alias_elsewhere')]]);
+        try {
+            return $this->confirmWithin(typedText: $typedText, key: $key, city: $city, adminId: $adminId);
+        } catch (UniqueConstraintViolationException) {
+            return $this->confirmWithin(typedText: $typedText, key: $key, city: $city, adminId: $adminId);
         }
+    }
 
-        return DB::transaction(function () use ($typedText, $key, $city, $alias, $adminId): int {
+    /**
+     * A spelling nobody has settled yet has no alias row to lock, so two people confirming it at once end in a deadlock (the transaction is
+     * repeated) or in a duplicate key (the repeat finds the alias the other person just made and judges it like any earlier decision).
+     */
+    private function confirmWithin(string $typedText, string $key, AddressCity $city, ?int $adminId): int
+    {
+        return DB::transaction(function () use ($typedText, $key, $city, $adminId): int {
+            $alias = AddressCityAlias::query()->where('normalized_alias', $key)->lockForUpdate()->first();
+            if ($alias !== null && (int) $alias->city_id !== $city->id) {
+                throw ValidationException::withMessages(['city_id' => [translate('address_legacy_alias_elsewhere')]]);
+            }
+
             $spellings = $this->addresses->pairs()->filter(static fn (LegacyPair $pair): bool => $pair->cityKey === $key && $pair->city !== null);
             if ($spellings->isEmpty()) {
                 throw ValidationException::withMessages(['text' => [translate('address_legacy_text_gone')]]);
@@ -101,7 +117,7 @@ class LegacyReview
             $this->audit->record(action: 'address.legacy_city_confirmed', subject: $city, after: ['alias_id' => $alias->id, 'alias_created' => $created, 'addresses' => $updated]);
 
             return $updated;
-        });
+        }, attempts: self::CONFIRM_ATTEMPTS);
     }
 
     /**

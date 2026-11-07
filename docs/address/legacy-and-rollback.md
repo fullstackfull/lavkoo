@@ -54,7 +54,7 @@ ones automatically, a person approves the rest (see [torod-city-mapping.md](toro
 
 Each step is independent; do only as many as you need.
 
-1. **Switch the mode off** (*Address system → Address mode → Off*, or set the `unified_address_mode` business setting to `off`). Effective immediately, no deploy, no data change: the website, the panels and the API return to the
+1. **Switch the mode off** (*Address system → Address mode → Off*, or `php artisan address:mode off` when the panel cannot be used; both drop the settings cache). Effective immediately, no deploy, no data change. (Editing the `unified_address_mode` row of `business_settings` by hand is *not* immediate: business settings are cached for three hours, so follow it with `php artisan optimize:clear`.) the website, the panels and the API return to the
    old forms and the old validation. The mode is also forced to `off` automatically while the ZIP-code delivery restriction is on, and while the migrations or the city list are missing.
    Orders placed meanwhile keep their structured copies; the extra keys are ignored by every old reader.
 2. **Torod**: nothing to undo. Approved mappings are inert while no order carries a `city_id`; held orders stay held. If a mapping was approved by mistake, *Retire* it on the matching screen (the row is kept for the audit trail).
@@ -73,7 +73,7 @@ Each step is independent; do only as many as you need.
 
    Laravel rolls back only migrations of the **last batch** that are inside the given paths, and says *Migration not found* for any other migration of that batch, so the command cannot undo anything else. If something else was
    migrated after ours (the output says *Nothing to rollback*, or lists fewer than four), add `--batch=<the batch number migrate:status shows for ours>`.
-   Each `down()` drops only what its `up()` added (the three new tables and, on `shipping_addresses`, the four columns; then the provider mapping tables; then the six directory columns of `provider_cities`), guarded by `hasTable` / `hasColumn`.
+   Each `down()` drops only what its `up()` added (the three new tables and, on `shipping_addresses`, the four columns; then the provider mapping tables; then the six directory columns of `provider_cities`), guarded by `hasTable` / `hasColumn`. On `shipping_addresses` a column is dropped only together with the index this migration created for it (the district goes with the National Address column), so a column of the same name that the table already had is left alone and the rollback does not stop half way; the runbook asks for a look at the table before migrating.
    Afterwards run `php artisan optimize:clear && php artisan queue:restart`: a running worker still remembers that the tables exist and would fail Torod jobs until it restarts (the file rollback restarts them as well, which is why the order above puts it first).
    The old address columns, the old orders and every other table are untouched. You lose: the region/city links on saved addresses, the district and National Address columns, the confirmed aliases, the provider mappings and the sync history.
    The order copies keep their own JSON.
@@ -82,7 +82,7 @@ Each step is independent; do only as many as you need.
 
 | Situation | Answer |
 |---|---|
-| A city was imported under the wrong region | edit it (*Address system → Cities*); the saved addresses of that city follow the new region (`region_id`; the old `state` text they were saved with stays as it was written), past orders keep theirs |
+| A city was imported under the wrong region | edit it (*Address system → Cities*); the saved addresses of that city follow the new region (`region_id`; the structured address never writes the old `state` text, and a typed one is never rewritten), past orders keep theirs |
 | A city should no longer be offered | switch it off; it is never deleted (addresses, mappings and order copies point at it) |
 | The data file has newer information | `address:import` is idempotent. It never changes whether a place is active, and it changes names only with `--refresh-names`; it does refresh the rank, the coordinates and the source date of the places the file lists, so an administrator's edit of those two is overwritten by the next import that lists the place |
 | The structured mode must not start while ZIP-based delivery rules are in use | the mode cannot be switched on while `delivery_zip_code_area_restriction` is on, and is paused if it is turned on later; see [zip-compatibility.md](zip-compatibility.md) |

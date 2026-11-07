@@ -47,6 +47,7 @@
 
             var pristine = block.cloneNode(true);
             var notice = form.querySelector('[data-ua-complete-notice]');
+            var previousCity = notice ? notice.querySelector('[data-ua-previous-city]') : null;
 
             window[config.select] = function (json) {
                 var saved = parse(json);
@@ -59,6 +60,7 @@
                 refill(form, pristine, saved);
                 if (country) { country.dispatchEvent(new Event('change', {bubbles: true})); }
                 if (notice) { notice.hidden = !incomplete; }
+                if (previousCity) { previousCity.textContent = incomplete && saved.city ? notice.getAttribute('data-previous-city-label') + ': ' + saved.city : ''; }
                 update = form.querySelector(config.updateBox);
                 if (update && incomplete) { update.checked = true; }
             };

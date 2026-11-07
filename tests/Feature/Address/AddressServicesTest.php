@@ -72,7 +72,7 @@ class AddressServicesTest extends AddressTestCase
     {
         $existing = (object) ['city_id' => $this->ids['riyadh'], 'region_id' => $this->ids['region_RUH'], 'city' => 'الرياض', 'country' => 'Saudi Arabia', 'national_address' => 'RAGI2929'];
         $service = app(ShippingAddressService::class);
-        $reset = array_fill_keys(['region_id', 'city_id', 'district', 'national_address', 'state'], null);
+        $reset = array_fill_keys(['region_id', 'city_id', 'district', 'national_address'], null);
 
         $this->assertSame($reset, $service->structuredAttributes(['city' => 'جدة'], AddressChannel::Web, $existing), 'another city');
         $this->assertSame($reset, $service->structuredAttributes(['country' => 'Egypt', 'city' => 'الرياض'], AddressChannel::Web, $existing), 'another country');
@@ -106,7 +106,6 @@ class AddressServicesTest extends AddressTestCase
             'district' => 'Al Rakah Al Janubiyah',
             'national_address' => 'RAGI2929',
             'city' => 'الخبر',
-            'state' => 'المنطقة الشرقية',
             'country' => 'Saudi Arabia',
         ], $attributes);
         $this->assertArrayNotHasKey('zip', $attributes, 'a postal code is never derived from anything');
@@ -184,7 +183,7 @@ class AddressServicesTest extends AddressTestCase
         $attributes = $this->service()->structuredAttributes($this->submitted(['torod_city_id' => '36189', 'cityId' => '230194', 'external_city_id' => '41125', 'regionId' => '1204']), AddressChannel::Web);
 
         $this->assertSame($this->ids['khobar'], $attributes['city_id']);
-        $this->assertEqualsCanonicalizing(['region_id', 'city_id', 'district', 'national_address', 'city', 'state', 'country'], array_keys($attributes));
+        $this->assertEqualsCanonicalizing(['region_id', 'city_id', 'district', 'national_address', 'city', 'country'], array_keys($attributes), 'no provider id, and not the state: the shipping zones read it');
     }
 
     #[DataProvider('districts')]
@@ -230,14 +229,14 @@ class AddressServicesTest extends AddressTestCase
 
         $attributes = $this->service()->structuredAttributes(['country' => 'Kuwait'], AddressChannel::Web, $saved);
 
-        $this->assertSame(['region_id' => null, 'city_id' => null, 'district' => null, 'national_address' => null, 'state' => null], $attributes, 'the old region text goes with the ids');
+        $this->assertSame(['region_id' => null, 'city_id' => null, 'district' => null, 'national_address' => null], $attributes);
     }
 
     public function test_an_old_client_may_edit_an_address_that_only_has_a_city_for_as_long_as_it_keeps_naming_that_city(): void
     {
         AddressSchema::setMode(AddressSchema::MODE_SOFT);
         $matchedOnly = (object) ['city_id' => $this->ids['riyadh'], 'region_id' => $this->ids['region_RUH'], 'city' => 'الرياض', 'country' => 'Saudi Arabia', 'national_address' => null];
-        $reset = array_fill_keys(['region_id', 'city_id', 'district', 'national_address', 'state'], null);
+        $reset = array_fill_keys(['region_id', 'city_id', 'district', 'national_address'], null);
 
         $this->assertSame([], $this->service()->structuredAttributes(['city' => 'الرياض', 'country' => 'Saudi Arabia', 'phone' => '0551234567'], AddressChannel::Api, $matchedOnly), 'the same city');
         $this->assertSame([], $this->service()->structuredAttributes(['city' => 'رياض', 'country' => 'SA'], AddressChannel::Api, $matchedOnly), 'the same city, spelled differently');

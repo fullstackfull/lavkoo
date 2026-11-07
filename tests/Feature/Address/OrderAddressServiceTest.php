@@ -232,9 +232,15 @@ class OrderAddressServiceTest extends ApiAddressTestCase
         $this->assertNull($this->service()->revise($old, ['zip' => null], [], AddressChannel::Api)['zip']);
     }
 
-    public function test_the_copy_of_an_address_that_has_no_copy_yet_can_be_edited(): void
+    public function test_the_copy_of_an_address_that_has_no_copy_yet_can_be_edited_and_starts_with_every_key_the_pages_read(): void
     {
-        $this->assertSame(['phone' => '0551234567'], $this->service()->revise(null, ['phone' => '0551234567'], [], AddressChannel::Api));
+        $revised = $this->service()->revise(null, ['phone' => '0551234567'], [], AddressChannel::Api);
+
+        $this->assertSame('0551234567', $revised['phone']);
+        foreach (['contact_person_name', 'country', 'city', 'zip', 'email', 'address', 'latitude', 'longitude'] as $key) {
+            $this->assertArrayHasKey($key, $revised, 'the order pages read this key without a default');
+            $this->assertNull($revised[$key]);
+        }
     }
 
     public function test_an_edit_that_gives_a_structured_address_a_free_text_city_is_refused_in_soft_mode(): void
@@ -261,8 +267,8 @@ class OrderAddressServiceTest extends ApiAddressTestCase
         ], AddressChannel::Api);
 
         $this->assertSame([$this->ids['region_EAS'], $this->ids['khobar'], 'KHBR1234', 'Al Rakah'], [$revised['region_id'], $revised['city_id'], $revised['national_address'], $revised['district']]);
-        $this->assertSame(['الخبر', 'Al Khobar', 'المنطقة الشرقية', 'Eastern Province', 'الخبر', 'المنطقة الشرقية'], [
-            $revised['city_name_ar'], $revised['city_name_en'], $revised['region_name_ar'], $revised['region_name_en'], $revised['city'], $revised['state'],
+        $this->assertSame(['الخبر', 'Al Khobar', 'المنطقة الشرقية', 'Eastern Province', 'الخبر'], [
+            $revised['city_name_ar'], $revised['city_name_en'], $revised['region_name_ar'], $revised['region_name_en'], $revised['city'],
         ]);
         $this->assertSame('unified', $revised['address_schema']);
     }

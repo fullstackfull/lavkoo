@@ -207,7 +207,7 @@ class ApiSellerAddressTest extends ApiAddressTestCase
         $this->assertSame(200, $response->getStatusCode());
         $copy = $this->storedCopy(100);
         $this->assertSame([$this->ids['region_EAS'], $this->ids['khobar'], 'KHBR1234', 'Al Rakah'], [$copy['region_id'], $copy['city_id'], $copy['national_address'], $copy['district']]);
-        $this->assertSame(['Al Khobar', 'Eastern Province', 'الخبر', 'المنطقة الشرقية'], [$copy['city_name_en'], $copy['region_name_en'], $copy['city'], $copy['state']]);
+        $this->assertSame(['Al Khobar', 'Eastern Province', 'الخبر'], [$copy['city_name_en'], $copy['region_name_en'], $copy['city']]);
     }
 
     public function test_a_city_of_another_region_or_a_provider_id_is_refused_and_the_order_is_untouched(): void

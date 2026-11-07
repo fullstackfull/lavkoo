@@ -22,6 +22,9 @@ use Illuminate\Validation\ValidationException;
  */
 class OrderAddressService
 {
+    /** The keys every address copy has always carried, so a copy made by an edit is as complete as one made at checkout. */
+    private const COPY_KEYS = ['contact_person_name', 'phone', 'country', 'city', 'zip', 'email', 'address', 'latitude', 'longitude'];
+
     public function __construct(
         private readonly CheckoutAddressGuard $guard,
         private readonly ShippingAddressService $addresses,
@@ -127,7 +130,7 @@ class OrderAddressService
      */
     public function revise(?array $snapshot, array $changes, array $structuredInput, AddressChannel $channel): array
     {
-        $current = $snapshot ?? [];
+        $current = $snapshot ?: array_fill_keys(self::COPY_KEYS, null);
         $locationEdited = $structuredInput !== [] || array_key_exists('city', $changes) || array_key_exists('country', $changes);
         if (!$locationEdited && array_key_exists('phone', $changes)) {
             $this->addresses->assertPhone(phone: $changes['phone'], country: $current['country'] ?? null, channel: $channel);

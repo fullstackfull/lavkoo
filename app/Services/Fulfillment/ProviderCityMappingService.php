@@ -13,12 +13,12 @@ use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressText;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Data\CityCandidate;
+use App\Services\Fulfillment\Exceptions\CityMappingRefusedException;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
 
 /**
  * "For this provider, our city is that provider city" — decided by a person, or by the one case that needs no person.
@@ -44,6 +44,8 @@ class ProviderCityMappingService
     public const METHOD_AUTO_UNIQUE = 'auto_unique';
 
     private const INSERT_CHUNK = 250;
+
+    private const DECISION_ATTEMPTS = 3;
 
     public function __construct(private readonly AuditLogger $audit)
     {
@@ -146,7 +148,7 @@ class ProviderCityMappingService
      * Nothing is demoted silently: when the city already has an approved mapping to another provider city this refuses, unless the
      * caller names that mapping in `$replacing` (it is then retired in the same step and the audit trail says so).
      *
-     * @throws InvalidArgumentException when the decision cannot be made, with a message fit for the administrator
+     * @throws CityMappingRefusedException when the decision cannot be made, with the key of a message fit for the administrator
      */
     public function approve(
         string $provider,
@@ -158,14 +160,31 @@ class ProviderCityMappingService
         ?int $replacing = null,
     ): ProviderCityMapping {
         try {
-            return DB::transaction(fn (): ProviderCityMapping => $this->approveWithin(provider: $provider, cityId: $cityId, externalCityId: $externalCityId, adminId: $adminId, adminName: $adminName, method: $method, replacing: $replacing));
+            return DB::transaction(
+                fn (): ProviderCityMapping => $this->approveWithin(provider: $provider, cityId: $cityId, externalCityId: $externalCityId, adminId: $adminId, adminName: $adminName, method: $method, replacing: $replacing),
+                attempts: self::DECISION_ATTEMPTS,
+            );
         } catch (UniqueConstraintViolationException) {
-            throw new InvalidArgumentException('Another mapping for this city was approved a moment ago. Reload the page and look at it first.');
+            throw new CityMappingRefusedException('city_mapping_approved_meanwhile');
         }
     }
 
-    /** @throws InvalidArgumentException for an approved mapping: that one is retired, not rejected */
+    /**
+     * A decision on a pair that has no row yet locks a row that does not exist, so two people deciding on the same pair at once end in a
+     * deadlock (the transaction is repeated) or in a duplicate key (the repeat finds the row the other person just made).
+     *
+     * @throws CityMappingRefusedException for an approved mapping: that one is retired, not rejected
+     */
     public function reject(string $provider, int $cityId, string $externalCityId, ?int $adminId = null, ?string $adminName = null): ProviderCityMapping
+    {
+        try {
+            return $this->rejectWithin(provider: $provider, cityId: $cityId, externalCityId: $externalCityId, adminId: $adminId, adminName: $adminName);
+        } catch (UniqueConstraintViolationException) {
+            return $this->rejectWithin(provider: $provider, cityId: $cityId, externalCityId: $externalCityId, adminId: $adminId, adminName: $adminName);
+        }
+    }
+
+    private function rejectWithin(string $provider, int $cityId, string $externalCityId, ?int $adminId, ?string $adminName): ProviderCityMapping
     {
         return DB::transaction(function () use ($provider, $cityId, $externalCityId, $adminId, $adminName): ProviderCityMapping {
             $city = $this->cityOrFail($cityId);
@@ -173,7 +192,7 @@ class ProviderCityMappingService
 
             $mapping = $this->lockedRow(provider: $provider, cityId: $cityId, externalCityId: $externalCityId) ?? $this->newRow(provider: $provider, cityId: $cityId, externalCityId: $externalCityId);
             if ($mapping->isApproved()) {
-                throw new InvalidArgumentException('An approved mapping is retired, not rejected.');
+                throw new CityMappingRefusedException('city_mapping_approved_is_retired_not_rejected');
             }
 
             $before = $mapping->exists ? ['status' => $mapping->status?->value] : null;
@@ -192,16 +211,16 @@ class ProviderCityMappingService
             );
 
             return $mapping;
-        });
+        }, attempts: self::DECISION_ATTEMPTS);
     }
 
-    /** @throws InvalidArgumentException when the mapping is not an approved one */
+    /** @throws CityMappingRefusedException when the mapping is not an approved one */
     public function retire(string $provider, int $mappingId, ?int $adminId = null, ?string $adminName = null): ProviderCityMapping
     {
         return DB::transaction(function () use ($provider, $mappingId, $adminId, $adminName): ProviderCityMapping {
             $mapping = ProviderCityMapping::query()->where('provider', $provider)->whereKey($mappingId)->lockForUpdate()->firstOrFail();
             if (!$mapping->isApproved()) {
-                throw new InvalidArgumentException('Only an approved mapping can be retired.');
+                throw new CityMappingRefusedException('city_mapping_only_approved_can_be_retired');
             }
 
             $this->retireRow(mapping: $mapping, adminId: $adminId, adminName: $adminName);
@@ -343,7 +362,7 @@ class ProviderCityMappingService
         $city = $this->cityOrFail($cityId);
         $providerCity = $this->providerCityOrFail(provider: $provider, externalCityId: $externalCityId);
         if ($providerCity->missing_since !== null) {
-            throw new InvalidArgumentException('The provider no longer lists this city.');
+            throw new CityMappingRefusedException('city_mapping_provider_no_longer_lists_city');
         }
 
         $rows = ProviderCityMapping::query()->where('provider', $provider)->where('address_city_id', $cityId)->lockForUpdate()->get();
@@ -353,7 +372,7 @@ class ProviderCityMappingService
         }
         if ($approved !== null) {
             if ($replacing !== $approved->id) {
-                throw new InvalidArgumentException('This city already has an approved mapping. Retire it first, or replace it knowingly.');
+                throw new CityMappingRefusedException('city_mapping_city_already_approved');
             }
             $this->retireRow(mapping: $approved, adminId: $adminId, adminName: $adminName);
         }
@@ -516,13 +535,13 @@ class ProviderCityMappingService
 
     private function cityOrFail(int $cityId): AddressCity
     {
-        return AddressCity::query()->with('region')->find($cityId) ?? throw new InvalidArgumentException('This city is not in the store\'s city list.');
+        return AddressCity::query()->with('region')->find($cityId) ?? throw new CityMappingRefusedException('city_mapping_city_not_in_store_list');
     }
 
     private function providerCityOrFail(string $provider, string $externalCityId): ProviderCity
     {
         return ProviderCity::query()->where('provider', $provider)->where('external_id', $externalCityId)->first()
-            ?? throw new InvalidArgumentException('This city is not in the provider\'s city list.');
+            ?? throw new CityMappingRefusedException('city_mapping_city_not_in_provider_list');
     }
 
     private function lockedRow(string $provider, int $cityId, string $externalCityId): ?ProviderCityMapping
