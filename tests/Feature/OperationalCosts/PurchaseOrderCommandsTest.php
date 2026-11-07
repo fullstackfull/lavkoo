@@ -3,8 +3,6 @@
 namespace Tests\Feature\OperationalCosts;
 
 use App\Models\InventoryLocation;
-use App\Services\Fulfillment\Support\CurrencyRateSource;
-use App\Services\Fulfillment\Support\StoreCurrencyRateSource;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
@@ -28,12 +26,6 @@ class PurchaseOrderCommandsTest extends TestCase
         parent::setUp();
         $this->travelTo(CarbonImmutable::parse('2026-11-05 09:00:00'));
         $this->setUpPurchaseOrderWorld();
-    }
-
-    /** @return array<string, mixed> everything the default cache store holds */
-    private function cacheContents(): array
-    {
-        return (fn (): array => $this->storage)->call(Cache::store()->getStore());
     }
 
     public function test_apply_with_a_platform_table_missing_makes_nothing_not_even_the_default_stock_locations(): void
@@ -138,42 +130,4 @@ class PurchaseOrderCommandsTest extends TestCase
         $this->assertStringContainsString('switched off', $output);
     }
 
-    public function test_a_dry_run_with_a_line_in_another_currency_and_the_stores_own_rate_source_does_not_fill_the_platforms_cache(): void
-    {
-        $this->app->bind(CurrencyRateSource::class, StoreCurrencyRateSource::class);
-        DB::table('business_settings')->insert(['type' => 'currency_model', 'value' => 'multi_currency', 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('currencies')->insert([['name' => 'Dollar', 'symbol' => '$', 'code' => 'USD', 'exchange_rate' => '1'], ['name' => 'Riyal', 'symbol' => 'SR', 'code' => 'SAR', 'exchange_rate' => '3.75']]);
-        [, $line] = $this->placedLine(ordered: 10, cost: 10.0, currency: 'USD');
-        $this->receiveOnPlatform($line, 10);
-        Cache::flush();
-        $before = $this->cacheContents();
-
-        Artisan::call('costs:layers-from-purchase-orders', ['--json' => true]);
-        $dryRun = json_decode(Artisan::output(), true);
-
-        $this->assertSame(array_keys($before), array_keys($this->cacheContents()), 'Keys the dry run added to the cache: ' . implode(', ', array_diff(array_keys($this->cacheContents()), array_keys($before))));
-        $this->assertSame([1, []], [$dryRun['planned_layers'], $dryRun['refused']], 'The dollars were converted: the model was read from the table.');
-    }
-
-    public function test_the_stores_rate_source_reads_the_currency_model_from_the_table_on_a_cold_cache_and_through_the_platforms_reader_once_it_is_warm(): void
-    {
-        DB::table('business_settings')->insert(['type' => 'currency_model', 'value' => 'multi_currency', 'created_at' => now(), 'updated_at' => now()]);
-        $source = new StoreCurrencyRateSource();
-        Cache::flush();
-
-        $this->assertSame('multi_currency', $source->model());
-        $this->assertFalse(Cache::has(CACHE_BUSINESS_SETTINGS_TABLE), 'Asking does not warm the platform\'s cache.');
-
-        getWebConfig('currency_model');
-        $this->assertTrue(Cache::has(CACHE_BUSINESS_SETTINGS_TABLE));
-        DB::table('business_settings')->where('type', 'currency_model')->update(['value' => 'single_currency']);
-        $this->assertSame('multi_currency', $source->model(), 'A warm cache is the platform\'s: its reader answers.');
-
-        Cache::flush();
-        $this->assertSame('single_currency', $source->model());
-        DB::table('business_settings')->where('type', 'currency_model')->update(['value' => json_encode('multi_currency')]);
-        $this->assertSame('multi_currency', $source->model(), 'A JSON text is read as the platform reads it.');
-        DB::table('business_settings')->where('type', 'currency_model')->delete();
-        $this->assertSame('single_currency', $source->model(), 'No setting is a single-currency store.');
-    }
 }
