@@ -15,6 +15,7 @@ use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
@@ -92,6 +93,23 @@ class TorodCityDiscoveryTest extends TorodAddressTestCase
         $this->assertSame(['discovery'], $pending->pluck('method')->unique()->values()->all());
         $this->assertSame(0, ProviderCityMapping::query()->approved()->count(), 'discovery proposes; a person approves');
         $this->assertSame(0, ProviderCityMapping::where('external_city_id', '70001')->count(), 'a name that only contains ours is cached but never proposed');
+    }
+
+    public function test_finding_candidates_while_a_sync_runs_is_refused_and_writes_nothing(): void
+    {
+        $this->fakeSearch($this->riyadhAnswers());
+        ProviderCity::query()->delete();
+        $running = Cache::lock('provider-city-sync:torod_point', 60);
+        $this->assertTrue($running->get());
+
+        $result = $this->adapter()->discoverCities($this->city('riyadh'));
+
+        $this->assertSame(['ok' => false, 'error' => 'sync_already_running'], $result);
+        $this->assertSame(0, ProviderCity::count());
+        $this->assertSame(0, ProviderCityMapping::query()->where('status', 'pending')->count());
+
+        $this->assertSame(true, $this->adapter()->discoverCities($this->city('riyadh'), apply: false)['ok'], 'only asking is a read and needs no lock');
+        $running->release();
     }
 
     public function test_asking_only_reports_what_would_be_found_and_writes_nothing(): void

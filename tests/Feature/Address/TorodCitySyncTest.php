@@ -9,6 +9,7 @@ use App\Models\ProviderCitySyncRun;
 use App\Models\ProviderSyncState;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -50,6 +51,25 @@ class TorodCitySyncTest extends TorodAddressTestCase
 
             return $query;
         })->values()->all();
+    }
+
+    // ---- one writer at a time -----------------------------------------------------------------------------------------------
+
+    public function test_a_second_sync_while_one_runs_is_refused_and_asks_nothing_of_the_provider(): void
+    {
+        Http::preventStrayRequests();
+        $running = Cache::lock('provider-city-sync:torod_point', 60);
+        $this->assertTrue($running->get());
+
+        $result = $this->sync();
+
+        $this->assertSame(['ok' => false, 'error' => 'sync_already_running', 'verdict' => 'failed'], $result);
+        $this->assertSame(0, ProviderCity::count());
+        $this->assertSame(0, ProviderCitySyncRun::count(), 'a refusal is not a reading of the list');
+
+        $running->release();
+        $this->fakeLastmileList($this->lastmileDirectory(3));
+        $this->assertTrue($this->sync()['ok'], 'once the first one is over the next may run');
     }
 
     // ---- complete readings ------------------------------------------------------------------------------------------------

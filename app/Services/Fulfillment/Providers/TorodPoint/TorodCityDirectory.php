@@ -15,6 +15,7 @@ use App\Services\Fulfillment\Support\HttpResult;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -61,6 +62,13 @@ class TorodCityDirectory
 
     private const STORE_CHUNK = 200;
 
+    /** One writer of the city list at a time (the console, the weekly schedule and the admin button all reach it), and for no longer than a sync can take. */
+    private const SYNC_LOCK = 'provider-city-sync:torod_point';
+
+    private const SYNC_LOCK_SECONDS = 600;
+
+    private const ALREADY_RUNNING = 'sync_already_running';
+
     private const MAX_ID_LENGTH = 32;
 
     private const MAX_REASON_LENGTH = 250;
@@ -91,6 +99,14 @@ class TorodCityDirectory
      * @return array{ok: bool, count?: int, verdict: string, reason?: ?string, evidence?: string, pages?: int, expected_total?: ?int, approved?: int, proposed?: int, error?: string}
      */
     public function sync(): array
+    {
+        $result = Cache::lock(self::SYNC_LOCK, self::SYNC_LOCK_SECONDS)->get(fn (): array => $this->syncExclusively());
+
+        return $result === false ? ['ok' => false, 'error' => self::ALREADY_RUNNING, 'verdict' => CitySyncVerdict::Failed->value] : $result;
+    }
+
+    /** @return array{ok: bool, count?: int, verdict: string, reason?: ?string, evidence?: string, pages?: int, expected_total?: ?int, approved?: int, proposed?: int, error?: string} */
+    private function syncExclusively(): array
     {
         $startedAt = now();
         $this->sync->attempted(self::PROVIDER, ProviderSyncRecorder::CITIES);
@@ -150,8 +166,14 @@ class TorodCityDirectory
 
         $proposed = null;
         if ($apply) {
-            $this->store(items: $found, markMissing: false);
-            $proposed = $this->mappings->proposeCandidates(provider: self::PROVIDER, cities: collect([$city]), method: ProviderCityMappingService::METHOD_DISCOVERY);
+            $proposed = Cache::lock(self::SYNC_LOCK, self::SYNC_LOCK_SECONDS)->get(function () use ($found, $city): int {
+                $this->store(items: $found, markMissing: false);
+
+                return $this->mappings->proposeCandidates(provider: self::PROVIDER, cities: collect([$city]), method: ProviderCityMappingService::METHOD_DISCOVERY);
+            });
+            if ($proposed === false) {
+                return ['ok' => false, 'error' => self::ALREADY_RUNNING];
+            }
         }
 
         return ['ok' => true, 'found' => count($found), 'matches' => $this->namedLike(city: $city, found: $found), 'proposed' => $proposed, 'applied' => $apply];
@@ -304,6 +326,7 @@ class TorodCityDirectory
     private function store(array $items, bool $markMissing): int
     {
         $now = now();
+        ksort($items, SORT_STRING);
         $rows = array_values(array_filter(array_map(fn (array $item): ?array => $this->row(item: $item, now: $now), $items)));
 
         DB::transaction(function () use ($rows, $markMissing, $now): void {

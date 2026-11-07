@@ -8,6 +8,7 @@ use App\Services\Address\AddressCatalog;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Address\AddressText;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -270,6 +271,48 @@ class AdminAddressCatalogTest extends AdminAddressTestCase
         $this->post(route('admin.address-system.cities.store'), $this->cityForm(['name_ar' => 'المزاحمية', 'name_en' => 'Al Muzahimiyah']))->assertRedirect();
 
         $this->assertSame(2, AddressCity::query()->where('source', 'admin')->count());
+    }
+
+    public function test_adding_a_city_holds_its_region_until_the_city_is_written_so_two_people_adding_one_name_take_turns(): void
+    {
+        if (DB::getDriverName() === 'sqlite') {
+            $this->markTestSkipped('Row locks need a real MySQL or MariaDB: SQLite has none.');
+        }
+        $this->signInWithTheCatalog();
+
+        $otherWaited = null;
+        DB::beforeExecuting(function (string $query) use (&$otherWaited): void {
+            if ($otherWaited !== null || preg_match('/^insert\s+into\s+[`"]address_cities[`"]/i', $query) !== 1) {
+                return;
+            }
+
+            $otherWaited = $this->anotherPersonAddingToTheSameRegionHadToWait(regionId: $this->ids['region_RUH']);
+        });
+
+        $this->post(route('admin.address-system.cities.store'), $this->cityForm())->assertSessionHasNoErrors();
+
+        $this->assertTrue($otherWaited, 'a second person checking the same region waits until the first city is written');
+        $this->assertSame(1, AddressCity::query()->where('name_en', 'Al Kharj')->count());
+    }
+
+    /** Takes the lock a second "add a city" takes on the region, from another connection that gives up after a second. */
+    private function anotherPersonAddingToTheSameRegionHadToWait(int $regionId): bool
+    {
+        config(['database.connections.second_connection' => config('database.connections.' . config('database.default'))]);
+        DB::purge('second_connection');
+        $other = DB::connection('second_connection');
+        $other->statement('SET SESSION innodb_lock_wait_timeout = 1');
+
+        try {
+            $other->beginTransaction();
+            $other->table('address_regions')->where('id', $regionId)->lockForUpdate()->pluck('id');
+
+            return false;
+        } catch (QueryException $exception) {
+            return str_contains($exception->getMessage(), 'Lock wait timeout');
+        } finally {
+            DB::disconnect('second_connection');
+        }
     }
 
     public function test_a_city_needs_names_an_existing_region_and_sensible_numbers(): void

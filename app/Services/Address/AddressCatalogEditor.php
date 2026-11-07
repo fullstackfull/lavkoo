@@ -21,6 +21,8 @@ class AddressCatalogEditor
 {
     public const ADMIN_SOURCE = 'admin';
 
+    private const NAME_CHECK_ATTEMPTS = 3;
+
     public function __construct(private readonly AuditLogger $audit)
     {
     }
@@ -62,14 +64,18 @@ class AddressCatalogEditor
     public function createCity(array $data): AddressCity
     {
         $data = $this->cleaned($data);
-        $this->assertNameIsFree(regionId: (int) $data['region_id'], nameAr: $data['name_ar'], nameEn: $data['name_en']);
 
-        $city = AddressCity::create($this->attributes($data) + [
-            'is_active' => true,
-            'source' => self::ADMIN_SOURCE,
-            'source_ref' => null,
-            'source_updated_at' => now(),
-        ]);
+        $city = DB::transaction(function () use ($data): AddressCity {
+            $this->holdRegion(regionId: (int) $data['region_id']);
+            $this->assertNameIsFree(regionId: (int) $data['region_id'], nameAr: $data['name_ar'], nameEn: $data['name_en']);
+
+            return AddressCity::create($this->attributes($data) + [
+                'is_active' => true,
+                'source' => self::ADMIN_SOURCE,
+                'source_ref' => null,
+                'source_updated_at' => now(),
+            ]);
+        }, attempts: self::NAME_CHECK_ATTEMPTS);
         $this->audit->record(action: 'address.city_created', subject: $city, after: $this->summary($city));
         AddressSchema::flush();
 
@@ -90,11 +96,13 @@ class AddressCatalogEditor
         $placeChanged = (int) $data['region_id'] !== $city->region_id
             || AddressText::key($data['name_ar']) !== $city->normalized_ar
             || AddressText::key($data['name_en']) !== $city->normalized_en;
-        if ($placeChanged) {
-            $this->assertNameIsFree(regionId: (int) $data['region_id'], nameAr: $data['name_ar'], nameEn: $data['name_en'], ignoring: $city->id);
-        }
 
-        DB::transaction(function () use ($city, $data): void {
+        DB::transaction(function () use ($city, $data, $placeChanged): void {
+            if ($placeChanged) {
+                $this->holdRegion(regionId: (int) $data['region_id']);
+                $this->assertNameIsFree(regionId: (int) $data['region_id'], nameAr: $data['name_ar'], nameEn: $data['name_en'], ignoring: $city->id);
+            }
+
             $previousRegion = $city->region_id;
             $city->fill($this->attributes($data));
             if (!$city->isDirty()) {
@@ -105,7 +113,7 @@ class AddressCatalogEditor
             if ($previousRegion !== $city->region_id && AddressSchema::columnsReady()) {
                 ShippingAddress::query()->where('city_id', $city->id)->toBase()->update(['region_id' => $city->region_id]);
             }
-        });
+        }, attempts: self::NAME_CHECK_ATTEMPTS);
 
         if ($city->wasChanged()) {
             $this->audit->record(action: 'address.city_updated', subject: $city, before: $before, after: $this->summary($city));
@@ -154,6 +162,12 @@ class AddressCatalogEditor
             'longitude' => $data['longitude'] ?? null,
             'sort_order' => (int) ($data['sort_order'] ?? 0),
         ];
+    }
+
+    /** Names are checked and cities are added region by region: two people adding the same city at once take turns instead of both passing the check. */
+    private function holdRegion(int $regionId): void
+    {
+        AddressRegion::query()->whereKey($regionId)->lockForUpdate()->pluck('id');
     }
 
     /**
