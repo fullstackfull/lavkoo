@@ -184,7 +184,7 @@ jobs:
           - group: sales channels
             paths: tests/Feature/SalesChannels
           - group: costs
-            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Feature/CiDatabaseTest.php
+            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Feature/CiDatabaseTest.php
     services:
       mysql:
         image: mysql:8.0
