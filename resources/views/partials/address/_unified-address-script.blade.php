@@ -215,7 +215,7 @@
 
                 var scheduleSearch = debounce(search, DEBOUNCE_MS);
 
-                input.addEventListener('focus', function () { if (!input.disabled) { search(); } });
+                input.addEventListener('focus', function () { if (!input.disabled && !input.hasAttribute('data-ua-quiet')) { search(); } });
                 input.addEventListener('input', function () {
                     if (selected && input.value !== label(selected)) {
                         selected = null;
@@ -448,6 +448,13 @@
                 }
             }
 
+            /** Moves the focus to a box that was refused without opening its list over the message under it. */
+            function focusQuietly(control) {
+                control.setAttribute('data-ua-quiet', '');
+                control.focus();
+                control.removeAttribute('data-ua-quiet');
+            }
+
             function markRefusedFields(refusal) {
                 var prefix = refusal.prefix || '';
                 var focused = false;
@@ -455,7 +462,7 @@
                     var control = renderedControl(prefix + field);
                     if (!control) { return; }
                     markInvalid(control, [].concat(refusal.fields[field])[0]);
-                    if (!focused) { control.focus(); focused = true; }
+                    if (!focused) { focusQuietly(control); focused = true; }
                 });
             }
 
