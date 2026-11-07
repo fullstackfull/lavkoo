@@ -18,7 +18,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 
 /**
@@ -32,7 +31,6 @@ use InvalidArgumentException;
  * whole list was read, when nothing about the provider's region contradicts it, and when no person has ever decided on that city.
  * Everything else waits as `pending`, with the evidence a person needs to decide.
  *
- * One instance serves a whole request or console run, so the answers it remembers about the schema are asked once.
  */
 #[Singleton]
 class ProviderCityMappingService
@@ -47,43 +45,19 @@ class ProviderCityMappingService
 
     private const INSERT_CHUNK = 250;
 
-    private const DIRECTORY_COLUMNS = ['region_name_ar', 'region_name_en', 'prefix', 'is_selected', 'last_seen_at', 'missing_since'];
-
-    private ?bool $directoryColumns = null;
-
-    private ?bool $available = null;
-
     public function __construct(private readonly AuditLogger $audit)
     {
     }
 
     /**
-     * Have the address and mapping tables been migrated? Until they have, a store behaves exactly as it did before.
+     * Has everything the city mapping reads and writes been migrated: the address lists, the mapping tables and the columns a provider's city
+     * list is kept in? Until it has, a store behaves exactly as it did before, so a half-migrated one never matches by approved mapping.
      *
-     * Asked afresh the first time this instance needs it, never taken from the answer AddressSchema keeps in a static: that one
-     * survives from one test (or one job of a long-lived worker) to the next, and a stale "ready" would send the old city
-     * lookups to tables that are not there.
+     * AddressSchema remembers a "no" only briefly, so a long-lived worker that started before the migration notices it without a restart.
      */
     public function available(): bool
     {
-        if ($this->available === null) {
-            AddressSchema::flush();
-            $this->available = AddressSchema::mappingsReady() && AddressSchema::mastersReady();
-        }
-
-        return $this->available;
-    }
-
-    /** Does `provider_cities` have the columns the directory promotes out of the provider's records? */
-    public function hasDirectoryColumns(): bool
-    {
-        return $this->directoryColumns ??= Schema::hasColumns('provider_cities', self::DIRECTORY_COLUMNS);
-    }
-
-    /** Can the city list be read completely and matched to our cities, with the review and the discovery that go with it? */
-    public function directoryReady(): bool
-    {
-        return $this->available() && $this->hasDirectoryColumns();
+        return AddressSchema::mastersReady() && AddressSchema::mappingsReady() && AddressSchema::directoryColumnsReady();
     }
 
     public function approvedFor(string $provider, int $cityId): ?ProviderCityMapping
@@ -572,9 +546,7 @@ class ProviderCityMappingService
     {
         $columns = ['id', 'provider', 'external_id', 'name_ar', 'name_en', 'region_external_id'];
 
-        return $this->hasDirectoryColumns()
-            ? ProviderCity::query()->select([...$columns, ...self::DIRECTORY_COLUMNS])->where('provider', $provider)->whereNull('missing_since')
-            : ProviderCity::query()->select($columns)->where('provider', $provider);
+        return ProviderCity::query()->select([...$columns, ...AddressSchema::DIRECTORY_COLUMNS])->where('provider', $provider)->whereNull('missing_since');
     }
 
     /** @return array<string, list<int>> our regions' ids by name key */

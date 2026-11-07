@@ -78,7 +78,7 @@ class TorodCityResolver
     /** @return array{ok: bool, count?: int, verdict?: string, reason?: ?string, error?: string} */
     public function sync(): array
     {
-        return $this->mappings->directoryReady() ? $this->directory->sync() : $this->syncOnce();
+        return $this->mappings->available() ? $this->directory->sync() : $this->syncOnce();
     }
 
     /**

@@ -89,8 +89,9 @@ class AdminUnmigratedStoreTest extends AdminAddressTestCase
             $html = $this->get($url)->assertStatus(503)->getContent();
 
             $this->assertStringContainsString(e(translate('address_not_migrated')), $html, $url);
+            $this->assertSame(1, substr_count($html, 'php artisan migrate'), "{$url} gives one command, so the migrations form one batch that rolls back in one command");
             foreach (AddressMigrations::MIGRATIONS as $migration) {
-                $this->assertStringContainsString("php artisan migrate --path=database/migrations/{$migration}.php", $html, "{$url} names {$migration}");
+                $this->assertStringContainsString("--path=database/migrations/{$migration}.php", $html, "{$url} names {$migration}");
             }
         }
     }

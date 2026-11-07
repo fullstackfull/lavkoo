@@ -9,6 +9,7 @@ use App\Models\ProviderCity;
 use App\Models\ProviderCityMapping;
 use App\Services\Address\AddressSchema;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
+use App\Services\Fulfillment\FulfillmentSchema;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
@@ -237,6 +238,37 @@ class TorodCityDiscoveryTest extends TorodAddressTestCase
         Http::fake();
         Schema::drop('provider_city_sync_runs');
         Schema::drop('provider_city_mappings');
+        AddressSchema::flush();
+
+        [$exit, $output] = $this->command(['--city' => [$this->ids['riyadh']], '--apply' => true]);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('address migrations have not been run', $output);
+        Http::assertNothingSent();
+    }
+
+    public function test_the_command_skips_on_a_store_without_the_fulfillment_tables_before_it_reads_any_of_them(): void
+    {
+        Http::fake();
+        config(['fulfillment.enabled' => true]);
+        Schema::drop('provider_fulfillment_items');
+        Schema::drop('provider_fulfillments');
+        Schema::drop('integration_settings');
+        FulfillmentSchema::flush();
+
+        [$exit, $output] = $this->command(['--city' => [$this->ids['riyadh']], '--apply' => true]);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('fulfillment migrations have not been run', $output);
+        Http::assertNothingSent();
+    }
+
+    public function test_the_command_skips_while_the_provider_columns_of_the_city_list_are_missing_too(): void
+    {
+        Http::fake();
+        Schema::table('provider_cities', static function ($table): void {
+            $table->dropColumn('prefix');
+        });
         AddressSchema::flush();
 
         [$exit, $output] = $this->command(['--city' => [$this->ids['riyadh']], '--apply' => true]);

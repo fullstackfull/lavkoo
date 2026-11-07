@@ -20,8 +20,8 @@
                 @endforeach
             </ul>
             @if ($pending !== [])
-                <pre class="bg-light rounded p-2 mb-0 fs-12" dir="ltr">@foreach ($pending as $migration)php artisan migrate --path=database/migrations/{{ $migration }}.php
-@endforeach</pre>
+                <pre class="bg-light rounded p-2 mb-0 fs-12" dir="ltr">php artisan migrate @foreach ($pending as $migration)\
+    --path=database/migrations/{{ $migration }}.php @endforeach</pre>
             @endif
         </x-k.card>
     </div>

@@ -74,6 +74,7 @@ Each step is independent; do only as many as you need.
    Laravel rolls back only migrations of the **last batch** that are inside the given paths, and says *Migration not found* for any other migration of that batch, so the command cannot undo anything else. If something else was
    migrated after ours (the output says *Nothing to rollback*, or lists fewer than four), add `--batch=<the batch number migrate:status shows for ours>`.
    Each `down()` drops only what its `up()` added (the three new tables and, on `shipping_addresses`, the four columns; then the provider mapping tables; then the six directory columns of `provider_cities`), guarded by `hasTable` / `hasColumn`.
+   Afterwards run `php artisan optimize:clear && php artisan queue:restart`: a running worker still remembers that the tables exist and would fail Torod jobs until it restarts (the file rollback restarts them as well, which is why the order above puts it first).
    The old address columns, the old orders and every other table are untouched. You lose: the region/city links on saved addresses, the district and National Address columns, the confirmed aliases, the provider mappings and the sync history.
    The order copies keep their own JSON.
 

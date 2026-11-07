@@ -34,42 +34,51 @@ final class AddressSchema
 
     public const ADDRESS_COLUMNS = ['region_id', 'city_id', 'district', 'national_address'];
 
-    private static ?bool $masters = null;
+    /** What a provider's city list keeps in `provider_cities` beyond the old columns (see the directory migration). */
+    public const DIRECTORY_COLUMNS = ['region_name_ar', 'region_name_en', 'prefix', 'is_selected', 'last_seen_at', 'missing_since'];
 
-    private static ?bool $columns = null;
+    /**
+     * How long a "no" is remembered. A web request lives for less than that, so it asks the database once; a queue worker or a scheduler
+     * that was started before the migration or the import asks again within this time and notices it, without a restart. A "yes" about
+     * the schema is kept for the life of the process: tables do not disappear under a running store.
+     */
+    private const NEGATIVE_ANSWER_SECONDS = 30;
 
-    private static ?bool $mappings = null;
-
-    private static ?bool $usable = null;
+    /** @var array<string, array{value: bool, at: int}> */
+    private static array $answers = [];
 
     public static function mastersReady(): bool
     {
-        return self::$masters ??= Schema::hasTable('address_regions') && Schema::hasTable('address_cities') && Schema::hasTable('address_city_aliases');
+        return self::remembered('masters', static fn (): bool => Schema::hasTable('address_regions') && Schema::hasTable('address_cities') && Schema::hasTable('address_city_aliases'));
     }
 
     public static function columnsReady(): bool
     {
-        if (self::$columns !== null) {
-            return self::$columns;
-        }
-
-        if (!Schema::hasTable('shipping_addresses')) {
-            return self::$columns = false;
-        }
-
-        foreach (self::ADDRESS_COLUMNS as $column) {
-            if (!Schema::hasColumn('shipping_addresses', $column)) {
-                return self::$columns = false;
+        return self::remembered('columns', static function (): bool {
+            if (!Schema::hasTable('shipping_addresses')) {
+                return false;
             }
-        }
 
-        return self::$columns = true;
+            foreach (self::ADDRESS_COLUMNS as $column) {
+                if (!Schema::hasColumn('shipping_addresses', $column)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
     }
 
     /** Provider mappings and the city sync history: needed by the shipping integrations, not by the address book. */
     public static function mappingsReady(): bool
     {
-        return self::$mappings ??= Schema::hasTable('provider_city_mappings') && Schema::hasTable('provider_city_sync_runs');
+        return self::remembered('mappings', static fn (): bool => Schema::hasTable('provider_city_mappings') && Schema::hasTable('provider_city_sync_runs'));
+    }
+
+    /** The columns a provider's city list promotes out of its records into `provider_cities`. */
+    public static function directoryColumnsReady(): bool
+    {
+        return self::remembered('directory', static fn (): bool => Schema::hasTable('provider_cities') && Schema::hasColumns('provider_cities', self::DIRECTORY_COLUMNS));
     }
 
     public static function ready(): bool
@@ -84,7 +93,7 @@ final class AddressSchema
             return false;
         }
 
-        return self::$usable ??= AddressCity::query()->where('is_active', true)->exists();
+        return self::remembered('cities', static fn (): bool => AddressCity::query()->where('is_active', true)->exists(), keepYes: false);
     }
 
     public static function configuredMode(): string
@@ -139,9 +148,20 @@ final class AddressSchema
 
     public static function flush(): void
     {
-        self::$masters = null;
-        self::$columns = null;
-        self::$mappings = null;
-        self::$usable = null;
+        self::$answers = [];
+    }
+
+    /** @param bool $keepYes false for an answer that can turn from yes to no while the process runs (the last active city is switched off) */
+    private static function remembered(string $question, callable $ask, bool $keepYes = true): bool
+    {
+        $now = now()->getTimestamp();
+        $known = self::$answers[$question] ?? null;
+        if ($known !== null && (($known['value'] && $keepYes) || $now - $known['at'] < self::NEGATIVE_ANSWER_SECONDS)) {
+            return $known['value'];
+        }
+
+        self::$answers[$question] = ['value' => $value = $ask(), 'at' => $now];
+
+        return $value;
     }
 }

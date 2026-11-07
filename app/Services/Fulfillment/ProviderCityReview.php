@@ -149,8 +149,8 @@ class ProviderCityReview
 
         return [
             'total' => (clone $cities)->count(),
-            'missing' => $this->mappings->hasDirectoryColumns() ? (clone $cities)->whereNotNull('missing_since')->count() : 0,
-            'selected' => $this->mappings->hasDirectoryColumns() ? (clone $cities)->where('is_selected', true)->count() : 0,
+            'missing' => (clone $cities)->whereNotNull('missing_since')->count(),
+            'selected' => (clone $cities)->where('is_selected', true)->count(),
         ];
     }
 

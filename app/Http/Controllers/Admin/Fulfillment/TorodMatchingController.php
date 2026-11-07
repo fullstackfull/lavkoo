@@ -76,7 +76,7 @@ class TorodMatchingController extends Controller
 
         $mapped = ProviderProductMapping::where('provider', $provider->value)->latest('id')->limit(50)->get();
         $products = DB::table('products')->whereIn('id', $mapped->pluck('product_id'))->get(['id', 'name', 'code', 'fulfillment_provider'])->keyBy('id');
-        $cityReview = $this->cityMappings->directoryReady() ? $this->cityReview->overview($provider->value) : null;
+        $cityReview = $this->cityMappings->available() ? $this->cityReview->overview($provider->value) : null;
 
         return view('admin-views.fulfillment.torod-matching', [
             'rows' => $rows,
@@ -319,7 +319,7 @@ class TorodMatchingController extends Controller
     /** Until the address and mapping migrations have run, the city actions do not exist. */
     private function requireCityMatching(): void
     {
-        abort_unless($this->cityMappings->directoryReady(), 404);
+        abort_unless($this->cityMappings->available(), 404);
     }
 
     /** @return list<string> city strings our checkout produced that no Torod Point city matched (held fulfillments) */

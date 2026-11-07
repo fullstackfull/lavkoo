@@ -9137,7 +9137,7 @@ return [
 	'address_sync_partial' => 'Partial',
 	'address_sync_failed' => 'Failed',
 	'address_not_migrated' => 'The address migrations have not been run',
-	'address_not_migrated_help' => 'The code is installed, but the tables it needs are not there yet. Run the migrations below on the server, one at a time and in this order. Until then the store keeps working exactly as before.',
+	'address_not_migrated_help' => 'The code is installed, but the tables it needs are not there yet. Run the migrations below on the server with one command, in this order. Until then the store keeps working exactly as before.',
 	'address_migration_done' => 'Done',
 	'address_migration_pending' => 'To run',
 	'address_regions_subtitle' => 'Rename a region or switch it off. A region is never deleted: saved addresses, provider mappings and past orders refer to it.',

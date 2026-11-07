@@ -375,7 +375,7 @@ class TorodCityResolutionTest extends TorodAddressTestCase
 
     // ---- dormant until migrated ----------------------------------------------------------------------------------------------
 
-    public function test_before_the_mapping_tables_exist_everything_is_as_it_was(): void
+    public function test_before_the_mapping_tables_exist_the_old_name_matching_is_kept_and_the_state_is_never_a_second_guess(): void
     {
         Schema::drop('provider_city_sync_runs');
         Schema::drop('provider_city_mappings');

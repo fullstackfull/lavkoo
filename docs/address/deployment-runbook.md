@@ -9,7 +9,7 @@ This runbook uses the same tooling and conventions as the [pilot runbook](../int
 * Do not edit `.env` on the server. Do not turn **External Writes** on. Do not stop the Torod **Dry Run**. Do not turn **Auto Dispatch** on.
 * Send nothing to Torod or any provider by hand; run no inventory sync that touches real stock.
 * Do not delete or edit order `100002` (it stays held until a city mapping is approved).
-* Do not run a bare `php artisan migrate` (the platform has hundreds of migrations of its own; only the four listed below, by path).
+* Do not run a bare `php artisan migrate` (the platform has hundreds of migrations of its own; only the four listed below, by path), and do not use the admin panel's *System setup → Environment setup → Migrate Database / Update Database* buttons or the software-update flow while the files of Release A are on the server and Release B has not been approved: they run a bare `migrate --force`, which would also apply the four address migrations at once.
 * No credentials or API secrets in logs, tickets or chat.
 * Do not touch the warehouse / M5AZN / shipping work running in other conversations: this release changes none of the Torod payload fields they depend on (`cityId`, `regionId`, `addressLine1` are only *better fed*).
 

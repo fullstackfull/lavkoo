@@ -22,7 +22,7 @@ order snapshot city_id ──▶ approved mapping (provider + city) ──▶ Pr
    `provider_cities` row.
 2. **An old order has only typed text.** The resolver tries, in this order: an administrator's Torod alias → the address system's own `LegacyCityMatcher` (unique and region-consistent, otherwise
    *no match*) → the mapping of the city that matcher found. The region the customer typed is only a filter; it is never a second guess at the city.
-3. **No Saudi catalogue or no mappings table yet** (code shipped, migrations not run): the resolver behaves exactly as before (alias, then one exact name in the cached list).
+3. **No Saudi catalogue, no mappings table or no directory columns yet** (code shipped, migrations not run or only partly run): the resolver keeps the old name matching (an administrator's alias, then one exact name in the cached list). One thing differs on purpose: the address's *state* text is no longer tried as a second city when the city matches nothing, because that was a guess (a typed city that matched nothing would have been sent to the city of the same name as its state).
 
 Resolving reads the local database only. Preflight and submit never call Torod for a city.
 

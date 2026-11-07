@@ -33,12 +33,15 @@ class FulfillmentDiscoverCitiesCommand extends Command
 
             return self::FAILURE;
         }
+        if ($this->notMigratedYet()) {
+            return self::SUCCESS;
+        }
         if (!config('fulfillment.enabled') || !$connections->canCall(ProviderCode::TorodPoint)) {
             $this->line('Fulfillment integrations or this provider are switched off; nothing to do.');
 
             return self::SUCCESS;
         }
-        if ($this->notMigratedYet() || !$this->addressMigrated($mappings)) {
+        if (!$this->addressMigrated($mappings)) {
             return self::SUCCESS;
         }
 
@@ -66,7 +69,7 @@ class FulfillmentDiscoverCitiesCommand extends Command
 
     private function addressMigrated(ProviderCityMappingService $mappings): bool
     {
-        if ($mappings->directoryReady()) {
+        if ($mappings->available()) {
             return true;
         }
 
