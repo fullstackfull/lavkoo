@@ -13,7 +13,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *    line (a unit cancelled gives its place back).
  *  - RESERVED: the order is ours, the location has not been told yet. It counts against what may be published.
  *  - COMMITTED: the location accepted the order. It keeps counting only until the location reports a stock figure taken AFTER that moment,
- *    because from then on its own count already has the units off, and subtracting them again would take them off twice.
+ *    because from then on its own count already has the units off, and subtracting them again would take them off twice. Unlinking the shipment reopens it.
  *  - RELEASED: the order was cancelled or never went out. It counts for nothing.
  */
 class ReservationService
@@ -54,6 +54,18 @@ class ReservationService
             return $reservation;
         }
         $reservation->forceFill(['state' => InventoryReservation::COMMITTED, 'committed_at' => now()])->save();
+
+        return $reservation;
+    }
+
+    /** An order whose provider shipment was unlinked is ours to fulfil again: its committed units are promised again, from now on. */
+    public function reopen(string $key): ?InventoryReservation
+    {
+        $reservation = InventoryReservation::where('reservation_key', $key)->first();
+        if ($reservation === null || $reservation->state !== InventoryReservation::COMMITTED) {
+            return $reservation;
+        }
+        $reservation->forceFill(['state' => InventoryReservation::RESERVED, 'committed_at' => null])->save();
 
         return $reservation;
     }

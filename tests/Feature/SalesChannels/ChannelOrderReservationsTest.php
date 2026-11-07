@@ -118,6 +118,32 @@ class ChannelOrderReservationsTest extends TestCase
         $this->assertSame(18, $this->offered(), 'The count now shows the 2 units gone: they are not taken off again.');
     }
 
+    public function test_unlinking_the_shipment_makes_an_order_that_has_not_shipped_hold_its_units_again(): void
+    {
+        $this->listing();
+        $linker = app(ExternalShipmentLinker::class);
+        $linked = $linker->link($this->order()->refresh(), 'torod_point', 'TOR-1', 1, trackingNumber: 'TRK-1', carrier: 'SMSA');
+        InventoryLocationBalance::query()->update(['available' => 18, 'source_synced_at' => now()->addMinute()]);
+        $this->assertSame(18, $this->offered(), 'The count shows the 2 units gone: nothing more is taken off.');
+
+        $linker->unlink($linked->refresh(), 1, 'linked by mistake');
+
+        $this->assertSame(InventoryReservation::RESERVED, InventoryReservation::firstOrFail()->state);
+        $this->assertSame(16, $this->offered(), 'The order is open again and waits for a person: its units are promised again, which can only under-offer.');
+    }
+
+    public function test_unlinking_the_shipment_of_an_order_that_has_shipped_changes_nothing_about_its_units(): void
+    {
+        $this->listing();
+        $linker = app(ExternalShipmentLinker::class);
+        $linker->link($this->order()->refresh(), 'torod_point', 'TOR-1', 1, trackingNumber: 'TRK-1', carrier: 'SMSA');
+        $this->order(status: ChannelOrderStatus::Shipped, updatedAt: '2026-11-10 10:05:00');
+
+        $linker->unlink(ExternalOrderMapping::firstOrFail(), 1, 'undo');
+
+        $this->assertSame(InventoryReservation::COMMITTED, InventoryReservation::firstOrFail()->state);
+    }
+
     public function test_an_order_the_channel_ships_itself_holds_none_of_our_stock(): void
     {
         $this->listing();

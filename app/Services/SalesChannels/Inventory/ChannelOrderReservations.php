@@ -14,7 +14,7 @@ use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
  *
  *  - an order that is open (new, pending, awaiting review, processing) and is ours to fulfil holds its active units (RESERVED), and follows the order when units are cancelled;
  *  - once the shipment is linked or the order has shipped or been delivered the units have left the shelf: the reservation is COMMITTED and counts only until the location
- *    reports a figure taken after that moment, so the same units are never taken off twice;
+ *    reports a figure taken after that moment, so the same units are never taken off twice; an order whose link is removed and that has not shipped holds them again (RESERVED);
  *  - an order that is cancelled, failed or returned gives its units back (RELEASED);
  *  - an order the channel ships itself (FBA, channel-managed) or whose mode is not known draws no stock of ours and holds nothing.
  *
@@ -51,6 +51,7 @@ class ChannelOrderReservations
                 $this->reservations->commit($key);
                 continue;
             }
+            $this->reservations->reopen($key);
             $this->reservations->reserve($key, $location, (int) $line->product_id, (string) $line->variant_key, $units, $line->sku, (int) $mapping->id);
         }
     }

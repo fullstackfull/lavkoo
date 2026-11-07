@@ -112,6 +112,8 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
                     $granted[] = $label;
                 } elseif ($response->kind === ChannelResponse::REJECTED) {
                     $missing[] = $label . ':rejected(' . ($response->get('errors.0.code') ?? $response->status) . ')';
+                } else {
+                    $missing[] = $label . ':unverified(' . ($response->status ?? $response->kind) . ')';
                 }
             } catch (ChannelPermissionDenied) {
                 $missing[] = $label;
@@ -120,7 +122,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
         return new ConnectionTestResult(
             status: ConnectionStatus::Ok,
-            message: $missing === [] ? 'Connected. Every probed permission is present.' : 'Connected, but some permissions or marketplaces are missing: ' . implode(', ', $missing) . '.',
+            message: $missing === [] ? 'Connected. Every probed permission is present.' : 'Connected, but some permissions or marketplaces are missing or could not be confirmed: ' . implode(', ', $missing) . '.',
             granted: $granted,
             missing: $missing,
             details: ['marketplaces' => $participating],

@@ -634,6 +634,24 @@ class AmazonConnectorTest extends TestCase
         $this->assertStringContainsString('missing', $result->message);
     }
 
+    public function test_a_probe_the_channel_could_not_answer_is_neither_granted_nor_reported_as_present(): void
+    {
+        Http::fake($this->token() + [
+            self::SP . '/sellers/v1/marketplaceParticipations*' => Http::response($this->participations()),
+            self::SP . '/orders/*' => Http::response(['errors' => [['code' => 'InternalFailure']]], 500),
+            self::SP . '/listings/*' => Http::response(['numberOfResults' => 0, 'items' => []]),
+            self::SP . '/fba/*' => Http::response(['errors' => [['code' => 'QuotaExceeded']]], 429),
+            self::SP . '/finances/*' => Http::response(['payload' => ['transactions' => []]]),
+        ]);
+
+        $result = $this->amazon->testConnection($this->account);
+
+        $this->assertEqualsCanonicalizing(['sellers:read', 'listings:read', 'finances:read'], $result->granted);
+        $this->assertSame(['orders:read:unverified(500)', 'fba_inventory:read:unverified(429)'], $result->missing, 'What could not be confirmed keeps a write from being approved until a clean test.');
+        $this->assertStringContainsString('could not be confirmed', $result->message);
+        $this->assertStringNotContainsString('Every probed permission is present', $result->message);
+    }
+
     public function test_a_marketplace_the_seller_does_not_sell_in_is_reported(): void
     {
         Http::fake($this->token() + [self::SP . '/sellers/v1/marketplaceParticipations*' => Http::response($this->participations(false)), self::SP . '/*' => Http::response(['payload' => []])]);

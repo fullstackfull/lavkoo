@@ -131,6 +131,7 @@ class ExternalShipmentLinker
             'snapshot' => $snapshot,
         ], array_intersect_key($previous, array_flip(['provider', 'tracking_number', 'tracking_url', 'carrier', 'execution_policy']))))->save();
         $this->audit->record(action: 'sales_channel.shipment_unlinked', subject: $mapping, context: ['mapping_id' => $mapping->id, 'by' => $adminId, 'reason' => $reason]);
+        $this->reservations->sync($mapping);
 
         return $mapping;
     }

@@ -4,6 +4,7 @@ namespace App\Services\SalesChannels;
 
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
+use App\Services\SalesChannels\Exceptions\ChannelRateLimitedException;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 
 /**
@@ -24,6 +25,8 @@ class ChannelConnectionTester
             $result = $this->connectors->for($account)->testConnection($account);
         } catch (ChannelUnavailableException $exception) {
             return ConnectionTestResult::failed($exception->getMessage());
+        } catch (ChannelRateLimitedException $exception) {
+            return ConnectionTestResult::failed("The channel's call allowance is used up for now: test the connection again in about {$exception->retryAfterSeconds} seconds. The account's status is unchanged.");
         }
         $this->accounts->recordConnection($account, $result);
 

@@ -123,6 +123,18 @@ class SalesChannelsCommandsTest extends TestCase
         $this->assertNotNull($account->fresh()->connection_checked_at);
     }
 
+    public function test_a_connection_test_that_meets_our_own_call_allowance_says_so_and_leaves_the_account_as_it_was(): void
+    {
+        $account = $this->trendyolAccount();
+        config(['sales_channels.rate_limits.trendyol.operations' => ['trendyol.probe_orders' => ['max' => 0, 'per_seconds' => 3600]] + config('sales_channels.rate_limits.trendyol.operations')]);
+        Http::fake();
+
+        $this->artisan('channels:test-connection', ['account' => $account->id])->expectsOutputToContain('allowance is used up')->assertFailed();
+
+        $this->assertNull($account->fresh()->connection_checked_at);
+        $this->assertSame($account->connection_status, $account->fresh()->connection_status);
+    }
+
     public function test_an_account_that_is_off_cannot_be_tested_and_nothing_is_sent(): void
     {
         $account = $this->trendyolAccount(['connection_test']);

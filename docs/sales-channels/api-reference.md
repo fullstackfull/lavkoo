@@ -23,7 +23,7 @@ Auth: Login with Amazon refresh-token flow (`POST https://api.amazon.com/auth/o2
 
 Rate limits (per account-app): searchOrders 0.0056 rps burst 20; listings 5 rps; FBA inventory 2 rps; listTransactions 0.5 rps burst 10; getMarketplaceParticipations 0.016 rps burst 15; confirmShipment 2 rps burst 10. The transport keeps to these with its own limiter and honours `Retry-After` on a 429.
 
-UNVERIFIED for Saudi Arabia: carrier codes accepted by `confirmShipment` (the list is not published: `Other` + carrier name is sent); whether `value_with_tax` is the right price attribute for the KSA product types (read the Product Type Definition before enabling price publishing); the complete FeeType list (an open set: unknown types are kept for a person, never counted); how Multi-Channel Fulfilment orders appear (an order on a non-Amazon channel fulfilled through Amazon is `unknown`, not FBM).
+UNVERIFIED for Saudi Arabia: carrier codes accepted by `confirmShipment` (the list is not published: `Other` + carrier name is sent); whether `value_with_tax` is the right price attribute for the KSA product types (read the Product Type Definition before enabling price publishing); the complete FeeType list (an open set: unknown types are kept for a person, never counted); how Multi-Channel Fulfilment orders appear (an order on a non-Amazon channel fulfilled through Amazon is `unknown`, not FBM); whether an order carrying `programs` (for example Easy Ship) is FBM for routing (the code reads `fulfilledBy` and `channelName` only and stores `programs` unused).
 
 ## Trendyol Marketplace Integration API (International / Gulf, `storeFrontCode: SA`)
 
