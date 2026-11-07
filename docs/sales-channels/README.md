@@ -17,4 +17,5 @@ A multi-channel layer on top of the storefront: **Amazon** (Selling Partner API)
 
 * It does not create provider (Torod Point / M5AZN) shipments for channel orders. The existing storefront-order fulfilment is untouched and unchanged. See *Not built* in [architecture.md](architecture.md).
 * It has not been run against a live Amazon or Trendyol account. Every connector test uses fixtures shaped after the official models; they prove how the code behaves against those shapes, not that a seller account works.
-* It has not been run on MySQL in this environment (the sandbox has SQLite only). The CI job that runs on MySQL 8 has been extended to cover these tests.
+* Its tests run daily on SQLite, and the same list was run on MySQL 8.0.46 and MariaDB 10.11.14 installed locally in the development sandbox (results in [final-report.md](final-report.md), section 16). It has not been run on MariaDB 11.4 or on the production server, and the GitHub Actions job (`tests-mysql-sales-channels`, added by this work) has not run yet: it runs when a pull request is opened.
+* The tests build the store's own tables (`products`, `orders`, `order_details`, …) from a schema reconstructed from the code, not from the installation dump, which is not in the repository: the first run of the modules should be on a copy of the staging database.
