@@ -144,7 +144,7 @@ class AdminSalesChannelsRoutingTest extends AdminSalesChannelsTestCase
             [$rule->name, $rule->priority, $rule->is_active, $rule->seller_id, $rule->sales_channel, $rule->account_id, $rule->fulfillment_mode, $rule->execution_policy, $rule->product_id, $rule->sku, $rule->inventory_location_id,
                 $rule->product_provider, $rule->country, $rule->city, $rule->requires_confirmed_stock, $rule->action, $rule->target_provider, $rule->target_location_id, $rule->note, $rule->created_by, $rule->updated_by],
         );
-        $this->assertSame(['min_order_total' => '100.000000', 'max_order_total' => '500.500000', 'cod' => false], $rule->conditions);
+        $this->assertEquals(['min_order_total' => '100.000000', 'max_order_total' => '500.500000', 'cod' => false], $rule->conditions, 'A JSON column does not keep the order its keys were written in (MySQL sorts them).');
         $this->assertSame(['2026-12-01 00:00:00', '2026-12-31 23:59:59'], [$rule->valid_from->format('Y-m-d H:i:s'), $rule->valid_to->format('Y-m-d H:i:s')], 'the window covers whole days');
         $this->assertToastContains(translate('routing_rule_created'));
     }

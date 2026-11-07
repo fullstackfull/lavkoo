@@ -185,7 +185,7 @@ class DynamicFulfillmentRoutingEngine
 
     private function same(FulfillmentRoutingDecision $stored, RoutingDecision $decision): bool
     {
-        return hash('sha256', json_encode([$stored->action, $stored->provider, $stored->reason_code, $stored->rule_id, $stored->line_decisions], JSON_THROW_ON_ERROR)) === $decision->fingerprint();
+        return RoutingDecision::fingerprintOf(action: $stored->action, provider: $stored->provider, reasonCode: $stored->reason_code, ruleId: $stored->rule_id, lineDecisions: (array) $stored->line_decisions) === $decision->fingerprint();
     }
 
     /** Once an order's follow-up has begun (a shipment found and linked, or it was shipped), a changed rule or stock figure no longer re-decides it. */

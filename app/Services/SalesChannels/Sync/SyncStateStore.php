@@ -104,15 +104,20 @@ class SyncStateStore
         return SalesChannelSyncState::where('account_id', $accountId)->where('resource', $resource)->first();
     }
 
-    /** Is the resource due, given how often it should run? A resource that never ran is due. */
+    /**
+     * Is the resource due, given how often it should run? A resource that never ran is due, and so is one that stopped part of the way through a backlog (it goes on at
+     * the next tick, not after a whole interval). A run takes a few seconds, so a resource is due a minute early: a five-minute resource runs every five minutes, not every ten.
+     */
     public function isDue(int $accountId, string $resource, int $everyMinutes): bool
     {
         $state = $this->state($accountId, $resource);
-        if ($state === null || $state->last_success_at === null) {
-            return $state?->backoff_until === null || $state->backoff_until->isPast();
+        $notBackingOff = $state?->backoff_until === null || $state->backoff_until->isPast();
+        if ($state === null || $state->last_success_at === null || $state->cursor !== null) {
+            return $notBackingOff;
         }
+        $slackSeconds = min(60, $everyMinutes * 12);
 
-        return $state->last_success_at->lte(now()->subMinutes($everyMinutes)) && ($state->backoff_until === null || $state->backoff_until->isPast());
+        return $state->last_success_at->lte(now()->subMinutes($everyMinutes)->addSeconds($slackSeconds)) && $notBackingOff;
     }
 
     /** The instant a run should read "changed since": the watermark less the overlap, or the start of the first backfill. */

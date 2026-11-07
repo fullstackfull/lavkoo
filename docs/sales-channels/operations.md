@@ -44,6 +44,8 @@ php artisan costs:accrue-storage --date=2026-11-05  # storage cost of one day
 php artisan channels:prune --days=60                # delete old call logs and clear the stored text of old webhook deliveries (daily on the schedule; the orders and costs they led to are kept)
 ```
 
+**History:** the scheduled refresh looks at the last three days, so the sales that existed before this module was deployed have no cost rows. They are shown as costs-not-yet-determined (their profit is provisional, never a perfect margin) until `php artisan costs:refresh --days=365` (or the span wanted) has run once. Recognising the cost of goods of old delivered orders takes units from the FIFO layers, so enter the purchase invoices (or the opening stock) first; a sale whose goods have no layer to take from is reported as a shortfall, not as free.
+
 `costs:refresh` and `costs:accrue-storage` isolate each sale (each warehouse): one that cannot be brought up to date is reported to the log and counted, the others are still looked at, and the command exits with a failure so the scheduler shows it.
 
 Each prints `ok`, `skipped` (switch/capability off), `busy` (another run holds the lease or the resource is backing off), `rate_limited` or `failed`. A failed resource backs off (5 minutes per consecutive failure, capped) and never advances its watermark; the next successful run re-reads from the watermark less 10 minutes and records nothing twice.
@@ -74,5 +76,6 @@ Registering is a write (needs *Order Import*, the *webhook management* approval,
 * The Amazon marketplaces of one account are read one after the other (orders take them all at once); listings, FBA stock and statements go through every marketplace id the account holds, and each has its own place in a paused sweep.
 * An invoice with thousands of lines is linked to provider shipments one line at a time against the Fulfilment tables, whose secondary reference and tracking columns are not indexed (they belong to the Fulfilment workstream; this module indexes its own tables).
 * Two workers racing for the same lock are retried (three tries) when MySQL reports a deadlock; the first-write races of order ingestion and of a ledger slot were reasoned about and tested on one connection, not under real concurrency.
+* The instants of an order are stored to the second: of two changes to one order inside the same second the later wins only if its time is later than the stored second, so a stale update from that same second can be applied over a newer one. Nothing in the module depends on finer ordering.
 * A rehearsal (dry run) does not remember what it rehearsed, so every cycle repeats Amazon's validation-preview calls for each listing.
 * A publish run does not renew its lease while it works: a very long Amazon per-SKU run (thousands of listings at 5 calls a second) could outlive the 20 minutes of the lease.

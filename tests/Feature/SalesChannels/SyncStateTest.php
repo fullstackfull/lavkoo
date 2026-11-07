@@ -115,6 +115,32 @@ class SyncStateTest extends TestCase
         $this->assertTrue($this->states->isDue($this->account->id, 'orders', 5));
     }
 
+    public function test_a_five_minute_resource_is_due_at_the_next_five_minute_tick_even_though_its_run_took_a_few_seconds(): void
+    {
+        $lease = $this->states->acquire($this->account->id, 'orders');
+        $this->travel(8)->seconds();
+        $this->states->succeed($lease, null, []);
+
+        $this->travel(4)->minutes();
+        $this->travel(58)->seconds();
+        $this->assertTrue($this->states->isDue($this->account->id, 'orders', 5), 'Run at :00 and finished at :08, it is due at :05, not :10.');
+
+        $this->travelTo($this->states->state($this->account->id, 'orders')->last_success_at->copy()->addMinutes(3));
+        $this->assertFalse($this->states->isDue($this->account->id, 'orders', 5));
+    }
+
+    public function test_a_sweep_that_stopped_halfway_goes_on_at_the_next_tick_not_after_a_whole_interval(): void
+    {
+        $lease = $this->states->acquire($this->account->id, 'listings');
+        $this->states->pause($lease, ['token' => 'T-2'], []);
+
+        $this->assertTrue($this->states->isDue($this->account->id, 'listings', 360), 'A six-hour resource with work left does not wait six hours.');
+
+        $second = $this->states->acquire($this->account->id, 'listings');
+        $this->states->backOff($second, 600, 'rate limited');
+        $this->assertFalse($this->states->isDue($this->account->id, 'listings', 360), 'But it still waits out a back-off.');
+    }
+
     public function test_the_runner_reports_a_switch_that_is_off_as_a_skip_and_not_an_error(): void
     {
         $result = $this->runner->run($this->account, 'orders', function (): array {

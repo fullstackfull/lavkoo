@@ -264,7 +264,7 @@ class AdminOperationalCostsContractsTest extends AdminPagesTestCase
 
         $rule = OperationalCostRule::firstOrFail();
         $this->assertSame($contract->id, $rule->contract_id);
-        $this->assertSame($expectedParams, $rule->params);
+        $this->assertEquals($expectedParams, $rule->params, 'The figures are compared string by string; only the order of keys may differ, because MySQL sorts the keys of a JSON column.');
         $this->assertSame('A rule', $rule->label);
         $this->assertSame(20, $rule->priority);
         $this->assertTrue($rule->is_active);

@@ -32,7 +32,7 @@ final class ChannelLabels
         ],
         // Why nothing was sent to a channel (a switch that is off, an approval that is missing) or a shipment was not reported.
         'channel_reason_' => [
-            'global_off', 'account_off', 'capability_off', 'not_supported_by_channel', 'writes_off_environment', 'writes_off_account', 'not_approved', 'unregistered_operation', 'auth_needed',
+            'global_off', 'account_off', 'capability_off', 'setting_off', 'not_supported_by_channel', 'writes_off_environment', 'writes_off_account', 'not_approved', 'unregistered_operation', 'auth_needed',
             'no_linked_shipment_with_tracking', 'already_notified', 'fulfillment_dispatch_off', 'dry_run', 'channel_did_not_confirm', 'channel_refused_repeatedly', 'channel_notify_error',
             'order_pending', 'order_awaiting_review', 'order_delivered', 'order_cancelled', 'order_returned', 'order_failed',
         ],
@@ -85,7 +85,7 @@ final class ChannelLabels
         'order_reason_rule_channel_fulfills', 'order_reason_line_has_no_stock_location', 'order_reason_stock_not_at_target_provider',
         'order_reason_managed_dispatch_not_available', 'order_reason_split_replaced', 'order_reason_modified_after_routing', 'order_reason_cancelled_after_dispatch',
         'order_reason_split_after_dispatch', 'order_reason_ambiguous_shipment', 'order_reason_shipment_linked_elsewhere',
-        'channel_reason_global_off', 'channel_reason_account_off', 'channel_reason_capability_off', 'channel_reason_not_supported_by_channel', 'channel_reason_writes_off_environment',
+        'channel_reason_global_off', 'channel_reason_account_off', 'channel_reason_capability_off', 'channel_reason_setting_off', 'channel_reason_not_supported_by_channel', 'channel_reason_writes_off_environment',
         'channel_reason_writes_off_account', 'channel_reason_not_approved', 'channel_reason_unregistered_operation', 'channel_reason_auth_needed',
         'channel_reason_no_linked_shipment_with_tracking', 'channel_reason_already_notified', 'channel_reason_fulfillment_dispatch_off', 'channel_reason_dry_run',
         'channel_reason_channel_did_not_confirm', 'channel_reason_channel_refused_repeatedly', 'channel_reason_channel_notify_error', 'channel_reason_order_pending', 'channel_reason_order_awaiting_review',

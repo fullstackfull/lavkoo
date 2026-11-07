@@ -20,6 +20,7 @@ use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use App\Services\SalesChannels\Routing\DynamicFulfillmentRoutingEngine;
 use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
+use Illuminate\Support\Facades\DB;
 use Tests\Support\BuildsRemoteOrders;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\CreatesChannelAccounts;
@@ -307,6 +308,26 @@ class RoutingEngineTest extends TestCase
 
         $this->assertSame($first->id, $second->id);
         $this->assertSame(1, FulfillmentRoutingDecision::count());
+    }
+
+    public function test_a_stored_decision_whose_keys_come_back_in_another_order_is_still_the_same_decision(): void
+    {
+        $this->stocked('SKU-1', 10, $this->torod);
+        $this->rule(['action' => 'monitor_only']);
+        $mapping = $this->place();
+        $first = $this->decide($mapping);
+        $sortedLikeMysqlDoes = array_map(static function (array $line): array {
+            uksort($line, static fn (string $left, string $right): int => [strlen($left), $left] <=> [strlen($right), $right]);
+
+            return $line;
+        }, $first->line_decisions);
+        $this->assertNotSame(array_keys($first->line_decisions[0]), array_keys($sortedLikeMysqlDoes[0]), 'The fixture has to change the order, or it proves nothing.');
+        DB::table('fulfillment_routing_decisions')->where('id', $first->id)->update(['line_decisions' => json_encode($sortedLikeMysqlDoes)]);
+
+        $second = $this->decide($mapping);
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, FulfillmentRoutingDecision::count(), 'A JSON column does not keep the order of keys; that must not make an unchanged order look decided anew.');
     }
 
     public function test_a_decision_keeps_its_reason_its_inputs_and_the_time(): void

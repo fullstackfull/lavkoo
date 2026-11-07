@@ -311,6 +311,17 @@ class ChannelHttpTest extends TestCase
         $this->callRead($account);
     }
 
+    public function test_a_long_url_or_error_still_fits_its_log_columns_cut_marks_included(): void
+    {
+        Http::fake(['channel.example/*' => Http::response(str_repeat('x', 5000), 500)]);
+
+        $this->http->send($this->account(), self::READ, 'GET', 'https://channel.example/orders/' . str_repeat('a', 900), query: ['page' => 0]);
+
+        $log = SalesChannelApiLog::firstOrFail();
+        $this->assertLessThanOrEqual(500, mb_strlen($log->url));
+        $this->assertLessThanOrEqual(500, mb_strlen((string) $log->error_message));
+    }
+
     public function test_every_registered_operation_is_classified_and_every_write_names_its_approval(): void
     {
         $this->assertNotEmpty(ChannelOperations::registered());

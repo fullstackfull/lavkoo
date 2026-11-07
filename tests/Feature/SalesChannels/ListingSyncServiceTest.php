@@ -192,4 +192,20 @@ class ListingSyncServiceTest extends TestCase
         $this->assertSame('not_seen', SalesChannelProductMapping::where('listing_key', '222')->first()->remote_status);
         $this->assertSame(2, SalesChannelProductMapping::count());
     }
+
+    public function test_a_listing_that_comes_back_unchanged_loses_the_not_seen_flag_and_gets_the_channels_status_back(): void
+    {
+        $this->listings->sync($this->account, [$this->listing('111')]);
+        $start = now()->addSecond();
+        $this->travel(2)->seconds();
+        $this->listings->markUnseen($this->account, $start);
+        $this->assertSame('not_seen', SalesChannelProductMapping::firstOrFail()->remote_status);
+
+        $this->travel(5)->minutes();
+        $this->listings->sync($this->account, [$this->listing('111')]);
+
+        $row = SalesChannelProductMapping::firstOrFail();
+        $this->assertNotSame('not_seen', $row->remote_status, 'It was seen again, unchanged: the badge must not stay.');
+        $this->assertSame($this->listing('111')->status, $row->remote_status);
+    }
 }

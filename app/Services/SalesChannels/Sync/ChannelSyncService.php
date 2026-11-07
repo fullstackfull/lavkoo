@@ -62,7 +62,7 @@ class ChannelSyncService
     {
         $results = [];
         foreach ($this->resources() as $resource => [$capability, $ability, $method]) {
-            if (!$this->permitted($account, $capability, $ability)) {
+            if (!$this->permitted($account, $resource, $capability, $ability)) {
                 continue;
             }
             if (!$this->states->isDue((int) $account->id, $resource, (int) config("sales_channels.sync.intervals.{$resource}", 60))) {
@@ -95,7 +95,7 @@ class ChannelSyncService
             if ($only !== [] && !$named) {
                 continue;
             }
-            if (!$named && !$this->permitted($account, $capability, $ability)) {
+            if (!$named && !$this->permitted($account, $resource, $capability, $ability)) {
                 continue;
             }
             $results[$resource] = $this->runResource($account, $resource);
@@ -108,13 +108,14 @@ class ChannelSyncService
     public function runResource(SalesChannelAccount $account, string $resource): array
     {
         [$capability, $ability, $method] = $this->resources()[$resource] ?? throw new InvalidArgumentException("Unknown resource '{$resource}'.");
-        if ($this->permitted($account, $capability, $ability)) {
+        if ($this->permitted($account, $resource, $capability, $ability)) {
             return $this->{$method}($account);
         }
 
         return ['result' => ChannelSyncRunner::SKIPPED, 'detail' => match (true) {
             !$account->enabled => 'account_off',
             !$this->connectors->supports($account, $ability) => 'not_supported_by_channel',
+            !$this->settingAllows($account, $resource) => 'setting_off',
             default => 'capability_off',
         }, 'stats' => []];
     }
@@ -131,9 +132,15 @@ class ChannelSyncService
         ];
     }
 
-    private function permitted(SalesChannelAccount $account, IntegrationCapability $capability, string $ability): bool
+    private function permitted(SalesChannelAccount $account, string $resource, IntegrationCapability $capability, string $ability): bool
     {
-        return $account->enabled && $account->hasCapability($capability) && $this->connectors->supports($account, $ability);
+        return $account->enabled && $account->hasCapability($capability) && $this->connectors->supports($account, $ability) && $this->settingAllows($account, $resource);
+    }
+
+    /** An account setting can switch a read off on its own: Amazon's "read the stock FBA holds for us". */
+    private function settingAllows(SalesChannelAccount $account, string $resource): bool
+    {
+        return $resource !== self::INVENTORY || (bool) $account->setting('sync_fba_inventory', true);
     }
 
     /** @return array{result: string, detail: string|null, stats: array<string, mixed>} */

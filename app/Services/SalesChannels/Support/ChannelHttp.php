@@ -250,6 +250,12 @@ class ChannelHttp
      * @param array<string, mixed>|null $body
      * @param array<string, mixed> $query
      */
+    /** A text cut to fit a column of that many characters, the mark that says it was cut included (the redactor's mark is added after its cut). */
+    private function fit(?string $text, int $limit): ?string
+    {
+        return SecretRedactor::truncate($text, $limit - 16);
+    }
+
     private function log(SalesChannelAccount $account, string $operation, string $method, string $url, array $headers, ?array $body, array $query, ChannelResponse $response): void
     {
         try {
@@ -266,18 +272,18 @@ class ChannelHttp
                 'operation' => $operation,
                 'correlation_id' => $response->correlationId,
                 'method' => $method,
-                'url' => SecretRedactor::truncate(SecretRedactor::redactString($url), 500),
+                'url' => $this->fit(SecretRedactor::redactString($url), 500),
                 'request_summary' => $request === [] ? null : $request,
                 'response_status' => $response->status,
                 'response_summary' => SecretRedactor::truncate(
                     json_encode(PiiRedactor::redact(SecretRedactor::redact($response->json ?? PiiRedactor::redactText($response->body)), $strict), JSON_INVALID_UTF8_SUBSTITUTE) ?: '',
                     $maxBytes,
                 ),
-                'request_id' => SecretRedactor::truncate($response->header('x-amzn-requestid') ?? $response->header('x-request-id'), 120),
+                'request_id' => $this->fit($response->header('x-amzn-requestid') ?? $response->header('x-request-id'), 120),
                 'success' => $response->ok() || $response->isDryRun(),
                 'dry_run' => $response->isDryRun(),
                 'error_class' => $response->ok() || $response->isDryRun() ? null : $response->kind,
-                'error_message' => $response->ok() || $response->isDryRun() ? null : SecretRedactor::truncate(PiiRedactor::redactText($response->message()), 500),
+                'error_message' => $response->ok() || $response->isDryRun() ? null : $this->fit(PiiRedactor::redactText($response->message()), 500),
                 'duration_ms' => $response->durationMs,
                 'created_at' => now(),
             ]);

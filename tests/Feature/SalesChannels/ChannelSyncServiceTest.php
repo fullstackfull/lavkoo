@@ -240,6 +240,20 @@ class ChannelSyncServiceTest extends TestCase
 
     // ---- channel-held stock -----------------------------------------------------------------------------
 
+    public function test_switching_off_the_accounts_stock_read_stops_the_read_and_says_which_setting_did_it(): void
+    {
+        $account = $this->amazonAccount();
+        $account->forceFill(['settings' => array_replace($account->settings ?? [], ['sync_fba_inventory' => false])])->save();
+        Http::fake($this->lwa() + [self::AMAZON . '/*' => Http::response(['payload' => ['inventorySummaries' => []]])]);
+
+        $due = $this->sync->runDue($account->fresh());
+        $named = $this->sync->runNow($account->fresh(), ['inventory']);
+
+        $this->assertArrayNotHasKey('inventory', $due, 'The scheduler leaves it alone.');
+        $this->assertSame(['skipped', 'setting_off'], [$named['inventory']['result'], $named['inventory']['detail']]);
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/fba/inventory/'));
+    }
+
     public function test_fba_stock_goes_to_the_fba_location_alone_and_what_disappears_goes_stale(): void
     {
         $account = $this->amazonAccount();

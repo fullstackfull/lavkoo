@@ -39,7 +39,8 @@ class ListingSyncService
                 continue;
             }
             if ($row->payload_hash === $listing->hash()) {
-                $row->forceFill(['last_seen_at' => now()])->save();
+                // Back after a sweep that did not see it: the status it came back with is the channel's again (the flag was ours).
+                $row->forceFill(['last_seen_at' => now(), 'remote_status' => $listing->status])->save();
                 $stats['unchanged']++;
                 continue;
             }
