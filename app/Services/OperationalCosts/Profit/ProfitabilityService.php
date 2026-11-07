@@ -29,7 +29,8 @@ use Illuminate\Support\Collection;
  * A sale of goods that nobody has costed yet (no cost of goods row at all, not even a "missing" one) is not a sale that costs nothing: its cost of goods is named missing,
  * so its profit is provisional until the cost refresh has looked at it.
  *
- * Everything is totalled in the reporting currency. An amount that cannot be converted is left out and the result says so.
+ * Everything is totalled in the reporting currency. An amount that cannot be converted (no recorded exchange rate) is left out and the result says so: a note, the
+ * currency in `gaps`, an unknown revenue instead of a revenue of zero, and a figure that is never complete.
  */
 class ProfitabilityService
 {
@@ -114,12 +115,14 @@ class ProfitabilityService
         $notes = $document->revenueNotes;
         $revenueTrusted = $document->revenueNotes === [];
 
+        $gaps = new ConversionGaps();
         $revenue = $document->isCancelled() ? Money::zero() : $document->netRevenue();
         if ($document->currency !== '' && $document->currency !== $base && !$revenue->isZero()) {
             $converted = $this->fx->convert($revenue, $document->currency, $base);
             if ($converted === null) {
                 $notes[] = 'revenue_not_convertible';
                 $revenueTrusted = false;
+                $gaps = $gaps->withRevenue($document->currency);
                 $revenue = Money::zero();
             } else {
                 $revenue = $converted['amount'];
@@ -154,6 +157,7 @@ class ProfitabilityService
                 $bucket->missing++;
                 $missing[$entry->cost_component] = $entry->cost_component;
                 $notes[] = 'cost_not_convertible:' . $entry->cost_component;
+                $gaps = $gaps->withCost($entry->currency);
                 continue;
             }
 
@@ -194,6 +198,7 @@ class ProfitabilityService
             pendingActualComponents: array_values($pending),
             revenueTrusted: $revenueTrusted,
             notes: array_values(array_unique($notes)),
+            gaps: $gaps,
         );
     }
 

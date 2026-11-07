@@ -73,6 +73,8 @@ class ReportExports
                 translate('revenue'), translate('estimated_cost'), translate('actual_cost'), translate('disputed_cost'), translate('estimated_profit'), translate('estimated_margin'),
                 translate('actual_profit'), translate('actual_margin'), translate('missing_costs'), translate('pending_actual_costs'),
                 translate('sales_with_gaps_estimated'), translate('sales_with_gaps_actual'), translate('currency'),
+                translate('disputed_costs_count'), translate('incomplete_no_exchange_rate'), translate('unconverted_revenue_amounts'), translate('unconverted_cost_entries'),
+                translate('currencies_without_a_rate'),
             ],
             $this->profitRows($this->reports->table($report, $input->dimension), $report),
         );
@@ -129,6 +131,9 @@ class ReportExports
         foreach ($table->lines as $line) {
             yield $this->profitRow($line, $currency);
         }
+        if (!$table->totals->gaps->isEmpty()) {
+            yield [CostLabels::filled(translate('profit_report_has_amounts_without_an_exchange_rate'), ['currencies' => implode(', ', $table->totals->gaps->currencies())])];
+        }
         if ($report->truncated) {
             yield [translate('profit_report_cut_short_at_the_sales_limit')];
         }
@@ -143,6 +148,7 @@ class ReportExports
             $line->key, $line->label, $sale?->occurredOn, $sale?->salesChannel, $sale?->provider, $sale?->state, $line->orders, $line->units,
             $line->revenue(), $line->estimatedCost(), $line->actualCost(), $line->disputedCost(), $line->estimatedProfit(), $line->estimatedMarginPercent(),
             $line->actualProfit(), $line->actualMarginPercent(), $line->missing, $line->pending, $line->incompleteEstimated, $line->incompleteActual, $currency,
+            $line->disputedCount(), !$line->gaps()->isEmpty(), $line->gaps()->revenueCount(), $line->gaps()->costCount(), implode(' ', $line->gaps()->currencies()),
         ];
     }
 

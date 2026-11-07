@@ -15,6 +15,7 @@
         $missing = count($result->missingComponents);
         $pending = count($result->pendingActualComponents);
         $drillNotes = array_map(static fn (string $note): array => array_pad(explode(':', $note, 2), 2, null), $result->notes);
+        $gapsText = $result->gaps->isEmpty() ? null : CostLabels::noExchangeRate($result->gaps);
     @endphp
     <div class="content container-fluid">
         <x-k.page-header :title="translate('profit_of_a_sale') . ' ' . $document->reference" :subtitle="CostLabels::channel($document->salesChannel) . ' · ' . CostLabels::of('sale_state', $document->state) . ' · ' . $result->occurredOn">
@@ -38,12 +39,15 @@
                     @foreach ($drillNotes as [$note, $detail])
                         <li>{{ CostLabels::of('profit_note', $note) }}@if ($detail !== null) ({{ CostComponent::tryFrom($detail) ? translate(CostComponent::from($detail)->labelKey()) : $detail }})@endif</li>
                     @endforeach
+                    @if ($gapsText !== null)
+                        <li>{{ $gapsText }}</li>
+                    @endif
                 </ul>
             </div>
         @endif
 
         <div class="k-stats mb-3">
-            <x-k.stat :label="translate('recognised_revenue')" :value="$money($result->revenue)" :caption="$document->isCancelled() ? translate('a_cancelled_sale_has_no_revenue') : ''" />
+            <x-k.stat :label="translate('recognised_revenue')" :value="$money($result->revenueKnown() ? $result->revenue : null)" :caption="$document->isCancelled() ? translate('a_cancelled_sale_has_no_revenue') : (! $result->revenueKnown() ? translate('incomplete') . ': ' . CostLabels::noExchangeRate($result->gaps) : '')" />
             <x-k.stat :label="translate('estimated_cost')" :value="$moneyIfCosted($result->estimatedCost)" :caption="$costed ? CostLabels::completeness($result->estimatedComplete() ? 0 : 1, $missing, 0) : translate('nothing_recorded')" />
             <x-k.stat :label="translate('actual_cost')" :value="$moneyIfCosted($result->actualCost)" :caption="$costed ? CostLabels::completeness($result->actualComplete() ? 0 : 1, $missing, $pending) : translate('nothing_recorded')" />
             <x-k.stat :label="translate('estimated_profit')" :value="$moneyIfCosted($result->estimatedProfit())" :caption="$costed ? translate('margin') . ': ' . CostFormat::percent($result->estimatedMarginPercent()) : ''" />

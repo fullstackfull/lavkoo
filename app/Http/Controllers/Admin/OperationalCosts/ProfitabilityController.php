@@ -91,7 +91,7 @@ class ProfitabilityController extends Controller
         $figure = match ($input->sort) {
             ProfitInput::SORT_ESTIMATED_PROFIT => static fn (ProfitLine $line) => $line->estimatedProfit() ?? Money::zero(),
             ProfitInput::SORT_ACTUAL_PROFIT => static fn (ProfitLine $line) => $line->actualProfit() ?? Money::zero(),
-            default => static fn (ProfitLine $line) => $line->revenue(),
+            default => static fn (ProfitLine $line) => $line->revenue() ?? Money::zero(),
         };
         usort($lines, static fn (ProfitLine $a, ProfitLine $b): int => $input->ascending ? $figure($a)->compareTo($figure($b)) : $figure($b)->compareTo($figure($a)));
 

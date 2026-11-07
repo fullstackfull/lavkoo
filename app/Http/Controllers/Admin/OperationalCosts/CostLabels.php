@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\OperationalCosts;
 
 use App\Enums\SalesChannels\SalesChannel;
+use App\Services\OperationalCosts\Profit\ConversionGaps;
 use App\Services\OperationalCosts\Reports\ProfitFilters;
 use App\Services\OperationalCosts\Reports\ProfitLine;
 
@@ -140,6 +141,12 @@ final class CostLabels
         $text = translate('incomplete') . ': ' . $incompleteSales . ' ' . translate('sales');
 
         return $missingCosts > 0 ? $text . ' · ' . $missingCosts . ' ' . translate('missing') : $text;
+    }
+
+    /** What a figure left out for want of an exchange rate, in words: "no exchange rate for EUR, USD". */
+    public static function noExchangeRate(ConversionGaps $gaps): string
+    {
+        return self::filled(translate('no_exchange_rate_for_currencies'), ['currencies' => implode(', ', $gaps->currencies())]);
     }
 
     /** The completeness of one line of a profit report: of its estimated figures, or (`$settled`) of its actual ones. */

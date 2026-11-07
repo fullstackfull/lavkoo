@@ -2,7 +2,7 @@
 
 namespace App\Services\OperationalCosts\Profit;
 
-/** Adds ProfitResults up by a dimension. Estimated and actual stay two columns, and a gap in any sale marks the whole line provisional. */
+/** Adds ProfitResults up by a dimension. Estimated and actual stay two columns, and a gap in any sale (a missing cost, an amount with no exchange rate) marks the whole line provisional. */
 class ProfitAggregator
 {
     public const BY_CHANNEL = 'channel';
@@ -33,6 +33,9 @@ class ProfitAggregator
             $row->incompleteEstimated += $result->estimatedComplete() ? 0 : 1;
             $row->incompleteActual += $result->actualComplete() ? 0 : 1;
             $row->missingCosts += count($result->missingComponents);
+            $row->disputedCosts += array_sum(array_map(static fn (CostBucket $bucket): int => $bucket->disputed, $result->buckets));
+            $row->gaps = $row->gaps->plus($result->gaps);
+            $row->convertedRevenues += $result->revenueKnown() ? 1 : 0;
         }
         ksort($rows);
 

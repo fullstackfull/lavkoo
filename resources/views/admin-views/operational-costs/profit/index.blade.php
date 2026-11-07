@@ -97,12 +97,22 @@
             <div class="alert alert-warning fs-12" role="alert">{{ CostLabels::filled(translate('only_the_first_lines_are_listed_the_totals_count_all_of_them'), ['shown' => $lineLimit, 'total' => count($table->lines)]) }}</div>
         @endif
 
+        @php
+            $gapText = $totals->gaps->isEmpty() ? null : translate('incomplete') . ': ' . CostLabels::noExchangeRate($totals->gaps);
+            $withGaps = static fn (string $caption): string => implode(' · ', array_filter([$caption, $gapText], static fn (?string $part): bool => $part !== null && $part !== ''));
+        @endphp
+        @if (! $totals->gaps->isEmpty())
+            <div class="alert alert-warning fs-12" role="alert" data-profit-gap="exchange-rate">
+                <strong>{{ translate('this_figure_is_less_than_certain') }}</strong>
+                {{ CostLabels::filled(translate('profit_no_exchange_rate_note'), ['currencies' => implode(', ', $totals->gaps->currencies())]) }}
+            </div>
+        @endif
         <div class="k-stats mb-3">
-            <x-k.stat :label="translate('recognised_revenue')" :value="$money($totals->revenue)" :caption="$isProduct ? '' : $totals->orders . ' ' . translate('sales')" />
-            <x-k.stat :label="translate('estimated_cost')" :value="$money($totals->estimatedCost)" :caption="translate('estimated_cost_includes_estimates') . ' · ' . CostLabels::completeness($totals->incompleteEstimated, $totals->missingCosts)" />
-            <x-k.stat :label="translate('actual_cost')" :value="$money($totals->actualCost)" :caption="translate('actual_cost_is_settled_charges_only') . ' · ' . CostLabels::completeness($totals->incompleteActual, $totals->missingCosts)" />
-            <x-k.stat :label="translate('estimated_profit')" :value="$money($totals->estimatedProfit())" :caption="translate('margin') . ': ' . CostFormat::percent($totals->estimatedMarginPercent())" />
-            <x-k.stat :label="translate('actual_profit')" :value="$money($totals->actualProfit())" :caption="translate('margin') . ': ' . CostFormat::percent($totals->actualMarginPercent())" />
+            <x-k.stat :label="translate('recognised_revenue')" :value="$money($totals->revenueKnown() ? $totals->revenue : null)" :caption="$withGaps($isProduct ? '' : $totals->orders . ' ' . translate('sales'))" />
+            <x-k.stat :label="translate('estimated_cost')" :value="$money($totals->estimatedCost)" :caption="$withGaps(translate('estimated_cost_includes_estimates') . ' · ' . CostLabels::completeness($totals->incompleteEstimated, $totals->missingCosts))" />
+            <x-k.stat :label="translate('actual_cost')" :value="$money($totals->actualCost)" :caption="$withGaps(translate('actual_cost_is_settled_charges_only') . ' · ' . CostLabels::completeness($totals->incompleteActual, $totals->missingCosts))" />
+            <x-k.stat :label="translate('estimated_profit')" :value="$money($totals->estimatedProfit())" :caption="$withGaps(translate('margin') . ': ' . CostFormat::percent($totals->estimatedMarginPercent()))" />
+            <x-k.stat :label="translate('actual_profit')" :value="$money($totals->actualProfit())" :caption="$withGaps(translate('margin') . ': ' . CostFormat::percent($totals->actualMarginPercent()))" />
         </div>
         @if (!$totals->disputedCost->isZero())
             <p class="fs-12 text-muted">{{ translate('disputed_costs_are_in_neither_figure') }}: <span class="k-num">{{ $money($totals->disputedCost) }}</span></p>
@@ -151,15 +161,17 @@
                                     <span class="k-num">{{ $figure($line->estimatedProfit()) }}</span>
                                     <div class="fs-10 text-muted k-num">{{ CostFormat::percent($line->estimatedMarginPercent()) }}</div>
                                     @if ($line->missing > 0)<x-k.badge tone="warning" :dot="false">{{ translate('incomplete') }}: {{ $line->missing }} {{ translate('missing') }}</x-k.badge>@endif
+                                    @include('admin-views.operational-costs.partials._conversion-gaps', ['gaps' => $line->gaps()])
                                 </td>
                                 <td class="k-table__num">
                                     <span class="k-num">{{ $figure($line->actualProfit()) }}</span>
                                     <div class="fs-10 text-muted k-num">{{ CostFormat::percent($line->actualMarginPercent()) }}</div>
                                     @if ($line->missing > 0)<x-k.badge tone="warning" :dot="false">{{ translate('incomplete') }}: {{ $line->missing }} {{ translate('missing') }}</x-k.badge>@endif
+                                    @include('admin-views.operational-costs.partials._conversion-gaps', ['gaps' => $line->gaps()])
                                 </td>
                             @else
-                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->estimatedProfit(), 'margin' => $line->estimatedMarginPercent(), 'completeness' => $line->costed ? CostLabels::lineCompleteness($line, settled: false) : translate('nothing_recorded'), 'complete' => $line->incompleteEstimated === 0])</td>
-                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->actualProfit(), 'margin' => $line->actualMarginPercent(), 'completeness' => $line->costed ? CostLabels::lineCompleteness($line, settled: true) : translate('nothing_recorded'), 'complete' => $line->incompleteActual === 0])</td>
+                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->estimatedProfit(), 'margin' => $line->estimatedMarginPercent(), 'completeness' => $line->costed ? CostLabels::lineCompleteness($line, settled: false) : translate('nothing_recorded'), 'complete' => $line->incompleteEstimated === 0, 'gaps' => $line->gaps()])</td>
+                                <td class="k-table__num">@include('admin-views.operational-costs.partials._profit-figure', ['profit' => $line->actualProfit(), 'margin' => $line->actualMarginPercent(), 'completeness' => $line->costed ? CostLabels::lineCompleteness($line, settled: true) : translate('nothing_recorded'), 'complete' => $line->incompleteActual === 0, 'gaps' => $line->gaps()])</td>
                             @endif
                         </tr>
                     @empty

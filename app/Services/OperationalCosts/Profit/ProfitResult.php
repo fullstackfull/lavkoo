@@ -12,7 +12,8 @@ use App\Services\OperationalCosts\Support\Money;
  *  - ACTUAL: revenue less the costs that are settled (the real charge, or one an invoice confirmed). A cost still only estimated is not in it.
  *
  * Each says whether it is COMPLETE. A cost nobody could determine is missing, not zero, so a figure with a gap is provisional: `missing` and
- * `pendingActual` name the gaps.
+ * `pendingActual` name the gaps. An amount in a currency with no recorded exchange rate is left out and recorded in `gaps` (a sale whose revenue is in such a currency
+ * has an unknown revenue, `revenueKnown()`, not a revenue of zero, and no profit).
  */
 final readonly class ProfitResult
 {
@@ -42,17 +43,24 @@ final readonly class ProfitResult
         public array $pendingActualComponents,
         public bool $revenueTrusted,
         public array $notes,
+        public ConversionGaps $gaps = new ConversionGaps(),
     ) {
     }
 
-    public function estimatedProfit(): Money
+    public function revenueKnown(): bool
     {
-        return $this->revenue->minus($this->estimatedCost);
+        return $this->gaps->revenueCount() === 0;
     }
 
-    public function actualProfit(): Money
+    /** Null when the revenue is unknown. */
+    public function estimatedProfit(): ?Money
     {
-        return $this->revenue->minus($this->actualCost);
+        return $this->revenueKnown() ? $this->revenue->minus($this->estimatedCost) : null;
+    }
+
+    public function actualProfit(): ?Money
+    {
+        return $this->revenueKnown() ? $this->revenue->minus($this->actualCost) : null;
     }
 
     public function estimatedComplete(): bool
@@ -67,11 +75,11 @@ final readonly class ProfitResult
 
     public function estimatedMarginPercent(): ?Money
     {
-        return $this->revenue->isZero() ? null : $this->estimatedProfit()->times(100)->dividedBy($this->revenue, 2);
+        return !$this->revenueKnown() || $this->revenue->isZero() ? null : $this->estimatedProfit()->times(100)->dividedBy($this->revenue, 2);
     }
 
     public function actualMarginPercent(): ?Money
     {
-        return $this->revenue->isZero() ? null : $this->actualProfit()->times(100)->dividedBy($this->revenue, 2);
+        return !$this->revenueKnown() || $this->revenue->isZero() ? null : $this->actualProfit()->times(100)->dividedBy($this->revenue, 2);
     }
 }
