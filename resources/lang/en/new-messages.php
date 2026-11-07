@@ -10628,6 +10628,7 @@ return [
 	'dispatch_reason_channel_capability_off' => 'The account\'s dispatch capability was switched off while the attempt ran',
 	'dispatch_reason_channel_global_off' => 'The sales-channel module was switched off while the attempt ran',
 	'dispatch_reason_channel_auth_needed' => 'The account\'s connection needs a new test',
+	'dispatch_reason_orders_table_not_supported' => 'The platform\'s orders table needs columns this version does not fill (nothing was written)',
 	'dispatch_reason_buyer_data_expired' => 'The buyer\'s details were removed; dispatch again to read them afresh',
 	'order_reason_managed_shipment_failed' => 'The provider\'s shipment failed; a person must look at it',
 	'order_reason_managed_shipment_cancelled' => 'The provider\'s shipment was cancelled while the order is still open',

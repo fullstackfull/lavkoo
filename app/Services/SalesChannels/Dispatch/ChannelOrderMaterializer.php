@@ -157,7 +157,7 @@ class ChannelOrderMaterializer
             'updated_at' => $now,
         ];
 
-        DB::table('orders')->insert($this->onlyKnownColumns('orders', $row));
+        DB::table('orders')->insert($this->rowFor('orders', $row));
 
         return $orderId;
     }
@@ -174,7 +174,7 @@ class ChannelOrderMaterializer
         $unitPrice = $this->stored((float) $line->unit_price);
         $taxModel = $mapping->prices_include_tax === false ? 'exclude' : 'include';
 
-        $detailId = DB::table('order_details')->insertGetId($this->onlyKnownColumns('order_details', [
+        $detailId = DB::table('order_details')->insertGetId($this->rowFor('order_details', [
             'order_id' => $orderId,
             'product_id' => $line->product_id,
             'seller_id' => $product['user_id'] ?? 1,
@@ -205,11 +205,32 @@ class ChannelOrderMaterializer
     }
 
     /**
+     * The row as the platform's table can take it: only the columns it has. A column the table insists on (not null, no default) that this version does not fill refuses the dispatch BEFORE
+     * anything is written, with the names, instead of failing half way inside the database; the platform's own table is the platform's to change.
+     *
      * @param array<string, mixed> $row
      * @return array<string, mixed>
+     * @throws DispatchRefused
      */
-    private function onlyKnownColumns(string $table, array $row): array
+    private function rowFor(string $table, array $row): array
     {
-        return array_intersect_key($row, array_flip(Schema::getColumnListing($table)));
+        $known = array_intersect_key($row, array_flip(Schema::getColumnListing($table)));
+        $unfilled = $this->unfilledRequiredColumns($table, $known);
+        if ($unfilled !== []) {
+            throw new DispatchRefused('orders_table_not_supported:' . implode(',', array_slice($unfilled, 0, 4)));
+        }
+
+        return $known;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return list<string> the columns of the table that need a value and are not in the row
+     */
+    public function unfilledRequiredColumns(string $table, array $row): array
+    {
+        return collect(Schema::getColumns($table))
+            ->filter(static fn (array $column): bool => !$column['nullable'] && $column['default'] === null && !$column['auto_increment'] && empty($column['generation']) && !array_key_exists($column['name'], $row))
+            ->pluck('name')->all();
     }
 }

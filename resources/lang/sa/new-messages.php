@@ -4206,6 +4206,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'dispatch_reason_channel_capability_off' => 'أُوقفت صلاحية الإرسال في الحساب أثناء المحاولة',
 	'dispatch_reason_channel_global_off' => 'أُوقفت وحدة قنوات البيع أثناء المحاولة',
 	'dispatch_reason_channel_auth_needed' => 'يحتاج اتصال الحساب إلى اختبار جديد',
+	'dispatch_reason_orders_table_not_supported' => 'جدول الطلبات في المنصة يتطلب أعمدة لا تملؤها هذه النسخة (لم يُكتب شيء)',
 	'dispatch_reason_buyer_data_expired' => 'حُذفت بيانات المشتري؛ أرسل الطلب مجددًا لقراءتها من جديد',
 	'order_reason_managed_shipment_failed' => 'فشلت شحنة المزوّد؛ يلزم تدخل شخص',
 	'order_reason_managed_shipment_cancelled' => 'أُلغيت شحنة المزوّد والطلب ما زال مفتوحًا',

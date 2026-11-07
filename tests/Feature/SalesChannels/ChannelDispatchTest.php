@@ -15,8 +15,10 @@ use App\Models\SalesChannelAccount;
 use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
+use App\Services\SalesChannels\Dispatch\ChannelOrderMaterializer;
 use App\Services\SalesChannels\Dispatch\DispatchOutcome;
 use App\Services\SalesChannels\Support\ChannelOperations;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -297,6 +299,20 @@ class ChannelDispatchTest extends DispatchTestCase
         $this->assertSame([FulfillmentStatus::Submitted, 'O-TOROD-1'], [$fulfillment->fresh()->status, $fulfillment->fresh()->provider_reference]);
         $this->assertSame(1, count($this->torod->submitted));
         $this->assertSame(1, ProviderFulfillment::count());
+    }
+
+    public function test_a_column_the_platforms_table_insists_on_is_found_before_anything_is_written(): void
+    {
+        Schema::create('probe_orders', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('must_have');
+            $table->string('has_default')->default('x');
+            $table->string('may_be_empty')->nullable();
+        });
+        $materializer = app(ChannelOrderMaterializer::class);
+
+        $this->assertSame(['must_have'], $materializer->unfilledRequiredColumns('probe_orders', ['has_default' => 'y']));
+        $this->assertSame([], $materializer->unfilledRequiredColumns('probe_orders', ['must_have' => 'z']));
     }
 
     public function test_only_the_buyer_registered_operations_read_the_recipient(): void
