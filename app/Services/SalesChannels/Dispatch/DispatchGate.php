@@ -85,8 +85,13 @@ class DispatchGate
         if ($mapping->fulfillmentMode()->isFulfilledByChannel() || $mapping->fulfillmentMode()->value === 'unknown') {
             $blockers[] = 'fulfilment_not_ours';
         }
-        if ((bool) (((array) $mapping->snapshot)['is_cod'] ?? false)) {
+        $snapshot = (array) $mapping->snapshot;
+        $paidHow = (string) ($snapshot['payment_method'] ?? '');
+        if (($snapshot['is_cod'] ?? null) === true || preg_match('/cod|cash/i', $paidHow) === 1) {
             $blockers[] = 'cash_on_delivery_not_supported';
+        } elseif (!array_key_exists('is_cod', $snapshot) || ($mapping->sales_channel === 'amazon' && $paidHow === '')) {
+            // The order is made as already paid: that is only said when the channel said how it was paid.
+            $blockers[] = 'payment_method_unknown';
         }
         if (strtoupper((string) (((array) $mapping->snapshot)['destination']['country'] ?? '')) !== 'SA') {
             $blockers[] = 'destination_not_supported';

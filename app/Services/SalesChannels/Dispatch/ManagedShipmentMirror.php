@@ -24,10 +24,11 @@ use Illuminate\Support\Facades\Schema;
  *  - the provider accepted the shipment: the order is LINKED to it, so the stock reservation commits, the channel can be told the tracking number, and a later search of the
  *    provider's own list finds the shipment already owned by this order (the reference is unique per provider);
  *  - the fulfilment failed or was cancelled while the channel order is still open: nothing is retried here, the order is flagged for a person;
- *  - the channel cancelled the order: the internal order is closed, which is what makes the platform cancel (or drop) the shipment by its own rules; a shipment already on the road is
- *    left alone and flagged, because only a person can stop a parcel.
+ *  - the channel cancelled the order: the internal order is closed, which is what makes the platform cancel (or drop) the shipment by its own rules. The cancellation counts as done only when
+ *    the fulfilment says the provider stopped it: a provider that holds the shipment and cannot be asked to cancel (M5AZN has no cancel call) leaves the order flagged for a person, and a parcel
+ *    already on the road is flagged too, because only a person can stop a parcel.
  *
- * Safe to run as often as you like.
+ * Safe to run as often as you like, and fair: every run takes the orders it looked at longest ago, so orders that need a person never keep newer ones out of the window.
  */
 class ManagedShipmentMirror
 {
@@ -40,9 +41,10 @@ class ManagedShipmentMirror
     public const REASON_FAILED = 'managed_shipment_failed';
     public const REASON_CANCELLED = 'managed_shipment_cancelled';
     public const REASON_CANCELLED_AFTER_DISPATCH = 'cancelled_after_dispatch';
+    public const REASON_CANCEL_NOT_CONFIRMED = 'managed_cancel_not_confirmed';
     public const REASON_LINKED_ELSEWHERE = 'shipment_linked_elsewhere';
 
-    private const OWN_REASONS = [self::REASON_FAILED, self::REASON_CANCELLED, self::REASON_CANCELLED_AFTER_DISPATCH];
+    private const OWN_REASONS = [self::REASON_FAILED, self::REASON_CANCELLED, self::REASON_CANCELLED_AFTER_DISPATCH, self::REASON_CANCEL_NOT_CONFIRMED];
 
     public function __construct(
         private readonly ChannelOrderReservations $reservations,
@@ -60,10 +62,14 @@ class ManagedShipmentMirror
             ->where('execution_policy', ExecutionPolicy::Managed->value)
             ->whereNotNull('order_id')
             ->where(static fn ($query) => $query->whereNull('shipment_status')->orWhereNotIn('shipment_status', FulfillmentStatus::terminalValues()))
-            ->orderBy('id')->limit($limit)->get();
+            ->whereNotExists(static fn ($settled) => $settled->select(DB::raw(1))->from('channel_order_dispatches as dispatches')
+                ->whereColumn('dispatches.mapping_id', 'external_order_mappings.id')->where('dispatches.state', DispatchState::Cancelled->value))
+            ->orderByRaw('(shipment_checked_at IS NULL) DESC')->orderBy('shipment_checked_at')->orderBy('id')
+            ->limit($limit)->get();
 
         foreach ($open as $mapping) {
             $counts[$this->mirror($mapping)]++;
+            ExternalOrderMapping::whereKey($mapping->id)->update(['shipment_checked_at' => now()]);
         }
 
         return $counts;
@@ -132,7 +138,7 @@ class ManagedShipmentMirror
         }
 
         if ($firstLink) {
-            ChannelOrderDispatch::where('mapping_id', $mapping->id)->update(['state' => DispatchState::Accepted->value, 'accepted_at' => now()]);
+            ChannelOrderDispatch::where('mapping_id', $mapping->id)->update(['state' => DispatchState::Accepted->value, 'accepted_at' => now(), 'closed_at' => null]);
             $this->audit->record(action: 'sales_channel.managed_shipment_linked', subject: $mapping, context: ['mapping_id' => $mapping->id, 'provider' => $fulfillment->provider, 'reference' => $fulfillment->provider_reference, 'internal_order_id' => $mapping->order_id]);
             // The provider holds the order now: its units are committed, and count only until the provider's own stock figure has caught up.
             $this->reservations->sync($mapping);
@@ -143,24 +149,35 @@ class ManagedShipmentMirror
 
     private function mirrorCancellation(ExternalOrderMapping $mapping, ProviderFulfillment $fulfillment, ?int &$cancelledOrderId): string
     {
+        $status = $fulfillment->status;
         $order = DB::table('orders')->where('id', $mapping->order_id)->lockForUpdate()->first(['id', 'order_status']);
-        if ($order === null || in_array($order->order_status, OrderEligibility::CLOSED_STATUSES, true)) {
-            $this->reservations->sync($mapping);
-            ChannelOrderDispatch::where('mapping_id', $mapping->id)->update(['state' => DispatchState::Cancelled->value]);
+        $closed = $order === null || in_array($order->order_status, OrderEligibility::CLOSED_STATUSES, true);
+        $providerHolds = $status->isAcceptedByProvider() && $status !== FulfillmentStatus::Cancelled;
 
-            return self::UNTOUCHED;
-        }
-        if ($fulfillment->status->rank() >= FulfillmentStatus::InTransit->rank()) {
+        if ($providerHolds && $status->rank() >= FulfillmentStatus::InTransit->rank()) {
             return $this->flag($mapping, self::REASON_CANCELLED_AFTER_DISPATCH, DispatchState::Failed);
         }
-
-        DB::table('orders')->where('id', $order->id)->update(array_intersect_key(['order_status' => 'canceled', 'updated_at' => now()], array_flip(Schema::getColumnListing('orders'))));
-        ChannelOrderDispatch::where('mapping_id', $mapping->id)->update(['state' => DispatchState::Cancelled->value]);
-        $this->audit->record(action: 'sales_channel.managed_order_cancelled', subject: $mapping, context: ['mapping_id' => $mapping->id, 'internal_order_id' => $order->id, 'fulfillment_status' => $fulfillment->status->value]);
+        if (!$closed) {
+            DB::table('orders')->where('id', $order->id)->update(array_intersect_key(['order_status' => 'canceled', 'updated_at' => now()], array_flip(Schema::getColumnListing('orders'))));
+            $this->audit->record(action: 'sales_channel.managed_order_cancelled', subject: $mapping, context: ['mapping_id' => $mapping->id, 'internal_order_id' => $order->id, 'fulfillment_status' => $status->value]);
+            $cancelledOrderId = (int) $order->id;
+        }
         $this->reservations->sync($mapping);
-        $cancelledOrderId = (int) $order->id;
 
-        return self::CANCELLED;
+        // The provider holds the shipment and nothing says it was stopped: the order is closed here, but only a person can make sure the parcel does not go out.
+        if ($providerHolds) {
+            $outcome = $this->flag($mapping, self::REASON_CANCEL_NOT_CONFIRMED, DispatchState::Accepted);
+
+            return $closed ? $outcome : self::CANCELLED;
+        }
+
+        $changed = $this->markDispatch($mapping->id, DispatchState::Cancelled);
+        if (in_array($mapping->review_reason, [self::REASON_CANCEL_NOT_CONFIRMED, self::REASON_FAILED, self::REASON_CANCELLED], true)) {
+            $mapping->forceFill(['review_reason' => null])->save();
+            $changed = true;
+        }
+
+        return $changed || $cancelledOrderId !== null ? self::CANCELLED : self::UNTOUCHED;
     }
 
     private function flag(ExternalOrderMapping $mapping, string $reason, DispatchState $dispatchState, ?string $linkState = null): string
@@ -169,10 +186,24 @@ class ManagedShipmentMirror
             return self::UNTOUCHED;
         }
         $mapping->forceFill(array_filter(['review_reason' => $reason, 'shipment_link_state' => $linkState]))->save();
-        ChannelOrderDispatch::where('mapping_id', $mapping->id)->update(['state' => $dispatchState->value]);
+        $this->markDispatch($mapping->id, $dispatchState);
         $this->audit->record(action: 'sales_channel.managed_shipment_flagged', subject: $mapping, context: ['mapping_id' => $mapping->id, 'reason' => $reason]);
 
         return self::ATTENTION;
+    }
+
+    /**
+     * Writes the state only when it changes, so that a sweep that finds nothing new leaves no trace (the row's own times are what the retention rules and the sweeps read), and starts the
+     * clock the buyer's details are kept against the first time the order ends without a shipment.
+     */
+    private function markDispatch(int $mappingId, DispatchState $state): bool
+    {
+        $changed = ChannelOrderDispatch::where('mapping_id', $mappingId)->where('state', '!=', $state->value)->update(['state' => $state->value]) > 0;
+        if (in_array($state, [DispatchState::Cancelled, DispatchState::Failed], true)) {
+            ChannelOrderDispatch::where('mapping_id', $mappingId)->whereNull('closed_at')->update(['closed_at' => now()]);
+        }
+
+        return $changed;
     }
 
     /** @param array<string, mixed> $fields */

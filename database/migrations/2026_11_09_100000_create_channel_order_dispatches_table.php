@@ -35,6 +35,8 @@ return new class extends Migration
             $table->unsignedBigInteger('internal_order_id')->nullable()->unique();
             $table->timestamp('materialized_at')->nullable();
             $table->timestamp('accepted_at')->nullable();
+            // When the order ended without a shipment that is still wanted (cancelled at the channel, or the fulfilment failed): the clock the buyer's details are kept against.
+            $table->timestamp('closed_at')->nullable();
             $table->timestamp('buyer_data_purged_at')->nullable();
             $table->unsignedBigInteger('requested_by')->nullable();
             // manual: a person asked; auto: the scheduled run did.

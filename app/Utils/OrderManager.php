@@ -48,6 +48,7 @@ use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
 use App\Services\Address\OrderAddressService;
 
@@ -101,8 +102,15 @@ class OrderManager
         // amount changed with atomic increment/decrement, so the old unlocked absolute write
         // (current_stock +/- qty from a stale read) can no longer lose a concurrent update or go negative.
         $restoring = in_array($status, ['returned', 'failed', 'canceled'], true);
+        // An order made for a channel order took nothing from the store's stock and has nothing to give back: its lines only follow the status.
+        $holdsNoStock = ChannelOrderMarker::holdsNoStock($order);
 
         foreach ($order->details as $detail) {
+            if ($holdsNoStock) {
+                OrderDetail::where('id', $detail['id'])->update(['delivery_status' => $status]);
+                continue;
+            }
+
             DB::transaction(function () use ($detail, $status, $restoring) {
                 $fromFlag = $restoring ? 1 : 0;
                 $toFlag = $restoring ? 0 : 1;

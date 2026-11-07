@@ -14,8 +14,10 @@ use App\Models\ProviderProductMapping;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Dispatch\ChannelOrderDispatcher;
+use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use App\Services\SalesChannels\Routing\DynamicFulfillmentRoutingEngine;
+use App\Services\SalesChannels\Support\PlatformSchemaCheck;
 use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Factory;
@@ -41,6 +43,9 @@ trait BuildsDispatchWorld
 
     protected SalesChannelAccount $account;
 
+    /** @var array<string, string> package id => order number, of the orders placed so far */
+    protected array $placedOrders = [];
+
     protected InventoryLocation $torodLocation;
 
     /** Everything the dispatch tests need once the platform's own test schema and provider setup exist. */
@@ -49,6 +54,8 @@ trait BuildsDispatchWorld
         $this->runSalesChannelMigrations();
         // The platform's own default for this column is 1: units never taken off the store's stock must not be given back by a cancellation.
         Schema::table('order_details', static fn (Blueprint $table) => $table->boolean('is_stock_decreased')->default(true));
+        $this->addTheColumnsTheRealTablesHave();
+        ChannelOrderMarker::forget();
         Schema::create('audit_logs', static function (Blueprint $table): void {
             $table->id();
             $table->string('actor_type')->nullable();
@@ -86,6 +93,21 @@ trait BuildsDispatchWorld
     }
 
 
+    /** The test schema is rebuilt from the code and lacks columns the real tables have; the dispatcher writes them when they exist, so the tables are given the ones it names (nullable, as a dump's are not guaranteed to be). */
+    protected function addTheColumnsTheRealTablesHave(): void
+    {
+        $types = ['verification_code' => 'integer', 'is_guest' => 'boolean', 'shipping_address' => 'integer', 'billing_address' => 'integer', 'product_details' => 'text', 'variation' => 'text',
+            'discount_amount' => 'decimal', 'init_order_amount' => 'decimal', 'total_tax_amount' => 'decimal', 'shipping_cost' => 'decimal', 'tax' => 'decimal', 'discount' => 'decimal'];
+        foreach (['orders', 'order_details'] as $table) {
+            $named = [...PlatformSchemaCheck::TABLES[$table]['columns'], ...PlatformSchemaCheck::TABLES[$table]['optional']];
+            foreach (array_diff($named, Schema::getColumnListing($table)) as $column) {
+                Schema::table($table, static function (Blueprint $blueprint) use ($column, $types): void {
+                    ($types[$column] ?? 'string') === 'decimal' ? $blueprint->decimal($column, 24, 6)->nullable() : $blueprint->{$types[$column] ?? 'string'}($column)->nullable();
+                });
+            }
+        }
+    }
+
     protected function approveAtTorod(int $productId): void
     {
         ProviderProductMapping::create([
@@ -94,16 +116,22 @@ trait BuildsDispatchWorld
         ]);
     }
 
+    /** The channel answers for whichever package is asked about: the one of the order placed with that package id (the default order when none was placed). */
     protected function recipientAnswers(array $packageOverrides = []): void
     {
         Http::swap(new Factory());
         Http::preventStrayRequests();
-        Http::fake([self::TY . '/order/*' => Http::response(Trendyol::stream([Trendyol::package($packageOverrides)]))]);
+        Http::fake([self::TY . '/order/*' => function ($request) use ($packageOverrides) {
+            $package = (string) ($request->data()['shipmentPackageIds'] ?? '3012345678');
+
+            return Http::response(Trendyol::stream([Trendyol::package(['shipmentPackageId' => (int) $package, 'shipmentNumber' => (int) $package, 'orderNumber' => $this->placedOrders[$package] ?? '10234567890'] + $packageOverrides)]));
+        }]);
     }
 
     protected function placed(array $overrides = [], string $orderId = '10234567890', string $package = '3012345678'): ExternalOrderMapping
     {
         $order = $this->remoteOrder($orderId, $package, ChannelOrderStatus::New, [$this->remoteLine('L1', 'SKU-1', 'SKU-1', 2, '200')], overrides: $overrides + ['fulfillmentChannelRaw' => 'seller_pays', 'fulfillmentMode' => FulfillmentMode::MerchantManaged]);
+        $this->placedOrders[$package] = $orderId;
         $mapping = app(ChannelOrderIngestor::class)->ingest($this->account, $order)->mapping;
         app(DynamicFulfillmentRoutingEngine::class)->route($mapping->refresh());
 

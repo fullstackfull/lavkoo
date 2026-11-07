@@ -93,7 +93,7 @@ class BuyerDataPurgerTest extends DispatchTestCase
         $this->assertStringContainsString(self::NAME, (string) DB::table('orders')->where('id', $second->internalOrderId)->value('shipping_address_data'), 'the buyer was read afresh');
     }
 
-    public function test_a_shipment_whose_send_outcome_is_unknown_or_that_the_provider_holds_is_never_reset(): void
+    public function test_a_shipment_whose_send_outcome_is_unknown_is_never_touched_and_one_the_provider_holds_is_wiped_in_place_never_reset(): void
     {
         [$mapping, $fulfillment] = $this->routed();
         $this->travel(80)->hours();
@@ -102,16 +102,18 @@ class BuyerDataPurgerTest extends DispatchTestCase
         $this->assertSame(1, $this->purger()->run()[BuyerDataPurger::SKIPPED]);
         $fulfillment->forceFill(['status' => FulfillmentStatus::Dispatching])->save();
         $this->assertSame(1, $this->purger()->run()[BuyerDataPurger::SKIPPED]);
+        $this->assertStringContainsString(self::NAME, $this->address($mapping));
         $fulfillment->forceFill(['status' => FulfillmentStatus::Submitted])->save();
-        $this->assertSame(1, $this->purger()->run()[BuyerDataPurger::SKIPPED]);
+        $this->assertSame(1, $this->purger()->run()[BuyerDataPurger::PURGED]);
 
-        $this->assertSame([(int) $mapping->order_id, true], [$mapping->refresh()->order_id, str_contains($this->address($mapping), self::NAME)]);
+        $this->assertNotNull($mapping->refresh()->order_id, 'the provider holds the shipment: the order stays what it is');
+        $this->assertStringNotContainsString(self::NAME, $this->address($mapping));
     }
 
     public function test_a_cancelled_order_is_purged_after_the_grace_period_too(): void
     {
         [$mapping] = $this->routed();
-        ChannelOrderDispatch::query()->update(['state' => DispatchState::Cancelled->value]);
+        ChannelOrderDispatch::query()->update(['state' => DispatchState::Cancelled->value, 'closed_at' => now()]);
 
         $this->travel(25)->hours();
 

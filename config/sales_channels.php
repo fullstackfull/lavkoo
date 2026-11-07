@@ -196,6 +196,8 @@ return [
         'retain_after_accept_hours' => 24,
         // An order nothing has been sent for (a rehearsal in dry run, or a send that keeps failing) keeps them no longer than this; it is then closed and the channel order waits to be dispatched again.
         'rehearsal_buyer_data_hours' => 72,
+        // The most any order keeps them, whatever state it is in (a send whose outcome was never settled included).
+        'max_buyer_data_days' => 30,
     ],
 
     // The class that speaks to each channel. A new channel is a connector class added here.
