@@ -289,8 +289,14 @@ class TorodWebhookTest extends TorodTestCase
         $result = $this->receive('lastmile', $this->productionPayload('DELIVERED_TO_RECIPIENT'));
 
         $this->assertSame(EventOutcome::IGNORED_UNMATCHED, $result['outcome']);
-        $this->assertSame(FulfillmentStatus::Submitted, $byPackage->fresh()->status);
-        $this->assertSame(FulfillmentStatus::Submitted, $byWarehouseBarcode->fresh()->status);
+        foreach ([$byPackage, $byWarehouseBarcode] as $shipment) {
+            $fresh = $shipment->fresh();
+            $this->assertSame(FulfillmentStatus::Submitted, $fresh->status);
+            $this->assertNull($fresh->delivered_at);
+            $this->assertNull($fresh->provider_internal_id, 'a refused event teaches nothing');
+        }
+        $this->assertSame(self::PACKAGE_BARCODE, $byPackage->fresh()->provider_secondary_reference);
+        $this->assertNull($byWarehouseBarcode->fresh()->provider_secondary_reference, 'the package stays with the shipment that carries it');
         Http::assertNothingSent();
     }
 
@@ -327,6 +333,62 @@ class TorodWebhookTest extends TorodTestCase
         $this->assertNull($ours->fresh()->provider_secondary_reference, 'that package belongs to the other shipment and stays there');
         $this->assertNull($ours->fresh()->tracking_number);
         $this->assertSame(self::PACKAGE_BARCODE, $theirs->fresh()->provider_secondary_reference);
+    }
+
+    public function test_a_known_package_barcode_with_our_invoice_number_is_accepted(): void
+    {
+        $fulfillment = $this->submitted(
+            ['provider_secondary_reference' => self::PACKAGE_BARCODE, 'provider_reference' => self::WAREHOUSE_BARCODE],
+            orderId: 100002,
+        );
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->productionPayload('OUT_FOR_DELIVERY'));
+
+        $this->assertSame(EventOutcome::APPLIED, $result['outcome'], 'the package is ours and the number is one of ours');
+        $this->assertSame(FulfillmentStatus::OutForDelivery, $fulfillment->fresh()->status);
+    }
+
+    /**
+     * The barcode fits a shipment of ours and the invoice number belongs to no order of ours at all. The number is the one field
+     * of the body that says WHICH order the event is about, so it contradicts the barcode: the event is not applied, and
+     * nothing is learned from it either.
+     */
+    public function test_a_known_package_barcode_with_an_invoice_number_we_do_not_know_is_refused_and_changes_nothing(): void
+    {
+        $fulfillment = $this->submitted(['provider_secondary_reference' => self::PACKAGE_BARCODE], orderId: 100002);
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->lastmilePayload(
+            'DELIVERED_TO_RECIPIENT',
+            barcode: self::PACKAGE_BARCODE,
+            extra: ['invoiceNumber' => 'O0714009999999'],
+        ));
+
+        $this->assertSame(EventOutcome::IGNORED_UNMATCHED, $result['outcome']);
+        $this->assertSame('no_fulfillment_for_references', ProviderFulfillmentEvent::query()->latest('id')->first()->outcome_note);
+        $fresh = $fulfillment->fresh();
+        $this->assertSame(FulfillmentStatus::Submitted, $fresh->status);
+        $this->assertNull($fresh->delivered_at);
+        $this->assertSame(self::PACKAGE_BARCODE, $fresh->provider_secondary_reference, 'the references it had are the references it has');
+        $this->assertSame('O0015030400001', $fresh->provider_reference);
+        $this->assertNull($fresh->provider_internal_id, 'and the package id the body carried was not learned');
+        Http::assertNothingSent();
+    }
+
+    public function test_a_body_with_no_invoice_number_is_still_matched_by_a_known_package_barcode(): void
+    {
+        $fulfillment = $this->submitted(['provider_secondary_reference' => self::PACKAGE_BARCODE], orderId: 100002);
+        Http::fake();
+
+        $result = $this->receive('lastmile', $this->lastmilePayload(
+            'OUT_FOR_DELIVERY',
+            barcode: self::PACKAGE_BARCODE,
+            extra: ['invoiceNumber' => null],
+        ));
+
+        $this->assertSame(EventOutcome::APPLIED, $result['outcome'], 'a body that names no order at all is still matched by the package we hold');
+        $this->assertSame(FulfillmentStatus::OutForDelivery, $fulfillment->fresh()->status);
     }
 
     public function test_a_package_reporting_different_cash_than_we_asked_for_does_not_confirm_a_claim(): void
