@@ -43,7 +43,8 @@ return [
         'max_body_bytes' => 8192,
     ],
 
-    // Our own pacing, kept a little under each channel's published limit so the channel's 429 is the exception. A fixed window: `max` calls per `per_seconds`.
+    // Our own pacing: at or a little under each channel's published limit (equal for Amazon listings, FBA inventory, transactions and confirmShipment; lower for order search, feeds and the Trendyol default),
+    // so the channel's 429 is the exception. A fixed window: `max` calls per `per_seconds`.
     // `bucket` makes operations that the channel counts together share one allowance (the connection test's order probe uses the order search's).
     'rate_limits' => [
         'trendyol' => [
@@ -91,7 +92,7 @@ return [
                 'amazon.probe_participations' => ['max' => 10, 'per_seconds' => 900],
                 'amazon.reports_create' => ['max' => 10, 'per_seconds' => 900],
                 'amazon.reports_document' => ['max' => 10, 'per_seconds' => 900],
-                'amazon.feeds_create' => ['max' => 4, 'per_seconds' => 300],
+                'amazon.feeds_create' => ['max' => 2, 'per_seconds' => 300],
                 'amazon.feeds_create_document' => ['max' => 10, 'per_seconds' => 20],
             ],
         ],

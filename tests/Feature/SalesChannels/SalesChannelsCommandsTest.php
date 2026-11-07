@@ -126,7 +126,7 @@ class SalesChannelsCommandsTest extends TestCase
     public function test_a_connection_test_that_meets_our_own_call_allowance_says_so_and_leaves_the_account_as_it_was(): void
     {
         $account = $this->trendyolAccount();
-        config(['sales_channels.rate_limits.trendyol.operations' => ['trendyol.probe_orders' => ['max' => 0, 'per_seconds' => 3600]] + config('sales_channels.rate_limits.trendyol.operations')]);
+        config(['sales_channels.rate_limits.trendyol.operations' => ['trendyol.probe_orders' => ['max' => 0, 'per_seconds' => 3600]] + config('sales_channels.rate_limits.trendyol.operations'), 'sales_channels.http.max_wait_seconds' => 0]);
         Http::fake();
 
         $this->artisan('channels:test-connection', ['account' => $account->id])->expectsOutputToContain('allowance is used up')->assertFailed();

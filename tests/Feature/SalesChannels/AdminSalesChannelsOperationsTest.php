@@ -103,7 +103,7 @@ class AdminSalesChannelsOperationsTest extends AdminSalesChannelsTestCase
     public function test_a_test_that_meets_our_own_call_allowance_is_a_failed_test_not_a_server_error(): void
     {
         $account = $this->trendyolAccount(['connection_test']);
-        config(['sales_channels.rate_limits.trendyol.operations' => ['trendyol.probe_orders' => ['max' => 0, 'per_seconds' => 3600]] + config('sales_channels.rate_limits.trendyol.operations')]);
+        config(['sales_channels.rate_limits.trendyol.operations' => ['trendyol.probe_orders' => ['max' => 0, 'per_seconds' => 3600]] + config('sales_channels.rate_limits.trendyol.operations'), 'sales_channels.http.max_wait_seconds' => 0]);
         $this->fakeOnly([self::TY . '/*' => Http::response(Trendyol::stream([]))]);
 
         $this->post(route('admin.sales-channels.accounts.test', $account))->assertRedirect(route('admin.sales-channels.accounts.show', $account));
