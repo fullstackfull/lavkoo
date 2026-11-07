@@ -18,6 +18,7 @@ class ChannelUnavailableException extends RuntimeException
     public const NOT_APPROVED = 'not_approved';
     public const UNREGISTERED_OPERATION = 'unregistered_operation';
     public const AUTH_NEEDED = 'auth_needed';
+    public const BUYER_DATA_OFF = 'buyer_data_off';
 
     public function __construct(public readonly string $reason, string $message)
     {

@@ -37,13 +37,14 @@ class ChannelAccountService
     public const CONNECTION_FRESH_DAYS = 30;
 
     /** Approvals a person can record besides the write capabilities themselves. */
-    public const EXTRA_SCOPES = [ChannelOperations::SCOPE_PRODUCT_WRITES, ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT, ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT];
+    public const EXTRA_SCOPES = [ChannelOperations::SCOPE_PRODUCT_WRITES, ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT, ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT, ChannelOperations::SCOPE_BUYER_DATA_TRANSFER];
 
     /** The capability each of those approvals belongs to: switching the capability off withdraws the approval with it. */
     private const SCOPE_CAPABILITY = [
         ChannelOperations::SCOPE_PRODUCT_WRITES => IntegrationCapability::ProductSync,
         ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT => IntegrationCapability::OrderImport,
         ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT => IntegrationCapability::OrderImport,
+        ChannelOperations::SCOPE_BUYER_DATA_TRANSFER => IntegrationCapability::FulfillmentDispatch,
     ];
 
     public function __construct(

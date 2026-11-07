@@ -130,6 +130,10 @@ class ChannelHttp
             throw new ChannelUnavailableException(ChannelUnavailableException::CAPABILITY_OFF, "'{$operation}' needs one of: " . implode(', ', array_map(static fn (IntegrationCapability $item): string => $item->value, $allowed)) . ' switched on for this account; nothing was sent.');
         }
 
+        if (ChannelOperations::readsBuyerData($operation)) {
+            $this->assertBuyerDataMayBeRead($account, $operation);
+        }
+
         if ($kind !== ChannelOperations::WRITE) {
             return false;
         }
@@ -151,6 +155,17 @@ class ChannelHttp
         }
 
         return false;
+    }
+
+    /** @throws ChannelUnavailableException */
+    private function assertBuyerDataMayBeRead(SalesChannelAccount $account, string $operation): void
+    {
+        if (!config('sales_channels.buyer_data_transfer_enabled', false)) {
+            throw new ChannelUnavailableException(ChannelUnavailableException::BUYER_DATA_OFF, "Reading a buyer's details is switched off on this host (SALES_CHANNELS_BUYER_DATA_TRANSFER_ENABLED); '{$operation}' was not sent.");
+        }
+        if (empty(($account->capability_approvals ?? [])[ChannelOperations::SCOPE_BUYER_DATA_TRANSFER])) {
+            throw new ChannelUnavailableException(ChannelUnavailableException::NOT_APPROVED, "No master admin has approved reading buyer details for this account; '{$operation}' was not sent.");
+        }
     }
 
     /**

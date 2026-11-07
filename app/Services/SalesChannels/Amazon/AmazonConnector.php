@@ -5,6 +5,7 @@ namespace App\Services\SalesChannels\Amazon;
 use App\Enums\SalesChannels\ConnectionStatus;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
+use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
@@ -14,6 +15,7 @@ use App\Services\SalesChannels\Contracts\ReadsChannelInventory;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
+use App\Services\SalesChannels\Contracts\ReadsRecipient;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Data\Pages;
@@ -22,8 +24,10 @@ use App\Services\SalesChannels\Data\PublishUpdate;
 use App\Services\SalesChannels\Data\RemoteInventoryItem;
 use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\ShipmentConfirmation;
+use App\Services\SalesChannels\Dispatch\ChannelRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
+use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
 use App\Services\SalesChannels\Support\ChannelResponseGuard;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -36,7 +40,7 @@ use RuntimeException;
  * What it will not do: guess a field, ask for personal data it does not need, treat an order Amazon fulfils (FBA) or one that is not an Amazon channel's own
  * as ours to ship, or write anything unless the transport (ChannelHttp) lets the call out.
  */
-class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments
+class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments
 {
     private const LISTINGS_CAP = 1000;
 
@@ -274,6 +278,26 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         $this->assertOk($response, 'Amazon order lookup');
 
         return $this->orders->map((array) $response->get('order', []), $account);
+    }
+
+    public function recipient(SalesChannelAccount $account, ExternalOrderMapping $mapping): ChannelRecipient
+    {
+        try {
+            $response = $this->client->call($account, 'amazon.order_recipient', 'GET', '/orders/2026-01-01/orders/' . rawurlencode($mapping->external_order_id), ['includedData' => 'RECIPIENT,FULFILLMENT'], capability: IntegrationCapability::FulfillmentDispatch);
+        } catch (ChannelPermissionDenied) {
+            throw new RecipientUnavailable(RecipientUnavailable::NOT_PERMITTED);
+        }
+        if ($response->status === 404) {
+            throw new RecipientUnavailable(RecipientUnavailable::NOT_FOUND);
+        }
+        if (!$response->ok()) {
+            throw new RecipientUnavailable(RecipientUnavailable::CHANNEL_ERROR);
+        }
+
+        $recipient = AmazonRecipientMapper::map((array) $response->get('order', []));
+        $problems = $recipient->problems();
+
+        return $problems === [] ? $recipient : throw new RecipientUnavailable(RecipientUnavailable::INCOMPLETE, $problems);
     }
 
     /** @return list<string> */

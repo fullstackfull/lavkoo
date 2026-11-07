@@ -35,6 +35,9 @@ final class AmazonOperations
             // ---- orders (v2026-01-01) ----
             'amazon.orders_search' => Ops::read(capabilities: $orders, people: true),
             'amazon.order_get' => Ops::read(capabilities: $orders, people: true),
+            // The buyer's delivery address, only for an order we are about to ship through a provider: needs the buyer-data switch and a master admin's approval on top of the capability.
+            // The query is pinned so that this call can never ask for the buyer's own details, tax or payment data.
+            'amazon.order_recipient' => Ops::read(capabilities: [Capability::FulfillmentDispatch], buyerData: true, requiredQuery: ['includedData' => 'RECIPIENT,FULFILLMENT']),
             'amazon.order_confirm_shipment' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch'], people: true),
 
             // ---- listings, catalog, product types ----
