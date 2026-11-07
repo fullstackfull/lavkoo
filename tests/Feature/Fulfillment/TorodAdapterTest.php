@@ -431,7 +431,8 @@ class TorodAdapterTest extends TorodTestCase
         foreach (['الرياض', 'رياض', 'الرِّيَاض', 'Riyadh', 'RIYADH', ' riyadh '] as $written) {
             $this->assertSame('41125', $resolver->resolve($written)?->external_id, $written);
         }
-        $this->assertSame('41126', $resolver->resolve('Unknown', 'جدة')?->external_id, 'the state is the fallback');
+        $this->assertFalse($resolver->resolveForAddress(['city' => 'Unknown', 'state' => 'جدة'])->isResolved(), 'the state text names a region: it is never a second guess at the city');
+        $this->assertSame('41126', $resolver->resolveForAddress(['city' => 'جدة', 'state' => 'Riyadh'])->city?->external_id, 'and a region text never overrides a city that matches');
         $this->assertNull($resolver->resolve('Riyadh North'));
         $this->assertNull($resolver->resolve(''));
         $this->assertNull($resolver->resolve(null));
