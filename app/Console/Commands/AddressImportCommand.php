@@ -13,7 +13,8 @@ class AddressImportCommand extends Command
         {--apply : write the changes (without it the command only reports what it would do)}
         {--refresh-names : also overwrite the names of places that already exist (administrator edits to names are kept otherwise)}
         {--regions= : regions data file (default: the one shipped with the application)}
-        {--cities= : cities data file (default: the one shipped with the application)}';
+        {--cities= : cities data file (default: the one shipped with the application)}
+        {--aliases= : curated aliases data file (default: the one shipped with the application)}';
 
     protected $description = 'Load the region and city lists of the unified address from a data file (repeatable; never deletes)';
 
@@ -31,6 +32,7 @@ class AddressImportCommand extends Command
                 citiesPath: $this->option('cities') ?: config('address.seed.cities'),
                 apply: (bool) $this->option('apply'),
                 refreshNames: (bool) $this->option('refresh-names'),
+                aliasesPath: $this->option('aliases') ?: config('address.seed.aliases'),
             );
         } catch (InvalidArgumentException $exception) {
             $this->error($exception->getMessage());
@@ -39,7 +41,7 @@ class AddressImportCommand extends Command
         }
 
         $this->line($report['applied'] ? 'Applied.' : 'Dry run: nothing was written. Run again with --apply to write these changes.');
-        foreach (['regions', 'cities'] as $kind) {
+        foreach (['regions', 'cities', 'aliases'] as $kind) {
             $this->line(sprintf('%s: %s', $kind, json_encode($report[$kind])));
         }
         foreach (array_slice($report['problems'], 0, 20) as $problem) {

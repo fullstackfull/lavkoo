@@ -45,5 +45,6 @@ return [
     'seed' => [
         'regions' => database_path('data/address/regions.json'),
         'cities' => database_path('data/address/cities.json'),
+        'aliases' => database_path('data/address/aliases.json'),
     ],
 ];

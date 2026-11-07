@@ -1,0 +1,59 @@
+# Unified Saudi address — design
+
+**One central address system, extended — not a second one.** The store already had an address book (`shipping_addresses`), an immutable per-order copy
+(`orders.shipping_address_data` / `billing_address_data`), a checkout, an account book, panel editors, a REST API and a Torod Point integration. This feature adds structure to
+*those*, plus the one thing that was missing: a list of regions and cities with stable ids. Couriers, warehouses and marketplaces are mapped to that list; none of them owns a city list of its own.
+
+## What was found before changing anything
+
+* No region or city list existed anywhere: `shipping_addresses.city` was whatever the customer typed; every integration guessed from that text.
+* 14 writers of an address and 6 writers of the order snapshot; invoices and order pages read the snapshot, some pages joined the live address instead.
+* The ZIP is a free-text legacy column read by three restriction settings (default off) and by invoices/order pages only.
+* Torod's resolver matched the typed text against a city list cached from one API call that returned 10 cities, and refused (hold) anything ambiguous — which is why order `100002` is held
+  (`hold_city_unmapped`) and why Torod's two "Riyadh" rows (36189 / region 1204 and 230194 / region 1265) matched nothing.
+
+## Tables (all additive)
+
+| Table | Role |
+|---|---|
+| `address_regions` | the 13 regions (ids, names ar/en, ISO code, active, source + date) |
+| `address_cities` | places (id, region, names ar/en, centre, rank, active, source + source id + date). **Names are never unique keys** |
+| `address_city_aliases` | an administrator-confirmed spelling → exactly one city |
+| `shipping_addresses` (+4 nullable columns) | `region_id`, `city_id`, `district`, `national_address`; `city`, `state`, `country`, `zip`, `address` stay and are still written for old readers |
+| `provider_city_mappings` | provider-agnostic link *internal city → provider city id + region id*, with status, method, evidence, approver, date; **the database allows one approved mapping per provider and city** |
+| `provider_city_sync_runs` | every refresh of a provider's city list and whether it was complete |
+| `provider_cities` (+6 nullable columns) | what the provider says about each city (region names, prefix, selected flag, first/last seen) |
+
+No foreign keys to store tables, nothing renamed or dropped, no backfill in a migration. Rolling back drops only what this feature added.
+
+## Services
+
+`ShippingAddressService` (single write path) → `AddressCatalog` (regions/cities) · `NationalAddress` · `AddressSnapshot` (order copy and its readers) · `CheckoutAddressGuard` · `LegacyCityMatcher` ·
+`AddressSchema` (dormant-until-migrated, mode). Providers consume the central data through `ProviderCityMappingService`.
+
+## Mode (the switch an administrator controls)
+
+`off` (default) — nothing changes anywhere · `soft` — the website and the panels must use the structured address for Saudi addresses, the mobile app and older API clients may still send the old fields
+(those orders wait for review at fulfilment instead of failing) · `strict` — every client. The mode is forced to `off` when the migrations have not run, when no city exists (an empty list can
+never lock customers out) and — for `soft`/`strict` — while the ZIP allow-list restriction is on.
+
+## The flows
+
+* **Checkout / account / panels / API** — region (searchable) → city (filtered by region, cleared when the region changes, Arabic or English search, only ids from the store's own list) →
+  district → National Address; the legacy city and ZIP rows appear only for other countries. Server-side: region exists and is active, city belongs to that region and is active, National Address shape, Saudi
+  mobile, lengths, no provider ids accepted from clients, every address id scoped to its owner.
+* **Order** — the snapshot is built once from the address at that moment (all old keys, `zip` included, plus ids, National Address and the *names* of region and city then). Editing or renaming
+  afterwards never changes a past order.
+* **Old addresses** — kept as they are. A saved Saudi address without a city id is matched **only** when an administrator alias or exactly one city agrees; ambiguity, a region that points elsewhere, or no
+  candidate are never guessed. Reusing such an address at checkout requires completing it first (the app is exempt in `soft` mode).
+* **Shipping** — the provider adapter receives the order snapshot, finds the approved mapping for that internal city and sends the provider's own ids. No mapping, a pending one or several candidates ⇒ the
+  fulfilment is **held** with a reviewable reason; nothing is sent, nothing is guessed, no "nearest city". Preflight and submit read only the local database.
+
+## Security
+
+Server-side validation of country, region, city/region consistency, active flags, National Address, phone, lengths and Unicode; plain-integer ids; provider ids from clients ignored; owner-scoped lookups
+(fixing the existing IDOR fall-throughs in the checkout handlers); no addresses, phone numbers or National Addresses in logs or hold messages (city name only); staging scrubbing and log redaction cover the new keys.
+
+## Future integrations
+
+M5AZN/Amazon/Trendyol/Odoo reuse `provider_city_mappings` (a new `provider` value) and the snapshot; nothing in inventory, orders or shipping pricing changes for them.

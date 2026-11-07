@@ -8,7 +8,9 @@ use App\Services\Address\AddressCatalog;
 use App\Services\Address\AddressImporter;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressText;
+use App\Services\Address\LegacyCityMatcher;
 use App\Services\Address\NationalAddress;
+use App\Models\AddressCityAlias;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -266,9 +268,12 @@ class AddressDataLayerTest extends AddressTestCase
 
     public function test_the_shipped_data_files_are_valid_and_complete(): void
     {
-        $report = app(AddressImporter::class)->import(config('address.seed.regions'), config('address.seed.cities'), apply: true);
+        $report = $this->importShippedData();
 
         $this->assertSame([], $report['problems']);
+        $this->assertSame(57, $report['aliases']['created'] + $report['aliases']['unchanged'], 'every curated spelling is accounted for');
+        $this->assertSame($report['aliases']['created'], AddressCityAlias::count(), 'spellings that fold to the same key share one alias row');
+        $this->assertSame(0, AddressCityAlias::query()->whereNotIn('city_id', AddressCity::query()->select('id'))->count());
         $this->assertSame(13, AddressRegion::count());
         $this->assertSame(4581, AddressCity::count());
         $this->assertSame(0, AddressCity::query()->whereNotIn('region_id', AddressRegion::query()->select('id'))->count());
@@ -278,6 +283,74 @@ class AddressDataLayerTest extends AddressTestCase
         foreach (['الدمام', 'جدة', 'مكة المكرمة', 'المدينة المنورة', 'ابها', 'تبوك', 'بريدة', 'جازان', 'نجران', 'حائل'] as $major) {
             $this->assertGreaterThanOrEqual(1, AddressCity::where('name_ar', $major)->count(), $major);
         }
+    }
+
+    /** @return array<string, mixed> */
+    private function importShippedData(): array
+    {
+        return app(AddressImporter::class)->import(config('address.seed.regions'), config('address.seed.cities'), apply: true, aliasesPath: config('address.seed.aliases'));
+    }
+
+    #[DataProvider('commonSpellings')]
+    public function test_curated_aliases_settle_the_common_spellings_against_the_shipped_data(string $typed, ?string $expectedEnglish, ?string $expectedRegion, string $status): void
+    {
+        $this->importShippedData();
+
+        $match = app(LegacyCityMatcher::class)->match($typed);
+
+        $this->assertSame($status, $match->status->value, $typed);
+        $this->assertSame($expectedEnglish, $match->city?->name_en, $typed);
+        $this->assertSame($expectedRegion, $match->city?->region->name_en, $typed);
+    }
+
+    /** @return array<string, array{0: string, 1: ?string, 2: ?string, 3: string}> */
+    public static function commonSpellings(): array
+    {
+        return [
+            'riyadh arabic' => ['الرياض', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh with madinat' => ['مدينة الرياض', 'Riyadh', 'Riyadh', 'matched'],
+            'jeddah arabic (a village shares the name)' => ['جدة', 'Jeddah', 'Makkah', 'matched'],
+            'jeddah as written by a courier' => ['Jedda', 'Jeddah', 'Makkah', 'matched'],
+            'mecca' => ['Mecca', 'Makkah', 'Makkah', 'matched'],
+            'makkah short arabic' => ['مكة', 'Makkah', 'Makkah', 'matched'],
+            'medina' => ['Medina', 'Madinah', 'Madinah', 'matched'],
+            'hofuf arabic (a village shares the name)' => ['الهفوف', 'Al Hafuf', 'Eastern Province', 'matched'],
+            'khobar variant' => ['Al Khubar', 'Al Khobar', 'Eastern Province', 'matched'],
+            'khamis mushait' => ['Khamis Mushait', 'Khamis Mushayt', 'Asir', 'matched'],
+            'al majmaah' => ['المجمعة', "Al Majma'ah", 'Riyadh', 'matched'],
+            'al baha' => ['Al Baha', 'Bahah', 'Al Bahah', 'matched'],
+            'dhahran' => ['الظهران', 'Dhahran', 'Eastern Province', 'matched'],
+            'a spelling nobody has confirmed' => ['Jeddaah', null, null, 'none'],
+        ];
+    }
+
+    public function test_the_import_never_overrides_an_alias_an_administrator_set(): void
+    {
+        $importer = app(AddressImporter::class);
+        $importer->import(config('address.seed.regions'), config('address.seed.cities'), apply: true);
+        $jeddah = AddressCity::where('source_ref', '18')->value('id');
+        $makkah = AddressCity::where('source_ref', '6')->value('id');
+        AddressCityAlias::create(['city_id' => $makkah, 'alias' => 'Jiddah', 'normalized_alias' => AddressText::key('Jiddah'), 'source' => 'admin']);
+
+        $report = $importer->import(null, null, apply: true, aliasesPath: config('address.seed.aliases'));
+
+        $this->assertSame(1, $report['aliases']['skipped'], 'the clash is reported');
+        $this->assertSame($makkah, AddressCityAlias::where('normalized_alias', AddressText::key('Jiddah'))->value('city_id'), 'and the administrator keeps it');
+        $this->assertSame($jeddah, AddressCityAlias::where('normalized_alias', AddressText::key('Jedda'))->value('city_id'));
+    }
+
+    public function test_an_alias_dry_run_counts_without_writing_and_skips_unknown_cities(): void
+    {
+        $regions = $this->writeDataFile('regions', ['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
+        $cities = $this->writeDataFile('cities', ['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh']]], source: 'src');
+        $aliases = tempnam(sys_get_temp_dir(), 'addr_') . '.json';
+        file_put_contents($aliases, json_encode(['_meta' => ['source' => 'curated', 'city_source' => 'src'], 'aliases' => [['alias' => 'Riyad', 'city_ref' => '3'], ['alias' => 'Nowhere', 'city_ref' => '999']]]));
+
+        $dry = app(AddressImporter::class)->import($regions, $cities, apply: false, aliasesPath: $aliases);
+
+        $this->assertSame(1, $dry['aliases']['created']);
+        $this->assertSame(1, $dry['aliases']['skipped']);
+        $this->assertSame(0, AddressCityAlias::count());
     }
 
     /** @param array<string, mixed> $body */

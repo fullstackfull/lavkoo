@@ -3,6 +3,7 @@
 namespace App\Services\Address;
 
 use App\Models\AddressCity;
+use App\Models\AddressCityAlias;
 use App\Models\AddressRegion;
 use App\Services\AuditLogger;
 use Illuminate\Support\Carbon;
@@ -26,16 +27,17 @@ class AddressImporter
     }
 
     /**
-     * @return array{regions: array<string, int>, cities: array<string, int>, problems: list<string>, applied: bool}
+     * @return array{regions: array<string, int>, cities: array<string, int>, aliases: array<string, int>, problems: list<string>, applied: bool}
      */
-    public function import(?string $regionsPath, ?string $citiesPath, bool $apply, bool $refreshNames = false): array
+    public function import(?string $regionsPath, ?string $citiesPath, bool $apply, bool $refreshNames = false, ?string $aliasesPath = null): array
     {
-        $report = ['regions' => $this->emptyCounts(), 'cities' => $this->emptyCounts(), 'problems' => [], 'applied' => $apply];
+        $report = ['regions' => $this->emptyCounts(), 'cities' => $this->emptyCounts(), 'aliases' => $this->emptyCounts(), 'problems' => [], 'applied' => $apply];
 
         $regionsFile = $regionsPath === null ? null : $this->read($regionsPath, 'regions');
         $citiesFile = $citiesPath === null ? null : $this->read($citiesPath, 'cities');
+        $aliasesFile = $aliasesPath === null ? null : $this->read($aliasesPath, 'aliases');
 
-        $run = function () use (&$report, $regionsFile, $citiesFile, $apply, $refreshNames): void {
+        $run = function () use (&$report, $regionsFile, $citiesFile, $aliasesFile, $apply, $refreshNames): void {
             if ($regionsFile !== null) {
                 $report['regions'] = $this->importRegions($regionsFile, $apply, $refreshNames);
             }
@@ -44,14 +46,22 @@ class AddressImporter
                 [$report['cities'], $problems] = $this->importCities($citiesFile, $apply, $refreshNames, $announcedRegions);
                 array_push($report['problems'], ...$problems);
             }
+            if ($aliasesFile !== null) {
+                $announcedCities = $citiesFile !== null && ($citiesFile['_meta']['source'] ?? null) === ($aliasesFile['_meta']['city_source'] ?? null)
+                    ? array_map(static fn (array $row): string => (string) ($row['ref'] ?? ''), $citiesFile['cities'])
+                    : [];
+                [$report['aliases'], $problems] = $this->importAliases($aliasesFile, $apply, $announcedCities);
+                array_push($report['problems'], ...$problems);
+            }
         };
 
         $apply ? DB::transaction($run) : $run();
 
         if ($apply) {
-            $this->audit->record(action: 'address.imported', after: ['regions' => $report['regions'], 'cities' => $report['cities']], context: [
+            $this->audit->record(action: 'address.imported', after: ['regions' => $report['regions'], 'cities' => $report['cities'], 'aliases' => $report['aliases']], context: [
                 'regions_source' => $regionsFile['_meta']['source'] ?? null,
                 'cities_source' => $citiesFile['_meta']['source'] ?? null,
+                'aliases_source' => $aliasesFile['_meta']['source'] ?? null,
             ]);
             AddressSchema::flush();
         }
@@ -207,6 +217,49 @@ class AddressImporter
         }
 
         $counts['not_in_file'] = $existing->keys()->diff(array_keys($seen))->count();
+
+        return [$counts, $problems];
+    }
+
+    /**
+     * Curated alternative spellings. An alias an administrator already pointed at another city is never overridden.
+     *
+     * @param list<string> $announcedCities refs of the cities file of the same run: on a dry run they do not exist yet
+     * @return array{0: array<string, int>, 1: list<string>}
+     */
+    private function importAliases(array $file, bool $apply, array $announcedCities): array
+    {
+        $counts = $this->emptyCounts();
+        $problems = [];
+        $citySource = (string) ($file['_meta']['city_source'] ?? '');
+        $cityIds = AddressCity::query()->where('source', $citySource)->pluck('id', 'source_ref')->all();
+
+        foreach ($file['aliases'] as $row) {
+            $alias = $this->name($row['alias'] ?? null);
+            $key = AddressText::key($alias);
+            $cityRef = (string) ($row['city_ref'] ?? '');
+            $cityId = $cityIds[$cityRef] ?? (!$apply && in_array($cityRef, $announcedCities, true) ? 0 : null);
+
+            if ($key === '' || $cityId === null) {
+                $counts['skipped']++;
+                $problems[] = $key === '' ? 'alias without a name' : "alias {$alias}: city {$cityRef} is not in the city list";
+
+                continue;
+            }
+
+            $existing = AddressCityAlias::query()->where('normalized_alias', $key)->first();
+            if ($existing === null) {
+                $counts['created']++;
+                if ($apply) {
+                    AddressCityAlias::create(['city_id' => $cityId, 'alias' => $alias, 'normalized_alias' => $key, 'source' => 'curated']);
+                }
+            } elseif ($existing->city_id === $cityId) {
+                $counts['unchanged']++;
+            } else {
+                $counts['skipped']++;
+                $problems[] = "alias {$alias}: already points at another city, kept";
+            }
+        }
 
         return [$counts, $problems];
     }
