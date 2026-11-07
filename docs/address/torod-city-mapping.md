@@ -81,8 +81,8 @@ Because the paging behaviour of the Lastmile list is **not documented**, the cod
 ## Finding a city's candidates when the list is partial
 
 `php artisan address:discover-provider-cities torod_point --city=<our city id> [--city=…] [--held] [--apply]` (also the *Find candidates at Torod Point* button on the matching screen) asks Torod
-for the cities named like ours with the one filter the documentation promises (`search`), caches what it finds and proposes the exact-name ones. It is a **read** (`lastmile_cities`), a dry run by
-default, skips when the integration is switched off or not migrated, and only ever *proposes*: a discovery result is never "unique at Torod", because the search itself may be paged.
+for the cities named like ours with the one filter the documentation promises (`search`), caches what it finds and proposes the exact-name ones. It is a **read** (`lastmile_cities`, a GET) — without `--apply` it only asks Torod and reports, and it stores nothing — it skips when the
+integration is switched off or not migrated, and it only ever *proposes*: a discovery result is never "unique at Torod", because the search itself may be paged.
 
 ## What reaches Torod in the order payload
 
@@ -92,7 +92,7 @@ documents `nationalAddress` belongs to a different product. Torod Fulfillment or
 
 M5AZN keeps receiving a city *name* in `shipping_info.city`; it now receives our canonical Arabic name when the order has a structured city, the typed text otherwise.
 
-## Operating it on the pilot server (nothing below sends anything to Torod)
+## Operating it on the pilot server (only *reads* from Torod: nothing is created, sent or changed there)
 
 1. Deploy the files (no database change), then run the four address migrations by explicit `--path`, then `address:import` — see [deployment-runbook.md](deployment-runbook.md). **Restart the queue workers**
    afterwards: the "migrated" answer is remembered for the life of a process.
