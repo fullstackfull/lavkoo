@@ -110,6 +110,10 @@ class StockPricePublisher
         if ($mapping->fulfillment_mode === 'fba') {
             return 'fba_listing';
         }
+        // A quantity goes to the merchant-fulfilled offer (`DEFAULT`): on a listing whose offer Amazon did not describe that would start one, so only a listing known to have one takes it.
+        if ($account->channel === 'amazon' && $mapping->fulfillment_mode === null) {
+            return 'fulfillment_mode_unknown';
+        }
         $location = $policy->stockLocationId === null ? null : InventoryLocation::find($policy->stockLocationId);
         if ($location === null || !$location->is_active) {
             return 'no_stock_source';

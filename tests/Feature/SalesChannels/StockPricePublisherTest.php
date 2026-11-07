@@ -168,6 +168,29 @@ class StockPricePublisherTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_quantity_goes_only_to_amazon_listings_known_to_have_a_merchant_fulfilled_offer(): void
+    {
+        $this->stock(20);
+        $amazon = $this->amazonAccount();
+        foreach (['FBM-1' => 'fbm', 'BOTH-1' => 'both', 'UNKNOWN-1' => null, 'FBA-1' => 'fba'] as $key => $mode) {
+            SalesChannelProductMapping::create([
+                'account_id' => $amazon->id, 'product_id' => self::PRODUCT, 'listing_key' => $key, 'external_sku' => $key, 'status' => 'mapped', 'stock_location_id' => $this->own->id,
+                'inventory_publish' => true, 'fulfillment_mode' => $mode, 'snapshot' => ['product_type' => 'PRODUCT'],
+            ]);
+        }
+        Http::fake([
+            'https://api.amazon.com/*' => Http::response(['access_token' => 'tok', 'token_type' => 'bearer', 'expires_in' => 3600]),
+            'https://sellingpartnerapi-eu.amazon.com/*' => Http::response(['status' => 'ACCEPTED', 'submissionId' => 'sub-1', 'issues' => []]),
+        ]);
+
+        $result = $this->publisher->publishStock($amazon);
+
+        $this->assertEqualsCanonicalizing(['fba_listing' => 1, 'fulfillment_mode_unknown' => 1], $result['stats']['skipped']);
+        $patched = array_unique(array_map(static fn (Request $request): string => basename(parse_url($request->url(), PHP_URL_PATH)), $this->sentTo('/listings/2021-08-01/items/')));
+        sort($patched);
+        $this->assertSame(['BOTH-1', 'FBM-1'], $patched, 'Amazon FBA stock is Amazon\'s, and a listing whose offer Amazon did not describe is not given a merchant-fulfilled one.');
+    }
+
     public function test_nothing_is_published_for_a_listing_nobody_opted_in(): void
     {
         $this->stock(20);

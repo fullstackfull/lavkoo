@@ -3889,4 +3889,5 @@ ____________________________________________________on_search_engines_and_see_th
 	'location_source_provider' => 'المزوّد (يُقرأ من نظامه)',
 	'location_source_channel' => 'قناة البيع (كما تبلّغ عنه)',
 	'location_source_manual' => 'يدخله شخص',
+	'publish_skip_fulfillment_mode_unknown' => 'غير معروف أن لها عرضًا يُنفَّذ بواسطة التاجر: نشر الكمية سيُنشئ عرضًا كهذا',
 ];

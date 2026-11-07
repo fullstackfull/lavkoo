@@ -42,7 +42,7 @@ final class ChannelLabels
             'new', 'duplicates', 'costs_recorded', 'considered', 'sent', 'accepted', 'failed', 'applied', 'unconfirmed', 'pending', 'unreadable', 'unknown_order',
         ],
         'publish_skip_' => [
-            'fba_listing', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
+            'fba_listing', 'fulfillment_mode_unknown', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
             'channel_owns_price', 'storefront_price_not_supported', 'no_manual_price', 'price_not_positive',
         ],
         'publish_state_' => ['queued', 'applied', 'failed', 'unconfirmed'],
@@ -96,7 +96,7 @@ final class ChannelLabels
         'run_stat_pages', 'run_stat_created', 'run_stat_updated', 'run_stat_unchanged', 'run_stat_stale', 'run_stat_needs_review', 'run_stat_skipped', 'run_stat_decisions',
         'run_stat_linked', 'run_stat_suggested', 'run_stat_conflicts', 'run_stat_unseen', 'run_stat_stored', 'run_stat_unlinked', 'run_stat_new', 'run_stat_duplicates',
         'run_stat_costs_recorded', 'run_stat_considered', 'run_stat_sent', 'run_stat_accepted', 'run_stat_failed', 'run_stat_applied', 'run_stat_unconfirmed', 'run_stat_pending', 'run_stat_unreadable', 'run_stat_unknown_order',
-        'publish_skip_fba_listing', 'publish_skip_no_stock_source', 'publish_skip_location_not_for_this_channel', 'publish_skip_stock_not_confirmed', 'publish_skip_unchanged',
+        'publish_skip_fba_listing', 'publish_skip_fulfillment_mode_unknown', 'publish_skip_no_stock_source', 'publish_skip_location_not_for_this_channel', 'publish_skip_stock_not_confirmed', 'publish_skip_unchanged',
         'publish_skip_awaiting_result', 'publish_skip_failed_repeatedly', 'publish_skip_channel_owns_price', 'publish_skip_storefront_price_not_supported',
         'publish_skip_no_manual_price', 'publish_skip_price_not_positive',
         'publish_state_queued', 'publish_state_applied', 'publish_state_failed', 'publish_state_unconfirmed',

@@ -10313,4 +10313,5 @@ return [
 	'location_source_provider' => 'The provider (read from its own system)',
 	'location_source_channel' => 'The sales channel (as it reports it)',
 	'location_source_manual' => 'Typed by a person',
+	'publish_skip_fulfillment_mode_unknown' => 'Not known to have a merchant-fulfilled offer: publishing a quantity would start one',
 ];
