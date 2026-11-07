@@ -65,6 +65,7 @@ Route::group([
     Route::get('orders', [ChannelOrderController::class, 'index'])->name('orders.index');
     Route::get('orders/{mapping}', [ChannelOrderController::class, 'show'])->whereNumber('mapping')->name('orders.show');
     Route::post('orders/{mapping}/route', [ChannelOrderController::class, 'route'])->whereNumber('mapping')->middleware('throttle:30,1')->name('orders.route');
+    Route::post('orders/{mapping}/dispatch', [ChannelOrderController::class, 'dispatchToProvider'])->whereNumber('mapping')->middleware('throttle:6,1')->name('orders.dispatch');
     Route::post('orders/{mapping}/link-shipment', [ChannelOrderController::class, 'linkShipment'])->whereNumber('mapping')->middleware('throttle:30,1')->name('orders.link-shipment');
     Route::post('orders/{mapping}/unlink-shipment', [ChannelOrderController::class, 'unlinkShipment'])->whereNumber('mapping')->middleware('throttle:30,1')->name('orders.unlink-shipment');
     // Tells the channel about the shipment: calls it.

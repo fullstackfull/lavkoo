@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\ConnectionStatus;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
+use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
 use App\Services\SalesChannels\Contracts\ConfirmsShipments;
@@ -13,6 +14,7 @@ use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
+use App\Services\SalesChannels\Contracts\ReadsRecipient;
 use App\Services\SalesChannels\Contracts\ReadsReturns;
 use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\ChannelResponse;
@@ -22,8 +24,10 @@ use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
 use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\ShipmentConfirmation;
+use App\Services\SalesChannels\Dispatch\ChannelRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
+use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
 use App\Services\SalesChannels\Support\ChannelResponseGuard;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -35,7 +39,7 @@ use RuntimeException;
  *
  * Product V1 and Order V1 are not used anywhere: Trendyol retired them in 2026.
  */
-class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments
+class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments
 {
     private const MILLISECONDS_PER_DAY = 86_400_000;
     private const LIST_PAGE_SIZE = 100;
@@ -263,6 +267,33 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         }
 
         return null;
+    }
+
+    public function recipient(SalesChannelAccount $account, ExternalOrderMapping $mapping): ChannelRecipient
+    {
+        $seller = $this->client->sellerId($account);
+        $packageId = (string) $mapping->external_package_id;
+        $query = $packageId !== '' ? ['shipmentPackageIds' => $packageId] : ['orderNumber' => $mapping->external_order_id];
+
+        try {
+            $response = $this->client->call($account, 'trendyol.order_recipient', 'GET', "/order/sellers/{$seller}/v2/orders", $query + ['size' => 50], capability: IntegrationCapability::FulfillmentDispatch);
+        } catch (ChannelPermissionDenied) {
+            throw new RecipientUnavailable(RecipientUnavailable::NOT_PERMITTED);
+        }
+        if (!$response->ok()) {
+            throw new RecipientUnavailable(RecipientUnavailable::CHANNEL_ERROR);
+        }
+
+        foreach ((array) $response->get('content', []) as $package) {
+            if (is_array($package) && (string) ($package['orderNumber'] ?? '') === $mapping->external_order_id && ($packageId === '' || (string) ($package['shipmentPackageId'] ?? '') === $packageId)) {
+                $recipient = TrendyolRecipientMapper::map($package);
+                $problems = $recipient->problems();
+
+                return $problems === [] ? $recipient : throw new RecipientUnavailable(RecipientUnavailable::INCOMPLETE, $problems);
+            }
+        }
+
+        throw new RecipientUnavailable(RecipientUnavailable::NOT_FOUND);
     }
 
     // ---- returns ------------------------------------------------------------------------------------------------

@@ -14,7 +14,10 @@
 |      as a read, and nothing calls it).
 |   3. the account's own switches (enabled, write enabled, dry run, and the capability being used with its approval).
 |
-| The two environment values are read with FILTER_VALIDATE_BOOLEAN, not a (bool) cast: the cast turns "off", "no" and "disabled" into TRUE.
+|   4. SALES_CHANNELS_MANAGED_DISPATCH_ENABLED - off means no channel order is ever turned into a provider shipment by this application.
+|   5. SALES_CHANNELS_BUYER_DATA_TRANSFER_ENABLED - off means the buyer's name, phone and address are never read from a channel (they are needed only to ship an order through a provider).
+|
+| The environment values are read with FILTER_VALIDATE_BOOLEAN, not a (bool) cast: the cast turns "off", "no" and "disabled" into TRUE.
 */
 return [
     'enabled' => filter_var(env('SALES_CHANNELS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
@@ -52,6 +55,7 @@ return [
             'default' => ['max' => 40, 'per_seconds' => 10],
             'operations' => [
                 'trendyol.orders_list' => ['max' => 25, 'per_seconds' => 60],
+                'trendyol.order_recipient' => ['max' => 25, 'per_seconds' => 60],
                 'trendyol.orders_stream' => ['max' => 10, 'per_seconds' => 60],
                 'trendyol.probe_orders' => ['max' => 10, 'per_seconds' => 60, 'bucket' => 'trendyol.orders_stream'],
                 'trendyol.probe_finance' => ['max' => 80, 'per_seconds' => 60, 'bucket' => 'trendyol.finance_settlements'],
@@ -73,6 +77,7 @@ return [
                 'amazon.orders_search' => ['max' => 18, 'per_seconds' => 3600],
                 'amazon.probe_orders' => ['max' => 18, 'per_seconds' => 3600, 'bucket' => 'amazon.orders_search'],
                 'amazon.order_get' => ['max' => 25, 'per_seconds' => 60],
+                'amazon.order_recipient' => ['max' => 25, 'per_seconds' => 60],
                 'amazon.order_confirm_shipment' => ['max' => 2, 'per_seconds' => 1],
                 'amazon.listings_search' => ['max' => 5, 'per_seconds' => 1],
                 'amazon.probe_listings' => ['max' => 5, 'per_seconds' => 1, 'bucket' => 'amazon.listings_search'],
@@ -154,9 +159,44 @@ return [
         'stale_after_minutes' => 180,
     ],
 
-    // Creating a provider shipment for a CHANNEL order (an order that never was a storefront order) is not available in this version: it needs the buyer's address, which is
-    // deliberately never stored, and an internal order. Leave this off; a routing rule that asks for it is recorded as wanted and the order waits for a person.
-    'managed_dispatch_enabled' => false,
+    // Creating a provider shipment for a CHANNEL order: the application makes a minimal internal order for it and lets the existing Torod Point / M5AZN fulfilment do the rest (all of that
+    // module's own switches, dry run and approvals still apply). Off: a routing rule that asks for it is recorded as wanted and the order waits for a person.
+    'managed_dispatch_enabled' => filter_var(env('SALES_CHANNELS_MANAGED_DISPATCH_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
+    // Reading the buyer's name, phone and address from a channel so that a provider can ship the order. Independent of the writes switch and of managed dispatch, off by default, and
+    // it also needs a master admin's recorded approval on the account (`buyer_data_transfer`).
+    'buyer_data_transfer_enabled' => filter_var(env('SALES_CHANNELS_BUYER_DATA_TRANSFER_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
+    /*
+    | Finding the shipment a provider created straight from a channel order (Trendyol connected to Torod Point), so that it is linked and never sent a second time. OFF until the owner has seen a real
+    | sample of such a shipment: nothing in the repository says which Torod field carries the channel's order number. Only an exact match on that one field links; anything else waits and is handed to a person.
+    */
+    'shipment_discovery' => [
+        'enabled' => filter_var(env('SALES_CHANNELS_SHIPMENT_DISCOVERY_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        // Hours an order may go without a shipment before it is handed to a person (measured from the channel's purchase time).
+        'window_hours' => 36,
+        'torod' => [
+            // What Torod holds in the invoice number of such an order is the account's `torod_reference_field` setting (order number, package id or tracking number).
+            // The order list has no search: this many pages of 50 are read, newest first as far as Torod lists them; an order further back is not seen.
+            'max_pages' => 3,
+            'cache_seconds' => 120,
+        ],
+    ],
+
+    'dispatch' => [
+        // An attempt that claimed an order and never finished (a crash) is given up after this long, and the order may be claimed again.
+        'claim_minutes' => 10,
+        // Waiting times (minutes) before the next attempt when the buyer's details could not be read or were incomplete; the last one repeats until max_attempts.
+        'retry_minutes' => [5, 15, 60],
+        'max_attempts' => 5,
+        // How the internal order is marked. `default_type` is the only value every storefront and admin page understands; see operations.md before changing it.
+        'order_type' => 'default_type',
+        'payment_method' => 'marketplace_prepaid',
+        // Buyer details are removed from the internal order this long after the provider holds the shipment (or the channel order was cancelled).
+        'retain_after_accept_hours' => 24,
+        // An order nothing has been sent for (a rehearsal in dry run, or a send that keeps failing) keeps them no longer than this; it is then closed and the channel order waits to be dispatched again.
+        'rehearsal_buyer_data_hours' => 72,
+    ],
 
     // The class that speaks to each channel. A new channel is a connector class added here.
     'connectors' => [

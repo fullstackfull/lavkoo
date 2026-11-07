@@ -1,0 +1,63 @@
+# Dispatching channel orders to Torod Point / M5AZN
+
+Status: built, tested, **switched off**. Nothing here is enabled by deploying it: three environment switches, a master-administrator approval and two account settings must all say yes, and the provider's own gates (integrations, dry run, approvals, the Torod invoice round trip) still apply on top. Nothing was run against a real channel or provider; every channel and provider answer in the tests is a fixture.
+
+## What it does, and what it does not
+
+For an Amazon (merchant-fulfilled) or Trendyol (seller-pays) order that a routing rule sends to **one** provider, the application makes **one internal order** and lets the existing Torod Point / M5AZN fulfilment ship it. The provider is never called from this module: the Fulfillment pipeline claims before it sends, never retries a write inside the client, and turns an answer it cannot read into a reconciliation by our own reference, never into a second send.
+
+It does not create a customer (the internal order has customer 0 and is not a guest), does not touch `products.current_stock` (its lines are marked `is_stock_decreased = 0`, so cancelling can never restock units that were never taken), does not copy buyer details anywhere but the one place the provider builders read them, and never sends cash on delivery, non-Saudi destinations, FBA/channel-shipped orders, or products owned by another provider.
+
+## Every switch (all default off)
+
+| Layer | Switch | Who |
+|---|---|---|
+| Environment | `SALES_CHANNELS_ENABLED`, `SALES_CHANNELS_MANAGED_DISPATCH_ENABLED`, `SALES_CHANNELS_BUYER_DATA_TRANSFER_ENABLED` | deployer |
+| Account | enabled; capability `fulfillment_dispatch`; **approval `buyer_data_transfer`** (master administrator only; the record keeps what was agreed: the four fields, the providers, the retention hours) | admin |
+| Account settings | `shipment_creation` = `app` (*who creates this account's shipments*: `unset` and `provider_direct` never dispatch); `dispatch_mode` = `manual` (a person presses the button) or `auto` (the schedule) | admin |
+| Provider | the Fulfillment module's own: integration on, dry run, approvals, readiness, Torod invoice round trip | Fulfillment owner |
+| Order | the order page lists, in words, every blocker that is still closed (the same `DispatchGate` the dispatcher uses) | |
+
+The buyer is read through a new read operation (`amazon.order_recipient`, `trendyol.order_recipient`) that `ChannelHttp` refuses unless the environment switch is on **and** the approval is recorded, re-read from the database before every call.
+
+## The chain
+
+1. **Gate** (`DispatchGate`): no buyer detail read, nothing written, when anything is closed.
+2. **Claim** (`channel_order_dispatches`, one row per channel order): taken in a transaction under a lock on the order, **before** anything is read from the channel. A second run, server or double click finds a live claim and stands back; a claim that never finished (a crash) is given up after `dispatch.claim_minutes`.
+3. **Read the recipient** (`ChannelRecipient`: name, Saudi mobile, one street line, city; non-serialisable, empty `__debugInfo`, never in a log, job, event or audit line) outside any transaction.
+4. **Materialise** (`ChannelOrderMaterializer`), in ONE transaction: the order, its lines, the Fulfillment module's own ownership snapshots, the link from the channel order, the audit line `sales_channel.dispatch_materialized`. If the audit line cannot be written the whole step is undone. Orders are numbered one at a time under a database-wide lock (the platform's own numbering reads the highest number under a row lock, which protects nothing in an empty table), and a number another order took first is replaced by the next.
+5. **Release the claim** with a reason code and, when something was missing, the time of the next attempt (`dispatch.retry_minutes`, at most `dispatch.max_attempts` automatic attempts; a person may always try again).
+6. From here the platform's Fulfillment owns the shipment. `ManagedShipmentMirror` (`channels:dispatch-sync`) only **reads** it back: when the provider holds the shipment the channel order is linked to it (reference, tracking, status), its stock reservation commits, and the existing notifier can tell the channel; a failed or cancelled fulfilment, or a reference already linked elsewhere, is flagged for a person; when the channel cancels the order the internal order is closed (which is what makes the platform cancel or drop the shipment by its own rules), except for a parcel already on the road, which is flagged.
+
+## Buyer data
+
+* **Read**: only when the order is about to be dispatched, by the four fields above. Never stored on the channel order, in the API log (strict redaction), the audit trail (field *names* only), a job or an exception.
+* **Kept**: only in `orders.shipping_address_data` of the internal order, because that is where both provider builders read it.
+* **Removed** (`channels:purge-buyer-data`, hourly, and it runs even with every switch off): `dispatch.retain_after_accept_hours` (24) after the provider accepted the shipment or the order was cancelled, the details are wiped in place (city and country stay) together with the dry-run payload preview and the error text a rehearsal leaves on the fulfilment. An order nothing was sent for within `dispatch.rehearsal_buyer_data_hours` (72: a rehearsal in dry run, or a send that keeps failing) is wiped too, its internal order is closed and the channel order goes back to waiting, so dispatching it again reads the buyer afresh. A shipment whose send outcome is unknown, or that any provider holds, is never reset.
+* Provider-side retention and sub-processors are not documented anywhere in the repository: the owner must obtain them before enabling.
+
+## What is protected against a duplicate, and what is not
+
+Protected locally, and tested with real processes on MySQL 8.0, MariaDB 10.11 and MariaDB 11.4 (`ChannelDispatchConcurrencyTest`: eight processes on one order give one internal order; eight different orders give eight, with distinct numbers; one shipment mirrored by six processes is linked once): one row per channel order (`mapping_id` unique), one internal order per channel order (`order_id` and `internal_order_id` unique), the claim, the Fulfillment pipeline's own keys (`reference`, `idempotency_key`, `(order, provider, generation)`, `(provider, provider_reference)`), `(provider, shipment_reference)` unique on the channel order.
+
+**Not protected, because neither provider documents it**: a duplicate request to Torod (`invoiceNumber`) or M5AZN (`id`) is not known to be refused, and an answer lost after the provider acted is only found again by the platform's reconciliation (our invoice number in the first 150 Torod orders; our id in the M5AZN list; a verified field map and, for Torod, the master administrator's round-trip confirmation are required). Ask the vendors (`docs/integrations/vendor-requests/`) before turning anything on.
+
+## Commands
+
+```bash
+php artisan channels:dispatch            # automatic accounts only; nothing unless every switch is on (every 5 minutes)
+php artisan channels:dispatch-sync       # reads the platform's shipments back onto the channel orders (every 5 minutes)
+php artisan channels:purge-buyer-data    # removes buyer details that are no longer needed (hourly)
+php artisan channels:find-shipments      # discovery below (every 10 minutes; nothing unless switched on)
+```
+
+## Shipments the provider creates directly (Trendyol connected to Torod)
+
+`ShipmentDiscovery` + `TorodShipmentLookup` (off: `SALES_CHANNELS_SHIPMENT_DISCOVERY_ENABLED`): reads the first pages of Torod's order list (there is no search) and links an order only when exactly one Torod order's invoice number equals the channel's order number (or package id, or tracking number: the account's `torod_reference_field`). Names, phones and cities are never compared. Our own provider references are never taken for the channel's. When nothing matches for `shipment_discovery.window_hours` (36) the order is handed to a person (`shipment_not_found`) instead of waiting for ever; an unreadable list or an unverified orders field map makes the lookup *unavailable*, not "not found". **Which Torod field carries the channel's number is not known** (no sample of such a shipment exists): enable only after the owner has seen one.
+
+## Open decisions for the owner (none is guessed in code)
+
+1. The legal basis, the retention and the provider's own retention for passing the buyer's name, mobile and address to Torod/M5AZN, and for Amazon the Direct-to-Consumer-Shipping role (a restricted role; not requested).
+2. Whether the internal orders may appear in the store's own order lists and reports (they are `seller_is = admin`, `payment_method = marketplace_prepaid`, customer 0). The cost module already excludes channel orders that have an internal order from the channel totals so nothing is counted twice; the platform's own reports have no such marker.
+3. `shipment_creation` per account, and who creates Trendyol's shipments at Torod.
+4. The vendor answers above (duplicate behaviour, field names, villageId, phone format) and the Torod field for discovery.

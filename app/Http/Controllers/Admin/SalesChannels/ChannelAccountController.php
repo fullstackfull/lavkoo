@@ -16,12 +16,14 @@ use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
+use App\Services\SalesChannels\Support\ChannelOperations;
 use App\Services\SalesChannels\Trendyol\TrendyolWebhookManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use InvalidArgumentException;
 
@@ -180,6 +182,9 @@ class ChannelAccountController extends Controller
         }
 
         $reason = $this->approvalReason($request, 'approval_' . $scope);
+        if ($scope === ChannelOperations::SCOPE_BUYER_DATA_TRANSFER && (int) auth('admin')->user()?->admin_role_id !== 1) {
+            throw ValidationException::withMessages(['approval_reason' => translate('buyer_data_approval_master_admin_only')])->errorBag('approval_' . $scope);
+        }
         $this->attempt(function () use ($account, $scope, $adminId, $reason): void {
             $capability = IntegrationCapability::tryFrom($scope);
             $capability === null

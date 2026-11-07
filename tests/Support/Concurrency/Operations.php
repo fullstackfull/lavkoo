@@ -20,6 +20,8 @@ final class Operations
     {
         return match ($name) {
             'probe_insert' => self::probeInsert($args),
+            'dispatch_channel_order' => DispatchOperations::dispatchChannelOrder($args),
+            'mirror_managed_shipment' => DispatchOperations::mirrorManagedShipment($args),
             default => (self::$registered[$name] ?? throw new InvalidArgumentException("Unknown concurrent operation: {$name}"))($args, $index),
         };
     }

@@ -20,6 +20,8 @@ use App\Enums\SalesChannels\IntegrationCapability as Capability;
  * `retrySafe`: repeating the same request after a timeout or 5xx cannot do harm, so the transport may retry it (reads, and writes that set an
  * absolute value). Everything else is sent once; whether it may be sent again is for the caller to decide from the state it can read.
  * `people`: whether what goes out or comes back may describe a person (an order, a buyer, an address); such logs are redacted strictly.
+ * `buyerData`: the call exists to read a buyer's name, phone and address. It is refused unless the buyer-data switch is on AND the account holds the `buyer_data_transfer` approval,
+ * which reads otherwise never need.
  */
 final class ChannelOperations
 {
@@ -30,6 +32,8 @@ final class ChannelOperations
     public const SCOPE_PRODUCT_WRITES = 'product_writes';
     public const SCOPE_WEBHOOK_MANAGEMENT = 'webhook_management';
     public const SCOPE_NOTIFICATION_MANAGEMENT = 'notification_management';
+    /** A master admin's approval to read a buyer's name, phone and address from the channel so that a provider can ship the order. */
+    public const SCOPE_BUYER_DATA_TRANSFER = 'buyer_data_transfer';
 
     private const READ_CAPABILITIES = [Capability::ReadOnlySync, Capability::ProductSync, Capability::OrderImport, Capability::FinancialReconciliation];
 
@@ -44,7 +48,7 @@ final class ChannelOperations
     public static function register(array $operations): void
     {
         foreach ($operations as $name => $entry) {
-            self::$registry[$name] = $entry + ['scopes' => [], 'retrySafe' => $entry['kind'] !== self::WRITE, 'people' => false];
+            self::$registry[$name] = $entry + ['scopes' => [], 'retrySafe' => $entry['kind'] !== self::WRITE, 'people' => false, 'buyerData' => false];
         }
     }
 
@@ -65,9 +69,9 @@ final class ChannelOperations
      * @param list<Capability> $capabilities
      * @param array<string, string> $requiredQuery query values that MUST be present, or the call is refused before anything is sent
      */
-    public static function read(array $methods = ['GET'], array $capabilities = self::READ_CAPABILITIES, bool $people = false, array $requiredQuery = [], bool $retrySafe = true): array
+    public static function read(array $methods = ['GET'], array $capabilities = self::READ_CAPABILITIES, bool $people = false, array $requiredQuery = [], bool $retrySafe = true, bool $buyerData = false): array
     {
-        return ['kind' => self::READ, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => [], 'retrySafe' => $retrySafe, 'people' => $people, 'requiredQuery' => $requiredQuery];
+        return ['kind' => self::READ, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => [], 'retrySafe' => $retrySafe, 'people' => $people || $buyerData, 'requiredQuery' => $requiredQuery, 'buyerData' => $buyerData];
     }
 
     public static function auth(array $methods = ['POST']): array
@@ -133,6 +137,11 @@ final class ChannelOperations
         return !self::isRegistered($operation) || self::entry($operation)['people'];
     }
 
+    public static function readsBuyerData(string $operation): bool
+    {
+        return self::isRegistered($operation) && self::entry($operation)['buyerData'];
+    }
+
     /** @return list<string> */
     public static function registered(): array
     {
@@ -156,7 +165,7 @@ final class ChannelOperations
         self::$loaded = false;
     }
 
-    /** @return array{kind: string, methods: list<string>, capabilities: list<Capability>, scopes: list<string>, retrySafe: bool, people: bool} */
+    /** @return array{kind: string, methods: list<string>, capabilities: list<Capability>, scopes: list<string>, retrySafe: bool, people: bool, buyerData: bool} */
     private static function entry(string $operation): array
     {
         self::load();

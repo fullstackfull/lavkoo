@@ -112,6 +112,34 @@
                         <p class="text-muted mb-0">{{ translate('nothing_has_been_decided_for_this_order') }}</p>
                     @endforelse
                 </x-k.card>
+
+                @if ($showDispatch)
+                    <x-k.card :title="translate('dispatch_card_title')" class="mb-3">
+                        <p class="fs-12 text-muted">{{ translate('dispatch_card_help') }}</p>
+                        @if ($dispatch)
+                            <dl class="row mb-2">
+                                <dt class="col-sm-4">{{ translate('dispatch_state') }}</dt>
+                                <dd class="col-sm-8"><x-k.badge :tone="$dispatch->state === 'accepted' ? 'success' : (in_array($dispatch->state, ['blocked', 'failed'], true) ? 'warning' : 'neutral')" :dot="false">{{ $labels->dispatchState($dispatch->state) }}</x-k.badge>
+                                    @if ($dispatch->reason_code)<div class="fs-12 text-muted">{{ $labels->dispatchReason($dispatch->reason_code) }}</div>@endif</dd>
+                                <dt class="col-sm-4">{{ translate('dispatch_attempts') }}</dt><dd class="col-sm-8">{{ $dispatch->attempts }}</dd>
+                                @if ($dispatch->next_attempt_at)<dt class="col-sm-4">{{ translate('dispatch_next_attempt') }}</dt><dd class="col-sm-8">{{ $dispatch->next_attempt_at->format('Y-m-d H:i') }}</dd>@endif
+                                @if ($dispatch->buyer_data_purged_at)<dt class="col-sm-4">{{ translate('dispatch_buyer_data_removed') }}</dt><dd class="col-sm-8">{{ $dispatch->buyer_data_purged_at->format('Y-m-d H:i') }}</dd>@endif
+                            </dl>
+                        @else
+                            <p class="text-muted">{{ translate('dispatch_not_started') }}</p>
+                        @endif
+                        @if ($mapping->order_id === null)
+                            @if ($dispatchBlockers !== [])
+                                <div class="fs-12 text-muted mb-1">{{ translate('dispatch_blocked_by') }}</div>
+                                <ul class="fs-12 mb-0">@foreach ($dispatchBlockers as $blocker)<li>{{ $labels->dispatchReason($blocker) }}</li>@endforeach</ul>
+                            @else
+                                <form method="POST" action="{{ route('admin.sales-channels.orders.dispatch', $mapping) }}" onsubmit="return confirm(@js(translate('dispatch_now_confirm')))">@csrf
+                                    <button class="btn btn-primary btn-sm" type="submit">{{ translate('dispatch_now') }}</button>
+                                </form>
+                            @endif
+                        @endif
+                    </x-k.card>
+                @endif
             </div>
 
             <div class="col-lg-4">

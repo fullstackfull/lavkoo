@@ -44,6 +44,8 @@ final class TrendyolOperations
             // ---- orders (V2) ----
             'trendyol.orders_list' => Ops::read(capabilities: $orders, people: true),
             'trendyol.orders_stream' => Ops::read(capabilities: $orders, people: true),
+            // The package's shipping address, only for an order we are about to ship through a provider (see the buyer-data gate in ChannelOperations).
+            'trendyol.order_recipient' => Ops::read(capabilities: [Capability::FulfillmentDispatch], buyerData: true),
             'trendyol.probe_orders' => Ops::read(capabilities: [Capability::ConnectionTest], people: true),
             'trendyol.orders_picking' => Ops::write(['PUT'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
             'trendyol.orders_tracking' => Ops::write(['PUT'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
