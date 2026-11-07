@@ -1,6 +1,6 @@
 # Deploying the unified Saudi address — runbook
 
-**Nothing here may be done without the owner's explicit approval, step by step.** The branch is a draft pull request: it is not merged and not deployed, and no migration has been run anywhere but in the test databases.
+**Nothing here may be done without the owner's explicit approval, step by step.** Until the owner runs it, nothing is deployed and no migration has been run anywhere but in the test databases.
 
 This runbook uses the same tooling and conventions as the [pilot runbook](../integrations/pilot-deployment.md) (overlay package, `deploy.php`, backup scripts, explicit `--path` migrations); read its phases 0–2 first.
 
