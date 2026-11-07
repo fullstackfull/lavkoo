@@ -44,7 +44,7 @@ final class ChannelLabels
         'publish_skip_' => [
             'fba_listing', 'fulfillment_mode_unknown', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
             'channel_owns_price', 'storefront_price_not_supported', 'no_manual_price', 'price_not_positive',
-            'variant_key_required', 'storefront_owned_needs_owner_decision', 'order_sync_stale', 'deficit_block', 'awaiting_siblings', 'not_in_the_pool', 'not_worth_lowering_now', 'outside_the_pool',
+            'variant_key_required', 'storefront_owned_needs_owner_decision', 'order_sync_stale', 'deficit_block', 'awaiting_siblings', 'not_in_the_pool', 'not_worth_lowering_now', 'outside_the_pool', 'variant_figure_missing',
         ],
         'publish_state_' => ['queued', 'applied', 'failed', 'unconfirmed'],
         'listing_status_' => ['unmapped', 'suggested', 'mapped', 'ignored', 'conflict'],
@@ -109,7 +109,7 @@ final class ChannelLabels
         'publish_skip_awaiting_result', 'publish_skip_failed_repeatedly', 'publish_skip_channel_owns_price', 'publish_skip_storefront_price_not_supported',
         'publish_skip_no_manual_price', 'publish_skip_price_not_positive',
         'publish_skip_variant_key_required', 'publish_skip_storefront_owned_needs_owner_decision', 'publish_skip_order_sync_stale', 'publish_skip_deficit_block',
-        'publish_skip_awaiting_siblings', 'publish_skip_not_in_the_pool', 'publish_skip_not_worth_lowering_now', 'publish_skip_outside_the_pool',
+        'publish_skip_awaiting_siblings', 'publish_skip_not_in_the_pool', 'publish_skip_not_worth_lowering_now', 'publish_skip_outside_the_pool', 'publish_skip_variant_figure_missing',
         'publish_state_queued', 'publish_state_applied', 'publish_state_failed', 'publish_state_unconfirmed',
         'listing_status_unmapped', 'listing_status_suggested', 'listing_status_mapped', 'listing_status_ignored', 'listing_status_conflict',
         'match_method_ambiguous', 'match_method_already_linked_elsewhere', 'match_method_product_code', 'match_method_barcode', 'match_method_variant_sku',

@@ -18,6 +18,9 @@ final readonly class PoolFigures
     /** The product is sold per variant and the listing names none: one figure cannot be spread over the variants. */
     public const VARIANT_KEY_REQUIRED = 'variant_key_required';
 
+    /** The location holds one figure for the whole product and none for this variant: every variant would be offered all of it. */
+    public const VARIANT_FIGURE_MISSING = 'variant_figure_missing';
+
     /** The stock is the storefront's own: the store already takes its sales off it and nothing takes channel units off it, so what to offer is the owner's decision. */
     public const STOREFRONT_OWNED = 'storefront_owned_needs_owner_decision';
 

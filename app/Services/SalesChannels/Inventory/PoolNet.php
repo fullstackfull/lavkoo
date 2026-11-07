@@ -18,6 +18,9 @@ use App\Services\Fulfillment\InventorySyncService;
  *    order accepted since, delivered ones included (`DeliveredStoreOrders`);
  *  - B, the pool's safety buffer.
  *
+ * A pool is REFUSED (it offers nothing) when it is the store's own stock, when a product sold per variant is asked for without a variant, and when a variant is asked for at a
+ * location that holds one figure for the whole product and none for the variant (every variant would be offered all of it).
+ *
  * Never subtracted: units on store orders at a pool the store itself owns (they are off `current_stock` already) and units on an internal order made for a channel order (the
  * hold of such an order is released, see ChannelOrderReservations, because Hs counts it).
  */
@@ -48,7 +51,7 @@ class PoolNet
             storeHolds: $this->storeHolds($location, $productId, $variantKey, $availability),
             channelHolds: $availability->inFlight,
             buffer: $buffer,
-            refusal: $this->refusal($location, $productId, $variantKey),
+            refusal: $this->refusal($location, $productId, $variantKey, $availability),
         );
     }
 
@@ -67,12 +70,13 @@ class PoolNet
         return $notDeliveredYet + $this->deliveredStoreOrders->unitsSince($provider, $productId, $variantKey, $availability->syncedAt);
     }
 
-    private function refusal(InventoryLocation $location, int $productId, string $variantKey): ?string
+    private function refusal(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $availability): ?string
     {
-        if ($location->isStorefrontOwned()) {
-            return PoolFigures::STOREFRONT_OWNED;
-        }
-
-        return $variantKey === '' && $this->variations->exist($productId) ? PoolFigures::VARIANT_KEY_REQUIRED : null;
+        return match (true) {
+            $location->isStorefrontOwned() => PoolFigures::STOREFRONT_OWNED,
+            $variantKey === '' && $this->variations->exist($productId) => PoolFigures::VARIANT_KEY_REQUIRED,
+            $availability->forTheWholeProduct => PoolFigures::VARIANT_FIGURE_MISSING,
+            default => null,
+        };
     }
 }

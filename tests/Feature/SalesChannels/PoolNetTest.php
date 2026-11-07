@@ -109,6 +109,47 @@ class PoolNetTest extends TestCase
         $this->assertSame([0, 1], [$pool->net(), $pool->deficit()]);
     }
 
+    // ---- a variant needs a figure of its own ----------------------------------------------------------------------------------
+
+    private const VARIANT_PRODUCT = 60;
+
+    private function variantProduct(): void
+    {
+        $this->storeProduct(self::VARIANT_PRODUCT, 'torod_point', 10, json_encode([['type' => 'Red', 'price' => 10, 'qty' => 5], ['type' => 'Blue', 'price' => 10, 'qty' => 5]]));
+    }
+
+    public function test_a_variant_asked_for_where_only_the_whole_product_has_a_figure_is_refused_not_offered_the_whole_figure(): void
+    {
+        $this->variantProduct();
+        $this->providerFigure(self::VARIANT_PRODUCT, 8, now()->subHour());
+
+        $red = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Red');
+        $blue = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Blue');
+
+        $this->assertSame([PoolFigures::VARIANT_FIGURE_MISSING, PoolFigures::VARIANT_FIGURE_MISSING], [$red->refusal, $blue->refusal], 'both would have been offered all 8');
+        $this->assertFalse($red->isPublishable());
+        $this->assertFalse($blue->isPublishable());
+    }
+
+    public function test_a_variant_that_has_a_figure_of_its_own_is_read_from_it(): void
+    {
+        $this->variantProduct();
+        $this->providerFigure(self::VARIANT_PRODUCT, 5, now()->subHour(), variantKey: 'Red');
+        $this->providerFigure(self::VARIANT_PRODUCT, 3, now()->subHour(), variantKey: 'Blue');
+
+        $red = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Red');
+        $blue = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Blue');
+
+        $this->assertSame([null, null, 5, 3], [$red->refusal, $blue->refusal, $red->net(), $blue->net()]);
+    }
+
+    public function test_a_product_without_variants_is_not_affected_by_the_rule(): void
+    {
+        $this->providerFigure(self::PRODUCT, 8, now()->subHour());
+
+        $this->assertNull($this->pool()->refusal);
+    }
+
     // ---- where a store order stops being the store's to subtract ----------------------------------------------------------------
 
     public function test_a_store_order_the_provider_accepted_before_the_figure_is_in_it_and_one_accepted_at_or_after_is_not(): void

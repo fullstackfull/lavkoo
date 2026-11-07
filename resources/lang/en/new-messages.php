@@ -10744,4 +10744,5 @@ return [
 	'order_import_is_part_way_through_a_backlog' => 'The order import stopped part of the way through a backlog: the orders after that point are not read yet',
 	'attention_stock_not_updated' => 'Showing stock that is no longer being updated',
 	'publish_skip_outside_the_pool' => 'Takes no part in sharing its stock (publishing is off or the listing is refused) while the channel still shows a quantity',
+	'publish_skip_variant_figure_missing' => 'The warehouse holds one figure for the whole product and none for this variant: nothing is offered until it has one for the variant',
 ];

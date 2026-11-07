@@ -88,6 +88,7 @@ class LocationStockReader
             syncedAt: $found->syncedAt,
             source: $found->source,
             inFlight: $this->reservations->inFlight((int) $location->id, $productId, $variantKey, $found->syncedAt, $exceptReservation, untilApplied: $this->readsPlatform($location)),
+            forTheWholeProduct: $found->forTheWholeProduct,
         );
     }
 
@@ -136,10 +137,10 @@ class LocationStockReader
             ->whereIn('variant_key', array_unique([$variantKey, '']))->get();
         $mapping = $candidates->firstWhere('variant_key', $variantKey) ?? $candidates->firstWhere('variant_key', '');
 
-        return $mapping === null ? StockAvailability::unknown('provider_mapping') : $this->readMapping($mapping);
+        return $mapping === null ? StockAvailability::unknown('provider_mapping') : $this->readMapping($mapping, forTheWholeProduct: $variantKey !== '' && (string) $mapping->variant_key === '');
     }
 
-    private function readMapping(ProviderProductMapping $mapping): StockAvailability
+    private function readMapping(ProviderProductMapping $mapping, bool $forTheWholeProduct = false): StockAvailability
     {
         if ($mapping->provider_stock === null) {
             return StockAvailability::unknown('provider_mapping');
@@ -151,7 +152,7 @@ class LocationStockReader
             default => StockAvailability::UNKNOWN,
         };
 
-        return new StockAvailability((int) $mapping->provider_stock, $quality, $mapping->provider_stock_synced_at, 'provider_mapping');
+        return new StockAvailability((int) $mapping->provider_stock, $quality, $mapping->provider_stock_synced_at, 'provider_mapping', forTheWholeProduct: $forTheWholeProduct);
     }
 
     private function fromPlatformStock(int $productId, string $variantKey): StockAvailability

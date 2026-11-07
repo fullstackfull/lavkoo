@@ -304,6 +304,19 @@ class StockAllocationTest extends TestCase
         $this->assertNull($this->pool()->dirty_at);
     }
 
+    public function test_variant_listings_of_a_product_whose_warehouse_figure_is_for_the_whole_product_are_not_each_offered_all_of_it(): void
+    {
+        $this->storeProduct(60, 'torod_point', 10, json_encode([['type' => 'Red', 'price' => 10, 'qty' => 5], ['type' => 'Blue', 'price' => 10, 'qty' => 5]]));
+        $this->providerFigure(60, 8, now()->subHour());
+        $this->stockListing($this->first, 60, $this->torodLocation(), 'RED', ['variant_key' => 'Red']);
+        $this->stockListing($this->first, 60, $this->torodLocation(), 'BLUE', ['variant_key' => 'Blue']);
+
+        $result = app(StockPricePublisher::class)->publishStock($this->first);
+
+        $this->assertSame([], $this->sent(self::SELLER_A), 'one figure of 8 for the whole product is not 8 per variant');
+        $this->assertSame(['variant_figure_missing' => 2], $result['stats']['skipped']);
+    }
+
     // ---- when a quantity may be raised -------------------------------------------------------------------------------------------------------
 
     public function test_a_quantity_is_not_raised_while_an_order_import_is_behind_and_is_when_it_is_not(): void
