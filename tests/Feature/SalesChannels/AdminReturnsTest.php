@@ -198,6 +198,22 @@ class AdminReturnsTest extends AdminSalesChannelsTestCase
         $this->assertSame(0, OperationalCostReturnDecision::count());
     }
 
+    public function test_a_unit_the_claim_gained_after_its_decision_has_a_form_on_the_order_page_and_is_decided_from_it(): void
+    {
+        $line = $this->acceptedReturn($this->sale(), ['CLM-1' => 1]);
+        $this->decide($line, $this->decision(['units_restocked' => 1]));
+        $this->assertStringNotContainsString('data-return-form', $this->orderPage($line), 'Everything the channel accepted is decided.');
+
+        $line = $this->acceptedReturn($line->fresh(), ['CLM-1' => 2]);
+        $html = $this->orderPage($line);
+
+        $this->assertStringContainsString('<input type="hidden" name="claim" value="CLM-1+1">', $html, 'A form for the unit the claim gained.');
+        $this->assertStringContainsString(e(translate('units_awaiting_a_restock_decision')) . ': 1', $html);
+        $this->decide($line, $this->decision(['claim' => 'CLM-1+1', 'units_restocked' => 0, 'units_written_off' => 1]))->assertSessionHasNoErrors();
+        $this->assertSame(['claim:CLM-1', 'claim:CLM-1+1'], OperationalCostReturnDecision::orderBy('id')->pluck('return_event')->all());
+        $this->assertStringNotContainsString('data-return-form', $this->orderPage($line));
+    }
+
     public function test_a_decision_about_a_line_that_does_not_exist_is_not_found(): void
     {
         $this->post(route('admin.operational-costs.returns.decide', 99999), $this->decision())->assertNotFound();
