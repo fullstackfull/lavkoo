@@ -306,8 +306,8 @@ class PanelOrderAddressEditTest extends PanelAddressTestCase
         $this->assertSame('shipping', $entry->context['address_type']);
         $this->assertContains('national_address', $entry->context['changed']);
         $this->assertContains('phone', $entry->context['changed']);
-        $this->assertSame(['legacy', null, null], array_values($entry->before));
-        $this->assertSame(['unified', $this->ids['region_MAK'], $this->ids['jeddah']], array_values($entry->after));
+        $this->assertEquals(['schema' => 'legacy', 'region_id' => null, 'city_id' => null], $entry->before);
+        $this->assertEquals(['schema' => 'unified', 'region_id' => $this->ids['region_MAK'], 'city_id' => $this->ids['jeddah']], $entry->after);
 
         $logged = json_encode($entry->toArray(), JSON_UNESCAPED_UNICODE);
         foreach (['JEDD4321', '0559876543', 'Tahlia', 'Huda', 'Al Rawdah', 'جدة', 'sara@example.test', '21.5'] as $addressText) {

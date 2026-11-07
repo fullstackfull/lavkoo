@@ -220,7 +220,7 @@ class AdminLegacyReviewTest extends AdminAddressTestCase
         $audit = DB::table('audit_logs')->where('action', 'address.legacy_city_confirmed')->sole();
         $this->assertSame(AddressCity::class, $audit->subject_type);
         $this->assertSame((string) $this->ids['hafuf_eas'], $audit->subject_id);
-        $this->assertSame(['alias_id' => $alias->id, 'alias_created' => true, 'addresses' => 3], json_decode($audit->after, true), 'the trail points at the alias; the typed text is not copied into it');
+        $this->assertEquals(['alias_id' => $alias->id, 'alias_created' => true, 'addresses' => 3], json_decode($audit->after, true), 'the trail points at the alias; the typed text is not copied into it');
         $this->assertContains(translate('address_legacy_confirmed') . ' ' . translate('address_addresses_updated') . ': 3', $this->toasts());
     }
 

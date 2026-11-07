@@ -120,7 +120,7 @@ class TorodPiiTest extends TorodAddressTestCase
         $this->scrub();
 
         $order = json_decode((string) DB::table('orders')->where('id', 300)->value('shipping_address_data'), true);
-        $this->assertSame(['contact_person_name', 'phone', 'address', 'city', 'zip'], array_keys($order));
+        $this->assertEqualsCanonicalizing(['contact_person_name', 'phone', 'address', 'city', 'zip'], array_keys($order), 'MySQL stores the keys of a JSON column in its own order');
     }
 
     public function test_provider_logs_and_previews_show_the_ids_and_hide_the_household(): void
