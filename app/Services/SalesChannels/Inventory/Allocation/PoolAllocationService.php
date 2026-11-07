@@ -35,9 +35,20 @@ class PoolAllocationService
 
     public function allocate(PoolKey $key): PoolAllocation
     {
-        DB::table('inventory_pools')->insertOrIgnore($key->columns() + ['created_at' => now(), 'updated_at' => now()]);
+        $this->ensureRow($key);
 
         return DB::transaction(fn (): PoolAllocation => $this->divide($key, InventoryPool::where($key->columns())->lockForUpdate()->firstOrFail()), attempts: 3);
+    }
+
+    /**
+     * The row is made when it is missing, and the check does not lock anything: `INSERT IGNORE` of a row that exists takes a shared lock on it, which would make every division
+     * queue for a division that is being worked out before it has even begun. Two processes that both find it missing both try; the one that loses is ignored.
+     */
+    private function ensureRow(PoolKey $key): void
+    {
+        if (!InventoryPool::where($key->columns())->exists()) {
+            DB::table('inventory_pools')->insertOrIgnore($key->columns() + ['created_at' => now(), 'updated_at' => now()]);
+        }
     }
 
     /** Everything from here on happens with the pool's row locked: the inputs are read after the lock was granted. */

@@ -182,7 +182,7 @@ jobs:
       matrix:
         include:
           - group: sales channels
-            paths: tests/Feature/SalesChannels
+            paths: tests/Feature/SalesChannels tests/Feature/Concurrency
           - group: costs
             paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Feature/CiDatabaseTest.php
     services:

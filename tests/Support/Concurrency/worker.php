@@ -17,6 +17,11 @@ if (getenv('DB_STRICT_TESTS') === '1') {
     $app['db']->purge('mysql');
 }
 
+// Operations that a test file registers (Operations::register) exist in this process only if a registration file says so.
+foreach (glob(__DIR__ . '/registrations/*.php') ?: [] as $registration) {
+    require $registration;
+}
+
 while (microtime(true) < (float) $spec['start_at']) {
     usleep(200);
 }
