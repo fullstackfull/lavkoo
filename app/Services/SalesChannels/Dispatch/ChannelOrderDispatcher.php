@@ -72,7 +72,7 @@ class ChannelOrderDispatcher
         try {
             $orderId = $this->materializer->materialize($mapping, (string) $verdict->provider, $recipient, $claimed);
         } catch (DispatchRefused $refused) {
-            return $this->release($mapping, $claimed, $refused->reason, retry: false);
+            return $this->release($mapping, $claimed, $refused->reason, retry: $refused->retryable);
         }
 
         // The order now has an internal order: whoever counts the units it promised (the channel hold, or the store's own provider items) is told to look again.

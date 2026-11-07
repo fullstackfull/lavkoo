@@ -11,6 +11,7 @@ use App\Services\AuditLogger;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Utils\OrderManager;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -47,17 +48,22 @@ class ChannelOrderMaterializer
      */
     public function materialize(ExternalOrderMapping $mapping, string $provider, ChannelRecipient $recipient, string $claimToken): int
     {
-        return $this->oneAtATime(function () use ($mapping, $provider, $recipient, $claimToken): int {
-            for ($attempt = 1; ; $attempt++) {
-                try {
-                    return $this->makeOrder($mapping, $provider, $recipient, $claimToken);
-                } catch (UniqueConstraintViolationException $collision) {
-                    if ($attempt >= self::ORDER_NUMBER_ATTEMPTS) {
-                        throw $collision;
+        try {
+            return $this->oneAtATime(function () use ($mapping, $provider, $recipient, $claimToken): int {
+                for ($attempt = 1; ; $attempt++) {
+                    try {
+                        return $this->makeOrder($mapping, $provider, $recipient, $claimToken);
+                    } catch (UniqueConstraintViolationException $collision) {
+                        if ($attempt >= self::ORDER_NUMBER_ATTEMPTS) {
+                            throw $collision;
+                        }
                     }
                 }
-            }
-        });
+            });
+        } catch (QueryException) {
+            // The message of a database error holds the statement with its values, which here are the buyer's name, phone and street: it must not travel to a log. The attempt is tried again later.
+            throw new DispatchRefused('database_error', retryable: true);
+        }
     }
 
     /**
@@ -109,6 +115,8 @@ class ChannelOrderMaterializer
             $dispatch->forceFill([
                 'state' => DispatchState::Materialized->value, 'provider' => $provider, 'internal_order_id' => $orderId, 'materialized_at' => now(),
                 'claim_token' => null, 'claimed_at' => null, 'reason_code' => null, 'next_attempt_at' => null,
+                // A new order has its own buyer details and its own clocks: nothing of an earlier, reset one carries over.
+                'buyer_data_purged_at' => null, 'accepted_at' => null, 'closed_at' => null,
             ])->save();
             // No order is made without the record that says it was: if the audit trail cannot be written the whole step is undone.
             $this->audit->record(action: 'sales_channel.dispatch_materialized', subject: $locked, context: ['mapping_id' => $locked->id, 'internal_order_id' => $orderId, 'provider' => $provider, 'by' => $dispatch->requested_by, 'trigger' => $dispatch->trigger, 'fields_sent_to_provider' => ['name', 'mobile', 'street', 'city']])

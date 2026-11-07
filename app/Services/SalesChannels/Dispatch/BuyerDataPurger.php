@@ -15,14 +15,17 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Takes the buyer's details back out of the platform once nobody needs them, so they live for as short a time as the shipment allows.
- * The only copy is the internal order's `shipping_address_data` (and the masked-but-readable payload preview and error text a rehearsal leaves on its fulfilment).
+ * The only copy is the internal order's `shipping_address_data` (and the readable payload preview and error text a rehearsal leaves on its fulfilment).
  *
- *  - the provider holds the shipment (or the channel order was cancelled) and `retain_after_accept_hours` have passed: the details are wiped in place, the city and country stay;
- *  - nothing has been sent and `rehearsal_buyer_data_hours` have passed (the provider is still in rehearsal, or the send keeps failing): the details are wiped, the internal order is
- *    closed and the channel order goes back to waiting, so that dispatching it again reads the buyer afresh and makes a new internal order. A shipment whose send outcome is unknown, or
- *    that any provider holds, is never touched here.
+ *  - the provider holds the shipment, or it ended (cancelled, delivered, returned), or the channel order was cancelled, and `retain_after_accept_hours` have passed: the details are wiped in
+ *    place (city and country stay);
+ *  - nothing reached any provider and `rehearsal_buyer_data_hours` have passed (a rehearsal in dry run, or a send that keeps failing): the details are wiped, the internal order is closed and
+ *    the channel order goes back to waiting, so that dispatching it again reads the buyer afresh and makes a new internal order;
+ *  - whatever the state, `max_buyer_data_days` after the order was made nothing is kept: no order's buyer details outlive that, even a send whose outcome was never settled (a later send of it
+ *    would then be held for want of an address, for a person to decide).
+ * A shipment whose send outcome is unknown is otherwise never touched: it may have to be sent again.
  *
- * Safe to run as often as you like.
+ * Safe to run as often as you like, and fair: a run takes the rows it looked at longest ago first, so rows that cannot be purged yet never keep the others out of its window.
  */
 class BuyerDataPurger
 {
@@ -42,47 +45,55 @@ class BuyerDataPurger
     public function run(int $limit = 200): array
     {
         $counts = [self::PURGED => 0, self::RESET => 0, self::SKIPPED => 0];
-        $keepFor = now()->subHours((int) config('sales_channels.dispatch.retain_after_accept_hours', 24));
+        $graceEnds = now()->subHours((int) config('sales_channels.dispatch.retain_after_accept_hours', 24));
         $rehearsalEnds = now()->subHours((int) config('sales_channels.dispatch.rehearsal_buyer_data_hours', 72));
+        $mostEverKept = now()->subDays((int) config('sales_channels.dispatch.max_buyer_data_days', 30));
 
         $due = ChannelOrderDispatch::query()
             ->whereNotNull('internal_order_id')->whereNull('buyer_data_purged_at')
             ->where(static fn ($query) => $query
-                ->where(static fn ($done) => $done->where('state', DispatchState::Accepted->value)->where('accepted_at', '<=', $keepFor))
-                ->orWhere(static fn ($done) => $done->where('state', DispatchState::Cancelled->value)->where('updated_at', '<=', $keepFor))
-                ->orWhere(static fn ($unsent) => $unsent->whereIn('state', [DispatchState::Materialized->value, DispatchState::Failed->value])->where('materialized_at', '<=', $rehearsalEnds)))
-            ->orderBy('id')->limit($limit)->pluck('id');
+                ->where(static fn ($done) => $done->whereIn('state', [DispatchState::Accepted->value, DispatchState::Cancelled->value, DispatchState::Failed->value])
+                    ->where(static fn ($clock) => $clock->where('accepted_at', '<=', $graceEnds)->orWhere('closed_at', '<=', $graceEnds)))
+                ->orWhere(static fn ($unsent) => $unsent->whereIn('state', [DispatchState::Materialized->value, DispatchState::Failed->value])->where('materialized_at', '<=', $rehearsalEnds))
+                ->orWhere('materialized_at', '<=', $mostEverKept))
+            ->orderBy('updated_at')->orderBy('id')->limit($limit)->pluck('id');
 
         foreach ($due as $dispatchId) {
-            $counts[$this->purge((int) $dispatchId)]++;
+            $counts[$this->purge((int) $dispatchId, $mostEverKept)]++;
         }
 
         return $counts;
     }
 
-    private function purge(int $dispatchId): string
+    private function purge(int $dispatchId, \DateTimeInterface $mostEverKept): string
     {
-        $closedOrderId = null;
         $mappingId = ChannelOrderDispatch::whereKey($dispatchId)->value('mapping_id');
         if ($mappingId === null) {
             return self::SKIPPED;
         }
 
-        $outcome = DB::transaction(function () use ($dispatchId, $mappingId, &$closedOrderId): string {
+        $closedOrderId = null;
+        $outcome = DB::transaction(function () use ($dispatchId, $mappingId, $mostEverKept, &$closedOrderId): string {
             // The same order of locks as a dispatch takes (the channel order first, then its dispatch row), so the two can never wait on each other.
             $mapping = ExternalOrderMapping::whereKey($mappingId)->lockForUpdate()->firstOrFail();
             $row = ChannelOrderDispatch::whereKey($dispatchId)->lockForUpdate()->first();
             if ($row === null || $row->buyer_data_purged_at !== null || $row->internal_order_id === null) {
                 return self::SKIPPED;
             }
+
             $fulfillments = ProviderFulfillment::where('order_id', $row->internal_order_id)->lockForUpdate()->get();
-            $unsent = in_array($row->state, [DispatchState::Materialized->value, DispatchState::Failed->value], true);
-            if ($unsent && $fulfillments->contains(static fn (ProviderFulfillment $fulfillment): bool => !$fulfillment->status->isCancellableLocally())) {
+            $outcomeUnknown = $fulfillments->contains(static fn (ProviderFulfillment $fulfillment): bool => $fulfillment->status->isSendOutcomeUnknown());
+            $reachedAProvider = $fulfillments->contains(static fn (ProviderFulfillment $fulfillment): bool => !$fulfillment->status->isCancellableLocally() && !$fulfillment->status->isSendOutcomeUnknown());
+            $pastTheLimit = $row->materialized_at !== null && $row->materialized_at->lte($mostEverKept);
+            if ($outcomeUnknown && !$pastTheLimit) {
+                // Not purgeable yet: it goes to the back of the line, so that it does not keep the others out of the window.
+                $row->touch();
+
                 return self::SKIPPED;
             }
 
             $this->wipe($row, $fulfillments->all());
-            if (!$unsent) {
+            if ($reachedAProvider || $outcomeUnknown || !in_array($row->state, [DispatchState::Materialized->value, DispatchState::Failed->value], true)) {
                 return self::PURGED;
             }
 
@@ -122,7 +133,7 @@ class BuyerDataPurger
         $mapping->forceFill(['order_id' => null])->save();
         $row->forceFill([
             'state' => DispatchState::Blocked->value, 'reason_code' => 'buyer_data_expired', 'internal_order_id' => null, 'materialized_at' => null,
-            'next_attempt_at' => null, 'attempts' => 0,
+            'accepted_at' => null, 'closed_at' => null, 'next_attempt_at' => null, 'attempts' => 0,
         ])->save();
         $this->audit->record(action: 'sales_channel.dispatch_reset', subject: $mapping, context: ['mapping_id' => $mapping->id, 'closed_internal_order_id' => $orderId, 'reason' => 'buyer_data_expired']);
         $this->reservations->sync($mapping);

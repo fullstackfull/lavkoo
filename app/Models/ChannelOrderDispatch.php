@@ -35,6 +35,7 @@ class ChannelOrderDispatch extends Model
         'next_attempt_at' => 'datetime',
         'materialized_at' => 'datetime',
         'accepted_at' => 'datetime',
+        'closed_at' => 'datetime',
         'buyer_data_purged_at' => 'datetime',
     ];
 

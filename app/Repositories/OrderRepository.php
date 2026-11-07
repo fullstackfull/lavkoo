@@ -15,6 +15,7 @@ use App\Models\SellerWallet;
 use App\Models\Shop;
 use App\Models\Transaction;
 use App\Services\Fulfillment\FulfillmentHooks;
+use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
@@ -645,8 +646,15 @@ class OrderRepository implements OrderRepositoryInterface
         // never restock/re-deduct twice), the product row locked, and atomic increment/decrement instead
         // of an unlocked absolute write that could lose a concurrent update or go negative.
         $restoring = in_array($status, ['returned', 'failed', 'canceled'], true);
+        // An order made for a channel order took nothing from the store's stock and has nothing to give back: its lines only follow the status.
+        $holdsNoStock = ChannelOrderMarker::holdsNoStock($order);
 
         foreach ($order['details'] as $detail) {
+            if ($holdsNoStock) {
+                $this->orderDetail->where('id', $detail['id'])->update(['delivery_status' => $status]);
+                continue;
+            }
+
             DB::transaction(function () use ($detail, $status, $restoring) {
                 $fromFlag = $restoring ? 1 : 0;
                 $toFlag = $restoring ? 0 : 1;
