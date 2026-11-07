@@ -348,7 +348,9 @@ class AdminLegacyReviewTest extends AdminAddressTestCase
             DB::table('shipping_addresses')->insert($chunk);
         }
         $last = (int) DB::table('shipping_addresses')->max('id');
-        DB::unprepared("CREATE TRIGGER fail_last_address BEFORE UPDATE OF city_id ON shipping_addresses WHEN NEW.id = {$last} BEGIN SELECT RAISE(ABORT, 'simulated failure'); END");
+        DB::unprepared(DB::getDriverName() === 'sqlite'
+            ? "CREATE TRIGGER fail_last_address BEFORE UPDATE OF city_id ON shipping_addresses WHEN NEW.id = {$last} BEGIN SELECT RAISE(ABORT, 'simulated failure'); END"
+            : "CREATE TRIGGER fail_last_address BEFORE UPDATE ON shipping_addresses FOR EACH ROW BEGIN IF NEW.id = {$last} THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'simulated failure'; END IF; END");
 
         try {
             app(LegacyReview::class)->confirm(typedText: 'الهفوف', cityId: $this->ids['hafuf_eas'], adminId: 1);

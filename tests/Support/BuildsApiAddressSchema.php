@@ -186,6 +186,7 @@ trait BuildsApiAddressSchema
         $this->createTableOnce('reviews', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('delivery_man_id')->nullable();
             $table->boolean('status')->default(true);
             $table->timestamps();
         });

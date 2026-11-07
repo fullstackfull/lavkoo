@@ -28,7 +28,7 @@ class TorodPiiTest extends TorodAddressTestCase
 
     private function scrub(): void
     {
-        $sql = SqlDialect::forDriver('sqlite');
+        $sql = SqlDialect::forDriver(DB::getDriverName());
         foreach (PersonalDataScrub::tables() as $table) {
             if (!Schema::hasTable($table->table)) {
                 continue;

@@ -51,6 +51,10 @@ trait BuildsStorefrontOrderPages
         Schema::create('order_edit_histories', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('order_id');
+            $table->decimal('order_due_amount', 16, 2)->default(0);
+            $table->string('order_due_payment_status')->nullable();
+            $table->decimal('order_return_amount', 16, 2)->default(0);
+            $table->string('order_return_payment_status')->nullable();
             $table->timestamps();
         });
 
