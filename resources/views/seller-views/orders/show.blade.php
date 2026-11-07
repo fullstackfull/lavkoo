@@ -182,7 +182,7 @@
                         <x-sc.info :label="translate('name')"
                                    :value="$order->customer ? trim($order->customer->f_name . ' ' . $order->customer->l_name) : translate('walk_in_customer')" />
                         @if ($order->shippingAddress)
-                            <x-sc.info :label="translate('city')" :value="$order->shippingAddress->city ?? '—'" />
+                            <x-sc.info :label="translate('city')" :value="$order->deliveryCity() ?? '—'" />
                             <x-sc.info :label="translate('phone')">
                                 {{-- Masked here on purpose; the carrier gets the full number at pickup. --}}
                                 <span class="sc-code">{{ \Illuminate\Support\Str::mask((string) ($order->shippingAddress->phone ?? ''), '•', 5, 5) }}</span>

@@ -39,5 +39,7 @@
 
 **AI Module:** `Modules/AI/AIProviders/AIProviderManager.php` selects active provider (OpenAI/Claude) from DB config.
 
+**Addresses:** one central system — regions/cities live in `address_regions` / `address_cities` (ids, never names, are keys); couriers, warehouses and marketplaces are only mapped to them through `provider_city_mappings`. Saudi addresses use region + city + district + National Address; `zip` stays and is never derived from the National Address. Mode `off|soft|strict` is the `unified_address_mode` setting (`App\Services\Address\AddressSchema`); code ships dormant until its migrations run. All writes go through `ShippingAddressService`, orders keep an immutable copy (`AddressSnapshot`). Read `docs/address/README.md` before touching any address, city or provider-mapping code.
+
 **Frontend:** Vue 2 + Bootstrap 4 + Laravel Mix 5 — intentionally legacy, be conservative.
 

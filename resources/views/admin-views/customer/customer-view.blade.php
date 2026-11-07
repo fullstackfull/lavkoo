@@ -7,6 +7,7 @@
 @endpush
 
 @section('content')
+    @use('App\Services\Address\AddressSnapshotLines')
     <div class="content container-fluid">
         <div class="d-print-none pb-2">
             <div class="row align-items-center">
@@ -373,12 +374,16 @@
                 </div>
             @else
                 @foreach($customer->addresses as $address)
+                    @php($addressCopy = $addressCopies[$address['id']] ?? [])
                     <div class="p-2 bg-section rounded mb-3 mb-sm-20">
                         <div class="fs-14 mb-2">
                             <span class="text-dark fw-medium">{{ ucwords($address['address_type']) }}</span>
                             <span>
                                 ({{ translate($address['is_billing'] == 0 ? 'Shipping Address' : 'Billing Address') }})
                             </span>
+                            @if(in_array($address['id'], $incompleteAddressIds, true))
+                                <span class="badge text-bg-warning">{{ translate('address_needs_completion') }}</span>
+                            @endif
                         </div>
                         <div class="bg-white rounded p-2 d-flex flex-column gap-2 fs-12">
                             <div class="d-flex gap-1 align-items-center">
@@ -409,21 +414,13 @@
                                 </div>
                             @endif
 
-                            @if(!empty($address['city']))
+                            @foreach(AddressSnapshotLines::location($addressCopy) as $line)
                                 <div class="d-flex gap-1 align-items-center">
-                                    <span class="min-w-80">{{ translate('City') }}</span>
+                                    <span class="min-w-80">{{ translate($line['label']) }}</span>
                                     <span>:</span>
-                                    <span>{{ $address['city'] }}</span>
+                                    <span>{{ $line['value'] }}</span>
                                 </div>
-                            @endif
-
-                            @if(!empty($address['zip']))
-                                <div class="d-flex gap-1 align-items-center">
-                                    <span class="min-w-80">{{ translate('Zip_Code') }}</span>
-                                    <span>:</span>
-                                    <span>{{ $address['zip'] }}</span>
-                                </div>
-                            @endif
+                            @endforeach
 
                             <div class="d-flex gap-1 align-items-center">
                                 <span class="min-w-80">{{ translate('Address') }}</span>

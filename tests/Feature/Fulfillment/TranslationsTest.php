@@ -2,17 +2,23 @@
 
 namespace Tests\Feature\Fulfillment;
 
+use App\Enums\Address\CityMatchStatus;
+use App\Enums\Fulfillment\CitySyncVerdict;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
+use App\Services\Address\AddressSchema;
 use App\Services\Fulfillment\Data\CapabilityState;
+use App\Services\Fulfillment\Data\CityCandidate;
+use App\Services\Fulfillment\Data\CityResolution;
 use App\Services\Fulfillment\FieldMapDefinitions;
 use App\Services\Fulfillment\FulfillmentAggregator;
 use App\Services\Fulfillment\Providers\M5azn\M5aznAdapter;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
+use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\ProviderRegistry;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
@@ -44,6 +50,16 @@ class TranslationsTest extends FulfillmentTestCase
         'app/Http/Controllers/Admin/Fulfillment',
         'app/Http/Controllers/RestAPI/v1/FulfillmentController.php',
         'app/Http/Controllers/Api/FulfillmentWebhookController.php',
+        // the unified address: only files it created, because the pages it touched also carry older text
+        'resources/views/partials/address',
+        'resources/views/admin-views/address',
+        'resources/views/admin-views/order/partials/_invoice-address-rows.blade.php',
+        'resources/themes/default/web-views/partials/address',
+        'app/Http/Controllers/Address',
+        'app/Http/Controllers/Admin/Address',
+        'app/Http/Requests/Admin/Address',
+        'app/Services/Address',
+        'app/Services/OrderAddressUpdateService.php',
     ];
 
     /** @var array<string, array<string, string>> */
@@ -73,7 +89,7 @@ class TranslationsTest extends FulfillmentTestCase
                 $arguments = $this->balancedArguments($source, $start);
                 $offset = $start + 1;
 
-                if (preg_match_all('/(?<![\[\w])([\'"])([A-Za-z][A-Za-z0-9_]*)\1(?!\s*\])/', $arguments, $matches)) {
+                if (preg_match_all('/(?<![\[\w])([\'"])([A-Za-z][A-Za-z0-9_\/]*)\1(?!\s*\])/', $arguments, $matches)) {
                     foreach ($matches[2] as $key) {
                         if (!str_ends_with($key, '_')) {
                             $keys[$key] = true;
@@ -134,6 +150,43 @@ class TranslationsTest extends FulfillmentTestCase
     public function test_every_literal_key_in_the_feature_exists_in_every_locale(): void
     {
         $this->assertTranslated($this->literalKeysUsedByTheFeature(), 'literal translate() keys');
+    }
+
+    public function test_every_address_system_label_built_from_a_value_exists(): void
+    {
+        $keys = ['address_region', 'address_city', 'address_district', 'address_national_address', 'zip_code', 'address_match_inactive'];
+        foreach (AddressSchema::MODES as $mode) {
+            array_push($keys, "address_mode_{$mode}", "address_mode_{$mode}_help");
+        }
+        foreach (CitySyncVerdict::cases() as $verdict) {
+            array_push($keys, "address_sync_{$verdict->value}", "city_sync_{$verdict->value}");
+        }
+        foreach (CityMatchStatus::cases() as $status) {
+            $keys[] = "address_match_{$status->value}";
+        }
+        foreach ([CityResolution::NO_MAPPING, CityResolution::PENDING_REVIEW, CityResolution::AMBIGUOUS, CityResolution::PROVIDER_CITY_MISSING] as $code) {
+            $keys[] = "city_hold_code_{$code}";
+        }
+        foreach ([CityCandidate::REGION_CONFIRMED, CityCandidate::REGION_UNKNOWN, CityCandidate::REGION_UNPLACEABLE] as $check) {
+            $keys[] = "city_region_{$check}";
+        }
+        foreach ([ProviderCityMappingService::METHOD_MANUAL, ProviderCityMappingService::METHOD_AUTO_UNIQUE] as $method) {
+            $keys[] = "city_method_{$method}";
+        }
+        foreach (['regions', 'cities', 'aliases'] as $kind) {
+            $keys[] = "address_{$kind}";
+        }
+        foreach (['created', 'updated', 'unchanged', 'skipped', 'not_in_file'] as $column) {
+            $keys[] = "address_import_{$column}";
+        }
+        foreach (['not_migrated', 'no_cities', 'zip_restriction'] as $problem) {
+            $keys[] = "address_mode_blocked_{$problem}";
+        }
+        foreach (['conflict', 'blocks_mode', 'info'] as $banner) {
+            $keys[] = "address_zip_banner_{$banner}";
+        }
+
+        $this->assertTranslated($keys, 'address system labels built from a value');
     }
 
     public function test_every_status_hold_reason_and_summary_label_exists(): void
@@ -246,6 +299,23 @@ class TranslationsTest extends FulfillmentTestCase
             foreach ($customerFacing as $key) {
                 $this->assertMatchesRegularExpression('/\p{Arabic}/u', $this->catalogue[$locale][$key], "{$locale}: {$key} must be Arabic");
             }
+        }
+    }
+
+    public function test_every_address_text_is_arabic_in_the_arabic_locales(): void
+    {
+        $addressKeys = array_values(array_filter(
+            $this->literalKeysUsedByTheFeature(),
+            static fn (string $key): bool => str_starts_with($key, 'address_') || str_starts_with($key, 'city_'),
+        ));
+        $this->assertNotEmpty($addressKeys);
+
+        foreach (['sa', 'ae'] as $locale) {
+            $notArabic = array_values(array_filter(
+                $addressKeys,
+                fn (string $key): bool => preg_match('/\p{Arabic}/u', $this->catalogue[$locale][$key] ?? '') !== 1,
+            ));
+            $this->assertSame([], $notArabic, "{$locale}: address texts that are not Arabic: " . implode(', ', $notArabic));
         }
     }
 

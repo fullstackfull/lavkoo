@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Address\AddressCatalogController;
 use App\Http\Controllers\RestAPI\v1\AppHealthController;
 use App\Http\Controllers\RestAPI\v1\AttributeController;
 use App\Http\Controllers\RestAPI\v1\auth\CustomerAPIAuthController;
@@ -64,6 +65,11 @@ Route::get('/cash', function () {
     Route::controller(ConfigController::class)->group(function () {
         Route::get('config', 'configuration');
         Route::get('business-pages', 'getBusinessPagesList');
+    });
+
+    Route::group(['prefix' => 'address', 'middleware' => ['throttle:120,1,address-catalog-api']], function () {
+        Route::get('regions', [AddressCatalogController::class, 'regions']);
+        Route::get('cities', [AddressCatalogController::class, 'cities']);
     });
 
     /*

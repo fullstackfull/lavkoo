@@ -48,6 +48,8 @@ use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Enums\Address\AddressChannel;
+use App\Services\Address\OrderAddressService;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
@@ -434,6 +436,59 @@ class OrderManager
     {
         ShippingAddress::where(['customer_id' => $guestID, 'is_guest' => 1, 'id' => $addressId])
             ->update(['customer_id' => $customerID, 'is_guest' => 0]);
+    }
+
+    /**
+     * The JSON an order keeps of its address (null when it has none): written once, from the address as it is right now, and never
+     * touched again, so later edits to the saved address or to the city list do not rewrite a past order.
+     */
+    public static function getOrderAddressSnapshot(int|string|null $addressId): ?string
+    {
+        $address = empty($addressId) ? null : ShippingAddress::find($addressId);
+        $snapshot = app(OrderAddressService::class)->snapshot(address: $address);
+
+        return $snapshot === null ? null : json_encode($snapshot);
+    }
+
+    /**
+     * Before an order is written, the delivery and billing address it carries must be the customer's own; the customer who has not
+     * paid yet must also be allowed to ship to them (an old Saudi address has to be completed first). An order that is already paid
+     * is never refused here, because the money is taken: it only never keeps an address that is not the customer's.
+     *
+     * @param array<int, array<string, mixed>> $vendorWiseCartList
+     * @param array<string, mixed> $data what generateOrder was given
+     * @param array<string, mixed> $customerInfo what getCustomerInfoForOrder worked out
+     * @return array<int, array<string, mixed>>
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public static function scopeOrderAddresses(array $vendorWiseCartList, object|array|null $data, array $customerInfo): array
+    {
+        $firstCart = reset($vendorWiseCartList);
+        if ($firstCart === false) {
+            return $vendorWiseCartList;
+        }
+
+        $addresses = app(OrderAddressService::class);
+        $channel = $data['address_channel'] ?? AddressChannel::Web;
+        $owner = [
+            'customerId' => $customerInfo['customer_id'],
+            'isGuest' => (bool)$customerInfo['is_guest'],
+            'guestId' => $customerInfo['guest_id'] ?: ($data['guest_id'] ?? null),
+        ];
+
+        if (($data['enforce_address_rules'] ?? true) !== false) {
+            $addresses->assertOrderable(...$owner, shippingId: $firstCart['shipping_address_id'], billingId: $firstCart['billing_address_id'], channel: $channel);
+
+            return $vendorWiseCartList;
+        }
+
+        $shippingId = $addresses->owned(...$owner, addressId: $firstCart['shipping_address_id'], allowUnsaved: $channel === AddressChannel::Web)?->id ?? 0;
+        $billingId = $addresses->owned(...$owner, addressId: $firstCart['billing_address_id'], allowUnsaved: $channel === AddressChannel::Web)?->id ?? 0;
+
+        return array_map(
+            static fn (array $cart): array => [...$cart, 'shipping_address_id' => $shippingId, 'billing_address_id' => $billingId],
+            $vendorWiseCartList
+        );
     }
 
     public static function getTotalCouponAmount($request, $couponCode): array
@@ -1025,10 +1080,10 @@ class OrderManager
             'bring_change_amount_currency' => $orderData['bring_change_amount_currency'] ?? null,
             'admin_commission' => $adminCommission,
             'shipping_address' => $cartData['shipping_address_id'],
-            'shipping_address_data' => ShippingAddress::find($cartData['shipping_address_id']),
+            'shipping_address_data' => self::getOrderAddressSnapshot(addressId: $cartData['shipping_address_id']),
             // Falls back to the shipping address so every order carries a billing address.
             'billing_address' => $cartData['billing_address_id'] ?: $cartData['shipping_address_id'],
-            'billing_address_data' => ShippingAddress::find($cartData['billing_address_id'] ?: $cartData['shipping_address_id']),
+            'billing_address_data' => self::getOrderAddressSnapshot(addressId: $cartData['billing_address_id'] ?: $cartData['shipping_address_id']),
             'shipping_responsibility' => getWebConfig(name: 'shipping_method'),
             'shipping_cost' => $cartData['shipping_cost'],
             'extra_discount' => $cartData['free_delivery_discount'],
@@ -1492,6 +1547,7 @@ class OrderManager
             'billing_address_id' => $data['billing_address_id'] ?? session('billing_address_id'),
             'requestObj' => $data['requestObj'] ?? null,
         ]);
+        $vendorWiseCartList = OrderManager::scopeOrderAddresses(vendorWiseCartList: $vendorWiseCartList, data: $data, customerInfo: $getCustomerInfo);
 
         // Everything that writes an order is one transaction; everything with a side effect the
         // database cannot undo — notifications, emails, clearing the cart, the session — stays

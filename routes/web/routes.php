@@ -2,6 +2,7 @@
 
 use App\Enums\ViewPaths\Web\ProductCompare;
 use App\Enums\ViewPaths\Web\ShopFollower;
+use App\Http\Controllers\Address\AddressCatalogController;
 use App\Http\Controllers\Customer\Auth\CustomerAuthController;
 use App\Http\Controllers\Customer\Auth\ForgotPasswordController;
 use App\Http\Controllers\Customer\Auth\LoginController;
@@ -223,6 +224,11 @@ Route::get(trim((string) config('analytics.campaigns.path', 'go'), '/') . '/{cod
 
 Route::controller(WebController::class)->group(function () {
     Route::get('maintenance-mode', 'maintenance_mode')->name('maintenance-mode');
+});
+
+Route::group(['prefix' => 'address', 'as' => 'address.', 'middleware' => ['throttle:120,1,address-catalog']], function () {
+    Route::get('regions', [AddressCatalogController::class, 'regions'])->name('regions');
+    Route::get('cities', [AddressCatalogController::class, 'cities'])->name('cities');
 });
 
 Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestCheck']], function () {

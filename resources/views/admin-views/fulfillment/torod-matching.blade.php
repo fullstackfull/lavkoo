@@ -94,9 +94,14 @@
             </div>
         </x-k.card>
 
+        @if ($cityReview !== null)
+            @include('admin-views.fulfillment.partials._city-review', ['cityReview' => $cityReview])
+        @endif
+
         <div class="row g-3">
             <div class="col-lg-6">
                 <x-k.card :title="translate('city_mapping')">
+                    @if ($cityReview !== null)<div class="fs-12 text-muted mb-1">{{ translate('city_alias_legacy_note') }}</div>@endif
                     <p class="fs-12 text-muted">{{ translate('city_mapping_help') }}</p>
                     @if ($unmappedCities !== [])
                         <div class="mb-2 fs-12"><strong>{{ translate('cities_waiting_for_a_match') }}:</strong>
@@ -146,3 +151,65 @@
         })();
     </script>
 @endpush
+
+@if ($cityReview !== null)
+    @push('script')
+        <script>
+            (function () {
+                var form = document.getElementById('manual-city-match');
+                if (!form) { return; }
+
+                function picker(inputId, resultsId, chosenId, hiddenId, label) {
+                    var input = document.getElementById(inputId);
+                    var results = document.getElementById(resultsId);
+                    var chosen = document.getElementById(chosenId);
+                    var hidden = document.getElementById(hiddenId);
+                    var timer = null;
+                    input.addEventListener('input', function () {
+                        hidden.value = '';
+                        chosen.textContent = '';
+                        form.querySelector('#manual-city-submit').disabled = true;
+                        clearTimeout(timer);
+                        timer = setTimeout(function () {
+                            fetch(input.dataset.url + '?q=' + encodeURIComponent(input.value), {headers: {'Accept': 'application/json'}})
+                                .then(function (response) {
+                                    if (!response.ok) { throw new Error('status ' + response.status); }
+                                    return response.json();
+                                })
+                                .then(function (found) {
+                                    results.textContent = '';
+                                    found.forEach(function (item) {
+                                        var option = document.createElement('button');
+                                        option.type = 'button';
+                                        option.className = 'list-group-item list-group-item-action py-1';
+                                        option.textContent = label(item);
+                                        option.addEventListener('click', function () {
+                                            hidden.value = item.id;
+                                            chosen.textContent = label(item);
+                                            results.textContent = '';
+                                            form.querySelector('#manual-city-submit').disabled = !(document.getElementById('manual-city-id').value && document.getElementById('manual-provider-city-id').value);
+                                        });
+                                        results.appendChild(option);
+                                    });
+                                })
+                                .catch(function () {
+                                    var failure = document.createElement('div');
+                                    failure.className = 'list-group-item text-danger py-1';
+                                    failure.textContent = form.dataset.error;
+                                    results.textContent = '';
+                                    results.appendChild(failure);
+                                });
+                        }, 250);
+                    });
+                }
+
+                picker('manual-city-search', 'manual-city-results', 'manual-city-chosen', 'manual-city-id', function (city) {
+                    return '#' + city.id + ' ' + city.name_ar + ' / ' + city.name_en + ' — ' + city.region;
+                });
+                picker('manual-provider-search', 'manual-provider-results', 'manual-provider-chosen', 'manual-provider-city-id', function (city) {
+                    return city.id + ' ' + city.name + ' — ' + city.region_id + ' ' + city.region + (city.prefix ? ' [' + city.prefix + ']' : '') + (city.selected ? ' ✓' : '');
+                });
+            })();
+        </script>
+    @endpush
+@endif

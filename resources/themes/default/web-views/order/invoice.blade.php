@@ -1,4 +1,6 @@
 @php
+    use App\Services\Address\AddressSnapshot;
+    use App\Services\Address\AddressSnapshotLines;
     use Illuminate\Support\Facades\Session;
     $currencyCode = getCurrencyCode(type: 'web');
     $direction = Session::get('direction');
@@ -681,11 +683,11 @@ $orderTotalPriceSummary = \App\Utils\OrderManager::getOrderTotalPriceSummary(ord
                         <td class="vertical-align-top border-{{$direction === "rtl" ? 'right' : 'left'}}">
                             <table>
                                 <tbody>
-                                @php($billingAddress = $order->billing_address_data)
-                                @if(!empty((array) $billingAddress))
+                                @php($billingAddress = $order->billingAddressSnapshot())
+                                @if($billingAddress)
                                     <tr>
                                         <td class="px-2" colspan="3">
-                                            <h5>{{ translate('Billing_address') }} <span class="fw-normal">({{ translate($billingAddress->address_type) }})</span>
+                                            <h5>{{ translate('Billing_address') }} <span class="fw-normal">({{ translate($billingAddress['address_type'] ?? '') }})</span>
                                             </h5>
                                         </td>
                                     </tr>
@@ -693,26 +695,37 @@ $orderTotalPriceSummary = \App\Utils\OrderManager::getOrderTotalPriceSummary(ord
                                         <td class="px-2 pt-1 pb-1">{{ translate('Name') }}</td>
                                         <td class="pt-1 pb-1">:</td>
                                         <td class="px-2 pt-1 pb-1">
-                                            {{ $billingAddress->contact_person_name }}
+                                            {{ $billingAddress['contact_person_name'] ?? '' }}
                                         </td>
                                     </tr>
                                     <tr>
                                         <td class="px-2 pt-1 pb-1">{{ translate('Phone') }}</td>
                                         <td class="pt-1 pb-1">:</td>
                                         <td class="px-2 pt-1 pb-1"><span
-                                                class="text-dark">{{ $billingAddress->phone }}</span></td>
+                                                class="text-dark">{{ $billingAddress['phone'] ?? '' }}</span></td>
                                     </tr>
-                                    <tr>
-                                        <td class="px-2 pt-1 pb-1 text-nowrap">{{ translate('City_/_Zip') }}</td>
-                                        <td class="pt-1 pb-1">:</td>
-                                        <td class="px-2 pt-1 pb-1"><span
-                                                class="text-dark">{{ $billingAddress->city }} {{ $billingAddress->zip }}</span></td>
-                                    </tr>
+                                    @if(AddressSnapshot::isUnified($billingAddress))
+                                        @foreach(AddressSnapshotLines::location($billingAddress) as $line)
+                                            <tr>
+                                                <td class="px-2 pt-1 pb-1 text-nowrap">{{ translate($line['label']) }}</td>
+                                                <td class="pt-1 pb-1">:</td>
+                                                <td class="px-2 pt-1 pb-1"><span
+                                                        class="text-dark">{{ $line['value'] }}</span></td>
+                                            </tr>
+                                        @endforeach
+                                    @else
+                                        <tr>
+                                            <td class="px-2 pt-1 pb-1 text-nowrap">{{ translate('City_/_Zip') }}</td>
+                                            <td class="pt-1 pb-1">:</td>
+                                            <td class="px-2 pt-1 pb-1"><span
+                                                    class="text-dark">{{ $billingAddress['city'] ?? '' }} {{ $billingAddress['zip'] ?? '' }}</span></td>
+                                        </tr>
+                                    @endif
                                     <tr>
                                         <td class="px-2 pt-1 pb-1">{{ translate('Address') }}</td>
                                         <td class="pt-1 pb-1">:</td>
                                         <td class="px-2 pt-1 pb-1"><span
-                                                class="text-dark">{{ $billingAddress->address }}</span>
+                                                class="text-dark">{{ $billingAddress['address'] ?? '' }}</span>
                                         </td>
                                     </tr>
                                 @endif
@@ -722,11 +735,11 @@ $orderTotalPriceSummary = \App\Utils\OrderManager::getOrderTotalPriceSummary(ord
                         <td class="vertical-align-top border-{{$direction === "rtl" ? 'right' : 'left'}}">
                             <table>
                                 <tbody>
-                                @php($shipping = $order->shipping_address_data)
-                                @if(!empty((array) $shipping))
+                                @php($shipping = $order->shippingAddressSnapshot())
+                                @if($shipping)
                                     <tr>
                                         <td class="px-2" colspan="3">
-                                            <h5>{{ translate('Shipping_address') }} <span class="fw-normal">({{ translate($shipping->address_type) }})</span>
+                                            <h5>{{ translate('Shipping_address') }} <span class="fw-normal">({{ translate($shipping['address_type'] ?? '') }})</span>
                                             </h5>
                                         </td>
                                     </tr>
@@ -734,27 +747,37 @@ $orderTotalPriceSummary = \App\Utils\OrderManager::getOrderTotalPriceSummary(ord
                                         <td class="px-2 pt-1 pb-1">{{ translate('Name') }}</td>
                                         <td class="pt-1 pb-1">:</td>
                                         <td class="px-2 pt-1 pb-1">
-                                            {{ $shipping->contact_person_name }}
+                                            {{ $shipping['contact_person_name'] ?? '' }}
                                         </td>
                                     </tr>
                                     <tr>
                                         <td class="px-2 pt-1 pb-1">{{ translate('Phone') }}</td>
                                         <td class="pt-1 pb-1">:</td>
                                         <td class="px-2 pt-1 pb-1"><span
-                                                class="text-dark">{{ $shipping->phone }}</span></td>
+                                                class="text-dark">{{ $shipping['phone'] ?? '' }}</span></td>
                                     </tr>
-                                    <tr>
-                                        <td class="px-2 pt-1 pb-1 text-nowrap">{{ translate('City_/_Zip') }}</td>
-                                        <td class="pt-1 pb-1">:</td>
-                                        <td class="px-2 pt-1 pb-1"><span
-                                                class="text-dark">{{ $shipping->city }} {{ $shipping->zip }}</span>
-                                        </td>
-                                    </tr>
+                                    @if(AddressSnapshot::isUnified($shipping))
+                                        @foreach(AddressSnapshotLines::location($shipping) as $line)
+                                            <tr>
+                                                <td class="px-2 pt-1 pb-1 text-nowrap">{{ translate($line['label']) }}</td>
+                                                <td class="pt-1 pb-1">:</td>
+                                                <td class="px-2 pt-1 pb-1"><span
+                                                        class="text-dark">{{ $line['value'] }}</span></td>
+                                            </tr>
+                                        @endforeach
+                                    @else
+                                        <tr>
+                                            <td class="px-2 pt-1 pb-1 text-nowrap">{{ translate('City_/_Zip') }}</td>
+                                            <td class="pt-1 pb-1">:</td>
+                                            <td class="px-2 pt-1 pb-1"><span
+                                                    class="text-dark">{{ $shipping['city'] ?? '' }} {{ $shipping['zip'] ?? '' }}</span></td>
+                                        </tr>
+                                    @endif
                                     <tr>
                                         <td class="px-2 pt-1 pb-1">{{ translate('Address') }}</td>
                                         <td class="pt-1 pb-1">:</td>
                                         <td class="px-2 pt-1 pb-1"><span
-                                                class="text-dark">{{ $shipping->address }}</span>
+                                                class="text-dark">{{ $shipping['address'] ?? '' }}</span>
                                         </td>
                                     </tr>
                                 @else

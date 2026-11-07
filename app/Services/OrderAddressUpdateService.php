@@ -1,0 +1,189 @@
+<?php
+
+namespace App\Services;
+
+use App\Contracts\Repositories\OrderRepositoryInterface;
+use App\Enums\Address\AddressChannel;
+use App\Models\Order;
+use App\Services\Address\AddressSnapshot;
+use App\Services\Address\OrderAddressService;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Staff correcting the address an order was placed with, from the order page of the admin panel or the vendor panel, or from the seller app.
+ *
+ * Only the order's own copy changes, never the customer's saved address. A Saudi address is always entered with the region, city and
+ * National Address once the structured address is in use, so editing an old order is also how it moves to the new form; the change is
+ * recorded (who, which order, which fields, never what they said). What the form did not send stays as the order holds it: a ZIP code
+ * is written only when the form carried one. An order whose shipment a provider already holds is not edited here (see
+ * OrderAddressService::editBlockedReason).
+ */
+class OrderAddressUpdateService
+{
+    private const ADDRESS_TYPES = ['shipping', 'billing'];
+
+    /** The order page's field names and the key each one has in the order's copy. */
+    private const FIELDS = [
+        'name' => 'contact_person_name',
+        'phone_number' => 'phone',
+        'country' => 'country',
+        'city' => 'city',
+        'zip' => 'zip',
+        'address' => 'address',
+        'latitude' => 'latitude',
+        'longitude' => 'longitude',
+    ];
+
+    /** The seller app names the fields as the order's copy does. */
+    private const APP_FIELDS = [
+        'contact_person_name' => 'contact_person_name',
+        'phone' => 'phone',
+        'country' => 'country',
+        'city' => 'city',
+        'zip' => 'zip',
+        'email' => 'email',
+        'address' => 'address',
+        'latitude' => 'latitude',
+        'longitude' => 'longitude',
+    ];
+
+    private const MAX_LENGTH = [
+        'contact_person_name' => 191,
+        'email' => 191,
+        'phone' => 40,
+        'country' => 100,
+        'city' => 191,
+        'zip' => 32,
+        'address' => 1000,
+        'latitude' => 32,
+        'longitude' => 32,
+    ];
+
+    private const STRUCTURED_FIELDS = ['region_id', 'city_id', 'district', 'national_address'];
+
+    private const EDIT_ATTEMPTS = 3;
+
+    public function __construct(
+        private readonly OrderAddressService $addresses,
+        private readonly OrderRepositoryInterface $orders,
+        private readonly AuditLogger $audit,
+    ) {
+    }
+
+    /**
+     * @param array<string, mixed> $input what the order page's form (or the seller app) sent
+     * @throws ValidationException
+     */
+    public function update(Order $order, mixed $addressType, array $input, AddressChannel $channel = AddressChannel::Panel): void
+    {
+        if (!in_array($addressType, self::ADDRESS_TYPES, true)) {
+            return;
+        }
+
+        // The shipments of the order are locked first, the way the dispatcher locks the one it claims, and the order is read again under its
+        // own lock: either this edit is written before the claim (and the provider is sent the new address), or the claim came first and the
+        // edit is refused. Two edits of one order made from stale pages cannot overwrite each other either.
+        DB::transaction(function () use ($order, $addressType, $input, $channel): void {
+            $this->addresses->lockShipmentsOf(orderId: (int) $order->id);
+            $fresh = Order::query()->lockForUpdate()->findOrFail($order->id);
+
+            if ($blocked = $this->addresses->editBlockedReason(orderId: (int) $fresh->id)) {
+                throw ValidationException::withMessages(['order' => [$blocked]]);
+            }
+
+            $current = $addressType === 'shipping' ? $fresh->shippingAddressSnapshot() : $fresh->billingAddressSnapshot();
+            $revised = $this->addresses->revise(
+                snapshot: $current,
+                changes: $this->changes(input: $input, fields: $channel === AddressChannel::Panel ? self::FIELDS : self::APP_FIELDS) + ['updated_at' => now()],
+                structuredInput: Arr::only($input, self::STRUCTURED_FIELDS),
+                channel: $channel,
+            );
+
+            $this->orders->update(id: (string) $fresh->id, data: [$addressType . '_address_data' => json_encode($revised, JSON_THROW_ON_ERROR)]);
+
+            $this->audit->record(
+                action: 'order.address_updated',
+                subject: ['type' => 'order', 'id' => $fresh->id],
+                before: $this->summary(snapshot: $current),
+                after: $this->summary(snapshot: $revised),
+                context: ['address_type' => $addressType, 'channel' => $channel->value, 'changed' => $this->changedKeys(before: $current ?? [], after: $revised)],
+            );
+        }, attempts: self::EDIT_ATTEMPTS);
+    }
+
+    /**
+     * The old-style fields the form sent, cleaned. A field the form did not send is not here, so it keeps what the order holds.
+     *
+     * @param array<string, mixed> $input
+     * @param array<string, string> $fields the input names and the key each one has in the order's copy
+     * @return array<string, string|null>
+     * @throws ValidationException
+     */
+    private function changes(array $input, array $fields): array
+    {
+        $changes = [];
+        foreach ($fields as $inputName => $key) {
+            if (array_key_exists($inputName, $input)) {
+                $changes[$key] = $this->text(inputName: $inputName, key: $key, value: $input[$inputName]);
+            }
+        }
+
+        return $changes;
+    }
+
+    /** @throws ValidationException */
+    private function text(string $inputName, string $key, mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $text = is_scalar($value) && !is_bool($value) ? trim((string) $value) : null;
+        if ($text === null || mb_strlen($text) > self::MAX_LENGTH[$key] || !mb_check_encoding($text, 'UTF-8')) {
+            throw ValidationException::withMessages([$inputName => [translate('address_field_invalid')]]);
+        }
+
+        return $text === '' ? null : $text;
+    }
+
+    /**
+     * Enough to follow what happened to an address without keeping any of it.
+     *
+     * @param array<string, mixed>|null $snapshot
+     * @return array{schema: string, region_id: int|null, city_id: int|null}
+     */
+    private function summary(?array $snapshot): array
+    {
+        if ($snapshot === null) {
+            return ['schema' => 'none', 'region_id' => null, 'city_id' => null];
+        }
+
+        $regionId = AddressSnapshot::value($snapshot, 'region_id');
+        $cityId = AddressSnapshot::value($snapshot, 'city_id');
+
+        return [
+            'schema' => AddressSnapshot::isUnified($snapshot) ? AddressSnapshot::SCHEMA_UNIFIED : AddressSnapshot::SCHEMA_LEGACY,
+            'region_id' => $regionId === null ? null : (int) $regionId,
+            'city_id' => $cityId === null ? null : (int) $cityId,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $before
+     * @param array<string, mixed> $after
+     * @return list<string> the names (never the values) of the keys that differ
+     */
+    private function changedKeys(array $before, array $after): array
+    {
+        $changed = [];
+        foreach ($after as $key => $value) {
+            if ($key !== 'updated_at' && ($before[$key] ?? null) != $value) {
+                $changed[] = (string) $key;
+            }
+        }
+
+        return $changed;
+    }
+}

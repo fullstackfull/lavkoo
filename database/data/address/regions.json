@@ -1,0 +1,102 @@
+{
+  "_meta": {
+    "source": "nad_snapshot_2022",
+    "description": "The 13 administrative regions of Saudi Arabia: Arabic and English names from the National Address (SPL) register, ISO 3166-2:SA codes from ISO.",
+    "origin": "https://maps.address.gov.sa (public National Address data), as republished at https://github.com/homaily/Saudi-Arabia-Regions-Cities-and-Districts",
+    "snapshot_date": "2022-01-11",
+    "prepared": "2026-11-06"
+  },
+  "regions": [
+    {
+      "ref": "1",
+      "code": "SA-01",
+      "name_ar": "منطقة الرياض",
+      "name_en": "Riyadh",
+      "sort": 1
+    },
+    {
+      "ref": "2",
+      "code": "SA-02",
+      "name_ar": "منطقة مكة المكرمة",
+      "name_en": "Makkah",
+      "sort": 2
+    },
+    {
+      "ref": "3",
+      "code": "SA-03",
+      "name_ar": "منطقة المدينة المنورة",
+      "name_en": "Madinah",
+      "sort": 3
+    },
+    {
+      "ref": "4",
+      "code": "SA-05",
+      "name_ar": "منطقة القصيم",
+      "name_en": "Qassim",
+      "sort": 4
+    },
+    {
+      "ref": "5",
+      "code": "SA-04",
+      "name_ar": "المنطقة الشرقية",
+      "name_en": "Eastern Province",
+      "sort": 5
+    },
+    {
+      "ref": "6",
+      "code": "SA-14",
+      "name_ar": "منطقة عسير",
+      "name_en": "Asir",
+      "sort": 6
+    },
+    {
+      "ref": "7",
+      "code": "SA-07",
+      "name_ar": "منطقة تبوك",
+      "name_en": "Tabuk",
+      "sort": 7
+    },
+    {
+      "ref": "8",
+      "code": "SA-06",
+      "name_ar": "منطقة حائل",
+      "name_en": "Hail",
+      "sort": 8
+    },
+    {
+      "ref": "9",
+      "code": "SA-08",
+      "name_ar": "منطقة الحدود الشمالية",
+      "name_en": "Northern Borders",
+      "sort": 9
+    },
+    {
+      "ref": "10",
+      "code": "SA-09",
+      "name_ar": "منطقة جازان",
+      "name_en": "Jazan",
+      "sort": 10
+    },
+    {
+      "ref": "11",
+      "code": "SA-10",
+      "name_ar": "منطقة نجران",
+      "name_en": "Najran",
+      "sort": 11
+    },
+    {
+      "ref": "12",
+      "code": "SA-11",
+      "name_ar": "منطقة الباحة",
+      "name_en": "Al Bahah",
+      "sort": 12
+    },
+    {
+      "ref": "13",
+      "code": "SA-12",
+      "name_ar": "منطقة الجوف",
+      "name_en": "Al Jawf",
+      "sort": 13
+    }
+  ]
+}

@@ -31,16 +31,34 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Fluent;
 
 class DeliveryManController extends Controller
 {
     use CommonTrait;
+
+    private const COURIER_ADDRESS_KEYS = ['id', 'customer_id', 'is_guest', 'contact_person_name', 'email', 'address_type', 'address', 'city', 'zip', 'phone', 'state', 'country', 'latitude', 'longitude', 'is_billing', 'created_at', 'updated_at'];
 
     public function __construct(
         private Order $order,
     )
     {
 
+    }
+
+    /**
+     * The parcel goes to the address the order was placed with, so the courier is shown that copy (under the same `shipping_address`
+     * key and with the same fields as the saved address, plus its structured fields) and not the saved address, which the customer may
+     * have edited or deleted since. Orders from before copies were kept still show the saved address.
+     */
+    private function useSnapshotAddress(?Order $order): ?Order
+    {
+        $snapshot = $order?->shippingAddressSnapshot();
+        if ($snapshot !== null) {
+            $order->setRelation('shippingAddress', new Fluent(array_merge(array_fill_keys(self::COURIER_ADDRESS_KEYS, null), $snapshot)));
+        }
+
+        return $order;
     }
 
     public function info(Request $request):JsonResponse
@@ -80,7 +98,7 @@ class DeliveryManController extends Controller
             ->where(['delivery_man_id' => $deliveryMan['id']])
             ->orderBy('expected_delivery_date', 'asc')
             ->get();
-        return response()->json($orders, 200);
+        return response()->json($orders->each(fn (Order $order) => $this->useSnapshotAddress(order: $order)), 200);
     }
 
     public function record_location_data(Request $request)
@@ -298,6 +316,9 @@ class DeliveryManController extends Controller
         }, 'shippingAddress', 'customer', 'seller.shop', 'latestEditHistory'])
             ->where(['delivery_man_id' => $deliveryMan['id'], 'id' => $request['order_id']])->first();
 
+        $this->useSnapshotAddress(order: $order);
+        $order?->details->each(fn (OrderDetail $detail) => $this->useSnapshotAddress(order: $detail->order));
+
         $details = $order?->details?->map(function ($detail) use ($order) {
             $data = $detail->toArray();
             $data['is_pause'] = $order['is_pause'];
@@ -354,13 +375,13 @@ class DeliveryManController extends Controller
             })
             ->latest()->get();
 
-        return response()->json($orders, 200);
+        return response()->json($orders->each(fn (Order $order) => $this->useSnapshotAddress(order: $order)), 200);
     }
 
     public function getOrderItem(Request $request): JsonResponse
     {
-        $order = Order::with(['shippingAddress', 'customer', 'seller.shop'])->where(['id' => $request['id']])->first();
-        return response()->json($order, 200);
+        $order = Order::with(['shippingAddress', 'customer', 'seller.shop'])->where(['id' => $request['id'], 'delivery_man_id' => $request['delivery_man']['id']])->first();
+        return response()->json($this->useSnapshotAddress(order: $order), 200);
     }
 
     public function get_last_location(Request $request)

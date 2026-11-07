@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\ProviderCity;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
+use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\SaudiPhone;
 
@@ -20,9 +21,12 @@ use App\Services\Fulfillment\Support\SaudiPhone;
  * `invoiceNumber` is OUR fulfillment reference: it is what links the provider's later last-mile webhooks
  * back to this fulfillment, and what a reconciliation looks for. Only this fulfillment's own items go in.
  *
- * Three fields the document leaves unexplained are handled conservatively: `villageId` is omitted (our
- * checkout has no district), `cost` is omitted unless an operator chose what it should carry, and for
+ * Three fields the document leaves unexplained are handled conservatively: `villageId` is omitted (the store's address has
+ * no village of the provider's), `cost` is omitted unless an operator chose what it should carry, and for
  * cash on delivery `codCollectionMethod` is whatever LogesTechs told the operator to send — never guessed.
+ *
+ * The document's receiverAddress has no national-address field, so none is sent: the street text, and the district when the
+ * address has one, travel in `addressLine1`.
  */
 class TorodOrderPayloadBuilder
 {
@@ -31,16 +35,16 @@ class TorodOrderPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
-        $local = (string) SaudiPhone::normalize((string) ($address['phone'] ?? ''));
+        $local = (string) SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone'));
 
         $payload = [
-            'receiverName' => trim((string) ($address['contact_person_name'] ?? '')),
+            'receiverName' => AddressSnapshot::plain($address, 'contact_person_name'),
             'receiverPhone' => $this->formatPhone($local, $config),
             'receiverPhone2' => '',
             'receiverAddress' => array_filter([
                 'cityId' => (string) $city->external_id,
                 'regionId' => $city->region_external_id,
-                'addressLine1' => trim((string) ($address['address'] ?? '')),
+                'addressLine1' => AddressSnapshot::streetLine($address),
             ], static fn ($value): bool => $value !== null && $value !== ''),
             'notes' => $this->notes($order),
             'weight' => $this->weight($fulfillment, $config),

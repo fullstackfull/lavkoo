@@ -1,11 +1,13 @@
 <?php
 
+use App\Enums\Address\AddressChannel;
 use App\Events\AddFundToWalletEvent;
 use App\Models\AdminWallet;
 use App\Models\Order;
 use App\Models\OrderEditHistory;
 use App\Models\ShippingAddress;
 use App\Models\User;
+use App\Services\Address\OrderAddressService;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
@@ -153,6 +155,10 @@ request()->merge($requestObj);
                 'address_id' => $additionalData['address_id'] ?? null,
                 'billing_address_id' => $additionalData['billing_address_id'] ?? null,
                 'requestObj' => $requestObj,
+
+                // Paid already: the order is never refused over its address. It only never keeps an address that is not the customer's.
+                'enforce_address_rules' => false,
+                'address_channel' => $requestObj['payment_request_from'] === 'app' ? AddressChannel::Api : AddressChannel::Web,
 
                 // The gateway has already taken the money by the time this runs. Refusing the order
                 // for want of stock would leave the customer paid with nothing to show for it —
@@ -412,6 +418,15 @@ if (!function_exists('auction_entry_fee_fail')) {
     }
 }
 
+// The address a claim was paid with. The claim form is the auction module's own and still sends the old fields, so a claim keeps exactly the keys it was
+// given; only one that already names a city of the list is turned into a copy that also carries the names of its region and city.
+if (!function_exists('auction_address_snapshot')) {
+    function auction_address_snapshot(mixed $addressInfo): mixed
+    {
+        return is_array($addressInfo) && !empty($addressInfo['city_id']) ? (app(OrderAddressService::class)->snapshot(address: $addressInfo) ?? $addressInfo) : $addressInfo;
+    }
+}
+
 // Auction Claim Payment - Success
 if (!function_exists('auction_claim_payment_success')) {
     function auction_claim_payment_success($payment_data): void
@@ -459,9 +474,9 @@ if (!function_exists('auction_claim_payment_success')) {
         );
 
         $shippingAddressId = $additionalData['shipping_address_id'] ?? null;
-        $shippingAddressInfo = $additionalData['shipping_address_info'] ?? null;
+        $shippingAddressInfo = auction_address_snapshot($additionalData['shipping_address_info'] ?? null);
         $billingAddressId = $additionalData['billing_address_id'] ?? null;
-        $billingAddressInfo = $additionalData['billing_address_info'] ?? null;
+        $billingAddressInfo = auction_address_snapshot($additionalData['billing_address_info'] ?? null);
 
         DB::transaction(function () use (
             $userId, $auctionProduct, $eligibleBid, $payment_data, $additionalData, $commission,

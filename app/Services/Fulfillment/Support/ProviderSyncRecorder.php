@@ -41,13 +41,14 @@ final class ProviderSyncRecorder
         $this->touch($provider, $capability, $values);
     }
 
-    public function failed(string $provider, string $capability, string $message): void
+    /** @param array<string, mixed>|null $stats */
+    public function failed(string $provider, string $capability, string $message, ?array $stats = null): void
     {
-        $this->touch($provider, $capability, [
-            'last_attempt_at' => now(),
-            'last_failure_at' => now(),
-            'last_error' => PiiRedactor::scrub($message, 1000),
-        ]);
+        $values = ['last_attempt_at' => now(), 'last_failure_at' => now(), 'last_error' => PiiRedactor::scrub($message, 1000)];
+        if ($stats !== null) {
+            $values['stats'] = $stats;
+        }
+        $this->touch($provider, $capability, $values);
     }
 
     public function received(string $provider, string $capability): void

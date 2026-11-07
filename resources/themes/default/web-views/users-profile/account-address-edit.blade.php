@@ -1,5 +1,11 @@
+@use('App\Services\Address\AddressCountry')
 @extends('layouts.front-end.app')
 @php($zipFieldStatus = getWebConfig(name: 'zip_code_field_status') || $zip_restrict_status)
+{{-- The structured Saudi address replaces the free-text city and the ZIP code for Saudi Arabia only; rows marked data-ua-other
+     are the old ones, shown (and posted) for the other countries. --}}
+@php($otherRow = $unified_address ? ' data-ua-other' : '')
+{{-- An address saved with another spelling of the country (a code, an Arabic name) is still a Saudi address. --}}
+@php($savedInSaudiArabia = $unified_address && AddressCountry::isSaudi($shippingAddress->country))
 
 @section('title', translate('my_Address'))
 
@@ -72,12 +78,12 @@
                             </div>
                         </div>
                         <div class="form-row">
-                            <div class="form-group col-md-6">
+                            <div class="form-group col-md-6"{{ $otherRow }}>
                                 <label for="city">{{translate('city')}}</label>
 
                                 <input class="form-control" type="text" id="city" name="city" value="{{$shippingAddress->city}}" required>
                             </div>
-                            <div class="form-group col-md-6 {{ $zipFieldStatus ? '' : 'd-none' }}">
+                            <div class="form-group col-md-6 {{ $zipFieldStatus ? '' : 'd-none' }}"{{ $otherRow }}>
                                 <label for="zip_code">{{translate('zip_code')}}</label>
                                 @if($zip_restrict_status)
                                     <select name="zip" class="form-control selectpicker" data-live-search="true" id="" required>
@@ -96,21 +102,39 @@
                                 <select name="country" class="form-control selectpicker" data-live-search="true" id="" required>
                                     @if($country_restrict_status)
                                         @foreach($delivery_countries as $country)
-                                            <option value="{{$country['name']}}" {{ $country['name'] == $shippingAddress->country? 'selected' : ''}}>{{$country['name']}}</option>
+                                            <option value="{{$country['name']}}" {{ $country['name'] == $shippingAddress->country || ($savedInSaudiArabia && $country['code'] === 'SA') ? 'selected' : ''}}>{{$country['name']}}</option>
                                         @endforeach
                                     @else
                                         @foreach(COUNTRIES as $country)
-                                            <option value="{{ $country['name'] }}" {{ $shippingAddress->country == $country['name']? 'selected' : '' }}>{{ $country['name'] }}</option>
+                                            <option value="{{ $country['name'] }}" {{ $shippingAddress->country == $country['name'] || ($savedInSaudiArabia && $country['code'] === 'SA') ? 'selected' : '' }}>{{ $country['name'] }}</option>
                                         @endforeach
                                     @endif
                                 </select>
                             </div>
                         </div>
 
+                        @if($unified_address)
+                            <div class="form-row">
+                                <div class="col-md-12">
+                                    <div data-ua-saudi hidden>
+                                        @if($needs_completion)
+                                            <div class="alert alert-warning ua-notice py-2 px-3 fs-12" role="alert">
+                                                {{ translate('address_complete_required') }}
+                                                @if(filled($shippingAddress->city))
+                                                    <div>{{ translate('address_previous_city') }}: {{ $shippingAddress->city }}</div>
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </div>
+                                    @include('partials.address._unified-address-fields', ['address' => $shippingAddress, 'ui' => 'bs4', 'idPrefix' => 'edit', 'namePrefix' => '', 'countrySelector' => 'select[name=country]'])
+                                </div>
+                            </div>
+                        @endif
+
                         <div class="form-row">
                             <div class=" col-md-12">
                                 <div class="form-group mb-1">
-                                    <label for="own_address">{{translate('address')}}</label>
+                                    <label for="own_address">{{ $unified_address ? translate('address_street_details') : translate('address') }}</label>
                                     <textarea class="form-control" id="address"
                                               type="text"  name="address" required>{{$shippingAddress->address}}</textarea>
                                     <span class="fs-14 text-danger font-semi-bold opacity-0 map-address-alert">
@@ -147,9 +171,17 @@
     </div>
 </div>
 <span id="system-country-restrict-status" data-value="{{ $country_restrict_status }}"></span>
+@if($unified_address)
+    @include('partials.address._unified-address-script')
+@endif
 @endsection
 
 @push('script')
+@if($unified_address)
+    @include('web-views.partials.address._storefront-address-guard', ['forms' => [
+        ['form' => 'form[action$="account-address-update"]', 'country' => 'select[name=country]', 'street' => '#address', 'phone' => '#own_phone'],
+    ]])
+@endif
 <script>
     'use strict'
     const deliveryRestrictedCountries = @json($countriesName);

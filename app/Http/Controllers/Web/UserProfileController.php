@@ -15,6 +15,8 @@ use App\Models\OfflinePaymentMethod;
 use App\Models\OrderEditHistory;
 use App\Models\OrderStatusHistory;
 use App\Models\SupportTicketConv;
+use App\Services\Address\AddressSchema;
+use App\Services\Address\StorefrontAddressService;
 use App\Services\OrderStatusHistoryService;
 use App\Traits\PdfGenerator;
 use App\Http\Controllers\Controller;
@@ -66,9 +68,11 @@ class UserProfileController extends Controller
         private readonly OrderDetailsRewardsRepositoryInterface    $orderDetailsRewardsRepo,
         private readonly OrderStatusHistoryRepositoryInterface     $orderStatusHistoryRepo,
         private readonly OrderStatusHistoryService                 $orderStatusHistoryService,
+        private readonly StorefrontAddressService                  $storefrontAddresses,
     )
     {
-
+        // The address book is the signed-in customer's: nobody else can add, open, change or remove an address.
+        $this->middleware('customer')->only(['address_store', 'address_edit', 'address_update', 'address_delete']);
     }
 
     public function user_account(Request $request)
@@ -161,8 +165,10 @@ class UserProfileController extends Controller
         }
 
         if (auth('customer')->check()) {
-            $shippingAddresses = ShippingAddress::where('customer_id', auth('customer')->id())->latest()->get();
-            return view('web-views.users-profile.account-address', compact('shippingAddresses', 'country_restrict_status', 'zip_restrict_status', 'countries', 'zip_codes', 'countriesName', 'countriesCode'));
+            $shippingAddresses = $this->storefrontAddresses->addressBook();
+            $unified_address = AddressSchema::enabled();
+            $incomplete_address_ids = $shippingAddresses->filter(fn (ShippingAddress $address): bool => $this->storefrontAddresses->needsCompletion($address))->modelKeys();
+            return view('web-views.users-profile.account-address', compact('shippingAddresses', 'country_restrict_status', 'zip_restrict_status', 'countries', 'zip_codes', 'countriesName', 'countriesCode', 'unified_address', 'incomplete_address_ids'));
         } else {
             return redirect()->route('home');
         }
@@ -170,60 +176,12 @@ class UserProfileController extends Controller
 
     public function address_store(Request $request): RedirectResponse
     {
-        $request->validate([
-            'name' => 'required',
-            'phone' => 'required|max:20',
-            'city' => 'required',
-            // Required only when deliveries are limited to an allow-list of postcodes; markets
-            // without postcodes should never be blocked by an empty field.
-            'zip' => getWebConfig(name: 'delivery_zip_code_area_restriction') ? 'required' : 'nullable',
-            'country' => 'required',
-            'address' => 'required',
-        ]);
-
-        $numericPhoneValue = preg_replace('/[^0-9]/', '', $request['phone']);
-        $numericLength = strlen($numericPhoneValue);
-        if ($numericLength < 4 || $numericLength > 20) {
-            $request->validate([
-                'phone' => 'min:5|max:20',
-            ], [
-                'phone.min' => translate('The_phone_number_must_be_at_least_4_characters'),
-                'phone.max' => translate('The_phone_number_may_not_be_greater_than_20_characters'),
-            ]);
-        }
-
-        $country_restrict_status = getWebConfig(name: 'delivery_country_restriction');
-        $zip_restrict_status = getWebConfig(name: 'delivery_zip_code_area_restriction');
-
-        $country_exist = self::delivery_country_exist_check($request->country);
-        $zipcode_exist = self::delivery_zipcode_exist_check($request->zip);
-
-        if ($country_restrict_status && !$country_exist) {
-            Toastr::error(translate('Delivery_unavailable_in_this_country!'));
+        if ($refusal = $this->addressFormRefusal($request)) {
+            Toastr::error($refusal);
             return back();
         }
 
-        if ($zip_restrict_status && !$zipcode_exist) {
-            Toastr::error(translate('Delivery_unavailable_in_this_zip_code_area!'));
-            return back();
-        }
-
-        $address = [
-            'customer_id' => auth('customer')->check() ? auth('customer')->id() : null,
-            'contact_person_name' => $request['name'],
-            'address_type' => Str::lower($request['address_type'] ?? ''),
-            'address' => $request['address'],
-            'city' => $request['city'],
-            'zip' => $request['zip'],
-            'country' => $request['country'],
-            'phone' => $request['phone'],
-            'is_billing' => $request['is_billing'],
-            'latitude' => $request['latitude'],
-            'longitude' => $request['longitude'],
-            'created_at' => now(),
-            'updated_at' => now(),
-        ];
-        DB::table('shipping_addresses')->insert($address);
+        $this->storefrontAddresses->addToAddressBook(attributes: $this->addressAttributes($request), input: $this->structuredAddressInput($request));
 
         Toastr::success(translate('address_added_successfully!'));
 
@@ -232,7 +190,7 @@ class UserProfileController extends Controller
 
     public function address_edit(Request $request, $id)
     {
-        $shippingAddress = ShippingAddress::where('customer_id', auth('customer')->id())->find($id);
+        $shippingAddress = $this->storefrontAddresses->findInAddressBook($id);
         $country_restrict_status = getWebConfig(name: 'delivery_country_restriction');
         $zip_restrict_status = getWebConfig(name: 'delivery_zip_code_area_restriction');
 
@@ -247,7 +205,9 @@ class UserProfileController extends Controller
         }
 
         if (isset($shippingAddress)) {
-            return view(VIEW_FILE_NAMES['account_address_edit'], compact('shippingAddress', 'country_restrict_status', 'zip_restrict_status', 'delivery_countries', 'delivery_zipcodes', 'countriesName', 'countriesCode'));
+            $unified_address = AddressSchema::enabled();
+            $needs_completion = $this->storefrontAddresses->needsCompletion($shippingAddress);
+            return view(VIEW_FILE_NAMES['account_address_edit'], compact('shippingAddress', 'country_restrict_status', 'zip_restrict_status', 'delivery_countries', 'delivery_zipcodes', 'countriesName', 'countriesCode', 'unified_address', 'needs_completion'));
         } else {
             Toastr::warning(translate('access_denied'));
             return back();
@@ -256,10 +216,43 @@ class UserProfileController extends Controller
 
     public function address_update(Request $request): RedirectResponse
     {
+        if ($refusal = $this->addressFormRefusal($request)) {
+            Toastr::error($refusal);
+            return back();
+        }
+
+        $address = $this->storefrontAddresses->findInAddressBook($request->id);
+        if ($address === null) {
+            Toastr::error(translate('address_not_found!'));
+            return redirect()->route('account-address');
+        }
+
+        $this->storefrontAddresses->amendInAddressBook(address: $address, attributes: $this->addressAttributes($request), input: $this->structuredAddressInput($request));
+
+        Toastr::success(translate('address_updated_successfully!'));
+
+        return redirect()->route('account-address');
+    }
+
+    public function address_delete(Request $request)
+    {
+        $this->storefrontAddresses->removeFromAddressBook(addressId: $request->id);
+        Toastr::success(translate('address_Delete_Successfully'));
+
+        return redirect()->back();
+    }
+
+    /**
+     * Checks the address form the way the page always has and says why it was refused, or null when it may go on. A Saudi address
+     * gives its place as region, city and National Address, so the free-text city is only asked of the other countries; the
+     * structured fields themselves are checked when the address is saved.
+     */
+    private function addressFormRefusal(Request $request): ?string
+    {
         $request->validate([
             'name' => 'required',
             'phone' => 'required|max:20',
-            'city' => 'required',
+            'city' => $this->storefrontAddresses->requiresStructured(country: $request['country']) ? 'nullable' : 'required',
             // Required only when deliveries are limited to an allow-list of postcodes; markets
             // without postcodes should never be blocked by an empty field.
             'zip' => getWebConfig(name: 'delivery_zip_code_area_restriction') ? 'required' : 'nullable',
@@ -278,66 +271,37 @@ class UserProfileController extends Controller
             ]);
         }
 
-        $country_restrict_status = getWebConfig(name: 'delivery_country_restriction');
-        $zip_restrict_status = getWebConfig(name: 'delivery_zip_code_area_restriction');
-
-        $country_exist = self::delivery_country_exist_check($request->country);
-        $zipcode_exist = self::delivery_zipcode_exist_check($request->zip);
-
-        if ($country_restrict_status && !$country_exist) {
-            Toastr::error(translate('Delivery_unavailable_in_this_country!'));
-            return back();
+        if (getWebConfig(name: 'delivery_country_restriction') && !self::delivery_country_exist_check($request->country)) {
+            return translate('Delivery_unavailable_in_this_country!');
         }
 
-        if ($zip_restrict_status && !$zipcode_exist) {
-            Toastr::error(translate('Delivery_unavailable_in_this_zip_code_area!'));
-            return back();
+        if (getWebConfig(name: 'delivery_zip_code_area_restriction') && !self::delivery_zipcode_exist_check($request->zip)) {
+            return translate('Delivery_unavailable_in_this_zip_code_area!');
         }
 
-        $updateAddress = [
-            'contact_person_name' => $request->name,
-            'address_type' => Str::lower($request['address_type'] ?? ''),
-            'address' => $request->address,
-            'city' => $request->city,
-            'zip' => $request->zip,
-            'country' => $request->country,
-            'phone' => $request->phone,
-            'is_billing' => $request->is_billing,
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ];
-        if (auth('customer')->check()) {
-            // Scope to the owner: without customer_id any logged-in customer could rewrite another
-            // customer's saved address (e.g. redirect their deliveries) by passing its id.
-            $updated = ShippingAddress::where('id', $request->id)
-                ->where('customer_id', auth('customer')->id())
-                ->update($updateAddress);
-            if ($updated) {
-                Toastr::success(translate('address_updated_successfully!'));
-            } else {
-                Toastr::error(translate('address_not_found!'));
-            }
-        } else {
-            Toastr::error(translate('Insufficient_permission!'));
-        }
-        return redirect()->route('account-address');
+        return null;
     }
 
-    public function address_delete(Request $request)
+    /** @return array<string, mixed> the old columns of the form; `zip` only when the form had the field, so an address without one keeps its postal code */
+    private function addressAttributes(Request $request): array
     {
-        if (auth('customer')->check()) {
-            // Scope to the owner: destroy() by raw id let any logged-in customer delete another
-            // customer's saved address.
-            ShippingAddress::where('id', $request->id)
-                ->where('customer_id', auth('customer')->id())
-                ->delete();
-            Toastr::success(translate('address_Delete_Successfully'));
-            return redirect()->back();
-        } else {
-            return redirect()->back();
-        }
+        return [
+            'contact_person_name' => $request['name'],
+            'address_type' => Str::lower($request['address_type'] ?? ''),
+            'address' => $request['address'],
+            'city' => $request['city'],
+            'country' => $request['country'],
+            'phone' => $request['phone'],
+            'is_billing' => $request['is_billing'],
+            'latitude' => $request['latitude'],
+            'longitude' => $request['longitude'],
+        ] + $request->only('zip');
+    }
+
+    /** @return array<string, mixed> */
+    private function structuredAddressInput(Request $request): array
+    {
+        return $request->only(['country', 'phone', 'region_id', 'city_id', 'district', 'national_address']);
     }
 
     public function account_payment()
@@ -775,22 +739,16 @@ class UserProfileController extends Controller
             ->first();
 
         if (!isset($user)) {
+            if (!is_string($request['phone_number'])) {
+                Toastr::error(translate('invalid_Order_Id_or_phone_Number'));
+
+                return redirect()->route('track-order.index', ['order_id' => $request['order_id']]);
+            }
+
             $userInfo = User::where('phone', $request['phone_number'])->orWhere('phone', 'like', "%{$request['phone_number']}%")->first();
 
             if ($order && $order->is_guest) {
-
-                $shippingAddress = (array)($order['shipping_address_data'] ?? []);
-                $billingAddress = (array)($order['billing_address_data'] ?? []);
-                if ($order && $order?->shippingAddress && $order?->shippingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($shippingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($order && $order?->billingAddress && $order?->billingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($billingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                }
-
+                $orderExist = $this->storefrontAddresses->orderWasPlacedWithPhone(order: $order, phone: $request['phone_number']) ? $order : null;
             } elseif ($userInfo) {
                 $orderExist = Order::with('latestEditHistory')->where('id', $request['order_id'])->whereHas('details', function ($query) use ($userInfo) {
                     $query->where('customer_id', $userInfo->id);
@@ -802,19 +760,7 @@ class UserProfileController extends Controller
         } else {
             $order = Order::with('details', 'latestEditHistory')->where('id', $request['order_id'])->first();
             if ($order && $order->is_guest) {
-
-                $shippingAddress = (array)($order['shipping_address_data'] ?? []);
-                $billingAddress = (array)($order['billing_address_data'] ?? []);
-                if ($order && $order?->shippingAddress && $order?->shippingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($shippingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($order && $order?->billingAddress && $order?->billingAddress->phone == $request['phone_number']) {
-                    $orderExist = $order;
-                } else if ($billingAddress['phone'] == $request['phone_number']) {
-                    $orderExist = $order;
-                }
-
+                $orderExist = $this->storefrontAddresses->orderWasPlacedWithPhone(order: $order, phone: $request['phone_number']) ? $order : null;
             } elseif ($user->phone == $request['phone_number']) {
                 $orderExist = Order::with('details', 'latestEditHistory')->where('id', $request['order_id'])->whereHas('details', function ($query) {
                     $query->where('customer_id', auth('customer')->id());

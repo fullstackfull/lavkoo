@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\SkipsUntilMigrated;
+use App\Enums\Fulfillment\CitySyncVerdict;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderSyncService;
@@ -41,8 +42,20 @@ class FulfillmentSyncCommand extends Command
 
             foreach ($sync->run($provider, $due) as $task => $result) {
                 $ok = (bool) ($result['ok'] ?? false);
-                $failed = $failed || (!$ok && !str_starts_with((string) ($result['error'] ?? ''), 'switched_off'));
-                $this->line(sprintf('%s %s: %s', $provider->value, $task, $ok ? 'ok ' . json_encode($result['stats'] ?? $result['count'] ?? '') : (string) ($result['error'] ?? 'failed')));
+                $error = (string) ($result['error'] ?? '');
+                if (!$ok && $error === 'not_applicable') {
+                    $this->line(sprintf('%s %s: not applicable to this provider, skipped', $provider->value, $task));
+
+                    continue;
+                }
+
+                $partial = $ok && ($result['verdict'] ?? null) === CitySyncVerdict::Partial->value;
+                $failed = $failed || $partial || (!$ok && !str_starts_with($error, 'switched_off'));
+                $this->line(sprintf('%s %s: %s', $provider->value, $task, match (true) {
+                    $partial => 'PARTIAL ' . json_encode($result['count'] ?? 0) . ' (' . ($result['reason'] ?? '') . ')',
+                    $ok => 'ok ' . json_encode($result['stats'] ?? $result['count'] ?? '') . (isset($result['approved']) ? sprintf(' (%d approved automatically, %d proposed)', $result['approved'], $result['proposed']) : ''),
+                    default => $error !== '' ? $error : 'failed',
+                }));
             }
         }
 
