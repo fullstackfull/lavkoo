@@ -25,6 +25,7 @@ class EnsureSalesChannelsMigrated
         '2026_11_09_100200_create_operational_cost_return_decisions_table',
         '2026_11_09_100300_add_basis_to_operational_cost_reconciliations',
         '2026_11_09_200000_create_channel_order_dispatches_table',
+        '2026_11_11_100000_add_purchase_order_sources_to_cost_tables',
     ];
 
     public function handle(Request $request, Closure $next): Response

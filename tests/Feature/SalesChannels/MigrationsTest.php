@@ -25,6 +25,7 @@ class MigrationsTest extends TestCase
         '2026_11_09_100200_create_operational_cost_return_decisions_table.php',
         '2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php',
         '2026_11_09_200000_create_channel_order_dispatches_table.php',
+        '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php',
     ];
 
     private const NEW_TABLES = [
@@ -158,6 +159,7 @@ class MigrationsTest extends TestCase
         $this->assertContains('dedupe_key', $unique('operational_cost_entries'));
         $this->assertContains('provider,shipment_reference', $unique('external_order_mappings'));
         $this->assertContains('dedupe_key', $unique('sales_channel_events'));
+        $this->assertContains('source_type,source_id,source_from', $unique('inventory_cost_layers'), 'Two runs that overlap cannot both make the layer of the same purchase-order units.');
     }
 
     public function test_the_column_migrations_only_add_nullable_columns_to_the_modules_own_tables_and_remove_only_them_keeping_the_rows(): void
@@ -208,6 +210,58 @@ class MigrationsTest extends TestCase
         $basis->down();
         $this->assertSame($columns, Schema::getColumnListing('operational_cost_reconciliations'));
         $this->assertSame(1, DB::table('operational_cost_reconciliations')->count());
+    }
+
+    public function test_the_purchase_order_migration_alone_adds_only_nullable_columns_and_one_unique_key_to_the_modules_own_tables_and_removes_exactly_them(): void
+    {
+        (require database_path('migrations/' . self::MIGRATIONS[0]))->up();
+        $tables = ['inventory_cost_layers', 'operational_cost_invoices', 'operational_cost_invoice_items'];
+        $before = array_combine($tables, array_map(static fn (string $table): array => Schema::getColumnListing($table), $tables));
+        DB::table('inventory_cost_layers')->insert([
+            'inventory_location_id' => 1, 'product_id' => 50, 'source_type' => 'purchase_invoice', 'source_id' => 7, 'dedupe_key' => 'old-1', 'received_at' => '2026-11-01 00:00:00',
+            'quantity_received' => 5, 'quantity_remaining' => 5, 'unit_cost' => '10.000000', 'currency' => 'SAR', 'supplier_name' => 'Acme',
+        ]);
+        $last = require database_path('migrations/' . self::MIGRATIONS[9]);
+
+        $last->up();
+
+        $added = array_combine($tables, array_map(static fn (string $table): array => array_values(array_diff(Schema::getColumnListing($table), $before[$table])), $tables));
+        $this->assertSame([
+            'inventory_cost_layers' => ['source_from', 'source_to', 'supplier_id', 'received_at_basis'],
+            'operational_cost_invoices' => ['supplier_id'],
+            'operational_cost_invoice_items' => ['purchase_order_item_id', 'resembles_purchase_order_item_id'],
+        ], $added);
+        foreach ($added as $table => $columns) {
+            $nullable = collect(Schema::getColumns($table))->keyBy('name');
+            foreach ($columns as $column) {
+                $this->assertTrue($nullable[$column]['nullable'], "{$table}.{$column} is nullable: nothing that was there has a value for it.");
+            }
+        }
+        $old = DB::table('inventory_cost_layers')->first();
+        $this->assertSame([null, null, null, null, 'Acme'], [$old->source_from, $old->source_to, $old->supplier_id, $old->received_at_basis, $old->supplier_name], 'Existing layers stay as they were.');
+        $this->assertContains('source_type,source_id,source_from', collect(Schema::getIndexes('inventory_cost_layers'))->filter(fn ($index) => $index['unique'])->map(fn ($index) => implode(',', $index['columns']))->all());
+
+        $layer = static fn (string $key, ?int $from): array => [
+            'inventory_location_id' => 1, 'product_id' => 50, 'source_type' => 'purchase_order', 'source_id' => 70, 'source_from' => $from, 'dedupe_key' => $key, 'received_at' => '2026-11-02 00:00:00',
+            'quantity_received' => 3, 'quantity_remaining' => 3, 'unit_cost' => '10.000000', 'currency' => 'SAR',
+        ];
+        DB::table('inventory_cost_layers')->insert($layer('null-1', null));
+        DB::table('inventory_cost_layers')->insert($layer('null-2', null));
+        DB::table('inventory_cost_layers')->insert($layer('from-0', 0));
+        DB::table('inventory_cost_layers')->insert($layer('from-3', 3));
+        $this->assertSame(5, DB::table('inventory_cost_layers')->count(), 'Layers with no tranche (every other source) never collide.');
+        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+        try {
+            DB::table('inventory_cost_layers')->insert($layer('from-0-again', 0));
+        } finally {
+            $last->up();
+            $this->assertSame(5, DB::table('inventory_cost_layers')->count(), 'Running it again changes nothing, and the refused layer was not written.');
+            $last->down();
+            foreach ($tables as $table) {
+                $this->assertSame($before[$table], Schema::getColumnListing($table), "{$table} is as it was.");
+            }
+            $this->assertSame(5, DB::table('inventory_cost_layers')->count(), 'The rows survive.');
+        }
     }
 
     public function test_one_decision_per_line_and_return_event_is_a_database_constraint(): void

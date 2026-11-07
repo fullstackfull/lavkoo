@@ -10,7 +10,7 @@ use App\Services\OperationalCosts\Support\Money;
  */
 final readonly class ConsumptionResult
 {
-    /** @param list<array{layer_id: int, quantity: int, unit_cost: string, landed_unit_cost: string}> $pieces */
+    /** @param list<array{layer_id: int, quantity: int, unit_cost: string, landed_unit_cost: string, supplier_id?: int, supplier_name?: string|null}> $pieces the layers the units came from; a layer with a supplier hands it on */
     public function __construct(
         public int $requested,
         public int $covered,

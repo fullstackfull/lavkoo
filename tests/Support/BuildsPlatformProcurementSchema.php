@@ -42,7 +42,7 @@ trait BuildsPlatformProcurementSchema
 
         Schema::create('purchase_orders', function (Blueprint $table): void {
             $table->id();
-            $table->string('reference', 40)->unique();
+            $table->string('reference')->unique();
             $table->unsignedBigInteger('supplier_id')->nullable()->index();
             $table->unsignedBigInteger('seller_id')->nullable()->index();
             $table->string('status', 24)->default('draft');

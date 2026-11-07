@@ -21,6 +21,7 @@ final readonly class PurchaseLine
         public ?int $productId,
         public int $quantityReceived,
         public mixed $unitCost,
+        public ?CarbonImmutable $createdAt,
         public ?CarbonImmutable $updatedAt,
     ) {
     }

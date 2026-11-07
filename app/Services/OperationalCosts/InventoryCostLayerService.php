@@ -9,6 +9,7 @@ use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\OperationalCosts\Data\ConsumptionResult;
 use App\Services\OperationalCosts\Data\LayerReceipt;
 use App\Services\OperationalCosts\Exceptions\CostInputMissing;
+use App\Services\OperationalCosts\PurchaseOrders\LastPurchaseOrderCost;
 use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
 use Carbon\CarbonInterface;
@@ -35,6 +36,7 @@ class InventoryCostLayerService
     public function __construct(
         private readonly FxConverter $fx,
         private readonly ProviderCurrency $storeCurrency,
+        private readonly LastPurchaseOrderCost $purchaseOrderCosts,
     ) {
     }
 
@@ -45,7 +47,7 @@ class InventoryCostLayerService
             throw new InvalidArgumentException('A layer holds at least one unit.');
         }
         $dedupeKey = hash('sha256', implode('|', ['layer', $receipt->sellerId, $receipt->locationId, $receipt->productId, $receipt->variantKey, $receipt->sourceType, $receipt->identity]));
-        $existing = InventoryCostLayer::where('dedupe_key', $dedupeKey)->first();
+        $existing = InventoryCostLayer::where('dedupe_key', $dedupeKey)->first() ?? $this->layerOfTheSameUnits($receipt);
         if ($existing !== null) {
             return $existing;
         }
@@ -84,10 +86,37 @@ class InventoryCostLayerService
                 'currency' => $base,
                 'supplier_name' => $receipt->supplierName,
                 'status' => InventoryCostLayer::OPEN,
-            ] + $original);
-        } catch (UniqueConstraintViolationException) {
-            return InventoryCostLayer::where('dedupe_key', $dedupeKey)->firstOrFail();
+            ] + $original + $this->provenance($receipt));
+        } catch (UniqueConstraintViolationException $violation) {
+            return InventoryCostLayer::where('dedupe_key', $dedupeKey)->first() ?? $this->layerOfTheSameUnits($receipt) ?? throw $violation;
         }
+    }
+
+    /**
+     * The layer that already holds these units of a purchase-order line, whatever location or identity it was made with: the layer table is unique on the line and where its units
+     * start, so a second run (or a second location) can never make a second layer of the same units. Null for every other kind of layer.
+     */
+    private function layerOfTheSameUnits(LayerReceipt $receipt): ?InventoryCostLayer
+    {
+        return $receipt->sourceFrom === null
+            ? null
+            : InventoryCostLayer::where('source_type', $receipt->sourceType)->where('source_id', $receipt->sourceId)->where('source_from', $receipt->sourceFrom)->first();
+    }
+
+    /**
+     * The columns only a layer made from a purchase order fills; left out when there is nothing to say, so that every other layer is written exactly as before (and without the
+     * purchase-order migration).
+     *
+     * @return array<string, int|string>
+     */
+    private function provenance(LayerReceipt $receipt): array
+    {
+        return array_filter([
+            'source_from' => $receipt->sourceFrom,
+            'source_to' => $receipt->sourceTo,
+            'supplier_id' => $receipt->supplierId,
+            'received_at_basis' => $receipt->receivedAtBasis,
+        ], static fn (int|string|null $value): bool => $value !== null);
     }
 
     /**
@@ -243,7 +272,7 @@ class InventoryCostLayerService
                     'currency' => $layer->currency,
                     'supplier_name' => $layer->supplier_name,
                     'status' => InventoryCostLayer::OPEN,
-                ]);
+                ] + $this->supplierLink($layer));
                 $this->take($layer, $take, 'transfer', (int) $destination->id, 1, $at);
                 $pieces[] = ['layer_id' => (int) $layer->id, 'quantity' => $take, 'unit_cost' => (string) $layer->unit_cost, 'landed_unit_cost' => (string) $layer->landed_unit_cost];
                 $total = $total->plus(Money::of($layer->unit_cost)->plus($layer->landed_unit_cost)->times($take));
@@ -257,7 +286,8 @@ class InventoryCostLayerService
 
     /**
      * The best current figure for what a unit costs, used for ESTIMATES before a sale is recognised: the average of the open layers at the
-     * location, else the product's own recorded purchase price. Null when neither exists.
+     * location, else (with the purchase-order source on) the cost of the latest eligible purchase-order line, else the product's own recorded
+     * purchase price. Null when none exists.
      *
      * @return array{cost: Money, currency: string, basis: string}|null
      */
@@ -270,6 +300,11 @@ class InventoryCostLayerService
             $value = Money::sum($layers->map(fn (InventoryCostLayer $layer): Money => Money::of($layer->unit_cost)->plus($layer->landed_unit_cost)->times($layer->quantity_remaining)));
 
             return ['cost' => $value->dividedBy($units), 'currency' => $this->fx->baseCurrency(), 'basis' => 'open_layers_average'];
+        }
+
+        $fromPurchaseOrder = $this->purchaseOrderCosts->forProduct($productId, $variantKey, $sellerId);
+        if ($fromPurchaseOrder !== null) {
+            return $fromPurchaseOrder;
         }
 
         $purchasePrice = Product::query()->whereKey($productId)->value('purchase_price');
@@ -322,16 +357,32 @@ class InventoryCostLayerService
     {
         $rows = InventoryCostConsumption::where('consumer_type', $consumerType)->where('consumer_id', $consumerId)
             ->where('generation', $generation)->whereNull('reversed_at')->get();
+        $layers = InventoryCostLayer::whereIn('id', $rows->pluck('layer_id')->unique()->all())->get()->keyBy('id');
 
         return new ConsumptionResult(
             requested: $requested,
             covered: (int) $rows->sum('quantity'),
             totalCost: Money::sum($rows->map(fn (InventoryCostConsumption $row): Money => Money::of($row->total_cost))),
             currency: (string) ($rows->first()->currency ?? $this->fx->baseCurrency()),
-            pieces: $rows->map(static fn (InventoryCostConsumption $row): array => [
+            pieces: $rows->map(fn (InventoryCostConsumption $row): array => [
                 'layer_id' => (int) $row->layer_id, 'quantity' => (int) $row->quantity,
                 'unit_cost' => (string) $row->unit_cost, 'landed_unit_cost' => (string) $row->landed_unit_cost,
-            ])->all(),
+            ] + $this->supplierLink($layers->get($row->layer_id), withName: true))->all(),
         );
+    }
+
+    /**
+     * The supplier a layer carries, to hand on to what is made from it (a transferred layer, the entry a sale's cost goes into). Nothing for a layer with no supplier link, so that the
+     * pieces of every layer without one are exactly what they were (an entry's identity is a hash of them).
+     *
+     * @return array<string, int|string|null>
+     */
+    private function supplierLink(?InventoryCostLayer $layer, bool $withName = false): array
+    {
+        if ($layer === null || $layer->getAttribute('supplier_id') === null) {
+            return [];
+        }
+
+        return ['supplier_id' => (int) $layer->supplier_id] + ($withName ? ['supplier_name' => $layer->supplier_name] : []);
     }
 }

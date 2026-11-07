@@ -12,6 +12,8 @@ final readonly class InvoiceResult
     public const DUPLICATE = 'duplicate';
     /** Written, but it looks like another invoice and waits for a person. */
     public const POSSIBLE_DUPLICATE = 'possible_duplicate';
+    /** Written, but a line looks like goods a purchase order already received and waits for a person to link it or say it is a separate purchase. */
+    public const RESEMBLES_RECEIPT = 'resembles_receipt';
 
     /** @param list<string> $warnings */
     public function __construct(

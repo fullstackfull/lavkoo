@@ -3,6 +3,7 @@
 namespace App\Services\OperationalCosts\PurchaseOrders;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -18,7 +19,7 @@ class PlatformProcurement
     /** @var array<string, list<string>> what the layers cannot be made without */
     private const REQUIRED = [
         'purchase_orders' => ['id', 'reference', 'supplier_id', 'seller_id', 'currency'],
-        'purchase_order_items' => ['id', 'purchase_order_id', 'product_id', 'qty_received', 'unit_cost', 'updated_at'],
+        'purchase_order_items' => ['id', 'purchase_order_id', 'product_id', 'qty_received', 'unit_cost', 'created_at', 'updated_at'],
         'products' => ['id', 'product_type', 'added_by', 'variation', 'current_stock'],
     ];
 
@@ -53,16 +54,35 @@ class PlatformProcurement
      */
     public function receivedLines(int $afterId, int $limit, ?int $productId = null, ?int $lineId = null): array
     {
-        $rows = DB::table('purchase_order_items as item')
-            ->join('purchase_orders as po', 'po.id', '=', 'item.purchase_order_id')
-            ->where('item.qty_received', '>', 0)
+        return $this->lines($this->receivedLineQuery()
             ->where('item.id', '>', $afterId)
             ->when($productId !== null, static fn ($query) => $query->where('item.product_id', $productId))
             ->when($lineId !== null, static fn ($query) => $query->where('item.id', $lineId))
             ->orderBy('item.id')
-            ->limit($limit)
-            ->get(['item.id as line_id', 'item.purchase_order_id', 'item.product_id', 'item.qty_received', 'item.unit_cost', 'item.updated_at', 'po.reference', 'po.supplier_id', 'po.seller_id', 'po.currency']);
+            ->limit($limit));
+    }
 
+    /**
+     * The lines of one product that were received most recently (by their last change), newest first.
+     *
+     * @return list<PurchaseLine>
+     */
+    public function latestReceivedLines(int $productId, int $limit): array
+    {
+        return $this->lines($this->receivedLineQuery()->where('item.product_id', $productId)->orderByDesc('item.updated_at')->orderByDesc('item.id')->limit($limit));
+    }
+
+    private function receivedLineQuery(): QueryBuilder
+    {
+        return DB::table('purchase_order_items as item')
+            ->join('purchase_orders as po', 'po.id', '=', 'item.purchase_order_id')
+            ->where('item.qty_received', '>', 0);
+    }
+
+    /** @return list<PurchaseLine> */
+    private function lines(QueryBuilder $query): array
+    {
+        $rows = $query->get(['item.id as line_id', 'item.purchase_order_id', 'item.product_id', 'item.qty_received', 'item.unit_cost', 'item.created_at', 'item.updated_at', 'po.reference', 'po.supplier_id', 'po.seller_id', 'po.currency']);
         $suppliers = $this->supplierNames($rows->pluck('supplier_id')->filter()->unique()->map(static fn ($id): int => (int) $id)->all());
 
         return $rows->map(static fn (object $row): PurchaseLine => new PurchaseLine(
@@ -76,6 +96,7 @@ class PlatformProcurement
             productId: $row->product_id === null ? null : (int) $row->product_id,
             quantityReceived: (int) $row->qty_received,
             unitCost: $row->unit_cost,
+            createdAt: $row->created_at === null ? null : CarbonImmutable::parse($row->created_at),
             updatedAt: $row->updated_at === null ? null : CarbonImmutable::parse($row->updated_at),
         ))->all();
     }

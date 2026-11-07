@@ -86,6 +86,42 @@ class ReconciliationService
         return $row;
     }
 
+    /**
+     * Compares a purchase invoice line linked to a purchase order line with what the order says its goods cost (the order's unit cost for the quantity billed). The layer of those
+     * goods is the order's and keeps the order's cost: this only says how far the invoice is from it, within the same tolerance, for a person to accept, dispute or write off. A cost
+     * in another currency than the invoice's is not subtracted from it: a person compares them.
+     */
+    public function compareWithPurchaseOrder(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, ?Money $expected, ?string $expectedCurrency): OperationalCostReconciliation
+    {
+        $existing = OperationalCostReconciliation::where('invoice_item_id', $item->id)->first();
+        if ($existing !== null && in_array($existing->status, [OperationalCostReconciliation::RESOLVED, OperationalCostReconciliation::DISPUTED], true)) {
+            return $existing;
+        }
+
+        $comparable = $expected !== null && $expectedCurrency === $item->currency;
+        $tolerance = $this->toleranceFor($invoice);
+        $variance = $comparable ? Money::of($item->amount)->minus($expected) : null;
+        $percent = $variance === null || $expected->isZero() ? null : $variance->times(100)->dividedBy($expected->abs(), 4);
+        $within = $variance !== null && ($variance->isZero() || ($percent !== null && $percent->abs()->compareTo($tolerance) <= 0));
+
+        $row = OperationalCostReconciliation::updateOrCreate(['invoice_item_id' => $item->id], [
+            'invoice_id' => $invoice->id,
+            'basis' => OperationalCostReconciliation::BASIS_PURCHASE_ORDER,
+            'status' => $within ? OperationalCostReconciliation::MATCHED : OperationalCostReconciliation::VARIANCE,
+            'estimated_entry_id' => null,
+            'actual_entry_id' => null,
+            'currency' => $item->currency,
+            'estimated_amount' => $comparable ? $expected->toStorage() : null,
+            'actual_amount' => Money::of($item->amount)->toStorage(),
+            'variance_amount' => $variance?->toStorage(),
+            'variance_percent' => $percent?->toScale(4),
+            'tolerance_percent' => $tolerance->toScale(4),
+        ]);
+        $item->forceFill(['match_status' => $within ? OperationalCostInvoiceItem::MATCHED : OperationalCostInvoiceItem::PARTIAL, 'entry_id' => null])->save();
+
+        return $row;
+    }
+
     /** How many lines of an invoice were compared with the statements instead of being posted. */
     public function comparedWithStatements(OperationalCostInvoice $invoice): int
     {

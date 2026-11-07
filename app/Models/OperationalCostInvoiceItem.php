@@ -28,6 +28,8 @@ class OperationalCostInvoiceItem extends Model
         'order_id' => 'integer',
         'provider_fulfillment_id' => 'integer',
         'external_order_mapping_id' => 'integer',
+        'purchase_order_item_id' => 'integer',
+        'resembles_purchase_order_item_id' => 'integer',
         'service_date' => 'date',
         'period_start' => 'date',
         'period_end' => 'date',

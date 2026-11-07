@@ -6,7 +6,6 @@ use App\Enums\OperationalCosts\PurchaseLineRefusal;
 use App\Models\InventoryCostLayer;
 use Carbon\CarbonImmutable;
 use Generator;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Works out, for every received line of the platform's purchase orders, what its cost layers would do. It only READS: the platform's tables, and the module's own layers to see
@@ -23,13 +22,12 @@ class PurchaseOrderLayerPlanner
 {
     public const SOURCE_TYPE = 'purchase_order';
 
-    private const OWN_COLUMNS = ['source_from', 'source_to', 'supplier_id', 'received_at_basis'];
-
     private const PAGE = 200;
 
     public function __construct(
         private readonly PlatformProcurement $procurement,
         private readonly PurchaseLineEvaluator $evaluator,
+        private readonly PurchaseOrderSchema $schema,
     ) {
     }
 
@@ -50,12 +48,6 @@ class PurchaseOrderLayerPlanner
             }
             $after = $lines[array_key_last($lines)]->id;
         }
-    }
-
-    /** @return list<string> the columns of this module's layers that the purchase-order source writes and that are not there */
-    private function missingOwnColumns(): array
-    {
-        return Schema::hasTable('inventory_cost_layers') ? array_values(array_diff(self::OWN_COLUMNS, Schema::getColumnListing('inventory_cost_layers'))) : self::OWN_COLUMNS;
     }
 
     /**
@@ -111,12 +103,16 @@ class PurchaseOrderLayerPlanner
     }
 
     /**
-     * How many of the line's units came in before the cutover date; null when that cannot be told (the line was changed on or after the date and nothing dates its receipts).
+     * How many of the line's units came in before the cutover date; null when that cannot be told (the line existed before the date, was changed on or after it, and nothing dates
+     * its receipts). A line made on or after the date received nothing before it.
      *
      * @param list<array{end: int, at: CarbonImmutable}>|null $dated
      */
     private function unitsReceivedBefore(PurchaseLine $line, ?array $dated, CarbonImmutable $since): ?int
     {
+        if ($line->createdAt !== null && $line->createdAt >= $since) {
+            return 0;
+        }
         if ($dated === null) {
             return $line->updatedAt !== null && $line->updatedAt < $since ? $line->quantityReceived : null;
         }
@@ -138,7 +134,7 @@ class PurchaseOrderLayerPlanner
      */
     private function accountedUnits(array $lineIds): array
     {
-        if ($this->missingOwnColumns() !== []) {
+        if ($this->schema->missingOwnColumns() !== []) {
             return [];
         }
 

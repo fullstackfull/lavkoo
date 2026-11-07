@@ -109,6 +109,7 @@ class InvoiceController extends Controller
         match ($result->result) {
             InvoiceResult::DUPLICATE => ToastMagic::warning(translate('invoice_already_exists_nothing_was_saved')),
             InvoiceResult::POSSIBLE_DUPLICATE => ToastMagic::warning(translate('invoice_saved_but_looks_like_another')),
+            InvoiceResult::RESEMBLES_RECEIPT => ToastMagic::warning(translate('invoice_saved_but_looks_like_goods_already_received')),
             default => ToastMagic::success(translate('invoice_saved')),
         };
 
@@ -133,6 +134,7 @@ class InvoiceController extends Controller
             'itemsTotal' => $itemsTotal,
             'itemsAddUp' => $items->isEmpty() || $itemsTotal->minus(Money::of($record->subtotal ?? $record->total))->abs()->compareTo('0.01') <= 0,
             'twin' => $record->duplicate_of_id === null ? null : OperationalCostInvoice::find($record->duplicate_of_id),
+            'heldForReceipt' => $items->filter(static fn ($item): bool => $item->purchase_order_item_id === null && $item->resembles_purchase_order_item_id !== null),
             'shipments' => ProviderFulfillment::whereIn('id', $items->pluck('provider_fulfillment_id')->filter()->unique())->pluck('reference', 'id'),
             'channelOrders' => ExternalOrderMapping::whereIn('id', $items->pluck('external_order_mapping_id')->filter()->unique())->get(['id', 'sales_channel', 'external_order_id'])->keyBy('id'),
             'layers' => InventoryCostLayer::where('source_type', 'purchase_invoice')->where('source_id', $record->id)->orderBy('id')->get(),

@@ -51,7 +51,7 @@ final class CostLabels
         'line_error_invalid_currency', 'line_error_invalid_quantity', 'line_error_too_many_lines',
 
         // Stock cost layers.
-        'layer_source_purchase_invoice', 'layer_source_manual', 'layer_source_opening_balance', 'layer_source_transfer', 'layer_source_transfer_in',
+        'layer_source_purchase_invoice', 'layer_source_purchase_order', 'layer_source_manual', 'layer_source_opening_balance', 'layer_source_transfer', 'layer_source_transfer_in',
         'layer_source_return', 'layer_source_adjustment',
         'layer_status_open', 'layer_status_depleted', 'layer_status_void',
         'consumer_type_order_line', 'consumer_type_channel_order_line', 'consumer_type_transfer', 'consumer_type_write_off',

@@ -40,6 +40,21 @@
             </div>
         @endif
 
+        @if ($heldForReceipt->isNotEmpty())
+            <div class="alert alert-warning fs-12" role="alert">
+                <strong>{{ translate('this_invoice_looks_like_goods_already_received') }}</strong>
+                {{ translate('these_lines_look_like_goods_a_purchase_order_received') }}
+                <ul class="mb-0 mt-1">
+                    @foreach ($heldForReceipt as $held)
+                        <li>#{{ $held->line_no }} · {{ translate('purchase_order_line') }} #{{ $held->resembles_purchase_order_item_id }}</li>
+                    @endforeach
+                </ul>
+                <form method="POST" action="{{ route('admin.operational-costs.invoices.not-duplicate', $invoice->id) }}" class="mt-2">@csrf
+                    <button class="btn btn-outline-warning btn-sm" type="submit">{{ translate('this_is_a_separate_purchase') }}</button>
+                </form>
+            </div>
+        @endif
+
         @unless ($itemsAddUp)
             <div class="alert alert-warning fs-12" role="alert">
                 <strong>{{ translate('the_lines_do_not_add_up_to_the_invoice') }}</strong>
@@ -108,7 +123,7 @@
                                         @elseif ($item->order_id)
                                             {{ translate('order') }}: <a href="{{ route('admin.operational-costs.profit.order', ['type' => 'order', 'id' => $item->order_id]) }}">#{{ $item->order_id }}</a>
                                         @elseif ($item->product_id)
-                                            {{ translate('product') }} #{{ $item->product_id }}
+                                            {{ translate('product') }} #{{ $item->product_id }}@if ($item->purchase_order_item_id) · {{ translate('purchase_order_line') }} #{{ $item->purchase_order_item_id }}@endif
                                         @else
                                             <x-k.badge tone="warning" :dot="false">{{ translate('not_linked') }}</x-k.badge>
                                             @if ($item->external_reference)<div class="fs-10 text-muted">{{ translate('the_reference_did_not_identify_exactly_one_shipment_or_order') }}</div>@endif

@@ -55,18 +55,21 @@ class InvoiceService
         private readonly ShipmentFactsFactory $shipmentFacts,
         private readonly ChannelStatementActuals $statements,
         private readonly ReconciliationService $reconciliation,
+        private readonly PurchaseOrderInvoiceLinks $purchaseOrders,
     ) {
     }
 
     /**
-     * @param array<string, mixed> $data kind, party_type, provider_code, party_name, invoice_number, invoice_date, currency, total, [period_start, period_end, subtotal, tax_total, inventory_location_id, file_hash, file_path, account_id, notes, import_batch]
-     * @param list<array<string, mixed>> $items cost_component, amount, [description, quantity, unit_price, tax_amount, external_reference, service_date, period_start, period_end, product_id, variant_key, sku, order_id, provider_fulfillment_id, external_order_mapping_id]
+     * @param array<string, mixed> $data kind, party_type, provider_code, party_name, invoice_number, invoice_date, currency, total, [period_start, period_end, subtotal, tax_total, inventory_location_id, file_hash, file_path, account_id, notes, import_batch, supplier_id]
+     * @param list<array<string, mixed>> $items cost_component, amount, [description, quantity, unit_price, tax_amount, external_reference, service_date, period_start, period_end, product_id, variant_key, sku, order_id, provider_fulfillment_id, external_order_mapping_id, purchase_order_item_id]
      * @throws InvalidContractChange
      */
     public function create(array $data, array $items, ?int $adminId, string $source = 'manual', int $sellerId = 0): InvoiceResult
     {
         $clean = $this->invoiceAttributes($data);
         $rows = $this->itemAttributes($items, $clean);
+        $clean += array_filter(['supplier_id' => $this->purchaseOrders->supplierOf($clean, $rows)]);
+        $resembles = $this->purchaseOrders->resemblances($clean, $rows);
 
         $existing = OperationalCostInvoice::where('provider_code', $clean['provider_code'])->where('invoice_number', $clean['invoice_number'])->where('seller_id', $sellerId)->first();
         if ($existing !== null) {
@@ -91,16 +94,16 @@ class InvoiceService
         }
 
         try {
-            $invoice = DB::transaction(function () use ($clean, $rows, $adminId, $source, $sellerId, $lookalike, $warnings): OperationalCostInvoice {
+            $invoice = DB::transaction(function () use ($clean, $rows, $adminId, $source, $sellerId, $lookalike, $warnings, $resembles): OperationalCostInvoice {
                 $invoice = OperationalCostInvoice::create($clean + [
                     'seller_id' => $sellerId,
-                    'status' => $lookalike !== null || $warnings !== [] ? OperationalCostInvoice::STATUS_UNDER_REVIEW : OperationalCostInvoice::STATUS_DRAFT,
+                    'status' => $lookalike !== null || $warnings !== [] || $resembles !== [] ? OperationalCostInvoice::STATUS_UNDER_REVIEW : OperationalCostInvoice::STATUS_DRAFT,
                     'source' => $source,
                     'duplicate_of_id' => $lookalike?->id,
                     'created_by' => $adminId,
                 ]);
                 foreach ($rows as $index => $row) {
-                    $item = $invoice->items()->create($row + ['line_no' => $index + 1, 'dedupe_key' => $this->itemKey($invoice, $index + 1, $row)]);
+                    $item = $invoice->items()->create($row + array_filter(['resembles_purchase_order_item_id' => $resembles[$index] ?? null]) + ['line_no' => $index + 1, 'dedupe_key' => $this->itemKey($invoice, $index + 1, $row)]);
                     $link = $this->links->resolve($invoice->provider_code, $item);
                     if ($link !== []) {
                         $item->forceFill($link)->save();
@@ -113,14 +116,23 @@ class InvoiceService
             return new InvoiceResult(InvoiceResult::DUPLICATE, OperationalCostInvoice::where('provider_code', $clean['provider_code'])->where('invoice_number', $clean['invoice_number'])->where('seller_id', $sellerId)->firstOrFail(), ['same_invoice_number']);
         }
 
-        $this->audit->record(action: 'operational_cost.invoice_created', subject: $invoice, context: ['invoice_id' => $invoice->id, 'provider' => $invoice->provider_code, 'warnings' => $warnings]);
+        $this->audit->record(action: 'operational_cost.invoice_created', subject: $invoice, context: ['invoice_id' => $invoice->id, 'provider' => $invoice->provider_code, 'warnings' => $warnings, 'resembles_purchase_order_lines' => array_values($resembles)]);
 
-        return new InvoiceResult($lookalike === null ? InvoiceResult::CREATED : InvoiceResult::POSSIBLE_DUPLICATE, $invoice, $warnings);
+        return new InvoiceResult(
+            match (true) {
+                $lookalike !== null => InvoiceResult::POSSIBLE_DUPLICATE,
+                $resembles !== [] => InvoiceResult::RESEMBLES_RECEIPT,
+                default => InvoiceResult::CREATED,
+            },
+            $invoice,
+            [...$warnings, ...array_map(static fn (int $line): string => 'looks_like_receipt_' . $line, array_values($resembles))],
+        );
     }
 
-    /** A person has looked: this invoice is not a copy of the one it resembles. */
+    /** A person has looked: this invoice is not a copy of the one it resembles, nor of goods a purchase order already received. */
     public function markNotDuplicate(OperationalCostInvoice $invoice, ?int $adminId): OperationalCostInvoice
     {
+        $this->purchaseOrders->release($invoice);
         $invoice->forceFill(['duplicate_of_id' => null, 'status' => $invoice->status === OperationalCostInvoice::STATUS_UNDER_REVIEW ? OperationalCostInvoice::STATUS_DRAFT : $invoice->status])->save();
         $this->audit->record(action: 'operational_cost.invoice_not_duplicate', subject: $invoice, context: ['invoice_id' => $invoice->id, 'by' => $adminId]);
 
@@ -149,6 +161,7 @@ class InvoiceService
 
         $count = DB::transaction(function () use ($invoice, $adminId): int {
             $items = $invoice->items()->lockForUpdate()->get();
+            $this->purchaseOrders->assertMayBeApproved($invoice, $items);
             $count = $invoice->kind === 'purchase' ? $this->receiveGoods($invoice, $items) : $this->recordServices($invoice, $items);
             $invoice->forceFill(['status' => OperationalCostInvoice::STATUS_APPROVED, 'approved_at' => now(), 'approved_by' => $adminId])->save();
 
@@ -312,15 +325,27 @@ class InvoiceService
         }
     }
 
-    /** @param \Illuminate\Support\Collection<int, OperationalCostInvoiceItem> $items */
+    /**
+     * A purchase line becomes a cost layer at the invoice's location, with the freight of the invoice added to the goods it was shared over. A line linked to a purchase order line
+     * makes no layer (the order's receipt is the layer): it records how far its cost is from what the order says, for a person.
+     *
+     * @param \Illuminate\Support\Collection<int, OperationalCostInvoiceItem> $items
+     */
     private function receiveGoods(OperationalCostInvoice $invoice, $items): int
     {
         $products = $items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id !== null && (float) $item->quantity > 0 && $item->match_status !== OperationalCostInvoiceItem::IGNORED);
+        $linked = $products->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->purchase_order_item_id !== null);
+        $products = $products->diffKeys($linked);
         $freight = Money::sum($items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id === null && $item->cost_component === CostComponent::InboundFreight->value)->map(static fn (OperationalCostInvoiceItem $item): Money => Money::of($item->amount)));
         $goodsValue = Money::sum($products->map(static fn (OperationalCostInvoiceItem $item): Money => Money::of($item->amount)));
         $freightShares = $products->isEmpty() || $freight->isZero() ? [] : $freight->allocate($products->mapWithKeys(static fn (OperationalCostInvoiceItem $item): array => [$item->id => $goodsValue->isZero() ? Money::of(1) : Money::of($item->amount)])->all());
 
         $count = 0;
+        foreach ($linked as $item) {
+            $expected = $this->purchaseOrders->expectedCost($item);
+            $this->reconciliation->compareWithPurchaseOrder($invoice, $item, $expected === null ? null : $expected['amount'], $expected['currency'] ?? null);
+            $count++;
+        }
         foreach ($products as $item) {
             $quantity = (int) round((float) $item->quantity);
             if ($quantity < 1) {
@@ -344,6 +369,7 @@ class InvoiceService
                 landedUnitCost: $landed,
                 supplierName: $invoice->party_name,
                 sellerId: (int) $invoice->seller_id,
+                supplierId: $invoice->getAttribute('supplier_id') === null ? null : (int) $invoice->supplier_id,
             ));
             $item->forceFill(['match_status' => OperationalCostInvoiceItem::MATCHED])->save();
             $count++;
@@ -412,7 +438,7 @@ class InvoiceService
             'file_hash' => $data['file_hash'] ?? null,
             'import_batch' => $data['import_batch'] ?? null,
             'notes' => $data['notes'] ?? null,
-        ];
+        ] + array_filter(['supplier_id' => ($data['supplier_id'] ?? null) ? (int) $data['supplier_id'] : null]);
     }
 
     /**
@@ -459,7 +485,7 @@ class InvoiceService
                 'period_end' => ($item['period_end'] ?? '') === '' ? null : CarbonImmutable::parse((string) $item['period_end'])->toDateString(),
                 'match_status' => OperationalCostInvoiceItem::UNMATCHED,
                 'raw' => $item['raw'] ?? null,
-            ];
+            ] + array_filter(['purchase_order_item_id' => ($item['purchase_order_item_id'] ?? null) ? (int) $item['purchase_order_item_id'] : null]);
         }
 
         return $rows;
