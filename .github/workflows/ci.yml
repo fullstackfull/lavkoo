@@ -93,7 +93,7 @@ jobs:
             health: mysqladmin ping -h 127.0.0.1 -pci-root-password
           - engine: MariaDB 11.4.2
             image: mariadb:11.4.2
-            health: healthcheck.sh --connect --innodb_initialized
+            health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -203,7 +203,7 @@ jobs:
             health: mysqladmin ping -h 127.0.0.1 -pci-root-password
           - engine: MariaDB 11.4.2
             image: mariadb:11.4.2
-            health: healthcheck.sh --connect --innodb_initialized
+            health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: sales channels
             # tests/Feature/Concurrency and the dispatch/stock concurrency tests start several PHP processes at the same instant against this database; they skip on SQLite.
             paths: tests/Feature/SalesChannels tests/Feature/Concurrency
@@ -266,7 +266,7 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password"
           --health-interval=10s --health-timeout=5s --health-retries=12
     env:
       EXPECT_DB_DRIVER: mysql
