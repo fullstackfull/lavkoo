@@ -84,6 +84,30 @@ class StorefrontAccountAddressTest extends StorefrontTestCase
         $this->assertSame('2025-01-02 03:04:05', $updated->created_at->format('Y-m-d H:i:s'));
     }
 
+    public function test_off_moving_an_address_that_already_has_a_city_with_the_old_form_does_not_leave_the_old_city_behind(): void
+    {
+        $customer = $this->signIn();
+        $saved = $this->makeStructuredAddress($this->ids, $customer->id);
+
+        $this->post(route('address-update'), $this->oldForm(['id' => $saved->id, 'city' => 'جدة']))->assertRedirect(route('account-address'));
+
+        $moved = $saved->fresh();
+        $this->assertSame(['جدة', null, null, null, null, null], [$moved->city, $moved->state, $moved->region_id, $moved->city_id, $moved->district, $moved->national_address]);
+    }
+
+    public function test_off_changing_only_the_street_or_respelling_the_same_city_keeps_the_city_it_has(): void
+    {
+        $customer = $this->signIn();
+        $saved = $this->makeStructuredAddress($this->ids, $customer->id);
+        $kept = [$saved->region_id, $saved->city_id, $saved->national_address];
+
+        $this->post(route('address-update'), $this->oldForm(['id' => $saved->id, 'city' => $saved->city, 'address' => 'Tahlia St 9']))->assertRedirect();
+        $this->post(route('address-update'), $this->oldForm(['id' => $saved->id, 'city' => 'رياض']))->assertRedirect();
+
+        $after = $saved->fresh();
+        $this->assertSame($kept, [$after->region_id, $after->city_id, $after->national_address]);
+    }
+
     public function test_an_update_from_a_form_without_a_zip_field_keeps_the_postal_code(): void
     {
         $customer = $this->signIn();

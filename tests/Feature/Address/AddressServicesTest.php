@@ -10,6 +10,7 @@ use App\Models\ShippingAddress;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Address\CheckoutAddressGuard;
+use App\Services\Address\OrderAddressService;
 use App\Services\Address\LegacyCityMatcher;
 use App\Services\Address\AddressText;
 use App\Services\ShippingAddressService;
@@ -65,6 +66,32 @@ class AddressServicesTest extends AddressTestCase
 
         $this->assertSame([], $this->service()->structuredAttributes($this->submitted(), AddressChannel::Web));
         $this->assertFalse($this->service()->requiresStructured('SA', AddressChannel::Web));
+    }
+
+    public function test_with_the_mode_off_an_old_form_edit_that_moves_a_structured_address_takes_its_ids_with_it(): void
+    {
+        $existing = (object) ['city_id' => $this->ids['riyadh'], 'region_id' => $this->ids['region_RUH'], 'city' => 'الرياض', 'country' => 'Saudi Arabia', 'national_address' => 'RAGI2929'];
+        $service = app(ShippingAddressService::class);
+        $reset = array_fill_keys(['region_id', 'city_id', 'district', 'national_address', 'state'], null);
+
+        $this->assertSame($reset, $service->structuredAttributes(['city' => 'جدة'], AddressChannel::Web, $existing), 'another city');
+        $this->assertSame($reset, $service->structuredAttributes(['country' => 'Egypt', 'city' => 'الرياض'], AddressChannel::Web, $existing), 'another country');
+        $this->assertSame([], $service->structuredAttributes(['city' => 'رياض', 'country' => 'SA'], AddressChannel::Web, $existing), 'the same city spelled differently');
+        $this->assertSame([], $service->structuredAttributes(['phone' => '0551234567'], AddressChannel::Web, $existing), 'something else about it');
+        $this->assertSame([], $service->structuredAttributes(['city' => 'جدة'], AddressChannel::Web, (object) ['city' => 'الرياض', 'country' => 'Saudi Arabia']), 'an old address has nothing to reset');
+        $this->assertSame([], $service->structuredAttributes(['city' => 'جدة'], AddressChannel::Web, null), 'a new address has nothing to reset');
+    }
+
+    public function test_with_the_mode_off_a_staff_edit_of_an_order_copy_that_moves_it_leaves_no_stale_ids_in_the_copy(): void
+    {
+        $revised = app(OrderAddressService::class)->revise(
+            snapshot: AddressSnapshot::build(['city_id' => $this->ids['riyadh'], 'region_id' => $this->ids['region_RUH'], 'city' => 'الرياض', 'country' => 'Saudi Arabia', 'national_address' => 'RAGI2929', 'zip' => '12211', 'address' => 'King Fahd Rd 12']),
+            changes: ['city' => 'جدة'],
+            structuredInput: [],
+            channel: AddressChannel::Panel,
+        );
+
+        $this->assertSame(['جدة', null, null, null, null, 'legacy', '12211'], [$revised['city'], $revised['city_id'], $revised['region_id'], $revised['national_address'], $revised['city_name_ar'] ?? null, $revised['address_schema'], $revised['zip']]);
     }
 
     public function test_a_valid_saudi_address_gets_the_structured_columns_and_matching_legacy_text(): void

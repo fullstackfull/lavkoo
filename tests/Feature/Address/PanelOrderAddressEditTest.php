@@ -73,6 +73,17 @@ class PanelOrderAddressEditTest extends PanelAddressTestCase
         $this->assertContains('success', $this->toastTypes());
     }
 
+    public function test_while_the_mode_is_off_moving_a_structured_copy_leaves_no_ids_of_the_old_city_in_it(): void
+    {
+        $this->insertPanelOrder(self::ORDER_ID, $this->unifiedSnapshot($this->ids), $this->legacySnapshot(['address' => 'Billing St 9']));
+
+        $this->submit($this->legacyForm())->assertRedirect();
+
+        $copy = $this->storedCopy(self::ORDER_ID);
+        $this->assertSame(['جدة', null, null, null, 'legacy', '21589'], [$copy['city'], $copy['city_id'], $copy['region_id'], $copy['national_address'], $copy['address_schema'], $copy['zip']], 'the typed city is the whole place now; the ZIP is what the form carried');
+        $this->assertNull($copy['city_name_ar'] ?? null);
+    }
+
     public function test_while_the_mode_is_off_structured_fields_in_the_request_are_ignored(): void
     {
         $this->orderWithLegacyCopies();

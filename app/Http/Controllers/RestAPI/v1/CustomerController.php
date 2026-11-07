@@ -48,7 +48,7 @@ class CustomerController extends Controller
 
     private const ADDRESS_FIELDS = ['contact_person_name', 'address_type', 'address', 'city', 'zip', 'country', 'phone', 'latitude', 'longitude', 'is_billing'];
 
-    private const STRUCTURED_ADDRESS_FIELDS = ['country', 'region_id', 'city_id', 'district', 'national_address', 'phone'];
+    private const STRUCTURED_ADDRESS_FIELDS = ['country', 'city', 'region_id', 'city_id', 'district', 'national_address', 'phone'];
 
     private const LOCATION_FIELDS = ['city', 'country', 'region_id', 'city_id', 'district', 'national_address'];
 

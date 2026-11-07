@@ -6,6 +6,7 @@ use App\Enums\Address\AddressChannel;
 use App\Services\Address\AddressCatalog;
 use App\Services\Address\AddressCountry;
 use App\Services\Address\AddressSchema;
+use App\Services\Address\AddressText;
 use App\Services\Address\NationalAddress;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use Illuminate\Validation\ValidationException;
@@ -67,7 +68,9 @@ class ShippingAddressService
      * Returns [] when the structured address does not apply (mode off, a country other than Saudi Arabia, or a client that may
      * still send the old fields). Otherwise returns region_id, city_id, district, national_address plus the legacy `city`, `state`
      * and `country` text that go with them, or throws a ValidationException keyed by the input names. Nothing a client sends about
-     * a provider (city ids of a courier) is ever read.
+     * a provider (city ids of a courier) is ever read. With the mode off, an old-form edit that moves an address which already has a
+     * region and city (matched by the backfill, or made while the mode was on) to another city or country returns those columns as
+     * null: the ids must never name a place the address no longer says.
      *
      * @param array<string, mixed> $input region_id, city_id, district, national_address, country, phone
      * @param object|null $existing the saved address being edited, so a missing country or a legacy edit of a structured address is judged correctly
@@ -77,7 +80,7 @@ class ShippingAddressService
     public function structuredAttributes(array $input, AddressChannel $channel, ?object $existing = null): array
     {
         if (!AddressSchema::enabled()) {
-            return [];
+            return $this->resetsStalePlace(input: $input, existing: $existing) ? array_fill_keys([...self::STRUCTURED_COLUMNS, 'state'], null) : [];
         }
 
         $country = $input['country'] ?? $existing?->country ?? null;
@@ -94,6 +97,20 @@ class ShippingAddressService
         }
 
         return $this->validated($input);
+    }
+
+    /** Does an old-form edit of a structured address change where it is? */
+    private function resetsStalePlace(array $input, ?object $existing): bool
+    {
+        if ($existing === null || !$this->isStructured($existing)) {
+            return false;
+        }
+
+        $city = $input['city'] ?? null;
+        $country = $input['country'] ?? null;
+
+        return (is_scalar($city) && AddressText::key((string) $city) !== AddressText::key((string) ($existing->city ?? '')))
+            || (is_scalar($country) && AddressCountry::isSaudi((string) $country) !== AddressCountry::isSaudi($existing->country ?? null));
     }
 
     /** Does the saved address already use the structured fields? */

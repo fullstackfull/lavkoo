@@ -269,6 +269,21 @@ class ApiAddressCrudTest extends ApiAddressTestCase
         $this->assertSame('King Fahd Rd 12', $guestAddress->fresh()->address);
     }
 
+    public function test_with_the_mode_off_an_old_update_that_moves_a_structured_address_does_not_leave_its_old_ids_behind(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeStructuredAddress($this->ids, $customer->id);
+
+        $this->asCustomer($customer)->postJson(self::UPDATE, ['id' => $address->id, 'city' => 'جدة', 'country' => 'Saudi Arabia'])->assertOk();
+
+        $moved = $address->fresh();
+        $this->assertSame(['جدة', null, null, null, null, null], [$moved->city, $moved->state, $moved->region_id, $moved->city_id, $moved->district, $moved->national_address]);
+
+        $kept = $this->makeStructuredAddress($this->ids, $customer->id);
+        $this->asCustomer($customer)->postJson(self::UPDATE, ['id' => $kept->id, 'city' => $kept->city, 'address' => 'Tahlia St 9'])->assertOk();
+        $this->assertSame([$this->ids['riyadh'], 'RAGI2929'], [$kept->fresh()->city_id, $kept->fresh()->national_address], 'the same city keeps its ids');
+    }
+
     public function test_an_update_that_leaves_out_the_zip_keeps_it_and_one_that_sends_it_changes_it(): void
     {
         $customer = $this->makeCustomer();

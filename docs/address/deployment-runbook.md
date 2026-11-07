@@ -18,7 +18,7 @@ This runbook uses the same tooling and conventions as the [pilot runbook](../int
 | | Release A — files | Release B — database, data, switch |
 |---|---|---|
 | What | the application code, views, routes, language keys, seed data files | four additive migrations, the city import, the mode switch |
-| Effect | **none**: the structured address is dormant until its tables exist; every page, API response and order copy is the one the store had | the admin chooses when customers start using it |
+| Effect | the structured address is dormant until its tables exist: the pages, API responses and order copies are the ones the store had, **apart from the mode-independent fixes** listed in [README.md](README.md#what-changes-even-while-the-mode-is-off) | the admin chooses when customers start using it |
 | Needs approval | yes | yes, separately |
 | Rollback | `deploy.php rollback` | mode `off`; optionally `migrate:rollback` |
 
@@ -37,7 +37,7 @@ Release A only adds an **Address system** entry under *Business setup* in the ad
    The builder refuses anything an overlay cannot do (a deletion, a change under `public/` or `composer.*`, a file mode change). This release touches `app/ config/ database/ resources/ routes/` only: **no file under `public/`** (all page scripts are inline Blade) and no dependency change.
 2. **Backup, verify, apply** exactly as in the pilot runbook (phases 2, 3, 4a): `backup.sh`, `deploy.php verify`, `deploy.php apply` (dry run first, then `--yes --backup-dir=…`). Language keys are merged key by key; the site's own keys are never replaced.
 3. `php artisan optimize:clear`, reset OPcache, then **`php artisan queue:restart`** (the "migrated" answer of the new code is remembered per process, so workers must start fresh after Release B as well).
-4. **Smoke-test — mode is off, so everything must look and behave as before:** storefront checkout (guest and signed in), account → addresses (add, edit), an old order page and invoice, admin order details and invoice, vendor order page, POS add-customer, the mobile API (`GET /api/v1/config` → `unified_address.mode` is `off`), and *Business setup → Address system* (explains the pending migrations).
+4. **Smoke-test — mode is off, so everything must look and behave as before, plus the mode-independent changes in the README:** storefront checkout (guest and signed in), account → addresses (add, edit), an old order page and invoice, admin order details and invoice, vendor order page, POS add-customer **with the ZIP restriction on** and a POS delivery order, the **courier app** (an order's address), the **seller app** (edit an order's address), **guest order tracking**, the mobile API (`GET /api/v1/config` → `unified_address.mode` is `off`), and *Business setup → Address system* (explains the pending migrations).
 
 If any of this differs from before, run `deploy.php rollback` (pilot runbook, section 10).
 

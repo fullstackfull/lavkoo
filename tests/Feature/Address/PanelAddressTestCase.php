@@ -22,33 +22,29 @@ use App\Models\Seller;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\Support\BuildsPanelAddressSchema;
 
 /**
  * Base for the admin and vendor panel address tests: the address book with its real migrations, the catalog of seedAddressCatalog(), the
  * few store tables the panel pages read, the panels' heavy request middleware switched off, and no way out to a real provider or mailbox.
  *
- * translate() appends a key it does not know to the tracked language files; the files are put back after every test so a run leaves the
- * working tree as it found it.
+ * The few phrases of older templates that never had a text are written into the language files by translate(); the files are put back
+ * after every test so a run leaves the working tree as it found it.
  */
 abstract class PanelAddressTestCase extends AddressTestCase
 {
     use BuildsPanelAddressSchema;
+    use RestoresLanguageFiles;
 
     /** @var array<string, int> */
     protected array $ids;
-
-    /** @var array<string, string> */
-    private array $languageFiles = [];
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        foreach (['en', 'sa', 'ae'] as $locale) {
-            $path = base_path("resources/lang/{$locale}/new-messages.php");
-            $this->languageFiles[$path] = (string) file_get_contents($path);
-        }
+        $this->rememberLanguageFiles();
 
         Http::preventStrayRequests();
         Event::fake([OrderStatusEvent::class, CustomerRegistrationEvent::class]);
@@ -65,12 +61,7 @@ abstract class PanelAddressTestCase extends AddressTestCase
 
     protected function tearDown(): void
     {
-        foreach ($this->languageFiles as $path => $contents) {
-            file_put_contents($path, $contents);
-            if (function_exists('opcache_invalidate')) {
-                opcache_invalidate($path, true);
-            }
-        }
+        $this->restoreLanguageFiles();
 
         parent::tearDown();
     }

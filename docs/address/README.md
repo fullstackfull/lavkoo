@@ -16,12 +16,31 @@ never a second list of its own. It extends what the store already had (`shipping
 
 ## How it behaves, in six lines
 
-1. **`off` (the default)**: nothing changes for anyone. The code ships dormant; the tables do not exist until the migrations are run on purpose.
+1. **`off` (the default)**: the old forms, the old validation and the old data model for everyone. The code ships dormant; the tables do not exist until the migrations are run on purpose. A short list of fixes and hardening applies in every mode, listed below.
 2. **`soft`**: the website and the panels must use region / city / district / National Address for Saudi addresses; the mobile app may keep sending the old fields (its orders wait for review at fulfillment instead of failing).
 3. **`strict`**: every client must send the structured address.
 4. An order keeps an **immutable copy** of its address (all old keys, `zip` included, plus the ids and the names of the region and city that day).
 5. The provider adapter turns *our city id* into *the provider's city id* through an **approved mapping**; no mapping, a pending one or several candidates ⇒ the shipment is **held** with a reviewable reason, never sent, never guessed.
 6. The ZIP column is untouched; it is never derived from the National Address; while a ZIP-code delivery restriction is on, the structured address is paused and the store behaves as before.
+
+## What changes even while the mode is `off`
+
+Everything that depends on the structured address is dormant, and the pages, API responses and order copies of an unmigrated or `off` store are the ones it had (checked by rendering the old and the new templates with the same data). These changes are **not** behind the mode, because they close holes or keep the data model coherent; they are the things to look at in the Release A smoke test:
+
+| # | Change | Why |
+|---|---|---|
+| 1 | every address id that arrives in a request is resolved among the caller's **own** addresses (checkout, account book, REST, payment, seller/POS); the checkout page lists only the signed-in customer's saved addresses (a guest sees none) | IDOR: ids used to be trusted |
+| 2 | the legacy `customer/choose-shipping-address` route checks the session token and behaves like `-other` (same service, same rules) | it was CSRF-exempt and applied different rules |
+| 3 | the courier (delivery-man) app is served the **order's copy** of the address when the order has one, not the live saved row | the copy is what the order was placed with; a staff edit now reaches the courier too |
+| 4 | the POS default delivery address is the customer's newest non-billing address (none for a walk-in customer) | it used to take the highest id of *any* row, including other shoppers' anonymous checkout addresses |
+| 5 | admin, vendor and seller-app order-address edits: length limits (the production database truncates silently), an audit entry (who, which order, which fields, never what), only the fields that were sent change, and no edit once a provider holds the shipment | data integrity and the provider's delivery address |
+| 6 | REST and web address updates change only what was sent and no longer rewrite `created_at` | an edit used to move the address to the top of the list |
+| 7 | the four POS add-customer forms name the ZIP select `zip_code` when the ZIP restriction is on | a chosen ZIP was silently dropped |
+| 8 | guest order tracking compares the phone with the order's own copy first and refuses a blank phone | the saved address may have changed or been removed since the order |
+| 9 | the four account-address actions require a signed-in customer | they were reachable without one |
+| 10 | after the migrations, address JSON (list API, order copies) carries four more keys (null) and `GET /api/v1/config` carries `unified_address` | additive |
+| 11 | a Torod order with no approved mapping is matched by an administrator's alias or one exact name in the cached list, **never** by the address's state text | the state used to be tried as a second city, which is a guess |
+| 12 | with the mode off, an old-form edit that moves an address which already has a region and city (matched by the backfill, or made while the mode was on) to another city or country clears those ids with it | the ids must never name a place the address no longer says |
 
 ## What needs a decision from the owner or from LogesTechs / Torod
 

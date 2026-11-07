@@ -130,7 +130,7 @@ class StorefrontAddressService
      */
     public function amendInAddressBook(ShippingAddress $address, array $attributes, array $input): void
     {
-        $address->update(array_merge($attributes, $this->structured(input: $input, existing: $address)));
+        $address->update(array_merge($attributes, $this->structured(input: $input + Arr::only($attributes, ['city']), existing: $address)));
     }
 
     public function removeFromAddressBook(mixed $addressId): bool
@@ -317,7 +317,7 @@ class StorefrontAddressService
     private function structuredInput(array $posted, array $attributes, bool $billing): array
     {
         $prefix = $billing ? 'billing_' : '';
-        $input = ['country' => $attributes['country'], 'phone' => $attributes['phone']];
+        $input = ['country' => $attributes['country'], 'city' => $attributes['city'], 'phone' => $attributes['phone']];
         foreach (self::STRUCTURED_FIELDS as $field) {
             if (array_key_exists($prefix . $field, $posted)) {
                 $input[$field] = $posted[$prefix . $field];
