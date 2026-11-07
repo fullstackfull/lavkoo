@@ -3,6 +3,7 @@
 namespace Tests\Feature\Address;
 
 use App\Models\AddressCity;
+use App\Models\AddressRegion;
 use App\Services\Address\AddressMigrations;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressStatus;
@@ -147,7 +148,16 @@ class AdminAddressStatusTest extends AdminAddressTestCase
 
         $output = $this->statusOutput();
 
-        $this->assertStringContainsString('Mode: strict configured, off in force (the store is held at off until the migrations are run and a city is active).', $output);
+        $this->assertStringContainsString('Mode: strict configured, off in force (the store is held at off until the migrations are run and an active city lies in an active region).', $output);
+    }
+
+    public function test_the_mode_is_held_at_off_too_when_every_region_is_switched_off(): void
+    {
+        AddressSchema::setMode(AddressSchema::MODE_SOFT);
+        AddressRegion::query()->update(['is_active' => false]);
+        AddressSchema::flush();
+
+        $this->assertStringContainsString('Mode: soft configured, off in force', $this->statusOutput());
     }
 
     public function test_the_mapping_summary_is_left_out_when_the_mapping_tables_are_not_there(): void
