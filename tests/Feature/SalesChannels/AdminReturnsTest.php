@@ -172,18 +172,30 @@ class AdminReturnsTest extends AdminSalesChannelsTestCase
         $this->assertSame(0, OperationalCostReturnDecision::count());
     }
 
-    public function test_a_person_records_a_return_with_the_token_of_the_form_and_a_double_submit_is_one_decision(): void
+    public function test_a_person_records_a_return_with_the_position_the_form_was_opened_at_and_a_double_submit_is_one_decision(): void
     {
         $line = $this->sale();
-        $form = ['token' => 'form-token-1', 'units_restocked' => 1, 'units_written_off' => 0, 'location_id' => $this->warehouse->id];
+        $this->assertStringContainsString('<input type="hidden" name="token" value="0">', $this->orderPage($line), 'Nothing is decided on the line yet: the form is at position 0.');
+        $form = ['token' => '0', 'units_restocked' => 1, 'units_written_off' => 0, 'location_id' => $this->warehouse->id];
 
         $this->decide($line, $form);
         $this->decide($line, $form);
-        $this->decide($line, ['token' => 'form-token-2'] + $form);
 
-        $this->assertSame(2, OperationalCostReturnDecision::count(), 'One per token.');
+        $this->assertSame(1, OperationalCostReturnDecision::count(), 'The same position is the same decision, whoever submits it and however often.');
+        $this->assertStringContainsString('<input type="hidden" name="token" value="1">', $this->orderPage($line), 'The next form is at position 1.');
+        $this->decide($line, ['token' => '1'] + $form);
+        $this->assertSame(['manual:0', 'manual:1'], OperationalCostReturnDecision::orderBy('id')->pluck('return_event')->all());
         $this->assertSame(2, (int) OperationalCostReturnDecision::sum('units_restocked'));
-        $this->assertSame(['manual:form-token-1', 'manual:form-token-2'], OperationalCostReturnDecision::orderBy('id')->pluck('return_event')->all());
+    }
+
+    public function test_a_form_that_names_no_position_the_line_is_at_is_refused(): void
+    {
+        $line = $this->sale();
+
+        $this->decide($line, ['token' => '7', 'units_restocked' => 1, 'units_written_off' => 0, 'location_id' => $this->warehouse->id])->assertRedirect();
+
+        $this->assertToastContains(CostLabels::of('return_refused', 'stale_form'));
+        $this->assertSame(0, OperationalCostReturnDecision::count());
     }
 
     public function test_a_decision_about_a_line_that_does_not_exist_is_not_found(): void

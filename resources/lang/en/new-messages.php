@@ -10616,4 +10616,7 @@ return [
 	'return_refused_more_than_taken_from_stock' => 'More units than were taken from stock for this line and not yet put back.',
 	'auto_restock_accepted_returns' => 'Put units of accepted returns back on the shelf automatically',
 	'auto_restock_accepted_returns_help' => 'Off by default, and an owner\'s decision: every unit of a return Trendyol accepts goes back at the cost it left at, damaged or not, with no one looking at it. It needs the cost module switched on. Only a person can write off a damaged unit.',
+	// --- costs audit fixes (lane-costs) ---
+	'return_refused_stale_form' => 'The line changed since this form was opened: reload the page and check what was already recorded.',
+	'needs_the_operational_costs_permission' => 'Needs the Operational costs permission: only a role that holds it can change this.',
 ];

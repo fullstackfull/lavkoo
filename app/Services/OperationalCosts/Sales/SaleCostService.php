@@ -6,6 +6,7 @@ use App\Enums\OperationalCosts\CostComponent;
 use App\Enums\OperationalCosts\CostState;
 use App\Models\InventoryCostConsumption;
 use App\Models\OperationalCostEntry;
+use App\Models\OperationalCostReturnDecision;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\OperationalCosts\CostLedger;
 use App\Services\OperationalCosts\Data\CostDraft;
@@ -77,12 +78,17 @@ class SaleCostService
         return $outcomes;
     }
 
-    /** What a line cost stops counting once all its units are cancelled: its units go back to the layers and its slot holds a settled zero. Nothing is recorded for a line that never had a cost. */
+    /**
+     * What a line cost stops counting once all its units are cancelled: its units go back to the layers and its slot holds a settled zero. Nothing is recorded for a line that
+     * never had a cost. Units of the line that were put back on the shelf as a return are part of the units given back, so what the restock added (its layer, its reversal of
+     * the cost of goods) is taken back too: counting both would put a unit on the shelf twice and leave a negative cost.
+     */
     private function cancelLine(SaleDocument $document, SaleLine $line): ?RecordOutcome
     {
         $this->layers->reverse($line->targetType, $line->targetId);
+        $this->takeBackRestocks($document, $line);
         $recorded = OperationalCostEntry::where('subject_type', $line->targetType)->where('subject_id', $line->targetId)
-            ->whereIn('cost_component', [CostComponent::Cogs->value, CostComponent::SupplierCost->value])->where('is_effective', true)->first();
+            ->whereIn('cost_component', [CostComponent::Cogs->value, CostComponent::SupplierCost->value])->where('is_effective', true)->orderBy('id')->first();
         if ($recorded === null) {
             return null;
         }
@@ -91,6 +97,18 @@ class SaleCostService
             $document, $line, $recorded->component() ?? CostComponent::Cogs, CostState::Actual, Money::zero(), $this->fx->baseCurrency(),
             identity: 'line-cancelled', source: 'layer', inputs: ['quantity' => 0],
         ));
+    }
+
+    private function takeBackRestocks(SaleDocument $document, SaleLine $line): void
+    {
+        foreach (OperationalCostReturnDecision::where('target_type', $line->targetType)->where('target_id', $line->targetId)->orderBy('id')->get() as $decision) {
+            if ($decision->layer_id !== null) {
+                $this->layers->void((int) $decision->layer_id);
+            }
+            if ($decision->entry_id !== null) {
+                $this->ledger->record($this->restockDraft($document, $line, $decision->return_event, Money::zero(), identity: 'restock-cancelled:' . $decision->return_event, note: 'Units returned to stock, then the sale was cancelled: ' . $decision->return_event));
+            }
+        }
     }
 
     /**
@@ -118,7 +136,7 @@ class SaleCostService
      * It caps one call, not a line's history: how many units may come back over all the returns of a line is for ReturnDecisionService, which is how a person or the owner's
      * automatic setting reaches this.
      */
-    public function restock(SaleDocument $document, SaleLine $line, int $quantity, string $reference, ?int $locationId = null): ?RecordOutcome
+    public function restock(SaleDocument $document, SaleLine $line, int $quantity, string $reference, ?int $locationId = null, int $alreadyRestocked = 0): ?RecordOutcome
     {
         $locationId ??= $line->inventoryLocationId;
         if ($quantity < 1 || $locationId === null || $line->productId === null) {
@@ -133,7 +151,12 @@ class SaleCostService
             throw new InvalidArgumentException("Only {$units} units of this line were taken from stock; {$quantity} cannot come back.");
         }
 
-        $perUnit = Money::sum($consumed->map(static fn (InventoryCostConsumption $row): Money => Money::of($row->total_cost)))->dividedBy($units);
+        // The cost that comes back is what the first N units cost, rounded once for N: restocked in several steps or all at once, the units add up to exactly what they cost and
+        // none of it is left behind by rounding each step (30.02 for 3 units is 10.006667 each, which would reverse 30.020001).
+        $consumedCost = Money::sum($consumed->map(static fn (InventoryCostConsumption $row): Money => Money::of($row->total_cost)));
+        $costOfFirst = static fn (int $count): Money => $consumedCost->times($count)->dividedBy($units);
+        $reversed = $costOfFirst($alreadyRestocked + $quantity)->minus($costOfFirst($alreadyRestocked));
+        $perUnit = $reversed->dividedBy($quantity);
         $this->layers->receive(new LayerReceipt(
             locationId: $locationId,
             productId: $line->productId,
@@ -150,16 +173,22 @@ class SaleCostService
             sellerId: $document->sellerId,
         ));
 
-        return $this->ledger->record(new CostDraft(
+        return $this->ledger->record($this->restockDraft($document, $line, $reference, $reversed->negated(), identity: 'restock:' . $reference, note: 'Units returned to stock: ' . $reference));
+    }
+
+    /** The cost of goods a restock reverses: one entry in a slot of its own for each return (`$reference`). */
+    private function restockDraft(SaleDocument $document, SaleLine $line, string $reference, Money $amount, string $identity, string $note): CostDraft
+    {
+        return new CostDraft(
             subjectType: $line->targetType,
             subjectId: $line->targetId,
             component: CostComponent::Cogs,
             state: CostState::Actual,
-            amount: $perUnit->times($quantity)->negated(),
+            amount: $amount,
             currency: $this->fx->baseCurrency(),
             periodDate: $document->occurredAt,
             source: 'layer',
-            identity: 'restock:' . $reference,
+            identity: $identity,
             serviceRef: 'restock:' . $reference,
             sellerId: $document->sellerId,
             salesChannel: $document->salesChannel,
@@ -170,9 +199,9 @@ class SaleCostService
             productId: $line->productId,
             variantKey: $line->variantKey,
             sku: $line->sku,
-            note: 'Units returned to stock: ' . $reference,
+            note: $note,
             occurredAt: now(),
-        ));
+        );
     }
 
     private function estimate(SaleDocument $document, SaleLine $line): RecordOutcome

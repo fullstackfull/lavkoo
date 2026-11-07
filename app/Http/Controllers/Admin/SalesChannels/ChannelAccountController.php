@@ -57,6 +57,7 @@ class ChannelAccountController extends Controller
             'channel' => $channel,
             'channels' => SalesChannel::connectable(),
             'settings' => $channel === null ? [] : $this->form->settingsFor($channel, null),
+            'mayDecideReturns' => $this->form->mayChange('auto_restock_accepted_returns'),
             'secretFields' => $channel === null ? [] : AccountForm::SECRET_FIELDS[$channel->value],
         ]);
     }
@@ -98,6 +99,7 @@ class ChannelAccountController extends Controller
             'rungs' => $this->ladder->rungs($account),
             'extraScopes' => $this->ladder->extraScopeApprovals($account),
             'settings' => $this->form->settingsFor($channel, $account),
+            'mayDecideReturns' => $this->form->mayChange('auto_restock_accepted_returns'),
             'carrierCodesText' => $this->form->carrierCodesText($account->setting('carrier_codes', [])),
             'secretFields' => $secretFields,
             'secretsSet' => Arr::only($this->credentials->get($account)->presence(), [...$secretFields, 'webhook_api_key']),
