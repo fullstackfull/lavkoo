@@ -23,6 +23,20 @@ class AddressImporter
 {
     private const CHUNK = 500;
 
+    private const MAX_NAME_LENGTH = 191;
+
+    private const MAX_REF_LENGTH = 64;
+
+    private const MAX_CODE_LENGTH = 16;
+
+    private const MAX_REGION_SORT = 65535;
+
+    private const MAX_CITY_RANK = 4294967295;
+
+    private const MAX_LATITUDE = 90;
+
+    private const MAX_LONGITUDE = 180;
+
     public function __construct(private readonly AuditLogger $audit)
     {
     }
@@ -40,7 +54,8 @@ class AddressImporter
 
         $run = function () use (&$report, $regionsFile, $citiesFile, $aliasesFile, $apply, $refreshNames): void {
             if ($regionsFile !== null) {
-                $report['regions'] = $this->importRegions($regionsFile, $apply, $refreshNames);
+                [$report['regions'], $problems] = $this->importRegions($regionsFile, $apply, $refreshNames);
+                array_push($report['problems'], ...$problems);
             }
             if ($citiesFile !== null) {
                 $announcedRegions = array_map(static fn (array $row): string => (string) ($row['ref'] ?? ''), $regionsFile['regions'] ?? []);
@@ -86,24 +101,28 @@ class AddressImporter
         return $document;
     }
 
-    /** @return array<string, int> */
+    /** @return array{0: array<string, int>, 1: list<string>} */
     private function importRegions(array $file, bool $apply, bool $refreshNames): array
     {
         $counts = $this->emptyCounts();
+        $problems = [];
         $source = (string) $file['_meta']['source'];
         $snapshot = $this->snapshotDate($file);
         $now = now();
 
-        foreach ($file['regions'] as $row) {
-            $ref = (string) ($row['ref'] ?? '');
-            $code = (string) ($row['code'] ?? '');
-            $nameAr = $this->name($row['name_ar'] ?? null);
-            $nameEn = $this->name($row['name_en'] ?? null);
-            if ($ref === '' || $code === '' || $nameAr === '' || $nameEn === '') {
+        foreach ($file['regions'] as $position => $row) {
+            $problem = $this->regionProblem($row);
+            if ($problem !== null) {
                 $counts['skipped']++;
+                $problems[] = "region row {$position}: {$problem}";
 
                 continue;
             }
+
+            $ref = (string) $row['ref'];
+            $code = (string) $row['code'];
+            $nameAr = $this->name($row['name_ar']);
+            $nameEn = $this->name($row['name_en']);
 
             $existing = AddressRegion::query()->where('source', $source)->where('source_ref', $ref)->first()
                 ?? AddressRegion::query()->where('country_code', 'SA')->where('code', $code)->first();
@@ -137,7 +156,7 @@ class AddressImporter
             }
         }
 
-        return $counts;
+        return [$counts, $problems];
     }
 
     /**
@@ -158,22 +177,26 @@ class AddressImporter
         $batch = [];
 
         foreach ($file['cities'] as $position => $row) {
-            $ref = (string) ($row['ref'] ?? '');
-            $nameAr = $this->name($row['ar'] ?? null);
-            $nameEn = $this->name($row['en'] ?? null);
-            $regionRef = (string) ($row['region'] ?? '');
-            $regionId = $regionIds[$regionRef] ?? (!$apply && in_array($regionRef, $announcedRegions, true) ? 0 : null);
-
-            if ($ref === '' || $nameAr === '' || $nameEn === '' || isset($seen[$ref])) {
+            $problem = $this->cityProblem($row);
+            if ($problem === null && isset($seen[(string) $row['ref']])) {
+                $problem = "ref {$row['ref']} repeated";
+            }
+            if ($problem !== null) {
                 $counts['skipped']++;
-                $problems[] = "row {$position}: " . ($ref === '' ? 'no ref' : (isset($seen[$ref]) ? "ref {$ref} repeated" : "ref {$ref} has no name"));
+                $problems[] = "row {$position}: {$problem}";
 
                 continue;
             }
+
+            $ref = (string) $row['ref'];
+            $nameAr = $this->name($row['ar']);
+            $nameEn = $this->name($row['en']);
+            $regionRef = (string) $row['region'];
+            $regionId = $regionIds[$regionRef] ?? (!$apply && in_array($regionRef, $announcedRegions, true) ? 0 : null);
             $seen[$ref] = true;
             if ($regionId === null) {
                 $counts['skipped']++;
-                $problems[] = "ref {$ref}: region " . ($row['region'] ?? '?') . ' is not in the region list';
+                $problems[] = "ref {$ref}: region {$regionRef} is not in the region list";
 
                 continue;
             }
@@ -277,6 +300,70 @@ class AddressImporter
     private function name(mixed $value): string
     {
         return is_string($value) ? trim((string) preg_replace('/\s+/u', ' ', $value)) : '';
+    }
+
+    /** What keeps a row of the regions file from being stored (the same answer for a dry run and for the import), or null when it can be. */
+    private function regionProblem(mixed $row): ?string
+    {
+        if (!is_array($row)) {
+            return 'not an object';
+        }
+
+        return $this->identifierProblem(value: $row['ref'] ?? null, label: 'ref', maxLength: self::MAX_REF_LENGTH)
+            ?? $this->identifierProblem(value: $row['code'] ?? null, label: 'code', maxLength: self::MAX_CODE_LENGTH)
+            ?? $this->nameProblem($row['name_ar'] ?? null, 'name_ar')
+            ?? $this->nameProblem($row['name_en'] ?? null, 'name_en')
+            ?? $this->numberProblem(value: $row['sort'] ?? null, label: 'sort', max: self::MAX_REGION_SORT);
+    }
+
+    /** What keeps a row of the cities file from being stored, or null when it can be. */
+    private function cityProblem(mixed $row): ?string
+    {
+        if (!is_array($row)) {
+            return 'not an object';
+        }
+
+        return $this->identifierProblem(value: $row['ref'] ?? null, label: 'ref', maxLength: self::MAX_REF_LENGTH)
+            ?? $this->identifierProblem(value: $row['region'] ?? null, label: 'region', maxLength: self::MAX_REF_LENGTH)
+            ?? $this->nameProblem($row['ar'] ?? null, 'ar')
+            ?? $this->nameProblem($row['en'] ?? null, 'en')
+            ?? $this->numberProblem(value: $row['lat'] ?? null, label: 'lat', max: self::MAX_LATITUDE, min: -self::MAX_LATITUDE)
+            ?? $this->numberProblem(value: $row['lon'] ?? null, label: 'lon', max: self::MAX_LONGITUDE, min: -self::MAX_LONGITUDE)
+            ?? $this->numberProblem(value: $row['rank'] ?? null, label: 'rank', max: self::MAX_CITY_RANK);
+    }
+
+    private function identifierProblem(mixed $value, string $label, int $maxLength): ?string
+    {
+        if (!is_string($value) && !is_int($value)) {
+            return "no {$label}";
+        }
+
+        $text = (string) $value;
+
+        return $text === '' || mb_strlen($text) > $maxLength ? "{$label} is empty or longer than {$maxLength} characters" : null;
+    }
+
+    private function nameProblem(mixed $value, string $label): ?string
+    {
+        $name = $this->name($value);
+
+        return $name === '' || mb_strlen($name) > self::MAX_NAME_LENGTH || AddressText::key($name) === ''
+            ? "{$label} is empty, longer than " . self::MAX_NAME_LENGTH . ' characters, or has no letter or digit'
+            : null;
+    }
+
+    /** A number a column can hold; a value that is absent (null) is fine. */
+    private function numberProblem(mixed $value, string $label, float|int $max, float|int $min = 0): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (!is_int($value) && !is_float($value) && !(is_string($value) && is_numeric($value))) {
+            return "{$label} is not a number";
+        }
+
+        return $value < $min || $value > $max ? "{$label} is outside {$min} to {$max}" : null;
     }
 
     private function snapshotDate(array $file): ?Carbon

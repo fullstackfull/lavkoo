@@ -41,7 +41,7 @@
                 return String(text || '')
                     .replace(/[٠-٩]/g, function (digit) { return String(digit.charCodeAt(0) - 1632); })
                     .replace(/[۰-۹]/g, function (digit) { return String(digit.charCodeAt(0) - 1776); })
-                    .replace(/[\s\-_.​-‏‪-‮⁦-⁩﻿]+/g, '')
+                    .replace(/[\s\p{Z}\p{Pd}\p{Cf}_.]+/gu, '')
                     .toUpperCase();
             }
 

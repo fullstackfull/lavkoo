@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Address;
 
+use App\Enums\Address\CityMatchStatus;
 use App\Models\AddressCity;
 use App\Models\AddressRegion;
 use App\Services\Address\AddressCatalog;
@@ -181,6 +182,45 @@ class AddressDataLayerTest extends AddressTestCase
         $this->assertCount(2, $catalog->searchCities(query: 'الهفوف'), 'a name shared across regions finds both');
     }
 
+    public function test_search_finds_a_city_while_its_name_is_still_being_typed_after_the_article(): void
+    {
+        $ids = $this->seedAddressCatalog();
+        $catalog = app(AddressCatalog::class);
+
+        foreach (['الط' => 'taif', 'الخ' => 'khobar', 'ال خب' => 'khobar', 'الدم' => 'dammam'] as $typed => $handle) {
+            $region = in_array($handle, ['taif'], true) ? $ids['region_MAK'] : $ids['region_EAS'];
+
+            $this->assertContains($ids[$handle], $catalog->searchCities(regionId: $region, query: (string) $typed)->pluck('id')->all(), $typed);
+        }
+        $this->assertSame($ids['taif'], $catalog->searchCities(regionId: $ids['region_MAK'], query: 'الط')->first()->id, 'the name that starts with the letter comes first');
+    }
+
+    public function test_search_on_the_shipped_data_finds_the_big_cities_from_the_article_and_one_letter(): void
+    {
+        $this->importShippedData();
+        $catalog = app(AddressCatalog::class);
+
+        foreach ([['Makkah', 'الط', 'At Taif'], ['Eastern', 'الظ', 'Dhahran'], ['Eastern', 'الخب', 'Al Khobar'], ['Riyadh', 'الر', 'Riyadh']] as [$regionName, $typed, $english]) {
+            $region = AddressRegion::query()->where('name_en', 'like', $regionName . '%')->firstOrFail();
+            $found = $catalog->searchCities(regionId: $region->id, query: $typed, limit: 50)->pluck('name_en')->all();
+
+            $this->assertContains($english, $found, "{$typed} in {$regionName}");
+        }
+        $riyadh = AddressRegion::query()->where('name_en', 'like', 'Riyadh%')->firstOrFail();
+        $this->assertSame('Riyadh', $catalog->searchCities(regionId: $riyadh->id, query: 'الر', limit: 50)->first()->name_en, 'the biggest place that starts with the letter leads');
+    }
+
+    public function test_search_does_not_offer_the_cities_of_a_region_that_is_switched_off(): void
+    {
+        $ids = $this->seedAddressCatalog();
+        AddressRegion::whereKey($ids['region_EAS'])->update(['is_active' => false]);
+        $catalog = app(AddressCatalog::class);
+
+        $this->assertSame([], $catalog->searchCities(regionId: $ids['region_EAS'], query: 'Khobar')->pluck('id')->all(), 'saving it would be refused, so it is not offered');
+        $this->assertSame([], $catalog->searchCities(query: 'Khobar')->pluck('id')->all());
+        $this->assertContains($ids['khobar'], $catalog->searchCities(query: 'Khobar', onlyActive: false)->pluck('id')->all());
+    }
+
     public function test_search_ranks_exact_matches_first_and_ignores_inactive_cities(): void
     {
         $ids = $this->seedAddressCatalog();
@@ -303,6 +343,81 @@ class AddressDataLayerTest extends AddressTestCase
         foreach (['الدمام', 'جدة', 'مكة المكرمة', 'المدينة المنورة', 'ابها', 'تبوك', 'بريدة', 'جازان', 'نجران', 'حائل'] as $major) {
             $this->assertGreaterThanOrEqual(1, AddressCity::where('name_ar', $major)->count(), $major);
         }
+    }
+
+    public function test_every_curated_alias_points_at_the_biggest_place_that_has_its_name(): void
+    {
+        $this->importShippedData();
+
+        $smaller = AddressCityAlias::query()->get()->filter(static function (AddressCityAlias $alias): bool {
+            $city = AddressCity::query()->findOrFail($alias->city_id);
+
+            return $city->sort_order < (int) AddressCity::query()->where('normalized_ar', $city->normalized_ar)->max('sort_order');
+        })->pluck('alias')->all();
+
+        $this->assertSame([], $smaller, 'a curated spelling settles a repeated name in favour of the city everybody means, never a village of the same name');
+    }
+
+    public function test_bisha_means_the_city_of_the_south_not_a_village_of_the_same_name(): void
+    {
+        $this->importShippedData();
+
+        foreach (['بيشة', 'Bisha', 'Bishah'] as $typed) {
+            $match = app(LegacyCityMatcher::class)->match($typed);
+
+            $this->assertSame(CityMatchStatus::Matched, $match->status, $typed);
+            $this->assertSame(28, $match->city->sort_order, $typed . ' is the registered city, which has districts, not the unranked village');
+        }
+    }
+
+    /** @return array<string, array{0: mixed, 1: string}> */
+    public static function rowsTheTablesCannotHold(): array
+    {
+        return [
+            'a name of only punctuation' => [['ref' => '9', 'region' => '1', 'ar' => '---', 'en' => 'Riyadh'], 'ar is empty'],
+            'a name of 300 characters' => [['ref' => '9', 'region' => '1', 'ar' => str_repeat('ا', 300), 'en' => 'Riyadh'], 'ar is empty'],
+            'a ref of 100 characters' => [['ref' => str_repeat('9', 100), 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh'], 'ref is empty'],
+            'a ref that is a list' => [['ref' => ['9'], 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh'], 'no ref'],
+            'a latitude out of range' => [['ref' => '9', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh', 'lat' => 1000], 'lat is outside'],
+            'a longitude that is not a number' => [['ref' => '9', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh', 'lon' => 'abc'], 'lon is not a number'],
+            'a rank beyond the column' => [['ref' => '9', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh', 'rank' => 99999999999], 'rank is outside'],
+            'a negative rank' => [['ref' => '9', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh', 'rank' => -5], 'rank is outside'],
+            'a row that is a plain list' => [['not', 'an', 'object'], 'no ref'],
+            'a row that is plain text' => ['text', 'not an object'],
+        ];
+    }
+
+    #[DataProvider('rowsTheTablesCannotHold')]
+    public function test_a_row_the_tables_cannot_hold_is_reported_and_skipped_alike_by_the_preview_and_the_import(mixed $bad, string $reason): void
+    {
+        $regions = $this->writeDataFile('regions', ['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
+        $cities = $this->writeDataFile('cities', ['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh'], $bad]]);
+
+        $dry = app(AddressImporter::class)->import($regions, $cities, apply: false);
+        $applied = app(AddressImporter::class)->import($regions, $cities, apply: true);
+
+        $this->assertSame($dry['cities'], $applied['cities'], 'the preview says what the import then does');
+        $this->assertSame(1, $applied['cities']['created']);
+        $this->assertSame(1, $applied['cities']['skipped']);
+        $this->assertStringContainsString($reason, implode(' | ', $applied['problems']));
+        $this->assertSame(1, AddressCity::count());
+    }
+
+    public function test_a_region_row_the_table_cannot_hold_is_reported_and_skipped(): void
+    {
+        $regions = $this->writeDataFile('regions', ['regions' => [
+            ['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1],
+            ['ref' => '2', 'code' => str_repeat('X', 40), 'name_ar' => 'منطقة مكة', 'name_en' => 'Makkah', 'sort' => 2],
+            ['ref' => '3', 'code' => 'SA-03', 'name_ar' => 'منطقة القصيم', 'name_en' => 'Qassim', 'sort' => -1],
+        ]]);
+
+        $dry = app(AddressImporter::class)->import($regions, null, apply: false);
+        $applied = app(AddressImporter::class)->import($regions, null, apply: true);
+
+        $this->assertSame($dry['regions'], $applied['regions']);
+        $this->assertSame([1, 2], [$applied['regions']['created'], $applied['regions']['skipped']]);
+        $this->assertCount(2, $applied['problems']);
+        $this->assertSame(1, AddressRegion::count());
     }
 
     public function test_a_dry_run_reports_the_same_alias_counts_as_the_import_that_follows_it(): void

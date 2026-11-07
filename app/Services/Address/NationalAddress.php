@@ -13,8 +13,8 @@ namespace App\Services\Address;
 final class NationalAddress
 {
     /**
-     * Canonical spelling of whatever a person typed: ASCII digits, upper-case Latin letters, no spaces, hyphens or invisible
-     * direction marks. Only ASCII letters are upper-cased, so a letter outside A-Z stays what it is and the code is refused
+     * Canonical spelling of whatever a person typed: ASCII digits, upper-case Latin letters, no spaces, dashes of any kind or invisible
+     * format characters (direction marks, joiners, soft hyphens). Only ASCII letters are upper-cased, so a letter outside A-Z stays what it is and the code is refused
      * (full Unicode case mapping would turn "ß" into "SS" and "ſ" into "S"). The result may still be invalid; use isValid() on it.
      * Blank input gives null.
      */
@@ -29,7 +29,7 @@ final class NationalAddress
             '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
             '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4', '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
         ]);
-        $text = preg_replace('/[\s\-_.\x{00A0}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}]+/u', '', $text) ?? $text;
+        $text = preg_replace('/[\s\p{Z}\p{Pd}\p{Cf}_.]+/u', '', $text) ?? $text;
         $text = strtoupper($text);
 
         return $text === '' ? null : $text;

@@ -69,7 +69,7 @@ class AddressCatalog
 
         $builder = AddressCity::query()
             ->when($regionId !== null, static fn (Builder $query) => $query->where('region_id', $regionId))
-            ->when($onlyActive, static fn (Builder $query) => $query->where('is_active', true));
+            ->when($onlyActive, static fn (Builder $query) => $query->where('is_active', true)->whereHas('region', static fn (Builder $region) => $region->where('is_active', true)));
 
         if ($keys === []) {
             return $builder->orderByDesc('sort_order')->orderBy('name_en')->orderBy('id')->limit($limit)->get();
@@ -95,7 +95,7 @@ class AddressCatalog
             })
             ->orderByRaw(
                 'CASE WHEN normalized_ar = ? OR normalized_en = ? THEN 0 WHEN normalized_ar LIKE ? OR normalized_en LIKE ? THEN 1 ELSE 2 END',
-                [$keys[0], $keys[0], $keys[0] . '%', $keys[0] . '%'],
+                [$rankKey = end($keys), $rankKey, $rankKey . '%', $rankKey . '%'],
             )
             ->orderByDesc('sort_order')
             ->orderBy('name_en')

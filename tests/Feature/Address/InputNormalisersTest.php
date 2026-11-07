@@ -36,6 +36,13 @@ class InputNormalisersTest extends TestCase
             'three letters' => ['RAG2929', null],
             'five digits' => ['RAGI29290', null],
             'blank' => ['  ', null],
+            'an arabic letter mark' => ["\u{061C}RAGI2929", 'RAGI2929'],
+            'an en dash' => ["RAGI\u{2013}2929", 'RAGI2929'],
+            'a non-breaking hyphen' => ["RAGI\u{2011}2929", 'RAGI2929'],
+            'a soft hyphen' => ["RAGI\u{00AD}2929", 'RAGI2929'],
+            'a word joiner' => ["RAGI\u{2060}2929", 'RAGI2929'],
+            'a non-breaking space' => ["RAGI\u{00A0}2929", 'RAGI2929'],
+            'an arabic letter is still not a letter of the code' => ["\u{0631}AGI2929", null],
         ];
     }
 

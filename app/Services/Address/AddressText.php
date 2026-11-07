@@ -53,8 +53,10 @@ final class AddressText
     }
 
     /**
-     * What to look for when someone types a name into a search box: the key, plus the key without a transliterated article that
-     * was typed without a space ("Alkhobar"). Only for finding candidates — never for deciding that two places are the same.
+     * What to look for when someone types a name into a search box: the key, plus the key without the article when it was typed
+     * without a space ("Alkhobar") or stands alone with the first letter of the name ("الط", "ال خب": a complete name loses its
+     * article in key(), a name still being typed does not). The loosest key comes last. Only for finding candidates — never for
+     * deciding that two places are the same.
      *
      * @return list<string>
      */
@@ -63,6 +65,10 @@ final class AddressText
         $key = self::key($text);
         if ($key === '') {
             return [];
+        }
+
+        if (preg_match('/^ال(?=.)/u', $key) === 1) {
+            return [$key, mb_substr($key, 2)];
         }
 
         foreach (self::JOINED_ARTICLES as $article) {
