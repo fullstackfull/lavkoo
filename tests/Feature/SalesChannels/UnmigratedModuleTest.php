@@ -6,6 +6,7 @@ use App\Services\SalesChannels\Support\SalesChannelSchema;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\TestCase;
 
@@ -38,6 +39,27 @@ class UnmigratedModuleTest extends TestCase
             $this->artisan($command, $arguments)->expectsOutputToContain('migrations have not been run')->assertExitCode(0);
         }
         Http::assertNothingSent();
+    }
+
+    /** @return array<string, array{string}> */
+    public static function fulfilmentTables(): array
+    {
+        return ['shipments' => ['provider_fulfillments'], 'their items' => ['provider_fulfillment_items'], 'provider stock figures' => ['provider_product_mappings']];
+    }
+
+    #[DataProvider('fulfilmentTables')]
+    public function test_the_modules_wait_for_the_fulfilment_tables_they_read_too(string $table): void
+    {
+        $this->buildSalesChannelSchema();
+        $this->assertTrue(SalesChannelSchema::ready());
+
+        Schema::drop($table);
+
+        $this->assertFalse(SalesChannelSchema::ready(), "Without {$table} the cost and stock code would fail on every run.");
+        foreach (self::SCHEDULED as [$command, $arguments]) {
+            $this->assertSame(0, Artisan::call($command, $arguments), $command);
+            $this->assertStringContainsString('migrations have not been run', Artisan::output(), $command);
+        }
     }
 
     public function test_a_migration_still_to_run_keeps_the_module_off_even_when_the_first_ones_have_run(): void

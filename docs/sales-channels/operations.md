@@ -6,7 +6,7 @@ Nothing here is deployed to production by this work, and no production data is r
 
 1. **Back up the database first.** The migrations are additive (new tables only; every `Schema::create` is guarded by `Schema::hasTable`; no existing table or column is altered; no foreign key points into a core table) but a backup is the rule for any release.
 2. **Never run `php artisan migrate` on an empty database** (project rule): import the dump first.
-3. Run exactly these four migrations, in this order (they can be run alone):
+3. **Prerequisite:** the Torod Point / M5AZN fulfilment tables (`2026_11_05_100000_create_provider_fulfillment_tables`, already in the project) must exist: the modules read `provider_fulfillments`, `provider_fulfillment_items` and `provider_product_mappings`, and until they do every page and scheduled command says the migrations have not been run. Then run exactly these four migrations, in this order (they can be run alone):
    ```bash
    php artisan migrate --path=database/migrations/2026_11_07_100000_create_operational_cost_tables.php
    php artisan migrate --path=database/migrations/2026_11_07_100100_create_sales_channel_tables.php
@@ -18,7 +18,12 @@ Nothing here is deployed to production by this work, and no production data is r
 5. `php artisan optimize:clear`. The scheduler (the server cron `* * * * * php artisan schedule:run`) already exists for the platform; the new entries need nothing else. There is no queue worker to change: the module runs from commands.
 6. Give the roles that should see the screens the two new permissions, **Sales Channels** and **Operational Costs** (the master admin has them).
 
-**Rollback:** switch `SALES_CHANNELS_ENABLED` off (all channel traffic stops at once); remove the scheduler lines if wanted; the tables can stay (nothing reads them with the module off) or be dropped in reverse order of the migrations' `down()`.
+**How the code gets there** is the project's own overlay procedure (`scripts/deploy/build-overlay.php`, then `backup.sh`, `deploy.php verify`, `php artisan down`, `deploy.php apply`, `php artisan optimize:clear` and a PHP-FPM / OPcache reload, the migrations above, `php artisan up`; see `docs/integrations/pilot-deployment.md`). Files are rolled back with `deploy.php rollback`.
+
+**Rollback:**
+* `SALES_CHANNELS_ENABLED` is read from `.env` when a PHP process starts: switching it off stops every external call of each process that starts afterwards; a run already going keeps the value it started with (to stop that one at once, disable the account or forbid writes in the panel: the next call obeys). It stops nothing else: `costs:refresh`, `costs:accrue-storage` and `channels:prune` have no switch (remove their lines from `ScheduleDefinition` to stop them), and Trendyol webhooks that arrive are still authenticated and stored (outcome `ignored_capability_off`).
+* The tables can stay (nothing is read from them by anything outside the module) or be dropped. Each `php artisan migrate --path=…` is its own batch, so `migrate:rollback` takes back only the last one: roll back each migration with `--path`, in reverse order. The `down()` methods are tested by calling them directly on a reconstructed test schema (table and column names; not column types or indexes), not through `migrate:rollback`. Dropping deletes the modules' own data for good (accounts with their encrypted credentials, the ledger) and does not undo what they wrote into platform tables (audit-log lines, the two permission keys in the roles).
+* LWA (Amazon): the client secret has to be rotated every 180 days and developer access is deactivated after 90 days without a successful call (Amazon's rules); the refresh token is valid for 365 days. Nothing here tracks their age or warns before they run out: the account is marked as needing re-authorisation when Amazon refuses it, and a 403 caused by an expired secret can read as "probably lacks a role".
 
 ## Connecting a channel (step by step; each step is an admin decision)
 

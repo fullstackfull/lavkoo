@@ -15,6 +15,7 @@ use Symfony\Component\HttpFoundation\Response;
 class EnsureSalesChannelsMigrated
 {
     public const MIGRATIONS = [
+        '2026_11_05_100000_create_provider_fulfillment_tables',
         '2026_11_07_100000_create_operational_cost_tables',
         '2026_11_07_100100_create_sales_channel_tables',
         '2026_11_07_100200_create_inventory_and_routing_tables',
