@@ -45,6 +45,29 @@ class AddressCatalogEndpointsTest extends AddressTestCase
         }
     }
 
+    public function test_the_name_of_a_region_and_of_a_city_is_in_the_language_of_the_request(): void
+    {
+        $ids = $this->seedAddressCatalog();
+
+        foreach (['en' => 'name_en', 'ar' => 'name_ar'] as $language => $field) {
+            $regions = $this->withHeader('lang', $language)->getJson('/api/v1/address/regions')->assertOk()->json('regions');
+            $cities = $this->withHeader('lang', $language)->getJson('/api/v1/address/cities?region_id=' . $ids['region_EAS'])->assertOk()->json('cities');
+
+            foreach (array_merge($regions, $cities) as $place) {
+                $this->assertSame($place[$field], $place['name'], 'the app asked for ' . $language);
+            }
+        }
+
+        foreach (['en' => 'name_en', 'sa' => 'name_ar'] as $locale => $field) {
+            $regions = $this->withSession(['locale' => $locale])->getJson('/address/regions')->assertOk()->json('regions');
+            $cities = $this->withSession(['locale' => $locale])->getJson('/address/cities?region_id=' . $ids['region_EAS'])->assertOk()->json('cities');
+
+            foreach (array_merge($regions, $cities) as $place) {
+                $this->assertSame($place[$field], $place['name'], 'the website was in ' . $locale);
+            }
+        }
+    }
+
     public function test_the_typeahead_requests_never_become_the_page_a_customer_returns_to_after_signing_in(): void
     {
         $this->seedAddressCatalog();

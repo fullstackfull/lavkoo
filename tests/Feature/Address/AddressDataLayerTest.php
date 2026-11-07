@@ -16,9 +16,12 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\WritesTemporaryFiles;
 
 class AddressDataLayerTest extends AddressTestCase
 {
+    use WritesTemporaryFiles;
+
     public function test_migrations_can_run_twice_and_leave_existing_addresses_untouched(): void
     {
         DB::table('shipping_addresses')->insert(['city' => 'الرياض', 'zip' => '12345', 'country' => 'Saudi Arabia', 'address' => 'Olaya St']);
@@ -358,6 +361,47 @@ class AddressDataLayerTest extends AddressTestCase
         $this->assertSame([], $smaller, 'a curated spelling settles a repeated name in favour of the city everybody means, never a village of the same name');
     }
 
+    /** @var array<string, list<string>> the city and its region as the shipped list names them => the curated spellings that must lead to it */
+    private const ALIAS_TARGETS = [
+        'Jeddah|Makkah' => ['جدة', 'جده', 'Jiddah', 'Jedda', 'Jidda'],
+        'Makkah|Makkah' => ['مكة', 'مكه', 'Mecca', 'Mekkah', 'Makkah Al Mukarramah'],
+        'Madinah|Madinah' => ['المدينة', 'Medina', 'Madina', 'Al Madinah', 'Madinah Al Munawwarah'],
+        'Riyadh|Riyadh' => ['Riyad', 'Ar Riyad'],
+        'Al Khobar|Eastern Province' => ['Khubar', 'Al Khubar'],
+        'Al Hafuf|Eastern Province' => ['الهفوف', 'Hofuf', 'Al Hofuf', 'Hufuf', 'Al Hufuf', 'Al Hafuf'],
+        'Al Ahsa|Eastern Province' => ['Al Hasa', 'Hasa', 'Al Hassa', 'Hassa'],
+        'Dhahran|Eastern Province' => ['الظهران', 'ظهران', 'Dhahran'],
+        'Hafar Al Batin|Eastern Province' => ['Hafr Al Batin', 'Hafar Albatin'],
+        'Khamis Mushayt|Asir' => ['Khamis Mushait', 'Khamees Mushait'],
+        'Bishah|Asir' => ['بيشة', 'Bisha', 'Bishah'],
+        'Unayzah|Qassim' => ['Unaizah', 'Onaizah'],
+        'Buraidah|Qassim' => ['Buraydah', 'Buraida'],
+        'Jazan|Jazan' => ['Jizan', 'Gizan'],
+        'Hail|Hail' => ['Hayil'],
+        'Bahah|Al Bahah' => ['الباحة', 'Al Bahah', 'Al Baha', 'Baha'],
+        "Al Majma'ah|Riyadh" => ['المجمعة', 'Al Majmaah', 'Majmaah'],
+        "Ad Dir'iyah|Riyadh" => ['الدرعية', 'Ad Diriyah', 'Diriyah', "Ad Dir'iyah"],
+    ];
+
+    public function test_every_curated_spelling_leads_to_the_city_it_is_a_spelling_of(): void
+    {
+        $this->importShippedData();
+
+        $expected = [];
+        foreach (self::ALIAS_TARGETS as $target => $spellings) {
+            foreach ($spellings as $spelling) {
+                $expected[AddressText::key($spelling)] = $target;
+            }
+        }
+        $actual = AddressCityAlias::query()->with('city.region')->get()
+            ->mapWithKeys(static fn (AddressCityAlias $alias): array => [$alias->normalized_alias => $alias->city->name_en . '|' . $alias->city->region->name_en])
+            ->all();
+        ksort($expected);
+        ksort($actual);
+
+        $this->assertSame($expected, $actual, 'a spelling that leads to another city, or one that is not listed here, is a slip in the data file');
+    }
+
     public function test_bisha_means_the_city_of_the_south_not_a_village_of_the_same_name(): void
     {
         $this->importShippedData();
@@ -466,7 +510,73 @@ class AddressDataLayerTest extends AddressTestCase
             'al baha' => ['Al Baha', 'Bahah', 'Al Bahah', 'matched'],
             'dhahran' => ['الظهران', 'Dhahran', 'Eastern Province', 'matched'],
             'a spelling nobody has confirmed' => ['Jeddaah', null, null, 'none'],
+            'riyadh in latin' => ['Riyadh', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh in lower case' => ['riyadh', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh in capitals' => ['RIYADH', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh as a courier writes it' => ['Riyad', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh with its article' => ['Ar Riyad', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh with a hyphenated article' => ['Al-Riyadh', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh city' => ['Riyadh City', 'Riyadh', 'Riyadh', 'matched'],
+            'city of riyadh' => ['City of Riyadh', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh without its article' => ['رياض', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh with a shadda' => ['الرِّياض', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh with a persian ya' => ['الریاض', 'Riyadh', 'Riyadh', 'matched'],
+            'riyadh with a ta marbuta madina' => ['مدينه الرياض', 'Riyadh', 'Riyadh', 'matched'],
+            'jeddah as written in english newspapers' => ['Jiddah', 'Jeddah', 'Makkah', 'matched'],
+            'jeddah short' => ['Jidda', 'Jeddah', 'Makkah', 'matched'],
+            'jeddah with a ha' => ['جده', 'Jeddah', 'Makkah', 'matched'],
+            'jeddah in capitals' => ['JEDDAH', 'Jeddah', 'Makkah', 'matched'],
+            'makkah with a ha' => ['مكه', 'Makkah', 'Makkah', 'matched'],
+            'makkah german style' => ['Mekkah', 'Makkah', 'Makkah', 'matched'],
+            'makkah with its epithet' => ['Makkah Al-Mukarramah', 'Makkah', 'Makkah', 'matched'],
+            'madinah in arabic' => ['المدينة', 'Madinah', 'Madinah', 'matched'],
+            'madinah short' => ['Madina', 'Madinah', 'Madinah', 'matched'],
+            'madinah with its article' => ['Al Madinah', 'Madinah', 'Madinah', 'matched'],
+            'madinah with its epithet' => ['Madinah Al Munawwarah', 'Madinah', 'Madinah', 'matched'],
+            'khobar short' => ['Khubar', 'Al Khobar', 'Eastern Province', 'matched'],
+            'khobar with a hyphen' => ['Al-Khobar', 'Al Khobar', 'Eastern Province', 'matched'],
+            'khobar without its article' => ['خبر', 'Al Khobar', 'Eastern Province', 'matched'],
+            'hofuf' => ['Hofuf', 'Al Hafuf', 'Eastern Province', 'matched'],
+            'hufuf' => ['Hufuf', 'Al Hafuf', 'Eastern Province', 'matched'],
+            'al hasa' => ['Al Hasa', 'Al Ahsa', 'Eastern Province', 'matched'],
+            'al ahsa in arabic has no curated spelling, so a person decides' => ['الأحساء', null, null, 'unconfirmed'],
+            'unaizah' => ['Unaizah', 'Unayzah', 'Qassim', 'matched'],
+            'onaizah' => ['Onaizah', 'Unayzah', 'Qassim', 'matched'],
+            'jizan' => ['Jizan', 'Jazan', 'Jazan', 'matched'],
+            'gizan' => ['Gizan', 'Jazan', 'Jazan', 'matched'],
+            'hayil' => ['Hayil', 'Hail', 'Hail', 'matched'],
+            'al baha in arabic' => ['الباحة', 'Bahah', 'Al Bahah', 'matched'],
+            'baha' => ['Baha', 'Bahah', 'Al Bahah', 'matched'],
+            'buraydah' => ['Buraydah', 'Buraidah', 'Qassim', 'matched'],
+            'buraida' => ['Buraida', 'Buraidah', 'Qassim', 'matched'],
+            'hafr al batin' => ['Hafr Al Batin', 'Hafar Al Batin', 'Eastern Province', 'matched'],
+            'bisha' => ['Bisha', 'Bishah', 'Asir', 'matched'],
+            'a city with the country after it is left to a person' => ['Riyadh, Saudi Arabia', null, null, 'none'],
+            'a city with the district after it is left to a person' => ['Riyadh - Olaya', null, null, 'none'],
+            'a city with the district in arabic is left to a person' => ['الرياض - حي العليا', null, null, 'none'],
+            'a city with the country in arabic is left to a person' => ['الرياض، السعودية', null, null, 'none'],
+            'a city with the zip after it is left to a person' => ['Riyadh 12211', null, null, 'none'],
+            'a city with an arabic-indic zip is left to a person' => ['الرياض١٢٢١١', null, null, 'none'],
+            'jeddah with the country is left to a person' => ['Jeddah, Saudi Arabia', null, null, 'none'],
+            'jeddah with a district is left to a person' => ['جدة - حي الروضة', null, null, 'none'],
+            'a typo is not guessed (makka)' => ['Makka', null, null, 'none'],
+            'a typo is not guessed (jeddha)' => ['Jeddha', null, null, 'none'],
+            'a typo is not guessed (ryiadh)' => ['Ryiadh', null, null, 'none'],
+            'a typo is not guessed (riad)' => ['Riad', null, null, 'none'],
+            'a name the list does not have is not guessed' => ['Yanbu Al Bahr', null, null, 'none'],
+            'the name of a region is not a city' => ['الجوف', null, null, 'none'],
         ];
+    }
+
+    public function test_search_without_a_region_offers_the_city_a_curated_spelling_names_before_a_village_spelled_like_it(): void
+    {
+        $this->importShippedData();
+        $catalog = app(AddressCatalog::class);
+
+        $found = $catalog->searchCities(query: 'Jiddah', limit: 5);
+
+        $this->assertSame('Jeddah', $found->first()->name_en, 'the city everybody means comes first, not the village of Tabuk that is called Al Jiddah');
+        $this->assertContains('Al Jiddah', $found->pluck('name_en')->all(), 'the village is still on offer for the one who means it');
     }
 
     public function test_the_import_never_overrides_an_alias_an_administrator_set(): void
@@ -488,8 +598,7 @@ class AddressDataLayerTest extends AddressTestCase
     {
         $regions = $this->writeDataFile('regions', ['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
         $cities = $this->writeDataFile('cities', ['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh']]], source: 'src');
-        $aliases = tempnam(sys_get_temp_dir(), 'addr_') . '.json';
-        file_put_contents($aliases, json_encode(['_meta' => ['source' => 'curated', 'city_source' => 'src'], 'aliases' => [['alias' => 'Riyad', 'city_ref' => '3'], ['alias' => 'Nowhere', 'city_ref' => '999']]]));
+        $aliases = $this->temporaryFile(extension: 'json', contents: json_encode(['_meta' => ['source' => 'curated', 'city_source' => 'src'], 'aliases' => [['alias' => 'Riyad', 'city_ref' => '3'], ['alias' => 'Nowhere', 'city_ref' => '999']]]));
 
         $dry = app(AddressImporter::class)->import($regions, $cities, apply: false, aliasesPath: $aliases);
 
@@ -501,9 +610,6 @@ class AddressDataLayerTest extends AddressTestCase
     /** @param array<string, mixed> $body */
     private function writeDataFile(string $kind, array $body, string $source = 'test_source'): string
     {
-        $path = tempnam(sys_get_temp_dir(), 'addr_') . '.json';
-        file_put_contents($path, json_encode(['_meta' => ['source' => $source, 'snapshot_date' => '2026-01-01']] + $body, JSON_UNESCAPED_UNICODE));
-
-        return $path;
+        return $this->temporaryFile(extension: 'json', contents: json_encode(['_meta' => ['source' => $source, 'snapshot_date' => '2026-01-01']] + $body, JSON_UNESCAPED_UNICODE));
     }
 }

@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\View;
 use ParseError;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\WritesTemporaryFiles;
 use Tests\TestCase;
 
 /**
@@ -14,6 +15,8 @@ use Tests\TestCase;
  */
 class StorefrontTemplatesTest extends TestCase
 {
+    use WritesTemporaryFiles;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -52,23 +55,36 @@ class StorefrontTemplatesTest extends TestCase
 
     public function test_the_scripts_the_partials_write_parse_as_javascript(): void
     {
-        $node = trim((string) shell_exec('command -v node'));
-        if ($node === '') {
-            $this->markTestSkipped('node is not installed, so the scripts cannot be syntax-checked.');
-        }
-
         $forms = [['form' => '#address-form', 'country' => '#country', 'street' => '#address', 'phone' => '#phone', 'select' => 'shipping_method_select', 'updateBox' => '#update_address']];
         foreach (['_checkout-address-prefill', '_storefront-address-guard'] as $partial) {
             $html = view('web-views.partials.address.' . $partial, ['forms' => $forms])->render();
             preg_match('/<script>(.*)<\/script>/s', $html, $script);
             $this->assertNotEmpty($script, $partial . ' writes a script');
 
-            $file = tempnam(sys_get_temp_dir(), 'storefront-address-') . '.js';
-            file_put_contents($file, $script[1]);
-            $process = proc_open([$node, '--check', $file], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-            $errors = stream_get_contents($pipes[2]);
-            $this->assertSame(0, proc_close($process), $partial . ' does not parse: ' . $errors);
-            unlink($file);
+            $this->assertParsesAsJavascript(label: $partial, script: $script[1]);
         }
+    }
+
+    public function test_the_shared_picker_script_parses_as_javascript(): void
+    {
+        $html = view('partials.address._unified-address-script')->render();
+
+        $this->assertGreaterThan(0, preg_match_all('/<script[^>]*>(.*?)<\/script>/s', $html, $scripts), 'the picker writes its script');
+        foreach ($scripts[1] as $position => $script) {
+            $this->assertParsesAsJavascript(label: 'picker script ' . $position, script: $script);
+        }
+    }
+
+    private function assertParsesAsJavascript(string $label, string $script): void
+    {
+        $node = trim((string) shell_exec('command -v node'));
+        if ($node === '') {
+            $this->markTestSkipped('node is not installed, so the scripts cannot be syntax-checked.');
+        }
+
+        $file = $this->temporaryFile(extension: 'js', contents: $script);
+        $process = proc_open([$node, '--check', $file], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $errors = stream_get_contents($pipes[2]);
+        $this->assertSame(0, proc_close($process), $label . ' does not parse: ' . $errors);
     }
 }

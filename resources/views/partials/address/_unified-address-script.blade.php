@@ -216,6 +216,7 @@
                 var scheduleSearch = debounce(search, DEBOUNCE_MS);
 
                 input.addEventListener('focus', function () { if (!input.disabled && !input.hasAttribute('data-ua-quiet')) { search(); } });
+                input.addEventListener('click', function () { if (!input.disabled && list.hidden && message.hidden) { search(); } });
                 input.addEventListener('input', function () {
                     if (selected && input.value !== label(selected)) {
                         selected = null;

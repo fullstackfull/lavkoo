@@ -8,8 +8,12 @@ use App\Models\ShippingAddress;
 use App\Models\User;
 use App\Services\Address\AddressSchema;
 use App\Utils\OrderManager;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * The mobile app places orders with a saved address by its id. Every id is the customer's own, or the order is refused before an
@@ -83,6 +87,65 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         $this->assertSame($copy, $this->storedCopy(100001));
     }
 
+    /** @return array<string, array{0: string, 1: bool}> the mode, and whether the address is a structured one */
+    public static function modesAndAddresses(): array
+    {
+        return [
+            'off, an old address' => [AddressSchema::MODE_OFF, false],
+            'soft, a structured address' => [AddressSchema::MODE_SOFT, true],
+            'strict, a structured address' => [AddressSchema::MODE_STRICT, true],
+        ];
+    }
+
+    #[DataProvider('modesAndAddresses')]
+    public function test_the_money_of_an_order_is_what_the_cart_says_whatever_the_address_and_the_mode(string $mode, bool $structuredAddress): void
+    {
+        Schema::table('coupons', function (Blueprint $table) {
+            $table->string('discount_type')->nullable();
+            $table->decimal('discount', 16, 2)->default(0);
+            $table->decimal('min_purchase', 16, 2)->default(0);
+            $table->decimal('max_discount', 16, 2)->default(0);
+            $table->integer('limit')->default(0);
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->unsignedBigInteger('customer_id')->default(0);
+            $table->string('coupon_bearer')->nullable();
+        });
+        Schema::create('order_details_rewards', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_id');
+            $table->unsignedBigInteger('order_details_id');
+            $table->string('reward_type')->nullable();
+            $table->json('reward_details')->nullable();
+            $table->decimal('reward_amount', 18, 12)->nullable()->default(0);
+            $table->tinyInteger('reward_delivered')->default(0);
+            $table->timestamps();
+        });
+        $this->setAddressMode($mode);
+        $customer = $this->makeCustomer();
+        $address = $structuredAddress ? $this->makeStructuredAddress($this->ids, $customer->id) : $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        DB::table('carts')->where('customer_id', $customer->id)->update(['quantity' => 2, 'price' => 100]);
+        DB::table('business_settings')->insert(['type' => 'shipping_method', 'value' => 'inhouse_shipping']);
+        DB::table('shipping_types')->insert(['seller_id' => 0, 'shipping_type' => 'order_wise']);
+        DB::table('cart_shippings')->insert(['cart_group_id' => 'group-' . $customer->id . 'c', 'shipping_method_id' => 1, 'shipping_cost' => 25]);
+        Cache::flush();
+        $this->useTaxIncludedPrices();
+        DB::table('coupons')->insert([
+            'code' => 'SAVE15', 'coupon_type' => 'discount_on_purchase', 'discount_type' => 'amount', 'discount' => 15, 'min_purchase' => 0, 'max_discount' => 0,
+            'limit' => 5, 'seller_id' => 0, 'customer_id' => 0, 'coupon_bearer' => 'inhouse', 'status' => 1, 'start_date' => '2020-01-01', 'expire_date' => '2099-12-31',
+        ]);
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id . '&coupon_code=SAVE15')->assertOk();
+
+        $order = DB::table('orders')->where('id', 100001)->first();
+        $this->assertEquals(
+            ['order_amount' => 210, 'init_order_amount' => 210, 'shipping_cost' => 25, 'discount_amount' => 15, 'total_tax_amount' => 0],
+            ['order_amount' => $order->order_amount, 'init_order_amount' => $order->init_order_amount, 'shipping_cost' => $order->shipping_cost, 'discount_amount' => $order->discount_amount, 'total_tax_amount' => $order->total_tax_amount],
+            'two packs at 100, the 25 of shipping, the coupon of 15',
+        );
+        $this->assertSame(8, $this->stock(), 'two packs left the shelf');
+    }
+
     public function test_while_the_mode_is_off_the_order_keeps_the_copy_the_checkout_has_always_kept(): void
     {
         $customer = $this->makeCustomer();
@@ -140,7 +203,6 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
 
     public function test_a_guest_cannot_order_with_the_address_of_another_guest_or_of_a_customer_with_the_same_number(): void
     {
-        $customer = $this->makeCustomer();
         $this->putOneProductInTheCart(callerId: 7001, isGuest: true);
         $otherGuest = $this->makeLegacyAddress(7002, isGuest: true);
         $customerWithTheSameNumber = $this->makeLegacyAddress(7001);
@@ -148,7 +210,6 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         foreach ([$otherGuest->id, $customerWithTheSameNumber->id] as $addressId) {
             $this->assertRefusedBeforeAnythingWasCreated($this->getJson(self::COD . '?guest_id=7001&address_id=' . $addressId), translate('address_not_found'));
         }
-        $this->assertNotNull($customer);
     }
 
     public function test_a_guest_who_asks_for_an_account_with_an_address_that_is_not_theirs_gets_no_account(): void
@@ -280,7 +341,6 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         $this->setAddressMode(AddressSchema::MODE_SOFT);
         $customer = $this->makeCustomer();
         $old = $this->makeLegacyAddress($customer->id);
-        $unsaved = $this->makeLegacyAddress(0, overrides: ['address' => 'Typed at checkout']);
         $this->putOneProductInTheCart($customer->id);
 
         try {
@@ -295,7 +355,6 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
 
         $this->assertCount(1, $orderIds);
         $this->assertSame('Typed at checkout', $this->storedCopy($orderIds[0])['address']);
-        $this->assertNotNull($unsaved);
     }
 
     public function test_an_order_that_is_already_paid_keeps_the_customers_address_for_review_but_never_a_strangers(): void

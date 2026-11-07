@@ -6,6 +6,7 @@ use App\Models\AddressCity;
 use App\Models\AddressRegion;
 use App\Services\Address\AddressDataFiles;
 use Illuminate\Support\Facades\DB;
+use Tests\Support\WritesTemporaryFiles;
 
 /**
  * Loading the lists that ship with the application from the admin: a preview that writes nothing, then the import for real. Audited,
@@ -13,8 +14,7 @@ use Illuminate\Support\Facades\DB;
  */
 class AdminAddressImportTest extends AdminAddressTestCase
 {
-    /** @var list<string> */
-    private array $files = [];
+    use WritesTemporaryFiles;
 
     protected function setUp(): void
     {
@@ -23,22 +23,10 @@ class AdminAddressImportTest extends AdminAddressTestCase
         $this->signIn();
     }
 
-    protected function tearDown(): void
-    {
-        foreach ($this->files as $file) {
-            @unlink($file);
-        }
-
-        parent::tearDown();
-    }
-
     /** @param array<string, mixed> $meta more of the file's own description */
     private function writeFile(array $body, string $source = 'test_source', array $meta = []): string
     {
-        $path = tempnam(sys_get_temp_dir(), 'addr_') . '.json';
-        file_put_contents($path, json_encode(['_meta' => ['source' => $source, 'snapshot_date' => '2026-01-01'] + $meta] + $body, JSON_UNESCAPED_UNICODE));
-
-        return $this->files[] = $path;
+        return $this->temporaryFile(extension: 'json', contents: json_encode(['_meta' => ['source' => $source, 'snapshot_date' => '2026-01-01'] + $meta] + $body, JSON_UNESCAPED_UNICODE));
     }
 
     /** Points the application at a small data set instead of the shipped one. */
@@ -70,8 +58,7 @@ class AdminAddressImportTest extends AdminAddressTestCase
 
     public function test_the_description_of_a_file_survives_a_missing_or_broken_one(): void
     {
-        config(['address.seed.cities' => sys_get_temp_dir() . '/no-such-file.json', 'address.seed.aliases' => $this->files[] = tempnam(sys_get_temp_dir(), 'addr_')]);
-        file_put_contents(config('address.seed.aliases'), '{broken');
+        config(['address.seed.cities' => sys_get_temp_dir() . '/no-such-file.json', 'address.seed.aliases' => $this->temporaryFile(extension: 'json', contents: '{broken')]);
 
         $files = app(AddressDataFiles::class)->describe();
 

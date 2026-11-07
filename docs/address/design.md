@@ -41,7 +41,10 @@ never lock customers out) and while the ZIP allow-list restriction is on (the ch
 
 * **Checkout / account / panels / API** — region (searchable) → city (filtered by region, cleared when the region changes, Arabic or English search, only ids from the store's own list) →
   district → National Address; the legacy city and ZIP rows appear only for other countries. Server-side: region exists and is active, city belongs to that region and is active, National Address shape, Saudi
-  mobile, lengths, no provider ids accepted from clients, every address id scoped to its owner.
+  mobile, lengths, no provider ids accepted from clients, every address id scoped to its owner. In the list a place whose name, or whose curated spelling, is exactly what was typed comes first (the larger place before a village of the same
+  name), then the names that start with it, then the rest.
+* **Country** — a country is read as Saudi Arabia in any of its common spellings (the code, the English or Arabic name, with or without dots, hyphens or spaces: `SA`, `K.S.A.`, `Saudi-Arabia`, `Saudia`, `السعودية`). Any other text is another country and keeps the
+  old rules, so the server cannot tell a mistyped Saudi Arabia from a country it does not know; the pages offer a closed list, so only another client can send one, and such an order reaches fulfilment with a typed city that is used only when it is certain.
 * **Order** — the snapshot is built once from the address at that moment (all old keys, `zip` included, plus ids, National Address and the *names* of region and city then). Editing or renaming
   afterwards never changes a past order.
 * **Old addresses** — kept as they are. A saved Saudi address without a city id is matched **only** when an administrator alias or exactly one registered city agrees (a small place that merely shares the typed name, as a district typed in the city box does, waits for a person); ambiguity, a region that points elsewhere, or no

@@ -62,8 +62,16 @@ class InputNormalisersTest extends TestCase
             'arabic-indic digits' => ['٠٥٥١٢٣٤٥٦٧', '0551234567'],
             'persian and urdu digits' => ['۰۵۵۱۲۳۴۵۶۷', '0551234567'],
             'full-width digits' => ['０５５１２３４５６７', '0551234567'],
+            'international with the trunk zero kept' => ['+9660551234567', '0551234567'],
+            'the country code without a plus' => ['966551234567', '0551234567'],
+            'without the leading zero' => ['551234567', '0551234567'],
+            'international with hyphens' => ['+966-55-123-4567', '0551234567'],
+            'national with brackets and a hyphen' => ['(055) 123-4567', '0551234567'],
             'a landline is not a mobile' => ['0112345678', null],
+            'a prefix no mobile has' => ['0451234567', null],
             'too short' => ['055123', null],
+            'cut short' => ['05512345', null],
+            'a digit too many' => ['+9665512345678', null],
             'blank' => ['', null],
         ];
     }

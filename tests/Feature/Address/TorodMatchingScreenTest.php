@@ -52,7 +52,7 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
     {
         parent::setUp();
 
-        $this->skipWhileTheLanguageKeysAreNotMerged();
+        $this->assertThePhrasesOfThePageAreMerged();
         View::getFinder()->prependLocation(base_path('tests/Support/views'));
         View::addLocation(resource_path('themes/default'));
         $this->withoutMiddleware([
@@ -64,21 +64,19 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
     }
 
     /**
-     * translate() writes a key it does not know into the shared language files. A page that is waiting for its phrases to be merged must
-     * not do that from a test run: it would dirty files other runs compare, so the page is tested once the phrases are there.
+     * translate() writes a key it does not know into the shared language files as a placeholder, so a page whose phrase was lost would still
+     * render. Every phrase of this page must have its text in each language, or the test fails and says which.
      */
-    private function skipWhileTheLanguageKeysAreNotMerged(): void
+    private function assertThePhrasesOfThePageAreMerged(): void
     {
-        if (defined('TRANSLATE_NEVER_WRITES')) {
-            return;
-        }
-
         foreach (['en', 'sa', 'ae'] as $locale) {
             $known = array_merge(include base_path("resources/lang/{$locale}/messages.php"), include base_path("resources/lang/{$locale}/new-messages.php"));
-            $missing = array_values(array_filter(self::NEW_LANGUAGE_KEYS, static fn (string $key): bool => !array_key_exists($key, $known)));
-            if ($missing !== []) {
-                $this->markTestSkipped("resources/lang/{$locale} lacks " . count($missing) . ' phrase(s) of this page (e.g. ' . $missing[0] . '); merge lang/request_wp-e.json first.');
-            }
+
+            $this->assertSame(
+                [],
+                array_values(array_filter(self::NEW_LANGUAGE_KEYS, static fn (string $key): bool => !array_key_exists($key, $known))),
+                "resources/lang/{$locale} lacks phrases of this page",
+            );
         }
     }
 

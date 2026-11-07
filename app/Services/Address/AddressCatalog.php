@@ -75,14 +75,16 @@ class AddressCatalog
             return $builder->orderByDesc('sort_order')->orderBy('name_en')->orderBy('id')->limit($limit)->get();
         }
 
-        $aliasCityIds = AddressCityAlias::query()
+        $matchingAliases = AddressCityAlias::query()
             ->where(static function (Builder $query) use ($keys): void {
                 foreach ($keys as $key) {
                     $query->orWhere('normalized_alias', 'like', '%' . $key . '%');
                 }
             })
-            ->pluck('city_id')
-            ->all();
+            ->get(['city_id', 'normalized_alias']);
+        $aliasCityIds = $matchingAliases->pluck('city_id')->all();
+        $exactAliasCityIds = $matchingAliases->whereIn('normalized_alias', $keys)->pluck('city_id')->all();
+        $exactAliasCondition = $exactAliasCityIds === [] ? '' : ' OR id IN (' . implode(',', array_fill(0, count($exactAliasCityIds), '?')) . ')';
 
         return $builder
             ->where(static function (Builder $query) use ($keys, $aliasCityIds): void {
@@ -94,8 +96,8 @@ class AddressCatalog
                 }
             })
             ->orderByRaw(
-                'CASE WHEN normalized_ar = ? OR normalized_en = ? THEN 0 WHEN normalized_ar LIKE ? OR normalized_en LIKE ? THEN 1 ELSE 2 END',
-                [$rankKey = end($keys), $rankKey, $rankKey . '%', $rankKey . '%'],
+                'CASE WHEN normalized_ar = ? OR normalized_en = ?' . $exactAliasCondition . ' THEN 0 WHEN normalized_ar LIKE ? OR normalized_en LIKE ? THEN 1 ELSE 2 END',
+                [$rankKey = end($keys), $rankKey, ...$exactAliasCityIds, $rankKey . '%', $rankKey . '%'],
             )
             ->orderByDesc('sort_order')
             ->orderBy('name_en')

@@ -62,6 +62,7 @@ Everything that depends on the structured address is dormant, and the pages, API
 | 8 | When to move from `soft` to `strict` | needs every mobile app version in use to send the structured fields | [deployment-runbook.md](deployment-runbook.md) |
 | 9 | **Guest identity in the mobile API.** A guest's saved addresses are keyed by `guest_id`, a sequential number `GET /api/v1/get-guest-id` hands out and the app sends back with no secret. Anyone who guesses it can list, edit or delete that guest's addresses (now including the region, city, district and National Address), and a signed-in customer who names it in a request can order to one of them. Pre-existing; everything else here is scoped to the caller. The fix is a per-guest secret issued by `get-guest-id` and required on every guest route, which needs a mobile release | the one hole this branch cannot close server-side alone | [design.md](design.md) |
 | 10 | `account-address-delete` deletes on a plain **GET** (the three themes' scripts link to it). Pre-existing; the action is scoped to the signed-in customer's own addresses | a link on another site can delete a saved address; making it a POST means touching the themes' scripts | — |
+| 11 | Should the server refuse a **country** the store's own list does not know? Today any text that is not a spelling of Saudi Arabia is another country and keeps the old rules (a typed city) | the pages offer a closed list, so only another client can send one; at fulfilment its typed city is used only when it is certain | [design.md](design.md) |
 
 ## Running the tests
 

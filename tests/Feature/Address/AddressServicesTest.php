@@ -7,6 +7,7 @@ use App\Enums\Address\CityMatchStatus;
 use App\Models\AddressCity;
 use App\Models\AddressRegion;
 use App\Models\ShippingAddress;
+use App\Services\Address\AddressCountry;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Address\CheckoutAddressGuard;
@@ -330,12 +331,48 @@ class AddressServicesTest extends AddressTestCase
         ];
     }
 
-    public function test_the_country_may_be_written_as_a_code_or_in_arabic(): void
+    /** @return array<string, array{0: string, 1: bool}> the country as it arrives, and whether it is Saudi Arabia */
+    public static function countrySpellings(): array
+    {
+        return [
+            'the code' => ['SA', true],
+            'the three-letter code' => ['SAU', true],
+            'ksa' => ['KSA', true],
+            'ksa with dots' => ['K.S.A.', true],
+            'ksa with spaces' => ['K S A', true],
+            'the name' => ['Saudi Arabia', true],
+            'the name in lower case' => ['saudi arabia', true],
+            'the name with a hyphen' => ['Saudi-Arabia', true],
+            'the name joined' => ['SaudiArabia', true],
+            'the name with a stray space' => [' Saudi  Arabia ', true],
+            'the short name' => ['Saudi', true],
+            'the spelling of the airline' => ['Saudia', true],
+            'the kingdom' => ['Kingdom of Saudi Arabia', true],
+            'the kingdom in capitals' => ['KINGDOM OF SAUDI ARABIA', true],
+            'arabic' => ['السعودية', true],
+            'arabic with the persian ya' => ['السعودیة', true],
+            'arabic with a tatweel' => ['السـعودية', true],
+            'the kingdom in arabic' => ['المملكة العربية السعودية', true],
+            'a typo' => ['Saudi Arabi', false],
+            'half the name' => ['Arabia', false],
+            'a city after the name' => ['Saudi Arabia Riyadh', false],
+            'a code with a digit' => ['KSA2', false],
+            'a neighbour' => ['Kuwait', false],
+            'another country with arabia in the name' => ['United Arab Emirates', false],
+            'nothing' => ['', false],
+        ];
+    }
+
+    #[DataProvider('countrySpellings')]
+    public function test_the_country_may_be_written_in_the_many_ways_saudi_arabia_is_written_and_nothing_else_is_taken_for_it(string $country, bool $isSaudi): void
     {
         AddressSchema::setMode(AddressSchema::MODE_STRICT);
 
-        foreach (['SA', 'KSA', 'Saudi Arabia', 'saudi arabia', 'السعودية', 'المملكة العربية السعودية'] as $country) {
-            $this->assertArrayHasKey('city_id', $this->errorsOf(fn () => $this->service()->structuredAttributes(['country' => $country], AddressChannel::Web)), $country);
+        $this->assertSame($isSaudi, AddressCountry::isSaudi($country), $country);
+        if ($isSaudi) {
+            $this->assertArrayHasKey('city_id', $this->errorsOf(fn () => $this->service()->structuredAttributes(['country' => $country], AddressChannel::Web)), $country . ' needs the region and the city of the list');
+        } else {
+            $this->assertArrayNotHasKey('city_id', $this->service()->structuredAttributes(['country' => $country, 'city' => 'Anywhere'], AddressChannel::Web), $country . ' keeps the old rules');
         }
     }
 

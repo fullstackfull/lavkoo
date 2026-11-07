@@ -88,6 +88,17 @@ class OrderSnapshotTest extends ApiAddressTestCase
         $this->assertSame(['منطقة الرياض', 'Riyadh', 'الرياض', 'Riyadh', 'unified'], [$copy['region_name_ar'], $copy['region_name_en'], $copy['city_name_ar'], $copy['city_name_en'], $copy['address_schema']]);
     }
 
+    public function test_an_address_with_a_city_of_ours_but_no_national_address_is_copied_as_an_old_one_with_the_city_names_frozen(): void
+    {
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $address = $this->makeStructuredAddress($this->ids, 5, overrides: ['national_address' => null, 'zip' => '12211']);
+
+        $copy = json_decode((string) OrderManager::getOrderAddressSnapshot($address->id), true);
+
+        $this->assertSame(['legacy', $this->ids['riyadh'], 'Riyadh', null, '12211'], [$copy['address_schema'], $copy['city_id'], $copy['city_name_en'], $copy['national_address'], $copy['zip']]);
+        $this->assertFalse(AddressSnapshot::isUnified($copy));
+    }
+
     public function test_the_zip_key_is_always_there_and_holds_exactly_what_the_address_held(): void
     {
         $this->setAddressMode(AddressSchema::MODE_SOFT);

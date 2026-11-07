@@ -5,6 +5,7 @@ namespace Tests\Feature\Address;
 use App\Models\AddressCity;
 use App\Services\Address\AddressSchema;
 use Carbon\Carbon;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -72,11 +73,23 @@ class AddressSchemaAnswersTest extends AddressTestCase
 
     public function test_the_directory_columns_are_a_question_of_their_own(): void
     {
-        $this->assertTrue(AddressSchema::directoryColumnsReady() || ! Schema::hasTable('provider_cities'));
+        $this->assertFalse(AddressSchema::directoryColumnsReady(), 'a store without the provider list');
 
-        Schema::dropIfExists('provider_cities');
+        $columns = AddressSchema::DIRECTORY_COLUMNS;
+        $lastColumn = array_pop($columns);
+        Schema::create('provider_cities', function (Blueprint $table) use ($columns) {
+            $table->id();
+            foreach ($columns as $column) {
+                $table->string($column)->nullable();
+            }
+        });
         AddressSchema::flush();
+        $this->assertFalse(AddressSchema::directoryColumnsReady(), 'the list is there but one of the columns the sync promotes is not');
 
-        $this->assertFalse(AddressSchema::directoryColumnsReady());
+        Schema::table('provider_cities', function (Blueprint $table) use ($lastColumn) {
+            $table->string($lastColumn)->nullable();
+        });
+        AddressSchema::flush();
+        $this->assertTrue(AddressSchema::directoryColumnsReady());
     }
 }

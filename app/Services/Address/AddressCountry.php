@@ -12,15 +12,18 @@ final class AddressCountry
 {
     public const LEGACY_NAME = 'Saudi Arabia';
 
-    private const SAUDI = ['sa', 'ksa', 'sau', 'saudi arabia', 'saudiarabia', 'saudi', 'kingdom of saudi arabia', 'السعوديه', 'المملكه العربيه السعوديه', 'السعودية', 'المملكة العربية السعودية'];
+    private const SAUDI = ['sa', 'ksa', 'sau', 'saudi arabia', 'saudiarabia', 'saudi', 'saudia', 'kingdom of saudi arabia', 'السعوديه', 'المملكه العربيه السعوديه', 'السعودية', 'المملكة العربية السعودية'];
 
     public static function isSaudi(?string $country): bool
     {
-        $text = mb_strtolower(trim((string) $country));
-        if ($text === '') {
-            return false;
-        }
+        $key = self::compact($country);
 
-        return in_array($text, self::SAUDI, true) || in_array(ArabicText::normalize($text), array_map([ArabicText::class, 'normalize'], self::SAUDI), true);
+        return $key !== '' && in_array($key, array_map(self::compact(...), self::SAUDI), true);
+    }
+
+    /** The country spelled without case, diacritics, punctuation or spaces: "K.S.A.", "Saudi-Arabia" and "ksa" are one value. */
+    private static function compact(?string $country): string
+    {
+        return str_replace(' ', '', ArabicText::normalize($country));
     }
 }
