@@ -9,6 +9,7 @@ use App\Enums\Fulfillment\StockSource;
 use App\Models\ProviderFulfillmentItem;
 use App\Models\ProviderProductMapping;
 use App\Models\StockMovement;
+use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\Marketplace\InventoryService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,11 @@ use Illuminate\Support\Facades\DB;
  * Available to sell = what the provider reports, minus what we have already sold to customers but the provider
  * has not taken on yet (unrouted, pending, held, in-flight, failed). Without that subtraction a sync landing
  * between "order placed" and "order accepted" would put the stock back up and oversell it.
+ *
+ * The same provider shelf may also be published to a sales channel (Amazon FBM, Trendyol), and the units its open orders hold come off
+ * too (`ReportsChannelHolds`, 0 without the sales-channel module): one figure, one subtraction per promise, so a unit a channel has
+ * already sold is not offered to a customer as well. A channel order that has an internal order of its own is counted by that order's
+ * provider lines and holds nothing besides, so it is never subtracted twice.
  *
  * Stock and price changes go through one locked write per product, log a stock movement, and are
  * idempotent: syncing the same numbers twice changes nothing the second time.
@@ -46,7 +52,7 @@ class InventorySyncService
     private const UNSUPPORTED = 'unsupported';
     private const NOT_ASSIGNED = 'not_assigned';
 
-    public function __construct(private readonly InventoryService $inventory)
+    public function __construct(private readonly InventoryService $inventory, private readonly ReportsChannelHolds $channelHolds)
     {
     }
 
@@ -228,7 +234,9 @@ class InventorySyncService
             return self::UNSUPPORTED;
         }
 
-        $available = max(0, $providerQuantity - $this->reservedNotYetWithProvider($provider, (int) $product->id, $mapping->variant_key, $acceptedSince));
+        $promised = $this->reservedNotYetWithProvider($provider, (int) $product->id, $mapping->variant_key, $acceptedSince)
+            + $this->channelHolds->unitsHeld($provider, (int) $product->id, (string) $mapping->variant_key, $acceptedSince);
+        $available = max(0, $providerQuantity - $promised);
         $before = (int) $product->current_stock;
         $values = [];
         $variantChanged = false;

@@ -208,6 +208,12 @@ return [
         // Whether a unit a shipped channel order took off the own warehouse's shelf stops counting once the storefront's stock has been lowered for it (the reservation's
         // `applied_to_platform_at`). Nothing in this version lowers it: with this off, which is the only supported state, such a unit counts until its order is released.
         'apply_channel_orders_to_platform_stock' => filter_var(env('SALES_CHANNELS_APPLY_CHANNEL_ORDERS_TO_PLATFORM_STOCK', false), FILTER_VALIDATE_BOOLEAN),
+        // The storefront and the channels sell ONE provider figure between them (Torod Point's warehouse and M5AZN's supplier stock are both
+        // storefront-sellable and publishable). With this ON, the units open channel orders hold at a provider's location come off the stock the
+        // provider sync writes to the storefront, exactly as store orders the provider has not taken on yet already do, so the same unit is not
+        // promised twice. It is not an integration switch and sends nothing anywhere: with no channel orders imported it subtracts nothing. OFF
+        // restores the earlier behaviour, in which the storefront's figure ignores what the channels have sold.
+        'hold_channel_units_from_storefront' => filter_var(env('SALES_CHANNELS_HOLD_CHANNEL_UNITS_FROM_STOREFRONT', true), FILTER_VALIDATE_BOOLEAN),
     ],
 
     // Creating a provider shipment for a CHANNEL order: the application makes a minimal internal order for it and lets the existing Torod Point / M5AZN fulfilment do the rest (all of that
