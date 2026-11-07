@@ -154,9 +154,13 @@ final class AddressSchema
     /** @param bool $keepYes false for an answer that can turn from yes to no while the process runs (the last active city is switched off) */
     private static function remembered(string $question, callable $ask, bool $keepYes = true): bool
     {
-        $now = now()->getTimestamp();
         $known = self::$answers[$question] ?? null;
-        if ($known !== null && (($known['value'] && $keepYes) || $now - $known['at'] < self::NEGATIVE_ANSWER_SECONDS)) {
+        if ($known !== null && $known['value'] && $keepYes) {
+            return true;
+        }
+
+        $now = now()->getTimestamp();
+        if ($known !== null && $now - $known['at'] < self::NEGATIVE_ANSWER_SECONDS) {
             return $known['value'];
         }
 
