@@ -178,6 +178,18 @@ class ShipmentLinkingTest extends TestCase
         $this->assertSame($snapshotBefore, (array) $unlinked->snapshot, 'The snapshot is what it was before the link.');
     }
 
+    public function test_unlinking_puts_the_order_back_among_those_that_wait_for_a_person(): void
+    {
+        $mapping = $this->order();
+        $mapping->forceFill(['review_reason' => 'no_rule_matched', 'execution_policy' => 'manual_review'])->save();
+        $linked = $this->linker->link($mapping->refresh(), 'torod_point', 'TOR-123', 1);
+        $this->assertSame(['externally_managed', null], [$linked->execution_policy, $linked->review_reason]);
+
+        $unlinked = $this->linker->unlink($linked->refresh(), 1, 'linked by mistake');
+
+        $this->assertSame(['manual_review', 'no_rule_matched'], [$unlinked->execution_policy, $unlinked->review_reason], 'Without a shipment the order is again one that waits for a person.');
+    }
+
     public function test_the_link_resolves_only_its_own_review_reasons(): void
     {
         $ambiguous = $this->order('111', '900');

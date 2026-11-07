@@ -84,9 +84,12 @@ class ExternalShipmentLinker
             $this->assertLinkable($locked, $provider, $reference);
 
             $snapshot = (array) $locked->snapshot;
-            // What the order held before the link, so that unlinking puts it back: the channel's own tracking data share these columns.
+            // What the order held before the link, so that unlinking puts it back: the channel's own tracking data share these columns, and the link clears the review reason it solves.
             $snapshot['shipment_link'] = ($locked->shipment_link_state === ExternalOrderMapping::LINK_LINKED ? ($snapshot['shipment_link'] ?? []) : [
-                'previous' => ['provider' => $locked->provider, 'tracking_number' => $locked->tracking_number, 'tracking_url' => $locked->tracking_url, 'carrier' => $locked->carrier],
+                'previous' => [
+                    'provider' => $locked->provider, 'tracking_number' => $locked->tracking_number, 'tracking_url' => $locked->tracking_url, 'carrier' => $locked->carrier,
+                    'execution_policy' => $locked->execution_policy, 'review_reason' => $locked->review_reason,
+                ],
             ]) + ['linked_at' => now()->toIso8601String(), 'by' => $adminId];
 
             try {
@@ -119,17 +122,28 @@ class ExternalShipmentLinker
         $previous = (array) ($snapshot['shipment_link']['previous'] ?? []);
         unset($snapshot['shipment_link']);
 
-        $mapping->forceFill([
+        $mapping->forceFill(array_merge([
             'shipment_link_state' => ExternalOrderMapping::LINK_UNLINKED,
             'shipment_reference' => null,
             'shipment_status' => null,
             'shipment_checked_at' => null,
-            'review_reason' => in_array($mapping->review_reason, self::OWN_REASONS, true) ? null : $mapping->review_reason,
+            'review_reason' => $this->reasonAfterUnlink($mapping, $previous),
             'snapshot' => $snapshot,
-        ] + ($previous === [] ? [] : array_intersect_key($previous, array_flip(['provider', 'tracking_number', 'tracking_url', 'carrier']))))->save();
+        ], array_intersect_key($previous, array_flip(['provider', 'tracking_number', 'tracking_url', 'carrier', 'execution_policy']))))->save();
         $this->audit->record(action: 'sales_channel.shipment_unlinked', subject: $mapping, context: ['mapping_id' => $mapping->id, 'by' => $adminId, 'reason' => $reason]);
 
         return $mapping;
+    }
+
+    /** A reason a person still has to look at stays; the one the link solved comes back, because without the shipment the order waits for a person again. */
+    private function reasonAfterUnlink(ExternalOrderMapping $mapping, array $previous): ?string
+    {
+        if ($mapping->review_reason !== null && !in_array($mapping->review_reason, self::OWN_REASONS, true)) {
+            return $mapping->review_reason;
+        }
+        $before = $previous['review_reason'] ?? null;
+
+        return in_array($before, self::OWN_REASONS, true) ? $before : null;
     }
 
     /** @throws ShipmentLinkRefused */
