@@ -184,7 +184,8 @@ class PurchaseOrderInvoiceLinks
         }
     }
 
-    private function enabled(): bool
+    /** True while the purchase-order source is on and everything it needs is there. */
+    public function enabled(): bool
     {
         return $this->candidates->enabled();
     }

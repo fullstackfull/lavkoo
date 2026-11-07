@@ -349,7 +349,9 @@ class InvoiceService
             }
             $count++;
         }
-        foreach ($shares->outsideLayers as $freightId => $amount) {
+        // With the purchase-order source off an invoice with no goods lines is costed as it always was.
+        $outsideLayers = $goods->isEmpty() && !$this->purchaseOrders->enabled() ? [] : $shares->outsideLayers;
+        foreach ($outsideLayers as $freightId => $amount) {
             $this->recordFreightOutsideLayers(invoice: $invoice, line: $freight[$freightId], amount: $amount);
             $count++;
         }

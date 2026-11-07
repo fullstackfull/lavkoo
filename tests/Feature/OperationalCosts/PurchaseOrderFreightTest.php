@@ -99,6 +99,16 @@ class PurchaseOrderFreightTest extends TestCase
         $this->assertSame([['actual', '20.000000', 'unallocated']], $this->freightEntries());
     }
 
+    public function test_with_the_source_off_an_invoice_with_no_goods_lines_is_costed_as_it_always_was(): void
+    {
+        config(['operational_costs.sources.purchase_orders' => 'off']);
+        $invoice = $this->purchaseInvoice([['cost_component' => 'inbound_freight', 'amount' => '20.00']])->invoice;
+
+        $this->invoices()->approve($invoice, adminId: 1);
+
+        $this->assertSame([], $this->freightEntries(), 'Nothing of the source is in force: the freight line is recorded nowhere, as before.');
+    }
+
     public function test_two_freight_lines_are_each_shared_and_the_linked_shares_are_one_entry_for_each(): void
     {
         [$linked, $line] = $this->layeredReceipt();
