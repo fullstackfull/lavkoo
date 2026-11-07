@@ -167,6 +167,23 @@ return [
     // it also needs a master admin's recorded approval on the account (`buyer_data_transfer`).
     'buyer_data_transfer_enabled' => filter_var(env('SALES_CHANNELS_BUYER_DATA_TRANSFER_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 
+    /*
+    | Finding the shipment a provider created straight from a channel order (Trendyol connected to Torod Point), so that it is linked and never sent a second time. OFF until the owner has seen a real
+    | sample of such a shipment: nothing in the repository says which Torod field carries the channel's order number. Only an exact match on that one field links; anything else waits and is handed to a person.
+    */
+    'shipment_discovery' => [
+        'enabled' => filter_var(env('SALES_CHANNELS_SHIPMENT_DISCOVERY_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        // Hours an order may go without a shipment before it is handed to a person (measured from the channel's purchase time).
+        'window_hours' => 36,
+        'torod' => [
+            // What Torod holds in the invoice number of such an order: the channel's `order_number` or its `package_id`.
+            'join_key' => 'order_number',
+            // The order list has no search: this many pages of 50 are read, newest first as far as Torod lists them; an order further back is not seen.
+            'max_pages' => 3,
+            'cache_seconds' => 120,
+        ],
+    ],
+
     'dispatch' => [
         // An attempt that claimed an order and never finished (a crash) is given up after this long, and the order may be claimed again.
         'claim_minutes' => 10,

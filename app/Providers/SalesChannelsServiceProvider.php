@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Services\SalesChannels\Accounting\AccountingDestination;
 use App\Services\SalesChannels\Accounting\NullAccountingDestination;
 use App\Services\SalesChannels\Shipments\ExternalShipmentLookup;
+use App\Services\SalesChannels\Shipments\TorodShipmentLookup;
 use App\Services\SalesChannels\Shipments\NullShipmentLookup;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -23,8 +24,8 @@ class SalesChannelsServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // No provider search exists yet (see ExternalShipmentLookup): the honest default finds nothing and guesses nothing. Bind a real lookup here when one does.
-        $this->app->bind(ExternalShipmentLookup::class, NullShipmentLookup::class);
+        // The honest default finds nothing and guesses nothing; the Torod Point lookup replaces it only when the owner has switched discovery on (see config/sales_channels.php).
+        $this->app->bind(ExternalShipmentLookup::class, static fn ($app): ExternalShipmentLookup => config('sales_channels.shipment_discovery.enabled', false) ? $app->make(TorodShipmentLookup::class) : new NullShipmentLookup());
         // Odoo is deferred: the books have an extension point (AccountingDestination) and, until one is built, a destination that posts nothing.
         $this->app->bind(AccountingDestination::class, NullAccountingDestination::class);
     }

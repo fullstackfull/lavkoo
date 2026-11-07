@@ -113,6 +113,7 @@ class ScheduleDefinition
         $schedule->command('channels:dispatch')->everyFiveMinutes()->withoutOverlapping(30)->runInBackground();
         $schedule->command('channels:dispatch-sync')->everyFiveMinutes()->withoutOverlapping(30);
         $schedule->command('channels:purge-buyer-data')->hourlyAt(23)->withoutOverlapping(30);
+        $schedule->command('channels:find-shipments')->everyTenMinutes()->withoutOverlapping(30)->runInBackground();
 
         // Heartbeat: record the last scheduler run in the DB (not cache, which optimize:clear wipes) so
         // the admin dashboard can warn when the server cron `schedule:run` has stopped firing — the
