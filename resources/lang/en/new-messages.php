@@ -10574,4 +10574,13 @@ return [
 	'unconverted_revenue_amounts' => 'Revenue amounts without a rate',
 	'unconverted_cost_entries' => 'Cost entries without a rate',
 	'currencies_without_a_rate' => 'Currencies without a rate',
+	'event_outcome_duplicate' => 'Duplicate of an API charge',
+	'event_note_possible_overlap' => 'May repeat a charge the API gave',
+	'event_note_order_not_held' => 'The order is not held yet',
+	'event_note_line_not_matched' => 'No single order line matches',
+	'event_note_currency_differs' => 'In another currency than the order',
+	'event_note' => 'Note',
+	'attention_possible_overlap' => 'Statement rows that may repeat a charge the API gave',
+	'invoice_lines_compared_with_the_channel_statements' => 'Invoice lines compared with the channel statements instead of being posted again',
+	'compared_with_the_channel_statements_not_an_estimate' => 'Compared with what the channel statements booked (not an estimate)',
 ];

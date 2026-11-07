@@ -74,6 +74,13 @@
                         </select>
                     </div>
                     <div class="col-md-2">
+                        <label class="form-label fs-12" for="log-note">{{ translate('event_note') }}</label>
+                        <select class="form-select form-select-sm" id="log-note" name="note">
+                            <option value="">{{ translate('all') }}</option>
+                            @foreach ($notes as $note)<option value="{{ $note }}" @selected($filters['note'] === $note)>{{ $labels->eventNote($note) }}</option>@endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-2">
                         <label class="form-label fs-12" for="log-event-type">{{ translate('event_type') }}</label>
                         <input class="form-control form-control-sm" id="log-event-type" name="event_type" value="{{ $filters['event_type'] }}" placeholder="order_package">
                     </div>
@@ -153,7 +160,7 @@
                                 <td class="fs-12 text-break">{{ $event->external_reference ?? '—' }}</td>
                                 <td>
                                     <x-k.badge :tone="$outcomeTone($event->outcome)">{{ $labels->eventOutcome($event->outcome) }}</x-k.badge>
-                                    @if ($event->outcome_note)<div class="fs-10 text-muted text-break">{{ $event->outcome_note }}</div>@endif
+                                    @if ($event->outcome_note)<div class="fs-10 text-muted text-break">{{ $labels->eventNote($event->outcome_note) }}</div>@endif
                                 </td>
                                 <td class="fs-12">
                                     <details>

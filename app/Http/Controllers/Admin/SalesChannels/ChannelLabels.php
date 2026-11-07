@@ -49,7 +49,9 @@ final class ChannelLabels
         'listing_status_' => ['unmapped', 'suggested', 'mapped', 'ignored', 'conflict'],
         'match_method_' => ['ambiguous', 'already_linked_elsewhere', 'product_code', 'barcode', 'variant_sku', 'exact_product_code_auto', 'exact_barcode_auto', 'exact_variant_sku_auto', 'manual'],
         'shipment_link_state_' => ['unlinked', 'linked', 'needs_review', 'conflict', 'not_applicable'],
-        'event_outcome_' => ['received', 'recorded_only', 'needs_review', 'applied', 'ignored_capability_off', 'ignored_invalid', 'failed'],
+        'event_outcome_' => ['received', 'recorded_only', 'needs_review', 'applied', 'ignored_capability_off', 'ignored_invalid', 'failed', 'duplicate'],
+        // Why an event is kept for a person: a statement row that may repeat a charge the API gave, a refund whose order or line is not (yet) found.
+        'event_note_' => ['possible_overlap', 'order_not_held', 'line_not_matched', 'currency_differs'],
         'event_source_' => ['webhook', 'notification', 'poll', 'system', 'manual'],
         'stock_quality_' => ['confirmed', 'manual', 'stale', 'unknown'],
         'location_type_' => ['torod_warehouse', 'm5azn_supplier', 'amazon_fba', 'own_warehouse', 'other'],
@@ -105,7 +107,8 @@ final class ChannelLabels
         'match_method_exact_product_code_auto', 'match_method_exact_barcode_auto', 'match_method_exact_variant_sku_auto', 'match_method_manual',
         'shipment_link_state_unlinked', 'shipment_link_state_linked', 'shipment_link_state_needs_review', 'shipment_link_state_conflict', 'shipment_link_state_not_applicable',
         'event_outcome_received', 'event_outcome_recorded_only', 'event_outcome_needs_review', 'event_outcome_applied', 'event_outcome_ignored_capability_off',
-        'event_outcome_ignored_invalid', 'event_outcome_failed',
+        'event_outcome_ignored_invalid', 'event_outcome_failed', 'event_outcome_duplicate',
+        'event_note_possible_overlap', 'event_note_order_not_held', 'event_note_line_not_matched', 'event_note_currency_differs',
         'event_source_webhook', 'event_source_notification', 'event_source_poll', 'event_source_system', 'event_source_manual',
         'stock_quality_confirmed', 'stock_quality_manual', 'stock_quality_stale', 'stock_quality_unknown',
         'location_type_torod_warehouse', 'location_type_m5azn_supplier', 'location_type_amazon_fba', 'location_type_own_warehouse', 'location_type_other',
@@ -225,6 +228,12 @@ final class ChannelLabels
     public function eventOutcome(?string $outcome): string
     {
         return $this->label('event_outcome_', $outcome);
+    }
+
+    /** Why an event is kept for a person; a note this version does not know is shown as it was stored. */
+    public function eventNote(?string $note): string
+    {
+        return $this->label('event_note_', $note);
     }
 
     public function eventSource(?string $source): string

@@ -125,6 +125,14 @@ return [
             'refund' => ['/refund/i'],
             'adjustment' => ['/reimburs|adjust|claim|chargeback|liquidation|retro/i'],
         ],
+        // What each amount inside a REFUND gives back to the buyer, by its breakdown type. The first part that matches wins (so "Shipping tax" is tax); an amount that matches none is kept
+        // for a person and never counted. The goods, the shipping and a promotion that was taken off reduce the revenue of the order line (without tax); the tax is recorded beside it.
+        'refund_parts' => [
+            'tax' => ['/tax|vat/i'],
+            'promotion' => ['/promotion|discount|coupon/i'],
+            'shipping' => ['/shipping|postage|delivery/i'],
+            'principal' => ['/^(product charges?|principal|item price|sales?)$/i'],
+        ],
     ],
 
     'trendyol' => [

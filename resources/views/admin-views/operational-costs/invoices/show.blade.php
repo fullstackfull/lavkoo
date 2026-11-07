@@ -163,6 +163,7 @@
                                         <td>
                                             {{ $itemsById[$row->invoice_item_id]->line_no ?? '' }}
                                             <div class="fs-10 text-muted">{{ $itemsById[$row->invoice_item_id]->description ?? '' }}</div>
+                                            @if ($row->basis === 'statements')<div class="fs-10"><x-k.badge tone="info" :dot="false">{{ translate('compared_with_the_channel_statements_not_an_estimate') }}</x-k.badge></div>@endif
                                         </td>
                                         <td class="k-table__num k-num">{{ CostFormat::amount($row->estimated_amount, $row->currency) }}</td>
                                         <td class="k-table__num k-num">{{ CostFormat::amount($row->actual_amount, $row->currency) }}</td>

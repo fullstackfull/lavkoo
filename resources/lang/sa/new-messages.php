@@ -4152,4 +4152,13 @@ ____________________________________________________on_search_engines_and_see_th
 	'unconverted_revenue_amounts' => 'مبالغ الإيرادات بلا سعر صرف',
 	'unconverted_cost_entries' => 'قيود التكلفة بلا سعر صرف',
 	'currencies_without_a_rate' => 'العملات التي بلا سعر صرف',
+	'event_outcome_duplicate' => 'مكرّر لرسم قدّمته الواجهة',
+	'event_note_possible_overlap' => 'قد يكرّر رسمًا قدّمته الواجهة',
+	'event_note_order_not_held' => 'الطلب غير موجود لدينا بعد',
+	'event_note_line_not_matched' => 'لا يوجد بند طلب واحد مطابق',
+	'event_note_currency_differs' => 'بعملة غير عملة الطلب',
+	'event_note' => 'الملاحظة',
+	'attention_possible_overlap' => 'صفوف كشف قد تكرّر رسمًا قدّمته الواجهة',
+	'invoice_lines_compared_with_the_channel_statements' => 'بنود فاتورة قورنت بكشوف القناة بدلًا من تسجيلها مرة ثانية',
+	'compared_with_the_channel_statements_not_an_estimate' => 'قورن بما سجّلته كشوف القناة (وليس تقديرًا)',
 ];

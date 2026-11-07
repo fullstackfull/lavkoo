@@ -75,4 +75,31 @@ class UnmigratedModuleTest extends TestCase
             $this->assertStringContainsString('migrations have not been run', Artisan::output(), $command);
         }
     }
+
+    /** @return array<string, array{string}> the migrations added after the first four, by what each one adds */
+    public static function laterMigrations(): array
+    {
+        return [
+            'the refund columns of the order lines' => ['2026_11_09_100000_add_refund_columns_to_external_order_lines.php'],
+            'the charge-matching columns of the statement events' => ['2026_11_09_100100_add_charge_matching_to_sales_channel_events.php'],
+            'the return decisions table' => ['2026_11_09_100200_create_operational_cost_return_decisions_table.php'],
+            'the basis of a reconciliation' => ['2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php'],
+        ];
+    }
+
+    #[DataProvider('laterMigrations')]
+    public function test_each_later_migration_still_to_run_keeps_the_module_off_with_the_command_saying_so(string $migration): void
+    {
+        $this->buildSalesChannelSchema();
+        (require database_path('migrations/' . $migration))->down();
+
+        $this->assertFalse(SalesChannelSchema::ready());
+        foreach (self::SCHEDULED as [$command, $arguments]) {
+            $this->assertSame(0, Artisan::call($command, $arguments), $command);
+            $this->assertStringContainsString('migrations have not been run', Artisan::output(), $command);
+        }
+
+        (require database_path('migrations/' . $migration))->up();
+        $this->assertTrue(SalesChannelSchema::ready());
+    }
 }
