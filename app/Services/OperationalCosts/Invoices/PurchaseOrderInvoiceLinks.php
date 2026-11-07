@@ -126,12 +126,32 @@ class PurchaseOrderInvoiceLinks
         return $held;
     }
 
-    /** What the order says the goods of a linked line cost, in the order's currency: its unit cost for the quantity billed. Null when the order line is not there any more. */
+    /**
+     * What the order says the goods of a linked line cost, in the order's currency: its unit cost for the units of the line that no other approved invoice has billed, up to the
+     * quantity of this line. A line holds the units it received, or the units it ordered while the goods have not come, so a second invoice for the same units, or one for more units
+     * than the line holds, is compared with what is left (nothing, or only the units that are there) and shows as a variance. Null when the order line is not there any more.
+     *
+     * @return array{amount: Money, currency: ?string}|null
+     */
     public function expectedCost(OperationalCostInvoiceItem $item): ?array
     {
         $target = $this->procurement->line((int) $item->purchase_order_item_id);
+        if ($target === null) {
+            return null;
+        }
+        $left = Money::of(max($target->quantityReceived, $target->quantityOrdered ?? 0))->minus($this->unitsBilledByOtherInvoices($item));
+        $units = Money::of($item->quantity)->min($left)->max(Money::zero());
 
-        return $target === null ? null : ['amount' => Money::of($target->unitCost)->times($item->quantity), 'currency' => CurrencyCode::canonical($target->currency)];
+        return ['amount' => Money::of($target->unitCost)->times($units), 'currency' => CurrencyCode::canonical($target->currency)];
+    }
+
+    /** The units of the order line that approved invoice lines other than this one have billed. */
+    private function unitsBilledByOtherInvoices(OperationalCostInvoiceItem $item): Money
+    {
+        return Money::sum(OperationalCostInvoiceItem::query()
+            ->where('purchase_order_item_id', $item->purchase_order_item_id)->where('invoice_id', '!=', $item->invoice_id)
+            ->whereHas('invoice', static fn ($invoices) => $invoices->where('status', OperationalCostInvoice::STATUS_APPROVED))
+            ->pluck('quantity')->map(static fn ($quantity): Money => Money::of($quantity)));
     }
 
     /** @throws InvalidContractChange when the invoice cannot be approved while it is held, or while a link has nothing to link to or leads to a line that makes no layer */

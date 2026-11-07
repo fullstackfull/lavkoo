@@ -30,6 +30,8 @@ class PlatformProcurement
 
     private ?bool $suppliersReadable = null;
 
+    private ?bool $orderedColumn = null;
+
     private ?bool $movementsReadable = null;
 
     /** @return list<string> the tables ("purchase_orders") and columns ("purchase_orders.currency") the platform does not have, which the layers need */
@@ -88,7 +90,7 @@ class PlatformProcurement
     /** @return list<PurchaseLine> */
     private function lines(QueryBuilder $query): array
     {
-        $rows = $query->get(['item.id as line_id', 'item.purchase_order_id', 'item.product_id', 'item.qty_received', 'item.unit_cost', 'item.created_at', 'item.updated_at', 'po.reference', 'po.supplier_id', 'po.seller_id', 'po.currency']);
+        $rows = $query->get(['item.id as line_id', 'item.purchase_order_id', 'item.product_id', 'item.qty_received', 'item.unit_cost', 'item.created_at', 'item.updated_at', 'po.reference', 'po.supplier_id', 'po.seller_id', 'po.currency', ...($this->orderedColumn() ? ['item.qty_ordered'] : [])]);
         $suppliers = $this->supplierNames($rows->pluck('supplier_id')->filter()->unique()->map(static fn ($id): int => (int) $id)->all());
 
         return $rows->map(static fn (object $row): PurchaseLine => new PurchaseLine(
@@ -104,6 +106,7 @@ class PlatformProcurement
             unitCost: $row->unit_cost,
             createdAt: $row->created_at === null ? null : CarbonImmutable::parse($row->created_at),
             updatedAt: $row->updated_at === null ? null : CarbonImmutable::parse($row->updated_at),
+            quantityOrdered: isset($row->qty_ordered) ? (int) $row->qty_ordered : null,
         ))->all();
     }
 
@@ -190,6 +193,11 @@ class PlatformProcurement
         }
 
         return DB::table('suppliers')->whereIn('id', $ids)->pluck('name', 'id')->map(static fn ($name): string => (string) $name)->all();
+    }
+
+    private function orderedColumn(): bool
+    {
+        return $this->orderedColumn ??= Schema::hasColumn('purchase_order_items', 'qty_ordered');
     }
 
     private function movementsReadable(): bool
