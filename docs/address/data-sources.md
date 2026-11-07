@@ -26,7 +26,8 @@ independent signal (GeoNames name + coordinates). It was checked that all 20 maj
 The republishing repository is licensed **GPL-2.0**; the underlying register is public government data (National Address, SPL). The ship-ready data file is a separate text file, not code,
 but the owner should decide (legal review) between: (a) keeping the file, (b) replacing it with an export from SPL's own **National Address Lookups API v3.1** (regions, cities with
 governorate, districts; Arabic/English; stable ids; needs a free subscription key from SPL; default encoding windows-1256, so request `encode=utf8`), imported with the same command
-(`address:import --regions=… --cities=…`, same JSON shape), or (c) importing only the 13 regions and building the city list from the store's own data.
+(`address:import --apply --regions=<file> --cities=<file>`, same JSON shape), or (c) importing only the 13 regions (`--cities=<a file with an empty list>`: `{"_meta": {"source": "none"}, "cities": []}`) and adding the cities one by one in *Address system → Cities*.
+With a source other than the shipped one the curated spellings (`aliases.json`) name places that source does not have: they are skipped, one notice each, and nothing is written for them. The panel's import page loads only the three shipped files, so with another source the command is the way.
 
 The importer accepts any file with `_meta.source`, so switching source later does not change code or data model.
 

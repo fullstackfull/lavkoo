@@ -948,7 +948,7 @@
                     @if (Route::has('admin.address-system.index'))
                         <a class="v2-nav-item {{ Request::is('admin/address-system*') ? 'v2-is-active' : '' }}" data-item="address-system" href="{{ route('admin.address-system.index') }}">
                             <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('address_system') }}</span></span>
-                            <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="address-system" aria-label="Pin"></button></div>
+                            <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="address-system" aria-label="{{ translate('pin') }}"></button></div>
                         </a>
                     @endif
 

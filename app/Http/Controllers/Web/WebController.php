@@ -373,7 +373,7 @@ class WebController extends Controller
             'shipping_addresses' => $shippingAddresses,
             'billing_addresses' => $shippingAddresses,
             'saved_address_prefill' => $shippingAddresses->mapWithKeys(fn (ShippingAddress $address): array => [$address->id => $this->storefrontAddresses->prefillJson($address)])->all(),
-            'incomplete_address_ids' => $shippingAddresses->filter(fn (ShippingAddress $address): bool => $this->storefrontAddresses->needsCompletion($address))->modelKeys(),
+            'incomplete_address_ids' => $this->storefrontAddresses->incompleteAddressIds($shippingAddresses),
             'unified_address' => AddressSchema::enabled(),
         ]);
     }

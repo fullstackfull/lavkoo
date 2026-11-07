@@ -58,13 +58,13 @@ class AddressImporter
                 array_push($report['problems'], ...$problems);
             }
             if ($citiesFile !== null) {
-                $announcedRegions = array_map(static fn (array $row): string => (string) ($row['ref'] ?? ''), $regionsFile['regions'] ?? []);
+                $announcedRegions = array_map(self::refOf(...), $regionsFile['regions'] ?? []);
                 [$report['cities'], $problems] = $this->importCities($citiesFile, $apply, $refreshNames, $announcedRegions);
                 array_push($report['problems'], ...$problems);
             }
             if ($aliasesFile !== null) {
                 $announcedCities = $citiesFile !== null && ($citiesFile['_meta']['source'] ?? null) === ($aliasesFile['_meta']['city_source'] ?? null)
-                    ? array_map(static fn (array $row): string => (string) ($row['ref'] ?? ''), $citiesFile['cities'])
+                    ? array_map(self::refOf(...), $citiesFile['cities'])
                     : [];
                 [$report['aliases'], $problems] = $this->importAliases($aliasesFile, $apply, $announcedCities);
                 array_push($report['problems'], ...$problems);
@@ -83,6 +83,12 @@ class AddressImporter
         }
 
         return $report;
+    }
+
+    /** The ref a row announces, or an empty one for a row that is not an object or whose ref is not a plain value: the row itself is reported later. */
+    private static function refOf(mixed $row): string
+    {
+        return is_array($row) && is_scalar($row['ref'] ?? null) ? (string) $row['ref'] : '';
     }
 
     /** @return array<string, mixed> */

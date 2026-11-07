@@ -78,17 +78,20 @@ jobs:
           EXPECT_DB_DRIVER: sqlite
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
-  # The engines: MySQL 8.0 and MariaDB 11.4.2, which is the version the pilot server runs (docs/integrations/pilot-deployment.md). A MariaDB image
-  # answers to the MARIADB_* names; both sets are given so the same service block serves both.
+  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with two sets of tests, each job against its own
+  # database: the address tests build their tables with the real migrations, which a real engine does slowly, and the two sets together ran past the limit of one job (about 35 minutes
+  # on a runner; each set takes about 15 to 20). A MariaDB image answers to the MARIADB_* names; both sets are given so the same service block serves both.
   tests-mysql:
-    name: Fulfillment + security tests, ${{ matrix.engine }}
+    name: ${{ matrix.group }}, ${{ matrix.engine }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
+        engine: ['MySQL 8', 'MariaDB 11.4.2']
+        group: ['Fulfillment + security tests', 'Address tests']
         include:
-          - engine: MySQL 8.0
+          - engine: MySQL 8
             image: mysql:8.0
             version: '^8\.'
             health: mysqladmin ping -h 127.0.0.1 -pci-root-password
@@ -96,6 +99,10 @@ jobs:
             image: mariadb:11.4.2
             version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
+          - group: Fulfillment + security tests
+            paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
+          - group: Address tests
+            paths: tests/Feature/Address
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -137,7 +144,7 @@ jobs:
         run: cp .env.example .env
       - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Address tests/Feature/Security tests/Feature/CiDatabaseTest.php --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml ${{ matrix.paths }} --display-skipped
 
   # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
   # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.

@@ -30,7 +30,6 @@ use App\Models\ProductCompare;
 use App\Models\RefundRequest;
 use App\Models\Review;
 use App\Models\Seller;
-use App\Models\ShippingAddress;
 use App\Models\SupportTicket;
 use App\Models\Wishlist;
 use App\Traits\CommonTrait;
@@ -167,7 +166,7 @@ class UserProfileController extends Controller
         if (auth('customer')->check()) {
             $shippingAddresses = $this->storefrontAddresses->addressBook();
             $unified_address = AddressSchema::enabled();
-            $incomplete_address_ids = $shippingAddresses->filter(fn (ShippingAddress $address): bool => $this->storefrontAddresses->needsCompletion($address))->modelKeys();
+            $incomplete_address_ids = $this->storefrontAddresses->incompleteAddressIds($shippingAddresses);
             return view('web-views.users-profile.account-address', compact('shippingAddresses', 'country_restrict_status', 'zip_restrict_status', 'countries', 'zip_codes', 'countriesName', 'countriesCode', 'unified_address', 'incomplete_address_ids'));
         } else {
             return redirect()->route('home');

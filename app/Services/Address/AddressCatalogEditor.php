@@ -96,8 +96,10 @@ class AddressCatalogEditor
         $placeChanged = (int) $data['region_id'] !== $city->region_id
             || AddressText::key($data['name_ar']) !== $city->normalized_ar
             || AddressText::key($data['name_en']) !== $city->normalized_en;
+        $asRead = $city->getAttributes();
 
-        DB::transaction(function () use ($city, $data, $placeChanged): void {
+        DB::transaction(function () use ($city, $data, $placeChanged, $asRead): void {
+            $city->setRawAttributes($asRead, sync: true);
             if ($placeChanged) {
                 $this->holdRegion(regionId: (int) $data['region_id']);
                 $this->assertNameIsFree(regionId: (int) $data['region_id'], nameAr: $data['name_ar'], nameEn: $data['name_en'], ignoring: $city->id);

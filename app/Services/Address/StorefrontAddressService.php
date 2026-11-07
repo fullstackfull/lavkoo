@@ -50,6 +50,15 @@ class StorefrontAddressService
     }
 
     /**
+     * @param Collection<int, ShippingAddress> $addresses
+     * @return list<int> the ids of those that have to be completed before an order can ship to them
+     */
+    public function incompleteAddressIds(Collection $addresses): array
+    {
+        return $addresses->filter(fn (ShippingAddress $address): bool => $this->needsCompletion($address))->modelKeys();
+    }
+
+    /**
      * The JSON the checkout page keeps for a saved address, so choosing it fills the form. While the structured address is on it
      * also names the region and the city and says whether the address still has to be completed.
      */

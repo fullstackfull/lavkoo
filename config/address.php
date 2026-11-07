@@ -15,11 +15,6 @@
 return [
 
     /*
-    | Country the structured address applies to. Addresses in any other country keep the old free-text city and the ZIP code.
-    */
-    'country' => 'SA',
-
-    /*
     | National Address (العنوان الوطني), the short address issued by Saudi Post (SPL): four letters followed by four digits,
     | for example RAGI2929. The digits are the building number; the letters are assigned from the postal code and are not
     | chosen by the customer. SPL publishes this shape but not the list of letters in use, so only the shape is enforced:

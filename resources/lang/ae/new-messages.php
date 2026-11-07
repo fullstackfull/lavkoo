@@ -16921,8 +16921,6 @@ return [
 	'address_choose_region_first' => 'اختر المنطقة أولًا',
 	'address_no_cities_found' => 'لا توجد مدينة مطابقة لبحثك',
 	'address_loading' => 'جارٍ التحميل…',
-	'address_postal_code_optional' => 'الرمز البريدي (اختياري)',
-	'address_search_region' => 'ابحث عن منطقة',
 	'address_city_load_failed' => 'تعذر تحميل قائمة المدن. حاول مرة أخرى بعد قليل.',
 	'address_select_from_list' => 'اختر مدينة من القائمة.',
 	'address_national_address_format_hint' => 'استخدم أربعة أحرف إنجليزية (A–Z) تتبعها أربعة أرقام، مثل RAGI2929.',

@@ -126,6 +126,8 @@
                 }
 
                 function close() {
+                    scheduleSearch.cancel();
+                    requestId++;
                     list.hidden = true;
                     message.hidden = true;
                     announcer.textContent = '';
@@ -188,7 +190,8 @@
                     list.hidden = false;
                     input.setAttribute('aria-expanded', 'true');
                     announcer.textContent = settings.text.results + ' ' + found.length;
-                    highlight(0);
+                    var chosenPosition = selected ? found.findIndex(function (item) { return String(item.id) === String(selected.id); }) : -1;
+                    if (chosenPosition !== -1) { highlight(chosenPosition); } else if (!selected) { highlight(0); }
                 }
 
                 function choose(item) {
@@ -215,8 +218,12 @@
 
                 var scheduleSearch = debounce(search, DEBOUNCE_MS);
 
+                function isLoading() {
+                    return !message.hidden && message.textContent === settings.text.loading;
+                }
+
                 input.addEventListener('focus', function () { if (!input.disabled && !input.hasAttribute('data-ua-quiet')) { search(); } });
-                input.addEventListener('click', function () { if (!input.disabled && list.hidden && message.hidden) { search(); } });
+                input.addEventListener('click', function () { if (!input.disabled && list.hidden && !isLoading()) { search(); } });
                 input.addEventListener('input', function () {
                     if (selected && input.value !== label(selected)) {
                         selected = null;
@@ -233,8 +240,6 @@
                     else if (event.key === 'Escape') { close(); }
                 });
                 input.addEventListener('blur', function () {
-                    scheduleSearch.cancel();
-                    requestId++;
                     close();
                     if (selected || input.value === '') { return; }
                     var exact = lastFound.filter(function (item) { return sameName(item, input.value); });
@@ -243,7 +248,7 @@
 
                 return {
                     select: function (item) { selected = item; input.value = item ? label(item) : ''; },
-                    clear: function () { selected = null; lastFound = []; input.value = ''; scheduleSearch.cancel(); requestId++; close(); },
+                    clear: function () { selected = null; lastFound = []; input.value = ''; close(); },
                     selected: function () { return selected; },
                     close: close,
                 };
@@ -423,11 +428,14 @@
             function markInvalid(control, text) {
                 var feedback = element('div', 'invalid-feedback d-block', text);
                 feedback.id = (control.id || 'ua-field') + '-error';
+                var earlier = document.getElementById(feedback.id);
+                if (earlier) { earlier.remove(); }
                 var anchor = control.closest('[data-ua-combobox]') || control;
                 anchor.insertAdjacentElement('afterend', feedback);
                 control.classList.add('is-invalid');
                 control.setAttribute('aria-invalid', 'true');
-                control.setAttribute('aria-describedby', ((control.getAttribute('aria-describedby') || '') + ' ' + feedback.id).trim());
+                var described = (control.getAttribute('aria-describedby') || '').split(' ').filter(function (id) { return id !== '' && id !== feedback.id; });
+                control.setAttribute('aria-describedby', described.concat(feedback.id).join(' '));
 
                 function release() {
                     feedback.remove();

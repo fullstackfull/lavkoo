@@ -268,11 +268,11 @@ class AddressDataLayerTest extends AddressTestCase
     public function test_the_import_reports_a_dry_run_then_creates_then_changes_nothing_the_second_time(): void
     {
         $importer = app(AddressImporter::class);
-        $regions = $this->writeDataFile('regions', ['regions' => [
+        $regions = $this->writeDataFile(['regions' => [
             ['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1],
             ['ref' => '2', 'code' => 'SA-02', 'name_ar' => 'منطقة مكة المكرمة', 'name_en' => 'Makkah', 'sort' => 2],
         ]]);
-        $cities = $this->writeDataFile('cities', ['cities' => [
+        $cities = $this->writeDataFile(['cities' => [
             ['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh', 'lat' => 24.7, 'lon' => 46.73],
             ['ref' => '18', 'region' => '2', 'ar' => 'جدة', 'en' => 'Jeddah', 'lat' => 21.48, 'lon' => 39.18],
             ['ref' => '99', 'region' => '77', 'ar' => 'مجهولة', 'en' => 'Orphan'],
@@ -298,15 +298,15 @@ class AddressDataLayerTest extends AddressTestCase
     public function test_a_later_import_keeps_administrator_choices_and_never_deletes(): void
     {
         $importer = app(AddressImporter::class);
-        $regions = $this->writeDataFile('regions', ['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
-        $cities = $this->writeDataFile('cities', ['cities' => [
+        $regions = $this->writeDataFile(['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
+        $cities = $this->writeDataFile(['cities' => [
             ['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh'],
             ['ref' => '4', 'region' => '1', 'ar' => 'الدرعية', 'en' => 'Ad Diriyah'],
         ]]);
         $importer->import($regions, $cities, apply: true);
 
         AddressCity::where('source_ref', '3')->update(['name_ar' => 'الرياض (العاصمة)', 'is_active' => false]);
-        $newer = $this->writeDataFile('cities', ['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh', 'lat' => 24.7, 'lon' => 46.7]]]);
+        $newer = $this->writeDataFile(['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh', 'lat' => 24.7, 'lon' => 46.7]]]);
 
         $report = $importer->import($regions, $newer, apply: true);
 
@@ -326,7 +326,7 @@ class AddressDataLayerTest extends AddressTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
 
-        app(AddressImporter::class)->import(null, $this->writeDataFile('cities', ['cities' => []], source: ''), apply: true);
+        app(AddressImporter::class)->import(null, $this->writeDataFile(['cities' => []], source: ''), apply: true);
     }
 
     public function test_the_shipped_data_files_are_valid_and_complete(): void
@@ -434,8 +434,8 @@ class AddressDataLayerTest extends AddressTestCase
     #[DataProvider('rowsTheTablesCannotHold')]
     public function test_a_row_the_tables_cannot_hold_is_reported_and_skipped_alike_by_the_preview_and_the_import(mixed $bad, string $reason): void
     {
-        $regions = $this->writeDataFile('regions', ['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
-        $cities = $this->writeDataFile('cities', ['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh'], $bad]]);
+        $regions = $this->writeDataFile(['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
+        $cities = $this->writeDataFile(['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh'], $bad]]);
 
         $dry = app(AddressImporter::class)->import($regions, $cities, apply: false);
         $applied = app(AddressImporter::class)->import($regions, $cities, apply: true);
@@ -447,9 +447,23 @@ class AddressDataLayerTest extends AddressTestCase
         $this->assertSame(1, AddressCity::count());
     }
 
+    public function test_rows_that_are_not_objects_are_reported_and_skipped_even_when_the_aliases_are_read_with_them(): void
+    {
+        $regions = $this->writeDataFile(['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1], 'text']]);
+        $cities = $this->writeDataFile(['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh'], 'text', ['ref' => ['9'], 'region' => '1', 'ar' => 'جدة', 'en' => 'Jeddah']]], source: 'src');
+        $aliases = $this->temporaryFile(extension: 'json', contents: json_encode(['_meta' => ['source' => 'curated', 'city_source' => 'src'], 'aliases' => [['alias' => 'Riyad', 'city_ref' => '3']]]));
+
+        $dry = app(AddressImporter::class)->import($regions, $cities, apply: false, aliasesPath: $aliases);
+        $applied = app(AddressImporter::class)->import($regions, $cities, apply: true, aliasesPath: $aliases);
+
+        $this->assertSame($dry['aliases'], $applied['aliases']);
+        $this->assertSame([1, 1, 1], [AddressRegion::count(), AddressCity::count(), AddressCityAlias::count()]);
+        $this->assertCount(3, $applied['problems'], 'the two bad city rows and the bad region row are each reported');
+    }
+
     public function test_a_region_row_the_table_cannot_hold_is_reported_and_skipped(): void
     {
-        $regions = $this->writeDataFile('regions', ['regions' => [
+        $regions = $this->writeDataFile(['regions' => [
             ['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1],
             ['ref' => '2', 'code' => str_repeat('X', 40), 'name_ar' => 'منطقة مكة', 'name_en' => 'Makkah', 'sort' => 2],
             ['ref' => '3', 'code' => 'SA-03', 'name_ar' => 'منطقة القصيم', 'name_en' => 'Qassim', 'sort' => -1],
@@ -596,8 +610,8 @@ class AddressDataLayerTest extends AddressTestCase
 
     public function test_an_alias_dry_run_counts_without_writing_and_skips_unknown_cities(): void
     {
-        $regions = $this->writeDataFile('regions', ['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
-        $cities = $this->writeDataFile('cities', ['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh']]], source: 'src');
+        $regions = $this->writeDataFile(['regions' => [['ref' => '1', 'code' => 'SA-01', 'name_ar' => 'منطقة الرياض', 'name_en' => 'Riyadh', 'sort' => 1]]]);
+        $cities = $this->writeDataFile(['cities' => [['ref' => '3', 'region' => '1', 'ar' => 'الرياض', 'en' => 'Riyadh']]], source: 'src');
         $aliases = $this->temporaryFile(extension: 'json', contents: json_encode(['_meta' => ['source' => 'curated', 'city_source' => 'src'], 'aliases' => [['alias' => 'Riyad', 'city_ref' => '3'], ['alias' => 'Nowhere', 'city_ref' => '999']]]));
 
         $dry = app(AddressImporter::class)->import($regions, $cities, apply: false, aliasesPath: $aliases);
@@ -608,7 +622,7 @@ class AddressDataLayerTest extends AddressTestCase
     }
 
     /** @param array<string, mixed> $body */
-    private function writeDataFile(string $kind, array $body, string $source = 'test_source'): string
+    private function writeDataFile(array $body, string $source = 'test_source'): string
     {
         return $this->temporaryFile(extension: 'json', contents: json_encode(['_meta' => ['source' => $source, 'snapshot_date' => '2026-01-01']] + $body, JSON_UNESCAPED_UNICODE));
     }

@@ -53,7 +53,7 @@ class FulfillmentDiscoverCitiesCommand extends Command
         }
 
         $apply = (bool) $this->option('apply');
-        $this->line($apply ? 'Applying: found cities are kept and exact matches proposed.' : 'Dry run: the provider is asked, nothing is written. Add --apply to keep what is found.');
+        $this->line($apply ? 'Applying: found cities are kept and exact matches proposed.' : 'Dry run: the provider is asked; no city and no mapping is stored (each request is logged, like every call to the provider). Add --apply to keep what is found.');
 
         $failed = false;
         foreach ($cities as $city) {

@@ -21,9 +21,9 @@ There is no "nearest city", no fuzzy matching and no guess anywhere: a place is 
 
    | Result | Meaning | Applied? |
    |---|---|---|
-   | `matched` | an administrator-confirmed spelling points at one city, or exactly one *registered* city (one the register lists districts for, rank above 0) has that name and the typed state does not point elsewhere, or exactly one place has it and the typed state names its region | yes, **only when you press apply** |
+   | `matched` | an administrator-confirmed spelling points at one city, or exactly one *registered* city (one the register lists districts for, rank above 0) has that name and the typed state does not point elsewhere, or exactly one place has it and the typed state names its region, or several places share it and exactly one of them lies in the region the typed state names | yes, **only when you press apply** |
    | `unconfirmed` | exactly one place has the name but it is a small one (rank 0) and nothing confirms it: the list lacks most districts, so a district typed in the city box looks just like a village of that name in another region (for example *الشفا*, a village in Asir) | never automatically: the review page offers it with a button |
-   | `ambiguous` | several cities share the name (for example *الهفوف* or *جدة*, which the source data also lists as villages) | never automatically |
+   | `ambiguous` | several cities share the name and the typed state does not single one out (for example *الهفوف* or *جدة*, which the source data also lists as villages) | never automatically |
    | `conflict` | the typed state belongs to another region than the only city of that name | never automatically |
    | `none` | the typed text is not in the list | never automatically |
    | `inactive` | the unique match is switched off | never |
@@ -53,14 +53,13 @@ ones automatically, a person approves the rest (see [torod-city-mapping.md](toro
 
 ## Rollback, from the safest step
 
-Each step is independent; do only as many as you need.
+Do only as many steps as you need, in this order: step 3 needs the files that step 4 takes away.
 
 1. **Switch the mode off** (*Address system → Address mode → Off*, or `php artisan address:mode off` when the panel cannot be used; both drop the settings cache). Effective immediately, no deploy, no data change. (Editing the `unified_address_mode` row of `business_settings` by hand is *not* immediate: business settings are cached for three hours, so follow it with `php artisan optimize:clear`.) the website, the panels and the API return to the
    old forms and the old validation. The mode is also forced to `off` automatically while the ZIP-code delivery restriction is on, and while the migrations or the city list are missing.
    Orders placed meanwhile keep their structured copies; the extra keys are ignored by every old reader.
-2. **Torod**: nothing to undo. Approved mappings are inert while no order carries a `city_id`; held orders stay held. If a mapping was approved by mistake, *Retire* it on the matching screen (the row is kept for the audit trail).
-3. **Roll the files back** with the overlay tool (`php "$PKG/deploy.php" rollback --backup-dir="$BACKUPS/deploy/<the directory apply printed>"`, newest package first — see section 10 of the [pilot runbook](../integrations/pilot-deployment.md)). The old code ignores the new columns and tables, so the files can go back without touching the database.
-4. **Optionally remove the data** (only after a verified backup; this is the one step that loses new data). The runbook applies the four migrations in **one** `migrate` run, so they form one batch and roll back in one command, newest first.
+2. **Torod**: switching the mode off does **not** bring back the old name matching. From the city import (Release B, step 5) on, the resolver reads the approved mappings in every mode: a Torod-bound order whose city has none is held until a person approves one (an old order is first matched by an administrator's alias or the certain match of its typed text). Held orders stay held. The ways back are *Retire* on the matching screen for a mapping approved by mistake (the row is kept for the audit trail), and the data removal below, after which the resolver finds no mapping tables and uses the old exact-name matching again.
+3. **Optionally remove the data** (only after a verified backup; this is the one step that loses new data) — **while the files of the release are still on the server**: `migrate:rollback` needs the four migration files, and `deploy.php rollback` deletes them (they are files the release added). If the files were already taken back, copy the four migration files from `$PKG/files/database/migrations/` into the application first. The runbook applies the four migrations in **one** `migrate` run, so they form one batch and roll back in one command, newest first.
    Always with the four `--path` options and never without them: a bare `migrate:rollback` would undo the *last batch*, whatever it contains.
 
    ```bash
@@ -74,10 +73,11 @@ Each step is independent; do only as many as you need.
 
    Laravel rolls back only migrations of the **last batch** that are inside the given paths, and says *Migration not found* for any other migration of that batch, so the command cannot undo anything else. If something else was
    migrated after ours (the output says *Nothing to rollback*, or lists fewer than four), add `--batch=<the batch number migrate:status shows for ours>`.
-   Each `down()` drops only what its `up()` added (the three new tables and, on `shipping_addresses`, the four columns; then the provider mapping tables; then the six directory columns of `provider_cities`), guarded by `hasTable` / `hasColumn`. On `shipping_addresses` a column is dropped only together with the index this migration created for it (the district goes with the National Address column), so a column of the same name that the table already had is left alone and the rollback does not stop half way; the runbook asks for a look at the table before migrating.
-   Afterwards run `php artisan optimize:clear && php artisan queue:restart`: a running worker still remembers that the tables exist and would fail Torod jobs until it restarts (the file rollback restarts them as well, which is why the order above puts it first).
+   Each `down()` drops only what its `up()` added (the three new tables and, on `shipping_addresses`, the four columns; then the provider mapping tables; then the six directory columns of `provider_cities`), guarded by `hasTable` / `hasColumn`. On `shipping_addresses` a column is dropped only together with the index this migration created for it: `region_id`, `city_id` and `national_address` each have one, and the district has none of its own, so it goes together with the National Address index. A column of one of those names that the table already had would therefore be dropped with its data, which is why the runbook (Release B, step 2) stops if any of the four names exists before the migration runs.
+   Afterwards run `php artisan optimize:clear && php artisan queue:restart`: a running worker still remembers that the tables exist and would fail Torod jobs until it restarts.
    The old address columns, the old orders and every other table are untouched. You lose: the region/city links on saved addresses, the district and National Address columns, the confirmed aliases, the provider mappings and the sync history.
    The order copies keep their own JSON.
+4. **Roll the files back** with the overlay tool, under `php artisan down`: `php "$PKG/deploy.php" rollback --backup-dir="$BACKUPS/deploy/<the directory apply printed>"`, newest package first — see section 10 of the [pilot runbook](../integrations/pilot-deployment.md), which also says to undo the migrations *first*. The old code ignores the new columns and tables, so if step 3 is skipped the files can go back without touching the database. Then `php artisan optimize:clear`, reset OPcache, `php artisan queue:restart`, `php artisan up`.
 
 ## What can go wrong, and the answer
 

@@ -341,12 +341,13 @@ class Order extends Model
         return self::decodeAddressSnapshot(stored: $this->attributes['billing_address_data'] ?? null);
     }
 
-    /** The city the order delivers to: the one in the copy it kept, and the saved address it points to only when it kept no copy. */
+    /** The city the order delivers to: the one in the copy it kept, and the saved address it points to only when the copy names none. */
     public function deliveryCity(): ?string
     {
         $copy = $this->shippingAddressSnapshot();
+        $keptCity = $copy === null ? null : AddressSnapshot::cityName($copy);
 
-        return $copy === null ? $this->shippingAddress?->city : AddressSnapshot::cityName($copy);
+        return $keptCity ?? $this->shippingAddress?->city;
     }
 
     private static function decodeAddressSnapshot(mixed $stored): ?array

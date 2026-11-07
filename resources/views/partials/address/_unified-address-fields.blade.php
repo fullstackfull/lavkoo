@@ -13,6 +13,9 @@
     The block needs resources/views/partials/address/_unified-address-script.blade.php on the same page; the legacy city and ZIP rows of
     the form are marked data-ua-other so they show only for other countries.
 --}}
+@use('App\Services\Address\AddressCatalog')
+@use('App\Services\Address\AddressCountry')
+@use('App\Services\Address\NationalAddress')
 @php
     $address = $address ?? null;
     $ui = $ui ?? 'bs4';
@@ -25,7 +28,7 @@
     $groupClass = $ui === 'bs5' ? 'mb-3' : 'form-group';
     $labelClass = $ui === 'bs5' ? 'form-label' : '';
 
-    $catalog = app(\App\Services\Address\AddressCatalog::class);
+    $catalog = app(AddressCatalog::class);
     $regions = $catalog->regions();
     $selectedRegionId = (int) data_get($address, 'region_id', 0);
     $selectedCity = ($cityId = (int) data_get($address, 'city_id', 0)) > 0 ? $catalog->city($cityId) : null;
@@ -34,7 +37,7 @@
 <div class="unified-address" data-unified-address
      data-locale="{{ $locale }}"
      data-cities-url="{{ route('address.cities') }}"
-     data-saudi-values="{{ json_encode(['SA', 'KSA', \App\Services\Address\AddressCountry::LEGACY_NAME, 'السعودية', 'المملكة العربية السعودية']) }}"
+     data-saudi-values="{{ json_encode(['SA', 'KSA', AddressCountry::LEGACY_NAME, 'السعودية', 'المملكة العربية السعودية']) }}"
      data-ua-country-selector="{{ $countrySelector }}"
      data-text-empty="{{ translate('address_no_cities_found') }}"
      data-text-loading="{{ translate('address_loading') }}"
@@ -83,7 +86,7 @@
         <label class="{{ $labelClass }}" for="{{ $idPrefix }}-national-address">{{ translate('address_national_address') }}@if($required) <span class="text-danger" aria-hidden="true">*</span>@endif</label>
         <input type="text" class="form-control" id="{{ $idPrefix }}-national-address" name="{{ $namePrefix }}national_address" data-ua-national
                maxlength="14" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RAGI2929"
-               pattern="{{ \App\Services\Address\NationalAddress::inputPattern() }}" aria-describedby="{{ $idPrefix }}-national-address-help" @if($required) required @endif
+               pattern="{{ NationalAddress::inputPattern() }}" aria-describedby="{{ $idPrefix }}-national-address-help" @if($required) required @endif
                value="{{ data_get($address, 'national_address') }}">
         <small class="form-text" id="{{ $idPrefix }}-national-address-help">{{ translate('address_national_address_help') }}</small>
     </div>
