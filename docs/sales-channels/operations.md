@@ -6,19 +6,20 @@ Nothing here is deployed to production by this work, and no production data is r
 
 1. **Back up the database first.** The migrations are additive (new tables only; every `Schema::create` is guarded by `Schema::hasTable`; no existing table or column is altered; no foreign key points into a core table) but a backup is the rule for any release.
 2. **Never run `php artisan migrate` on an empty database** (project rule): import the dump first.
-3. **Prerequisite:** the Torod Point / M5AZN fulfilment tables (`2026_11_05_100000_create_provider_fulfillment_tables`, already in the project) must exist: the modules read `provider_fulfillments`, `provider_fulfillment_items` and `provider_product_mappings`, and until they do every page and scheduled command says the migrations have not been run. Then run exactly these four migrations, in this order (they can be run alone):
+3. **Prerequisite:** the Torod Point / M5AZN fulfilment tables (`2026_11_05_100000_create_provider_fulfillment_tables`, already in the project) must exist: the modules read `provider_fulfillments`, `provider_fulfillment_items` and `provider_product_mappings`, and until they do every page and scheduled command says the migrations have not been run. Then run exactly these five migrations, in this order (they can be run alone):
    ```bash
    php artisan migrate --path=database/migrations/2026_11_07_100000_create_operational_cost_tables.php
    php artisan migrate --path=database/migrations/2026_11_07_100100_create_sales_channel_tables.php
    php artisan migrate --path=database/migrations/2026_11_07_100200_create_inventory_and_routing_tables.php
    php artisan migrate --path=database/migrations/2026_11_08_100000_add_state_before_dispute_to_operational_cost_entries.php
+   php artisan migrate --path=database/migrations/2026_11_09_100000_create_channel_order_dispatches_table.php   # the claim table of dispatch.md: like the others, the module says "not migrated" until it has run (dispatching itself stays off)
    ```
    Until they have run, every admin page of the module says so, and every scheduled command prints "the sales-channel migrations have not been run yet" and exits successfully.
 4. **Leave the switches off** (the default). `.env` needs nothing; the two optional values are `SALES_CHANNELS_ENABLED` and `SALES_CHANNELS_EXTERNAL_WRITES_ENABLED` (read with `FILTER_VALIDATE_BOOLEAN`: `off`/`no` mean off). `OPERATIONAL_COSTS_BASE_CURRENCY` defaults to the fulfilment currency (SAR).
 5. `php artisan optimize:clear`. The scheduler (the server cron `* * * * * php artisan schedule:run`) already exists for the platform; the new entries need nothing else. There is no queue worker to change: the module runs from commands.
 6. Give the roles that should see the screens the two new permissions, **Sales Channels** and **Operational Costs** (the master admin has them).
 
-**How the code gets there** is the project's own overlay procedure as `docs/integrations/pilot-deployment.md` lays it out: `scripts/deploy/build-overlay.php`, a full backup with `backup.sh`, `deploy.php verify`, `php artisan down`, `deploy.php apply`, `php artisan optimize:clear` and a PHP-FPM / OPcache reload, `php artisan up` (the new code is dormant until the migrations run); then, as a separate later step, the four migrations above with their paths (the guide recommends `down` and a database-only backup before them and `up` after). Files are rolled back with `deploy.php rollback` (it restores replaced files and deletes added ones).
+**How the code gets there** is the project's own overlay procedure as `docs/integrations/pilot-deployment.md` lays it out: `scripts/deploy/build-overlay.php`, a full backup with `backup.sh`, `deploy.php verify`, `php artisan down`, `deploy.php apply`, `php artisan optimize:clear` and a PHP-FPM / OPcache reload, `php artisan up` (the new code is dormant until the migrations run); then, as a separate later step, the five migrations above with their paths (the guide recommends `down` and a database-only backup before them and `up` after). Files are rolled back with `deploy.php rollback` (it restores replaced files and deletes added ones).
 
 **Rollback:**
 * `SALES_CHANNELS_ENABLED` is read from `.env` (through `config/sales_channels.php`) when a PHP process starts: switching it off and running `php artisan config:clear` (or `optimize:clear`) stops every external call of each process that starts afterwards. With a cached configuration (`bootstrap/cache/config.php`) an `.env` edit changes nothing until the cache is cleared; the project's deployment guide forbids `config:cache` on this platform and checks that it is absent. No test reads the switch from `.env`; a run already going keeps the value it started with (to stop that one at once, disable the account or forbid writes in the panel: the next call obeys). It stops nothing else: `costs:refresh`, `costs:accrue-storage` and `channels:prune` have no switch (remove their lines from `ScheduleDefinition` to stop them), and Trendyol webhooks that arrive are still authenticated and stored (outcome `ignored_capability_off`).
@@ -46,6 +47,10 @@ php artisan channels:publish {account} --only=stock,price,settle,shipments
 php artisan channels:import-statement {account} statement.csv   # a statement exported from the seller portal (columns in the command's class docblock)
 php artisan costs:refresh --days=7                  # bring cost entries of the sales placed OR changed in the last days up to date (a sale delivered, shipped or cancelled later is picked up when it changes)
 php artisan costs:accrue-storage --date=2026-11-05  # storage cost of one day
+php artisan channels:dispatch                       # turn routed orders of automatic accounts into provider shipments (see dispatch.md; nothing unless every switch is on)
+php artisan channels:dispatch-sync                  # read the provider shipments back onto the dispatched channel orders
+php artisan channels:purge-buyer-data               # remove buyer details that are no longer needed (runs whatever the switches say)
+php artisan channels:find-shipments                 # find shipments a provider created directly (off until SALES_CHANNELS_SHIPMENT_DISCOVERY_ENABLED)
 php artisan channels:prune --days=60                # delete old call logs and clear the stored text of old webhook deliveries (daily on the schedule; the orders and costs they led to are kept)
 ```
 
