@@ -24,8 +24,9 @@ use Carbon\CarbonImmutable;
  * is about, the refund it belongs to and its SKU in its meta, so ChannelRefundApplier can take it off the revenue of the right order line. An amount of a refund that is none
  * of those is UNCLASSIFIED and kept for a person: it is never counted, and never dropped.
  *
- * Identity is stable under redelivery (transaction id + item + path in the tree + amount + date), so importing a window twice, or a transaction that moves from DEFERRED to
- * released, records each fact once.
+ * Identity is stable under redelivery: transaction id + item + path in the tree + amount, and no date, because the posted date of a deferred transaction moves when it is
+ * released. So importing a window twice, or a transaction that moves from DEFERRED to released with another posted date, records each fact once, the fees (and the commission a
+ * refund gives back) as well as the revenue. A transaction whose AMOUNT changes between the two is two facts: nothing here can tell a correction from a new charge.
  */
 class AmazonFinanceMapper
 {
@@ -67,7 +68,7 @@ class AmazonFinanceMapper
             $cost = in_array($category, [RemoteFinancialEntry::FEE, RemoteFinancialEntry::ADJUSTMENT], true) ? $amount->negated() : $amount;
 
             $entries[] = new RemoteFinancialEntry(
-                identity: hash('sha256', implode('|', array_filter(['amazon', $account->id, $transactionId, $leaf['item'] === null ? null : 'item:' . $leaf['item'], $path, $amount->toStorage(), $postedAt->toIso8601String()], static fn ($part): bool => $part !== null))),
+                identity: hash('sha256', implode('|', array_filter(['amazon', $account->id, $transactionId, $leaf['item'] === null ? null : 'item:' . $leaf['item'], $path, $amount->toStorage()], static fn ($part): bool => $part !== null))),
                 category: $category,
                 component: $component ?? CostComponent::Other,
                 amount: $cost,

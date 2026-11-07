@@ -174,6 +174,43 @@ class CostLedgerTest extends TestCase
         $this->assertSame('0.000000', $net->toStorage());
     }
 
+    public function test_a_reversal_says_which_entry_it_cancels_and_carries_the_amounts_in_the_reporting_currency_the_totals_add_up(): void
+    {
+        $entry = $this->ledger->record($this->draft(CostState::Actual, '40', 'invoice-line-9', overrides: ['currency' => 'USD', 'fxRate' => Money::of('3.75'), 'baseAmount' => Money::of('150'), 'baseCurrency' => 'SAR']))->entry;
+
+        $reversal = $this->ledger->reverse($entry, 1, 'billed twice');
+
+        $this->assertSame(['reverses' => $entry->id], $reversal->calc_inputs);
+        $this->assertSame(['-150.000000', 'SAR', '3.7500000000'], [$reversal->base_amount, $reversal->base_currency, $reversal->fx_rate], 'The amount in riyals is the original\'s, negated.');
+        $this->assertSame('0.000000', Money::sum(OperationalCostEntry::effective()->pluck('base_amount'))->toStorage(), 'In the reporting currency too the two cancel.');
+    }
+
+    public function test_an_automatic_posting_never_replaces_a_charge_a_person_disputed(): void
+    {
+        $contested = $this->ledger->record($this->draft(CostState::Actual, '5', 'first', serviceRef: 'fee'))->entry;
+        $this->ledger->dispute($contested, 'we do not owe it');
+
+        $later = $this->ledger->record($this->draft(CostState::Actual, '6', 'second', serviceRef: 'fee'));
+        $same = $this->ledger->record($this->draft(CostState::Actual, '5', 'third', serviceRef: 'fee'));
+
+        $this->assertSame([RecordOutcome::CONFLICT, RecordOutcome::CONFLICT], [$later->result, $same->result], 'Another figure, and even the same one, is kept beside it for a person.');
+        $this->assertSame(['disputed', true], [$contested->fresh()->state->value, (bool) $contested->fresh()->is_effective]);
+        $this->assertSame([false, false, 'conflicts_with_disputed_entry'], [(bool) $later->entry->is_effective, (bool) $same->entry->is_effective, $later->entry->note]);
+        $this->assertSame(3, OperationalCostEntry::openDisputes()->count(), 'The contested charge and the two figures kept beside it are all for a person to settle.');
+    }
+
+    public function test_an_estimate_or_a_missing_marker_does_not_disturb_a_contested_charge_either(): void
+    {
+        $contested = $this->ledger->record($this->draft(CostState::Actual, '5', 'first', serviceRef: 'fee'))->entry;
+        $this->ledger->dispute($contested, 'we do not owe it');
+
+        $estimate = $this->ledger->record($this->draft(CostState::Estimated, '4', 'rule', serviceRef: 'fee'));
+        $missing = $this->ledger->record($this->draft(CostState::Missing, null, 'gap', serviceRef: 'fee'));
+
+        $this->assertSame([RecordOutcome::IGNORED, RecordOutcome::IGNORED], [$estimate->result, $missing->result]);
+        $this->assertTrue((bool) $contested->fresh()->is_effective);
+    }
+
     /** What the totals add up: every effective entry that is not in dispute. */
     private function countedTotal(): string
     {

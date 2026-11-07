@@ -42,18 +42,6 @@ final readonly class ChargeIdentity
         };
     }
 
-    /** Does the manual report name only an order, so that any package of it is the same order? */
-    public function namesOnlyAnOrder(): bool
-    {
-        return $this->reference !== null && str_ends_with($this->reference, '|');
-    }
-
-    /** The order id of a reference that names one. */
-    public function orderId(): ?string
-    {
-        return $this->reference === null || str_starts_with($this->reference, 'settlement:') ? null : explode('|', $this->reference, 2)[0];
-    }
-
     private static function clean(?string $value): ?string
     {
         $value = $value === null ? null : trim($value);

@@ -37,7 +37,8 @@ use InvalidArgumentException;
  *      - A line about a MARKETPLACE order takes the channel's own slot for that fee (the one its estimate and its statement figure use), so the same commission arriving as
  *        an estimate, in the statement and on the invoice is one cost; several lines of one order and fee in the same invoice (a commission and a refund of it) are netted.
  *      - A marketplace fee billed as one total for a period, with no order on the line, is not posted when the channel's statements already booked that fee in that period: it
- *        is compared with their total (ReconciliationService::compareWithStatements), so the fee is not counted twice. Only a line the statements say nothing about is posted.
+ *        is compared with their total (ReconciliationService::settleAgainstStatements), so the fee is not counted twice. A line the statements say nothing about is posted in
+ *        full, and is set against the statements when they arrive (the importer does it as it posts them).
  *
  * An invoice that is approved is never edited. A mistake is a new invoice, a credit note or a reversal.
  */
@@ -53,7 +54,6 @@ class InvoiceService
         private readonly AuditLogger $audit,
         private readonly ShipmentCostService $shipmentCosts,
         private readonly ShipmentFactsFactory $shipmentFacts,
-        private readonly ChannelStatementActuals $statements,
         private readonly ReconciliationService $reconciliation,
     ) {
     }
@@ -184,9 +184,7 @@ class InvoiceService
             $component = CostComponent::tryFrom($item->cost_component) ?? CostComponent::Other;
             $mapping = $item->external_order_mapping_id === null ? null : $mappings->get($item->external_order_mapping_id);
             [$subjectType, $subjectId] = $this->subjectOf($invoice, $item, $mapping);
-            $booked = $subjectType === 'invoice_item' ? $this->statements->totalFor($invoice, $item) : null;
-            if ($booked !== null) {
-                $this->reconciliation->compareWithStatements($invoice, $item, $booked);
+            if ($subjectType === 'invoice_item' && $this->reconciliation->settleAgainstStatements($invoice, $item)) {
                 $count++;
                 continue;
             }

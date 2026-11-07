@@ -13,7 +13,8 @@ use Illuminate\Database\Eloquent\Collection;
  *
  * A manual statement row meets what the API already gave, in this order:
  *  1. it names what the charge is about (an order and its package, or a settlement) and an API event of the same account has the same shape (fee type, currency, amount to six
- *     decimals) and the same reference: the row is a DUPLICATE of it, recorded as such and not counted. A row that names only an order matches any package of it.
+ *     decimals) and names the same thing: the row is a DUPLICATE of it, recorded as such and not counted. A report that names only an order is about any package of it, on
+ *     either side: a row naming the package matches an API event that names only the order, and the other way round.
  *  2. it names nothing: it is a duplicate when exactly ONE API event of the account has the same shape on the same day (a day either side); with several it is imported and
  *     marked POSSIBLE_OVERLAP, and so it is with none (the API may simply not have read that day yet), for a person to look at.
  * An API event that a row was recognised as a repeat of is claimed by it: a second identical row finds nothing left to repeat, so two charges of the same amount (a fee per unit
@@ -37,9 +38,7 @@ class ChargeOverlapMatcher
         $api = $this->unclaimed($this->costEvents($account, $identity)->where('source', '!=', 'manual'));
 
         if ($identity->reference !== null) {
-            $found = (clone $api)->where(fn (Builder $query) => $identity->namesOnlyAnOrder()
-                ? $query->whereRaw('substr(external_reference, 1, ?) = ?', [mb_strlen((string) $identity->reference), $identity->reference])
-                : $query->where('external_reference', $identity->reference))->orderBy('id')->first();
+            $found = $this->namingTheSameThing(clone $api, $identity->reference)->orderBy('id')->first();
 
             return $found === null ? [self::NONE, null] : [self::DUPLICATE, $found];
         }
@@ -60,9 +59,7 @@ class ChargeOverlapMatcher
         $manual = $this->costEvents($account, null, shape: (string) $event->charge_key)->where('source', 'manual')->whereNull('duplicate_of_id');
 
         if ($event->external_reference !== null) {
-            $order = explode('|', $event->external_reference, 2)[0];
-            $namedAlike = str_starts_with($event->external_reference, 'settlement:') ? [$event->external_reference] : [$event->external_reference, $order . '|'];
-            $found = (clone $manual)->whereIn('external_reference', $namedAlike)->orderBy('id')->first();
+            $found = $this->namingTheSameThing(clone $manual, $event->external_reference)->orderBy('id')->first();
             if ($found !== null) {
                 return [self::DUPLICATE, new Collection([$found])];
             }
@@ -70,6 +67,25 @@ class ChargeOverlapMatcher
         $sameDay = (clone $manual)->whereNull('external_reference')->whereBetween('occurred_at', $this->window($event->occurred_at))->orderBy('id')->get();
 
         return $sameDay->isEmpty() ? [self::NONE, new Collection()] : [self::POSSIBLE_OVERLAP, $sameDay];
+    }
+
+    /**
+     * The events whose reference names the same thing as `$reference`: the same settlement, or the same order with the same package, where a report that names only the order
+     * (`order|`) is about any package of it and so matches whichever package the other names.
+     *
+     * @param Builder<SalesChannelEvent> $events
+     * @return Builder<SalesChannelEvent>
+     */
+    private function namingTheSameThing(Builder $events, string $reference): Builder
+    {
+        if (str_starts_with($reference, 'settlement:')) {
+            return $events->where('external_reference', $reference);
+        }
+        [$order, $package] = array_pad(explode('|', $reference, 2), 2, '');
+
+        return $package === ''
+            ? $events->whereRaw('substr(external_reference, 1, ?) = ?', [mb_strlen($order . '|'), $order . '|'])
+            : $events->whereIn('external_reference', [$reference, $order . '|']);
     }
 
     /** @return Builder<SalesChannelEvent> the account's fee and adjustment events of one shape */
