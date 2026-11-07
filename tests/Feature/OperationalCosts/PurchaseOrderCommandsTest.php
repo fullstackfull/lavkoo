@@ -49,7 +49,7 @@ class PurchaseOrderCommandsTest extends TestCase
 
     public function test_the_dry_run_says_what_apply_will_make_before_the_default_stock_locations_exist_and_writes_nothing(): void
     {
-        [, $line] = $this->placedLine(10, 12.5);
+        [, $line] = $this->placedLine(ordered: 10, cost: 12.5);
         $this->receiveOnPlatform($line, 10);
         DB::table('inventory_locations')->delete();
         Cache::forget('sales_channels.default_locations_checked');
@@ -71,7 +71,7 @@ class PurchaseOrderCommandsTest extends TestCase
 
     public function test_a_default_place_that_exists_but_is_switched_off_is_still_refused_by_the_dry_run_as_it_will_be_by_apply(): void
     {
-        [, $line] = $this->placedLine(10, 12.5);
+        [, $line] = $this->placedLine(ordered: 10, cost: 12.5);
         $this->receiveOnPlatform($line, 10);
         InventoryLocation::where('code', InventoryLocationService::OWN_CODE)->update(['is_active' => false]);
 
@@ -143,7 +143,7 @@ class PurchaseOrderCommandsTest extends TestCase
         $this->app->bind(CurrencyRateSource::class, StoreCurrencyRateSource::class);
         DB::table('business_settings')->insert(['type' => 'currency_model', 'value' => 'multi_currency', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('currencies')->insert([['name' => 'Dollar', 'symbol' => '$', 'code' => 'USD', 'exchange_rate' => '1'], ['name' => 'Riyal', 'symbol' => 'SR', 'code' => 'SAR', 'exchange_rate' => '3.75']]);
-        [, $line] = $this->placedLine(10, 10.0, 'USD');
+        [, $line] = $this->placedLine(ordered: 10, cost: 10.0, currency: 'USD');
         $this->receiveOnPlatform($line, 10);
         Cache::flush();
         $before = $this->cacheContents();

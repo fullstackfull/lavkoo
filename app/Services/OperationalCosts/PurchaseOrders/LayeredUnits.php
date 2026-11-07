@@ -41,7 +41,7 @@ class LayeredUnits
         foreach ($layers as $lineId => $held) {
             $lineId = (int) $lineId;
             $units = (int) $held->sum('quantity_received');
-            $reach = $held->map(fn (InventoryCostLayer $layer): int => $layer->source_to !== null ? (int) $layer->source_to : $this->reachOfLayerWithoutBookkeeping($layer, $lineId, max($units, $received[$lineId])))->max();
+            $reach = $held->map(fn (InventoryCostLayer $layer): int => $layer->source_to !== null ? (int) $layer->source_to : $this->reachOfLayerWithoutBookkeeping(layer: $layer, lineId: $lineId, mostUnitsPossible: max($units, $received[$lineId])))->max();
             $accounted[$lineId] = max($reach, $units);
         }
 

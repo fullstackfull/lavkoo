@@ -134,7 +134,7 @@ class AdminPurchaseOrderLinksTest extends AdminPagesTestCase
 
         $this->assertSame(1, InventoryCostLayer::count(), 'Nothing was recorded.');
         $page = $this->get($form)->assertOk()->getContent();
-        $this->assertStringContainsString(e(CostLabels::filled(translate('a_purchase_order_received_these_goods_confirm_a_separate_purchase'), ['lines' => $line])), $page);
+        $this->assertStringContainsString(e(CostLabels::filled(sentence: translate('a_purchase_order_received_these_goods_confirm_a_separate_purchase'), values: ['lines' => $line])), $page);
         $this->assertStringContainsString('name="confirm_separate_purchase"', $page);
 
         $this->post(route('admin.operational-costs.product-costs.store'), $this->typedCost($product, ['confirm_separate_purchase' => '1']))->assertRedirect();

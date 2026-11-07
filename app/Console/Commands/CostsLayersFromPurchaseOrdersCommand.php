@@ -40,7 +40,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
     {
         $apply = (bool) $this->option('apply');
         if ($apply && $this->option('dry-run')) {
-            Refusal::say($this, 'Choose --dry-run or --apply, not both.', error: true);
+            Refusal::say(command: $this, message: 'Choose --dry-run or --apply, not both.', error: true);
 
             return self::FAILURE;
         }
@@ -54,17 +54,17 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
             return $refused;
         }
         if (!PurchaseOrderSourceMode::reports()) {
-            Refusal::say($this, PurchaseOrderSourceMode::OFF_MESSAGE);
+            Refusal::say(command: $this, message: PurchaseOrderSourceMode::OFF_MESSAGE);
 
             return $refused;
         }
         if ($apply && !PurchaseOrderSourceMode::active()) {
-            Refusal::say($this, 'The purchase-order source is in shadow mode: it only reports. Set OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS=on (and run `php artisan config:clear`) to make layers. Nothing was written.');
+            Refusal::say(command: $this, message: 'The purchase-order source is in shadow mode: it only reports. Set OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS=on (and run `php artisan config:clear`) to make layers. Nothing was written.');
 
             return self::FAILURE;
         }
         if ($apply && $filters['since'] === null) {
-            Refusal::say($this, 'Making layers needs a cutover date: --since=YYYY-MM-DD. Units received before it belong to the opening balance; layering all history would count units that were sold long ago. Nothing was written.', error: true);
+            Refusal::say(command: $this, message: 'Making layers needs a cutover date: --since=YYYY-MM-DD. Units received before it belong to the opening balance; layering all history would count units that were sold long ago. Nothing was written.', error: true);
 
             return self::FAILURE;
         }
@@ -73,7 +73,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         }
         $unavailable = $schema->unavailable();
         if ($unavailable !== null) {
-            Refusal::say($this, $unavailable);
+            Refusal::say(command: $this, message: $unavailable);
 
             return $refused;
         }
@@ -87,7 +87,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
                 : $layers->preview(productId: $filters['product'], lineId: $filters['line'], since: $filters['since'], sample: $filters['limit'], included: $filters['included']);
         } catch (Throwable $exception) {
             report($exception);
-            Refusal::say($this, 'The layers could not be made: ' . $exception::class . '. What was made before it stays; run it again to carry on.', error: true);
+            Refusal::say(command: $this, message: 'The layers could not be made: ' . $exception::class . '. What was made before it stays; run it again to carry on.', error: true);
 
             return self::FAILURE;
         }
@@ -104,7 +104,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         if ($since !== null) {
             $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $since) === 1 ? CarbonImmutable::createFromFormat('!Y-m-d', (string) $since) : null;
             if ($date === null || $date->toDateString() !== $since) {
-                Refusal::say($this, 'The cutover date must be a date written YYYY-MM-DD.', error: true);
+                Refusal::say(command: $this, message: 'The cutover date must be a date written YYYY-MM-DD.', error: true);
 
                 return null;
             }
@@ -112,7 +112,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         }
         foreach (['product', 'line'] as $option) {
             if ($this->option($option) !== null && !ctype_digit((string) $this->option($option))) {
-                Refusal::say($this, "The {$option} must be an id.", error: true);
+                Refusal::say(command: $this, message: "The {$option} must be an id.", error: true);
 
                 return null;
             }
@@ -120,7 +120,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
 
         $included = $this->option('include') === null ? [] : explode(',', (string) $this->option('include'));
         if (array_filter($included, static fn (string $id): bool => !ctype_digit($id)) !== []) {
-            Refusal::say($this, 'The lines to include are ids separated by commas.', error: true);
+            Refusal::say(command: $this, message: 'The lines to include are ids separated by commas.', error: true);
 
             return null;
         }

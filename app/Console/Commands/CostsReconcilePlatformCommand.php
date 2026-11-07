@@ -24,7 +24,7 @@ class CostsReconcilePlatformCommand extends Command
         }
         $product = $this->option('product');
         if ($product !== null && !ctype_digit((string) $product)) {
-            Refusal::say($this, 'The product must be an id.', error: true);
+            Refusal::say(command: $this, message: 'The product must be an id.', error: true);
 
             return self::FAILURE;
         }

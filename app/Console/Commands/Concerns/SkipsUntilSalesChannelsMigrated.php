@@ -25,7 +25,7 @@ trait SkipsUntilSalesChannelsMigrated
             return false;
         }
 
-        Refusal::say($this, 'The sales-channel migrations have not been run yet; nothing to do.');
+        Refusal::say(command: $this, message: 'The sales-channel migrations have not been run yet; nothing to do.');
 
         return true;
     }

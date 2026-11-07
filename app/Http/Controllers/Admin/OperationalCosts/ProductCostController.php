@@ -92,7 +92,7 @@ class ProductCostController extends Controller
 
         $orderLines = $request->boolean('confirm_separate_purchase') ? [] : $this->orderLines->forTypedCost(productId: (int) $data['product_id'], sourceType: $data['source_type'], supplierName: $data['supplier_name'] ?? null, sellerId: (int) $location->seller_id);
         if ($orderLines !== []) {
-            return back()->withInput()->withErrors(['confirm_separate_purchase' => CostLabels::filled(translate('a_purchase_order_received_these_goods_confirm_a_separate_purchase'), ['lines' => implode(', ', $orderLines)])]);
+            return back()->withInput()->withErrors(['confirm_separate_purchase' => CostLabels::filled(sentence: translate('a_purchase_order_received_these_goods_confirm_a_separate_purchase'), values: ['lines' => implode(', ', $orderLines)])]);
         }
 
         try {

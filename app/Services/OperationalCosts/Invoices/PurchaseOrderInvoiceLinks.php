@@ -63,7 +63,7 @@ class PurchaseOrderInvoiceLinks
             if (!isset($row['product_id']) || (int) $row['product_id'] !== $target->productId || !isset($row['quantity']) || !Money::of($row['quantity'])->isPositive()) {
                 throw new InvalidContractChange("Line {$line}: a line linked to a purchase order line names the same product and a quantity.");
             }
-            $this->assertMakesALayer($target, "Line {$line}");
+            $this->assertMakesALayer(target: $target, where: "Line {$line}");
             $suppliers[(int) $target->supplierId] = (int) $target->supplierId;
         }
         $suppliers = array_filter($suppliers);
@@ -172,7 +172,7 @@ class PurchaseOrderInvoiceLinks
             if ($target === null) {
                 throw new InvalidContractChange("Line {$item->line_no}: purchase order line {$item->purchase_order_item_id} is not there any more, so the goods would have no cost layer at all.");
             }
-            $this->assertMakesALayer($target, "Line {$item->line_no}");
+            $this->assertMakesALayer(target: $target, where: "Line {$item->line_no}");
         }
     }
 
@@ -197,7 +197,7 @@ class PurchaseOrderInvoiceLinks
      */
     private function assertMakesALayer(PurchaseLine $target, string $where): void
     {
-        $refusal = $this->evaluator->verdict($target, $this->procurement->products([(int) $target->productId])[(int) $target->productId] ?? null)->refusal;
+        $refusal = $this->evaluator->verdict(line: $target, product: $this->procurement->products([(int) $target->productId])[(int) $target->productId] ?? null)->refusal;
         if ($refusal !== null) {
             throw new InvalidContractChange("{$where}: purchase order line {$target->id} cannot be made into a cost layer ({$refusal->value}: {$refusal->meaning()}), and a linked line makes none of its own, so the goods would have no cost layer at all. Correct the order line, or enter this line without the link and confirm that it is a separate purchase.");
         }

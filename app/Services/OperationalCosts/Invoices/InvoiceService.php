@@ -337,7 +337,7 @@ class InvoiceService
         $goods = $items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id !== null && $item->match_status !== OperationalCostInvoiceItem::IGNORED
             && ($item->purchase_order_item_id !== null ? (float) $item->quantity > 0 : (int) round((float) $item->quantity) >= 1));
         $freight = $items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id === null && $item->cost_component === CostComponent::InboundFreight->value)->keyBy('id');
-        $shares = FreightShares::of($goods, $freight);
+        $shares = FreightShares::of(goods: $goods, freight: $freight);
 
         $count = 0;
         foreach ($goods as $item) {
@@ -345,12 +345,12 @@ class InvoiceService
                 $expected = $this->purchaseOrders->expectedCost($item);
                 $this->reconciliation->compareWithPurchaseOrder($invoice, $item, $expected === null ? null : $expected['amount'], $expected['currency'] ?? null);
             } else {
-                $this->receiveLayer($invoice, $item, $shares->landed[$item->id] ?? null);
+                $this->receiveLayer(invoice: $invoice, item: $item, freight: $shares->landed[$item->id] ?? null);
             }
             $count++;
         }
         foreach ($shares->outsideLayers as $freightId => $amount) {
-            $this->recordFreightOutsideLayers($invoice, $freight[$freightId], $amount);
+            $this->recordFreightOutsideLayers(invoice: $invoice, line: $freight[$freightId], amount: $amount);
             $count++;
         }
 

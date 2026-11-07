@@ -49,7 +49,15 @@ class PurchaseOrderLayerPlanner
             $accounted = $this->layered->forLines($lines);
             $covered = $this->covering->coveredLines(lines: array_values(array_filter($lines, static fn (PurchaseLine $line): bool => ($accounted[$line->id] ?? 0) === 0 && !in_array($line->id, $included, true))), since: $since);
             foreach ($lines as $line) {
-                yield $this->plan($line, $products[$line->productId] ?? null, $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [], $accounted[$line->id] ?? 0, $since, isset($covered[$line->id]), $assumeDefaultLocations);
+                yield $this->plan(
+                    line: $line,
+                    product: $products[$line->productId] ?? null,
+                    receipts: $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [],
+                    accounted: $accounted[$line->id] ?? 0,
+                    since: $since,
+                    covered: isset($covered[$line->id]),
+                    assumeDefaultLocations: $assumeDefaultLocations,
+                );
             }
             $after = $lines[array_key_last($lines)]->id;
         }
@@ -60,7 +68,7 @@ class PurchaseOrderLayerPlanner
      */
     private function plan(PurchaseLine $line, ?ProductFacts $product, array $receipts, int $accounted, ?CarbonImmutable $since, bool $covered, bool $assumeDefaultLocations): LinePlan
     {
-        $verdict = $this->evaluator->verdict($line, $product, $assumeDefaultLocations);
+        $verdict = $this->evaluator->verdict(line: $line, product: $product, assumeDefaultLocations: $assumeDefaultLocations);
         if ($line->quantityReceived < $accounted) {
             return new LinePlan($line, $verdict, $accounted, null, $accounted - $line->quantityReceived);
         }
