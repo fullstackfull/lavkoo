@@ -37,7 +37,11 @@ trait BuildsSalesChannelSchema
             '2026_11_07_100100_create_sales_channel_tables.php',
             '2026_11_07_100200_create_inventory_and_routing_tables.php',
             '2026_11_08_100000_add_state_before_dispute_to_operational_cost_entries.php',
-            '2026_11_09_100000_create_channel_order_dispatches_table.php',
+            '2026_11_09_100000_add_refund_columns_to_external_order_lines.php',
+            '2026_11_09_100100_add_charge_matching_to_sales_channel_events.php',
+            '2026_11_09_100200_create_operational_cost_return_decisions_table.php',
+            '2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php',
+            '2026_11_09_200000_create_channel_order_dispatches_table.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

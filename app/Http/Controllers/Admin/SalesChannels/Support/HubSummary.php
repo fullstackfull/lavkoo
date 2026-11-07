@@ -70,6 +70,7 @@ final class HubSummary
             $this->ordersToReview(),
             $this->failedPublishes(),
             $this->financeToReview(),
+            $this->statementRowsThatMayRepeatTheApi(),
         ], static fn (array $section): bool => $section['total'] > 0));
     }
 
@@ -174,6 +175,24 @@ final class HubSummary
                 'url' => route('admin.sales-channels.logs.index', ['tab' => 'events', 'outcome' => 'needs_review']),
             ])->all(),
             moreUrl: route('admin.sales-channels.logs.index', ['tab' => 'events', 'outcome' => 'needs_review']),
+        );
+    }
+
+    /** Statement rows a person imported that were counted but may repeat a charge the channel API gave. */
+    private function statementRowsThatMayRepeatTheApi(): array
+    {
+        $events = SalesChannelEvent::where('outcome_note', SalesChannelEvent::NOTE_POSSIBLE_OVERLAP);
+        $url = route('admin.sales-channels.logs.index', ['tab' => 'events', 'note' => SalesChannelEvent::NOTE_POSSIBLE_OVERLAP]);
+
+        return $this->section(
+            title: translate('attention_possible_overlap'),
+            total: (clone $events)->count(),
+            items: $events->latest('id')->limit(self::ATTENTION_LIMIT)->get()->map(fn (SalesChannelEvent $event): array => [
+                'title' => $event->event_type,
+                'detail' => $event->occurred_at?->format('Y-m-d') . ' · ' . ($event->payload['amount'] ?? '') . ' ' . ($event->payload['currency'] ?? ''),
+                'url' => $url,
+            ])->all(),
+            moreUrl: $url,
         );
     }
 

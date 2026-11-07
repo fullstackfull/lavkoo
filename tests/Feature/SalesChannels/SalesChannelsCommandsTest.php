@@ -192,6 +192,8 @@ class SalesChannelsCommandsTest extends TestCase
 
     public function test_everything_is_on_the_schedule_and_nothing_is_a_write_without_its_own_command(): void
     {
+        // The cost commands are scheduled only when both of the cost module's switches are on (OperationalCostsSwitchTest tries every combination).
+        config(['operational_costs.enabled' => true, 'operational_costs.schedule_enabled' => true]);
         $schedule = new Schedule();
         ScheduleDefinition::define($schedule);
         $commands = array_map(static fn ($event): string => (string) $event->command, $schedule->events());

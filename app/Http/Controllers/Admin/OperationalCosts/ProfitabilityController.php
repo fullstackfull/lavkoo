@@ -7,6 +7,7 @@ use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\ProfitInput;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\SellerScope;
 use App\Http\Controllers\Controller;
+use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Services\OperationalCosts\Profit\ProfitabilityService;
 use App\Services\OperationalCosts\Reports\ProfitLine;
@@ -39,6 +40,7 @@ class ProfitabilityController extends Controller
         private readonly SaleDocumentReader $documents,
         private readonly ReportExports $exports,
         private readonly FxConverter $fx,
+        private readonly ReturnPanel $returns,
     ) {
     }
 
@@ -74,6 +76,7 @@ class ProfitabilityController extends Controller
             'currency' => $this->fx->baseCurrency(),
             'result' => $this->profit->forDocument($document),
             'entries' => $this->profit->entriesForDocuments([$document])[$document->cacheKey()] ?? collect(),
+            'returns' => $document->mappingId === null ? null : $this->returns->forOrder(ExternalOrderMapping::findOrFail($document->mappingId)),
         ]);
     }
 
@@ -91,7 +94,7 @@ class ProfitabilityController extends Controller
         $figure = match ($input->sort) {
             ProfitInput::SORT_ESTIMATED_PROFIT => static fn (ProfitLine $line) => $line->estimatedProfit() ?? Money::zero(),
             ProfitInput::SORT_ACTUAL_PROFIT => static fn (ProfitLine $line) => $line->actualProfit() ?? Money::zero(),
-            default => static fn (ProfitLine $line) => $line->revenue(),
+            default => static fn (ProfitLine $line) => $line->revenue() ?? Money::zero(),
         };
         usort($lines, static fn (ProfitLine $a, ProfitLine $b): int => $input->ascending ? $figure($a)->compareTo($figure($b)) : $figure($b)->compareTo($figure($a)));
 

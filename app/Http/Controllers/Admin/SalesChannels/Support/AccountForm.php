@@ -42,7 +42,7 @@ final class AccountForm
 
     private const SETTING_FIELDS = [
         'amazon' => ['region', 'marketplace_ids', 'sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders', 'shipment_creation', 'dispatch_mode'],
-        'trendyol' => ['storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'torod_reference_field', 'carrier_codes', 'shipment_creation', 'dispatch_mode'],
+        'trendyol' => ['storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns', 'torod_reference_field', 'carrier_codes', 'shipment_creation', 'dispatch_mode'],
     ];
 
     public function __construct(private readonly ValidationFactory $validation)
@@ -148,7 +148,7 @@ final class AccountForm
                 + ($creating ? ['settings.marketplace_ids' => ['required', 'array', 'min:1'], 'settings.marketplace_ids.*' => ['string', 'regex:/^[A-Z0-9]{8,16}$/']] : []);
         }
 
-        return $flags(['auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders']) + [
+        return $flags(['auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns']) + [
             'settings.storefront_code' => ['nullable', 'string', Rule::in(ChannelSettings::TRENDYOL_STOREFRONTS)],
             'settings.integration_name' => ['required', 'string', 'regex:/^[A-Za-z0-9]{1,30}$/'],
             'settings.accept_language' => ['required', Rule::in(['ar', 'en', 'tr'])],

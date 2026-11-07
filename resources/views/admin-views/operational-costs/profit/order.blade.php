@@ -15,6 +15,7 @@
         $missing = count($result->missingComponents);
         $pending = count($result->pendingActualComponents);
         $drillNotes = array_map(static fn (string $note): array => array_pad(explode(':', $note, 2), 2, null), $result->notes);
+        $gapsText = $result->gaps->isEmpty() ? null : CostLabels::noExchangeRate($result->gaps);
     @endphp
     <div class="content container-fluid">
         <x-k.page-header :title="translate('profit_of_a_sale') . ' ' . $document->reference" :subtitle="CostLabels::channel($document->salesChannel) . ' · ' . CostLabels::of('sale_state', $document->state) . ' · ' . $result->occurredOn">
@@ -23,6 +24,8 @@
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.operational-costs.entries.index', ['from' => '', 'to' => '', 'q' => $document->reference, 'seller' => 'all']) }}">{{ translate('cost_entries') }}</a>
             </x-slot:actions>
         </x-k.page-header>
+
+        @include('admin-views.operational-costs.partials._module-state')
 
         <div class="alert alert-info fs-12" role="note">{{ translate('a_marketplace_payout_is_not_revenue_note') }}</div>
 
@@ -36,12 +39,15 @@
                     @foreach ($drillNotes as [$note, $detail])
                         <li>{{ CostLabels::of('profit_note', $note) }}@if ($detail !== null) ({{ CostComponent::tryFrom($detail) ? translate(CostComponent::from($detail)->labelKey()) : $detail }})@endif</li>
                     @endforeach
+                    @if ($gapsText !== null)
+                        <li>{{ $gapsText }}</li>
+                    @endif
                 </ul>
             </div>
         @endif
 
         <div class="k-stats mb-3">
-            <x-k.stat :label="translate('recognised_revenue')" :value="$money($result->revenue)" :caption="$document->isCancelled() ? translate('a_cancelled_sale_has_no_revenue') : ''" />
+            <x-k.stat :label="translate('recognised_revenue')" :value="$money($result->revenueKnown() ? $result->revenue : null)" :caption="$document->isCancelled() ? translate('a_cancelled_sale_has_no_revenue') : (! $result->revenueKnown() ? translate('incomplete') . ': ' . CostLabels::noExchangeRate($result->gaps) : '')" />
             <x-k.stat :label="translate('estimated_cost')" :value="$moneyIfCosted($result->estimatedCost)" :caption="$costed ? CostLabels::completeness($result->estimatedComplete() ? 0 : 1, $missing, 0) : translate('nothing_recorded')" />
             <x-k.stat :label="translate('actual_cost')" :value="$moneyIfCosted($result->actualCost)" :caption="$costed ? CostLabels::completeness($result->actualComplete() ? 0 : 1, $missing, $pending) : translate('nothing_recorded')" />
             <x-k.stat :label="translate('estimated_profit')" :value="$moneyIfCosted($result->estimatedProfit())" :caption="$costed ? translate('margin') . ': ' . CostFormat::percent($result->estimatedMarginPercent()) : ''" />
@@ -120,6 +126,15 @@
                         <dd class="col-sm-5 k-num fw-semibold">{{ CostFormat::amount($document->netRevenue(), $document->currency) }}</dd>
                     </dl>
                 </x-k.card>
+
+                @if ($returns !== null && $returns['items'] !== [])
+                    <x-k.card :title="translate('returned_units')" class="mb-3">
+                        <p class="fs-12 text-muted">{{ translate('return_decisions_help') }}</p>
+                        @foreach ($returns['items'] as $item)
+                            @include('admin-views.operational-costs.partials._return-decision', ['line' => $item['line'], 'standing' => $item['standing'], 'locations' => $returns['locations'], 'canDecide' => $returns['canDecide']])
+                        @endforeach
+                    </x-k.card>
+                @endif
 
                 <x-k.card :title="translate('lines_of_the_sale')" :padded="false">
                     <div class="k-table-wrap table-responsive">

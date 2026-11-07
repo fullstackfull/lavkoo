@@ -14,6 +14,9 @@ class OperationalCostReconciliation extends Model
     public const DISPUTED = 'disputed';
     public const RESOLVED = 'resolved';
 
+    /** What an invoice line was compared with: the total the channel's statements booked for the same fee and period (the default is the estimate of the same service). */
+    public const BASIS_STATEMENTS = 'statements';
+
     protected $table = 'operational_cost_reconciliations';
 
     protected $guarded = [];

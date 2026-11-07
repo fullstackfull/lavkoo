@@ -23,6 +23,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <div class="alert alert-info fs-12" role="note">{{ CostLabels::filled(translate('no_figure_is_filled_in_for_you_note'), ['currency' => $contract->currency]) }}</div>
 
         @if ($errors->any())

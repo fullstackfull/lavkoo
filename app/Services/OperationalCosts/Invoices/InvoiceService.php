@@ -5,7 +5,6 @@ namespace App\Services\OperationalCosts\Invoices;
 use App\Enums\OperationalCosts\CostComponent;
 use App\Enums\OperationalCosts\CostState;
 use App\Models\ExternalOrderMapping;
-use App\Models\InventoryCostLayer;
 use App\Models\OperationalCostEntry;
 use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostInvoiceItem;
@@ -37,6 +36,8 @@ use InvalidArgumentException;
  *        first positive one retires the estimate of the same service, and it is split over the shipment's items like the estimate was.
  *      - A line about a MARKETPLACE order takes the channel's own slot for that fee (the one its estimate and its statement figure use), so the same commission arriving as
  *        an estimate, in the statement and on the invoice is one cost; several lines of one order and fee in the same invoice (a commission and a refund of it) are netted.
+ *      - A marketplace fee billed as one total for a period, with no order on the line, is not posted when the channel's statements already booked that fee in that period: it
+ *        is compared with their total (ReconciliationService::compareWithStatements), so the fee is not counted twice. Only a line the statements say nothing about is posted.
  *
  * An invoice that is approved is never edited. A mistake is a new invoice, a credit note or a reversal.
  */
@@ -52,6 +53,8 @@ class InvoiceService
         private readonly AuditLogger $audit,
         private readonly ShipmentCostService $shipmentCosts,
         private readonly ShipmentFactsFactory $shipmentFacts,
+        private readonly ChannelStatementActuals $statements,
+        private readonly ReconciliationService $reconciliation,
     ) {
     }
 
@@ -181,6 +184,12 @@ class InvoiceService
             $component = CostComponent::tryFrom($item->cost_component) ?? CostComponent::Other;
             $mapping = $item->external_order_mapping_id === null ? null : $mappings->get($item->external_order_mapping_id);
             [$subjectType, $subjectId] = $this->subjectOf($invoice, $item, $mapping);
+            $booked = $subjectType === 'invoice_item' ? $this->statements->totalFor($invoice, $item) : null;
+            if ($booked !== null) {
+                $this->reconciliation->compareWithStatements($invoice, $item, $booked);
+                $count++;
+                continue;
+            }
             $date = CarbonImmutable::parse($item->service_date ?? $invoice->period_end ?? $invoice->invoice_date);
 
             $net = $subjectType === 'channel_order' ? ($marketplaceNets[$this->netKey($item, $component)] ?? null) : null;

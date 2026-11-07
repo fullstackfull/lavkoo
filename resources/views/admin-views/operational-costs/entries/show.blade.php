@@ -23,6 +23,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         @unless ($entry->is_effective)
             <div class="alert alert-secondary fs-12" role="note">{{ translate('this_entry_was_replaced_by') }}
                 @if ($entry->superseded_by_id)<a href="{{ route('admin.operational-costs.entries.show', $entry->superseded_by_id) }}">#{{ $entry->superseded_by_id }}</a>@endif.

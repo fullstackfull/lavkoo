@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\OperationalCosts;
 
 use App\Enums\SalesChannels\SalesChannel;
+use App\Services\OperationalCosts\Profit\ConversionGaps;
 use App\Services\OperationalCosts\Reports\ProfitFilters;
 use App\Services\OperationalCosts\Reports\ProfitLine;
 
@@ -72,6 +73,11 @@ final class CostLabels
         'profit_note_revenue_not_convertible', 'profit_note_channel_amounts_missing', 'profit_note_amount_not_convertible', 'profit_note_total_does_not_add_up', 'profit_note_tax_not_separated',
         'profit_note_cost_not_convertible',
 
+        // Why a return decision was refused.
+        'return_refused_nothing_to_decide', 'return_refused_unknown_return_event', 'return_refused_claim_units_must_all_be_decided', 'return_refused_use_the_claim',
+        'return_refused_more_than_sold', 'return_refused_not_linked', 'return_refused_no_location', 'return_refused_location_unknown', 'return_refused_no_cost_recognised',
+        'return_refused_more_than_taken_from_stock',
+
         // The exports.
         'report_title_entries', 'report_title_missing', 'report_title_profit', 'report_title_invoices',
         'report_help_entries', 'report_help_missing', 'report_help_profit', 'report_help_invoices',
@@ -140,6 +146,12 @@ final class CostLabels
         $text = translate('incomplete') . ': ' . $incompleteSales . ' ' . translate('sales');
 
         return $missingCosts > 0 ? $text . ' · ' . $missingCosts . ' ' . translate('missing') : $text;
+    }
+
+    /** What a figure left out for want of an exchange rate, in words: "no exchange rate for EUR, USD". */
+    public static function noExchangeRate(ConversionGaps $gaps): string
+    {
+        return self::filled(translate('no_exchange_rate_for_currencies'), ['currencies' => implode(', ', $gaps->currencies())]);
     }
 
     /** The completeness of one line of a profit report: of its estimated figures, or (`$settled`) of its actual ones. */

@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\OperationalCosts\OverviewController;
 use App\Http\Controllers\Admin\OperationalCosts\ProductCostController;
 use App\Http\Controllers\Admin\OperationalCosts\ProfitabilityController;
 use App\Http\Controllers\Admin\OperationalCosts\ReportController;
+use App\Http\Controllers\Admin\OperationalCosts\ReturnController;
 use App\Http\Middleware\EnsureSalesChannelsMigrated;
 use Illuminate\Support\Facades\Route;
 
@@ -69,6 +70,11 @@ Route::group([
     Route::get('profit', [ProfitabilityController::class, 'index'])->name('profit.index');
     Route::get('profit/export', [ProfitabilityController::class, 'export'])->middleware('throttle:6,1')->name('profit.export');
     Route::get('profit/orders/{type}/{id}', [ProfitabilityController::class, 'order'])->whereIn('type', ProfitabilityController::DOCUMENT_TYPES)->whereNumber('id')->name('profit.order');
+
+    // Returned units nobody decided about, and the one action on them: put back on the shelf at their original cost, or write off as damaged. A POST that changes the stock layers and the
+    // ledger, so it is an operational-costs action wherever its form is shown (the order page of the sales channels has it too).
+    Route::get('returns', [ReturnController::class, 'index'])->name('returns.index');
+    Route::post('returns/lines/{line}/decide', [ReturnController::class, 'decide'])->whereNumber('line')->middleware('throttle:30,1')->name('returns.decide');
 
     Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('reports/{report}', [ReportController::class, 'export'])->whereIn('report', ReportController::REPORTS)->middleware('throttle:6,1')->name('reports.export');

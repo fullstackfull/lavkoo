@@ -19,7 +19,8 @@ use Carbon\CarbonImmutable;
  *    that matches none stays UNCLASSIFIED for a person.
  *  - `PaymentOrder` is the payout: not revenue.
  *
- * Trendyol re-issued every row id and payment order id in August 2026, so an id is never part of a fact's identity: the identity is built from what the row says.
+ * Trendyol re-issued every row id and payment order id in August 2026, so an id is never part of a fact's identity: the identity is built from what the row says, and its amounts
+ * go through Money, so a row that prints 25 and one that prints 25.00 are the same fact (the payment order is kept in the meta as the settlement a charge of no order is about).
  * The statement rows carry no currency; the account's currency is assumed and said so in the entry's meta.
  */
 class TrendyolFinanceMapper
@@ -94,7 +95,7 @@ class TrendyolFinanceMapper
         return new RemoteFinancialEntry(
             identity: hash('sha256', json_encode([
                 'trendyol', $account->id, $type, $part, $orderNumber, $packageId, $row['barcode'] ?? null, $row['transactionDate'] ?? null, $row['receiptId'] ?? null,
-                (string) ($row['debt'] ?? 0), (string) ($row['credit'] ?? 0), (string) ($row['commissionAmount'] ?? 0), $row['description'] ?? null,
+                Money::of((string) ($row['debt'] ?? 0))->toStorage(), Money::of((string) ($row['credit'] ?? 0))->toStorage(), Money::of((string) ($row['commissionAmount'] ?? 0))->toStorage(), $row['description'] ?? null,
             ], JSON_THROW_ON_ERROR)),
             category: $category,
             component: $component,
@@ -112,6 +113,7 @@ class TrendyolFinanceMapper
                 'commission_rate' => $row['commissionRate'] ?? null,
                 'seller_revenue' => $row['sellerRevenue'] ?? null,
                 'payment_order_id' => $row['paymentOrderId'] ?? null,
+                'settlement_id' => $row['paymentOrderId'] ?? null,
                 'payment_date' => is_numeric($row['paymentDate'] ?? null) ? CarbonImmutable::createFromTimestampMsUTC((int) $row['paymentDate'])->toIso8601String() : null,
                 'commission_invoice' => $row['commissionInvoiceSerialNumber'] ?? null,
                 'currency_assumed' => true,

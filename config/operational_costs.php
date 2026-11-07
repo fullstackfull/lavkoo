@@ -7,8 +7,22 @@
 |
 | Deployment defaults only. There is NO price in this file: contract prices are entered in the admin panel, versioned, and kept
 | in the database. A service nobody priced is reported as missing, never as free.
+|
+| Everything that calculates by itself ships OFF, and running the migrations switches nothing on. Two independent switches, in the order they are turned on:
+|   1. OPERATIONAL_COSTS_ENABLED          - the master switch: off means nothing posts a cost entry, a FIFO consumption or a storage charge by itself (the scheduled runs,
+|      the same commands run by hand, the sale-time recognition of goods sold) and the channel finance importer keeps the statement postings it reads WITHOUT posting them; they
+|      are posted once, when it is switched on. Whatever a person enters stays available: contracts, purchase invoices, opening stock, product costs, decisions.
+|   2. OPERATIONAL_COSTS_SCHEDULE_ENABLED - only has an effect while the master switch is on: off means the scheduler does not run `costs:refresh` and `costs:accrue-storage`
+|      (they still run by hand). `channels:prune` is channel housekeeping, posts nothing, and does not depend on either.
+|
+| Both values are read with FILTER_VALIDATE_BOOLEAN, not a (bool) cast: the cast turns "off", "no" and "disabled" into TRUE. With a cached configuration (bootstrap/cache/config.php)
+| a change in .env does nothing until `php artisan config:clear`.
 */
 return [
+    'enabled' => filter_var(env('OPERATIONAL_COSTS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
+    'schedule_enabled' => filter_var(env('OPERATIONAL_COSTS_SCHEDULE_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
     // The currency every report totals in. Amounts in another currency are converted with a recorded rate; with no rate they stay
     // in their own currency and the report says the total is incomplete.
     'base_currency' => env('OPERATIONAL_COSTS_BASE_CURRENCY', env('FULFILLMENT_CURRENCY', 'SAR')),

@@ -5,6 +5,7 @@ namespace Tests\Feature\SalesChannels;
 use App\Http\Controllers\Admin\OperationalCosts\CostLabels;
 use App\Services\OperationalCosts\Profit\ProfitRow;
 use App\Services\OperationalCosts\Reports\ProfitLine;
+use App\Services\OperationalCosts\Returns\InvalidReturnDecision;
 use App\Services\OperationalCosts\Support\Money;
 
 /** The words of the cost screens that come from a stored value: every value has them, and a value nobody wrote words for is shown as it is. */
@@ -52,6 +53,14 @@ class AdminOperationalCostsLabelsTest extends AdminPagesTestCase
             'sale_state' => ['open', 'shipped', 'delivered', 'cancelled', 'returned'],
         ] as $family => $values) {
             $this->assertSame($values, array_values(array_intersect($values, CostLabels::values($family))), $family);
+        }
+    }
+
+    public function test_every_refusal_a_return_decision_can_give_has_words(): void
+    {
+        foreach (InvalidReturnDecision::reasons() as $reason) {
+            $this->assertSame(translate('return_refused_' . $reason), CostLabels::of('return_refused', $reason), $reason);
+            $this->assertNotSame($reason, CostLabels::of('return_refused', $reason), "{$reason} has no words.");
         }
     }
 

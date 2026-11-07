@@ -159,6 +159,10 @@ class InvoiceController extends Controller
         }
 
         SafeToast::success(translate('invoice_approved_lines_recorded'), (string) $lines);
+        $compared = $this->reconciliation->comparedWithStatements($record);
+        if ($compared > 0) {
+            SafeToast::info(translate('invoice_lines_compared_with_the_channel_statements'), (string) $compared);
+        }
 
         return back();
     }

@@ -24,7 +24,7 @@ Per account, default **Disabled**. The ladder (a mode needs the ones under it; a
 
 `Connection Test` → `Read-only Sync` → `Product Sync` / `Order Import` / `Financial Reconciliation` → `Inventory Publishing` / `Price Publishing` (need a recorded approval) → `Fulfillment Dispatch` (needs a recorded approval). A successful test never switches anything on. Writes additionally need *write enabled* and *dry run off*; dry run is on by default and only rehearses.
 
-## Tables (all additive, `Schema::hasTable`-guarded, no foreign keys into core tables)
+## Tables (all additive, `Schema::hasTable` / `Schema::hasColumn`-guarded, no foreign keys into core tables)
 
 | Migration | Tables |
 |---|---|
@@ -32,8 +32,12 @@ Per account, default **Disabled**. The ladder (a mode needs the ones under it; a
 | `2026_11_07_100100_create_sales_channel_tables` | `sales_channel_accounts`, `sales_channel_product_mappings`, `external_order_mappings`, `external_order_lines`, `sales_channel_sync_states`, `sales_channel_api_logs`, `sales_channel_events` |
 | `2026_11_07_100200_create_inventory_and_routing_tables` | `inventory_locations`, `inventory_location_balances`, `inventory_source_policies`, `inventory_reservations`, `fulfillment_routing_rules`, `fulfillment_routing_decisions` |
 | `2026_11_08_100000_add_state_before_dispute_to_operational_cost_entries` | one nullable column on `operational_cost_entries` (this module's own table): the state a contested cost had, so that a dispute settled in its favour restores it |
+| `2026_11_09_100000_add_refund_columns_to_external_order_lines` | two nullable decimals on `external_order_lines`: `refunded_total` and `refunded_tax`, what the channel refunded of the line (set per refund by `ChannelRefundApplier`) |
+| `2026_11_09_100100_add_charge_matching_to_sales_channel_events` | two nullable, indexed columns on `sales_channel_events`: `charge_key` (the canonical identity of a charge, `ChargeIdentity`) and `duplicate_of_id` (the API event a statement row repeats, `ChargeOverlapMatcher`) |
+| `2026_11_09_100200_create_operational_cost_return_decisions_table` | `operational_cost_return_decisions`: one row per order line and return event (unique), the units put back and written off, where, the layer and ledger entry it made, who decided, and whether it was automatic |
+| `2026_11_09_100300_add_basis_to_operational_cost_reconciliations` | one nullable column on `operational_cost_reconciliations`: what an invoice line was compared with (empty: the estimate; `statements`: the total the channel's statements booked for the fee and period) |
 
-`seller_id` is `0` for the platform and the seller's id otherwise (never NULL, so the unique keys hold). No table or column of the platform that existed before this work is altered.
+`seller_id` is `0` for the platform and the seller's id otherwise (never NULL, so the unique keys hold). No table or column of the platform that existed before this work is altered. `SalesChannelSchema` and `EnsureSalesChannelsMigrated` require every table and column above: until all eight migrations have run, the pages and the scheduled commands say so instead of failing on a missing column.
 
 ## Channel orders are not storefront orders
 
@@ -68,7 +72,7 @@ Old call logs and the stored text of old webhook deliveries are removed daily by
 
 * **Enabling** app-driven creation of a Torod/M5AZN shipment for a channel order. It is built, tested and documented in [dispatch.md](dispatch.md) and switched off by default (three environment switches, a master-administrator approval and two account settings); it must stay off until the owner has decided the data-protection basis, the reporting impact of the internal order and the open vendor questions listed there.
 * Automatic discovery of an existing Torod shipment for a Trendyol order is built (`TorodShipmentLookup`, exact match on the channel's order number in Torod's invoice number) and off: it stays off until the owner has seen one real sample showing which Torod field carries the channel's number. Until then `NullShipmentLookup` finds nothing and guesses nothing; linking is manual.
-* Trendyol product create/update/cancel/split and approving or rejecting a return; Amazon Catalog enrichment, Amazon returns, Notifications (SQS), Reports. Registered operations exist for some; none is built. See each connector's `capabilityMatrix()` and [api-reference.md](api-reference.md).
+* Trendyol product create/update/cancel/split and approving or rejecting a return; Amazon Catalog enrichment, reading Amazon's returned units (its refunds are read from the Finances statement and reduce revenue; a person records the units that came back), Notifications (SQS), Reports. Registered operations exist for some; none is built. See each connector's `capabilityMatrix()` and [api-reference.md](api-reference.md).
 * Importing channel listings as new application products, updating application products from a channel, syncing the "product status" to Trendyol, and matching by ASIN (it is read and shown; matching is by SKU and barcode only).
 * Routing for the store's own orders (the engine decides channel orders only), more than one shipment per Amazon order (an order row holds one provider, one shipment reference and one tracking number), dividing a location's quantity between the channels that offer it, and queue jobs (every sync, publish and cost refresh is a scheduled artisan command; "Sync now" and "Publish now" run inside the web request).
 * Odoo / any accounting destination: `AccountingDestination` + a null implementation only.
@@ -84,6 +88,7 @@ Old call logs and the stored text of old webhook deliveries are removed daily by
 7. Amazon Finances: a transaction carries breakdowns of its own and of each item; the mapper reads only the transaction's own when present (they add up the items') and the items' otherwise. A `nextToken` is documented as needing the arguments of the call that produced it, which is why a paused statement sweep reuses its window; whether Amazon actually refuses a changed one could not be settled offline.
 8. Trendyol settlements: the sign of `commissionAmount` is printed negative in the Turkish sign table but positive in the international samples; the mapper does not depend on it (a Sale row's commission is a cost of its size, a Return row's is given back). The statement rows' other signs and the claims date window are also unverified.
 9. Amazon FBM classification reads only `fulfillment.fulfilledBy` and `salesChannel.channelName`; the order's `programs` list (for example Easy Ship) is stored and never used, so whether such an order is FBM for routing is not verified.
+10. Amazon refunds (`ChannelRefundApplier`, `amazon.refund_parts`): the sign of a refund's amounts (money back to the buyer negative), the identifiers it carries (order, refund, item SKU) and which breakdown type is the goods, the shipping, a promotion or the tax were built from the documentation and a fixture, never from a real refund. Verify on the first one.
 
 ## Timezones
 

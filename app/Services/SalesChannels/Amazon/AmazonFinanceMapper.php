@@ -16,13 +16,22 @@ use Carbon\CarbonImmutable;
  * person, never silently counted as a cost or as revenue. Signs are taken as given: expenses are negative, so a fee's cost to us is the negation.
  *
  * ONE level of the tree is read: the transaction's own breakdowns already add up what its items' breakdowns explain, so reading both would count every fee twice. The items'
- * breakdowns are read only when the transaction carries none of its own, and then each fact names its item, so two items with the same fee are two facts.
+ * breakdowns are read only when the transaction carries none of its own, and then each fact names its item, so two items with the same fee are two facts. A REFUND transaction
+ * is read item by item whenever its items carry breakdowns, because what it gives back has to be told per item (and so per order line); its fees are read the same way and are
+ * netted against the fees of the order as every posting of it is.
+ *
+ * A refunded amount is classified by what it gives back (`refund_parts` in config: the goods, the shipping, the promotion that was taken off, the tax) and keeps the item it
+ * is about, the refund it belongs to and its SKU in its meta, so ChannelRefundApplier can take it off the revenue of the right order line. An amount of a refund that is none
+ * of those is UNCLASSIFIED and kept for a person: it is never counted, and never dropped.
  *
  * Identity is stable under redelivery (transaction id + item + path in the tree + amount + date), so importing a window twice, or a transaction that moves from DEFERRED to
  * released, records each fact once.
  */
 class AmazonFinanceMapper
 {
+    /** A refunded amount that is none of the parts a refund is made of. */
+    private const OTHER_PART = 'other';
+
     /**
      * @param array<string, mixed> $transaction one element of `payload.transactions[]`
      * @return list<RemoteFinancialEntry>
@@ -33,10 +42,12 @@ class AmazonFinanceMapper
         $type = (string) ($transaction['transactionType'] ?? 'Transaction');
         $postedAt = CarbonImmutable::parse((string) ($transaction['postedDate'] ?? now()->toIso8601String()));
         $orderId = $this->related((array) ($transaction['relatedIdentifiers'] ?? []), 'ORDER_ID');
+        $refundId = $this->related((array) ($transaction['relatedIdentifiers'] ?? []), 'REFUND_ID');
+        $settlementId = $this->related((array) ($transaction['relatedIdentifiers'] ?? []), 'SETTLEMENT_ID') ?? $this->related((array) ($transaction['relatedIdentifiers'] ?? []), 'FINANCIAL_EVENT_GROUP_ID');
         $sku = $this->contextValue($transaction, 'sku');
         $currencyFallback = (string) ($transaction['totalAmount']['currencyCode'] ?? $account->currency ?? '');
 
-        $leaves = $this->leavesOf($transaction);
+        $leaves = $this->leavesOf($transaction, $this->isRefund($type));
         if ($leaves === [] && isset($transaction['totalAmount']['currencyAmount'])) {
             $leaves[] = ['path' => [$type], 'amount' => $transaction['totalAmount']['currencyAmount'], 'currency' => $currencyFallback, 'item' => null, 'sku' => null];
         }
@@ -49,6 +60,10 @@ class AmazonFinanceMapper
             }
             $path = implode(' > ', $leaf['path']);
             [$category, $component] = $this->classify($type, $leaf['path']);
+            $part = $category === RemoteFinancialEntry::REFUND ? $this->refundPart($leaf['path']) : null;
+            if ($part === self::OTHER_PART) {
+                $category = RemoteFinancialEntry::UNCLASSIFIED;
+            }
             $cost = in_array($category, [RemoteFinancialEntry::FEE, RemoteFinancialEntry::ADJUSTMENT], true) ? $amount->negated() : $amount;
 
             $entries[] = new RemoteFinancialEntry(
@@ -59,11 +74,18 @@ class AmazonFinanceMapper
                 currency: strtoupper((string) ($leaf['currency'] ?: $currencyFallback)),
                 orderId: $orderId,
                 packageId: null,
-                lineId: null,
+                lineId: $part === null ? null : $leaf['item'],
                 sku: $leaf['sku'] ?? $sku,
                 postedAt: $postedAt,
                 rawType: mb_substr($type . ' > ' . $path, 0, 190),
-                meta: ['transaction_id' => $transactionId, 'status' => $transaction['transactionStatus'] ?? null],
+                meta: array_filter([
+                    'transaction_id' => $transactionId,
+                    'status' => $transaction['transactionStatus'] ?? null,
+                    'settlement_id' => $settlementId,
+                    'refund_id' => $part === null ? null : $refundId,
+                    'refund_part' => $part === self::OTHER_PART ? null : $part,
+                    'item' => $part === null ? null : $leaf['item'],
+                ], static fn ($value): bool => $value !== null),
             );
         }
 
@@ -71,21 +93,35 @@ class AmazonFinanceMapper
     }
 
     /**
-     * The leaves of the transaction's own breakdowns, or, when it has none, of every item's.
+     * The leaves of the transaction's own breakdowns, or, when it has none, of every item's; a refund is read item by item when its items carry any.
      *
      * @param array<string, mixed> $transaction
      * @return list<array{path: list<string>, amount: mixed, currency: string, item: string|null, sku: string|null}>
      */
-    private function leavesOf(array $transaction): array
+    private function leavesOf(array $transaction, bool $itemByItem): array
     {
+        if ($itemByItem) {
+            $leaves = $this->itemLeaves($transaction);
+            if ($leaves !== []) {
+                return $leaves;
+            }
+        }
+
         $leaves = [];
         foreach ((array) ($transaction['breakdowns'] ?? []) as $breakdown) {
             $this->collect((array) $breakdown, [], $leaves, item: null, sku: null);
         }
-        if ($leaves !== []) {
-            return $leaves;
-        }
 
+        return $leaves !== [] ? $leaves : $this->itemLeaves($transaction);
+    }
+
+    /**
+     * @param array<string, mixed> $transaction
+     * @return list<array{path: list<string>, amount: mixed, currency: string, item: string|null, sku: string|null}>
+     */
+    private function itemLeaves(array $transaction): array
+    {
+        $leaves = [];
         foreach (array_values((array) ($transaction['items'] ?? [])) as $position => $item) {
             $item = (array) $item;
             $name = $this->itemName($item, $position);
@@ -171,12 +207,49 @@ class AmazonFinanceMapper
         return [RemoteFinancialEntry::UNCLASSIFIED, null];
     }
 
-    /** @param list<array<string, mixed>> $identifiers */
+    /** What a refund transaction is: its type says so (the patterns of the `refund` category, "Refund" in practice). */
+    private function isRefund(string $transactionType): bool
+    {
+        foreach ((array) config('sales_channels.amazon.finance_map.refund', []) as $pattern) {
+            if (preg_match($pattern, $transactionType) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * What a refunded amount gives back, by the type of its breakdown (`sales_channels.amazon.refund_parts`; the first part whose pattern matches wins, so "Shipping tax" is
+     * tax): the goods, the shipping, a promotion that was taken off, the tax. Anything else is OTHER_PART.
+     *
+     * @param list<string> $path
+     */
+    private function refundPart(array $path): string
+    {
+        $leaf = end($path) ?: '';
+        foreach ((array) config('sales_channels.amazon.refund_parts', []) as $part => $patterns) {
+            foreach ((array) $patterns as $pattern) {
+                if (preg_match($pattern, $leaf) === 1) {
+                    return (string) $part;
+                }
+            }
+        }
+
+        return self::OTHER_PART;
+    }
+
+    /**
+     * Identifiers come as `relatedIdentifierName` / `relatedIdentifierValue` on a transaction and, in the model's own spelling, as `itemRelatedIdentifierName` /
+     * `itemRelatedIdentifierValue` on an item: both are read.
+     *
+     * @param list<array<string, mixed>> $identifiers
+     */
     private function related(array $identifiers, string $name): ?string
     {
         foreach ($identifiers as $identifier) {
-            if (($identifier['relatedIdentifierName'] ?? null) === $name) {
-                return (string) $identifier['relatedIdentifierValue'];
+            if (($identifier['relatedIdentifierName'] ?? $identifier['itemRelatedIdentifierName'] ?? null) === $name) {
+                return (string) ($identifier['relatedIdentifierValue'] ?? $identifier['itemRelatedIdentifierValue'] ?? '');
             }
         }
 

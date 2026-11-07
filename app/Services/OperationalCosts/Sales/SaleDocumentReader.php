@@ -262,6 +262,11 @@ class SaleDocumentReader
             $revenue = $gross->minus($discount)->minus($includesTax ? $tax : Money::zero());
             $returned = min($line->quantity_returned, $active);
             $unitRevenue = $active > 0 ? $revenue->dividedBy($active) : Money::zero();
+            // What the channel refunded in money (an Amazon refund, set per refund by ChannelRefundApplier) is the figure when there is one, and never more than the line earned (the goods
+            // and the shipping it was charged); a line that only has returned units (a Trendyol claim) is valued at its units' share of the revenue.
+            $refunded = $line->refunded_total === null
+                ? $unitRevenue->times($returned)
+                : Money::of($line->refunded_total)->min($revenue->plus(Money::of($line->shipping_total ?? 0)->times($active)->dividedBy($ordered)))->max(Money::zero());
 
             $location = $line->inventory_location_id
                 ?? ($mode === FulfillmentMode::Fba ? ($locations['amazon_fba:' . $mapping->account_id] ?? null) : ($locations[$line->provider ?? 'own_warehouse'] ?? null));
@@ -274,7 +279,7 @@ class SaleDocumentReader
                 sku: $line->sku,
                 quantity: $active,
                 revenue: $revenue,
-                refunded: $unitRevenue->times($returned),
+                refunded: $refunded,
                 inventoryLocationId: $location === null ? null : (int) $location,
                 costBasis: $line->provider === 'm5azn' ? SaleLine::BASIS_SUPPLIER : SaleLine::BASIS_OWNED_STOCK,
                 provider: $line->provider,

@@ -24,7 +24,10 @@ class ChannelLogController extends Controller
 
     public const SOURCES = ['webhook', 'notification', 'poll', 'system', 'manual'];
 
-    public const OUTCOMES = ['received', 'recorded_only', 'needs_review', 'applied', 'ignored_capability_off', 'ignored_invalid', 'failed'];
+    public const OUTCOMES = ['received', 'recorded_only', 'needs_review', 'applied', 'ignored_capability_off', 'ignored_invalid', 'failed', 'duplicate'];
+
+    /** The notes that say why an event waits for a person (SalesChannelEvent::NOTE_*). */
+    public const NOTES = ['possible_overlap', 'order_not_held', 'line_not_matched', 'currency_differs'];
 
     private const PER_PAGE = 50;
 
@@ -45,6 +48,7 @@ class ChannelLogController extends Controller
             'events' => $tab === self::TAB_EVENTS ? $this->events($request) : null,
             'sources' => self::SOURCES,
             'outcomes' => self::OUTCOMES,
+            'notes' => self::NOTES,
         ]);
     }
 
@@ -70,6 +74,7 @@ class ChannelLogController extends Controller
             ->when($filters['account'], static fn ($query, int $account) => $query->where('account_id', $account))
             ->when($filters['source'], static fn ($query, string $source) => $query->where('source', $source))
             ->when($filters['outcome'], static fn ($query, string $outcome) => $query->where('outcome', $outcome))
+            ->when($filters['note'], static fn ($query, string $note) => $query->where('outcome_note', $note))
             ->when($filters['event_type'], static fn ($query, string $type) => $query->where('event_type', 'like', $type . '%'))
             ->orderByDesc('id')
             ->paginate(self::PER_PAGE)
@@ -77,7 +82,7 @@ class ChannelLogController extends Controller
     }
 
     /**
-     * @return array{account: int|null, operation: string|null, result: string|null, dry_run: string|null, source: string|null, outcome: string|null, event_type: string|null}
+     * @return array{account: int|null, operation: string|null, result: string|null, dry_run: string|null, source: string|null, outcome: string|null, note: string|null, event_type: string|null}
      */
     private function filters(Request $request): array
     {
@@ -88,6 +93,7 @@ class ChannelLogController extends Controller
             'dry_run' => $this->oneOf('dry_run', ['yes', 'no']),
             'source' => $this->oneOf('source', self::SOURCES),
             'outcome' => $this->oneOf('outcome', self::OUTCOMES),
+            'note' => $this->oneOf('note', self::NOTES),
             'event_type' => trim(requestString('event_type')) ?: null,
         ];
     }

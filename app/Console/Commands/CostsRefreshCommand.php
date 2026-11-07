@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\SkipsUntilSalesChannelsMigrated;
+use App\Console\Commands\Concerns\SkipsWhileOperationalCostsAreOff;
 use App\Services\OperationalCosts\CostRefresher;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -10,6 +11,7 @@ use Illuminate\Console\Command;
 class CostsRefreshCommand extends Command
 {
     use SkipsUntilSalesChannelsMigrated;
+    use SkipsWhileOperationalCostsAreOff;
 
     protected $signature = 'costs:refresh {--days=3 : sales placed or changed in this many days are brought up to date}';
 
@@ -17,7 +19,7 @@ class CostsRefreshCommand extends Command
 
     public function handle(CostRefresher $refresher): int
     {
-        if ($this->notMigratedYet()) {
+        if ($this->operationalCostsAreOff() || $this->notMigratedYet()) {
             return self::SUCCESS;
         }
         $result = $refresher->refreshChangedSince(CarbonImmutable::now()->subDays(max(1, (int) $this->option('days')))->startOfDay());

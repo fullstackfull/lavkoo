@@ -2,6 +2,7 @@
 
 namespace App\Services\OperationalCosts\Reports;
 
+use App\Services\OperationalCosts\Profit\ConversionGaps;
 use App\Services\OperationalCosts\Profit\ProfitResult;
 use App\Services\OperationalCosts\Profit\ProfitRow;
 use App\Services\OperationalCosts\Support\Money;
@@ -15,6 +16,9 @@ use App\Services\OperationalCosts\Support\Money;
  *
  * A sale no cost was recorded for at all is not `costed`: the profit service calls it complete because nothing of it is missing, but its cost and profit are not
  * known, so the line gives none (a dash on a page, an empty cell in a file) rather than a cost of zero and a profit equal to the revenue.
+ *
+ * Likewise a line whose revenue could not be converted into the reporting currency (`gaps()`: no recorded exchange rate) has an unknown revenue and no profit, and a line
+ * with any such gap, in its revenue or in its costs, is incomplete: its figures are the ones that could be computed, never a finished number.
  */
 final readonly class ProfitLine
 {
@@ -66,9 +70,23 @@ final readonly class ProfitLine
         );
     }
 
-    public function revenue(): Money
+    /** Null when the revenue could not be converted: unknown, not zero. */
+    public function revenue(): ?Money
     {
-        return $this->source->revenue;
+        return $this->source->revenueKnown() ? $this->source->revenue : null;
+    }
+
+    public function gaps(): ConversionGaps
+    {
+        return $this->source->gaps;
+    }
+
+    /** How many charges in dispute (in neither cost figure) the line leaves out. */
+    public function disputedCount(): int
+    {
+        return $this->source instanceof ProfitResult
+            ? array_sum(array_map(static fn ($bucket): int => $bucket->disputed, $this->source->buckets))
+            : $this->source->disputedCosts;
     }
 
     public function estimatedCost(): ?Money

@@ -16,6 +16,10 @@ use Illuminate\Support\Collection;
  * A line's revenue is what its customer paid for it, plus its share (by value) of what the order charged for shipping and gave away in
  * discounts. Its costs are the cost of its own goods, plus its allocated share of every charge that covered several items. A charge no one
  * could split stays in a row of its own ("unallocated") so that it is visible instead of vanishing into an average.
+ *
+ * An amount in a currency with no recorded exchange rate is never multiplied by zero or skipped without a word: it is left out and the row records it in `gaps`
+ * (counts and currencies), exactly as ProfitabilityService does for one sale, so a row built on it is incomplete and its profit is not presented as a finished number.
+ * A charge in dispute is left out of the cost figures and counted as disputed; a cost nobody determined is counted as missing. The three are different things.
  */
 class ProductProfitability
 {
@@ -44,10 +48,16 @@ class ProductProfitability
             $shares = $this->orderLevelShares($document);
 
             foreach ($document->lines as $index => $line) {
-                $key = $line->productId === null ? self::UNALLOCATED : (string) $line->productId;
-                $row = $rows[$key] ??= new ProfitRow($key, $key);
+                $row = $this->rowFor($rows, $line->productId);
                 $row->units += $line->quantity;
-                $row->revenue = $row->revenue->plus($line->netRevenue()->plus($shares[$index])->times($factor ?? 0));
+                $revenue = $line->netRevenue()->plus($shares[$index]);
+                if ($factor === null) {
+                    $row->gaps = $revenue->isZero() ? $row->gaps : $row->gaps->withRevenue($document->currency);
+
+                    continue;
+                }
+                $row->revenue = $row->revenue->plus($revenue->times($factor));
+                $row->convertedRevenues++;
             }
 
             $entries = $this->profit->entriesForDocuments([$document])[$document->cacheKey()] ?? collect();
@@ -74,30 +84,41 @@ class ProductProfitability
     private function addEntry(array &$rows, OperationalCostEntry $entry, Collection $allocations, string $base): void
     {
         if ($entry->state === CostState::Missing) {
-            $key = $entry->product_id === null ? self::UNALLOCATED : (string) $entry->product_id;
-            $row = $rows[$key] ??= new ProfitRow($key, $key);
-            $row->missingCosts++;
+            $this->rowFor($rows, $entry->product_id)->missingCosts++;
 
             return;
         }
+
         $factor = $this->conversionFactor($entry->currency, $base, $entry);
-        if ($factor === null || $entry->state === CostState::Disputed) {
-            return;
-        }
-
         $parts = $allocations->isNotEmpty()
             ? $allocations->map(static fn (OperationalCostAllocation $allocation): array => [$allocation->product_id, Money::of($allocation->amount)])->all()
             : [[$entry->product_id, Money::of($entry->amount)]];
 
         foreach ($parts as [$productId, $amount]) {
-            $key = $productId === null ? self::UNALLOCATED : (string) $productId;
-            $row = $rows[$key] ??= new ProfitRow($key, $key);
+            $row = $this->rowFor($rows, $productId);
+            if ($factor === null) {
+                $row->gaps = $row->gaps->withCost($entry->currency);
+                continue;
+            }
             $converted = $amount->times($factor);
+            if ($entry->state === CostState::Disputed) {
+                $row->disputedCosts++;
+                $row->disputedCost = $row->disputedCost->plus($converted);
+                continue;
+            }
             $row->estimatedCost = $row->estimatedCost->plus($converted);
             if ($entry->state->isSettled()) {
                 $row->actualCost = $row->actualCost->plus($converted);
             }
         }
+    }
+
+    /** @param array<string, ProfitRow> $rows */
+    private function rowFor(array &$rows, int|string|null $productId): ProfitRow
+    {
+        $key = $productId === null ? self::UNALLOCATED : (string) $productId;
+
+        return $rows[$key] ??= new ProfitRow($key, $key);
     }
 
     /**

@@ -14,6 +14,7 @@ use App\Services\OperationalCosts\Data\RecordOutcome;
 use App\Services\OperationalCosts\InventoryCostLayerService;
 use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\OperationalCosts\Support\OperationalCostsSwitch;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 
@@ -32,6 +33,8 @@ use InvalidArgumentException;
  *     stands.
  *
  * Moving stock to another location is not a sale and never reaches this class.
+ *
+ * refresh() does nothing while OPERATIONAL_COSTS_ENABLED is off (the default): no estimate, no FIFO consumption, no cancellation reversal.
  */
 class SaleCostService
 {
@@ -45,6 +48,9 @@ class SaleCostService
     /** @return list<RecordOutcome> */
     public function refresh(SaleDocument $document): array
     {
+        if (!OperationalCostsSwitch::enabled()) {
+            return [];
+        }
         if ($document->isCancelled()) {
             return $this->cancelAllLines($document);
         }
@@ -107,11 +113,15 @@ class SaleCostService
 
     /**
      * Units of a recognised line that come back into stock (a return that is put on the shelf again). They re-enter at the cost they left
-     * at, as a new layer, and that part of the line's cost is reversed in the ledger. Repeating a reference changes nothing.
+     * at, as a new layer (at `$locationId`, or where the line was sold from), and that part of the line's cost is reversed in the ledger. Repeating a reference changes nothing.
+     *
+     * It caps one call, not a line's history: how many units may come back over all the returns of a line is for ReturnDecisionService, which is how a person or the owner's
+     * automatic setting reaches this.
      */
-    public function restock(SaleDocument $document, SaleLine $line, int $quantity, string $reference): ?RecordOutcome
+    public function restock(SaleDocument $document, SaleLine $line, int $quantity, string $reference, ?int $locationId = null): ?RecordOutcome
     {
-        if ($quantity < 1 || $line->inventoryLocationId === null || $line->productId === null) {
+        $locationId ??= $line->inventoryLocationId;
+        if ($quantity < 1 || $locationId === null || $line->productId === null) {
             return null;
         }
         $consumed = InventoryCostConsumption::where('consumer_type', $line->targetType)->where('consumer_id', $line->targetId)->whereNull('reversed_at')->get();
@@ -125,7 +135,7 @@ class SaleCostService
 
         $perUnit = Money::sum($consumed->map(static fn (InventoryCostConsumption $row): Money => Money::of($row->total_cost)))->dividedBy($units);
         $this->layers->receive(new LayerReceipt(
-            locationId: $line->inventoryLocationId,
+            locationId: $locationId,
             productId: $line->productId,
             quantity: $quantity,
             unitCost: $perUnit,
@@ -135,6 +145,7 @@ class SaleCostService
             identity: 'restock:' . $reference . ':' . $line->targetType . ':' . $line->targetId,
             variantKey: $line->variantKey,
             sku: $line->sku,
+            sourceId: $line->targetId,
             sourceRef: $reference,
             sellerId: $document->sellerId,
         ));

@@ -16,6 +16,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <x-k.card class="mb-3">
             <form method="GET" action="{{ route('admin.operational-costs.invoices.index') }}" class="row g-2 align-items-end">
                 <div class="col-md-3">

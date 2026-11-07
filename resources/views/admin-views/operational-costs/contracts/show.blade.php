@@ -24,6 +24,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         @if (!$isDraft)
             <div class="alert alert-info fs-12" role="note">{{ translate('this_contract_is_not_a_draft_its_rules_never_change_note') }}</div>
         @endif

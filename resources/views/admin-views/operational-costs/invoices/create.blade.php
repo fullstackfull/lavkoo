@@ -16,6 +16,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <div class="alert alert-info fs-12" role="note">{{ translate('an_invoice_is_kept_as_received_note') }}</div>
 
         @if ($errors->any())

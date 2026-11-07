@@ -17,8 +17,8 @@ final class SnapshotState
     /** @var list<string> listings: the price a person set and the state of each publish */
     public const LISTING = ['manual_price', 'publish'];
 
-    /** @var list<string> order lines: the units each return claim gave back */
-    public const ORDER_LINE = ['returned_by_claim'];
+    /** @var list<string> order lines: the units each return claim gave back, and what each refund took back */
+    public const ORDER_LINE = ['returned_by_claim', 'refunded_by_event'];
 
     /**
      * @param array<string, mixed>|null $current what the row holds now

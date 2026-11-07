@@ -137,4 +137,59 @@ final class AmazonFixtures
             ]],
         ];
     }
+
+    /**
+     * One refunded item of a Refund transaction: what went back to the buyer (negative: goods, shipping, tax; a promotion that was taken off is the other way) and the fees Amazon
+     * reverses or charges on the refund (a commission credited back is positive, a fee charged on the refund negative).
+     *
+     * @param array{principal?: string, shipping?: string, tax?: string, promotion?: string, commission?: string, refund_commission?: string, other?: string} $amounts
+     * @return array<string, mixed>
+     */
+    public static function refundItem(string $sku = 'SKU-1', string $adjustmentId = 'ADJ-1', array $amounts = []): array
+    {
+        $amounts += ['principal' => '-100.00', 'shipping' => '0', 'tax' => '-15.00', 'promotion' => '0', 'commission' => '20.00', 'refund_commission' => '0', 'other' => '0'];
+        $sales = array_filter([
+            self::leaf('Product Charges', $amounts['principal']),
+            $amounts['shipping'] === '0' ? null : self::leaf('Shipping', $amounts['shipping']),
+            $amounts['tax'] === '0' ? null : self::leaf('Tax', $amounts['tax']),
+            $amounts['promotion'] === '0' ? null : self::leaf('Promotions', $amounts['promotion']),
+            $amounts['other'] === '0' ? null : self::leaf('Gift wrap', $amounts['other']),
+        ]);
+        $expenses = array_filter([
+            $amounts['commission'] === '0' ? null : self::leaf('Commission', $amounts['commission']),
+            $amounts['refund_commission'] === '0' ? null : self::leaf('RefundCommission', $amounts['refund_commission']),
+        ]);
+
+        return [
+            'description' => 'Refunded item ' . $sku,
+            'totalAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => '0.00'],
+            'relatedIdentifiers' => [['itemRelatedIdentifierName' => 'ORDER_ADJUSTMENT_ITEM_ID', 'itemRelatedIdentifierValue' => $adjustmentId]],
+            'contexts' => [['contextType' => 'ProductContext', 'asin' => 'B0' . $sku, 'sku' => $sku, 'quantityShipped' => 1]],
+            'breakdowns' => array_values(array_filter([
+                ['breakdownType' => 'Sales', 'breakdownAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => '0.00'], 'breakdowns' => array_values($sales)],
+                $expenses === [] ? null : ['breakdownType' => 'Expenses', 'breakdownAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => '0.00'], 'breakdowns' => array_values($expenses)],
+            ])),
+        ];
+    }
+
+    /**
+     * A Refund transaction of one order: the refund's own id and one or more refunded items.
+     *
+     * @param list<array<string, mixed>>|null $items
+     * @return array<string, mixed>
+     */
+    public static function refund(string $transactionId = 'TX-REFUND-1', string $refundId = 'REFUND-1', string $orderId = '171-0000001-0000001', ?array $items = null, string $posted = '2026-11-08T10:00:00Z', string $status = 'RELEASED'): array
+    {
+        return [
+            'sellingPartnerMetadata' => ['sellingPartnerId' => 'A1SELLER', 'accountType' => 'Standard Orders', 'marketplaceId' => self::MARKETPLACE],
+            'relatedIdentifiers' => [['relatedIdentifierName' => 'ORDER_ID', 'relatedIdentifierValue' => $orderId], ['relatedIdentifierName' => 'REFUND_ID', 'relatedIdentifierValue' => $refundId]],
+            'transactionType' => 'Refund',
+            'transactionId' => $transactionId,
+            'transactionStatus' => $status,
+            'description' => 'Refund Order',
+            'postedDate' => $posted,
+            'totalAmount' => ['currencyCode' => 'SAR', 'currencyAmount' => '-95.00'],
+            'items' => $items ?? [self::refundItem()],
+        ];
+    }
 }

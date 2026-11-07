@@ -25,6 +25,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <x-k.tabs :items="$tabs" class="mb-3" />
 
         <x-k.card class="mb-3">

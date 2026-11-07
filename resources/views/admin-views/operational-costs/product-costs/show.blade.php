@@ -14,6 +14,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         <div class="alert alert-info fs-12" role="note">{{ translate('a_layer_is_never_edited_its_cost_reaches_the_books_when_a_sale_takes_units_from_it') }}</div>
 
         <x-k.card :title="translate('cost_layer')" class="mb-3">

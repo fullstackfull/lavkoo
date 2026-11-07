@@ -23,6 +23,8 @@
             </x-slot:actions>
         </x-k.page-header>
 
+        @include('admin-views.operational-costs.partials._module-state')
+
         @if ($invoice->status === OperationalCostInvoice::STATUS_VOID)
             <div class="alert alert-secondary fs-12" role="note">{{ translate('this_invoice_is_void_and_counts_for_nothing') }}</div>
         @endif
@@ -161,6 +163,7 @@
                                         <td>
                                             {{ $itemsById[$row->invoice_item_id]->line_no ?? '' }}
                                             <div class="fs-10 text-muted">{{ $itemsById[$row->invoice_item_id]->description ?? '' }}</div>
+                                            @if ($row->basis === 'statements')<div class="fs-10"><x-k.badge tone="info" :dot="false">{{ translate('compared_with_the_channel_statements_not_an_estimate') }}</x-k.badge></div>@endif
                                         </td>
                                         <td class="k-table__num k-num">{{ CostFormat::amount($row->estimated_amount, $row->currency) }}</td>
                                         <td class="k-table__num k-num">{{ CostFormat::amount($row->actual_amount, $row->currency) }}</td>

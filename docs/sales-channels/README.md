@@ -2,14 +2,14 @@
 
 A multi-channel layer on top of the storefront: **Amazon** (Selling Partner API) and **Trendyol** (Marketplace Integration API) accounts, listings mapped to our products, channel orders followed and routed, stock and price publishing, and an **operational cost ledger** that turns every sale into an honest estimated-versus-actual profit. Odoo is deferred: there is an extension point and nothing more.
 
-**Everything ships OFF.** Nothing leaves the server until `SALES_CHANNELS_ENABLED` is on, an account is enabled and holds the capability, and (for writes) `SALES_CHANNELS_EXTERNAL_WRITES_ENABLED` is on, the account allows writes, dry-run is off and a person has recorded an approval. Credentials are entered in the admin panel and stored encrypted; they are never in code, config, environment files, logs or responses.
+**Everything ships OFF.** Nothing leaves the server until `SALES_CHANNELS_ENABLED` is on, an account is enabled and holds the capability, and (for writes) `SALES_CHANNELS_EXTERNAL_WRITES_ENABLED` is on, the account allows writes, dry-run is off and a person has recorded an approval. Credentials are entered in the admin panel and stored encrypted; they are never in code, config, environment files, logs or responses. The cost module has switches of its own (`OPERATIONAL_COSTS_ENABLED`, then `OPERATIONAL_COSTS_SCHEDULE_ENABLED`, both off): running the migrations starts no FIFO consumption, no cost entry and no storage charge, and nothing is scheduled until the owner switches them on (see [operations.md](operations.md)).
 
 | Read this | For |
 |---|---|
 | [architecture.md](architecture.md) | layers, tables, flows, the safety model, the decisions made and the assumptions they rest on |
 | [api-reference.md](api-reference.md) | which official API versions and endpoints are used, the permissions each needs, rate limits, what is documented but not built, what could not be verified |
-| [costs.md](costs.md) | the operational-cost ledger: contracts, fee types and calculation methods, product cost layers, profit |
-| [operations.md](operations.md) | deployment (exact migrations), switches, scheduler, runbooks (connect, sync, link, route, publish, roll back) |
+| [costs.md](costs.md) | the operational-cost ledger: contracts, fee types and calculation methods, product cost layers, one charge one cost (API, statement, invoice), profit, refunds and returns |
+| [operations.md](operations.md) | deployment (exact migrations), switches, scheduler, runbooks (connect, sync, link, route, publish, returns, roll back) |
 | [shared-file-changes.md](shared-file-changes.md) | every change to a file that existed before this work, for the other workstream |
 | [final-report.md](final-report.md) | the delivery report, in Arabic, in the 20 points the task asked for: what exists, what was tested and how, what is not built, the open risks |
 
