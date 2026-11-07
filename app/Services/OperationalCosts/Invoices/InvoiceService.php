@@ -334,49 +334,85 @@ class InvoiceService
      */
     private function receiveGoods(OperationalCostInvoice $invoice, $items): int
     {
-        $products = $items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id !== null && (float) $item->quantity > 0 && $item->match_status !== OperationalCostInvoiceItem::IGNORED);
-        $linked = $products->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->purchase_order_item_id !== null);
-        $products = $products->diffKeys($linked);
-        $freight = Money::sum($items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id === null && $item->cost_component === CostComponent::InboundFreight->value)->map(static fn (OperationalCostInvoiceItem $item): Money => Money::of($item->amount)));
-        $goodsValue = Money::sum($products->map(static fn (OperationalCostInvoiceItem $item): Money => Money::of($item->amount)));
-        $freightShares = $products->isEmpty() || $freight->isZero() ? [] : $freight->allocate($products->mapWithKeys(static fn (OperationalCostInvoiceItem $item): array => [$item->id => $goodsValue->isZero() ? Money::of(1) : Money::of($item->amount)])->all());
+        $goods = $items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id !== null && $item->match_status !== OperationalCostInvoiceItem::IGNORED
+            && ($item->purchase_order_item_id !== null ? (float) $item->quantity > 0 : (int) round((float) $item->quantity) >= 1));
+        $freight = $items->filter(static fn (OperationalCostInvoiceItem $item): bool => $item->product_id === null && $item->cost_component === CostComponent::InboundFreight->value)->keyBy('id');
+        $shares = FreightShares::of($goods, $freight);
 
         $count = 0;
-        foreach ($linked as $item) {
-            $expected = $this->purchaseOrders->expectedCost($item);
-            $this->reconciliation->compareWithPurchaseOrder($invoice, $item, $expected === null ? null : $expected['amount'], $expected['currency'] ?? null);
+        foreach ($goods as $item) {
+            if ($item->purchase_order_item_id !== null) {
+                $expected = $this->purchaseOrders->expectedCost($item);
+                $this->reconciliation->compareWithPurchaseOrder($invoice, $item, $expected === null ? null : $expected['amount'], $expected['currency'] ?? null);
+            } else {
+                $this->receiveLayer($invoice, $item, $shares->landed[$item->id] ?? null);
+            }
             $count++;
         }
-        foreach ($products as $item) {
-            $quantity = (int) round((float) $item->quantity);
-            if ($quantity < 1) {
-                continue;
-            }
-            $unitCost = Money::of($item->amount)->dividedBy($quantity);
-            $landed = isset($freightShares[$item->id]) ? $freightShares[$item->id]->dividedBy($quantity) : null;
-            $this->layers->receive(new LayerReceipt(
-                locationId: (int) $invoice->inventory_location_id,
-                productId: (int) $item->product_id,
-                quantity: $quantity,
-                unitCost: $unitCost,
-                currency: $item->currency,
-                receivedAt: CarbonImmutable::parse($invoice->invoice_date),
-                sourceType: 'purchase_invoice',
-                identity: 'invoice-item:' . $item->id,
-                variantKey: (string) $item->variant_key,
-                sku: $item->sku,
-                sourceId: (int) $invoice->id,
-                sourceRef: $invoice->invoice_number,
-                landedUnitCost: $landed,
-                supplierName: $invoice->party_name,
-                sellerId: (int) $invoice->seller_id,
-                supplierId: $invoice->getAttribute('supplier_id') === null ? null : (int) $invoice->supplier_id,
-            ));
-            $item->forceFill(['match_status' => OperationalCostInvoiceItem::MATCHED])->save();
+        foreach ($shares->outsideLayers as $freightId => $amount) {
+            $this->recordFreightOutsideLayers($invoice, $freight[$freightId], $amount);
             $count++;
         }
 
         return $count;
+    }
+
+    /** The layer of a goods line that no purchase order line is linked to; `$freight` is the freight it carries (its landed cost is that over its units). */
+    private function receiveLayer(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $item, ?Money $freight): void
+    {
+        $quantity = (int) round((float) $item->quantity);
+        $this->layers->receive(new LayerReceipt(
+            locationId: (int) $invoice->inventory_location_id,
+            productId: (int) $item->product_id,
+            quantity: $quantity,
+            unitCost: Money::of($item->amount)->dividedBy($quantity),
+            currency: $item->currency,
+            receivedAt: CarbonImmutable::parse($invoice->invoice_date),
+            sourceType: 'purchase_invoice',
+            identity: 'invoice-item:' . $item->id,
+            variantKey: (string) $item->variant_key,
+            sku: $item->sku,
+            sourceId: (int) $invoice->id,
+            sourceRef: $invoice->invoice_number,
+            landedUnitCost: $freight?->dividedBy($quantity),
+            supplierName: $invoice->party_name,
+            sellerId: (int) $invoice->seller_id,
+            supplierId: $invoice->getAttribute('supplier_id') === null ? null : (int) $invoice->supplier_id,
+        ));
+        $item->forceFill(['match_status' => OperationalCostInvoiceItem::MATCHED])->save();
+    }
+
+    /**
+     * The part of a freight line that no layer of the invoice carries (the share of the goods linked to purchase order lines, whose layers the orders make, or the whole line when the
+     * invoice has no goods lines) is a cost of its own, shown unallocated where a person sees it. It is never dropped.
+     */
+    private function recordFreightOutsideLayers(OperationalCostInvoice $invoice, OperationalCostInvoiceItem $line, Money $amount): void
+    {
+        $date = CarbonImmutable::parse($invoice->invoice_date);
+        $fx = $this->fx->convert($amount, $line->currency, $this->fx->baseCurrency());
+        $outcome = $this->ledger->record(new CostDraft(
+            subjectType: 'invoice_item',
+            subjectId: (int) $line->id,
+            component: CostComponent::InboundFreight,
+            state: CostState::Actual,
+            amount: $amount,
+            currency: $line->currency,
+            periodDate: $date,
+            source: 'invoice',
+            identity: 'invoice-item:' . $line->id . ':outside-layers',
+            sellerId: (int) $invoice->seller_id,
+            provider: $invoice->provider_code,
+            inventoryLocationId: $invoice->inventory_location_id,
+            invoiceItemId: (int) $line->id,
+            externalReference: $invoice->invoice_number,
+            calcInputs: ['invoice_id' => (int) $invoice->id, 'invoice_number' => $invoice->invoice_number, 'line' => (int) $line->line_no, 'outside_layers' => true],
+            occurredAt: $date,
+            fxRate: $fx['rate'] ?? null,
+            baseAmount: $fx['amount'] ?? null,
+            baseCurrency: $fx === null ? null : $this->fx->baseCurrency(),
+            allocationStatus: 'unallocated',
+        ));
+        $line->forceFill(['entry_id' => $outcome->entry->id, 'match_status' => OperationalCostInvoiceItem::UNMATCHED])->save();
     }
 
     /** The unreviewed twin of an invoice: same company, currency and total, in the same period, under a different number. */

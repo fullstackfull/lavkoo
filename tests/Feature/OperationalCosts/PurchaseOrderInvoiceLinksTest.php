@@ -4,6 +4,7 @@ namespace Tests\Feature\OperationalCosts;
 
 use App\Models\InventoryCostLayer;
 use App\Models\InventoryLocation;
+use App\Models\OperationalCostEntry;
 use App\Models\OperationalCostInvoice;
 use App\Models\OperationalCostInvoiceItem;
 use App\Models\OperationalCostReconciliation;
@@ -115,7 +116,7 @@ class PurchaseOrderInvoiceLinksTest extends TestCase
         $this->assertSame(['variance', null, null, '33.000000'], [$row->status, $row->estimated_amount, $row->variance_amount, $row->actual_amount]);
     }
 
-    public function test_a_linked_invoice_takes_the_supplier_of_the_order_and_its_freight_is_not_added_to_a_layer_it_does_not_make(): void
+    public function test_a_linked_invoice_takes_the_supplier_of_the_order_and_its_freight_is_a_cost_entry_of_its_own_not_added_to_a_layer_it_does_not_make(): void
     {
         [$product, $line, $supplier] = $this->layeredReceipt();
 
@@ -126,7 +127,8 @@ class PurchaseOrderInvoiceLinksTest extends TestCase
         $this->invoices->approve($invoice, adminId: 1);
 
         $this->assertSame($supplier, $invoice->fresh()->supplier_id);
-        $this->assertSame('0.000000', InventoryCostLayer::sole()->landed_unit_cost);
+        $this->assertSame('0.000000', InventoryCostLayer::sole()->landed_unit_cost, 'The order\'s layer is not changed after the fact.');
+        $this->assertSame(['20.000000'], OperationalCostEntry::where('cost_component', 'inbound_freight')->where('is_effective', true)->pluck('amount')->map(static fn ($amount): string => (string) $amount)->all(), 'The freight is in the ledger, not lost.');
     }
 
     /** @return array<string, array{0: string, 1: string}> */
