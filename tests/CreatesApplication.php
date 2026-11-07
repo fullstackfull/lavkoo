@@ -18,6 +18,12 @@ trait CreatesApplication
 
         $app->make(Kernel::class)->bootstrap();
 
+        // DB_STRICT_TESTS=1 runs the suite with MySQL/MariaDB in strict mode (the application's own connection setting is `strict => false`), to see what a strict server would reject.
+        if (getenv('DB_STRICT_TESTS') === '1') {
+            $app['config']->set('database.connections.mysql.strict', true);
+            $app['db']->purge('mysql');
+        }
+
         return $app;
     }
 }
