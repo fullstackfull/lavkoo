@@ -12,7 +12,7 @@ final class SalesChannelSchema
     /** The modules' own tables, and the Torod Point / M5AZN fulfilment tables they read (shipments, their items, the provider stock figures): without those, parts of the modules would fail. */
     private const REQUIRED = [
         'sales_channel_accounts', 'external_order_mappings', 'sales_channel_sync_states', 'inventory_locations', 'operational_cost_entries', 'operational_cost_return_decisions', 'channel_order_dispatches',
-        'provider_fulfillments', 'provider_fulfillment_items', 'provider_product_mappings',
+        'provider_fulfillments', 'provider_fulfillment_items', 'provider_product_mappings', 'inventory_pools',
     ];
 
     /**

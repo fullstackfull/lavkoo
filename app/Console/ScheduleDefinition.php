@@ -108,6 +108,8 @@ class ScheduleDefinition
         */
         $schedule->command('channels:sync --due')->everyFiveMinutes()->withoutOverlapping(30)->runInBackground();
         $schedule->command('channels:publish --only=stock,price,shipments')->everyFifteenMinutes()->withoutOverlapping(30)->runInBackground();
+        // Two minutes after each order import: divide the pools whose orders changed and send what lowers a quantity (never a raise).
+        $schedule->command('channels:publish --only=allocate')->cron('2-59/5 * * * *')->withoutOverlapping(30)->runInBackground();
         $schedule->command('channels:publish --only=settle')->everyTenMinutes()->withoutOverlapping(30);
         if (OperationalCostsSwitch::scheduled()) {
             $schedule->command('costs:refresh --days=3')->hourlyAt(37)->withoutOverlapping(60);

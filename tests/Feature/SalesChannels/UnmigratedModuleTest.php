@@ -88,6 +88,8 @@ class UnmigratedModuleTest extends TestCase
             'the charge-matching columns of the statement events' => ['2026_11_09_100100_add_charge_matching_to_sales_channel_events.php'],
             'the return decisions table' => ['2026_11_09_100200_create_operational_cost_return_decisions_table.php'],
             'the basis of a reconciliation' => ['2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php'],
+            'the dispatch claim table' => ['2026_11_09_200000_create_channel_order_dispatches_table.php'],
+            'the stock allocation pools' => ['2026_11_10_100000_add_stock_allocation.php'],
         ];
     }
 

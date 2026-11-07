@@ -12,6 +12,12 @@ use App\Models\SalesChannelProductMapping;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Support\SafeToast;
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
+use App\Services\SalesChannels\Inventory\Allocation\PoolWarnings;
+use App\Services\SalesChannels\Inventory\Allocation\StockShare;
+use App\Services\SalesChannels\Inventory\Allocation\StockShareValidator;
+use App\Services\SalesChannels\Inventory\PoolKey;
+use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -38,6 +44,9 @@ class ChannelProductController extends Controller
 
     public const PRICE_SOURCES = ['internal', 'channel', 'manual'];
 
+    /** What is audited when a listing's settings change. */
+    private const SETTINGS = ['stock_location_id', 'price_source', 'inventory_publish', 'price_publish', 'safety_buffer', 'max_publish_quantity', 'stock_share_mode', 'stock_share_value', 'stock_priority'];
+
     private const PER_PAGE = 25;
 
     public function __construct(
@@ -45,6 +54,10 @@ class ChannelProductController extends Controller
         private readonly ProductDirectory $products,
         private readonly AuditLogger $audit,
         private readonly ChannelLabels $labels,
+        private readonly StockShareValidator $shares,
+        private readonly PoolWarnings $warnings,
+        private readonly DirtyPools $dirtyPools,
+        private readonly PublishPolicyResolver $policies,
     ) {
     }
 
@@ -68,6 +81,7 @@ class ChannelProductController extends Controller
             'filters' => $filters,
             'statuses' => self::STATUSES,
             'priceSources' => self::PRICE_SOURCES,
+            'shareModes' => StockShare::MODES,
             'accounts' => SalesChannelAccount::orderBy('name')->get(['id', 'name', 'channel']),
             'locations' => InventoryLocation::active()->orderBy('name')->get(['id', 'name']),
             'products' => $this->products->named($listings->getCollection()->flatMap(static fn (SalesChannelProductMapping $listing): array => [$listing->product_id, $listing->suggested_product_id])),
@@ -140,8 +154,10 @@ class ChannelProductController extends Controller
             'max_publish_quantity' => ['nullable', 'integer', 'min:0', 'max:1000000'],
         ]);
         $this->refuseSwitchesThatCannotWork($mapping, $validated, $bag);
+        $share = $this->shares->share($request->all(), $bag);
 
-        $before = $mapping->only(['stock_location_id', 'price_source', 'inventory_publish', 'price_publish', 'safety_buffer', 'max_publish_quantity']);
+        $before = $mapping->only(self::SETTINGS);
+        $poolBefore = $this->poolOf($mapping);
         $snapshot = (array) $mapping->snapshot;
         if ($validated['price_source'] === 'manual') {
             $snapshot['manual_price'] = Money::of((string) $validated['manual_price'])->toStorage();
@@ -154,16 +170,20 @@ class ChannelProductController extends Controller
             'safety_buffer' => $validated['safety_buffer'] ?? null,
             'max_publish_quantity' => $validated['max_publish_quantity'] ?? null,
             'snapshot' => $snapshot,
-        ])->save();
+            'allocation' => null,
+        ] + $share)->save();
         $this->audit->record(
             action: 'sales_channel.listing_settings_changed',
             subject: $mapping,
             before: $before,
-            after: $mapping->only(array_keys($before)),
+            after: $mapping->only(self::SETTINGS),
             context: ['by' => auth('admin')->id(), 'manual_price_set' => $validated['price_source'] === 'manual'],
         );
+        // What the pool this listing took part in is shared out as has changed, and so has the pool it takes part in now: both are worked out again.
+        $this->dirtyPools->mark(array_filter([$poolBefore, $this->poolOf($mapping)]));
 
         ToastMagic::success(translate('listing_settings_saved_nothing_published'));
+        $this->announceStockWarnings($mapping);
 
         return back();
     }
@@ -201,6 +221,25 @@ class ChannelProductController extends Controller
         }
         if ($problems !== []) {
             throw ValidationException::withMessages($problems)->errorBag($bag);
+        }
+    }
+
+    private function poolOf(SalesChannelProductMapping $mapping): ?PoolKey
+    {
+        $locationId = $this->policies->resolve($mapping)->stockLocationId;
+
+        return $mapping->product_id === null || $locationId === null ? null : PoolKey::ofListing($mapping, $locationId);
+    }
+
+    /** What a person should know after changing how a listing takes stock: it shares the stock, the shares ask for too much, the stock is not where the product's provider keeps it. */
+    private function announceStockWarnings(SalesChannelProductMapping $mapping): void
+    {
+        foreach ($this->warnings->after($mapping) as $warning) {
+            SafeToast::warning(match ($warning['code']) {
+                PoolWarnings::SHARED => translate('stock_pool_shared_with_other_listings'),
+                PoolWarnings::OVER_SUBSCRIBED => translate('stock_shares_ask_for_more_than_the_pool_holds'),
+                PoolWarnings::OTHER_LOCATION => translate('stock_location_is_not_where_the_products_provider_keeps_it'),
+            }, $warning['detail']);
         }
     }
 

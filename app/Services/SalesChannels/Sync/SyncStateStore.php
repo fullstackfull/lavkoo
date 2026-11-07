@@ -18,9 +18,12 @@ class SyncStateStore
 {
     public function acquire(int $accountId, string $resource): ?SyncLease
     {
+        // The row is made first, in a statement of its own that cannot fail when another process made it a moment ago (the first run of a resource is the one place where two
+        // processes can reach for a row that does not exist yet); then it is taken `FOR UPDATE`, which reads what is committed now, not a snapshot from before.
+        DB::table('sales_channel_sync_states')->insertOrIgnore(['account_id' => $accountId, 'resource' => $resource, 'created_at' => now(), 'updated_at' => now()]);
+
         return DB::transaction(function () use ($accountId, $resource): ?SyncLease {
-            $state = SalesChannelSyncState::firstOrCreate(['account_id' => $accountId, 'resource' => $resource]);
-            $state = SalesChannelSyncState::whereKey($state->id)->lockForUpdate()->firstOrFail();
+            $state = SalesChannelSyncState::where('account_id', $accountId)->where('resource', $resource)->lockForUpdate()->firstOrFail();
 
             if ($state->lease_expires_at !== null && $state->lease_expires_at->isFuture()) {
                 return null;

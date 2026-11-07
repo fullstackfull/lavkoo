@@ -20,6 +20,8 @@ class InventorySourcePolicy extends Model
         'stock_location_id' => 'integer',
         'safety_buffer' => 'integer',
         'max_publish_quantity' => 'integer',
+        'stock_share_value' => 'integer',
+        'stock_priority' => 'integer',
         'is_active' => 'boolean',
     ];
 }

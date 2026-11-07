@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\SkipsUntilSalesChannelsMigrated;
+use App\Models\InventoryReservation;
 use App\Models\SalesChannelApiLog;
 use App\Models\SalesChannelEvent;
 use Illuminate\Console\Command;
@@ -30,6 +31,11 @@ class SalesChannelsPruneCommand extends Command
         $payloads = SalesChannelEvent::whereIn('source', ['webhook', 'notification'])->where('created_at', '<', $before)->whereNotNull('payload')->update(['payload' => null]);
 
         $this->info("Deleted {$logs} API log row(s) and cleared {$payloads} stored webhook payload(s), all older than {$days} days.");
+
+        // A released reservation counts for nothing and never comes back; it is kept for a while so that what an order held can still be looked at.
+        $reservationDays = (int) config('sales_channels.stock.allocation.released_reservation_days');
+        $reservations = InventoryReservation::where('state', InventoryReservation::RELEASED)->where('released_at', '<', now()->subDays($reservationDays))->delete();
+        $this->info("Deleted {$reservations} released stock reservation(s) older than {$reservationDays} days.");
 
         return self::SUCCESS;
     }

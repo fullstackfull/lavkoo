@@ -18,12 +18,16 @@ use Illuminate\Database\UniqueConstraintViolationException;
  */
 class ReservationService
 {
-    public function reserve(string $key, int $locationId, int $productId, string $variantKey, int $quantity, ?string $sku = null, ?int $mappingId = null, ?int $orderId = null): InventoryReservation
+    /** @param string|null $salesChannel the channel and account the order came from: which channel promised how many units of a pool is what the division's margin is worked out from */
+    public function reserve(string $key, int $locationId, int $productId, string $variantKey, int $quantity, ?string $sku = null, ?int $mappingId = null, ?int $orderId = null, ?string $salesChannel = null, ?int $accountId = null): InventoryReservation
     {
         $existing = InventoryReservation::where('reservation_key', $key)->first();
         if ($existing !== null) {
             if ($existing->state === InventoryReservation::RESERVED && (int) $existing->quantity !== $quantity) {
                 $existing->forceFill(['quantity' => $quantity])->save();
+            }
+            if ($existing->account_id === null && $accountId !== null) {
+                $existing->forceFill(['sales_channel' => $salesChannel, 'account_id' => $accountId])->save();
             }
 
             return $existing;
@@ -40,6 +44,8 @@ class ReservationService
                 'state' => InventoryReservation::RESERVED,
                 'external_order_mapping_id' => $mappingId,
                 'order_id' => $orderId,
+                'sales_channel' => $salesChannel,
+                'account_id' => $accountId,
                 'reserved_at' => now(),
             ]);
         } catch (UniqueConstraintViolationException) {
@@ -86,17 +92,42 @@ class ReservationService
      *
      * @param CarbonInterface|null $snapshotAt when the location's figure was taken
      * @param string|null $exceptKey a reservation to leave out: an order asking whether the shelf can cover IT must not be counted against itself
+     * @param bool $untilApplied the figure is the storefront's own stock, read at this very moment: a count taken "after" a commit then says nothing about whether the units are off
+     *                           it, so a committed reservation counts until the storefront's stock has been lowered for it (when that is switched on), however old it is
      */
-    public function inFlight(int $locationId, int $productId, string $variantKey, ?CarbonInterface $snapshotAt, ?string $exceptKey = null): int
+    public function inFlight(int $locationId, int $productId, string $variantKey, ?CarbonInterface $snapshotAt, ?string $exceptKey = null, bool $untilApplied = false): int
     {
         $others = static fn ($query) => $query->when($exceptKey !== null, static fn ($inner) => $inner->where('reservation_key', '!=', $exceptKey));
         $reserved = (int) InventoryReservation::where('location_id', $locationId)->where('product_id', $productId)->where('variant_key', $variantKey)
             ->where('state', InventoryReservation::RESERVED)->tap($others)->sum('quantity');
         $committed = InventoryReservation::where('location_id', $locationId)->where('product_id', $productId)->where('variant_key', $variantKey)
-            ->where('state', InventoryReservation::COMMITTED)->tap($others)
-            ->when($snapshotAt !== null, static fn ($query) => $query->where('committed_at', '>', $snapshotAt))
+            ->where('state', InventoryReservation::COMMITTED)->tap($others)->tap(fn ($query) => $this->notYetInTheFigure($query, $snapshotAt, $untilApplied))
             ->sum('quantity');
 
         return $reserved + (int) $committed;
+    }
+
+    /** @param \Illuminate\Database\Eloquent\Builder<InventoryReservation> $committed */
+    private function notYetInTheFigure($committed, ?CarbonInterface $snapshotAt, bool $untilApplied): void
+    {
+        if (!$untilApplied) {
+            $committed->when($snapshotAt !== null, static fn ($query) => $query->where('committed_at', '>', $snapshotAt));
+
+            return;
+        }
+        $committed->when((bool) config('sales_channels.inventory.apply_channel_orders_to_platform_stock'), static fn ($query) => $query->whereNull('applied_to_platform_at'));
+    }
+
+    /**
+     * The same units `inFlight` counts, by the channel that promised them (a reservation made before the channel was recorded is under '').
+     *
+     * @return array<string, int>
+     */
+    public function inFlightByChannel(int $locationId, int $productId, string $variantKey, ?CarbonInterface $snapshotAt, bool $untilApplied = false): array
+    {
+        return InventoryReservation::where('location_id', $locationId)->where('product_id', $productId)->where('variant_key', $variantKey)
+            ->where(fn ($query) => $query->where('state', InventoryReservation::RESERVED)->orWhere(fn ($committed) => $this->notYetInTheFigure($committed->where('state', InventoryReservation::COMMITTED), $snapshotAt, $untilApplied)))
+            ->selectRaw('sales_channel, sum(quantity) as units')->groupBy('sales_channel')->orderBy('sales_channel')->pluck('units', 'sales_channel')
+            ->map(static fn ($units): int => (int) $units)->all();
     }
 }

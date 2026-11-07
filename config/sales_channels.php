@@ -165,6 +165,45 @@ return [
     'stock' => [
         // A quantity the source has not confirmed for this long is stale and is not published.
         'stale_after_minutes' => 180,
+
+        // One physical stock offered by several listings (of one account or of several) is divided between them, so that what all of them show never adds up to more than what
+        // is left (see StockAllocator). Every value can be set in the environment; nothing here switches publishing on.
+        'allocation' => [
+            // For rolling back only: off, every listing is offered the pool's whole net, as before the division existed. The division can only offer LESS than that.
+            'enabled' => filter_var(env('SALES_CHANNELS_STOCK_ALLOCATION_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+            // What the storefront keeps out of the channels' reach when a pool names no reserve of its own: `percent` of the pool or a number of `fixed` units. 0 keeps nothing.
+            'storefront_reserve_mode' => (string) env('SALES_CHANNELS_STOCK_STOREFRONT_RESERVE_MODE', 'percent'),
+            'storefront_reserve_value' => (int) env('SALES_CHANNELS_STOCK_STOREFRONT_RESERVE_VALUE', 0),
+            // A quantity is only RAISED while the order import of every account that offers the pool has succeeded this recently (an order not imported yet is stock sold twice).
+            'order_fresh_minutes' => (int) env('SALES_CHANNELS_STOCK_ORDER_FRESH_MINUTES', 15),
+            // Units a channel is expected to sell before we hear of them can be held back from it: its sales of the last `lag_rate_minutes`, scaled to a window of at least
+            // `lag_window_minutes` (and longer when the last order import is older, or the publish interval is). 0 holds nothing back, which is what every listing was offered
+            // before the margin existed; 20 is the suggested value once the owner has decided to trade some quantity for safety. `publish_interval_minutes` is the schedule's.
+            'lag_window_minutes' => (int) env('SALES_CHANNELS_STOCK_LAG_WINDOW_MINUTES', 0),
+            'lag_rate_minutes' => (int) env('SALES_CHANNELS_STOCK_LAG_RATE_MINUTES', 120),
+            'publish_interval_minutes' => (int) env('SALES_CHANNELS_STOCK_PUBLISH_INTERVAL_MINUTES', 15),
+            // After a pool was promised more than it holds, a quantity is not raised again until this many computations have come back clean.
+            'deficit_block_cycles' => (int) env('SALES_CHANNELS_STOCK_DEFICIT_BLOCK_CYCLES', 2),
+            // The quick run after an order import sends only what LOWERS a quantity, and leaves a small lowering of a large quantity to the regular run (not to burn a channel's
+            // rate limits): a drop is sent at once when it is at least this percent of the quantity shown, or when the new quantity is at most `reduction_always_below_units`.
+            'reduction_dead_band_percent' => (int) env('SALES_CHANNELS_STOCK_REDUCTION_DEAD_BAND_PERCENT', 10),
+            'reduction_always_below_units' => (int) env('SALES_CHANNELS_STOCK_REDUCTION_ALWAYS_BELOW_UNITS', 10),
+            // A reservation of an order that is still open is listed on the hub as held for days after this many.
+            'aged_hold_days' => (int) env('SALES_CHANNELS_STOCK_AGED_HOLD_DAYS', 7),
+            // Old released reservations are deleted by `channels:prune` after this many days.
+            'released_reservation_days' => (int) env('SALES_CHANNELS_STOCK_RELEASED_RESERVATION_DAYS', 30),
+        ],
+    ],
+
+    'inventory' => [
+        // Where the own warehouse's quantities come from. `manual`: balances a person typed (nothing writes them today, so the own warehouse offers nothing). `platform`: read
+        // through from the storefront's own stock (`products.current_stock` and the variants' quantities), never copied and never written. Choosing `platform` changes nothing by
+        // itself: the own warehouse's row is switched by the audited command `channels:stock-use-platform-for-own-warehouse`, and stock the store owns is not offered to a
+        // channel until the owner decides how channel units leave it.
+        'own_warehouse_source' => in_array(env('SALES_CHANNELS_OWN_WAREHOUSE_SOURCE', 'manual'), ['manual', 'platform'], true) ? env('SALES_CHANNELS_OWN_WAREHOUSE_SOURCE', 'manual') : 'manual',
+        // Whether a unit a shipped channel order took off the own warehouse's shelf stops counting once the storefront's stock has been lowered for it (the reservation's
+        // `applied_to_platform_at`). Nothing in this version lowers it: with this off, which is the only supported state, such a unit counts until its order is released.
+        'apply_channel_orders_to_platform_stock' => filter_var(env('SALES_CHANNELS_APPLY_CHANNEL_ORDERS_TO_PLATFORM_STOCK', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     // Creating a provider shipment for a CHANNEL order: the application makes a minimal internal order for it and lets the existing Torod Point / M5AZN fulfilment do the rest (all of that

@@ -28,6 +28,7 @@ final class HubSummary
     public function __construct(
         private readonly ChannelLabels $labels,
         private readonly SyncResources $resources,
+        private readonly StockAttention $stock,
     ) {
     }
 
@@ -69,6 +70,7 @@ final class HubSummary
             $this->backingOff($accounts),
             $this->ordersToReview(),
             $this->failedPublishes(),
+            ...$this->stock->sections($accounts),
             $this->financeToReview(),
             $this->statementRowsThatMayRepeatTheApi(),
         ], static fn (array $section): bool => $section['total'] > 0));

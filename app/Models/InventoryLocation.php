@@ -29,6 +29,8 @@ class InventoryLocation extends Model
     public const TRUTH_PROVIDER = 'provider';
     public const TRUTH_CHANNEL = 'channel';
     public const TRUTH_MANUAL = 'manual';
+    /** The storefront's own stock (`products.current_stock`) is the reference: the quantity is read through, never copied. */
+    public const TRUTH_PLATFORM = 'platform';
 
     protected $table = 'inventory_locations';
 
@@ -50,6 +52,12 @@ class InventoryLocation extends Model
     public function isChannelOwned(): bool
     {
         return $this->source_of_truth === self::TRUTH_CHANNEL;
+    }
+
+    /** The stock here is the storefront's own: the store takes units off it at order placement, and channel units never leave it. */
+    public function isStorefrontOwned(): bool
+    {
+        return $this->source_of_truth === self::TRUTH_PLATFORM;
     }
 
     public function mayPublishTo(string $channelKey): bool
