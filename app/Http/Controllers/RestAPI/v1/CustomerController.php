@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Enums\Address\AddressChannel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\API\v1\SupportTicketRequest;
 use App\Http\Requests\API\v1\UpdateProfileApiRequest;
@@ -17,19 +18,24 @@ use App\Models\ShippingAddress;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
+use App\Services\Address\AddressSchema;
+use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
+use App\Services\ShippingAddressService;
 use App\Traits\CommonTrait;
 use App\Traits\PdfGenerator;
 use App\Traits\FileManagerTrait;
 use App\Models\User;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Modules\Auction\app\Models\AuctionBid;
 use Modules\Auction\app\Models\AuctionParticipant;
 use Modules\Auction\app\Models\AuctionProduct;
@@ -39,6 +45,16 @@ use Modules\Auction\app\Services\AuctionAccountDeletionGuardService;
 class CustomerController extends Controller
 {
     use CommonTrait, PdfGenerator, FileManagerTrait;
+
+    private const ADDRESS_FIELDS = ['contact_person_name', 'address_type', 'address', 'city', 'zip', 'country', 'phone', 'latitude', 'longitude', 'is_billing'];
+
+    private const STRUCTURED_ADDRESS_FIELDS = ['country', 'region_id', 'city_id', 'district', 'national_address', 'phone'];
+
+    private const LOCATION_FIELDS = ['city', 'country', 'region_id', 'city_id', 'district', 'national_address'];
+
+    public function __construct(private readonly ShippingAddressService $shippingAddressService)
+    {
+    }
 
     public function info(Request $request):JsonResponse
     {
@@ -269,30 +285,34 @@ class CustomerController extends Controller
 
     public function address_list(Request $request): JsonResponse
     {
-        $user = Helpers::getCustomerInformation($request);
-        if ($user == 'offline') {
-            $data = ShippingAddress::where(['customer_id' => $request->guest_id, 'is_guest' => 1])->get();
-        } else {
-            $data = ShippingAddress::where(['customer_id' => $user->id, 'is_guest' => '0'])->get();
-        }
-        return response()->json($data, 200);
+        $addresses = $this->ownAddresses(request: $request)->get();
+
+        return response()->json(AddressSchema::enabled() ? $addresses->map(fn (ShippingAddress $address): array => AddressSnapshot::build($address))->values() : $addresses, 200);
     }
 
     public function add_new_address(Request $request):JsonResponse
     {
+        [$structuredAttributes, $structuredError] = $this->structuredAddress(request: $request);
+        $isStructured = $structuredAttributes !== [] || $structuredError !== null;
+
         $validator = Validator::make($request->all(), [
             'contact_person_name' => 'required',
             'address_type' => 'required',
             'address' => 'required',
-            'city' => 'required',
-            'zip' => getWebConfig(name: 'delivery_zip_code_area_restriction') ? 'required' : 'nullable',
+            'city' => $isStructured ? 'nullable' : 'required',
+            'zip' => !$isStructured && getWebConfig(name: 'delivery_zip_code_area_restriction') ? 'required' : 'nullable',
             'country' => 'required',
             'phone' => 'required',
-            'latitude' => 'required',
-            'longitude' => 'required',
+            'latitude' => $isStructured ? 'nullable' : 'required',
+            'longitude' => $isStructured ? 'nullable' : 'required',
             // Optional: an app that only knows about "my address" should not have to classify it.
-            'is_billing' => 'nullable|boolean'
+            'is_billing' => 'nullable|boolean',
+            'region_id' => 'nullable',
+            'city_id' => 'nullable',
+            'district' => 'nullable',
+            'national_address' => 'nullable',
         ]);
+        $validator->after(fn ($validator) => $validator->errors()->merge($structuredError?->errors() ?? []));
 
         if ($validator->fails()) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
@@ -301,7 +321,7 @@ class CustomerController extends Controller
         $zip_restrict_status = getWebConfig(name: 'delivery_zip_code_area_restriction');
         $country_restrict_status = getWebConfig(name: 'delivery_country_restriction');
 
-        if ($country_restrict_status && !self::delivery_country_exist_check($request->input('country'))) {
+        if ($country_restrict_status && !self::delivery_country_exist_check($structuredAttributes['country'] ?? $request->input('country'))) {
             return response()->json(['message' => translate('Delivery_unavailable_for_this_country')], 403);
 
         } elseif ($zip_restrict_status && !self::delivery_zipcode_exist_check($request->input('zip'))) {
@@ -327,49 +347,35 @@ class CustomerController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ];
-        ShippingAddress::insert($address);
+        ShippingAddress::insert(array_merge($address, $structuredAttributes));
         return response()->json(['message' => translate('successfully added!')], 200);
     }
 
     public function update_address(Request $request): JsonResponse
     {
-        $user = Helpers::getCustomerInformation($request);
-
-        $shippingAddress = ShippingAddress::where([
-            'customer_id' => $user == 'offline' ? $request->guest_id : $user->id,
-            'id' => $request->id
-        ])->first();
+        $shippingAddress = $this->ownAddresses(request: $request)->where('id', $request->id)->first();
 
         if (!$shippingAddress) {
             // 200 here made the app read "not_found" as a successful update.
             return response()->json(['message' => translate('not_found')], 404);
         }
 
+        [$structuredAttributes, $structuredError] = $this->structuredAddress(request: $request, existing: $shippingAddress);
+        if ($structuredError !== null) {
+            return response()->json(['errors' => Helpers::validationErrorProcessor($structuredError->validator)], 403);
+        }
+
         $zipRestrictStatus = getWebConfig(name: 'delivery_zip_code_area_restriction');
         $countryRestrictStatus = getWebConfig(name: 'delivery_country_restriction');
 
-        if ($countryRestrictStatus && !self::delivery_country_exist_check($request->input('country'))) {
+        if ($countryRestrictStatus && !self::delivery_country_exist_check($structuredAttributes['country'] ?? $request->input('country', $shippingAddress->country))) {
             return response()->json(['error_type' => 'address', 'message' => translate('Delivery_unavailable_for_this_country')], 403);
-        } elseif ($zipRestrictStatus && !self::delivery_zipcode_exist_check($request->input('zip'))) {
+        } elseif ($zipRestrictStatus && !self::delivery_zipcode_exist_check($request->input('zip', $shippingAddress->zip))) {
             return response()->json(['error_type' => 'zip_code', 'message' => translate('Delivery_unavailable_for_this_zip_code_area')], 403);
         }
 
-        $shippingAddress->update([
-            'customer_id' => $user == 'offline' ? $request->guest_id : $user->id,
-            'is_guest' => $user == 'offline' ? 1 : 0,
-            'contact_person_name' => $request['contact_person_name'],
-            'address_type' => $request['address_type'],
-            'address' => $request['address'],
-            'city' => $request['city'],
-            'zip' => $request['zip'],
-            'country' => $request['country'],
-            'phone' => $request['phone'],
-            'latitude' => $request['latitude'],
-            'longitude' => $request['longitude'],
-            'is_billing' => $request['is_billing'],
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        // Only what the app sent is changed: a field it left out (the ZIP code, or the structured address of an app that predates it) keeps its value.
+        $shippingAddress->update(array_merge($request->only(self::ADDRESS_FIELDS), $structuredAttributes));
 
         return response()->json(['message' => translate('update_successful')], 200);
     }
@@ -384,20 +390,42 @@ class CustomerController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $user = Helpers::getCustomerInformation($request);
-
-        $shipping_address = ShippingAddress::where(['id' => $request['address_id']])
-            ->when($user == 'offline', function ($query) use ($request) {
-                $query->where(['customer_id' => $request->guest_id, 'is_guest' => 1]);
-            })
-            ->when($user != 'offline', function ($query) use ($user) {
-                $query->where(['customer_id' => $user->id, 'is_guest' => '0']);
-            })->first();
+        $shipping_address = $this->ownAddresses(request: $request)->where('id', $request['address_id'])->first();
 
         if ($shipping_address && $shipping_address->delete()) {
             return response()->json(['message' => 'successfully removed!'], 200);
         }
         return response()->json(['message' => translate('No such data found!')], 404);
+    }
+
+    /** The saved addresses of whoever is calling: the signed-in customer's, or the guest's own. A guest never reaches a customer's row. */
+    private function ownAddresses(Request $request): Builder
+    {
+        $user = Helpers::getCustomerInformation($request);
+
+        return $user == 'offline'
+            ? ShippingAddress::where(['customer_id' => $request->guest_id, 'is_guest' => 1])
+            : ShippingAddress::where(['customer_id' => $user->id, 'is_guest' => '0']);
+    }
+
+    /**
+     * The region, city, district and National Address columns for this request: none while the store, the country or an older app
+     * keeps the old fields, the exception when the structured address was sent wrongly or an older app would overwrite one. Editing
+     * something else about a saved address (its type, its phone) leaves its place alone.
+     *
+     * @return array{0: array<string, mixed>, 1: ValidationException|null}
+     */
+    private function structuredAddress(Request $request, ?ShippingAddress $existing = null): array
+    {
+        if ($existing !== null && !$request->hasAny(self::LOCATION_FIELDS)) {
+            return [[], null];
+        }
+
+        try {
+            return [$this->shippingAddressService->structuredAttributes(input: $request->only(self::STRUCTURED_ADDRESS_FIELDS), channel: AddressChannel::Api, existing: $existing), null];
+        } catch (ValidationException $exception) {
+            return [[], $exception];
+        }
     }
 
     public function get_order_list(Request $request): JsonResponse

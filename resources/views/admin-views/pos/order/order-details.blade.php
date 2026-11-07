@@ -3,6 +3,7 @@
 @section('title', translate('order_Details'))
 
 @section('content')
+    @use('App\Services\Address\AddressSnapshotLines')
     <div class="content container-fluid">
 
         <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
@@ -572,7 +573,9 @@
                                     <a class="text-dark" href="tel:{{ $shippingAddress->phone }}">{{ $shippingAddress->phone }}</a>
                                 @endif
                                 <div>{{ $shippingAddress->address ?? '' }}</div>
-                                <div>{{ ($shippingAddress->city ?? '') }} {{ ($shippingAddress->zip ?? '') }}</div>
+                                @foreach(AddressSnapshotLines::location($shippingAddress) as $line)
+                                    <div>{{ translate($line['label']) }}: {{ $line['value'] }}</div>
+                                @endforeach
                             </div>
                         </div>
                     </div>

@@ -9,6 +9,7 @@ use App\Enums\ViewPaths\Admin\DeliveryRestriction;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\DeliveryCountryCodeAddRequest;
 use App\Http\Requests\Admin\DeliveryZipCodeAddRequest;
+use App\Services\Address\DeliveryRestrictionNotice;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +25,7 @@ class DeliveryRestrictionController extends BaseController
         private readonly BusinessSettingRepositoryInterface     $businessSettingRepo,
         private readonly DeliveryCountryCodeRepositoryInterface $deliveryCountryCodeRepo,
         private readonly DeliveryZipCodeRepositoryInterface     $deliveryZipCodeRepo,
+        private readonly DeliveryRestrictionNotice              $addressNotice,
     )
     {
     }
@@ -66,7 +68,7 @@ class DeliveryRestrictionController extends BaseController
         $zipCodeFieldStatus = getWebConfig(name: 'zip_code_field_status');
         $storedCountryCode = $storedCountries->pluck('country_code')->toArray();
         $storedZip = $this->deliveryZipCodeRepo->getListWhere(orderBy: ['id' => 'desc'], searchValue: requestString('search_zip_code') ?: null, dataLimit: getWebConfig(name: 'pagination_limit'));
-        return view('admin-views.business-settings.delivery-restriction', compact('countries', 'storedCountries', 'storedCountryCode', 'storedZip', 'countryRestrictionStatus', 'zipCodeAreaRestrictionStatus', 'zipCodeFieldStatus'));
+        return view('admin-views.business-settings.delivery-restriction', compact('countries', 'storedCountries', 'storedCountryCode', 'storedZip', 'countryRestrictionStatus', 'zipCodeAreaRestrictionStatus', 'zipCodeFieldStatus') + ['addressZipNotice' => $this->addressNotice->forPage()]);
     }
 
     public function add(DeliveryCountryCodeAddRequest $request): RedirectResponse

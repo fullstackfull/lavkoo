@@ -323,6 +323,32 @@ class Order extends Model
         return empty((array) $decoded) ? null : $decoded;
     }
 
+    /**
+     * The delivery address as the order was placed with it, or null when it kept none. An old copy (no region, city or National
+     * Address keys) and one that was encoded twice by mistake both read as the address they hold.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function shippingAddressSnapshot(): ?array
+    {
+        return self::decodeAddressSnapshot(stored: $this->attributes['shipping_address_data'] ?? null);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function billingAddressSnapshot(): ?array
+    {
+        return self::decodeAddressSnapshot(stored: $this->attributes['billing_address_data'] ?? null);
+    }
+
+    private static function decodeAddressSnapshot(mixed $stored): ?array
+    {
+        for ($pass = 0; $pass < 2 && is_string($stored); $pass++) {
+            $stored = json_decode($stored, true);
+        }
+
+        return is_array($stored) && $stored !== [] ? $stored : null;
+    }
+
 
     protected static function boot(): void
     {

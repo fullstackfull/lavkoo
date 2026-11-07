@@ -17,6 +17,7 @@ use App\Http\Requests\Admin\RefundStatusRequest;
 use App\Models\OrderEditHistory;
 use App\Services\CustomerWalletService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\OrderAddressUpdateService;
 use App\Services\OrderEditReturnAmountService;
 use App\Services\OrderEditService;
 use App\Services\ProductService;
@@ -53,6 +54,7 @@ use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Database\Eloquent\Collection;
 use App\Services\DeliveryManTransactionService;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\View as PdfView;
 use App\Repositories\OrderTransactionRepository;
 use App\Contracts\Repositories\OrderRepositoryInterface;
@@ -849,38 +851,19 @@ class OrderController extends BaseController
         ]);
     }
 
-    public function updateAddress(Request $request): RedirectResponse
+    public function updateAddress(Request $request, OrderAddressUpdateService $addressUpdateService): RedirectResponse
     {
         $order = $this->orderRepo->getFirstWhere(params: ['id' => $request['order_id']], relations: ['seller.shop', 'deliveryMan']);
-        $shippingAddressData = json_decode(json_encode($order['shipping_address_data']), true);
-        $billingAddressData = json_decode(json_encode($order['billing_address_data']), true);
-        $commonAddressData = [
-            'contact_person_name' => $request['name'],
-            'phone' => $request['phone_number'],
-            'country' => $request['country'],
-            'city' => $request['city'],
-            'zip' => $request['zip'],
-            'address' => $request['address'],
-            'latitude' => $request['latitude'],
-            'longitude' => $request['longitude'],
-            'updated_at' => now(),
-        ];
-
-        if ($request['address_type'] == 'shipping') {
-            $shippingAddressData = array_merge($shippingAddressData, $commonAddressData);
-        } elseif ($request['address_type'] == 'billing') {
-            $billingAddressData = array_merge($billingAddressData, $commonAddressData);
+        if (!$order) {
+            ToastMagic::error(translate('Order_not_found'));
+            return back();
         }
 
-        $updateData = [];
-        if ($request['address_type'] == 'shipping') {
-            $updateData['shipping_address_data'] = json_encode($shippingAddressData);
-        } elseif ($request['address_type'] == 'billing') {
-            $updateData['billing_address_data'] = json_encode($billingAddressData);
-        }
-
-        if (!empty($updateData)) {
-            $this->orderRepo->update(id: $request['order_id'], data: $updateData);
+        try {
+            $addressUpdateService->update(order: $order, addressType: $request['address_type'], input: $request->all());
+        } catch (ValidationException $exception) {
+            ToastMagic::error($exception->validator->errors());
+            return back();
         }
 
         if ($order->seller_is == 'seller') {

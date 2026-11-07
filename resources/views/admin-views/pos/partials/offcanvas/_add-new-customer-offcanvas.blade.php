@@ -1,3 +1,6 @@
+@use('App\Services\Address\AddressCountry')
+@use('App\Services\Address\AddressSchema')
+@php($unifiedAddress = AddressSchema::enabled())
 <form action="{{ route('admin.customer.add') }}" method="post" id="add-new-customer-form" class="pos-ajax-form-add-customer">
     @csrf
     <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasAddNewCustomer" aria-labelledby="offcanvasAddNewCustomerLabel">
@@ -38,22 +41,22 @@
                     <label class="form-label mb-1">{{ translate('country') }}</label>
                     <select name="country" class="custom-select" data-live-search="true">
                         @foreach($countries as $country)
-                            <option value="{{ $country['name'] }}">{{ $country['name'] }}</option>
+                            <option value="{{ $country['name'] }}" @selected($unifiedAddress && AddressCountry::isSaudi($country['name']))>{{ $country['name'] }}</option>
                         @endforeach
                     </select>
                     <div class="invalid-feedback"></div>
                 </div>
 
-                <div class="form-group mb-3">
+                <div class="form-group mb-3"@if($unifiedAddress) data-ua-other @endif>
                     <label class="form-label mb-1">{{ translate('city') }}</label>
                     <input type="text" name="city" class="form-control" value="{{ old('city') }}" placeholder="{{ translate('city') }}">
                     <div class="invalid-feedback"></div>
                 </div>
 
-                <div class="form-group mb-3">
+                <div class="form-group mb-3"@if($unifiedAddress) data-ua-other @endif>
                     <label class="form-label mb-1">{{ translate('zip_code') }}</label>
                     @if($zipCodes)
-                        <select name="zip" class="form-control js-select2-custom" data-live-search="true">
+                        <select name="zip_code" class="form-control js-select2-custom" data-live-search="true">
                             @foreach($zipCodes as $code)
                                 <option value="{{ $code->zipcode }}">{{ $code->zipcode }}</option>
                             @endforeach
@@ -65,8 +68,15 @@
                     @endif
                 </div>
 
+                @if($unifiedAddress)
+                    <div class="form-group mb-3">
+                        @include('partials.address._unified-address-fields', ['ui' => 'bs5', 'idPrefix' => 'pos-offcanvas', 'countrySelector' => 'select[name="country"]'])
+                        <div class="invalid-feedback d-block"></div>
+                    </div>
+                @endif
+
                 <div class="form-group mb-0">
-                    <label class="form-label mb-1">{{ translate('address') }}</label>
+                    <label class="form-label mb-1">{{ translate($unifiedAddress ? 'address_street_details' : 'address') }}</label>
                     <textarea name="address" class="form-control" placeholder="{{ translate('address') }}" cols="2">{{ old('address') }}</textarea>
                     <div class="invalid-feedback"></div>
                 </div>
@@ -80,4 +90,7 @@
             </div>
         </div>
     </div>
+    @if($unifiedAddress)
+        @include('partials.address._unified-address-script')
+    @endif
 </form>

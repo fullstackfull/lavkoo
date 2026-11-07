@@ -7,13 +7,18 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Http\Controllers\Controller;
+use App\Models\AddressCity;
 use App\Models\ProviderCatalogItem;
+use App\Models\ProviderCity;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderProductMapping;
+use App\Services\Address\AddressCatalog;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\ProductProviderAssignmentService;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodCityResolver;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
+use App\Services\Fulfillment\ProviderCityMappingService;
+use App\Services\Fulfillment\ProviderCityReview;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderMappingService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -25,12 +30,15 @@ use Illuminate\View\View;
 use InvalidArgumentException;
 
 /**
- * Torod Point: matching our products to the warehouse's, explicitly.
+ * Torod Point: matching our products to the warehouse's, and our cities to its cities, explicitly.
  *
- * Nothing here links anything by itself. A warehouse item is shown with the store products that LOOK like
+ * Nothing here links a product by itself. A warehouse item is shown with the store products that LOOK like
  * it and the reasons why; a person picks one and approves it. Approving a mapping does not assign the
  * product to Torod Point — that is a separate, explicit box — and a matching SKU or barcode never changes
  * who fulfils a product.
+ *
+ * Cities are matched the same way: Torod's candidates for each of our cities are shown side by side and a person approves
+ * one. The only city approved without a person is one whose name is the only exact match in a list read completely.
  */
 class TorodMatchingController extends Controller
 {
@@ -40,6 +48,8 @@ class TorodMatchingController extends Controller
         private readonly TorodCityResolver $cities,
         private readonly TorodPointAdapter $adapter,
         private readonly ProviderConnectionManager $connections,
+        private readonly ProviderCityMappingService $cityMappings,
+        private readonly ProviderCityReview $cityReview,
     ) {
     }
 
@@ -66,6 +76,7 @@ class TorodMatchingController extends Controller
 
         $mapped = ProviderProductMapping::where('provider', $provider->value)->latest('id')->limit(50)->get();
         $products = DB::table('products')->whereIn('id', $mapped->pluck('product_id'))->get(['id', 'name', 'code', 'fulfillment_provider'])->keyBy('id');
+        $cityReview = $this->cityMappings->directoryReady() ? $this->cityReview->overview($provider->value) : null;
 
         return view('admin-views.fulfillment.torod-matching', [
             'rows' => $rows,
@@ -73,7 +84,8 @@ class TorodMatchingController extends Controller
             'status' => $status,
             'mapped' => $mapped,
             'products' => $products,
-            'unmappedCities' => $this->unmappedCities(),
+            'cityReview' => $cityReview,
+            'unmappedCities' => $cityReview === null ? $this->unmappedCities() : array_column($cityReview['typed'], 'text'),
             'config' => $this->connections->config($provider),
             'counts' => ['staged' => ProviderCatalogItem::where('provider', $provider->value)->count(), 'mapped' => $mappedIds->count()],
         ]);
@@ -152,12 +164,122 @@ class TorodMatchingController extends Controller
         return back();
     }
 
-    /** GET …/cities?q= — search the cached city list (for the alias form). */
+    /** GET …/cities?q= — search the cached city list (for the alias form and the manual match). */
     public function citySearch(Request $request): JsonResponse
     {
-        return response()->json($this->cities->search((string) $request->query('q'))->map(static fn ($city): array => [
-            'id' => $city->external_id, 'name' => trim(($city->name_ar ?? '') . ' / ' . ($city->name_en ?? ''), ' /'),
+        return response()->json($this->cities->search((string) $request->query('q'))->map(static fn (ProviderCity $city): array => [
+            'id' => $city->external_id,
+            'name' => trim(($city->name_ar ?? '') . ' / ' . ($city->name_en ?? ''), ' /'),
+            'region_id' => $city->region_external_id,
+            'region' => trim(($city->region_name_ar ?? '') . ' / ' . ($city->region_name_en ?? ''), ' /'),
+            'prefix' => $city->prefix,
+            'selected' => $city->is_selected,
         ])->values());
+    }
+
+    /** GET …/cities/internal-search?q= — our own cities, with their region, for the manual match. */
+    public function internalCitySearch(Request $request, AddressCatalog $catalog): JsonResponse
+    {
+        $this->requireCityMatching();
+
+        return response()->json($catalog->searchCities(query: (string) $request->query('q'), limit: 20)->load('region')->map(static fn (AddressCity $city): array => [
+            'id' => $city->id, 'name_ar' => $city->name_ar, 'name_en' => $city->name_en,
+            'region' => trim(($city->region?->name_ar ?? '') . ' / ' . ($city->region?->name_en ?? ''), ' /'),
+        ])->values());
+    }
+
+    public function approveCity(Request $request): RedirectResponse
+    {
+        $this->requireCityMatching();
+        $data = $request->validate([
+            'address_city_id' => ['required', 'integer', 'min:1'],
+            'external_city_id' => ['required', 'string', 'max:32'],
+            'replacing' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $admin = auth('admin')->user();
+
+        try {
+            $this->cityMappings->approve(
+                provider: ProviderCode::TorodPoint->value,
+                cityId: (int) $data['address_city_id'],
+                externalCityId: $data['external_city_id'],
+                adminId: $admin?->getKey(),
+                adminName: $admin?->name,
+                replacing: isset($data['replacing']) ? (int) $data['replacing'] : null,
+            );
+        } catch (InvalidArgumentException $exception) {
+            SafeToast::error('', $exception->getMessage());
+
+            return back();
+        }
+
+        ToastMagic::success(translate('city_match_approved'));
+
+        return back();
+    }
+
+    public function rejectCity(Request $request): RedirectResponse
+    {
+        $this->requireCityMatching();
+        $data = $request->validate(['address_city_id' => ['required', 'integer', 'min:1'], 'external_city_id' => ['required', 'string', 'max:32']]);
+        $admin = auth('admin')->user();
+
+        try {
+            $this->cityMappings->reject(
+                provider: ProviderCode::TorodPoint->value,
+                cityId: (int) $data['address_city_id'],
+                externalCityId: $data['external_city_id'],
+                adminId: $admin?->getKey(),
+                adminName: $admin?->name,
+            );
+        } catch (InvalidArgumentException $exception) {
+            SafeToast::error('', $exception->getMessage());
+
+            return back();
+        }
+
+        ToastMagic::success(translate('city_candidate_rejected'));
+
+        return back();
+    }
+
+    public function retireCity(int $mapping): RedirectResponse
+    {
+        $this->requireCityMatching();
+        $admin = auth('admin')->user();
+
+        try {
+            $this->cityMappings->retire(mappingId: $mapping, adminId: $admin?->getKey(), adminName: $admin?->name);
+        } catch (InvalidArgumentException $exception) {
+            SafeToast::error('', $exception->getMessage());
+
+            return back();
+        }
+
+        ToastMagic::success(translate('mapping_retired'));
+
+        return back();
+    }
+
+    /** POST …/cities/discover — ask Torod Point for the cities named like one of ours (a read), and propose the exact ones. */
+    public function discoverCity(Request $request): RedirectResponse
+    {
+        $this->requireCityMatching();
+        $city = AddressCity::query()->with('region')->findOrFail($request->validate(['address_city_id' => ['required', 'integer', 'min:1']])['address_city_id']);
+
+        try {
+            $result = $this->adapter->discoverCities($city);
+        } catch (ProviderUnavailableException $exception) {
+            SafeToast::warning('', $exception->getMessage());
+
+            return back();
+        }
+
+        $result['ok']
+            ? SafeToast::success(translate('city_discovery_done'), sprintf('%d / %d / %d', $result['found'], count($result['matches']), $result['proposed']))
+            : SafeToast::error(translate('city_discovery_failed'), $result['error']);
+
+        return back();
     }
 
     /** GET …/products?q= — store products for the matching selector. */
@@ -192,6 +314,12 @@ class TorodMatchingController extends Controller
         }
 
         return back();
+    }
+
+    /** Until the address and mapping migrations have run, the city actions do not exist. */
+    private function requireCityMatching(): void
+    {
+        abort_unless($this->cityMappings->directoryReady(), 404);
     }
 
     /** @return list<string> city strings our checkout produced that no Torod Point city matched (held fulfillments) */

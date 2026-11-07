@@ -3,10 +3,16 @@
 namespace App\Http\Controllers\Admin\Customer;
 
 use App\Http\Requests\Admin\CustomerProfileUpdateRequest;
+use App\Enums\Address\AddressChannel;
+use App\Models\ShippingAddress;
+use App\Services\Address\AddressSnapshot;
+use App\Services\Address\CheckoutAddressGuard;
 use Carbon\Carbon;
 use App\Enums\WebConfigKey;
 use Exception;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Request;
 use App\Traits\PaginatorTrait;
 use App\Services\CustomerService;
@@ -62,6 +68,7 @@ class CustomerController extends BaseController
         private readonly ShippingAddressService             $shippingAddressService,
         private readonly CurrencyRepositoryInterface        $currencyRepo,
         private readonly ReferByEarnCustomerService         $referByEarnCustomerService,
+        private readonly CheckoutAddressGuard               $addressGuard,
     )
     {
     }
@@ -212,7 +219,7 @@ class CustomerController extends BaseController
 
     public function getView(Request $request, $id): View|RedirectResponse
     {
-        $customer = $this->customerRepo->getFirstWhere(params: ['id' => $id], relations: ['addresses']);
+        $customer = $this->customerRepo->getFirstWhere(params: ['id' => $id], relations: ['addresses' => static fn ($query) => $query->where('is_guest', 0)]);
         if (isset($customer)) {
             $orders = $this->orderRepo->getListWhere(orderBy: ['id' => 'desc'], searchValue: $this->searchValue($request), filters: ['customer_id' => $id, 'is_guest' => '0'], dataLimit: 'all');
             $orderStatusArray = [
@@ -249,7 +256,13 @@ class CustomerController extends BaseController
                 whereIn: $filterWhereIn,
                 relations: ['details', 'customer', 'seller.shop'],
                 dataLimit: getWebConfig('pagination_limit'));
-            return view('admin-views.customer.customer-view', compact('customer', 'orders', 'orderStatusArray', 'orderStatus', 'filter', 'dateType', 'from', 'to'));
+            $addressCopies = $customer->addresses->mapWithKeys(static fn (ShippingAddress $address): array => [$address->id => AddressSnapshot::build($address)])->all();
+            $incompleteAddressIds = $customer->addresses
+                ->filter(fn (ShippingAddress $address): bool => $this->addressGuard->problems(address: $address, channel: AddressChannel::Panel) !== [])
+                ->pluck('id')
+                ->all();
+
+            return view('admin-views.customer.customer-view', compact('customer', 'orders', 'orderStatusArray', 'orderStatus', 'filter', 'dateType', 'from', 'to', 'addressCopies', 'incompleteAddressIds'));
         }
         ToastMagic::error(translate('customer_Not_Found'));
         return back();
@@ -525,11 +538,17 @@ class CustomerController extends BaseController
 
     public function add(CustomerRequest $request, CustomerService $customerService): JsonResponse
     {
+        try {
+            $addressData = $this->shippingAddressService->getAddAddressData(request: $request, customerId: null, addressType: 'home');
+        } catch (ValidationException $exception) {
+            return response()->json(['errors' => $this->validationErrors($exception)], 422);
+        }
+
         $token = Str::random(120);
         $this->passwordResetRepo->add($this->passwordResetService->getAddData(identity: $request['phone'], token: $token, userType: 'customer'));
-        $this->customerRepo->add($customerService->getCustomerData(request: $request));
+        $this->customerRepo->add(array_merge($customerService->getCustomerData(request: $request), Arr::only($addressData, ['city', 'country'])));
         $customer = $this->customerRepo->getFirstWhere(params: ['email' => $request['email']]);
-        $this->shippingAddressRepo->add($this->shippingAddressService->getAddAddressData(request: $request, customerId: $customer['id'], addressType: 'home'));
+        $this->shippingAddressRepo->add(array_merge($addressData, ['customer_id' => $customer['id']]));
         $resetRoute = route('customer.auth.recover-password');
         $data = [
             'userName' => $request['f_name'],
@@ -552,6 +571,21 @@ class CustomerController extends BaseController
         ToastMagic::success(translate('Update_successfully'));
         return redirect()->back();
     }
+
+    /**
+     * The address errors in the shape the add-customer form's script reads: one entry per field, naming the input.
+     *
+     * @return list<array{error_code: string, message: string}>
+     */
+    private function validationErrors(ValidationException $exception): array
+    {
+        return array_values(array_map(
+            static fn (string $field, array $messages): array => ['error_code' => $field, 'message' => $messages[0]],
+            array_keys($exception->errors()),
+            $exception->errors(),
+        ));
+    }
+
     /**
      * A search box's value, or null when the caller sent something that is not one.
      *

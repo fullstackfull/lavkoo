@@ -22,6 +22,8 @@ final class AddressSchema
 {
     public const SETTING = 'unified_address_mode';
 
+    public const ZIP_RESTRICTION_SETTING = 'delivery_zip_code_area_restriction';
+
     public const MODE_OFF = 'off';
 
     public const MODE_SOFT = 'soft';
@@ -92,10 +94,20 @@ final class AddressSchema
         return is_string($value) && in_array($value, self::MODES, true) ? $value : self::MODE_OFF;
     }
 
-    /** The mode in force: `off` unless the schema, the city list and the setting all say otherwise. */
+    /** Is the ZIP-code delivery restriction switched on? Absent means off. */
+    public static function zipRestrictionOn(): bool
+    {
+        return function_exists('getWebConfig') && (bool) getWebConfig(name: self::ZIP_RESTRICTION_SETTING);
+    }
+
+    /**
+     * The mode in force: `off` unless the schema, the city list and the setting all say otherwise, and always `off` while the ZIP-code
+     * delivery restriction is on. A ZIP allow-list cannot be evaluated for an address that carries only a National Address (the ZIP is never
+     * derived from it), so the store keeps asking for the ZIP code and keeps applying the restriction exactly as before.
+     */
     public static function mode(): string
     {
-        if (!self::ready() || !self::hasCities()) {
+        if (!self::ready() || !self::hasCities() || self::zipRestrictionOn()) {
             return self::MODE_OFF;
         }
 

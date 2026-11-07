@@ -20,9 +20,12 @@ use App\Services\Fulfillment\Support\SaudiPhone;
  * `invoiceNumber` is OUR fulfillment reference: it is what links the provider's later last-mile webhooks
  * back to this fulfillment, and what a reconciliation looks for. Only this fulfillment's own items go in.
  *
- * Three fields the document leaves unexplained are handled conservatively: `villageId` is omitted (our
- * checkout has no district), `cost` is omitted unless an operator chose what it should carry, and for
+ * Three fields the document leaves unexplained are handled conservatively: `villageId` is omitted (the store's address has
+ * no village of the provider's), `cost` is omitted unless an operator chose what it should carry, and for
  * cash on delivery `codCollectionMethod` is whatever LogesTechs told the operator to send — never guessed.
+ *
+ * The document's receiverAddress has no national-address field, so none is sent: the street text, and the district when the
+ * address has one, travel in `addressLine1`.
  */
 class TorodOrderPayloadBuilder
 {
@@ -40,7 +43,7 @@ class TorodOrderPayloadBuilder
             'receiverAddress' => array_filter([
                 'cityId' => (string) $city->external_id,
                 'regionId' => $city->region_external_id,
-                'addressLine1' => trim((string) ($address['address'] ?? '')),
+                'addressLine1' => $this->addressLine($address),
             ], static fn ($value): bool => $value !== null && $value !== ''),
             'notes' => $this->notes($order),
             'weight' => $this->weight($fulfillment, $config),
@@ -72,6 +75,15 @@ class TorodOrderPayloadBuilder
         $raw = $order->shipping_address_data;
 
         return is_object($raw) ? (array) $raw : (is_array($raw) ? $raw : []);
+    }
+
+    /** The street text, with the district after it unless the street text already names it. @param array<string, mixed> $address */
+    private function addressLine(array $address): string
+    {
+        $street = trim((string) ($address['address'] ?? ''));
+        $district = trim((string) ($address['district'] ?? ''));
+
+        return $district === '' || mb_stripos($street, $district) !== false ? $street : ($street === '' ? $district : $street . ', ' . $district);
     }
 
     private function formatPhone(string $local, ProviderConfig $config): string

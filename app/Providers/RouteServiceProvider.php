@@ -58,6 +58,7 @@ class RouteServiceProvider extends ServiceProvider
 
         $this->mapBetaAdminRoutes();
         $this->mapFulfillmentAdminRoutes();
+        $this->mapAddressAdminRoutes();
         $this->mapBetaVendorRoutes();
         $this->mapSellerCenterRoutes();
         $this->mapBetaWebRoutes();
@@ -183,6 +184,14 @@ class RouteServiceProvider extends ServiceProvider
         Route::middleware('web')
             ->namespace($this->namespace)
             ->group(base_path('routes/admin/fulfillment.php'));
+    }
+
+    /** The unified Saudi address: mode, regions, cities, the review of old addresses and the data import. */
+    protected function mapAddressAdminRoutes(): void
+    {
+        Route::middleware('web')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/admin/addresses.php'));
     }
 
     protected function mapBetaVendorRoutes(): void

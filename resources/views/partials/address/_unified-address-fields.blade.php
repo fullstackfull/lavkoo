@@ -76,7 +76,7 @@
         <label class="{{ $labelClass }}" for="{{ $idPrefix }}-national-address">{{ translate('address_national_address') }}@if($required) <span class="text-danger">*</span>@endif</label>
         <input type="text" class="form-control" id="{{ $idPrefix }}-national-address" name="{{ $namePrefix }}national_address" data-ua-national
                maxlength="14" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RAGI2929"
-               pattern="[A-Za-z]{4}[0-9]{4}" aria-describedby="{{ $idPrefix }}-national-address-help" @if($required) required @endif
+               pattern="{{ \App\Services\Address\NationalAddress::inputPattern() }}" aria-describedby="{{ $idPrefix }}-national-address-help" @if($required) required @endif
                value="{{ data_get($address, 'national_address') }}">
         <small class="form-text text-muted" id="{{ $idPrefix }}-national-address-help">{{ translate('address_national_address_help') }}</small>
     </div>

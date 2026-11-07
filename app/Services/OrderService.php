@@ -3,14 +3,14 @@
 namespace App\Services;
 
 use App\Models\User;
-use App\Models\ShippingAddress;
+use App\Services\Address\OrderAddressService;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 class OrderService
 {
     use VatTaxManagement;
 
-    public function __construct()
+    public function __construct(private readonly OrderAddressService $orderAddresses)
     {
     }
 
@@ -51,25 +51,20 @@ class OrderService
             /*
              * First try to use the customer's latest saved shipping address.
              */
-            $shippingAddress = ShippingAddress::where(
-                'customer_id',
-                $customer->id
-            )
-                ->orderByDesc('id')
-                ->first();
+            $shippingAddress = $this->orderAddresses->latestSavedAddress(customerId: $customer->id);
 
             if ($shippingAddress) {
 
                 /*
                  * Customer has a saved shipping address.
                  */
-                $shippingAddressData = $shippingAddress->toArray();
+                $shippingAddressData = $this->orderAddresses->snapshot(address: $shippingAddress);
 
                 /*
                  * POS billing address uses the same address by default.
                  */
                 $billingAddress = $shippingAddress->id;
-                $billingAddressData = $shippingAddress->toArray();
+                $billingAddressData = $shippingAddressData;
 
             } else {
 

@@ -7,6 +7,7 @@ use App\Contracts\Repositories\DigitalProductVariationRepositoryInterface;
 use App\Contracts\Repositories\PasswordResetRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\StorageRepositoryInterface;
+use App\Enums\Address\AddressChannel;
 use App\Events\CustomerRegistrationEvent;
 use App\Events\DigitalProductDownloadEvent;
 use App\Http\Controllers\Controller;
@@ -14,7 +15,8 @@ use App\Models\BusinessSetting;
 use App\Models\Category;
 use App\Models\Order;
 use App\Models\Product;
-use App\Models\ShippingAddress;
+use App\Services\Address\CheckoutAddressGuard;
+use App\Services\Address\OrderAddressService;
 use App\Services\PasswordResetService;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
@@ -26,6 +28,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 class POSController extends Controller
@@ -42,6 +45,8 @@ class POSController extends Controller
      * @param StorageRepositoryInterface $storageRepo
      * @param PasswordResetService $passwordResetService
      * @param CustomerRepositoryInterface $customerRepo
+     * @param OrderAddressService $orderAddresses
+     * @param CheckoutAddressGuard $addressGuard
      */
     public function __construct(
 
@@ -51,6 +56,8 @@ class POSController extends Controller
         private readonly StorageRepositoryInterface                 $storageRepo,
         private readonly PasswordResetService                       $passwordResetService,
         private readonly CustomerRepositoryInterface                $customerRepo,
+        private readonly OrderAddressService                        $orderAddresses,
+        private readonly CheckoutAddressGuard                       $addressGuard,
     )
     {
     }
@@ -301,6 +308,15 @@ class POSController extends Controller
             ]);
         }
 
+        $deliveryShippingAddress = $fulfillment == 'delivery' ? $this->orderAddresses->latestSavedAddress(customerId: $customerId) : null;
+        if ($deliveryShippingAddress) {
+            try {
+                $this->addressGuard->assertUsable(address: $deliveryShippingAddress, channel: AddressChannel::Api);
+            } catch (ValidationException $exception) {
+                return response()->json(['errors' => Helpers::validationErrorProcessor($exception->validator)], 403);
+            }
+        }
+
         if ($paymentMethod == 'wallet' && $customerId != 0) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
             if ($customerBalance['wallet_balance'] >= $paidAmount) {
@@ -368,12 +384,8 @@ class POSController extends Controller
             }
         }
 
-        $deliveryShippingAddress = null;
-        $deliveryShippingResponsibility = null;
-        if ($fulfillment == 'delivery') {
-            $deliveryShippingAddress = ShippingAddress::where(['customer_id' => $customerId])->orderByDesc('id')->first();
-            $deliveryShippingResponsibility = getWebConfig(name: 'shipping_method');
-        }
+        $deliveryShippingResponsibility = $fulfillment == 'delivery' ? getWebConfig(name: 'shipping_method') : null;
+        $deliveryAddressSnapshot = $this->orderAddresses->snapshot(address: $deliveryShippingAddress);
 
         $orderData = [
             'id' => $generateOrderID,
@@ -386,7 +398,7 @@ class POSController extends Controller
             'payment_method' => $isCashOnDelivery ? 'cash_on_delivery' : $paymentMethod,
             'order_type' => 'POS',
             'shipping_address' => $deliveryShippingAddress?->id,
-            'shipping_address_data' => $deliveryShippingAddress ? json_encode($deliveryShippingAddress) : null,
+            'shipping_address_data' => $deliveryAddressSnapshot ? json_encode($deliveryAddressSnapshot) : null,
             'shipping_responsibility' => $deliveryShippingResponsibility,
             'verification_code' => $fulfillment == 'delivery' ? rand(100000, 999999) : '0',
             'checked' => 1,

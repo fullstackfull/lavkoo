@@ -51,9 +51,17 @@ final class NationalAddress
     /** What the configuration says the shape is, as a pattern: the single place the format is written down. */
     public static function pattern(): string
     {
-        $letters = (int) config('address.national_address.letters', 4);
-        $digits = (int) config('address.national_address.digits', 4);
+        return '/^' . self::shape(letters: 'A-Z') . '$/D';
+    }
 
-        return '/^[A-Z]{' . $letters . '}[0-9]{' . $digits . '}$/D';
+    /** The same shape for an HTML `pattern` attribute and the client-side check (they upper-case what is typed, so both cases are accepted). */
+    public static function inputPattern(): string
+    {
+        return self::shape(letters: 'A-Za-z');
+    }
+
+    private static function shape(string $letters): string
+    {
+        return '[' . $letters . ']{' . (int) config('address.national_address.letters', 4) . '}[0-9]{' . (int) config('address.national_address.digits', 4) . '}';
     }
 }

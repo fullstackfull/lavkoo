@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Enums\Address\AddressChannel;
 use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
+use App\Services\Address\OrderAddressService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
@@ -36,6 +38,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
@@ -43,8 +46,33 @@ class OrderController extends Controller
 
     public function __construct(
         private readonly OrderService $orderService,
+        private readonly OrderAddressService $orderAddresses,
     )
     {
+    }
+
+    /**
+     * Refuses an order before anything is created, registered or charged when the address it names is not the caller's, is gone, or
+     * is an old Saudi address that has to be completed first. The answer keeps the {message} shape these endpoints already use.
+     */
+    private function addressRefusal(Request $request, mixed $user): ?JsonResponse
+    {
+        try {
+            $this->orderAddresses->assertOrderable(
+                shippingId: $request['address_id'],
+                billingId: $request['billing_address_id'],
+                customerId: $user === 'offline' ? $request['guest_id'] : $user->id,
+                isGuest: $user === 'offline',
+                channel: AddressChannel::Api,
+                guestId: $request['guest_id'],
+            );
+        } catch (ValidationException $exception) {
+            $errors = Helpers::validationErrorProcessor($exception->validator);
+
+            return response()->json(['message' => $errors[0]['message'], 'errors' => $errors], 403);
+        }
+
+        return null;
     }
 
     public function track_by_order_id(Request $request)
@@ -161,6 +189,10 @@ class OrderController extends Controller
             return response()->json(['message' => $codBlockedReason], 403);
         }
 
+        if ($refusal = $this->addressRefusal(request: $request, user: $user)) {
+            return $refusal;
+        }
+
         if ($user == 'offline' && $request->has('address_id') && $request['address_id']) {
             $shippingAddress = ShippingAddress::where(['customer_id' => $request['guest_id'], 'is_guest' => 1, 'id' => $request->input('address_id')])->first();
             if ($request['is_check_create_account'] && $shippingAddress) {
@@ -218,6 +250,7 @@ class OrderController extends Controller
             'is_guest' => $user == 'offline' ? 1 : 0,
             'guest_id' => $request['guest_id'],
             'customer_id' => $user == 'offline' ? $request['guest_id'] : $user['id'],
+            'address_channel' => AddressChannel::Api,
             'order_status' => 'pending',
             'payment_method' => 'cash_on_delivery',
             'payment_status' => 'unpaid',
@@ -278,6 +311,10 @@ class OrderController extends Controller
         $verifyStatus = OrderManager::verifyCartListMinimumOrderAmount($request);
         if ($verifyStatus['status'] == 0) {
             return response()->json(['message' => 'Check minimum order amount requirement'], 403);
+        }
+
+        if ($refusal = $this->addressRefusal(request: $request, user: $user)) {
+            return $refusal;
         }
 
         if ($user == 'offline' && $request->has('address_id') && $request['address_id']) {
@@ -346,6 +383,7 @@ class OrderController extends Controller
             'is_guest' => $user == 'offline' ? 1 : 0,
             'guest_id' => $request['guest_id'],
             'customer_id' => $user == 'offline' ? $request['guest_id'] : $user['id'],
+            'address_channel' => AddressChannel::Api,
             'order_status' => 'pending',
             'payment_method' => 'offline_payment',
             'payment_status' => 'unpaid',
@@ -397,6 +435,10 @@ class OrderController extends Controller
         $paymentAmount = collect($vendorWiseCartList)->sum('order_amount_with_tax');
 
         $user = Helpers::getCustomerInformation($request);
+        if ($refusal = $this->addressRefusal(request: $request, user: $user)) {
+            return $refusal;
+        }
+
         if ($paymentAmount > $user->wallet_balance) {
             return response()->json(['message' => 'inefficient balance in your wallet to pay for this order'], 403);
         } else {
@@ -412,7 +454,7 @@ class OrderController extends Controller
                 $country_restrict_status = getWebConfig(name: 'delivery_country_restriction');
 
                 if ($request->has('billing_address_id') && $request['billing_address_id']) {
-                    $shipping_address = ShippingAddress::where(['customer_id' => $request->user()->id, 'id' => $request->input('billing_address_id')])->first();
+                    $shipping_address = ShippingAddress::where(['customer_id' => $request->user()->id, 'is_guest' => '0', 'id' => $request->input('billing_address_id')])->first();
 
                     if (!$shipping_address) {
                         return response()->json(['message' => translate('address_not_found')], 403);
@@ -427,8 +469,9 @@ class OrderController extends Controller
 
             $orderIds = OrderManager::generateOrder(data: [
                 'is_guest' => 0,
-                'guest_id' => 0,
+                'guest_id' => $request['guest_id'] ?? 0,
                 'customer_id' => $user['id'],
+                'address_channel' => AddressChannel::Api,
                 'order_status' => 'confirmed',
                 'payment_method' => 'pay_by_wallet',
                 'payment_status' => 'paid',

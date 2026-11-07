@@ -9,7 +9,11 @@
 @endpush
 
 @section('content')
+    @use('App\Services\Address\AddressCountry')
+    @use('App\Services\Address\AddressSchema')
+    @use('App\Services\Address\AddressSnapshotLines')
     @php($shippingAddress = $order['shipping_address_data'] ?? null)
+    @php($unifiedAddress = AddressSchema::enabled())
     <div class="content container-fluid">
         <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
             <h2 class="fs-20 mb-0 text-capitalize d-flex align-items-center gap-2">
@@ -1090,17 +1094,17 @@
                                     <td class="px-0 py-2 text-nowrap">{{translate('name')}}</td>
                                     <td class="px-3 py-2">:</td>
                                     <td class="px-0 py-2">
-                                        <strong>{{$shippingAddress->contact_person_name}}</strong> {{ $order->is_guest ? '('. translate('guest_customer') .')':''}}
+                                        <strong>{{$shippingAddress->contact_person_name ?? null}}</strong> {{ $order->is_guest ? '('. translate('guest_customer') .')':''}}
                                     </td>
                                 </tr>
                                 <tr>
                                     <td class="px-0 py-2 text-nowrap">{{translate('contact')}}</td>
                                     <td class="px-3 py-2">:</td>
                                     <td class="px-0 py-2">
-                                        <strong>{{$shippingAddress->phone}}</strong>
+                                        <strong>{{$shippingAddress->phone ?? null}}</strong>
                                     </td>
                                 </tr>
-                                @if ($order->is_guest && $shippingAddress->email)
+                                @if ($order->is_guest && ($shippingAddress->email ?? null))
                                     <tr>
                                         <td class="px-0 py-2 text-nowrap">{{translate('email')}}</td>
                                         <td class="px-3 py-2">:</td>
@@ -1113,21 +1117,16 @@
                                     <td class="px-0 py-2 text-nowrap">{{translate('country')}}</td>
                                     <td class="px-3 py-2">:</td>
                                     <td class="px-0 py-2">
-                                        <strong>{{$shippingAddress->country}}</strong>
+                                        <strong>{{$shippingAddress->country ?? null}}</strong>
                                     </td>
                                 </tr>
-                                <tr>
-                                    <td class="px-0 py-2 text-nowrap">{{translate('city')}}</td>
-                                    <td class="px-3 py-2">:</td>
-                                    <td class="px-0 py-2"><strong>{{$shippingAddress->city}}</strong></td>
-                                </tr>
-                                <tr>
-                                    <td class="px-0 py-2 text-nowrap">{{translate('zip_code')}}</td>
-                                    <td class="px-3 py-2">:</td>
-                                    <td class="px-0 py-2">
-                                        <strong>{{$shippingAddress->zip}}</strong>
-                                    </td>
-                                </tr>
+                                @foreach(AddressSnapshotLines::location($shippingAddress) as $line)
+                                    <tr>
+                                        <td class="px-0 py-2 text-nowrap">{{translate($line['label'])}}</td>
+                                        <td class="px-3 py-2">:</td>
+                                        <td class="px-0 py-2"><strong>{{$line['value']}}</strong></td>
+                                    </tr>
+                                @endforeach
                                 <tr>
                                     <td class="px-0 py-2 text-nowrap">{{ translate('Address') }}</td>
                                     <td class="px-3 py-2">:</td>
@@ -1184,17 +1183,17 @@
                                     <td class="px-0 py-2 text-nowrap">{{translate('name')}}</td>
                                     <td class="px-3 py-2">:</td>
                                     <td class="px-0 py-2">
-                                        <strong>{{$billing->contact_person_name}}</strong> {{ $order->is_guest ? '('. translate('guest_customer') .')':''}}
+                                        <strong>{{$billing->contact_person_name ?? null}}</strong> {{ $order->is_guest ? '('. translate('guest_customer') .')':''}}
                                     </td>
                                 </tr>
                                 <tr>
                                     <td class="px-0 py-2 text-nowrap">{{translate('contact')}}</td>
                                     <td class="px-3 py-2">:</td>
                                     <td class="px-0 py-2">
-                                        <strong>{{$billing->phone}}</strong>
+                                        <strong>{{$billing->phone ?? null}}</strong>
                                     </td>
                                 </tr>
-                                @if ($order->is_guest && $billing->email)
+                                @if ($order->is_guest && ($billing->email ?? null))
                                     <tr>
                                         <td class="px-0 py-2 text-nowrap">{{translate('email')}}</td>
                                         <td class="px-3 py-2">:</td>
@@ -1207,29 +1206,22 @@
                                     <td class="px-0 py-2 text-nowrap">{{translate('country')}}</td>
                                     <td class="px-3 py-2">:</td>
                                     <td class="px-0 py-2">
-                                        <strong>{{$billing->country}}</strong>
+                                        <strong>{{$billing->country ?? null}}</strong>
                                     </td>
                                 </tr>
-                                <tr>
-                                    <td class="px-0 py-2 text-nowrap">{{translate('city')}}</td>
-                                    <td class="px-3 py-2">:</td>
-                                    <td class="px-0 py-2">
-                                        <strong>{{$billing->city}}</strong>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="px-0 py-2 text-nowrap">{{translate('zip_code')}}</td>
-                                    <td class="px-3 py-2">:</td>
-                                    <td class="px-0 py-2">
-                                        <strong>{{$billing->zip}}</strong>
-                                    </td>
-                                </tr>
+                                @foreach(AddressSnapshotLines::location($billing) as $line)
+                                    <tr>
+                                        <td class="px-0 py-2 text-nowrap">{{translate($line['label'])}}</td>
+                                        <td class="px-3 py-2">:</td>
+                                        <td class="px-0 py-2"><strong>{{$line['value']}}</strong></td>
+                                    </tr>
+                                @endforeach
                                 <tr>
                                     <td class="px-0 py-2 text-nowrap">{{ translate('Address') }}</td>
                                     <td class="px-3 py-2">:</td>
                                     <td class="px-0 py-2">
                                         <div class="d-flex align-items-start gap-2">
-                                            <span>{{$billing->address}}</span>
+                                            <span>{{$billing->address ?? null}}</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -1404,9 +1396,10 @@
                                         <div class="form-group">
                                             <label for="country" class="title-color">{{translate('country')}}</label>
                                             <select name="country" id="country" class="form-control">
+                                                @php($savedCountry = $shippingAddress->country ?? null)
                                                 @forelse($countries as $country)
                                                     <option
-                                                        value="{{ $country['name'] }}" {{ isset($shippingAddress) && $country['name'] == $shippingAddress->country ? 'selected'  : ''}}>{{ $country['name'] }}</option>
+                                                        value="{{ $country['name'] }}" {{ $country['name'] == $savedCountry || ($unifiedAddress && AddressCountry::isSaudi($country['name']) && AddressCountry::isSaudi($savedCountry)) ? 'selected'  : ''}}>{{ $country['name'] }}</option>
                                                 @empty
                                                     <option value="">{{ translate('No_country_to_deliver') }}</option>
                                                 @endforelse
@@ -1414,7 +1407,7 @@
 
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3"@if($unifiedAddress) data-ua-other @endif>
                                         <div class="form-group">
                                             <label for="city" class="title-color">{{translate('city')}}</label>
                                             <input type="text" name="city" id="city"
@@ -1424,31 +1417,36 @@
                                                    required>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3"@if($unifiedAddress) data-ua-other @endif>
                                         <div class="form-group">
                                             <label for="zip_code" class="title-color">{{translate('zip')}}</label>
                                             @if($zipRestrictStatus == 1)
                                                 <select name="zip" class="form-control" data-live-search="true"
-                                                        required>
+                                                        @if(!$unifiedAddress) required @endif>
                                                     @forelse($zipCodes as $code)
                                                         <option
-                                                            value="{{ $code->zipcode }}"{{isset($shippingAddress) && $code->zipcode == $shippingAddress->zip ? 'selected'  : ''}}>{{ $code->zipcode }}</option>
+                                                            value="{{ $code->zipcode }}"{{isset($shippingAddress) && $code->zipcode == ($shippingAddress->zip ?? null) ? 'selected'  : ''}}>{{ $code->zipcode }}</option>
                                                     @empty
                                                         <option value="">{{ translate('No_zip_to_deliver') }}</option>
                                                     @endforelse
                                                 </select>
                                             @else
                                                 <input type="text" class="form-control"
-                                                       value="{{$shippingAddress ? $shippingAddress->zip  : ''}}"
+                                                       value="{{$shippingAddress ? ($shippingAddress->zip ?? null)  : ''}}"
                                                        id="zip"
                                                        name="zip"
-                                                       placeholder="{{ translate('ex').' '.':'.' '.'1216'}}" {{$shippingAddress?'required':''}}>
+                                                       placeholder="{{ translate('ex').' '.':'.' '.'1216'}}" {{$shippingAddress && !$unifiedAddress ? 'required' : ''}}>
                                             @endif
                                         </div>
                                     </div>
+                                    @if($unifiedAddress)
+                                        <div class="col-12">
+                                            @include('partials.address._unified-address-fields', ['address' => $shippingAddress, 'ui' => 'bs4', 'idPrefix' => 'order-shipping', 'countrySelector' => 'select[name="country"]'])
+                                        </div>
+                                    @endif
                                     <div class="col-12">
                                         <div class="form-group">
-                                            <label for="address" class="title-color">{{translate('address')}}</label>
+                                            <label for="address" class="title-color">{{translate($unifiedAddress ? 'address_street_details' : 'address')}}</label>
                                             <textarea name="address" id="address" name="address" rows="3"
                                                       class="form-control"
                                                       placeholder="{{ translate('ex').' '.':'.' '.translate('street_1,_street_2,_street_3,_street_4')}}">{{$shippingAddress ? $shippingAddress->address : ''}}</textarea>
@@ -1530,9 +1528,10 @@
                                                     <label for="country"
                                                            class="title-color">{{translate('country')}}</label>
                                                     <select name="country" id="country" class="form-control">
+                                                        @php($savedBillingCountry = $billing->country ?? null)
                                                         @forelse($countries as $country)
                                                             <option
-                                                                value="{{ $country['name'] }}" {{ isset($billing) && $country['name'] == $billing->country ? 'selected'  : ''}}>{{ $country['name'] }}</option>
+                                                                value="{{ $country['name'] }}" {{ $country['name'] == $savedBillingCountry || ($unifiedAddress && AddressCountry::isSaudi($country['name']) && AddressCountry::isSaudi($savedBillingCountry)) ? 'selected'  : ''}}>{{ $country['name'] }}</option>
                                                         @empty
                                                             <option value="">
                                                                 {{ translate('No_country_to_deliver') }}
@@ -1542,7 +1541,7 @@
 
                                                 </div>
                                             </div>
-                                            <div class="col-md-3">
+                                            <div class="col-md-3"@if($unifiedAddress) data-ua-other @endif>
                                                 <div class="form-group">
                                                     <label for="city" class="title-color">{{translate('city')}}</label>
                                                     <input type="text" name="city" id="city"
@@ -1552,16 +1551,16 @@
                                                            required>
                                                 </div>
                                             </div>
-                                            <div class="col-md-3">
+                                            <div class="col-md-3"@if($unifiedAddress) data-ua-other @endif>
                                                 <div class="form-group">
                                                     <label for="zip_code"
                                                            class="title-color">{{translate('zip')}}</label>
                                                     @if($zipRestrictStatus == 1)
                                                         <select name="zip" class="form-control" data-live-search="true"
-                                                                required>
+                                                                @if(!$unifiedAddress) required @endif>
                                                             @forelse($zipCodes as $code)
                                                                 <option
-                                                                    value="{{ $code->zipcode }}"{{isset($billing) && $code->zipcode == $billing->zip ? 'selected'  : ''}}>{{ $code->zipcode }}</option>
+                                                                    value="{{ $code->zipcode }}"{{isset($billing) && $code->zipcode == ($billing->zip ?? null) ? 'selected'  : ''}}>{{ $code->zipcode }}</option>
                                                             @empty
                                                                 <option
                                                                     value="">{{ translate('no_zip_to_deliver') }}</option>
@@ -1569,16 +1568,21 @@
                                                         </select>
                                                     @else
                                                         <input type="text" class="form-control"
-                                                               value="{{$billing ? $billing->zip  : ''}}" id="zip"
+                                                               value="{{$billing ? ($billing->zip ?? null)  : ''}}" id="zip"
                                                                name="zip"
-                                                               placeholder="{{ translate('ex').' '.':'.' '.'1216' }}" {{$billing?'required':''}}>
+                                                               placeholder="{{ translate('ex').' '.':'.' '.'1216' }}" {{$billing && !$unifiedAddress ? 'required' : ''}}>
                                                     @endif
                                                 </div>
                                             </div>
+                                            @if($unifiedAddress)
+                                                <div class="col-12">
+                                                    @include('partials.address._unified-address-fields', ['address' => $billing, 'ui' => 'bs4', 'idPrefix' => 'order-billing', 'countrySelector' => 'select[name="country"]'])
+                                                </div>
+                                            @endif
                                             <div class="col-12">
                                                 <div class="form-group">
                                                     <label for="address"
-                                                           class="title-color">{{translate('address')}}</label>
+                                                           class="title-color">{{translate($unifiedAddress ? 'address_street_details' : 'address')}}</label>
                                                     <textarea name="address" id="billing_address" rows="3"
                                                               class="form-control"
                                                               placeholder="{{ translate('ex') .' '.':'.' '.translate('street_1,_street_2,_street_3,_street_4')}}">{{$billing ? $billing->address : ''}}</textarea>
@@ -2033,6 +2037,9 @@
           data-action="{{ route('vendor.orders.edit-order-product-modal-view') }}"></span>
 @endsection
 @push('script')
+    @if($unifiedAddress)
+        @include('partials.address._unified-address-script')
+    @endif
     @if(getWebConfig('map_api_status') ==1 )
         <script
             src="https://maps.googleapis.com/maps/api/js?key={{getWebConfig('map_api_key')}}&callback=mapCallBackFunction&loading=async&libraries=places&v=3.56"

@@ -209,6 +209,7 @@
                 var scope = root.closest('form') || root;
                 var countrySelector = root.getAttribute('data-ua-country-selector');
                 var countryControl = countrySelector ? scope.querySelector(countrySelector) : null;
+                var regionRequired = regionSelect.required;
                 var cache = {};
                 var controller = null;
 
@@ -228,8 +229,7 @@
                 }
 
                 function setRegionDependentState() {
-                    var hasRegion = regionSelect.value !== '';
-                    cityInput.disabled = !hasRegion;
+                    cityInput.disabled = !isSaudi() || regionSelect.value === '';
                     updateCityValidity();
                 }
 
@@ -279,6 +279,11 @@
                     var saudi = isSaudi();
                     scope.querySelectorAll('[data-ua-saudi]').forEach(function (block) { toggle(block, saudi); });
                     scope.querySelectorAll('[data-ua-other]').forEach(function (block) { toggle(block, !saudi); });
+                    if (regionCombobox) {
+                        regionInput.disabled = !saudi;
+                        regionInput.required = saudi && regionRequired;
+                    }
+                    setRegionDependentState();
                 }
 
                 function toggle(block, visible) {
@@ -292,7 +297,6 @@
                 if (regionCombobox) {
                     regionSelect.hidden = true;
                     regionInput.hidden = false;
-                    regionInput.required = regionSelect.required;
                     regionSelect.required = false;
                 }
                 if (regionCombobox && regionSelect.value !== '') {
@@ -307,18 +311,20 @@
                     regionSelect.addEventListener('change', function () { changeRegion(regionSelect.value); });
                 }
                 if (national) {
+                    var nationalShape = new RegExp('^(?:' + national.getAttribute('pattern') + ')$');
                     national.addEventListener('input', function () {
                         var cleaned = normalizeNationalAddress(national.value);
                         if (cleaned !== national.value) { national.value = cleaned; }
                         national.setCustomValidity('');
                     });
                     national.addEventListener('blur', function () {
-                        var valid = national.value === '' || /^[A-Z]{4}[0-9]{4}$/.test(national.value);
+                        var valid = national.value === '' || nationalShape.test(national.value);
                         national.setCustomValidity(valid ? '' : text.nationalFormat);
                     });
                 }
                 if (countryControl) {
                     countryControl.addEventListener('change', applyCountry);
+                    if (window.jQuery) { window.jQuery(countryControl).on('change', applyCountry); }
                 }
 
                 setRegionDependentState();
@@ -332,12 +338,21 @@
                 });
             }
 
+            function initOpened(event) { init(event.target); }
+
+            function ready() {
+                if (window.jQuery) { window.jQuery(document).on('shown.bs.modal shown.bs.offcanvas', initOpened); }
+                init(document);
+            }
+
             window.unifiedAddress = {init: init, fold: fold};
 
+            ['shown.bs.modal', 'shown.bs.offcanvas'].forEach(function (name) { document.addEventListener(name, initOpened); });
+
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', function () { init(document); });
+                document.addEventListener('DOMContentLoaded', ready);
             } else {
-                init(document);
+                ready();
             }
         })();
     </script>
