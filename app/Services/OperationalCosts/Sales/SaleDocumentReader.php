@@ -6,9 +6,9 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
-use App\Models\InventoryLocation;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\OperationalCosts\Support\StockLocationResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -27,11 +27,9 @@ use Illuminate\Support\Facades\Schema;
  */
 class SaleDocumentReader
 {
-    /** @var array<string, int>|null */
-    private ?array $locations = null;
-
     public function __construct(
         private readonly ProviderCurrency $storeCurrency,
+        private readonly StockLocationResolver $stockLocations,
     ) {
     }
 
@@ -142,7 +140,6 @@ class SaleDocumentReader
             ? DB::table('provider_fulfillment_items')->where('order_id', $order->id)->get()->keyBy('order_detail_id')
             : collect();
         $refunds = $this->refundsByDetail($details);
-        $locations = $this->locationsByProvider();
 
         $convert = function (mixed $stored) use (&$notes): Money {
             $converted = $this->storeCurrency->fromStored($stored ?? 0);
@@ -184,7 +181,7 @@ class SaleDocumentReader
                 quantity: (int) $detail->qty,
                 revenue: $revenue,
                 refunded: isset($refunds[$detail->id]) ? $this->withoutTax($convert($refunds[$detail->id]), $revenue, $lineTax) : Money::zero(),
-                inventoryLocationId: $locations[$provider ?? 'own_warehouse'] ?? null,
+                inventoryLocationId: $this->stockLocations->forProvider($provider),
                 costBasis: $basis,
                 provider: $provider,
                 weightKg: isset($providerItem->weight_kg) ? Money::of($providerItem->weight_kg) : null,
@@ -240,7 +237,6 @@ class SaleDocumentReader
     private function fromChannelOrder(ExternalOrderMapping $mapping): SaleDocument
     {
         $status = $mapping->orderStatus();
-        $locations = $this->locationsByProvider();
         $includesTax = (bool) $mapping->prices_include_tax;
         $notes = [];
         $mode = $mapping->fulfillmentMode();
@@ -252,7 +248,7 @@ class SaleDocumentReader
             $notes[] = 'tax_not_separated';
         }
 
-        $lines = $mapping->lines->map(function (ExternalOrderLine $line) use ($includesTax, $mode, $mapping, $locations): SaleLine {
+        $lines = $mapping->lines->map(function (ExternalOrderLine $line) use ($includesTax, $mode, $mapping): SaleLine {
             $active = $line->activeQuantity();
             $ordered = max(1, $line->quantity);
             // The channel gives line amounts for the quantity ordered; cancelled units are not revenue.
@@ -269,7 +265,7 @@ class SaleDocumentReader
                 : Money::of($line->refunded_total)->min($revenue->plus(Money::of($line->shipping_total ?? 0)->times($active)->dividedBy($ordered)))->max(Money::zero());
 
             $location = $line->inventory_location_id
-                ?? ($mode === FulfillmentMode::Fba ? ($locations['amazon_fba:' . $mapping->account_id] ?? null) : ($locations[$line->provider ?? 'own_warehouse'] ?? null));
+                ?? ($mode === FulfillmentMode::Fba ? $this->stockLocations->forAmazonFba($mapping->account_id) : $this->stockLocations->forProvider($line->provider));
 
             return new SaleLine(
                 targetType: 'channel_order_line',
@@ -361,29 +357,5 @@ class SaleDocumentReader
             ->pluck('refunded', 'order_details_id')
             ->map(static fn ($amount): float => (float) $amount)
             ->all();
-    }
-
-    /** @return array<string, int> location ids by provider code ('torod_point', 'm5azn'), 'own_warehouse' and 'amazon_fba:{account}' */
-    private function locationsByProvider(): array
-    {
-        if ($this->locations !== null) {
-            return $this->locations;
-        }
-        $map = [];
-        if (Schema::hasTable('inventory_locations')) {
-            foreach (InventoryLocation::query()->active()->orderBy('id')->get() as $location) {
-                if ($location->provider !== null) {
-                    $map[$location->provider] ??= (int) $location->id;
-                }
-                if ($location->type === InventoryLocation::TYPE_OWN) {
-                    $map['own_warehouse'] ??= (int) $location->id;
-                }
-                if ($location->type === InventoryLocation::TYPE_AMAZON_FBA && $location->sales_channel_account_id !== null) {
-                    $map['amazon_fba:' . $location->sales_channel_account_id] = (int) $location->id;
-                }
-            }
-        }
-
-        return $this->locations = $map;
     }
 }

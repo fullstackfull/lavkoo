@@ -10,9 +10,18 @@ trait SkipsUntilSalesChannelsMigrated
 {
     protected function notMigratedYet(): bool
     {
-        if (SalesChannelSchema::ready()) {
-            SalesChannelSetup::prepare();
+        if ($this->salesChannelsNotMigrated()) {
+            return true;
+        }
+        SalesChannelSetup::prepare();
 
+        return false;
+    }
+
+    /** The same check without making the default locations: for a command that must not write anything. */
+    protected function salesChannelsNotMigrated(): bool
+    {
+        if (SalesChannelSchema::ready()) {
             return false;
         }
 
