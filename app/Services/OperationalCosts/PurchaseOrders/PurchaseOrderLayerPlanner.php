@@ -59,7 +59,7 @@ class PurchaseOrderLayerPlanner
         if ($line->quantityReceived < $accounted) {
             return new LinePlan($line, $verdict, $accounted, null, $accounted - $line->quantityReceived);
         }
-        if (!$verdict->isEligible()) {
+        if (!$verdict->isEligible() || $accounted >= $line->quantityReceived) {
             return new LinePlan($line, $verdict, $accounted, null, 0);
         }
 

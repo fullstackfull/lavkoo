@@ -322,6 +322,22 @@ class PurchaseOrderLayersTest extends TestCase
         $this->assertSame(1, InventoryCostLayer::count());
     }
 
+    public function test_a_currency_that_lost_its_rate_between_looking_and_writing_is_refused_and_not_made_at_a_guess(): void
+    {
+        [, $line] = $this->receivedLine(4);
+        $plan = new LinePlan(
+            line: app(PlatformProcurement::class)->receivedLines(0, 1, lineId: $line->id)[0],
+            verdict: LineVerdict::eligible($this->own->id, Money::of('10'), 'EUR'),
+            accountedUnits: 0,
+            tranche: new Tranche(from: 0, to: 4, receivedAt: CarbonImmutable::now(), dateBasis: Tranche::BASIS_MOVEMENTS),
+            reducedBy: 0,
+        );
+
+        $outcome = $this->service()->layerTranche($plan);
+
+        $this->assertSame([TrancheOutcome::REFUSED, 'no_exchange_rate', 0], [$outcome->state, $outcome->refusal->value, InventoryCostLayer::count()]);
+    }
+
     public function test_a_layer_made_from_a_purchase_order_is_used_like_any_other_by_a_sale_first_in_first_out(): void
     {
         [$product, $line] = $this->line(10);
@@ -377,6 +393,21 @@ class PurchaseOrderLayersTest extends TestCase
         $this->assertSame([0, 8, 'line_updated_at'], [$layers[$after->id]->source_from, $layers[$after->id]->source_to, $layers[$after->id]->received_at_basis], 'A line made after the cutover received nothing before it, ledger or no ledger.');
         $this->assertSame(['date_uncertain' => 1], $run->refused);
         $this->assertSame([2, 1], [$run->created, $run->upToDate]);
+    }
+
+    public function test_a_line_whose_layers_already_account_for_everything_is_up_to_date_whatever_the_cutover_date_says_about_its_receipts(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00:00'));
+        [, $line] = $this->line(10);
+        $line = $this->receiveOnPlatform($line, 4);
+        $this->travelTo(CarbonImmutable::parse('2026-11-05 10:00:00'));
+        $this->receiveOnPlatform($line, 6);
+        DB::table('stock_movements')->delete();
+        $this->service()->apply(since: CarbonImmutable::parse('2000-01-01'));
+
+        $run = $this->service()->apply(since: CarbonImmutable::parse('2026-11-01'));
+
+        $this->assertSame([0, 1, []], [$run->created, $run->upToDate, $run->refused], 'Nothing is left to layer, so there is nothing to be unsure about.');
     }
 
     public function test_nothing_is_cut_over_in_a_report_without_a_date_and_every_unit_counts(): void

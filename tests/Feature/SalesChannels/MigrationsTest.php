@@ -28,6 +28,8 @@ class MigrationsTest extends TestCase
         '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php',
     ];
 
+    private const PURCHASE_ORDER_MIGRATION = '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php';
+
     private const NEW_TABLES = [
         'operational_cost_contracts', 'operational_cost_contract_revisions', 'operational_cost_rules', 'operational_cost_entries', 'operational_cost_allocations',
         'operational_cost_invoices', 'operational_cost_invoice_items', 'operational_cost_reconciliations', 'inventory_cost_layers', 'inventory_cost_consumptions',
@@ -221,7 +223,7 @@ class MigrationsTest extends TestCase
             'inventory_location_id' => 1, 'product_id' => 50, 'source_type' => 'purchase_invoice', 'source_id' => 7, 'dedupe_key' => 'old-1', 'received_at' => '2026-11-01 00:00:00',
             'quantity_received' => 5, 'quantity_remaining' => 5, 'unit_cost' => '10.000000', 'currency' => 'SAR', 'supplier_name' => 'Acme',
         ]);
-        $last = require database_path('migrations/' . self::MIGRATIONS[9]);
+        $last = require database_path('migrations/' . self::PURCHASE_ORDER_MIGRATION);
 
         $last->up();
 

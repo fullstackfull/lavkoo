@@ -154,6 +154,9 @@ class PurchaseOrderLayerService
             if ($outcome->state === TrancheOutcome::ALREADY_MADE) {
                 $run->alreadyMade++;
             }
+            if ($outcome->state === TrancheOutcome::REFUSED) {
+                $run->refused[$outcome->refusal->value] = ($run->refused[$outcome->refusal->value] ?? 0) + 1;
+            }
             if ($outcome->state !== TrancheOutcome::OVERTAKEN) {
                 return;
             }
