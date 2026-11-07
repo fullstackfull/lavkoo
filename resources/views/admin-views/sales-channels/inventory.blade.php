@@ -93,10 +93,12 @@
                                                 @php($publishState = $member->snapshot['publish']['stock']['state'] ?? null)
                                                 <div class="text-break mt-1">
                                                     {{ $member->account?->name }} · <code>{{ $member->listing_key }}</code>
-                                                    · {{ ($share['rule'] ?? 'equal') === 'equal' ? translate('stock_share_equal') : $labels->stockShareMode($share['rule']) }}
-                                                    · {{ translate('stock_entitled') }}: {{ $share['entitlement'] ?? '—' }}
-                                                    @if (($share['lag'] ?? 0) > 0) · {{ translate('stock_expected_sales_margin') }}: {{ $share['lag'] }}@endif
-                                                    · {{ translate('stock_may_be_shown') }}: {{ $share['publish'] ?? '—' }}
+                                                    @if (empty($share['outside']))
+                                                        · {{ ($share['rule'] ?? 'equal') === 'equal' ? translate('stock_share_equal') : $labels->stockShareMode($share['rule']) }}
+                                                        · {{ translate('stock_entitled') }}: {{ $share['entitlement'] ?? '—' }}
+                                                        @if (($share['lag'] ?? 0) > 0) · {{ translate('stock_expected_sales_margin') }}: {{ $share['lag'] }}@endif
+                                                        · {{ translate('stock_may_be_shown') }}: {{ $share['publish'] ?? '—' }}
+                                                    @endif
                                                     · {{ translate('we_last_sent') }}: {{ $member->last_published_quantity ?? '—' }}
                                                     · {{ translate('the_channel_shows') }}: {{ $member->remote_quantity ?? '—' }}
                                                     @if ($publishState) · <x-k.badge tone="neutral" :dot="false">{{ $labels->publishState($publishState) }}</x-k.badge>@endif

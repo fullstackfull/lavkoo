@@ -267,6 +267,18 @@ class AdminSalesChannelsProductsTest extends AdminSalesChannelsTestCase
         $this->assertStringContainsString('value="49.90"', $this->index());
     }
 
+    public function test_saving_the_settings_keeps_the_listings_record_of_the_pool_it_shares_and_marks_the_pool(): void
+    {
+        $account = $this->trendyolAccount();
+        $listing = $this->listing($account, ['status' => 'mapped', 'product_id' => $this->product()]);
+        $record = ['pool' => '3:50:', 'version' => 4, 'entitlement' => 7, 'publish' => 7];
+        $listing->forceFill(['allocation' => $record])->save();
+
+        $this->backTo()->post(route('admin.sales-channels.products.settings', $listing), ['price_source' => 'internal', 'inventory_publish' => 0])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame($record, $listing->refresh()->allocation, 'the record names the pool the listing is part of; the next division brings it up to date, and until then the hub still knows which pool the listing belongs to');
+    }
+
     /** @return array<string, array{0: array<string, mixed>, 1: string}> */
     public static function badSettings(): array
     {

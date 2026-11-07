@@ -15,8 +15,9 @@ use Illuminate\Support\Collection;
 
 /**
  * What a person should look at about the stock shared between channels, each with the link that resolves it: pools promised more than they hold (with the orders holding them,
- * newest first: nothing here cancels an order), pools whose channels are shown more than is left, listings still showing stock the source no longer confirms, accounts whose
- * order import is behind (so no quantity of theirs is being raised), order units no pool is told about, and reservations held for days.
+ * newest first: nothing here cancels an order), pools whose channels are shown more than is left (every listing of the pool counts, one that takes no part in its division any more
+ * included), listings still showing stock the source no longer confirms, listings showing stock that nothing updates any more, accounts without proof that their orders are all
+ * imported (so no quantity of theirs is being raised), order units no pool is told about, and reservations held for days.
  */
 final class StockAttention
 {
@@ -38,12 +39,13 @@ final class StockAttention
      */
     public function sections(Collection $accounts): array
     {
-        $listings = SalesChannelProductMapping::whereNotNull('allocation')->get(['id', 'account_id', 'listing_key', 'allocation', 'last_published_quantity']);
+        $listings = SalesChannelProductMapping::whereNotNull('allocation')->get(['id', 'account_id', 'listing_key', 'allocation', 'last_published_quantity', 'last_published_at', 'remote_quantity', 'last_seen_at']);
 
         return [
             $this->deficits(),
             $this->offeredBeyondWhatIsLeft($listings),
             $this->showingStockTheSourceDoesNotConfirm($listings),
+            $this->showingStockThatIsNoLongerUpdated($listings),
             $this->raisesFrozen($accounts, $listings),
             $this->unattributed($accounts),
             $this->agedHolds(),
@@ -66,7 +68,7 @@ final class StockAttention
     private function offeredBeyondWhatIsLeft(Collection $listings): array
     {
         $shown = $listings->groupBy(static fn (SalesChannelProductMapping $listing): string => (string) ($listing->allocation['pool'] ?? ''))
-            ->map(static fn (Collection $group): int => (int) $group->sum('last_published_quantity'));
+            ->map(static fn (Collection $group): int => (int) $group->sum(static fn (SalesChannelProductMapping $listing): int => $listing->shownQuantity() ?? 0));
         $pools = InventoryPool::whereNotNull('last_net')->orderBy('id')->get()->filter(fn (InventoryPool $pool): bool => ($shown[(string) $this->key($pool)] ?? 0) > $pool->last_net)->values();
         $names = $this->products->named($pools->pluck('product_id'));
 
@@ -85,6 +87,24 @@ final class StockAttention
         return $this->section(translate('attention_stock_source_not_confirmed'), $showing->count(), $showing->take(self::LIMIT)->map(fn (SalesChannelProductMapping $listing): array => [
             'title' => $listing->listing_key,
             'detail' => $this->labels->publishSkip((string) $listing->allocation['reason']) . ' · ' . translate('we_last_sent') . ': ' . (int) $listing->last_published_quantity,
+            'url' => route('admin.sales-channels.products.index', ['account' => $listing->account_id, 'q' => $listing->listing_key]),
+        ])->all());
+    }
+
+    /**
+     * Listings whose channel still shows a quantity that nothing updates any more: the listing is refused (a product sold per variant, stock the store owns, no stock location) or
+     * takes no part in the division (publishing switched off). Its units are counted against the pool, but only a person can lower them.
+     *
+     * @param Collection<int, SalesChannelProductMapping> $listings
+     */
+    private function showingStockThatIsNoLongerUpdated(Collection $listings): array
+    {
+        $frozen = $listings->filter(static fn (SalesChannelProductMapping $listing): bool => ($reason = (string) ($listing->allocation['reason'] ?? '')) !== ''
+            && !str_starts_with($reason, 'stock_not_confirmed') && ($listing->shownQuantity() ?? 0) > 0)->values();
+
+        return $this->section(translate('attention_stock_not_updated'), $frozen->count(), $frozen->take(self::LIMIT)->map(fn (SalesChannelProductMapping $listing): array => [
+            'title' => $listing->listing_key,
+            'detail' => $this->labels->publishSkip((string) $listing->allocation['reason']) . ' · ' . translate('the_channel_shows') . ': ' . $listing->shownQuantity(),
             'url' => route('admin.sales-channels.products.index', ['account' => $listing->account_id, 'q' => $listing->listing_key]),
         ])->all());
     }

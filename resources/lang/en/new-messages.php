@@ -10742,4 +10742,6 @@ return [
 	// --- stock audit fixes (lane-stock) ---
 	'order_import_is_off_so_a_quantity_here_is_never_raised' => 'Order import is switched off for this account: its sales are unknown, so a quantity here is never raised',
 	'order_import_is_part_way_through_a_backlog' => 'The order import stopped part of the way through a backlog: the orders after that point are not read yet',
+	'attention_stock_not_updated' => 'Showing stock that is no longer being updated',
+	'publish_skip_outside_the_pool' => 'Takes no part in sharing its stock (publishing is off or the listing is refused) while the channel still shows a quantity',
 ];

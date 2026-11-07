@@ -104,13 +104,13 @@ class StockPlanner
         }
         $quantity = max(0, (int) $pool->net() - $policy->safetyBuffer);
 
-        return new PlannedStock(quantity: $policy->maxQuantity === null ? $quantity : min($quantity, $policy->maxQuantity), shown: $this->shown($listing));
+        return new PlannedStock(quantity: $policy->maxQuantity === null ? $quantity : min($quantity, $policy->maxQuantity), shown: $listing->shownQuantity());
     }
 
     /** @return PlannedStock|string */
     private function afterTheGuards(SalesChannelProductMapping $listing, PoolAllocation $allocation, int $quantity): PlannedStock|string
     {
-        $shown = $this->shown($listing);
+        $shown = $listing->shownQuantity();
         $quantity = $this->notAboveTheChannel($listing, $allocation, $quantity);
         $raising = $shown === null || $quantity > $shown;
 
@@ -120,7 +120,7 @@ class StockPlanner
         if ($raising && $this->othersAreAboveTheirShare($listing, $allocation)) {
             return 'awaiting_siblings';
         }
-        if ($this->readBackIsNewer($listing) && $listing->remote_quantity !== null && (int) $listing->remote_quantity === $quantity) {
+        if ($listing->readBackIsNewer() && $listing->remote_quantity !== null && (int) $listing->remote_quantity === $quantity) {
             return 'unchanged';
         }
 
@@ -145,24 +145,11 @@ class StockPlanner
     private function notAboveTheChannel(SalesChannelProductMapping $listing, PoolAllocation $allocation, int $quantity): int
     {
         $remote = $listing->remote_quantity;
-        $lowered = $this->readBackIsNewer($listing) && $remote !== null && $listing->last_published_quantity !== null && (int) $remote < (int) $listing->last_published_quantity;
+        $lowered = $listing->readBackIsNewer() && $remote !== null && $listing->last_published_quantity !== null && (int) $remote < (int) $listing->last_published_quantity;
         $netAtLastWrite = $listing->snapshot['publish']['stock_net'] ?? null;
         $poolHasMore = $netAtLastWrite !== null && (int) $allocation->net > (int) $netAtLastWrite;
 
         return $lowered && $quantity > (int) $remote && !$poolHasMore ? (int) $remote : $quantity;
-    }
-
-    /** What the channel is believed to show: what it was last read to show when that is newer than our last write, otherwise what we last wrote. */
-    private function shown(SalesChannelProductMapping $listing): ?int
-    {
-        $shown = $this->readBackIsNewer($listing) && $listing->remote_quantity !== null ? $listing->remote_quantity : $listing->last_published_quantity;
-
-        return $shown === null ? null : (int) $shown;
-    }
-
-    private function readBackIsNewer(SalesChannelProductMapping $listing): bool
-    {
-        return $listing->last_seen_at !== null && ($listing->last_published_at === null || $listing->last_seen_at->gt($listing->last_published_at));
     }
 
     private function othersAreAboveTheirShare(SalesChannelProductMapping $listing, PoolAllocation $allocation): bool

@@ -71,6 +71,20 @@ class SalesChannelProductMapping extends Model
         return $this->status === self::MAPPED && $this->product_id !== null;
     }
 
+    /** Was the channel read after our last write to it? Then what it showed then is newer than what we wrote. */
+    public function readBackIsNewer(): bool
+    {
+        return $this->last_seen_at !== null && ($this->last_published_at === null || $this->last_seen_at->gt($this->last_published_at));
+    }
+
+    /** What the channel is believed to show: what it was last read to show when that is newer than our last write, otherwise what we last wrote. */
+    public function shownQuantity(): ?int
+    {
+        $shown = $this->readBackIsNewer() && $this->remote_quantity !== null ? $this->remote_quantity : $this->last_published_quantity;
+
+        return $shown === null ? null : (int) $shown;
+    }
+
     public function scopeMapped(Builder $query): Builder
     {
         return $query->where('status', self::MAPPED)->whereNotNull('product_id');

@@ -17331,4 +17331,6 @@ return [
 	// --- stock audit fixes (lane-stock) ---
 	'order_import_is_off_so_a_quantity_here_is_never_raised' => 'استيراد الطلبات متوقف لهذا الحساب: مبيعاته غير معروفة لذلك لا تُرفع أي كمية هنا أبدًا',
 	'order_import_is_part_way_through_a_backlog' => 'توقف استيراد الطلبات في منتصف مجموعة متراكمة: الطلبات بعد تلك النقطة لم تُقرأ بعد',
+	'attention_stock_not_updated' => 'قوائم تعرض مخزونًا لم يعد يُحدَّث',
+	'publish_skip_outside_the_pool' => 'لا تشارك في توزيع مخزونها (النشر متوقف أو القائمة مرفوضة) بينما لا تزال القناة تعرض كمية',
 ];

@@ -12,6 +12,7 @@ final readonly class PoolAllocation
 {
     public const DEFICIT_BLOCK = 'deficit_block';
     public const ORDER_SYNC_STALE = 'order_sync_stale';
+    public const OUTSIDE_THE_POOL = 'outside_the_pool';
 
     /**
      * @param array<int, MemberShare> $shares by listing id
