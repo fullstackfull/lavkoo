@@ -10747,9 +10747,9 @@ return [
 	'layer_source_purchase_order' => 'Purchase order',
 	'purchase_order_line' => 'Purchase order line',
 	'purchase_order_line_help' => 'To bill goods a purchase order already received, enter the number of its line: the invoice line then makes no second cost layer and only records how far it is from the order\'s cost. It needs the purchase-order source switched on.',
-	'invoice_saved_but_looks_like_goods_already_received' => 'Invoice saved, but a line looks like goods a purchase order already received. A person must link it to the order\'s line, or confirm it is a separate purchase, before it can be approved.',
+	'invoice_saved_but_looks_like_goods_already_received' => 'Invoice saved, but a line may be goods a purchase order already received. A person must link it to the order\'s line, or confirm it is a separate purchase, before it can be approved.',
 	'this_invoice_looks_like_goods_already_received' => 'This invoice looks like goods already received on a purchase order.',
-	'these_lines_look_like_goods_a_purchase_order_received' => 'The lines below have the supplier, product and quantity of goods a purchase order already received and are not linked to it: costing them again would count the same goods twice. Void this invoice and enter it again with the purchase order line number, or confirm that it is a separate purchase.',
+	'these_lines_look_like_goods_a_purchase_order_received' => 'The lines below are for a product and supplier of a purchase order that received goods no invoice has billed yet, and are not linked to it: costing them again may count the same goods twice. Void this invoice and enter it again with the purchase order line number, or confirm that it is a separate purchase.',
 	'this_is_a_separate_purchase' => 'This is a separate purchase',
 	'missing_reason_vendor_owned_goods' => 'The goods belong to a vendor, not to the platform: their cost is not ours to know',
 	// --- stock audit fixes (lane-stock) ---
@@ -10759,4 +10759,6 @@ return [
 	'publish_skip_outside_the_pool' => 'Takes no part in sharing its stock (publishing is off or the listing is refused) while the channel still shows a quantity',
 	'publish_skip_variant_figure_missing' => 'The warehouse holds one figure for the whole product and none for this variant: nothing is offered until it has one for the variant',
 	'location_source_platform' => 'The store\'s own stock (read from the storefront, never copied)',
+	// --- purchase-order sources, audit fixes (lane-po) ---
+	'a_purchase_order_received_these_goods_confirm_a_separate_purchase' => 'A purchase order (line :lines) received goods of this product from this supplier that no invoice has billed. Recording a cost for them here as well may count the same goods twice. If this is a separate purchase, tick the box below and record it again.',
 ];

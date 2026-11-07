@@ -28,6 +28,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         {--since= : the cutover date (YYYY-MM-DD): units received before it belong to the opening balance and get no layer}
         {--product= : only this product id}
         {--line= : only this purchase order line id}
+        {--include= : line ids (comma separated) that you have looked at and that are separate purchases: they are layered although an invoice or a cost typed by hand may hold the same goods}
         {--limit=50 : layers listed}
         {--json : print the result as JSON}';
 
@@ -77,8 +78,8 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
 
         try {
             $run = $apply
-                ? $layers->apply(since: $filters['since'], productId: $filters['product'], lineId: $filters['line'], sample: $filters['limit'])
-                : $layers->preview(productId: $filters['product'], lineId: $filters['line'], since: $filters['since'], sample: $filters['limit']);
+                ? $layers->apply(since: $filters['since'], productId: $filters['product'], lineId: $filters['line'], sample: $filters['limit'], included: $filters['included'])
+                : $layers->preview(productId: $filters['product'], lineId: $filters['line'], since: $filters['since'], sample: $filters['limit'], included: $filters['included']);
         } catch (Throwable $exception) {
             report($exception);
             $this->error('The layers could not be made: ' . $exception::class . '. What was made before it stays; run it again to carry on.');
@@ -91,7 +92,7 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         return self::SUCCESS;
     }
 
-    /** @return array{since: ?CarbonImmutable, product: ?int, line: ?int, limit: int}|null null (after saying why) when an option is not what it should be */
+    /** @return array{since: ?CarbonImmutable, product: ?int, line: ?int, included: list<int>, limit: int}|null null (after saying why) when an option is not what it should be */
     private function filters(): ?array
     {
         $since = $this->option('since');
@@ -112,10 +113,18 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
             }
         }
 
+        $included = $this->option('include') === null ? [] : explode(',', (string) $this->option('include'));
+        if (array_filter($included, static fn (string $id): bool => !ctype_digit($id)) !== []) {
+            $this->error('The lines to include are ids separated by commas.');
+
+            return null;
+        }
+
         return [
             'since' => $since,
             'product' => $this->option('product') === null ? null : (int) $this->option('product'),
             'line' => $this->option('line') === null ? null : (int) $this->option('line'),
+            'included' => array_values(array_unique(array_map('intval', $included))),
             'limit' => max(1, (int) $this->option('limit')),
         ];
     }
@@ -129,6 +138,9 @@ class CostsLayersFromPurchaseOrdersCommand extends Command
         ));
         foreach ($run->refused as $reason => $lines) {
             $this->line(sprintf('  not layered, %s: %d lines: %s', $reason, $lines, PurchaseLineRefusal::from($reason)->meaning()));
+        }
+        if ($run->coveredLines !== []) {
+            $this->line(sprintf('  covered lines: %s. When an invoice or a typed cost already holds these goods, leave them. A line that is a separate purchase is layered by running again with --include=%s.', implode(', ', $run->coveredLines), implode(',', $run->coveredLines)));
         }
         if ($run->approximateDates > 0) {
             $this->line(sprintf('  %d of the layers are dated by the line\'s last change, because the stock ledger does not account for what the line received (marked approximate).', $run->approximateDates));

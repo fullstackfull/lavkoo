@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Schema;
  *    supplier) and where the layer's date comes from (the stock ledger, or only the line's last change).
  *  - `operational_cost_invoices.supplier_id`: the same supplier link, beside the `party_name` the invoice already keeps.
  *  - `operational_cost_invoice_items.purchase_order_item_id`: the purchase-order line this invoice line bills (it records a cost variance and makes no second layer);
- *    `resembles_purchase_order_item_id`: the received line it looks like without being linked to it, which holds the invoice for a person.
+ *    `resembles_purchase_order_item_id`: the received line it may be the goods of without being linked to it, which holds the invoice for a person (0 once a person has looked).
  *
  * Additive and guarded: a re-run is a no-op, and `down` removes exactly what `up` added.
  */

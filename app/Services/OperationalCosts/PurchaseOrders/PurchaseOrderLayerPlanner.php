@@ -17,6 +17,8 @@ use Generator;
  *
  * A tranche is dated from the platform's stock ledger when the receipts it recorded for the order and product add up to exactly what the line received; otherwise the date is the
  * line's last change and the tranche is marked approximate. With a cutover date, units received before it are left to the opening balance and no layer is made for them.
+ *
+ * The first layer of a line is not made when an invoice or a hand-typed cost may already hold the same goods (see CoveringLayers) unless a person named the line as a separate purchase.
  */
 class PurchaseOrderLayerPlanner
 {
@@ -28,23 +30,26 @@ class PurchaseOrderLayerPlanner
         private readonly PlatformProcurement $procurement,
         private readonly PurchaseLineEvaluator $evaluator,
         private readonly PurchaseOrderSchema $schema,
+        private readonly CoveringLayers $covering,
     ) {
     }
 
     /**
      * Every received line, in the order the layers are made in.
      *
+     * @param list<int> $included the lines a person has said are separate purchases, whatever invoices and typed costs the module holds for the same product
      * @return Generator<int, LinePlan>
      */
-    public function plans(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null): Generator
+    public function plans(?int $productId = null, ?int $lineId = null, ?CarbonImmutable $since = null, array $included = []): Generator
     {
         $after = 0;
         while (($lines = $this->procurement->receivedLines($after, self::PAGE, $productId, $lineId)) !== []) {
             $products = $this->procurement->products(array_map(static fn (PurchaseLine $line): ?int => $line->productId, $lines));
             $receipts = $this->procurement->receiptsByOrderAndProduct($lines);
             $accounted = $this->accountedUnits(array_map(static fn (PurchaseLine $line): int => $line->id, $lines));
+            $covered = $this->covering->coveredLines(lines: array_values(array_filter($lines, static fn (PurchaseLine $line): bool => ($accounted[$line->id] ?? 0) === 0 && !in_array($line->id, $included, true))), since: $since);
             foreach ($lines as $line) {
-                yield $this->plan($line, $products[$line->productId] ?? null, $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [], $accounted[$line->id] ?? 0, $since);
+                yield $this->plan($line, $products[$line->productId] ?? null, $receipts[$line->purchaseOrderId . ':' . $line->productId] ?? [], $accounted[$line->id] ?? 0, $since, isset($covered[$line->id]));
             }
             $after = $lines[array_key_last($lines)]->id;
         }
@@ -53,7 +58,7 @@ class PurchaseOrderLayerPlanner
     /**
      * @param list<array{quantity: int, at: CarbonImmutable|null}> $receipts the receipts the platform's stock ledger holds for this line's order and product
      */
-    private function plan(PurchaseLine $line, ?ProductFacts $product, array $receipts, int $accounted, ?CarbonImmutable $since): LinePlan
+    private function plan(PurchaseLine $line, ?ProductFacts $product, array $receipts, int $accounted, ?CarbonImmutable $since, bool $covered): LinePlan
     {
         $verdict = $this->evaluator->verdict($line, $product);
         if ($line->quantityReceived < $accounted) {
@@ -70,14 +75,19 @@ class PurchaseOrderLayerPlanner
         }
 
         $from = max($accounted, $before);
-        $tranche = $from >= $line->quantityReceived ? null : new Tranche(
+        if ($from >= $line->quantityReceived) {
+            return new LinePlan($line, $verdict, $accounted, null, 0);
+        }
+        if ($covered) {
+            return new LinePlan($line, LineVerdict::refused(PurchaseLineRefusal::CoveredByOtherLayers), $accounted, null, 0);
+        }
+
+        return new LinePlan($line, $verdict, $accounted, new Tranche(
             from: $from,
             to: $line->quantityReceived,
             receivedAt: $dated === null ? ($line->updatedAt ?? CarbonImmutable::now()) : $dated[array_key_last($dated)]['at'],
             dateBasis: $dated === null ? Tranche::BASIS_LINE_DATE : Tranche::BASIS_MOVEMENTS,
-        );
-
-        return new LinePlan($line, $verdict, $accounted, $tranche, 0);
+        ), 0);
     }
 
     /**

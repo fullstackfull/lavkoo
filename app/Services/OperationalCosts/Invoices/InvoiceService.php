@@ -158,6 +158,9 @@ class InvoiceService
         if ($invoice->kind === 'purchase' && $invoice->inventory_location_id === null) {
             throw new InvalidContractChange('A purchase invoice needs the location its goods arrived at.');
         }
+        if ($this->purchaseOrders->holdForReview($invoice)) {
+            throw new InvalidContractChange('This invoice has lines that may be goods a purchase order already received: it is held. Link them to the order line, or confirm that it is a separate purchase, before approving it.');
+        }
 
         $count = DB::transaction(function () use ($invoice, $adminId): int {
             $items = $invoice->items()->lockForUpdate()->get();

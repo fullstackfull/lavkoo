@@ -98,6 +98,14 @@
                     <label class="form-label" for="supplier_name">{{ translate('supplier') }}</label>
                     <input class="form-control" id="supplier_name" name="supplier_name" maxlength="160" value="{{ old('supplier_name') }}">
                 </div>
+                @if ($errors->has('confirm_separate_purchase') || old('confirm_separate_purchase'))
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="confirm_separate_purchase" name="confirm_separate_purchase" value="1" @checked(old('confirm_separate_purchase'))>
+                            <label class="form-check-label" for="confirm_separate_purchase">{{ translate('this_is_a_separate_purchase') }}</label>
+                        </div>
+                    </div>
+                @endif
                 <div class="col-12">
                     <button class="btn btn-primary" type="submit">{{ translate('record_purchase_cost') }}</button>
                 </div>

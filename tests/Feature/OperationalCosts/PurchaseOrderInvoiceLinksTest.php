@@ -12,6 +12,7 @@ use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\OperationalCosts\Exceptions\InvalidContractChange;
 use App\Services\OperationalCosts\Invoices\InvoiceResult;
 use App\Services\OperationalCosts\Invoices\InvoiceService;
+use App\Services\OperationalCosts\Invoices\PurchaseOrderInvoiceLinks;
 use App\Services\OperationalCosts\PurchaseOrders\PurchaseOrderLayerService;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use Carbon\CarbonImmutable;
@@ -214,7 +215,7 @@ class PurchaseOrderInvoiceLinksTest extends TestCase
         $this->assertSame(0, OperationalCostReconciliation::count());
     }
 
-    public function test_an_unlinked_line_with_the_supplier_product_and_quantity_of_a_receipt_holds_the_invoice_until_a_person_says_it_is_a_separate_purchase(): void
+    public function test_an_unlinked_line_with_the_supplier_and_product_of_a_receipt_holds_the_invoice_until_a_person_says_it_is_a_separate_purchase(): void
     {
         [$product, $line] = $this->layeredReceipt();
 
@@ -231,22 +232,68 @@ class PurchaseOrderInvoiceLinksTest extends TestCase
         $this->assertSame(1, InventoryCostLayer::count());
 
         $this->invoices->markNotDuplicate($result->invoice, adminId: 1);
-        $this->assertSame([null, OperationalCostInvoice::STATUS_DRAFT], [OperationalCostInvoiceItem::sole()->resembles_purchase_order_item_id, $result->invoice->fresh()->status]);
+        $this->assertSame([PurchaseOrderInvoiceLinks::REVIEWED, OperationalCostInvoice::STATUS_DRAFT], [OperationalCostInvoiceItem::sole()->resembles_purchase_order_item_id, $result->invoice->fresh()->status], 'A person has looked: the line is marked so and is not held again.');
         $this->invoices->approve($result->invoice->fresh(), adminId: 1);
         $this->assertSame(['purchase_order', 'purchase_invoice'], InventoryCostLayer::orderBy('id')->pluck('source_type')->all(), 'A person said it is another purchase: it has its own layer.');
     }
 
-    public function test_a_line_that_is_not_like_a_receipt_in_supplier_product_or_quantity_or_whose_receipt_is_already_billed_is_not_held(): void
+    public function test_a_line_for_another_product_or_supplier_or_for_a_receipt_that_linked_lines_have_billed_is_not_held(): void
     {
         [$product, $line] = $this->layeredReceipt();
 
-        $differentQuantity = $this->invoice([['product_id' => $product, 'quantity' => 9, 'amount' => '112.50']], number: 'INV-Q')->result;
         $differentProduct = $this->invoice([['product_id' => $this->platformProduct(), 'quantity' => 10, 'amount' => '125.00']], ['invoice_date' => '2026-11-11'], 'INV-P')->result;
         $differentSupplier = $this->invoice([['product_id' => $product, 'quantity' => 10, 'amount' => '125.00']], ['party_name' => 'Somebody Else', 'invoice_date' => '2026-11-12'], 'INV-S')->result;
         $linked = $this->invoice([['product_id' => $product, 'quantity' => 10, 'amount' => '125.00', 'purchase_order_item_id' => $line->id]], ['invoice_date' => '2026-11-13'], 'INV-L')->result;
         $billedAlready = $this->invoice([['product_id' => $product, 'quantity' => 10, 'amount' => '125.00']], ['invoice_date' => '2026-11-14'], 'INV-B')->result;
 
-        $this->assertSame([InvoiceResult::CREATED, InvoiceResult::CREATED, InvoiceResult::CREATED, InvoiceResult::CREATED, InvoiceResult::CREATED], [$differentQuantity, $differentProduct, $differentSupplier, $linked, $billedAlready], 'The order\'s line is billed by INV-L: another line of the same size is not "the same goods" again.');
+        $this->assertSame([InvoiceResult::CREATED, InvoiceResult::CREATED, InvoiceResult::CREATED, InvoiceResult::CREATED], [$differentProduct, $differentSupplier, $linked, $billedAlready], 'The order\'s line is billed by INV-L: another line of the same size is not "the same goods" again.');
+    }
+
+    public function test_a_line_of_another_quantity_than_the_receipt_is_held_as_well_because_a_supplier_bills_in_parts(): void
+    {
+        [$product, $line] = $this->layeredReceipt();
+
+        $part = $this->invoice([['product_id' => $product, 'quantity' => 6, 'amount' => '75.00']], number: 'INV-6');
+        $more = $this->invoice([['product_id' => $product, 'quantity' => 14, 'amount' => '175.00']], ['invoice_date' => '2026-11-11'], 'INV-14');
+
+        $this->assertSame([InvoiceResult::RESEMBLES_RECEIPT, InvoiceResult::RESEMBLES_RECEIPT], [$part->result, $more->result]);
+        $this->assertSame([$line->id, $line->id], OperationalCostInvoiceItem::orderBy('id')->pluck('resembles_purchase_order_item_id')->all());
+    }
+
+    public function test_the_units_linked_lines_have_billed_are_not_candidates_again_only_the_rest_of_the_receipt_is(): void
+    {
+        [$product, $line] = $this->layeredReceipt();
+        $this->invoice([['product_id' => $product, 'quantity' => 6, 'amount' => '75.00', 'purchase_order_item_id' => $line->id]], number: 'INV-L6');
+
+        $rest = $this->invoice([['product_id' => $product, 'quantity' => 4, 'amount' => '50.00']], ['invoice_date' => '2026-11-11'], 'INV-R4')->result;
+        $this->invoice([['product_id' => $product, 'quantity' => 4, 'amount' => '50.00', 'purchase_order_item_id' => $line->id]], ['invoice_date' => '2026-11-12'], 'INV-L4');
+        $nothingLeft = $this->invoice([['product_id' => $product, 'quantity' => 4, 'amount' => '50.00']], ['invoice_date' => '2026-11-13'], 'INV-N4')->result;
+
+        $this->assertSame([InvoiceResult::RESEMBLES_RECEIPT, InvoiceResult::CREATED], [$rest, $nothingLeft]);
+    }
+
+    public function test_an_invoice_saved_before_the_goods_came_is_held_when_it_is_approved_after_the_order_received_them(): void
+    {
+        $product = $this->platformProduct();
+        $order = $this->purchaseOrder($this->supplier('Acme Pharma Supply'), [[$product, 10, 12.5]]);
+        $saved = $this->invoice([['product_id' => $product, 'quantity' => 10, 'amount' => '125.00']]);
+        $this->assertSame(InvoiceResult::CREATED, $saved->result, 'Nothing was received when it was saved.');
+
+        $this->receiveOnPlatform($order->items->first(), 10);
+        app(PurchaseOrderLayerService::class)->apply(since: CarbonImmutable::parse('2000-01-01'));
+        try {
+            $this->invoices->approve($saved->invoice, adminId: 1);
+            $this->fail('The invoice was approved.');
+        } catch (InvalidContractChange $refusal) {
+            $this->assertStringContainsString('already received', $refusal->getMessage());
+        }
+
+        $this->assertSame([OperationalCostInvoice::STATUS_UNDER_REVIEW, $order->items->first()->id], [$saved->invoice->fresh()->status, OperationalCostInvoiceItem::sole()->resembles_purchase_order_item_id]);
+        $this->assertSame(['purchase_order'], InventoryCostLayer::pluck('source_type')->all(), 'The goods are layered once.');
+
+        $this->invoices->markNotDuplicate($saved->invoice, adminId: 1);
+        $this->invoices->approve($saved->invoice->fresh(), adminId: 1);
+        $this->assertSame(['purchase_order', 'purchase_invoice'], InventoryCostLayer::orderBy('id')->pluck('source_type')->all(), 'A person said it is a separate purchase.');
     }
 
     public function test_the_supplier_the_invoice_names_by_id_is_the_one_a_receipt_is_compared_with_and_the_invoice_keeps_it(): void

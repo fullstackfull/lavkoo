@@ -13,6 +13,7 @@ use App\Services\Fulfillment\Support\SafeToast;
 use App\Services\OperationalCosts\Data\LayerReceipt;
 use App\Services\OperationalCosts\Exceptions\CostInputMissing;
 use App\Services\OperationalCosts\InventoryCostLayerService;
+use App\Services\OperationalCosts\PurchaseOrders\OrderLineCandidates;
 use App\Services\OperationalCosts\Reports\ProductNames;
 use App\Services\OperationalCosts\Support\FxConverter;
 use App\Services\OperationalCosts\Support\Money;
@@ -39,6 +40,7 @@ class ProductCostController extends Controller
         private readonly InventoryCostLayerService $layers,
         private readonly ProductNames $productNames,
         private readonly FxConverter $fx,
+        private readonly OrderLineCandidates $orderLines,
     ) {
     }
 
@@ -87,6 +89,11 @@ class ProductCostController extends Controller
     {
         $data = $request->validated();
         $location = InventoryLocation::query()->findOrFail($data['location_id']);
+
+        $orderLines = $request->boolean('confirm_separate_purchase') ? [] : $this->orderLines->forTypedCost(productId: (int) $data['product_id'], sourceType: $data['source_type'], supplierName: $data['supplier_name'] ?? null, sellerId: (int) $location->seller_id);
+        if ($orderLines !== []) {
+            return back()->withInput()->withErrors(['confirm_separate_purchase' => CostLabels::filled(translate('a_purchase_order_received_these_goods_confirm_a_separate_purchase'), ['lines' => implode(', ', $orderLines)])]);
+        }
 
         try {
             $layer = $this->layers->receive(new LayerReceipt(

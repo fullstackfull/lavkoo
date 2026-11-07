@@ -53,7 +53,7 @@ class PlatformReconciliationTest extends TestCase
     {
         return app(InventoryCostLayerService::class)->receive(new LayerReceipt(
             locationId: ($at ?? $this->own)->id, productId: $product, quantity: $units, unitCost: Money::of('10'), currency: 'SAR', receivedAt: CarbonImmutable::parse('2026-11-01'),
-            sourceType: 'purchase_invoice', identity: $reference . ':' . $product,
+            sourceType: 'purchase_invoice', identity: $reference . ':' . $product, supplierName: 'Layer Supplier',
         ));
     }
 
@@ -190,6 +190,19 @@ class PlatformReconciliationTest extends TestCase
         $this->assertSame(0, InventoryCostLayer::count(), 'A report writes nothing.');
         $wherePut = array_column($orders['without_layer']['rows'], 'units_without_layer', 'product_id');
         $this->assertSame([$plain => 10, $torod => 6], $wherePut);
+    }
+
+    public function test_a_received_line_an_invoice_or_a_typed_cost_may_already_hold_is_reported_as_covered_and_not_as_a_layer_still_to_make(): void
+    {
+        $product = $this->platformProduct();
+        $this->openLayer($product, 5);
+        $order = $this->purchaseOrder($this->supplier('Layer Supplier'), [[$product, 5, 5]]);
+        $this->receiveOnPlatform($order->items->first(), 5);
+
+        $orders = $this->report()['purchase_orders'];
+
+        $this->assertSame(['covered_by_other_layers' => [1, 5]], array_map(static fn (array $figures): array => [$figures['lines'], $figures['units']], $orders['never_layered']['by_reason']));
+        $this->assertSame(0, $orders['units_without_layer'], 'Nothing is left to layer unless a person names the line.');
     }
 
     public function test_a_receipt_is_dated_from_the_stock_ledger_when_it_adds_up_and_from_the_line_when_it_does_not(): void
