@@ -562,6 +562,54 @@
         </div>
     @endif
 
+    {{-- ================= SALES CHANNELS & OPERATIONAL COSTS ================= --}}
+    @if (Helpers::module_permission_check('sales_channels') || Helpers::module_permission_check('operational_costs'))
+        @php
+            $v2ChannelGroups = [];
+            if (Helpers::module_permission_check('sales_channels')) {
+                $v2ChannelGroups[] = ['name' => 'Sales_Channels', 'items' => [
+                    ['sales-channels-hub', 'Channels_Hub', 'admin.sales-channels.index', 'admin/sales-channels'],
+                    ['sales-channels-products', 'Products_&_Channels', 'admin.sales-channels.products.index', 'admin/sales-channels/products*'],
+                    ['sales-channels-inventory', 'Stock_by_Location', 'admin.sales-channels.inventory.index', 'admin/sales-channels/inventory*'],
+                    ['sales-channels-orders', 'Unified_Orders', 'admin.sales-channels.orders.index', 'admin/sales-channels/orders*'],
+                    ['sales-channels-routing', 'Dynamic_Routing', 'admin.sales-channels.routing.index', 'admin/sales-channels/routing*'],
+                    ['sales-channels-logs', 'Channel_API_Logs', 'admin.sales-channels.logs.index', 'admin/sales-channels/logs*'],
+                ]];
+            }
+            if (Helpers::module_permission_check('operational_costs')) {
+                $v2ChannelGroups[] = ['name' => 'Operational_Costs', 'items' => [
+                    ['costs-overview', 'Costs_Overview', 'admin.operational-costs.index', 'admin/operational-costs'],
+                    ['costs-contracts', 'Cost_Contracts', 'admin.operational-costs.contracts.index', 'admin/operational-costs/contracts*'],
+                    ['costs-products', 'Product_Costs', 'admin.operational-costs.product-costs.index', 'admin/operational-costs/product-costs*'],
+                    ['costs-entries', 'Shipment_&_Storage_Costs', 'admin.operational-costs.entries.index', 'admin/operational-costs/entries*'],
+                    ['costs-invoices', 'Invoices_&_Reconciliation', 'admin.operational-costs.invoices.index', 'admin/operational-costs/invoices*'],
+                    ['costs-profit', 'Profitability', 'admin.operational-costs.profit.index', 'admin/operational-costs/profit*'],
+                    ['costs-reports', 'Cost_Reports', 'admin.operational-costs.reports.index', 'admin/operational-costs/reports*'],
+                ]];
+            }
+        @endphp
+        <div class="v2-ctx-section" data-section="channels">
+            <div class="v2-ctx-head"><div class="v2-ctx-title">{{ translate('Sales_Channels') }}</div></div>
+            <div class="v2-ctx-group v2-is-pinned" style="display:none;">
+                <div class="v2-ctx-group-head"><span>{{ translate('pinned') }}</span></div>
+                <div class="v2-ctx-group-body"></div>
+            </div>
+            @foreach ($v2ChannelGroups as $v2ChannelGroup)
+                <div class="v2-ctx-group">
+                    <div class="v2-ctx-group-head"><span>{{ translate($v2ChannelGroup['name']) }}</span></div>
+                    @foreach ($v2ChannelGroup['items'] as [$v2ChannelSlug, $v2ChannelLabel, $v2ChannelRoute, $v2ChannelPattern])
+                        @if (Route::has($v2ChannelRoute))
+                            <a class="v2-nav-item {{ Request::is($v2ChannelPattern) ? 'v2-is-active' : '' }}" data-item="{{ $v2ChannelSlug }}" href="{{ route($v2ChannelRoute) }}">
+                                <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate($v2ChannelLabel) }}</span></span>
+                                <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="{{ $v2ChannelSlug }}" aria-label="Pin"></button></div>
+                            </a>
+                        @endif
+                    @endforeach
+                </div>
+            @endforeach
+        </div>
+    @endif
+
     {{-- ================= REPORTS ================= --}}
     @if (Helpers::module_permission_check('reports') || Helpers::module_permission_check('marketplace'))
         <div class="v2-ctx-section" data-section="reports">

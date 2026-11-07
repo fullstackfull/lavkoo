@@ -1265,6 +1265,8 @@ enum GlobalConstant
         'business_settings' => 'business_settings',
         'system_settings' => 'system_settings',
         '3rd_party_setup' => '3rd_party_setup',
+        'sales_channels' => 'sales_channels',
+        'operational_costs' => 'operational_costs',
         'themes_and_addons' => 'themes_and_addons',
     ];
 }

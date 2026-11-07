@@ -1,11 +1,12 @@
 name: CI
 
-# Runs on every pull request and on pushes to main. Nothing here can reach a real provider, a real database
-# or production: provider traffic is faked in the tests, the databases are throwaway.
+# Runs on every pull request, on pushes to main and on demand (Actions > CI > Run workflow, for any branch). Nothing here can reach a real
+# provider, a real database or production: provider traffic is faked in the tests, the databases are throwaway.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -43,7 +44,8 @@ jobs:
   tests-sqlite:
     name: Tests, SQLite (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The whole suite is now about 4,700 tests: 14 minutes on one runner, more than 20 on another, so the limit leaves room.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -77,33 +79,47 @@ jobs:
           EXPECT_DB_DRIVER: sqlite
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
-  # Two jobs, each against its own MySQL: the address tests build their tables with the real migrations, which a real engine does slowly, and
-  # the two sets together ran past the limit of one job (about 35 minutes on a runner; each set takes about 15 to 20).
+  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with two sets of tests, each job against its own
+  # database: the address tests build their tables with the real migrations, which a real engine does slowly, and the two sets together ran past the limit of one job (about 35 minutes
+  # on a runner; each set takes about 15 to 20). A MariaDB image answers to the MARIADB_* names; both sets are given so the same service block serves both.
   tests-mysql:
-    name: ${{ matrix.name }}
+    name: ${{ matrix.group }}, ${{ matrix.engine }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
+        engine: ['MySQL 8', 'MariaDB 11.4.2']
+        group: ['Fulfillment + security tests', 'Address tests']
         include:
-          - name: Fulfillment + security tests, MySQL 8
+          - engine: MySQL 8
+            image: mysql:8.0
+            version: '^8\.'
+            health: mysqladmin ping -h 127.0.0.1 -pci-root-password
+          - engine: MariaDB 11.4.2
+            image: mariadb:11.4.2
+            version: '^11\.4\.2-MariaDB'
+            health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
+          - group: Fulfillment + security tests
             paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
-          - name: Address tests, MySQL 8
+          - group: Address tests
             paths: tests/Feature/Address
     services:
       mysql:
-        image: mysql:8.0
+        image: ${{ matrix.image }}
         env:
           MYSQL_ROOT_PASSWORD: ci-root-password
           MYSQL_DATABASE: pharmacy_testing
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: pharmacy_testing
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root-password"
+          --health-cmd="${{ matrix.health }}"
           --health-interval=10s --health-timeout=5s --health-retries=12
     env:
       EXPECT_DB_DRIVER: mysql
+      EXPECT_DB_VERSION: ${{ matrix.version }}
       DB_CONNECTION: mysql
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
@@ -146,7 +162,7 @@ jobs:
           php-version: '8.3'
           coverage: none
       - name: Scan the lines this change adds
-        run: php scripts/ci/leak-guard.php --base="${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: php scripts/ci/leak-guard.php --base="${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"
 
   # Builds exactly what would be deployed to the server (the added and modified files of this pull request, with the checksum of
   # each file's baseline version) so it can be downloaded, read and checked before anyone deploys anything. This job deploys nothing.
@@ -180,3 +196,118 @@ jobs:
             build/overlay.tar.gz
             build/overlay.tar.gz.sha256
           retention-days: 14
+
+  # The sales-channel and operational-cost modules on a real MySQL. They are many (about 1,900 tests, each building its schema from the real migrations), so they run as their own job,
+  # in two groups side by side, with a timeout of their own; the job above is left as the Fulfillment workstream set it up.
+  tests-mysql-sales-channels:
+    name: Sales-channel and cost tests, ${{ matrix.engine }} (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: ['MySQL 8.0', 'MariaDB 11.4.2']
+        group: ['sales channels', 'costs']
+        include:
+          - engine: MySQL 8.0
+            image: mysql:8.0
+            version: '^8\.'
+            health: mysqladmin ping -h 127.0.0.1 -pci-root-password
+          - engine: MariaDB 11.4.2
+            image: mariadb:11.4.2
+            version: '^11\.4\.2-MariaDB'
+            health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
+          - group: sales channels
+            # tests/Feature/Concurrency and the dispatch/stock concurrency tests start several PHP processes at the same instant against this database; they skip on SQLite.
+            paths: tests/Feature/SalesChannels tests/Feature/Concurrency
+          - group: costs
+            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Feature/CiDatabaseTest.php
+    services:
+      mysql:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: pharmacy_testing
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: pharmacy_testing
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="${{ matrix.health }}"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      EXPECT_DB_DRIVER: mysql
+      EXPECT_DB_VERSION: ${{ matrix.version }}
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: pharmacy_testing
+      DB_USERNAME: root
+      DB_PASSWORD: ci-root-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          coverage: none
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-8.3-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-8.3-
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Environment
+        run: cp .env.example .env
+      - name: Tests against real MySQL (unique keys, locks, JSON key order, collation, decimals, dates)
+        # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
+        run: vendor/bin/phpunit -c phpunit.mysql.xml ${{ matrix.paths }} --display-skipped
+
+  # The application's own connection is not strict (config/database.php), so a value strict mode would refuse can pass in production unnoticed. The tests run on the server's
+  # MariaDB with the test connection in strict mode (DB_STRICT_TESTS=1: tests/CreatesApplication.php), which proves the new code writes nothing strict mode would refuse.
+  tests-strict-mode:
+    name: Strict-mode tests, MariaDB 11.4.2
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    services:
+      mysql:
+        image: mariadb:11.4.2
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: pharmacy_testing
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      EXPECT_DB_DRIVER: mysql
+      EXPECT_DB_VERSION: '^11\.4\.2-MariaDB'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: pharmacy_testing
+      DB_USERNAME: root
+      DB_PASSWORD: ci-root-password
+      DB_STRICT_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          coverage: none
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-8.3-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-8.3-
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Environment
+        run: cp .env.example .env
+      - name: Tests with the database connection in strict mode
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment --display-skipped

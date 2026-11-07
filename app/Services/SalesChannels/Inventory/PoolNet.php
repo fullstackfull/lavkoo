@@ -1,0 +1,84 @@
+<?php
+
+namespace App\Services\SalesChannels\Inventory;
+
+use App\Enums\Fulfillment\ProviderCode;
+use App\Models\InventoryLocation;
+use App\Services\Fulfillment\InventorySyncService;
+
+/**
+ * The one answer to "how much of this pool may still be offered?", used by the publisher, by the routing stock check and by the stock screen, so that they can never disagree.
+ *
+ * A POOL is one product (or one variant of it) at one location. Its figure P is read raw from the location (`LocationStockReader::availability` stays raw: the cost module reads
+ * it too), and then every promise that the figure does not show yet is taken off once:
+ *
+ *  - Hc, the units on open channel orders (the reservations of this location, product and variant);
+ *  - Hs, the units on STORE orders the provider has not counted yet (a provider pool only): the storefront sells provider stock minus exactly these (`InventorySyncService`),
+ *    and a figure taken before they were accepted does not show them. A figure a person typed counts from the time it was typed, and a figure nobody reads again keeps every
+ *    order accepted since, delivered ones included (`DeliveredStoreOrders`);
+ *  - B, the pool's safety buffer.
+ *
+ * A pool is REFUSED (it offers nothing) when it is the store's own stock, when a product sold per variant is asked for without a variant, and when a variant is asked for at a
+ * location that holds one figure for the whole product and none for the variant (every variant would be offered all of it).
+ *
+ * Never subtracted twice: units on store orders at a pool that keeps no provider's orders (a typed balance, the store's own stock: no provider whose orders could be attributed to it,
+ * and the store's sales are off `current_stock` already) and units on an internal order made for a channel order, while that order stands (the hold of the channel order is released,
+ * see ChannelOrderReservations, because Hs counts it; it comes back when the internal order stops counting them). "Once" depends on the listings being in the pool, the orders being
+ * imported and the figures being current: see operations.md.
+ */
+class PoolNet
+{
+    public function __construct(
+        private readonly LocationStockReader $stock,
+        private readonly InventorySyncService $storeOrders,
+        private readonly DeliveredStoreOrders $deliveredStoreOrders,
+        private readonly ProductVariations $variations,
+    ) {
+    }
+
+    /** @param string|null $exceptReservation a reservation not to count (the order that is asking whether the shelf can cover it) */
+    public function for(InventoryLocation $location, int $productId, string $variantKey = '', ?string $exceptReservation = null, int $buffer = 0): PoolFigures
+    {
+        return $this->of($location, $productId, $variantKey, $this->stock->availability($location, $productId, $variantKey, $exceptReservation), $buffer);
+    }
+
+    /** The same for a figure that has been read already (a screen lists a page of them). */
+    public function of(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $availability, int $buffer = 0): PoolFigures
+    {
+        return new PoolFigures(
+            available: $availability->available,
+            quality: $availability->quality,
+            syncedAt: $availability->syncedAt,
+            source: $availability->source,
+            storeHolds: $this->storeHolds($location, $productId, $variantKey, $availability),
+            channelHolds: $availability->inFlight,
+            buffer: $buffer,
+            refusal: $this->refusal($location, $productId, $variantKey, $availability),
+        );
+    }
+
+    private function storeHolds(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $availability): int
+    {
+        $provider = $location->provider === null ? null : ProviderCode::tryFrom($location->provider);
+        if ($provider === null || $availability->available === null) {
+            return 0;
+        }
+
+        $notDeliveredYet = $this->storeOrders->reservedNotYetWithProvider(provider: $provider, productId: $productId, variantKey: $variantKey, acceptedSince: $availability->syncedAt);
+        if ($availability->quality !== StockAvailability::MANUAL || $availability->syncedAt === null) {
+            return $notDeliveredYet;
+        }
+
+        return $notDeliveredYet + $this->deliveredStoreOrders->unitsSince(provider: $provider, productId: $productId, variantKey: $variantKey, typedAt: $availability->syncedAt);
+    }
+
+    private function refusal(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $availability): ?string
+    {
+        return match (true) {
+            $location->isStorefrontOwned() => PoolFigures::STOREFRONT_OWNED,
+            $variantKey === '' && $this->variations->exist($productId) => PoolFigures::VARIANT_KEY_REQUIRED,
+            $availability->forTheWholeProduct => PoolFigures::VARIANT_FIGURE_MISSING,
+            default => null,
+        };
+    }
+}
