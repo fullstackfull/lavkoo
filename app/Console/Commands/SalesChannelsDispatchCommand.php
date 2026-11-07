@@ -10,6 +10,8 @@ use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Dispatch\ChannelOrderDispatcher;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class SalesChannelsDispatchCommand extends Command
 {
@@ -34,13 +36,29 @@ class SalesChannelsDispatchCommand extends Command
             ->filter(static fn (SalesChannelAccount $account): bool => $account->setting('dispatch_mode', 'manual') === 'auto')->pluck('id');
         $counts = [];
         foreach ($this->openOrders($automatic->all(), (int) $this->option('limit')) as $mapping) {
-            $state = $dispatcher->dispatch($mapping, trigger: 'auto')->state;
+            $state = $this->dispatchOne($dispatcher, $mapping);
             $counts[$state] = ($counts[$state] ?? 0) + 1;
         }
 
         $this->info($counts === [] ? 'No order is waiting to be dispatched.' : 'Dispatch: ' . collect($counts)->map(static fn (int $count, string $state): string => "{$state} {$count}")->implode(', '));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * One order's turn. A sweep runs for every account, so what one order throws is recorded and the rest still get theirs; the dispatcher
+     * itself has already released the order's claim for everything it can name.
+     */
+    private function dispatchOne(ChannelOrderDispatcher $dispatcher, ExternalOrderMapping $mapping): string
+    {
+        try {
+            return $dispatcher->dispatch($mapping, trigger: 'auto')->state;
+        } catch (Throwable $exception) {
+            // Only the kind of failure: a message can carry what a channel said about the buyer.
+            Log::warning('Dispatching a channel order failed.', ['mapping_id' => $mapping->id, 'error' => $exception::class]);
+
+            return 'errored';
+        }
     }
 
     /**

@@ -9,12 +9,15 @@ use App\Services\AuditLogger;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Contracts\ReadsRecipient;
+use App\Services\SalesChannels\Exceptions\ChannelRateLimitedException;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * Turns one channel order into a provider shipment, once.
@@ -24,6 +27,9 @@ use Illuminate\Support\Str;
  *  3. read the recipient from the channel (gated like no other read), outside any transaction;
  *  4. in ONE transaction make the internal order (ChannelOrderMaterializer), or write nothing;
  *  5. release the claim with a reason (a code) and the time of the next attempt when something was missing.
+ *
+ * Nothing the channel does leaves the claim held: a rate limit hands it straight back with the wait the channel asked for and without spending an attempt, and any other failure of the
+ * read releases it as a retryable reason. An order is never left claimed for a whole claim window because a channel was unreachable, and one unreachable account never stops the sweep.
  *
  * The provider is never called from here. From step 4 on the existing fulfilment owns the shipment: it claims before it sends, never retries a write inside the client, and an answer it cannot
  * read becomes a reconciliation by our reference, never a second send.
@@ -67,6 +73,14 @@ class ChannelOrderDispatcher
             return $this->release($mapping, $claimed, $exception->reason . ($exception->problems === [] ? '' : ':' . implode(',', $exception->problems)), retry: $exception->reason !== RecipientUnavailable::NOT_SHIPPABLE_BY_US);
         } catch (ChannelUnavailableException $exception) {
             return $this->release($mapping, $claimed, 'channel_' . $exception->reason, retry: false);
+        } catch (ChannelRateLimitedException $limited) {
+            // The channel, or our own limiter, said wait before anything was read: the order never had its turn, so it waits exactly that long and the attempt is given back.
+            return $this->waitFor($mapping, $claimed, $limited->retryAfterSeconds);
+        } catch (Throwable $exception) {
+            // Anything else the read threw. Only the kind of failure is kept: the message of a channel error can carry what the channel said about the buyer.
+            Log::warning('Reading the recipient of a channel order failed.', ['mapping_id' => $mapping->id, 'error' => $exception::class]);
+
+            return $this->release($mapping, $claimed, 'recipient_read_failed', retry: true);
         }
 
         try {
@@ -124,6 +138,22 @@ class ChannelOrderDispatcher
 
             return $token;
         }, 3);
+    }
+
+    /** The claim goes back untouched, to be taken up again after the wait the channel asked for: no attempt was made, so none is counted. */
+    private function waitFor(ExternalOrderMapping $mapping, string $token, int $seconds): DispatchOutcome
+    {
+        $row = ChannelOrderDispatch::where('mapping_id', $mapping->id)->where('claim_token', $token)->first();
+        if ($row === null) {
+            return DispatchOutcome::busy();
+        }
+
+        ChannelOrderDispatch::where('id', $row->id)->where('claim_token', $token)->update([
+            'state' => DispatchState::Blocked->value, 'reason_code' => 'channel_rate_limited', 'claim_token' => null, 'claimed_at' => null,
+            'attempts' => max(0, $row->attempts - 1), 'next_attempt_at' => now()->addSeconds(max(1, $seconds)),
+        ]);
+
+        return DispatchOutcome::waiting('channel_rate_limited');
     }
 
     private function release(ExternalOrderMapping $mapping, string $token, string $reason, bool $retry): DispatchOutcome

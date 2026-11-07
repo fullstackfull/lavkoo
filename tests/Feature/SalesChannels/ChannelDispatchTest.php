@@ -17,11 +17,14 @@ use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMaterializer;
 use App\Services\SalesChannels\Dispatch\DispatchOutcome;
+use App\Services\SalesChannels\Exceptions\ChannelRateLimitedException;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
+use Tests\Support\UnreachableChannelConnector;
 
 /** A Trendyol order that a rule sends to Torod Point, from the channel to the provider's door, with the platform's own fulfilment (router, dispatcher, a scripted provider) doing the part it owns. */
 class ChannelDispatchTest extends DispatchTestCase
@@ -209,6 +212,61 @@ class ChannelDispatchTest extends DispatchTestCase
         $this->assertSame(DispatchOutcome::BLOCKED, $outcome->state);
         $this->assertStringStartsWith('channel_', (string) $outcome->reason);
         $this->assertNull(ChannelOrderDispatch::firstOrFail()->claim_token);
+        $this->assertSame(0, DB::table('orders')->count());
+    }
+
+    // ---- the channel cannot be reached -------------------------------------------------------------------
+
+    private function unreachableChannel(\Throwable $throwable): ExternalOrderMapping
+    {
+        $mapping = $this->placed();
+        UnreachableChannelConnector::throwing($throwable);
+        config(['sales_channels.connectors.trendyol' => UnreachableChannelConnector::class]);
+
+        return $mapping;
+    }
+
+    public function test_a_rate_limited_channel_gets_the_claim_straight_back_with_its_own_wait_and_spends_no_attempt(): void
+    {
+        $mapping = $this->unreachableChannel(new ChannelRateLimitedException(90));
+
+        $outcome = $this->dispatcher()->dispatch($mapping, 'auto');
+
+        $this->assertSame([DispatchOutcome::WAITING, 'channel_rate_limited'], [$outcome->state, $outcome->reason]);
+        $row = ChannelOrderDispatch::firstOrFail();
+        $this->assertSame([DispatchState::Blocked->value, 'channel_rate_limited', 0], [$row->state, $row->reason_code, $row->attempts], 'the order never had its turn, so no attempt was spent');
+        $this->assertNull($row->claim_token, 'the claim is not left held for the whole claim window');
+        $this->assertTrue($row->next_attempt_at->between(now()->addSeconds(85), now()->addSeconds(95)), 'it waits exactly as long as the channel asked');
+        $this->assertSame(0, DB::table('orders')->count());
+    }
+
+    public function test_a_rate_limit_cannot_use_up_an_orders_attempts_and_the_order_still_goes_through_afterwards(): void
+    {
+        $mapping = $this->unreachableChannel(new ChannelRateLimitedException(1));
+        foreach (range(1, 6) as $ignored) {
+            $this->dispatcher()->dispatch($mapping->refresh(), 'auto');
+            ChannelOrderDispatch::query()->update(['next_attempt_at' => null]);
+        }
+        $this->assertSame(0, ChannelOrderDispatch::firstOrFail()->attempts);
+
+        config(['sales_channels.connectors.trendyol' => \App\Services\SalesChannels\Trendyol\TrendyolConnector::class]);
+        $outcome = $this->dispatcher()->dispatch($mapping->refresh(), 'auto');
+
+        $this->assertSame(DispatchOutcome::MATERIALIZED, $outcome->state, 'six rate limits must not exhaust the five attempts an order has');
+    }
+
+    public function test_a_failure_nobody_named_releases_the_claim_as_retryable_and_says_nothing_about_the_buyer(): void
+    {
+        $mapping = $this->unreachableChannel(new RuntimeException('Buyer Test Buyer at 1 Test Street could not be read'));
+
+        $outcome = $this->dispatcher()->dispatch($mapping, 'auto');
+
+        $this->assertSame([DispatchOutcome::BLOCKED, 'recipient_read_failed'], [$outcome->state, $outcome->reason]);
+        $row = ChannelOrderDispatch::firstOrFail();
+        $this->assertSame([DispatchState::Blocked->value, 'recipient_read_failed', 1], [$row->state, $row->reason_code, $row->attempts]);
+        $this->assertNull($row->claim_token);
+        $this->assertNotNull($row->next_attempt_at, 'a failure of the read is tried again');
+        $this->assertStringNotContainsString(self::NAME, $this->storedOutsideTheOrder(), 'what the failure said about the buyer is not stored');
         $this->assertSame(0, DB::table('orders')->count());
     }
 
