@@ -147,6 +147,30 @@ return [
             // and must be saved there; it is not a secret. Never take this from an API example.
             'default_company_id' => 714,
             'adapter' => \App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter::class,
+            /*
+            | The city-list refresh (Lastmile `addresses/cities`), which the page walk reads within these limits. The
+            | cached copy is 20,858 cities at 100 a page — about 209 pages — so the first version's 100-page ceiling
+            | could not reach the end of the list; 250 leaves room for it to grow. These are the deployment defaults:
+            | the sync needs no hand-edited setting on a server, and an environment variable only moves them.
+            |
+            | Every value is clamped by `TorodCityDirectory` (max_pages to MAX_PAGES_CEILING = 500 pages = 50,000
+            | cities, max_seconds to 1800), so no setting here can make the walk unbounded. The walk also stops by
+            | itself the moment a page repeats what it has seen, comes back empty, or the provider's own total is
+            | reached — the ceilings are the last resort, not the normal end.
+            |
+            | A walk that runs out of pages or time is reported `partial`: it still adds and updates every city it
+            | read, and a partial reading never deletes a city, never marks one missing and never changes a mapping a
+            | person approved. So raising a limit can only read more, and lowering one can only read less.
+            */
+            'cities' => [
+                'max_pages' => (int) env('TOROD_CITY_SYNC_MAX_PAGES', 250),
+                // The surface the sync runs on: a console run (the `fulfillment:sync` command, the queue worker, the
+                // schedule) walks the whole list; the admin's "sync now" answers an HTTP request and stays short.
+                'max_seconds_console' => (int) env('TOROD_CITY_SYNC_MAX_SECONDS', 600),
+                'max_seconds_web' => 45,
+                // Fewer cities than this is never taken for a whole country's list on the weakest evidence alone.
+                'complete_floor' => 1000,
+            ],
             // What the three LogesTechs documents (Lastmile API v2, Fulfillment API v5, webhook status
             // updates) actually establish. `false` = "not documented", never "not wanted".
             'documented' => [

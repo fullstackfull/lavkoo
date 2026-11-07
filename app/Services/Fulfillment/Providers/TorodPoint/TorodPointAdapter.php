@@ -72,6 +72,14 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     /** Every field the two webhook normalisers read (lower-cased), and so every field of a webhook body that is kept. */
     private const WEBHOOK_FIELDS = ['newstatus', 'barcode', 'time', 'postponeddeliverydate', 'postponeddate', 'packageid', 'invoicenumber', 'cod', 'notes', 'status', 'packagebarcode'];
 
+    /**
+     * What an inbound `invoiceNumber` may name. The field is documented to carry OUR invoice number (`reference`, e.g.
+     * `100002-TP1`), and the live Lastmile webhook sends the warehouse order's barcode in it instead (`provider_reference`,
+     * e.g. `O0714001615223`). Both identify the same shipment of ours, and both are unique per provider in the database,
+     * so an event is read the same way whichever of the two the provider chose to send.
+     */
+    private const INVOICE_COLUMNS = ['reference', 'provider_reference'];
+
     /** Hosts the air waybill may be served from. */
     private const LABEL_HOST_SUFFIXES = ['amazonaws.com', 'logestechs.com'];
     private const RECONCILE_PAGES = 3;
@@ -437,26 +445,56 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     }
 
     /**
-     * The shipment an event is about, found by the references it carries. When two references point at DIFFERENT shipments
-     * the event is not about either of them: it is left unmatched instead of being given to whichever reference is tried first.
+     * The shipment an event is about, found by the references it carries — and only when all of them agree. Two references
+     * pointing at DIFFERENT shipments, or one reference that two shipments both carry, leave the event unmatched instead of
+     * binding it to whichever row happens to be read first; an unmatched event is kept and retried, never discarded.
      */
     public function locateFulfillment(NormalizedEvent $event): ?ProviderFulfillment
     {
-        $query = ProviderFulfillment::where('provider', $this->code()->value);
-
-        [$first, $second] = $event->type === 'lastmile'
+        $found = $event->type === 'lastmile'
             ? [
-                $event->reference('barcode') !== null ? (clone $query)->where('provider_secondary_reference', $event->reference('barcode'))->first() : null,
-                $event->reference('invoice') !== null ? (clone $query)->where('reference', $event->reference('invoice'))->first() : null,
+                $this->shipmentsCarrying(columns: ['provider_secondary_reference'], value: $event->reference('barcode')),
+                $this->shipmentsCarrying(columns: self::INVOICE_COLUMNS, value: $event->reference('invoice')),
             ]
             : [
-                $event->reference('barcode') !== null ? (clone $query)->where('provider_reference', $event->reference('barcode'))->first() : null,
-                $event->reference('package_barcode') !== null ? (clone $query)->where('provider_secondary_reference', $event->reference('package_barcode'))->first() : null,
+                $this->shipmentsCarrying(columns: ['provider_reference'], value: $event->reference('barcode')),
+                $this->shipmentsCarrying(columns: ['provider_secondary_reference'], value: $event->reference('package_barcode')),
             ];
 
-        return $first !== null && $second !== null && $first->id !== $second->id ? null : ($first ?? $second);
+        $ids = array_values(array_unique(array_merge(...$found)));
+
+        return count($ids) === 1 ? ProviderFulfillment::find($ids[0]) : null;
     }
 
+    /**
+     * The ids of OUR shipments that carry this value in one of the given columns — every one of them, so a value two
+     * shipments share is seen as the ambiguity it is rather than resolving to the first row.
+     *
+     * @param list<string> $columns
+     * @return list<int>
+     */
+    private function shipmentsCarrying(array $columns, ?string $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        return ProviderFulfillment::where('provider', $this->code()->value)
+            ->where(static function ($query) use ($columns, $value): void {
+                foreach ($columns as $column) {
+                    $query->orWhere($column, $value);
+                }
+            })
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
+    }
+
+    /**
+     * Fills in the references an event teaches us about this shipment. A reference is only ever added, never changed, and
+     * never taken from another shipment: a value a second shipment of ours already carries is left where it is.
+     */
     public function learnReferences(ProviderFulfillment $fulfillment, NormalizedEvent $event): void
     {
         $template = $this->config()->string('tracking_url_template');
@@ -464,34 +502,59 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         if ($event->type === 'lastmile') {
             $barcode = $event->reference('barcode');
-            if ($barcode !== null && $fulfillment->provider_secondary_reference === null && $this->describesThisShipment($fulfillment, $event)) {
-                $update['provider_secondary_reference'] = $barcode;
-                $update['tracking_number'] = $fulfillment->tracking_number ?? $barcode;
-                if ($template !== '' && $fulfillment->tracking_url === null) {
-                    $update['tracking_url'] = str_replace('{tracking}', rawurlencode($barcode), $template);
-                }
+            $packageId = $event->reference('package_id');
+            if ($barcode !== null && $this->unclaimed(fulfillment: $fulfillment, column: 'provider_secondary_reference', value: $barcode)
+                && $this->describesThisShipment(fulfillment: $fulfillment, event: $event)) {
+                $update += $this->trackedBy(fulfillment: $fulfillment, barcode: $barcode, template: $template);
             }
-            if ($event->reference('package_id') !== null && $fulfillment->provider_internal_id === null) {
-                $update['provider_internal_id'] = $event->reference('package_id');
+            if ($packageId !== null && $this->unclaimed(fulfillment: $fulfillment, column: 'provider_internal_id', value: $packageId)) {
+                $update['provider_internal_id'] = $packageId;
             }
         } else {
             $barcode = $event->reference('barcode');
             $package = $event->reference('package_barcode');
-            if ($barcode !== null && $fulfillment->provider_reference === null) {
+            if ($barcode !== null && $this->unclaimed(fulfillment: $fulfillment, column: 'provider_reference', value: $barcode)) {
                 $update['provider_reference'] = $barcode;
             }
-            if ($package !== null && $fulfillment->provider_secondary_reference === null) {
-                $update['provider_secondary_reference'] = $package;
-                $update['tracking_number'] = $fulfillment->tracking_number ?? $package;
-                if ($template !== '' && $fulfillment->tracking_url === null) {
-                    $update['tracking_url'] = str_replace('{tracking}', rawurlencode($package), $template);
-                }
+            if ($package !== null && $this->unclaimed(fulfillment: $fulfillment, column: 'provider_secondary_reference', value: $package)) {
+                $update += $this->trackedBy(fulfillment: $fulfillment, barcode: $package, template: $template);
             }
         }
 
         if ($update !== []) {
             DB::table('provider_fulfillments')->where('id', $fulfillment->id)->update($update + ['updated_at' => now()]);
         }
+    }
+
+    /**
+     * May this shipment learn this value in this column? Only while the column is still empty and no OTHER shipment of ours
+     * already carries that value — a reference that belongs to another shipment is never moved onto this one.
+     */
+    private function unclaimed(ProviderFulfillment $fulfillment, string $column, string $value): bool
+    {
+        return $fulfillment->{$column} === null
+            && !ProviderFulfillment::where('provider', $this->code()->value)
+                ->where($column, $value)
+                ->whereKeyNot($fulfillment->id)
+                ->exists();
+    }
+
+    /**
+     * The package barcode becomes the shipment's tracking handle, without overwriting a tracking number or link it already has.
+     *
+     * @return array<string, string>
+     */
+    private function trackedBy(ProviderFulfillment $fulfillment, string $barcode, string $template): array
+    {
+        $update = [
+            'provider_secondary_reference' => $barcode,
+            'tracking_number' => $fulfillment->tracking_number ?? $barcode,
+        ];
+        if ($template !== '' && $fulfillment->tracking_url === null) {
+            $update['tracking_url'] = str_replace('{tracking}', rawurlencode($barcode), $template);
+        }
+
+        return $update;
     }
 
     /**
@@ -546,15 +609,26 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
     }
 
     /**
-     * Is this Lastmile event plausibly about OUR shipment? It must name our invoice number when it names one at all, and the
-     * cash it says is collected must be the cash we asked for. Learning a package barcode from an event is trust on first use;
-     * this is the check that stops one shipment adopting another's barcode.
+     * Is this Lastmile event plausibly about OUR shipment? When it names an invoice number at all, that number must be one of
+     * ours — our own invoice number or the warehouse order barcode the provider sends in its place — and the cash it says is
+     * collected must be the cash we asked for. Learning a package barcode from an event is trust on first use; this is the
+     * check that stops one shipment adopting another's barcode.
      */
     private function describesThisShipment(ProviderFulfillment $fulfillment, NormalizedEvent $event): bool
     {
         $invoice = $event->reference('invoice');
 
-        return ($invoice === null || $invoice === $fulfillment->reference) && $this->cashMatches($fulfillment, $event->reference('cod'));
+        return ($invoice === null || in_array($invoice, $this->invoiceNumbersOf($fulfillment), true))
+            && $this->cashMatches($fulfillment, $event->reference('cod'));
+    }
+
+    /** @return list<string> the numbers an inbound `invoiceNumber` may carry for this shipment */
+    private function invoiceNumbersOf(ProviderFulfillment $fulfillment): array
+    {
+        return array_values(array_filter(
+            array_map(static fn (string $column): ?string => $fulfillment->{$column}, self::INVOICE_COLUMNS),
+            static fn (?string $number): bool => $number !== null && $number !== '',
+        ));
     }
 
     /** A package that reports a different cash-on-delivery amount than the one we sent is not our package. An absent amount proves nothing. */
