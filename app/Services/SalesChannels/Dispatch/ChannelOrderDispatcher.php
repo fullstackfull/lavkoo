@@ -11,6 +11,7 @@ use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Contracts\ReadsRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
+use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -35,6 +36,7 @@ class ChannelOrderDispatcher
         private readonly ChannelOrderMaterializer $materializer,
         private readonly FulfillmentHooks $hooks,
         private readonly AuditLogger $audit,
+        private readonly ChannelOrderReservations $reservations,
     ) {
     }
 
@@ -73,6 +75,8 @@ class ChannelOrderDispatcher
             return $this->release($mapping, $claimed, $refused->reason, retry: false);
         }
 
+        // The order now has an internal order: whoever counts the units it promised (the channel hold, or the store's own provider items) is told to look again.
+        $this->reservations->sync($mapping->refresh());
         $this->hooks->ordersPlaced([$orderId]);
 
         return DispatchOutcome::materialized($orderId, (string) $verdict->provider);
