@@ -6,17 +6,20 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\ExternalOrderMapping;
+use App\Models\ProviderFulfillment;
 use App\Services\AuditLogger;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Ties a channel order whose shipping someone else arranged to the shipment that already exists at the provider. It only RECORDS the link: it never creates, changes or cancels
  * anything at a provider, which is what makes "never a second shipment" a property of the design and not of a check.
  *
  * Refused outright: an order the application itself created a fulfilment for, an order the channel ships (FBA), a provider we do not integrate, and a shipment already linked to
- * another order. Searching for the shipment is left to the bound ExternalShipmentLookup; where it cannot search, or finds none or several, a person links it.
+ * another channel order or already the fulfilment of an order of the store. It does not ask the provider whether the shipment exists: the reference is what a person (or the bound
+ * ExternalShipmentLookup) says. Searching for the shipment is left to that lookup; where it cannot search, or finds none or several, a person links it.
  */
 class ExternalShipmentLinker
 {
@@ -148,5 +151,16 @@ class ExternalShipmentLinker
         if ($elsewhere) {
             throw new ShipmentLinkRefused('That shipment is already linked to another order.');
         }
+        if ($this->isAStoreOrdersShipment($provider, $reference)) {
+            throw new ShipmentLinkRefused('That shipment is the fulfilment of an order of the store.');
+        }
+    }
+
+    private function isAStoreOrdersShipment(string $provider, string $reference): bool
+    {
+        return Schema::hasTable('provider_fulfillments') && ProviderFulfillment::query()
+            ->where('provider', $provider)
+            ->where(static fn ($query) => $query->where('provider_reference', $reference)->orWhere('provider_secondary_reference', $reference))
+            ->exists();
     }
 }

@@ -222,6 +222,37 @@ class SaleCostServiceTest extends TestCase
         $this->assertSame(10, (int) InventoryCostLayer::sum('quantity_remaining'));
     }
 
+    public function test_a_cancelled_order_stops_counting_in_the_ledger_with_a_settled_zero_and_nothing_is_deleted(): void
+    {
+        $this->stock(10, '10', 'inv-1');
+        $this->sales->refresh($this->document('storefront', SaleDocument::STATE_DELIVERED, [$this->line(11, 3)]));
+        $this->assertSame('30.000000', $this->cogs(11)->amount);
+
+        $outcomes = $this->sales->refresh($this->document('storefront', SaleDocument::STATE_CANCELLED, [$this->line(11, 3)]));
+
+        $this->assertCount(1, $outcomes);
+        $this->assertSame([CostState::Actual, '0.000000'], [$this->cogs(11)->state, $this->cogs(11)->amount]);
+        $this->assertSame(1, OperationalCostEntry::where('subject_id', 11)->where('cost_component', 'cogs')->where('is_effective', true)->count());
+        $this->assertSame(2, OperationalCostEntry::where('subject_id', 11)->where('cost_component', 'cogs')->count(), 'The cost that was recognised is kept, superseded; it is not deleted.');
+
+        $rows = OperationalCostEntry::count();
+        $this->sales->refresh($this->document('storefront', SaleDocument::STATE_CANCELLED, [$this->line(11, 3)]));
+        $this->assertSame($rows, OperationalCostEntry::count(), 'Cancelling again changes nothing.');
+        $this->assertSame(10, (int) InventoryCostLayer::sum('quantity_remaining'));
+    }
+
+    public function test_an_order_cancelled_before_it_shipped_replaces_its_estimate_and_one_that_never_had_a_cost_records_nothing(): void
+    {
+        $this->stock(10, '10', 'inv-1');
+        $this->sales->refresh($this->document('storefront', SaleDocument::STATE_OPEN, [$this->line(11, 2)]));
+        $this->assertSame([CostState::Estimated, '20.000000'], [$this->cogs(11)->state, $this->cogs(11)->amount]);
+
+        $this->sales->refresh($this->document('storefront', SaleDocument::STATE_CANCELLED, [$this->line(11, 2), $this->line(12, 1)]));
+
+        $this->assertSame([CostState::Actual, '0.000000'], [$this->cogs(11)->state, $this->cogs(11)->amount], 'The estimate of an order that will never ship stops counting.');
+        $this->assertNull($this->cogs(12), 'A line that never had a cost gets no entry for being cancelled.');
+    }
+
     public function test_a_line_that_shrinks_takes_the_smaller_quantity(): void
     {
         $this->stock(10, '10', 'inv-1');

@@ -19,6 +19,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Tests\Support\BuildsRemoteOrders;
@@ -108,6 +109,29 @@ class ShipmentLinkingTest extends TestCase
 
         $this->expectException(ShipmentLinkRefused::class);
         $this->linker->link($second, 'torod_point', 'TOR-123', 1);
+    }
+
+    public function test_a_shipment_that_already_fulfils_an_order_of_the_store_cannot_be_given_to_a_channel_order(): void
+    {
+        DB::table('orders')->insert(['id' => 500, 'order_status' => 'confirmed', 'payment_status' => 'paid', 'shipping_address_data' => json_encode(['city' => 'Riyadh']), 'seller_is' => 'admin']);
+        ProviderFulfillment::create([
+            'reference' => '500-TP1', 'order_id' => 500, 'provider' => 'torod_point', 'generation' => 1, 'idempotency_key' => hash('sha256', 'k500'), 'status' => 'submitted',
+            'currency' => 'SAR', 'payment_mode' => 'prepaid', 'items_total' => 50, 'total_amount' => 50, 'provider_reference' => 'TOR-STORE-1', 'provider_secondary_reference' => 'TOR-STORE-2',
+        ]);
+        $mapping = $this->order();
+
+        foreach (['TOR-STORE-1', 'TOR-STORE-2'] as $reference) {
+            try {
+                $this->linker->link($mapping, 'torod_point', $reference, 1);
+                $this->fail("{$reference} fulfils an order of the store and must be refused.");
+            } catch (ShipmentLinkRefused $refused) {
+                $this->assertStringContainsString('order of the store', $refused->getMessage());
+            }
+        }
+        $this->assertNotSame(ExternalOrderMapping::LINK_LINKED, $mapping->fresh()->shipment_link_state);
+
+        $this->linker->link($mapping, 'm5azn', 'TOR-STORE-1', 1);
+        $this->assertSame('m5azn', $mapping->fresh()->provider, 'The same text at another provider is another shipment.');
     }
 
     public function test_the_database_refuses_the_same_shipment_twice_even_if_the_check_is_bypassed(): void

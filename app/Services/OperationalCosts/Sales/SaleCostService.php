@@ -27,8 +27,9 @@ use InvalidArgumentException;
  *     the cost layers first in, first out, and the cost actually taken becomes the ACTUAL cost of the line, replacing the estimate. If the
  *     layers cannot cover every unit, the line is costed as far as it can be and the rest is reported as missing (or estimated, when an
  *     estimate exists) until the purchase invoice that covers it is recorded.
- *  3. A sale that is cancelled before it ships takes nothing from the layers; one already recognised puts its units back. The same goes for one line of an order whose
- *     units were all cancelled while the rest of the order stands: its units go back and what was recorded for it stops counting.
+ *  3. A sale that is cancelled before it ships takes nothing from the layers; one already recognised puts its units back. Either way what was recorded for each of its lines
+ *     stops counting (a settled zero takes its place: nothing is deleted). The same goes for one line of an order whose units were all cancelled while the rest of the order
+ *     stands.
  *
  * Moving stock to another location is not a sale and never reaches this class.
  */
@@ -45,9 +46,7 @@ class SaleCostService
     public function refresh(SaleDocument $document): array
     {
         if ($document->isCancelled()) {
-            $this->releaseCostLayers($document);
-
-            return [];
+            return $this->cancelAllLines($document);
         }
 
         $recognition = (string) config('operational_costs.cogs_recognition.' . $document->salesChannel, 'delivered');
@@ -88,15 +87,22 @@ class SaleCostService
         ));
     }
 
-    /** Takes back the units a recognised sale took, when that sale is cancelled. */
-    public function releaseCostLayers(SaleDocument $document): int
+    /**
+     * A cancelled sale: every line gives its units back and stops counting.
+     *
+     * @return list<RecordOutcome>
+     */
+    private function cancelAllLines(SaleDocument $document): array
     {
-        $restored = 0;
+        $outcomes = [];
         foreach ($document->lines as $line) {
-            $restored += $this->layers->reverse($line->targetType, $line->targetId);
+            $cancelled = $this->cancelLine($document, $line);
+            if ($cancelled !== null) {
+                $outcomes[] = $cancelled;
+            }
         }
 
-        return $restored;
+        return $outcomes;
     }
 
     /**
