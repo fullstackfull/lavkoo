@@ -34,6 +34,7 @@ class BuyerDataPurger
         private readonly AuditLogger $audit,
         private readonly FulfillmentHooks $hooks,
         private readonly ChannelOrderReservations $reservations,
+        private readonly BuyerEchoScrubber $scrubber,
     ) {
     }
 
@@ -100,6 +101,7 @@ class BuyerDataPurger
     /** @param list<ProviderFulfillment> $fulfillments */
     private function wipe(ChannelOrderDispatch $row, array $fulfillments): void
     {
+        $this->scrubber->scrubOrder((int) $row->internal_order_id);
         $order = DB::table('orders')->where('id', $row->internal_order_id)->lockForUpdate()->first(['id', 'shipping_address_data']);
         if ($order !== null) {
             $kept = Arr::only((array) json_decode((string) $order->shipping_address_data, true), ['city', 'country']);
