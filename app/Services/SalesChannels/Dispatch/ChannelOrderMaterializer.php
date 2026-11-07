@@ -11,6 +11,7 @@ use App\Services\AuditLogger;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Utils\OrderManager;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -26,6 +27,12 @@ use Illuminate\Support\Facades\Schema;
  */
 class ChannelOrderMaterializer
 {
+    /** How often a number another order took first is replaced by the next one before the attempt is given up. */
+    private const ORDER_NUMBER_ATTEMPTS = 3;
+
+    /** How long one dispatch waits for another to finish handing out its order number. */
+    private const NUMBER_LOCK_SECONDS = 15;
+
     public function __construct(
         private readonly DispatchGate $gate,
         private readonly OrderItemOwnershipSnapshotter $snapshotter,
@@ -39,6 +46,41 @@ class ChannelOrderMaterializer
      * @throws DispatchRefused
      */
     public function materialize(ExternalOrderMapping $mapping, string $provider, ChannelRecipient $recipient, string $claimToken): int
+    {
+        return $this->oneAtATime(function () use ($mapping, $provider, $recipient, $claimToken): int {
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    return $this->makeOrder($mapping, $provider, $recipient, $claimToken);
+                } catch (UniqueConstraintViolationException $collision) {
+                    if ($attempt >= self::ORDER_NUMBER_ATTEMPTS) {
+                        throw $collision;
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * The platform hands out order numbers by reading the highest one under a row lock, which holds nothing when two orders are made at the same instant in an empty table, and its own checkout
+     * has the same weakness. Orders made here wait for each other on a database-wide lock, so that only a checkout can still take a number first; then the next attempt takes the next one.
+     */
+    private function oneAtATime(callable $work): int
+    {
+        if (!in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
+            return $work();
+        }
+        if ((int) DB::scalar('SELECT GET_LOCK(?, ?)', ['sales_channels.dispatch.order_number', self::NUMBER_LOCK_SECONDS]) !== 1) {
+            throw new DispatchRefused('order_number_busy');
+        }
+
+        try {
+            return $work();
+        } finally {
+            DB::scalar('SELECT RELEASE_LOCK(?)', ['sales_channels.dispatch.order_number']);
+        }
+    }
+
+    private function makeOrder(ExternalOrderMapping $mapping, string $provider, ChannelRecipient $recipient, string $claimToken): int
     {
         return DB::transaction(function () use ($mapping, $provider, $recipient, $claimToken): int {
             $locked = ExternalOrderMapping::whereKey($mapping->id)->lockForUpdate()->firstOrFail();

@@ -87,14 +87,15 @@ class ChannelOrderDispatcher
                 return DispatchOutcome::alreadyDone((int) $locked->order_id);
             }
 
-            $row = ChannelOrderDispatch::where('mapping_id', $locked->id)->lockForUpdate()->first();
-            if ($row === null) {
+            // The first read takes no lock: a locking read of a row that does not exist yet locks the gap, and two first attempts on different orders deadlock on it when they insert.
+            if (!ChannelOrderDispatch::where('mapping_id', $locked->id)->exists()) {
                 try {
-                    $row = ChannelOrderDispatch::create(['mapping_id' => $locked->id, 'account_id' => $locked->account_id, 'state' => DispatchState::Blocked->value, 'attempts' => 0]);
+                    ChannelOrderDispatch::create(['mapping_id' => $locked->id, 'account_id' => $locked->account_id, 'state' => DispatchState::Blocked->value, 'attempts' => 0]);
                 } catch (UniqueConstraintViolationException) {
-                    $row = ChannelOrderDispatch::where('mapping_id', $locked->id)->lockForUpdate()->firstOrFail();
+                    // Another path made the row first: the locking read below finds it.
                 }
             }
+            $row = ChannelOrderDispatch::where('mapping_id', $locked->id)->lockForUpdate()->firstOrFail();
             if ($row->internal_order_id !== null) {
                 return DispatchOutcome::alreadyDone((int) $row->internal_order_id);
             }

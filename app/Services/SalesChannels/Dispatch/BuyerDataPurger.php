@@ -62,7 +62,14 @@ class BuyerDataPurger
     private function purge(int $dispatchId): string
     {
         $closedOrderId = null;
-        $outcome = DB::transaction(function () use ($dispatchId, &$closedOrderId): string {
+        $mappingId = ChannelOrderDispatch::whereKey($dispatchId)->value('mapping_id');
+        if ($mappingId === null) {
+            return self::SKIPPED;
+        }
+
+        $outcome = DB::transaction(function () use ($dispatchId, $mappingId, &$closedOrderId): string {
+            // The same order of locks as a dispatch takes (the channel order first, then its dispatch row), so the two can never wait on each other.
+            $mapping = ExternalOrderMapping::whereKey($mappingId)->lockForUpdate()->firstOrFail();
             $row = ChannelOrderDispatch::whereKey($dispatchId)->lockForUpdate()->first();
             if ($row === null || $row->buyer_data_purged_at !== null || $row->internal_order_id === null) {
                 return self::SKIPPED;
@@ -78,7 +85,7 @@ class BuyerDataPurger
                 return self::PURGED;
             }
 
-            $closedOrderId = $this->closeAndRelease($row);
+            $closedOrderId = $this->closeAndRelease($row, $mapping);
 
             return self::RESET;
         });
@@ -106,11 +113,10 @@ class BuyerDataPurger
     }
 
     /** Nothing was sent: the internal order is closed and the channel order waits to be dispatched again. */
-    private function closeAndRelease(ChannelOrderDispatch $row): int
+    private function closeAndRelease(ChannelOrderDispatch $row, ExternalOrderMapping $mapping): int
     {
         $orderId = (int) $row->internal_order_id;
         DB::table('orders')->where('id', $orderId)->update(['order_status' => 'canceled'] + $this->touched('orders'));
-        $mapping = ExternalOrderMapping::whereKey($row->mapping_id)->lockForUpdate()->firstOrFail();
         $mapping->forceFill(['order_id' => null])->save();
         $row->forceFill([
             'state' => DispatchState::Blocked->value, 'reason_code' => 'buyer_data_expired', 'internal_order_id' => null, 'materialized_at' => null,
