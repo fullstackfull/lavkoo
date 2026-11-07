@@ -100,7 +100,7 @@ same street-plus-district line Torod gets (an old copy has no district, so it re
 
 ## Operating it on the pilot server (only *reads* from Torod: nothing is created, sent or changed there)
 
-1. Deploy the files (no database change), then run the four address migrations by explicit `--path`, then `address:import` — see [deployment-runbook.md](deployment-runbook.md). A worker started before the migrations asks again
+1. Deploy the files (no database change), then run the four address migrations by explicit `--path`, then `address:fetch-spl` and `address:import` (step 5) — see [deployment-runbook.md](deployment-runbook.md). A worker started before the migrations asks again
    and notices the new tables within 30 seconds (only a *yes* is remembered for the life of a process), so no restart is needed for that; restart the queue workers after the files of a release and after a rollback that drops the tables.
 2. *Integration Center → Torod Point → City matching*: press **Sync cities now**. Read the banner: *Complete* or *Partial* (with the reason, the number of cities read and the provider's total if it
    gave one). Do not treat a *Partial* list as the provider's truth.
@@ -131,4 +131,4 @@ Approved is **not** verified: whether the v2 city and region ids are accepted by
 | Order held `ambiguous:…` | two or more Torod records share the name | choose by id **and** region on the matching screen |
 | Order held `provider_city_missing` | the approved city (or the Torod city an alias points at) disappeared from a *proven complete* reading | sync again; re-map to the city Torod lists now |
 | Sync says *Partial* every time | paging not honoured | send question 1 to LogesTechs; use discovery meanwhile |
-| Matching screen empty | migrations not run, or no city imported | `address:status`; run migrations / `address:import` |
+| Matching screen empty | migrations not run, or no city imported | `address:status`; run migrations / `address:fetch-spl` |

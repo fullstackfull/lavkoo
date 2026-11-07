@@ -136,6 +136,48 @@ class OverlayDeploymentTest extends TestCase
         $this->assertStringContainsString("+function order() { return 'hotfixed on the server'; }", $diff->getOutput(), 'only what the server changed, not the release\'s own changes');
     }
 
+    public function test_a_file_named_by_exclude_stays_out_of_the_package_and_the_manifest_says_so(): void
+    {
+        $this->release(build: ['--exclude=app/Services/Fulfillment/New.php', '--exclude=/resources/lang/en/new-messages.php']);
+
+        $manifest = $this->manifest();
+        $this->assertSame(['app/Utils/OrderManager.php', 'database/migrations/2026_11_05_100000_create_thing.php'], array_column($manifest['files'], 'path'));
+        $this->assertSame(['app/Services/Fulfillment/New.php', 'resources/lang/en/new-messages.php'], $manifest['excluded']);
+        $this->assertFileDoesNotExist($this->overlay . '/files/app/Services/Fulfillment/New.php');
+        $this->assertFileDoesNotExist($this->overlay . '/files/resources/lang/en/new-messages.php');
+        $verify = $this->deploy('verify');
+        $this->assertSame(0, $verify->getExitCode(), $verify->getOutput() . $verify->getErrorOutput());
+    }
+
+    public function test_the_data_files_whose_licence_is_not_settled_never_go_into_a_package(): void
+    {
+        $this->release(['database/data/address/cities.json' => '{"cities": []}', 'database/data/address/regions.json' => '{"regions": []}', 'database/data/address/aliases.json' => '{"aliases": []}']);
+
+        $manifest = $this->manifest();
+        $this->assertSame(['database/data/address/cities.json', 'database/data/address/regions.json'], $manifest['excluded']);
+        $this->assertContains('database/data/address/aliases.json', array_column($manifest['files'], 'path'), 'the curated spellings are ours and ship');
+        $this->assertFileDoesNotExist($this->overlay . '/files/database/data/address/cities.json');
+        $this->assertFileDoesNotExist($this->overlay . '/files/database/data/address/regions.json');
+    }
+
+    public function test_a_package_built_without_an_exclusion_has_no_excluded_list(): void
+    {
+        $this->release();
+
+        $this->assertArrayNotHasKey('excluded', $this->manifest());
+    }
+
+    public function test_an_exclusion_that_names_a_file_the_release_does_not_ship_builds_nothing(): void
+    {
+        $this->commit(['app/Utils/OrderManager.php' => "<?php\nfunction order() { return 'release'; }\n"], 'release');
+
+        $build = $this->build(['--exclude=app/Utils/OrderManagerr.php']);
+
+        $this->assertSame(1, $build->getExitCode());
+        $this->assertStringContainsString('--exclude names a file the release does not ship: app/Utils/OrderManagerr.php', $build->getErrorOutput());
+        $this->assertFileDoesNotExist($this->overlay . '/MANIFEST.json');
+    }
+
     public function test_a_build_into_a_directory_that_already_holds_files_is_refused(): void
     {
         $this->release();
@@ -1147,7 +1189,7 @@ class OverlayDeploymentTest extends TestCase
      *
      * @param array<string, string> $overrides different content for any of those files
      */
-    private function release(array $overrides = [], bool $archive = false): void
+    private function release(array $overrides = [], bool $archive = false, array $build = []): void
     {
         $this->commit($overrides + [
             'app/Utils/OrderManager.php' => "<?php\nfunction order() { return 'release'; }\n",
@@ -1158,7 +1200,7 @@ class OverlayDeploymentTest extends TestCase
             'tests/ThingTest.php' => "<?php\n",
         ], 'release');
 
-        $process = $this->build($archive ? ['--archive'] : []);
+        $process = $this->build([...($archive ? ['--archive'] : []), ...$build]);
         $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput() . $process->getOutput());
     }
 

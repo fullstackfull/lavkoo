@@ -1,8 +1,8 @@
 # Region and city data: sources, coverage and licence
 
-## What ships
+## What is in the repository (test and development data)
 
-`database/data/address/regions.json` (13 regions) and `database/data/address/cities.json` (4,581 places) — loaded by `php artisan address:import` (dry run by default,
+`database/data/address/regions.json` (13 regions) and `database/data/address/cities.json` (4,581 places) — **never packaged; the store reads its own copy from Saudi Post, see below** — loaded by `php artisan address:import` (dry run by default,
 `--apply` to write, never deletes, keeps whether a place is active and what an administrator renamed). Every file records its source, snapshot date and origin in `_meta`; every row keeps the source's own id
 (`ref`) so a later import updates the same row. Our own primary key is the internal `id`: third-party ids and names are attributes, never keys.
 
@@ -21,11 +21,22 @@ independent signal (GeoNames name + coordinates). It was checked that all 20 maj
 * There is no governorate layer and districts exist for 152 places only, so `district` is a free-text field for now (the register's 3,732 districts are *not* shipped because the list is
   too incomplete to enforce).
 
-## Licence — decision needed before shipping `cities.json` to the server (Release A) and before importing it
+## Where the production data comes from — decided
 
-**Status: unresolved.** Nothing in this repository or in the sources below shows that the file may be redistributed, and the owner has not decided. Until a decision is recorded in the table below, Release A is built without `cities.json` and `address:import` is not run.
+**The store reads its lists from the official source, Saudi Post's (SPL) National Address Lookups API, with the owner's own key (`php artisan address:fetch-spl`).** Nothing from that source is kept in the software package or in the repository: the store makes its own copy, under its own subscription, in its own database.
 
-### What the primary sources say (public pages read on 2026-11-07; a reading of those pages, not legal advice)
+* **The key** is free (<https://api.address.gov.sa/>, "Sign up"). The API Terms of use are shown at registration (their link on the public pages has no address), so **the owner reads them there; if they forbid keeping the lists in the store's own database, the command is not run.** What the public pages do say: the portal calls the API "publicly available for all business sectors", and SPL's API page says the national address databases are available "for commercial and governmental uses". They state no rule on storing the lists.
+* **The free Starter plan** allows 5 calls a minute and 100 a week. A full read is 28 calls (the regions, then the cities of each of the 13 regions, each in Arabic and in English), 13 seconds apart: about six minutes. The command writes `regions.json`, `cities.json` and `aliases.json` under `storage/app/address/spl/` (readable by the application only) and, with `--apply`, imports them. It stops before writing anything when the key is refused (401), the plan is used up (403), the answer is not the shape the importer was written against, a region is not the one its id stands for, a city appears under two regions, or fewer than a thousand places come back.
+* **What the service does not give** is coordinates and district counts. `rank` (which places a picker offers first, and what tells a city proper from a hamlet when an old typed city is matched) is therefore 1000 for the cities the curated spellings are about, 1 for the seat of a governorate (a city named like its governorate) and 0 for the rest. The curated spellings (`aliases.json`, written for this project) are kept only for cities the service lists under the expected name.
+* **The shape of the answers** (`Regions[{Id, Name}]`, `Cities[{Id, Name, GovernorateName}]`, `success`, `statusdescription`; the key goes in `api_key`; `language` A or E, `format`, `encode=utf8`, `regionid`) was read from the portal's public documentation and is tested against a stand-in of the service, not against the service. The first real run is the proof: an answer of another shape stops the command with a message and writes nothing.
+
+| Decision | Date | Decided by | Reference |
+|---|---|---|---|
+| Source: Saudi Post (SPL) National Address Lookups API, read with the owner's own key; the bundled files are test data and are never packaged | 2026-11-07 | the store owner's instruction to settle on a source whose use is permitted | the public statements above; **to be kept by the owner: the API Terms of use accepted at registration** |
+
+### The bundled files are test data, never packaged
+
+`database/data/address/regions.json` and `cities.json` are an extract of the National Address register that a third party republishes under GPL-2.0. They stay in the repository for tests and development only; `build-overlay.php` never puts them in a package, whoever builds it, so they never reach the store. They are not used because nothing found shows that the republisher had Saudi Post's permission to license them (public pages read on 2026-11-07; a reading of those pages, not legal advice):
 
 | Source | What it says | What it does not say |
 |---|---|---|
@@ -36,36 +47,11 @@ independent signal (GeoNames name + coordinates). It was checked that all 20 maj
 
 Reading: a GPL label on a republished copy does not show that the republisher had the right to license the data, and nothing found shows the permission of Saudi Post (SPL) for this store to ship it. That is for the owner, with counsel, to settle; this document does not settle it.
 
-### Evidence that would settle it (any one, kept with the decision)
-
-1. A written statement from Saudi Post (SPL), the owner of the register, that its regions and cities may be stored in the store's database and distributed inside its release package, commercial use included.
-2. The terms of the National Address API subscription, read by counsel, that allow storing its responses: then option (b) below.
-3. A written legal opinion that accepts the GPL-2.0 position for the data file: the owner's own risk decision, recorded as such.
-
-### Decision record (completed by the owner; empty means undecided)
-
-| Option chosen (a, b or c below) | Date | Decided by | Reference to the evidence |
-|---|---|---|---|
-| | | | |
-
-### What follows while it is undecided
-
-* **Release A can go out without the file**: build the package from a commit on which `database/data/address/cities.json` has been removed (the runbook says how; rehearsed: 148 files instead of 149, the file absent from the manifest). Nothing in Release A needs it: the structured address stays off because no city is loaded (and once the migrations have run, the panel's import page shows the file as not readable). `address:import` is not run in Release B.
-* `regions.json` (13 regions: names and ISO codes) has the same origin and the same open question, a much smaller one; `aliases.json` (spelling variants written for this project, pointing at register ids) does not. If counsel wants the regions held back too, leave `regions.json` out of the package the same way and load the 13 regions later from a file the owner supplies (`address:import --regions=<file> --cities=<a file with an empty list>`).
-
-### The options
-
-The republishing repository labels its copy **GPL-2.0**; the underlying register is government data (National Address, SPL). The ship-ready data file is a separate text file, not code.
-The owner decides, after a legal review, between: (a) keeping the file, (b) replacing it with an export from SPL's own **National Address Lookups API v3.1** (regions, cities with
-governorate, districts; Arabic/English; stable ids; needs a free subscription key from SPL; default encoding windows-1256, so request `encode=utf8`), imported with the same command
-(`address:import --apply --regions=<file> --cities=<file>`, same JSON shape), or (c) importing only the 13 regions (`--cities=<a file with an empty list>`: `{"_meta": {"source": "none"}, "cities": []}`) and adding the cities one by one in *Address system → Cities*.
-With a source other than the shipped one the curated spellings (`aliases.json`) name places that source does not have: they are skipped, one notice each, and nothing is written for them. The panel's import page loads only the three shipped files, so with another source the command is the way.
+If Saudi Post's terms turn out not to allow keeping the lists, the openly licensed sources (Wikidata is published under CC0 and GeoNames under CC BY 4.0: check both on their own pages before use) could be converted to the same file format; they hold fewer places than the register and are not the source the customers' National Addresses belong to, so nothing is prepared for them.
 
 The importer accepts any file with `_meta.source`, so switching source later does not change code or data model.
 
 ## Refreshing
 
-1. Obtain the file (SPL API export or a newer snapshot) in the documented JSON shape.
-2. `php artisan address:import --cities=<file>` (dry run) → read the counts (`created / updated / unchanged / skipped / not_in_file`).
-3. `php artisan address:import --cities=<file> --apply`. Places that disappeared are only *reported* (`not_in_file`); deactivate them in the admin screen if wanted — addresses,
-   mappings and order snapshots may still point at them.
+Run `php artisan address:fetch-spl` again (28 calls; the free plan allows three full reads a week). It writes new files and shows the import as a dry run (`created / updated / unchanged / skipped / not_in_file`); with `--apply` it imports. Places that disappeared are only *reported* (`not_in_file`); deactivate them in the admin screen if wanted — addresses,
+mappings and order snapshots may still point at them. Files from a different source cannot be mixed in: a place is matched by the source's own id, so a second source would add its places beside the first.
