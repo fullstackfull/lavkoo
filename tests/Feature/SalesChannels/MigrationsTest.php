@@ -51,11 +51,11 @@ class MigrationsTest extends TestCase
         }
     }
 
-    /** @return array<string, list<string>> every table with its columns */
+    /** @return array<string, list<string>> every table of THIS database with its columns (a server also holds other databases, which must not count) */
     private function schema(): array
     {
         $tables = [];
-        foreach (Schema::getTables() as $table) {
+        foreach (Schema::getTables(schema: Schema::getCurrentSchemaListing()) as $table) {
             $tables[$table['name']] = Schema::getColumnListing($table['name']);
         }
         ksort($tables);

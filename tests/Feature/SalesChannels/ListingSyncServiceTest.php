@@ -53,7 +53,7 @@ class ListingSyncServiceTest extends TestCase
         $after = $row->fresh();
         $this->assertSame(3, $after->remote_quantity);
         $this->assertSame('120.000000', $after->snapshot['manual_price']);
-        $this->assertSame(['state' => 'failed', 'attempted' => '3', 'failures' => 2], $after->snapshot['publish']['stock']);
+        $this->assertEquals(['state' => 'failed', 'attempted' => '3', 'failures' => 2], $after->snapshot['publish']['stock'], 'A JSON column does not keep the order its keys were written in (MySQL sorts them).');
         $this->assertSame('B-2', $after->snapshot['brand_code'], 'What the channel says is still refreshed.');
     }
 

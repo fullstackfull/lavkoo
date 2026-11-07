@@ -11,7 +11,9 @@ use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\TestCase;
@@ -293,7 +295,21 @@ class ChannelAccountServiceTest extends TestCase
 
     public function test_every_change_is_audited_without_a_secret_in_the_trail(): void
     {
-        DB::statement('create table audit_logs (id integer primary key autoincrement, actor_type text, actor_id integer, actor_name text, action text, subject_type text, subject_id text, before text, after text, context text, ip_address text, user_agent text, created_at text, updated_at text)');
+        Schema::create('audit_logs', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('actor_type')->nullable();
+            $table->unsignedBigInteger('actor_id')->nullable();
+            $table->string('actor_name')->nullable();
+            $table->string('action');
+            $table->string('subject_type')->nullable();
+            $table->string('subject_id')->nullable();
+            $table->json('before')->nullable();
+            $table->json('after')->nullable();
+            $table->json('context')->nullable();
+            $table->string('ip_address')->nullable();
+            $table->text('user_agent')->nullable();
+            $table->timestamps();
+        });
         $account = $this->trendyol();
         $this->accounts->setEnabled($account, true, 1);
 
