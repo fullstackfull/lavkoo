@@ -322,6 +322,21 @@ class ChannelHttpTest extends TestCase
         $this->assertLessThanOrEqual(500, mb_strlen((string) $log->error_message));
     }
 
+    public function test_a_request_that_is_not_a_get_is_a_gated_write_except_exactly_the_sign_in_and_the_request_for_a_report(): void
+    {
+        $exceptions = ['amazon.lwa_token', 'amazon.reports_create'];
+        $notGatedAsWrites = [];
+        foreach (ChannelOperations::registered() as $operation) {
+            foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
+                if (ChannelOperations::methodAllowed($operation, $method) && ChannelOperations::kindOf($operation, $method) !== ChannelOperations::WRITE) {
+                    $notGatedAsWrites[$operation] = true;
+                }
+            }
+        }
+
+        $this->assertSame($exceptions, array_keys($notGatedAsWrites), 'Sign-in only returns a token, and a report request asks Amazon to prepare data (nothing calls it); every other call that is not a GET goes through every write gate.');
+    }
+
     public function test_every_registered_operation_is_classified_and_every_write_names_its_approval(): void
     {
         $this->assertNotEmpty(ChannelOperations::registered());

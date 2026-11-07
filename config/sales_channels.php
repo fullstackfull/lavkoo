@@ -10,7 +10,8 @@
 |
 | Outbound traffic needs three independent switches, all of which must be on for a write to leave this host:
 |   1. SALES_CHANNELS_ENABLED               - the global kill switch: off means no call of any kind, not even a connection test.
-|   2. SALES_CHANNELS_EXTERNAL_WRITES_ENABLED - off means READ-ONLY: only GETs and sign-ins leave the host, whatever the admin panel says.
+|   2. SALES_CHANNELS_EXTERNAL_WRITES_ENABLED - off means READ-ONLY: only GETs and sign-ins leave the host, whatever the admin panel says (a request for an Amazon report is a POST classed
+|      as a read, and nothing calls it).
 |   3. the account's own switches (enabled, write enabled, dry run, and the capability being used with its approval).
 |
 | The two environment values are read with FILTER_VALIDATE_BOOLEAN, not a (bool) cast: the cast turns "off", "no" and "disabled" into TRUE.
