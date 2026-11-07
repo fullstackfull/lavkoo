@@ -133,7 +133,7 @@ class ChannelProductController extends Controller
         $validated = $request->validateWithBag($bag, [
             'stock_location_id' => ['nullable', 'integer', Rule::exists('inventory_locations', 'id')->where('is_active', true)],
             'price_source' => ['required', Rule::in(self::PRICE_SOURCES)],
-            'manual_price' => [Rule::requiredIf(fn (): bool => $request->input('price_source') === 'manual'), 'nullable', 'numeric', 'gt:0', 'max:99999999999'],
+            'manual_price' => [Rule::requiredIf(fn (): bool => $request->input('price_source') === 'manual'), 'nullable', 'numeric', 'min:0.01', 'max:99999999999'],
             'inventory_publish' => ['sometimes', 'boolean'],
             'price_publish' => ['sometimes', 'boolean'],
             'safety_buffer' => ['nullable', 'integer', 'min:0', 'max:1000000'],

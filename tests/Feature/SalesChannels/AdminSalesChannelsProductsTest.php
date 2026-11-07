@@ -273,6 +273,7 @@ class AdminSalesChannelsProductsTest extends AdminSalesChannelsTestCase
         return [
             'a manual source with no price' => [['price_source' => 'manual'], 'manual_price'],
             'a price of zero' => [['price_source' => 'manual', 'manual_price' => '0'], 'manual_price'],
+            'a price below one hundredth that would round to zero' => [['price_source' => 'manual', 'manual_price' => '0.004'], 'manual_price'],
             'a price that is not a number' => [['price_source' => 'manual', 'manual_price' => 'cheap'], 'manual_price'],
             'a price source that does not exist' => [['price_source' => 'storefront'], 'price_source'],
             'a price switch on a source that is not a price a person set' => [['price_source' => 'channel', 'price_publish' => 1], 'price_publish'],

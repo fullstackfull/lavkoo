@@ -39,11 +39,18 @@ php artisan channels:test-connection {account}      # harmless reads; prints gra
 php artisan channels:sync {account} --only=orders   # orders | returns | listings | inventory | finances; omit --only for every resource the account may read; --due runs only what the scheduler would
 php artisan channels:publish {account} --only=stock,price,settle,shipments
 php artisan channels:import-statement {account} statement.csv   # a statement exported from the seller portal (columns in the command's class docblock)
-php artisan costs:refresh --days=7                  # bring cost entries of recent sales up to date
+php artisan costs:refresh --days=7                  # bring cost entries of the sales placed OR changed in the last days up to date (a sale delivered, shipped or cancelled later is picked up when it changes)
 php artisan costs:accrue-storage --date=2026-11-05  # storage cost of one day
+php artisan channels:prune --days=60                # delete old call logs and clear the stored text of old webhook deliveries (daily on the schedule; the orders and costs they led to are kept)
 ```
 
+`costs:refresh` and `costs:accrue-storage` isolate each sale (each warehouse): one that cannot be brought up to date is reported to the log and counted, the others are still looked at, and the command exits with a failure so the scheduler shows it.
+
 Each prints `ok`, `skipped` (switch/capability off), `busy` (another run holds the lease or the resource is backing off), `rate_limited` or `failed`. A failed resource backs off (5 minutes per consecutive failure, capped) and never advances its watermark; the next successful run re-reads from the watermark less 10 minutes and records nothing twice.
+
+A backlog larger than one allowance is read over several runs: when the channel (or our own limiter) says wait, the place reached is saved before the run backs off, and the next run goes on from it. A statement is read in windows of at most 180 days (a longer gap takes several runs; the watermark only moves as far as was read), and a run that goes on from a saved place asks for the very window it was saved with. A snapshot of stock the channel holds for us (Amazon FBA) is always read in one go: its page tokens live seconds, so a saved one is never used.
+
+**Stopping a run that is already going:** switching the account off, forbidding writes, going back to a rehearsal or withdrawing an approval takes effect at the very next call the run makes (the transport reads those five switches from the database before every call, not from the account the run started with).
 
 ## Webhooks (Trendyol)
 
@@ -56,5 +63,16 @@ Registering is a write (needs *Order Import*, the *webhook management* approval,
 | nothing syncs | `channels:status`: global switch, account enabled, capability, backing-off resource, connection `auth_expired`/`revoked` |
 | an order is "waiting" | the order page → latest decision and its reason code (`no_rule_matched`, `cod_requires_review`, `unmapped_lines`, `managed_dispatch_not_available`, …) |
 | costs show "Missing" | the reason on the entry (`no_contract`, `awaiting_channel_statement`, …): set up the contract or wait for the statement |
-| a publish keeps failing | the listing's publish state; after three identical failures it stops until a person changes the value |
-| a Trendyol tracking push fails | the order's `channel_notify_error` (usually a carrier with no Trendyol code in the account's *carrier codes*) |
+| a publish keeps failing | the listing's publish state; a value the channel refused three times (right away, or later in the batch result, or accepted and never applied) stops until a person changes it; an outage or a dropped connection never counts against the value and is simply tried again |
+| a follow-up says "could not be read" | a batch result the channel would not give right now (a switch is off, the channel is busy, the batch is gone): the change stays queued and the other batches are still followed |
+| stock offered is lower than the shelf | open channel orders hold their units (*reservations*); they come back when the order is cancelled, and a shipped order counts only until the location's own count shows it |
+| stored credentials "cannot be decrypted" | this server's application key differs from the one that encrypted them: restore the key (nothing was overwritten), or enter the complete set of credentials again to replace them |
+| a Trendyol tracking push fails | the order's `channel_notify_error` (usually a carrier with no Trendyol code in the account's *carrier codes*); after three refusals of the same tracking number it stops until a person presses *Tell the channel about this shipment* or the tracking number changes |
+
+## Known limits of this version
+
+* The Amazon marketplaces of one account are read one after the other (orders take them all at once); listings, FBA stock and statements go through every marketplace id the account holds, and each has its own place in a paused sweep.
+* An invoice with thousands of lines is linked to provider shipments one line at a time against the Fulfilment tables, whose secondary reference and tracking columns are not indexed (they belong to the Fulfilment workstream; this module indexes its own tables).
+* Two workers racing for the same lock are retried (three tries) when MySQL reports a deadlock; the first-write races of order ingestion and of a ledger slot were reasoned about and tested on one connection, not under real concurrency.
+* A rehearsal (dry run) does not remember what it rehearsed, so every cycle repeats Amazon's validation-preview calls for each listing.
+* A publish run does not renew its lease while it works: a very long Amazon per-SKU run (thousands of listings at 5 calls a second) could outlive the 20 minutes of the lease.
