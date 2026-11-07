@@ -50,6 +50,17 @@ final readonly class PoolFigures
         return $this->refusal === null && $this->available !== null && in_array($this->quality, [StockAvailability::CONFIRMED, StockAvailability::MANUAL], true);
     }
 
+    /**
+     * Can the pool cover this many units? The store's own stock is refused for the channels (what to offer from it is the owner's decision) but it is read like any other, so it can
+     * say whether the shelf covers an order. Any other refusal stays one: a whole product's figure is no proof that a variant has the units.
+     */
+    public function covers(int $units): bool
+    {
+        $readable = $this->refusal === null || $this->refusal === self::STOREFRONT_OWNED;
+
+        return $readable && $this->available !== null && in_array($this->quality, [StockAvailability::CONFIRMED, StockAvailability::MANUAL], true) && (int) $this->net() >= $units;
+    }
+
     public function net(): ?int
     {
         return $this->available === null ? null : self::balance($this->available, $this->storeHolds, $this->channelHolds, $this->buffer)['net'];

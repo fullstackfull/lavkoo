@@ -49,8 +49,7 @@ class RoutingContextFactory
     {
         // The units this very line holds are not counted against it: the order is asking whether the shelf covers it, and it was reserved a moment ago when it was read.
         $confirmed = $location !== null && $line->product_id !== null
-            && ($pool = $this->pools->for($location, (int) $line->product_id, (string) $line->variant_key, ChannelOrderReservations::keyOf($mapping, $line)))->isPublishable()
-            && (int) $pool->net() >= $line->activeQuantity();
+            && $this->pools->for($location, (int) $line->product_id, (string) $line->variant_key, ChannelOrderReservations::keyOf($mapping, $line))->covers($line->activeQuantity());
 
         return new RoutingLine(
             lineId: (int) $line->id,

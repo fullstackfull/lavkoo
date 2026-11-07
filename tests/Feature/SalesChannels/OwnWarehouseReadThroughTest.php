@@ -14,6 +14,7 @@ use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Inventory\ReservationService;
 use App\Services\SalesChannels\Inventory\StockAvailability;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
+use App\Services\SalesChannels\Routing\RoutingContextFactory;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
@@ -63,6 +64,22 @@ class OwnWarehouseReadThroughTest extends TestCase
     private function read(int $productId, string $variantKey = ''): StockAvailability
     {
         return $this->reader->availability($this->own->fresh(), $productId, $variantKey);
+    }
+
+    // ---- the routing check ---------------------------------------------------------------------------------------------------------------
+
+    public function test_the_routing_check_sees_the_storefronts_own_stock_cover_an_order_though_none_of_it_is_offered_to_a_channel(): void
+    {
+        $this->storeProduct(80, provider: null, stock: 10);
+        $this->stockListing($this->account, 80, $this->own, 'OWN-1');
+        $context = app(RoutingContextFactory::class);
+        $covered = $this->ingestOrder($this->account, 'ORD-9', 'OWN-1', 2);
+        $this->assertTrue($context->for($covered->refresh())->lines[0]->stockConfirmed, '10 on the storefront cover the 2 of the order');
+
+        $tooBig = $this->ingestOrder($this->account, 'ORD-10', 'OWN-1', 9);
+
+        $this->assertFalse($context->for($tooBig->refresh())->lines[0]->stockConfirmed, '9 do not: 8 are left once the 2 of the other order are held');
+        $this->assertFalse(app(PoolNet::class)->for($this->own, 80)->isPublishable(), 'and it is still refused for the channels');
     }
 
     // ---- what is read ------------------------------------------------------------------------------------------------------------------
