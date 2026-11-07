@@ -8,17 +8,16 @@ use App\Models\InventoryPool;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
-use App\Models\SalesChannelSyncState;
 use App\Services\SalesChannels\Inventory\Allocation\OrderFreshness;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Inventory\PoolKey;
-use App\Services\SalesChannels\Sync\ChannelSyncService;
 use Illuminate\Support\Collection;
 
 /**
  * What a person should look at about the stock shared between channels, each with the link that resolves it: pools promised more than they hold (with the orders holding them,
- * newest first: nothing here cancels an order), pools whose channels are shown more than is left, listings still showing stock the source no longer confirms, accounts whose
- * order import is behind (so no quantity of theirs is being raised), order units no pool is told about, and reservations held for days.
+ * newest first: nothing here cancels an order), pools whose channels are shown more than is left (every listing of the pool counts, one that takes no part in its division any more
+ * included), listings still showing stock the source no longer confirms, listings showing stock that nothing updates any more, accounts without proof that their orders are all
+ * imported (so no quantity of theirs is being raised), order units no pool is told about, and reservations held for days.
  */
 final class StockAttention
 {
@@ -40,12 +39,13 @@ final class StockAttention
      */
     public function sections(Collection $accounts): array
     {
-        $listings = SalesChannelProductMapping::whereNotNull('allocation')->get(['id', 'account_id', 'listing_key', 'allocation', 'last_published_quantity']);
+        $listings = SalesChannelProductMapping::whereNotNull('allocation')->get(['id', 'account_id', 'listing_key', 'allocation', 'last_published_quantity', 'last_published_at', 'remote_quantity', 'last_seen_at']);
 
         return [
             $this->deficits(),
             $this->offeredBeyondWhatIsLeft($listings),
             $this->showingStockTheSourceDoesNotConfirm($listings),
+            $this->showingStockThatIsNoLongerUpdated($listings),
             $this->raisesFrozen($accounts, $listings),
             $this->unattributed($accounts),
             $this->agedHolds(),
@@ -68,7 +68,7 @@ final class StockAttention
     private function offeredBeyondWhatIsLeft(Collection $listings): array
     {
         $shown = $listings->groupBy(static fn (SalesChannelProductMapping $listing): string => (string) ($listing->allocation['pool'] ?? ''))
-            ->map(static fn (Collection $group): int => (int) $group->sum('last_published_quantity'));
+            ->map(static fn (Collection $group): int => (int) $group->sum(static fn (SalesChannelProductMapping $listing): int => $listing->shownQuantity() ?? 0));
         $pools = InventoryPool::whereNotNull('last_net')->orderBy('id')->get()->filter(fn (InventoryPool $pool): bool => ($shown[(string) $this->key($pool)] ?? 0) > $pool->last_net)->values();
         $names = $this->products->named($pools->pluck('product_id'));
 
@@ -92,19 +92,47 @@ final class StockAttention
     }
 
     /**
+     * Listings whose channel still shows a quantity that nothing updates any more: the listing is refused (a product sold per variant, stock the store owns, no stock location) or
+     * takes no part in the division (publishing switched off). Its units are counted against the pool, but only a person can lower them.
+     *
+     * @param Collection<int, SalesChannelProductMapping> $listings
+     */
+    private function showingStockThatIsNoLongerUpdated(Collection $listings): array
+    {
+        $frozen = $listings->filter(static fn (SalesChannelProductMapping $listing): bool => ($reason = (string) ($listing->allocation['reason'] ?? '')) !== ''
+            && !str_starts_with($reason, 'stock_not_confirmed') && ($listing->shownQuantity() ?? 0) > 0)->values();
+
+        return $this->section(translate('attention_stock_not_updated'), $frozen->count(), $frozen->take(self::LIMIT)->map(fn (SalesChannelProductMapping $listing): array => [
+            'title' => $listing->listing_key,
+            'detail' => $this->labels->publishSkip((string) $listing->allocation['reason']) . ' · ' . translate('the_channel_shows') . ': ' . $listing->shownQuantity(),
+            'url' => route('admin.sales-channels.products.index', ['account' => $listing->account_id, 'q' => $listing->listing_key]),
+        ])->all());
+    }
+
+    /**
      * @param Collection<int, SalesChannelAccount> $accounts
      * @param Collection<int, SalesChannelProductMapping> $listings
      */
     private function raisesFrozen(Collection $accounts, Collection $listings): array
     {
-        $behind = $this->freshness->staleAccounts($listings->pluck('account_id')->unique()->map(static fn ($id): int => (int) $id)->values()->all());
-        $lastSuccess = SalesChannelSyncState::whereIn('account_id', $behind)->where('resource', ChannelSyncService::ORDERS)->pluck('last_success_at', 'account_id');
+        $behind = $this->freshness->why($this->freshness->staleAccounts($listings->pluck('account_id')->unique()->map(static fn ($id): int => (int) $id)->values()->all()));
 
-        return $this->section(translate('attention_stock_raises_frozen'), count($behind), collect($behind)->take(self::LIMIT)->map(fn (int $accountId): array => [
+        return $this->section(translate('attention_stock_raises_frozen'), count($behind), collect($behind)->take(self::LIMIT)->map(fn (array $why, int $accountId): array => [
             'title' => (string) ($accounts->firstWhere('id', $accountId)?->name ?? '#' . $accountId),
-            'detail' => ($lastSuccess[$accountId] ?? null) === null ? translate('no_successful_order_import_yet') : translate('last_successful_order_import') . ': ' . $lastSuccess[$accountId]->format('Y-m-d H:i'),
+            'detail' => $this->whyFrozen($why),
             'url' => route('admin.sales-channels.accounts.show', $accountId),
         ])->values()->all());
+    }
+
+    /** @param array{reason: string, last_success_at: \Carbon\CarbonInterface|null} $why */
+    private function whyFrozen(array $why): string
+    {
+        return match ($why['reason']) {
+            OrderFreshness::IMPORT_OFF => translate('order_import_is_off_so_a_quantity_here_is_never_raised'),
+            OrderFreshness::BACKLOG => translate('order_import_is_part_way_through_a_backlog'),
+            OrderFreshness::NEVER_COMPLETED => translate('no_successful_order_import_yet'),
+            default => translate('last_successful_order_import') . ': ' . $why['last_success_at']->format('Y-m-d H:i'),
+        };
     }
 
     /** @param Collection<int, SalesChannelAccount> $accounts */

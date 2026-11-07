@@ -12,10 +12,12 @@ use App\Models\SalesChannelSyncState;
 use App\Services\SalesChannels\Inventory\Allocation\AllocationResult;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Inventory\Allocation\MemberShare;
+use App\Services\SalesChannels\Inventory\Allocation\PoolAllocation;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
 use App\Services\SalesChannels\Inventory\Allocation\StockAllocator;
 use App\Services\SalesChannels\Inventory\Allocation\StorefrontReserve;
 use App\Services\SalesChannels\Inventory\PoolKey;
+use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Inventory\ReservationService;
 use App\Services\SalesChannels\Publishing\DirtyPoolRun;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
@@ -33,7 +35,7 @@ use Tests\Support\CreatesChannelAccounts;
 use Tests\TestCase;
 
 /**
- * One physical stock offered by several listings of several accounts: what all of them are shown never adds up to more than is left, a quantity is raised only when that is
+ * One physical stock offered by several listings of several accounts: what all of them may be shown adds up to no more than is left, a quantity is raised only when that is
  * safe, and a sale on one channel lowers what every channel is shown within one quick run.
  */
 class StockAllocationTest extends TestCase
@@ -119,8 +121,8 @@ class StockAllocationTest extends TestCase
 
         $this->assertSame([8], $this->sent(self::SELLER_A));
         $this->assertSame([8], $this->sent(self::SELLER_B));
-        $this->assertLessThanOrEqual(17, 8 + 8, '20 on the shelf less the 3 units of the store order: 17 at most, in total');
         $pool = $this->pool();
+        $this->assertLessThanOrEqual($pool->last_net, array_sum($this->sent(self::SELLER_A)) + array_sum($this->sent(self::SELLER_B)), 'what the two channels are shown together never adds up to more than 20 on the shelf less the 3 units of the store order');
         $this->assertSame([1, 17, 0], [$pool->version, $pool->last_net, $pool->deficit]);
         $this->assertSame(['equal', 8, 8, 17], [$a->refresh()->allocation['rule'], $a->allocation['entitlement'], $a->allocation['publish'], $a->allocation['net']]);
         $this->assertSame((string) $this->key(), $b->refresh()->allocation['pool']);
@@ -149,6 +151,7 @@ class StockAllocationTest extends TestCase
         $this->assertSame([3], $this->sent(self::SELLER_A), '14, half for the storefront, 7 shared by two listings: 3 each, and the unit left over stays with the storefront');
 
         InventoryPool::where($this->key()->columns())->update(['storefront_reserve_mode' => 'fixed', 'storefront_reserve_value' => 4]);
+        $this->completeOrderSweep($this->first, $this->second);
         $this->publish($this->first);
         $this->assertSame([3, 5], $this->sent(self::SELLER_A), 'the pool\'s own reserve of 4 units wins over the default: 10 shared by two');
     }
@@ -165,6 +168,7 @@ class StockAllocationTest extends TestCase
         $this->assertSame([3], $this->sent(self::SELLER_B), 'the product policy wins over the account policy');
 
         $b->forceFill(['stock_share_mode' => 'fixed', 'stock_share_value' => 9])->save();
+        $this->completeOrderSweep($this->first, $this->second);
         $this->publish($this->first, $this->second);
         $this->assertSame([10, 5], $this->sent(self::SELLER_A));
         $this->assertSame([3, 9], $this->sent(self::SELLER_B), 'the listing\'s own share wins over both policies');
@@ -300,6 +304,19 @@ class StockAllocationTest extends TestCase
         $this->assertNull($this->pool()->dirty_at);
     }
 
+    public function test_variant_listings_of_a_product_whose_warehouse_figure_is_for_the_whole_product_are_not_each_offered_all_of_it(): void
+    {
+        $this->storeProduct(60, 'torod_point', 10, json_encode([['type' => 'Red', 'price' => 10, 'qty' => 5], ['type' => 'Blue', 'price' => 10, 'qty' => 5]]));
+        $this->providerFigure(60, 8, now()->subHour());
+        $this->stockListing($this->first, 60, $this->torodLocation(), 'RED', ['variant_key' => 'Red']);
+        $this->stockListing($this->first, 60, $this->torodLocation(), 'BLUE', ['variant_key' => 'Blue']);
+
+        $result = app(StockPricePublisher::class)->publishStock($this->first);
+
+        $this->assertSame([], $this->sent(self::SELLER_A), 'one figure of 8 for the whole product is not 8 per variant');
+        $this->assertSame(['variant_figure_missing' => 2], $result['stats']['skipped']);
+    }
+
     // ---- when a quantity may be raised -------------------------------------------------------------------------------------------------------
 
     public function test_a_quantity_is_not_raised_while_an_order_import_is_behind_and_is_when_it_is_not(): void
@@ -307,6 +324,7 @@ class StockAllocationTest extends TestCase
         $this->figure(20);
         $this->listings();
         $this->publish($this->first, $this->second);
+        $this->completeOrderSweep($this->first);
         SalesChannelSyncState::create(['account_id' => $this->second->id, 'resource' => 'orders', 'last_success_at' => now()->subHour()]);
 
         $this->figure(40);
@@ -364,6 +382,7 @@ class StockAllocationTest extends TestCase
         }
         $this->assertSame([10, 0], $this->sent(self::SELLER_A));
 
+        $this->completeOrderSweep($this->first);
         $this->publish($this->first);
         $this->assertSame([10, 0, 10], $this->sent(self::SELLER_A), 'two clean computations later it is raised');
     }
@@ -403,8 +422,51 @@ class StockAllocationTest extends TestCase
         $this->assertSame([20], $this->sent(self::SELLER_A));
 
         $this->figure(30);
+        $this->completeOrderSweep($this->first);
         $this->publish($this->first);
         $this->assertSame([20, 30], $this->sent(self::SELLER_A), 'stock has arrived: the pool has more than when we wrote');
+    }
+
+    public function test_the_units_of_a_cancelled_order_are_offered_again_once_the_orders_explain_what_the_channel_shows(): void
+    {
+        $listing = $this->channelThatSoldTwoOfTen();
+
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2, '2026-11-10 11:00:00', status: ChannelOrderStatus::Cancelled);
+        $this->completeOrderSweep($this->first);
+        $this->assertSame(10, app(PoolNet::class)->for($this->torodLocation(), self::PRODUCT)->net());
+        $this->publish($this->first);
+
+        $this->assertSame([10, 10], $this->sent(self::SELLER_A), 'the order was cancelled and a sweep that began after the channel was read saw it: the 2 units are the pool\'s again');
+        $this->assertSame(10, $listing->refresh()->last_published_quantity);
+    }
+
+    public function test_a_channels_own_lowering_is_kept_while_no_order_sweep_began_after_it_was_read(): void
+    {
+        $this->channelThatSoldTwoOfTen();
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2, '2026-11-10 11:00:00', status: ChannelOrderStatus::Cancelled);
+        $this->completeOrderSweep($this->first);
+        SalesChannelSyncState::where('account_id', $this->first->id)->update(['last_attempt_at' => now()->subMinutes(30)]);
+
+        $result = app(StockPricePublisher::class)->publishStock($this->first);
+
+        $this->assertSame(['unchanged' => 1], $result['stats']['skipped'], 'the sweep that finished just now began before the channel was read: a sale made before then may still be unknown');
+        $this->assertSame([10], $this->sent(self::SELLER_A));
+    }
+
+    public function test_a_channels_own_lowering_is_kept_while_an_order_of_the_account_is_linked_to_no_stock(): void
+    {
+        $this->channelThatSoldTwoOfTen();
+        $this->ingestOrder($this->first, 'ORD-9', 'NOT-A-LISTING', 3);
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2, '2026-11-10 11:00:00', status: ChannelOrderStatus::Cancelled);
+        $this->completeOrderSweep($this->first);
+
+        $result = app(StockPricePublisher::class)->publishStock($this->first);
+
+        $this->assertSame(['unchanged' => 1], $result['stats']['skipped'], '3 units were sold that no pool knows about: the channel\'s own lowering may be theirs');
+        $this->assertSame([10], $this->sent(self::SELLER_A));
     }
 
     public function test_a_read_back_older_than_our_write_changes_nothing_about_what_is_sent(): void
@@ -421,6 +483,29 @@ class StockAllocationTest extends TestCase
         $this->assertSame([20, 20], $this->sent(self::SELLER_A), 'a channel read before our write says nothing about what it shows now: the existing rule sends again');
     }
 
+    /** A listing published at 10; the channel then sold 2 and lowered its own quantity, the order was imported (hold 2, net 8) and the channel was read back showing 8. */
+    private function channelThatSoldTwoOfTen(): SalesChannelProductMapping
+    {
+        $this->figure(10);
+        $listing = $this->stockListing($this->first, self::PRODUCT, $this->torodLocation(), 'BAR-A');
+        $this->completeOrderSweep($this->first);
+        $this->publish($this->first);
+        $this->assertSame([10], $this->sent(self::SELLER_A));
+        $snapshot = $listing->refresh()->snapshot;
+        $snapshot['publish']['stock']['state'] = 'applied';
+        $listing->forceFill(['snapshot' => $snapshot])->save();
+
+        $this->travel(10)->minutes();
+        $this->ingestOrder($this->first, 'ORD-1', 'BAR-A', 2);
+        $this->travel(1)->minutes();
+        $listing->refresh()->forceFill(['remote_quantity' => 8, 'last_seen_at' => now()])->save();
+        $this->completeOrderSweep($this->first);
+        $this->publish($this->first);
+        $this->assertSame([10], $this->sent(self::SELLER_A), 'nothing to send: the channel already shows 8');
+
+        return $listing;
+    }
+
     // ---- a division another process wrote meanwhile ----------------------------------------------------------------------------------------------
 
     public function test_a_plan_made_on_a_division_that_has_since_moved_is_planned_again_before_it_is_sent(): void
@@ -431,7 +516,7 @@ class StockAllocationTest extends TestCase
         $this->travel(2)->hours();
         $this->figure(20);
         $this->app->bind(PoolAllocationService::class, RacingAllocations::class);
-        RacingAllocations::fireAtCheck(1, function (): void {
+        RacingAllocations::fireBeforeDivision(2, function (): void {
             app(ReservationService::class)->reserve('channel-order:9:9', $this->torodLocation()->id, self::PRODUCT, '', 6, accountId: $this->second->id);
         });
         $this->storeOrder(1, self::PRODUCT, 2);
@@ -449,7 +534,7 @@ class StockAllocationTest extends TestCase
             $this->stockListing($this->first, 100 + $number, $this->torodLocation(), sprintf('B-%02d', $number));
         }
         $this->app->bind(PoolAllocationService::class, RacingAllocations::class);
-        RacingAllocations::fireAtCheck(51, fn (PoolKey $key) => $this->storeOrder(9000, $key->productId, 4));
+        RacingAllocations::fireBeforeDivision(111, fn (PoolKey $key) => $this->storeOrder(9000, $key->productId, 4));
 
         app(StockPricePublisher::class)->publishStock($this->first);
 
@@ -459,6 +544,31 @@ class StockAllocationTest extends TestCase
         $second = array_column($calls[1], 'quantity', 'barcode');
         $this->assertSame(6, $second['B-51'], 'a store order arrived for the first listing of the second chunk: it is planned again from the pool as it is, not sent as planned');
         $this->assertSame([10], array_values(array_unique(array_diff_key($second, ['B-51' => 0]))));
+    }
+
+    public function test_a_store_order_placed_while_a_run_is_sending_lowers_what_its_later_chunks_send(): void
+    {
+        foreach (range(101, 151) as $product) {
+            $this->storeProduct($product);
+            $this->providerFigure($product, 10, now()->subMinutes(30));
+            $this->stockListing($this->first, $product, $this->torodLocation(), 'BAR-' . $product);
+        }
+        $placed = false;
+        Http::fake(['apigw.trendyol.com/*' => function () use (&$placed) {
+            if (!$placed) {
+                $placed = true;
+                $this->storeOrder(900, 151, 8);
+            }
+
+            return Http::response(['batchRequestId' => 'batch-' . (int) $placed]);
+        }]);
+
+        $this->publish($this->first);
+
+        $sent = Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'price-and-inventory'))->flatMap(fn (array $pair): array => $pair[0]->data()['items'])->keyBy('barcode');
+        $this->assertTrue($placed, 'a customer bought 8 units of the last product while the first 50 were being sent');
+        $this->assertSame(10, $sent['BAR-101']['quantity'], 'the first chunk was already on its way');
+        $this->assertSame(2, $sent['BAR-151']['quantity'], 'the last product is in the second chunk: it is sent as the 2 units that were left, not as the 10 planned at the start of the run');
     }
 
     public function test_a_division_that_would_give_away_more_than_the_net_is_a_defect_and_is_never_stored_or_sent(): void
@@ -543,38 +653,38 @@ class StockAllocationTest extends TestCase
     }
 }
 
-/** A pool writer that lets something else happen between a plan and the check just before it is sent. */
+/** A pool writer that lets something else happen just before one of its divisions is worked out, as a customer or an import does while a run is sending. */
 class RacingAllocations extends PoolAllocationService
 {
-    private static int $checks = 0;
+    private static int $divisions = 0;
 
     private static ?int $fireAt = null;
 
     /** @var (callable(PoolKey): void)|null */
-    private static $beforeTheCheck;
+    private static $beforeTheDivision;
 
-    /** @param callable(PoolKey): void $hook runs once, just before the given check (1 is the first) and works the pool being checked out again */
-    public static function fireAtCheck(int $number, callable $hook): void
+    /** @param callable(PoolKey): void $hook runs once, just before the given division is worked out (1 is the first), with the pool it is worked out for */
+    public static function fireBeforeDivision(int $number, callable $hook): void
     {
-        self::$checks = 0;
+        self::$divisions = 0;
         self::$fireAt = $number;
-        self::$beforeTheCheck = $hook;
+        self::$beforeTheDivision = $hook;
     }
 
     public static function reset(): void
     {
-        self::$beforeTheCheck = null;
+        self::$beforeTheDivision = null;
     }
 
-    public function isCurrent(PoolKey $key, int $version): bool
+    public function allocate(PoolKey $key): PoolAllocation
     {
-        if (self::$beforeTheCheck !== null && ++self::$checks === self::$fireAt) {
-            (self::$beforeTheCheck)($key);
-            self::$beforeTheCheck = null;
-            $this->allocate($key);
+        if (self::$beforeTheDivision !== null && ++self::$divisions === self::$fireAt) {
+            $hook = self::$beforeTheDivision;
+            self::$beforeTheDivision = null;
+            $hook($key);
         }
 
-        return parent::isCurrent($key, $version);
+        return parent::allocate($key);
     }
 }
 

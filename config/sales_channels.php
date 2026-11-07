@@ -166,15 +166,19 @@ return [
         // A quantity the source has not confirmed for this long is stale and is not published.
         'stale_after_minutes' => 180,
 
-        // One physical stock offered by several listings (of one account or of several) is divided between them, so that what all of them show never adds up to more than what
-        // is left (see StockAllocator). Every value can be set in the environment; nothing here switches publishing on.
+        // One physical stock offered by several listings (of one account or of several) is divided between them, so that what all of them MAY be shown adds up to no more than what
+        // is left (see StockAllocator and operations.md for the conditions the channels' actual quantities need). Every value can be set in the environment; nothing here switches
+        // publishing on.
         'allocation' => [
-            // For rolling back only: off, every listing is offered the pool's whole net, as before the division existed. The division can only offer LESS than that.
+            // For rolling back only: off, every listing is offered the pool's whole net instead of its part of a division (the net itself, and the refusals, stay what PoolNet says).
+            // The division can only offer LESS than that.
             'enabled' => filter_var(env('SALES_CHANNELS_STOCK_ALLOCATION_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-            // What the storefront keeps out of the channels' reach when a pool names no reserve of its own: `percent` of the pool or a number of `fixed` units. 0 keeps nothing.
+            // What the storefront keeps out of the channels' reach when a pool names no reserve of its own: `percent` of the pool or a number of `fixed` units. 0 keeps nothing, which is
+            // what every pool was offered before; the suggestion, while the storefront sells the product from the same stock, is 50 percent (an owner decision, see operations.md).
             'storefront_reserve_mode' => (string) env('SALES_CHANNELS_STOCK_STOREFRONT_RESERVE_MODE', 'percent'),
             'storefront_reserve_value' => (int) env('SALES_CHANNELS_STOCK_STOREFRONT_RESERVE_VALUE', 0),
-            // A quantity is only RAISED while the order import of every account that offers the pool has succeeded this recently (an order not imported yet is stock sold twice).
+            // A quantity is only RAISED above what the channel shows while every account that offers the pool has finished a COMPLETE sweep of its orders this recently (an order not
+            // imported yet is stock sold twice). An account whose orders are not imported has no such sweep: a quantity of a pool it offers is never raised.
             'order_fresh_minutes' => (int) env('SALES_CHANNELS_STOCK_ORDER_FRESH_MINUTES', 15),
             // Units a channel is expected to sell before we hear of them can be held back from it: its sales of the last `lag_rate_minutes`, scaled to a window of at least
             // `lag_window_minutes` (and longer when the last order import is older, or the publish interval is). 0 holds nothing back, which is what every listing was offered

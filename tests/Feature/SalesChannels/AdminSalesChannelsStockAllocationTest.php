@@ -183,6 +183,17 @@ class AdminSalesChannelsStockAllocationTest extends AdminSalesChannelsTestCase
         $this->assertToastContains(translate('stock_location_is_not_where_the_products_provider_keeps_it'));
     }
 
+    public function test_saving_the_settings_of_a_listing_that_stays_in_its_pool_keeps_what_the_last_division_said_about_it(): void
+    {
+        $listing = $this->linkedListing(overrides: ['allocation' => ['pool' => (string) new PoolKey($this->torodLocation()->id, self::PRODUCT), 'publish' => 5]]);
+
+        $this->backTo()->post(route('admin.sales-channels.products.settings', $listing), $this->form($listing, ['inventory_publish' => 0]))->assertSessionHasNoErrors();
+
+        $this->assertFalse($listing->fresh()->inventory_publish);
+        $this->assertSame(5, $listing->fresh()->allocation['publish'], 'the hub finds the pool of a listing that was switched off through this record: it still shows what it was last given');
+        $this->assertSame([(string) new PoolKey($this->torodLocation()->id, self::PRODUCT)], array_map('strval', app(DirtyPools::class)->pending()));
+    }
+
     public function test_changing_the_location_of_a_listing_marks_both_pools_and_clears_what_was_said_about_the_old_one(): void
     {
         $listing = $this->linkedListing(overrides: ['allocation' => ['pool' => 'old', 'publish' => 5]]);

@@ -7,6 +7,9 @@ use Carbon\CarbonInterface;
 /**
  * How many units of a product a location can promise, and how far that number can be trusted.
  *
+ * `forTheWholeProduct` says that the figure was read for a variant but belongs to the whole product (the location holds one figure for it and none for the variant): every variant
+ * would be offered all of it.
+ *
  * `quality` is the whole point. A quantity is publishable only when it is `confirmed` (the location's own source of truth reported it
  * recently) or `manual` (a person typed it and it is labelled as such). `stale` (the source has not been heard from for too long) and
  * `unknown` (no source, or one nobody has verified) are never published: an estimate is never offered to a customer as stock.
@@ -24,6 +27,7 @@ final readonly class StockAvailability
         public ?CarbonInterface $syncedAt,
         public string $source,
         public int $inFlight = 0,
+        public bool $forTheWholeProduct = false,
     ) {
     }
 

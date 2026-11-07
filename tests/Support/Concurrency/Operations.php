@@ -24,6 +24,7 @@ final class Operations
             'mirror_managed_shipment' => DispatchOperations::mirrorManagedShipment($args),
             'layers_from_purchase_orders' => PurchaseOrderOperations::layersFromPurchaseOrders($args),
             'layer_purchase_order_tranche' => PurchaseOrderOperations::layerTranche($args),
+            'stock.ingest_many' => StockOperations::ingestMany($args),
             default => (self::$registered[$name] ?? throw new InvalidArgumentException("Unknown concurrent operation: {$name}"))($args, $index),
         };
     }

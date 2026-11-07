@@ -170,8 +170,14 @@ class ChannelProductController extends Controller
             'safety_buffer' => $validated['safety_buffer'] ?? null,
             'max_publish_quantity' => $validated['max_publish_quantity'] ?? null,
             'snapshot' => $snapshot,
-            'allocation' => null,
-        ] + $share)->save();
+        ] + $share);
+        // What the last division said about the listing stays as long as the listing stays in the same pool: it is how the hub knows what the pool's channels show, and the next division
+        // brings it up to date. A listing that moves to another pool is no longer part of the old one.
+        $poolAfter = $this->poolOf($mapping);
+        if ((string) $poolBefore !== (string) $poolAfter) {
+            $mapping->allocation = null;
+        }
+        $mapping->save();
         $this->audit->record(
             action: 'sales_channel.listing_settings_changed',
             subject: $mapping,
@@ -180,7 +186,7 @@ class ChannelProductController extends Controller
             context: ['by' => auth('admin')->id(), 'manual_price_set' => $validated['price_source'] === 'manual'],
         );
         // What the pool this listing took part in is shared out as has changed, and so has the pool it takes part in now: both are worked out again.
-        $this->dirtyPools->mark(array_filter([$poolBefore, $this->poolOf($mapping)]));
+        $this->dirtyPools->mark(array_filter([$poolBefore, $poolAfter]));
 
         ToastMagic::success(translate('listing_settings_saved_nothing_published'));
         $this->announceStockWarnings($mapping);

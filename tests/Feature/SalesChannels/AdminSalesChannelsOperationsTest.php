@@ -271,6 +271,8 @@ class AdminSalesChannelsOperationsTest extends AdminSalesChannelsTestCase
         $own = app(InventoryLocationService::class)->ensureDefaults()[2];
         InventoryLocationBalance::create(['location_id' => $own->id, 'product_id' => $product, 'variant_key' => '', 'sku' => 'SKU-PUB', 'available' => 20, 'quality' => 'manual', 'source_synced_at' => now()]);
 
+        $this->completeOrderSweep($account);
+
         return $this->listing($account, $listing + [
             'status' => 'mapped', 'product_id' => $product, 'listing_key' => 'BC-PUB', 'external_sku' => 'SKU-PUB', 'external_barcode' => 'BC-PUB',
             'stock_location_id' => $own->id, 'inventory_publish' => true, 'price_publish' => true, 'price_source' => 'manual', 'snapshot' => ['manual_price' => '49.95'],

@@ -1,0 +1,48 @@
+<?php
+// Ways a module file could write the platform's stock without the plain `DB::table('products')->...->update(` that the check looked for first. Not code that runs: the check reads it
+// as text (tests/Unit/SalesChannels/StockNeverWritesPlatformTablesTest.php) and must report every one of them.
+namespace App\Services\SalesChannels\Inventory;
+
+use App\Models\Product;
+use Illuminate\Support\Facades\DB;
+
+class StockWriteEvasions
+{
+    public function rawUpdate(int $productId): void
+    {
+        DB::update('update products set current_stock = 0 where id = ?', [$productId]);
+    }
+
+    public function rawStatement(): void
+    {
+        DB::statement('UPDATE `products` SET `current_stock` = `current_stock` - 1');
+    }
+
+    public function unprepared(): void
+    {
+        DB::unprepared('delete from stock_movements');
+    }
+
+    public function throughAConnection(int $productId): void
+    {
+        DB::connection()->table('products')->where('id', $productId)->update([$this->column() => 0]);
+    }
+
+    public function aTableChosenAtRunTime(string $table, int $productId): void
+    {
+        DB::table($table)->where('id', $productId)->update(['qty' => 0]);
+    }
+
+    public function throughTheModel(int $productId): void
+    {
+        Product::where('id', $productId)->update(['current_stock' => 0]);
+        $product = Product::find($productId);
+        $product->current_stock = 0;
+        $product->save();
+    }
+
+    private function column(): string
+    {
+        return 'current' . '_stock';
+    }
+}

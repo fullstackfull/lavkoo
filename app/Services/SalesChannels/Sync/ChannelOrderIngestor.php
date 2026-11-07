@@ -12,13 +12,15 @@ use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\RemoteOrderLine;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Support\SnapshotState;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Records a channel order in the application, once, however many times and in whatever order it is delivered.
  *
- *  - IDENTITY: account + the channel's order id + its package id. Reading an order twice is one order; two concurrent reads serialise on the row.
+ *  - IDENTITY: account + the channel's order id + its package id. Reading an order twice is one order; two concurrent reads serialise on the row. A row that does not exist yet is
+ *    looked for WITHOUT a lock and made by an insert that the unique key arbitrates: a locking read there would lock the gap, and two new orders would deadlock on it.
  *  - NEWER WINS: an order older than the one held is ignored; an unchanged order only has its timestamp touched; a changed one updates the record and says what changed.
  *  - NEVER BACKWARDS: a status earlier than the one held (a late delivery of an old state) is not applied, except cancellation and return, which are real.
  *  - NOTHING ELSE IS TOUCHED: ingesting creates no internal order, no shipment, no stock movement and no product. That is a separate, deliberate step (routing).
@@ -33,16 +35,17 @@ class ChannelOrderIngestor
     public function ingest(SalesChannelAccount $account, RemoteOrder $remote): IngestResult
     {
         $result = DB::transaction(function () use ($account, $remote): IngestResult {
-            $mapping = $this->lockedMapping($account, $remote);
-            if ($mapping === null) {
+            // The first look takes no lock: a locking read of a row that does not exist yet locks the gap where it will be, and two orders that are both new then deadlock on it when
+            // they insert. The row is made when it is missing, and locked once it is there (made by this process or by the one that was first).
+            if (!$this->mappingOf($account, $remote)->exists()) {
                 try {
                     return DB::transaction(fn (): IngestResult => $this->create($account, $remote));
                 } catch (UniqueConstraintViolationException) {
-                    $mapping = $this->lockedMapping($account, $remote);
+                    // Another process made the order first: it is updated below.
                 }
             }
 
-            return $this->update($mapping, $remote);
+            return $this->update($this->mappingOf($account, $remote)->lockForUpdate()->firstOrFail(), $remote);
         }, attempts: 3);
         // What the order now promises of our stock is recorded beside it, so what is offered to the channels is never more than is left.
         $this->reservations->sync($result->mapping);
@@ -67,9 +70,10 @@ class ChannelOrderIngestor
         return $linked;
     }
 
-    private function lockedMapping(SalesChannelAccount $account, RemoteOrder $remote): ?ExternalOrderMapping
+    /** @return Builder<ExternalOrderMapping> the order's one row, by its identity */
+    private function mappingOf(SalesChannelAccount $account, RemoteOrder $remote): Builder
     {
-        return ExternalOrderMapping::where('account_id', $account->id)->where('external_order_id', $remote->orderId)->where('external_package_id', $remote->packageId)->lockForUpdate()->first();
+        return ExternalOrderMapping::where('account_id', $account->id)->where('external_order_id', $remote->orderId)->where('external_package_id', $remote->packageId);
     }
 
     private function create(SalesChannelAccount $account, RemoteOrder $remote): IngestResult

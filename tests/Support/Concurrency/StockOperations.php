@@ -12,6 +12,7 @@ use App\Services\SalesChannels\Inventory\ReservationService;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
 use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
 use App\Services\SalesChannels\Sync\SyncStateStore;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -132,6 +133,27 @@ final class StockOperations
         };
 
         return app(ChannelOrderIngestor::class)->ingest(SalesChannelAccount::findOrFail($args['account']), $builder->order($args['order_id'], $args['listing_key'], $args['quantity']))->outcome;
+    }
+
+    /**
+     * Reads `count` DIFFERENT new orders of one listing one after the other, as a poller's page does, and says how many were new and what went wrong.
+     *
+     * @param array{account: int, listing_key: string, prefix: string, count: int, quantity: int} $args
+     * @return array{created: int, deadlocks: int, other: list<string>}
+     */
+    public static function ingestMany(array $args): array
+    {
+        $report = ['created' => 0, 'deadlocks' => 0, 'other' => []];
+        for ($number = 1; $number <= $args['count']; $number++) {
+            try {
+                $report['created'] += self::ingest($args + ['order_id' => $args['prefix'] . '-' . $number]) === 'created' ? 1 : 0;
+            } catch (DeadlockException $deadlock) {
+                $report['deadlocks']++;
+                $report['other'][] = "order {$number}: " . mb_substr($deadlock->getMessage(), 0, 160);
+            }
+        }
+
+        return $report;
     }
 
     /**

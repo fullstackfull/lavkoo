@@ -21,12 +21,16 @@ use Illuminate\Support\Facades\Schema;
  * Keeps the channel order in step with the provider shipment the platform's own fulfilment holds for it, and the other way round for a cancellation.
  * It only READS the fulfilment (status, reference, tracking) and records it on the channel order; it never creates, sends or changes a shipment, so it cannot cause a second one.
  *
- *  - the provider accepted the shipment: the order is LINKED to it, so the stock reservation commits, the channel can be told the tracking number, and a later search of the
+ *  - the provider accepted the shipment: the order is LINKED to it, so the channel can be told the tracking number, and a later search of the
  *    provider's own list finds the shipment already owned by this order (the reference is unique per provider);
  *  - the fulfilment failed or was cancelled while the channel order is still open: nothing is retried here, the order is flagged for a person;
  *  - the channel cancelled the order: the internal order is closed, which is what makes the platform cancel (or drop) the shipment by its own rules. The cancellation counts as done only when
  *    the fulfilment says the provider stopped it: a provider that holds the shipment and cannot be asked to cancel (M5AZN has no cancel call) leaves the order flagged for a person, and a parcel
  *    already on the road is flagged too, because only a person can stop a parcel.
+ *
+ * STOCK. The internal order is a store order: the pool counts its units while it stands, and the channel order's own hold is released. Whatever this finds about an order, its reservations
+ * are brought in line with it afterwards (`ChannelOrderReservations`), so that when the internal order stops standing (closed by a person, its shipment cancelled by the provider) while the
+ * channel order is still open, the channel order's hold is back within one run.
  *
  * Safe to run as often as you like, and fair: every run takes the orders it looked at longest ago, so orders that need a person never keep newer ones out of the window.
  */
@@ -100,6 +104,9 @@ class ManagedShipmentMirror
         if ($cancelledOrderId !== null) {
             $this->hooks->orderChanged($cancelledOrderId, ['order_status' => 'canceled']);
         }
+        // Whatever the internal order has become (accepted, cancelled by the provider, closed by a person), the channel order's hold is brought in line with it: the units are counted
+        // by the internal order while it counts them, and by the channel order's own hold when it stops.
+        $this->reservations->sync(ExternalOrderMapping::findOrFail($mapping->id));
 
         return $outcome;
     }
@@ -140,8 +147,6 @@ class ManagedShipmentMirror
         if ($firstLink) {
             ChannelOrderDispatch::where('mapping_id', $mapping->id)->update(['state' => DispatchState::Accepted->value, 'accepted_at' => now(), 'closed_at' => null]);
             $this->audit->record(action: 'sales_channel.managed_shipment_linked', subject: $mapping, context: ['mapping_id' => $mapping->id, 'provider' => $fulfillment->provider, 'reference' => $fulfillment->provider_reference, 'internal_order_id' => $mapping->order_id]);
-            // The provider holds the order now: its units are committed, and count only until the provider's own stock figure has caught up.
-            $this->reservations->sync($mapping);
         }
 
         return $firstLink ? self::LINKED : self::UPDATED;
@@ -162,7 +167,6 @@ class ManagedShipmentMirror
             $this->audit->record(action: 'sales_channel.managed_order_cancelled', subject: $mapping, context: ['mapping_id' => $mapping->id, 'internal_order_id' => $order->id, 'fulfillment_status' => $status->value]);
             $cancelledOrderId = (int) $order->id;
         }
-        $this->reservations->sync($mapping);
 
         // The provider holds the shipment and nothing says it was stopped: the order is closed here, but only a person can make sure the parcel does not go out.
         if ($providerHolds) {

@@ -3,6 +3,7 @@
 namespace Tests\Feature\SalesChannels;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
+use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
 use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
@@ -11,6 +12,7 @@ use App\Models\InventoryLocationBalance;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
+use App\Services\Fulfillment\InventorySyncService;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Inventory\LocationStockReader;
 use App\Services\SalesChannels\Inventory\PoolFigures;
@@ -109,6 +111,66 @@ class PoolNetTest extends TestCase
         $this->assertSame([0, 1], [$pool->net(), $pool->deficit()]);
     }
 
+    /**
+     * KNOWN AND LEFT TO THE OWNER (operations.md, *Owner decisions*): the platform holds back the orders a provider accepted since the read of its list BEGAN, the module those accepted
+     * since the figure was STAMPED, which is when the figure is written, after the read. An order accepted in between is in neither the figure nor the module's count. This test pins
+     * what is true today so that closing the gap is noticed here and in the document.
+     */
+    public function test_a_store_order_accepted_while_the_warehouse_list_was_being_read_is_held_back_by_the_platform_and_not_by_the_module(): void
+    {
+        $this->storeProduct(70, 'torod_point', 50);
+        $this->providerFigure(70, 20, now()->subDay());
+        $readStartedAt = now();
+        $this->storeOrder(9, 70, 2, FulfillmentStatus::Submitted, $readStartedAt->copy()->addSeconds(30));
+        $this->travel(90)->seconds();
+
+        app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-70' => 20], $readStartedAt);
+
+        $this->assertSame(18, (int) DB::table('products')->where('id', 70)->value('current_stock'), 'the platform holds the 2 units back: accepted after the read began');
+        $this->assertSame(20, $this->net->for($this->torodLocation(), 70)->net(), 'the module does not: accepted before the figure was stamped, 90 seconds after the read began');
+    }
+
+    // ---- a variant needs a figure of its own ----------------------------------------------------------------------------------
+
+    private const VARIANT_PRODUCT = 60;
+
+    private function variantProduct(): void
+    {
+        $this->storeProduct(self::VARIANT_PRODUCT, 'torod_point', 10, json_encode([['type' => 'Red', 'price' => 10, 'qty' => 5], ['type' => 'Blue', 'price' => 10, 'qty' => 5]]));
+    }
+
+    public function test_a_variant_asked_for_where_only_the_whole_product_has_a_figure_is_refused_not_offered_the_whole_figure(): void
+    {
+        $this->variantProduct();
+        $this->providerFigure(self::VARIANT_PRODUCT, 8, now()->subHour());
+
+        $red = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Red');
+        $blue = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Blue');
+
+        $this->assertSame([PoolFigures::VARIANT_FIGURE_MISSING, PoolFigures::VARIANT_FIGURE_MISSING], [$red->refusal, $blue->refusal], 'both would have been offered all 8');
+        $this->assertFalse($red->isPublishable());
+        $this->assertFalse($blue->isPublishable());
+    }
+
+    public function test_a_variant_that_has_a_figure_of_its_own_is_read_from_it(): void
+    {
+        $this->variantProduct();
+        $this->providerFigure(self::VARIANT_PRODUCT, 5, now()->subHour(), variantKey: 'Red');
+        $this->providerFigure(self::VARIANT_PRODUCT, 3, now()->subHour(), variantKey: 'Blue');
+
+        $red = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Red');
+        $blue = $this->net->for($this->torodLocation(), self::VARIANT_PRODUCT, 'Blue');
+
+        $this->assertSame([null, null, 5, 3], [$red->refusal, $blue->refusal, $red->net(), $blue->net()]);
+    }
+
+    public function test_a_product_without_variants_is_not_affected_by_the_rule(): void
+    {
+        $this->providerFigure(self::PRODUCT, 8, now()->subHour());
+
+        $this->assertNull($this->pool()->refusal);
+    }
+
     // ---- where a store order stops being the store's to subtract ----------------------------------------------------------------
 
     public function test_a_store_order_the_provider_accepted_before_the_figure_is_in_it_and_one_accepted_at_or_after_is_not(): void
@@ -155,6 +217,66 @@ class PoolNetTest extends TestCase
         $this->assertSame(2, $this->pool()->storeHolds);
     }
 
+    public function test_a_store_order_accepted_after_a_figure_was_typed_keeps_counting_after_it_is_delivered(): void
+    {
+        $typedAt = now()->subDays(3);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 5, FulfillmentStatus::Submitted, $typedAt->copy()->addHour());
+        $this->assertSame(15, $this->pool()->net(), 'accepted after the figure was typed: its 5 units are not in it');
+
+        DB::table('orders')->where('id', 1)->update(['order_status' => 'delivered']);
+        DB::table('provider_fulfillments')->where('order_id', 1)->update(['status' => FulfillmentStatus::Delivered->value]);
+
+        $this->assertSame(15, $this->pool()->net(), 'the parcel is delivered and the typed figure is still what a person typed three days ago: the 5 units stay off it');
+        $this->assertSame(5, $this->pool()->storeHolds);
+    }
+
+    public function test_a_typed_figure_keeps_a_delivered_shipment_whose_order_has_not_moved_on_and_a_delivered_order_the_provider_never_got(): void
+    {
+        $typedAt = now()->subDays(2);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 2, FulfillmentStatus::Delivered, $typedAt->copy()->addHour());
+        $this->storeOrder(2, self::PRODUCT, 3, orderStatus: 'delivered');
+        DB::table('orders')->where('id', 2)->update(['created_at' => $typedAt->copy()->addHours(2)]);
+
+        $this->assertSame(5, $this->pool()->storeHolds, 'both left the shelf after the figure was typed, whatever state their orders are in');
+    }
+
+    public function test_a_typed_figure_stops_counting_an_order_that_was_cancelled_returned_or_accepted_before_it_was_typed(): void
+    {
+        $typedAt = now()->subDays(2);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 1, FulfillmentStatus::Delivered, $typedAt->copy()->subHour(), orderStatus: 'delivered');
+        $this->storeOrder(2, self::PRODUCT, 2, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'returned');
+        $this->storeOrder(3, self::PRODUCT, 3, FulfillmentStatus::Returned, $typedAt->copy()->addHour(), orderStatus: 'delivered');
+        $this->storeOrder(4, self::PRODUCT, 4, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'delivered');
+        DB::table('provider_fulfillment_items')->where('order_id', 4)->update(['status' => 'cancelled']);
+        $this->storeOrder(5, self::PRODUCT, 5, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'canceled');
+
+        $this->assertSame(0, $this->pool()->storeHolds, 'before the figure: in it; returned, cancelled or closed: back on the shelf or never off it');
+        $this->assertSame(20, $this->pool()->net());
+    }
+
+    public function test_a_new_typed_figure_counts_only_the_orders_accepted_after_it(): void
+    {
+        $typedAt = now()->subDays(3);
+        $this->providerFigure(self::PRODUCT, 20, $typedAt, StockSource::Manual);
+        $this->storeOrder(1, self::PRODUCT, 5, FulfillmentStatus::Delivered, $typedAt->copy()->addHour(), orderStatus: 'delivered');
+        $this->assertSame(15, $this->pool()->net());
+
+        $this->providerFigure(self::PRODUCT, 15, now()->subHour(), StockSource::Manual);
+
+        $this->assertSame(15, $this->pool()->net(), 'the person counted the shelf again after the delivery: the 5 units are in the new figure and are not taken off twice');
+    }
+
+    public function test_a_figure_the_provider_synced_does_not_keep_a_delivered_order_because_the_provider_counts_it(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->storeOrder(1, self::PRODUCT, 5, FulfillmentStatus::Delivered, now()->subMinutes(30), orderStatus: 'delivered');
+
+        $this->assertSame(0, $this->pool()->storeHolds);
+    }
+
     public function test_store_orders_of_another_provider_and_of_another_variant_are_not_this_pools(): void
     {
         $this->providerFigure(self::PRODUCT, 20, now()->subHour());
@@ -195,7 +317,7 @@ class PoolNetTest extends TestCase
         $this->assertSame([InventoryReservation::RELEASED, ChannelOrderReservations::INTERNAL_ORDER_COUNTS_IT], [$hold->state, $hold->release_reason]);
     }
 
-    public function test_the_hold_of_an_order_with_an_internal_order_never_comes_back_however_often_the_order_is_read(): void
+    public function test_the_hold_of_an_order_whose_internal_order_stands_does_not_come_back_however_often_the_order_is_read(): void
     {
         $this->providerFigure(self::PRODUCT, 20, now()->subHour());
         $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
@@ -228,7 +350,41 @@ class PoolNetTest extends TestCase
         $this->assertSame(18, $this->pool()->net());
     }
 
-    public function test_the_internal_order_gives_its_units_back_when_it_is_cancelled(): void
+    public function test_when_the_internal_order_is_closed_while_the_channel_order_is_open_the_channel_orders_hold_comes_back(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
+        $mapping = $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2);
+        $this->storeOrder(100, self::PRODUCT, 2);
+        $mapping->forceFill(['order_id' => 100])->save();
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+        $this->assertSame(18, $this->pool()->net());
+
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'canceled']);
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+
+        $hold = InventoryReservation::firstOrFail();
+        $this->assertSame([InventoryReservation::RESERVED, null], [$hold->state, $hold->release_reason]);
+        $this->assertSame([0, 2, 18], [$this->pool()->storeHolds, $this->pool()->channelHolds, $this->pool()->net()], 'the channel order still owes the 2 units and nobody else counts them: it does');
+    }
+
+    public function test_when_the_provider_cancels_the_shipment_of_an_internal_order_that_is_still_open_the_channel_orders_hold_comes_back(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
+        $mapping = $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2);
+        $this->storeOrder(100, self::PRODUCT, 2, FulfillmentStatus::Submitted, now()->subMinutes(30));
+        $mapping->forceFill(['order_id' => 100])->save();
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+        $this->assertSame([2, 0, 18], [$this->pool()->storeHolds, $this->pool()->channelHolds, $this->pool()->net()]);
+
+        DB::table('provider_fulfillments')->where('order_id', 100)->update(['status' => FulfillmentStatus::Cancelled->value]);
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+
+        $this->assertSame([0, 2, 18], [$this->pool()->storeHolds, $this->pool()->channelHolds, $this->pool()->net()], 'the platform no longer counts the cancelled shipment, and the channel order is open and flagged for a person: its hold is back');
+    }
+
+    public function test_when_both_orders_are_closed_the_units_are_free(): void
     {
         $this->providerFigure(self::PRODUCT, 20, now()->subHour());
         $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
@@ -238,8 +394,26 @@ class PoolNetTest extends TestCase
         app(ChannelOrderReservations::class)->sync($mapping->refresh());
 
         DB::table('orders')->where('id', 100)->update(['order_status' => 'canceled']);
+        $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2, '2026-11-10 10:05:00', status: ChannelOrderStatus::Cancelled);
 
+        $this->assertSame([InventoryReservation::RELEASED, 'order_cancelled'], [InventoryReservation::firstOrFail()->state, InventoryReservation::firstOrFail()->release_reason]);
         $this->assertSame(20, $this->pool()->net());
+    }
+
+    public function test_a_shipped_channel_order_whose_internal_order_was_closed_holds_its_units_as_committed(): void
+    {
+        $this->providerFigure(self::PRODUCT, 20, now()->subHour());
+        $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
+        $mapping = $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2);
+        $this->storeOrder(100, self::PRODUCT, 2);
+        $mapping->forceFill(['order_id' => 100])->save();
+        app(ChannelOrderReservations::class)->sync($mapping->refresh());
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'returned']);
+
+        $this->ingestOrder($this->account, 'ORD-1', 'BAR-1', 2, '2026-11-10 10:05:00', status: ChannelOrderStatus::Shipped);
+
+        $this->assertSame(InventoryReservation::COMMITTED, InventoryReservation::firstOrFail()->state, 'it left the shelf by another way: counted until a figure taken after that');
+        $this->assertSame(18, $this->pool()->net());
     }
 
     public function test_once_the_provider_has_the_internal_order_and_the_figure_is_newer_the_unit_is_in_the_figure(): void

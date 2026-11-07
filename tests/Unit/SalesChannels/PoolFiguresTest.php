@@ -63,4 +63,26 @@ class PoolFiguresTest extends TestCase
 
         $this->assertSame($publishable, $figures->isPublishable());
     }
+
+    /** @return iterable<string, array{string, ?string, int, bool}> */
+    public static function coverage(): iterable
+    {
+        yield 'a confirmed figure that is enough' => [StockAvailability::CONFIRMED, null, 2, true];
+        yield 'a confirmed figure that is not enough' => [StockAvailability::CONFIRMED, null, 11, false];
+        yield 'typed and enough' => [StockAvailability::MANUAL, null, 10, true];
+        yield 'stale' => [StockAvailability::STALE, null, 1, false];
+        yield 'unknown' => [StockAvailability::UNKNOWN, null, 1, false];
+        yield 'the store\'s own stock is read though it is not offered' => [StockAvailability::CONFIRMED, PoolFigures::STOREFRONT_OWNED, 2, true];
+        yield 'the store\'s own stock that is not enough' => [StockAvailability::CONFIRMED, PoolFigures::STOREFRONT_OWNED, 11, false];
+        yield 'a product sold per variant asked for without one' => [StockAvailability::CONFIRMED, PoolFigures::VARIANT_KEY_REQUIRED, 1, false];
+        yield 'a variant that has no figure of its own' => [StockAvailability::CONFIRMED, PoolFigures::VARIANT_FIGURE_MISSING, 1, false];
+    }
+
+    #[DataProvider('coverage')]
+    public function test_a_pool_covers_an_order_when_its_figure_is_good_and_enough_is_left(string $quality, ?string $refusal, int $units, bool $covers): void
+    {
+        $figures = new PoolFigures(10, $quality, null, 'provider_mapping', 0, 0, 0, $refusal);
+
+        $this->assertSame($covers, $figures->covers($units));
+    }
 }

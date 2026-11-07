@@ -14,17 +14,24 @@ use App\Services\Fulfillment\InventorySyncService;
  *
  *  - Hc, the units on open channel orders (the reservations of this location, product and variant);
  *  - Hs, the units on STORE orders the provider has not counted yet (a provider pool only): the storefront sells provider stock minus exactly these (`InventorySyncService`),
- *    and a figure taken before they were accepted does not show them. A figure a person typed counts from the time it was typed;
+ *    and a figure taken before they were accepted does not show them. A figure a person typed counts from the time it was typed, and a figure nobody reads again keeps every
+ *    order accepted since, delivered ones included (`DeliveredStoreOrders`);
  *  - B, the pool's safety buffer.
  *
- * Never subtracted: units on store orders at a pool the store itself owns (they are off `current_stock` already) and units on an internal order made for a channel order (the
- * hold of such an order is released, see ChannelOrderReservations, because Hs counts it).
+ * A pool is REFUSED (it offers nothing) when it is the store's own stock, when a product sold per variant is asked for without a variant, and when a variant is asked for at a
+ * location that holds one figure for the whole product and none for the variant (every variant would be offered all of it).
+ *
+ * Never subtracted twice: units on store orders at a pool that keeps no provider's orders (a typed balance, the store's own stock: no provider whose orders could be attributed to it,
+ * and the store's sales are off `current_stock` already) and units on an internal order made for a channel order, while that order stands (the hold of the channel order is released,
+ * see ChannelOrderReservations, because Hs counts it; it comes back when the internal order stops counting them). "Once" depends on the listings being in the pool, the orders being
+ * imported and the figures being current: see operations.md.
  */
 class PoolNet
 {
     public function __construct(
         private readonly LocationStockReader $stock,
         private readonly InventorySyncService $storeOrders,
+        private readonly DeliveredStoreOrders $deliveredStoreOrders,
         private readonly ProductVariations $variations,
     ) {
     }
@@ -46,7 +53,7 @@ class PoolNet
             storeHolds: $this->storeHolds($location, $productId, $variantKey, $availability),
             channelHolds: $availability->inFlight,
             buffer: $buffer,
-            refusal: $this->refusal($location, $productId, $variantKey),
+            refusal: $this->refusal($location, $productId, $variantKey, $availability),
         );
     }
 
@@ -57,15 +64,21 @@ class PoolNet
             return 0;
         }
 
-        return $this->storeOrders->reservedNotYetWithProvider($provider, $productId, $variantKey, $availability->syncedAt);
-    }
-
-    private function refusal(InventoryLocation $location, int $productId, string $variantKey): ?string
-    {
-        if ($location->isStorefrontOwned()) {
-            return PoolFigures::STOREFRONT_OWNED;
+        $notDeliveredYet = $this->storeOrders->reservedNotYetWithProvider(provider: $provider, productId: $productId, variantKey: $variantKey, acceptedSince: $availability->syncedAt);
+        if ($availability->quality !== StockAvailability::MANUAL || $availability->syncedAt === null) {
+            return $notDeliveredYet;
         }
 
-        return $variantKey === '' && $this->variations->exist($productId) ? PoolFigures::VARIANT_KEY_REQUIRED : null;
+        return $notDeliveredYet + $this->deliveredStoreOrders->unitsSince(provider: $provider, productId: $productId, variantKey: $variantKey, typedAt: $availability->syncedAt);
+    }
+
+    private function refusal(InventoryLocation $location, int $productId, string $variantKey, StockAvailability $availability): ?string
+    {
+        return match (true) {
+            $location->isStorefrontOwned() => PoolFigures::STOREFRONT_OWNED,
+            $variantKey === '' && $this->variations->exist($productId) => PoolFigures::VARIANT_KEY_REQUIRED,
+            $availability->forTheWholeProduct => PoolFigures::VARIANT_FIGURE_MISSING,
+            default => null,
+        };
     }
 }

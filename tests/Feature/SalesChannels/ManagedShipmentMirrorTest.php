@@ -130,6 +130,28 @@ class ManagedShipmentMirrorTest extends DispatchTestCase
         $this->assertSame(ManagedShipmentMirror::UNTOUCHED, $this->mirror()->mirror($mapping->refresh()), 'and doing it twice does nothing');
     }
 
+    public function test_a_hold_handed_to_the_internal_order_comes_back_in_one_sweep_when_a_person_closes_that_order_while_the_channel_order_is_open(): void
+    {
+        [$mapping] = $this->routed();
+        $this->assertSame([InventoryReservation::RELEASED, [2, 0, 48]], [$this->reservationState($mapping), $this->figures()]);
+
+        DB::table('orders')->where('id', $mapping->order_id)->update(['order_status' => 'canceled']);
+        $this->mirror()->sweep();
+
+        $this->assertSame([InventoryReservation::RESERVED, [0, 2, 48]], [$this->reservationState($mapping), $this->figures()], 'nobody counted the 2 units for a moment: the channel order, which is still open, does again');
+    }
+
+    public function test_the_mirror_brings_the_reservations_in_line_for_every_order_it_looks_at_even_when_the_shipment_has_nothing_new(): void
+    {
+        [$mapping] = $this->routed();
+        InventoryReservation::query()->update(['state' => InventoryReservation::RESERVED, 'released_at' => null, 'release_reason' => null]);
+        $this->assertSame([2, 2, 46], $this->figures(), 'counted twice: by the internal order and by a hold made before it');
+
+        $this->assertSame(ManagedShipmentMirror::UNTOUCHED, $this->mirror()->mirror($mapping));
+
+        $this->assertSame([InventoryReservation::RELEASED, [2, 0, 48]], [$this->reservationState($mapping), $this->figures()]);
+    }
+
     public function test_a_parcel_already_on_the_road_is_never_cancelled_automatically(): void
     {
         [$mapping, $fulfillment] = $this->routed();

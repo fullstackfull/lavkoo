@@ -94,15 +94,54 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
         $this->assertStringContainsString(e(translate('publish_skip_stock_not_confirmed')) . ' (' . e(translate('stock_quality_stale')) . ')', $html);
     }
 
+    public function test_the_hub_lists_the_pool_whose_channels_show_more_than_is_left_when_a_listing_that_was_switched_off_still_shows_its_units(): void
+    {
+        $this->providerFigure(self::PRODUCT, 10, now()->subMinutes(30));
+        $first = $this->trendyolAccount();
+        $second = $this->trendyolAccount(sellerId: '7654321');
+        $off = $this->stockListing($first, self::PRODUCT, $this->torodLocation(), 'BAR-A', ['last_published_quantity' => 5, 'last_published_at' => now()->subHour()]);
+        $this->stockListing($second, self::PRODUCT, $this->torodLocation(), 'BAR-B', ['last_published_quantity' => 5, 'last_published_at' => now()->subHour()]);
+        $this->divide();
+        $off->forceFill(['inventory_publish' => false, 'allocation' => null])->save();
+        $this->storeOrder(1, self::PRODUCT, 8);
+        $this->divide();
+
+        $html = $this->hub();
+
+        $this->assertStringContainsString(e(translate('attention_stock_over_offered')), $html);
+        $this->assertStringContainsString(e(translate('shown_on_channels')) . ': 10 · ' . e(translate('net_to_offer')) . ': 2', $html, 'A still shows 5 and cannot be lowered from here, B shows 5 until it is lowered: more than the 2 left');
+        $this->assertStringContainsString(e(translate('attention_stock_not_updated')), $html);
+        $this->assertStringContainsString(e(translate('publish_skip_outside_the_pool')) . ' · ' . e(translate('the_channel_shows')) . ': 5', $html);
+    }
+
+    public function test_the_hub_lists_a_listing_a_rule_now_refuses_while_its_channel_still_shows_the_quantity_it_was_given(): void
+    {
+        $this->storeProduct(60, 'torod_point', 10, json_encode([['type' => 'Red', 'price' => 10, 'qty' => 5], ['type' => 'Blue', 'price' => 10, 'qty' => 5]]));
+        $this->providerFigure(60, 8, now()->subHour());
+        $listing = $this->stockListing($this->trendyolAccount(), 60, $this->torodLocation(), 'WHOLE', ['last_published_quantity' => 8, 'last_published_at' => now()->subHour()]);
+        app(PoolAllocationService::class)->allocate(new PoolKey($this->torodLocation()->id, 60));
+
+        $html = $this->hub();
+
+        $this->assertStringContainsString(e(translate('attention_stock_not_updated')), $html);
+        $this->assertStringContainsString('WHOLE', $html);
+        $this->assertStringContainsString(e(translate('publish_skip_variant_key_required')) . ' · ' . e(translate('the_channel_shows')) . ': 8', $html, 'it shows 8 and will not be updated again');
+        $this->assertNotNull($listing->refresh()->allocation);
+    }
+
     public function test_the_hub_says_which_accounts_have_their_quantities_frozen_by_a_late_order_import(): void
     {
         $this->providerFigure(self::PRODUCT, 10, now()->subMinutes(30));
         $late = $this->trendyolAccount();
         $never = $this->trendyolAccount(sellerId: '7654321');
-        $this->stockListing($late, self::PRODUCT, $this->torodLocation(), 'BAR-A');
-        $this->stockListing($never, self::PRODUCT, $this->torodLocation(), 'BAR-B');
+        $backlog = $this->trendyolAccount(sellerId: '7654322');
+        $withoutImport = $this->trendyolAccount(capabilities: ['connection_test', 'read_only_sync', 'product_sync', 'inventory_publishing'], sellerId: '7654323');
+        foreach ([$late, $never, $backlog, $withoutImport] as $number => $account) {
+            $this->stockListing($account, self::PRODUCT, $this->torodLocation(), 'BAR-' . $number);
+        }
         SalesChannelSyncState::create(['account_id' => $late->id, 'resource' => 'orders', 'last_success_at' => now()->subHour()]);
         SalesChannelSyncState::create(['account_id' => $never->id, 'resource' => 'orders']);
+        SalesChannelSyncState::create(['account_id' => $backlog->id, 'resource' => 'orders', 'last_success_at' => now()->subMinute(), 'cursor' => json_encode(['page' => 26])]);
         $this->divide();
 
         $html = $this->hub();
@@ -110,6 +149,8 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
         $this->assertStringContainsString(e(translate('attention_stock_raises_frozen')), $html);
         $this->assertStringContainsString(e(translate('last_successful_order_import')) . ': ' . now()->subHour()->format('Y-m-d H:i'), $html);
         $this->assertStringContainsString(e(translate('no_successful_order_import_yet')), $html);
+        $this->assertStringContainsString(e(translate('order_import_is_part_way_through_a_backlog')), $html, 'a sweep that stopped part of the way stamped its time: the hub does not call that a recent import');
+        $this->assertStringContainsString(e(translate('order_import_is_off_so_a_quantity_here_is_never_raised')), $html);
     }
 
     public function test_the_hub_counts_order_units_no_stock_is_told_about(): void
@@ -145,6 +186,7 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
         $account = $this->trendyolAccount();
         $this->stockListing($account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
         $this->ingestOrder($account, 'ORD-1', 'BAR-1', 2);
+        $this->completeOrderSweep($account);
         $this->divide();
 
         $html = $this->hub();

@@ -18,6 +18,9 @@ final readonly class PoolFigures
     /** The product is sold per variant and the listing names none: one figure cannot be spread over the variants. */
     public const VARIANT_KEY_REQUIRED = 'variant_key_required';
 
+    /** The location holds one figure for the whole product and none for this variant: every variant would be offered all of it. */
+    public const VARIANT_FIGURE_MISSING = 'variant_figure_missing';
+
     /** The stock is the storefront's own: the store already takes its sales off it and nothing takes channel units off it, so what to offer is the owner's decision. */
     public const STOREFRONT_OWNED = 'storefront_owned_needs_owner_decision';
 
@@ -45,6 +48,17 @@ final readonly class PoolFigures
     public function isPublishable(): bool
     {
         return $this->refusal === null && $this->available !== null && in_array($this->quality, [StockAvailability::CONFIRMED, StockAvailability::MANUAL], true);
+    }
+
+    /**
+     * Can the pool cover this many units? The store's own stock is refused for the channels (what to offer from it is the owner's decision) but it is read like any other, so it can
+     * say whether the shelf covers an order. Any other refusal stays one: a whole product's figure is no proof that a variant has the units.
+     */
+    public function covers(int $units): bool
+    {
+        $readable = $this->refusal === null || $this->refusal === self::STOREFRONT_OWNED;
+
+        return $readable && $this->available !== null && in_array($this->quality, [StockAvailability::CONFIRMED, StockAvailability::MANUAL], true) && (int) $this->net() >= $units;
     }
 
     public function net(): ?int
