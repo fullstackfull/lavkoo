@@ -299,11 +299,24 @@ class ChannelAccountService
             throw new ChannelUnavailableException(ChannelUnavailableException::AUTH_NEEDED, 'Run a successful connection test first.');
         }
         $approvals = (array) ($account->capability_approvals ?? []);
-        $approvals[$scope] = ['by' => $adminId, 'at' => now()->toIso8601String(), 'reason' => mb_substr(trim($reason), 0, 500)];
+        $approvals[$scope] = ['by' => $adminId, 'at' => now()->toIso8601String(), 'reason' => mb_substr(trim($reason), 0, 500)] + self::approvalDetails($scope);
         $account->forceFill(['capability_approvals' => $approvals])->save();
         $this->audit->record(action: 'sales_channel.scope_approved', subject: $account, context: ['scope' => $scope, 'by' => $adminId, 'reason' => $reason]);
 
         return $account;
+    }
+
+    /** What an approval of this kind covers, kept with it so that the record says what was agreed even after the settings it was given under change. */
+    private static function approvalDetails(string $scope): array
+    {
+        if ($scope !== ChannelOperations::SCOPE_BUYER_DATA_TRANSFER) {
+            return [];
+        }
+
+        return ['details' => [
+            'data' => ['name', 'mobile', 'street', 'city'], 'providers' => ['torod_point', 'm5azn'],
+            'retain_after_accept_hours' => (int) config('sales_channels.dispatch.retain_after_accept_hours', 24), 'rehearsal_hours' => (int) config('sales_channels.dispatch.rehearsal_buyer_data_hours', 72),
+        ]];
     }
 
     public function revokeScope(SalesChannelAccount $account, string $scope, ?int $adminId): SalesChannelAccount

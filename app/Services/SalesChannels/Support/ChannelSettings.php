@@ -14,6 +14,7 @@ final class ChannelSettings
     public const TRENDYOL_STOREFRONTS = ['SA', 'AE', 'KW'];
     /** unset: nobody said (nothing is ever created); app: this application creates the shipments; provider_direct: the provider imports the channel's orders itself (Trendyol connected straight to Torod), so the application only follows them. */
     public const SHIPMENT_CREATION = ['unset', 'app', 'provider_direct'];
+    public const DISPATCH_MODES = ['manual', 'auto'];
 
     /** @return array<string, mixed> */
     public static function defaults(string $channel): array
@@ -64,7 +65,7 @@ final class ChannelSettings
             if (!in_array($merged['shipment_creation'], $allowed, true)) {
                 throw new InvalidArgumentException('Who creates the shipments of this account must be one of: ' . implode(', ', $allowed) . '.');
             }
-            if (!in_array($merged['dispatch_mode'], ['manual', 'auto'], true)) {
+            if (!in_array($merged['dispatch_mode'], self::DISPATCH_MODES, true)) {
                 throw new InvalidArgumentException('The dispatch mode must be manual or auto.');
             }
         }

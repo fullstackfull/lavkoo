@@ -176,8 +176,7 @@ return [
         // Hours an order may go without a shipment before it is handed to a person (measured from the channel's purchase time).
         'window_hours' => 36,
         'torod' => [
-            // What Torod holds in the invoice number of such an order: the channel's `order_number` or its `package_id`.
-            'join_key' => 'order_number',
+            // What Torod holds in the invoice number of such an order is the account's `torod_reference_field` setting (order number, package id or tracking number).
             // The order list has no search: this many pages of 50 are read, newest first as far as Torod lists them; an order further back is not seen.
             'max_pages' => 3,
             'cache_seconds' => 120,

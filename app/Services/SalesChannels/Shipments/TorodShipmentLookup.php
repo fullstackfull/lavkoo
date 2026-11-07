@@ -13,8 +13,8 @@ use App\Services\Fulfillment\Support\FieldMap;
 use Carbon\CarbonImmutable;
 
 /**
- * Finds, READ-ONLY, the Torod Point order that was created straight from a channel order, by ONE exact fact: the channel's order identifier (or package identifier) is the text Torod holds
- * in the invoice number of that order. Torod's order list has no search, so the first pages of the list are read once and kept in memory for a short while; an order further back is not seen
+ * Finds, READ-ONLY, the Torod Point order that was created straight from a channel order, by ONE exact fact: the channel's order number (or package id, or tracking number: the account's
+ * `torod_reference_field` says which) is the text Torod holds in the invoice number of that order. Torod's order list has no search, so the first pages of the list are read once and kept in memory for a short while; an order further back is not seen
  * and counts as not found, never as a guess. Nothing about the buyer (name, phone, address, city) is ever compared: it would "prove" nothing.
  *
  * Which of Torod's fields carries the channel's identifier is NOT KNOWN (no live sample of a shipment created from Trendyol exists), so this lookup is off until the owner has seen one and set
@@ -49,7 +49,7 @@ final class TorodShipmentLookup implements ExternalShipmentLookup
         $ours = ProviderFulfillment::where('provider', ProviderCode::TorodPoint->value)->whereIn('provider_reference', array_column($orders, 'reference'))->pluck('provider_reference')->all();
 
         return array_values(array_map(
-            fn (array $order): ShipmentCandidate => new ShipmentCandidate(provider: ProviderCode::TorodPoint->value, reference: $order['reference'], status: $order['status'] ?: null, matchedOn: 'invoice_number = ' . $this->joinKey()),
+            fn (array $order): ShipmentCandidate => new ShipmentCandidate(provider: ProviderCode::TorodPoint->value, reference: $order['reference'], status: $order['status'] ?: null, matchedOn: 'invoice_number = ' . $this->fieldOf($mapping)),
             array_filter($orders, static fn (array $order): bool => $order['invoice'] === $identifier && !in_array($order['reference'], $ours, true)),
         ));
     }
@@ -66,14 +66,22 @@ final class TorodShipmentLookup implements ExternalShipmentLookup
         return null;
     }
 
-    private function joinKey(): string
+    /** Which of the channel's values Torod holds as the reference: the account's own setting (`torod_reference_field`), the channel order number unless it says otherwise. */
+    private function fieldOf(ExternalOrderMapping $mapping): string
     {
-        return config('sales_channels.shipment_discovery.torod.join_key', 'order_number') === 'package_id' ? 'package_id' : 'order_number';
+        $mapping->loadMissing('account');
+        $field = (string) $mapping->account?->setting('torod_reference_field', 'order_number');
+
+        return in_array($field, ['package_id', 'tracking_number'], true) ? $field : 'order_number';
     }
 
     private function identifierOf(ExternalOrderMapping $mapping): string
     {
-        return trim((string) ($this->joinKey() === 'package_id' ? $mapping->external_package_id : $mapping->external_order_id));
+        return trim((string) match ($this->fieldOf($mapping)) {
+            'package_id' => $mapping->external_package_id,
+            'tracking_number' => $mapping->tracking_number,
+            default => $mapping->external_order_id,
+        });
     }
 
     /** @return list<array{invoice: string, reference: string, status: string}>|null null when the list cannot be read or the map that reads it is not verified */

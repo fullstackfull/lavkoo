@@ -28,7 +28,7 @@ final class ChannelLabels
             'channel_fulfills_order', 'unknown_fulfillment_mode', 'order_not_releasable', 'no_active_lines', 'carrier_arranged_by_channel', 'cod_requires_review',
             'unmapped_lines', 'no_rule_matched', 'account_default_externally_managed', 'rule_requires_manual_review', 'rule_holds_order', 'rule_route_to_provider', 'rule_monitor_only', 'rule_channel_fulfills',
             'line_has_no_stock_location', 'stock_not_at_target_provider', 'managed_dispatch_not_available', 'split_replaced', 'modified_after_routing',
-            'cancelled_after_dispatch', 'split_after_dispatch', 'ambiguous_shipment', 'shipment_linked_elsewhere',
+            'cancelled_after_dispatch', 'split_after_dispatch', 'ambiguous_shipment', 'shipment_linked_elsewhere', 'managed_shipment_failed', 'managed_shipment_cancelled', 'shipment_not_found',
         ],
         // Why nothing was sent to a channel (a switch that is off, an approval that is missing) or a shipment was not reported.
         'channel_reason_' => [
@@ -56,8 +56,13 @@ final class ChannelLabels
         'location_source_' => ['provider', 'channel', 'manual'],
         'price_source_' => ['internal', 'channel', 'manual'],
         'price_source_help_' => ['internal', 'channel', 'manual'],
-        'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management'],
-        'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management'],
+        'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer'],
+        'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer'],
+        'dispatch_state_' => ['claimed', 'blocked', 'materialized', 'accepted', 'failed', 'cancelled'],
+        'dispatch_reason_' => ['managed_dispatch_off', 'buyer_data_transfer_off', 'account_off', 'dispatch_capability_off', 'buyer_data_approval_missing', 'shipments_are_created_by_the_provider_directly', 'shipment_creation_not_declared', 'already_dispatched', 'shipment_already_known', 'order_not_open', 'fulfilment_not_ours', 'cash_on_delivery_not_supported', 'destination_not_supported', 'currency_not_supported', 'no_routing_decision_to_one_provider', 'no_active_lines', 'line_without_product', 'product_not_physical', 'product_owned_by_other_provider', 'provider_mapping_not_approved', 'claim_lost', 'provider_changed', 'recipient_incomplete', 'audit_not_written', 'order_number_busy', 'attempts_exhausted', 'channel_cannot_give_the_recipient', 'order_not_found_at_channel', 'not_shipped_by_the_seller', 'recipient_not_permitted', 'channel_error', 'channel_buyer_data_off', 'channel_not_approved', 'channel_account_off', 'channel_capability_off', 'channel_global_off', 'channel_auth_needed', 'buyer_data_expired'],
+        'dispatch_problem_' => ['name_missing', 'phone_missing', 'phone_not_a_saudi_mobile', 'address_missing', 'city_missing', 'country_not_supported'],
+        'shipment_creation_' => ['unset', 'app', 'provider_direct'],
+        'dispatch_mode_' => ['manual', 'auto'],
         'integration_capability_help_' => ['connection_test', 'read_only_sync', 'product_sync', 'inventory_publishing', 'price_publishing', 'order_import', 'fulfillment_dispatch', 'financial_reconciliation'],
         'ladder_blocker_' => ['requires', 'connection_not_proven', 'connection_stale', 'missing_permissions'],
         'write_state_' => ['global_off', 'account_disabled', 'rehearsal', 'environment_read_only', 'writes_not_allowed', 'live'],
@@ -86,7 +91,7 @@ final class ChannelLabels
         'order_reason_rule_requires_manual_review', 'order_reason_rule_holds_order', 'order_reason_rule_route_to_provider', 'order_reason_rule_monitor_only',
         'order_reason_rule_channel_fulfills', 'order_reason_line_has_no_stock_location', 'order_reason_stock_not_at_target_provider',
         'order_reason_managed_dispatch_not_available', 'order_reason_split_replaced', 'order_reason_modified_after_routing', 'order_reason_cancelled_after_dispatch',
-        'order_reason_split_after_dispatch', 'order_reason_ambiguous_shipment', 'order_reason_shipment_linked_elsewhere',
+        'order_reason_split_after_dispatch', 'order_reason_ambiguous_shipment', 'order_reason_shipment_linked_elsewhere', 'order_reason_managed_shipment_failed', 'order_reason_managed_shipment_cancelled', 'order_reason_shipment_not_found',
         'channel_reason_global_off', 'channel_reason_account_off', 'channel_reason_capability_off', 'channel_reason_setting_off', 'channel_reason_not_supported_by_channel', 'channel_reason_writes_off_environment',
         'channel_reason_writes_off_account', 'channel_reason_not_approved', 'channel_reason_unregistered_operation', 'channel_reason_auth_needed',
         'channel_reason_no_linked_shipment_with_tracking', 'channel_reason_already_notified', 'channel_reason_fulfillment_dispatch_off', 'channel_reason_dry_run',
@@ -112,8 +117,63 @@ final class ChannelLabels
         'location_source_provider', 'location_source_channel', 'location_source_manual',
         'price_source_internal', 'price_source_channel', 'price_source_manual',
         'price_source_help_internal', 'price_source_help_channel', 'price_source_help_manual',
-        'approval_scope_product_writes', 'approval_scope_webhook_management', 'approval_scope_notification_management',
-        'approval_scope_help_product_writes', 'approval_scope_help_webhook_management', 'approval_scope_help_notification_management',
+        'approval_scope_product_writes', 'approval_scope_webhook_management', 'approval_scope_notification_management', 'approval_scope_buyer_data_transfer',
+        'approval_scope_help_product_writes', 'approval_scope_help_webhook_management', 'approval_scope_help_notification_management', 'approval_scope_help_buyer_data_transfer',
+        'dispatch_state_claimed',
+        'dispatch_state_blocked',
+        'dispatch_state_materialized',
+        'dispatch_state_accepted',
+        'dispatch_state_failed',
+        'dispatch_state_cancelled',
+        'dispatch_reason_managed_dispatch_off',
+        'dispatch_reason_buyer_data_transfer_off',
+        'dispatch_reason_account_off',
+        'dispatch_reason_dispatch_capability_off',
+        'dispatch_reason_buyer_data_approval_missing',
+        'dispatch_reason_shipments_are_created_by_the_provider_directly',
+        'dispatch_reason_shipment_creation_not_declared',
+        'dispatch_reason_already_dispatched',
+        'dispatch_reason_shipment_already_known',
+        'dispatch_reason_order_not_open',
+        'dispatch_reason_fulfilment_not_ours',
+        'dispatch_reason_cash_on_delivery_not_supported',
+        'dispatch_reason_destination_not_supported',
+        'dispatch_reason_currency_not_supported',
+        'dispatch_reason_no_routing_decision_to_one_provider',
+        'dispatch_reason_no_active_lines',
+        'dispatch_reason_line_without_product',
+        'dispatch_reason_product_not_physical',
+        'dispatch_reason_product_owned_by_other_provider',
+        'dispatch_reason_provider_mapping_not_approved',
+        'dispatch_reason_claim_lost',
+        'dispatch_reason_provider_changed',
+        'dispatch_reason_recipient_incomplete',
+        'dispatch_reason_audit_not_written',
+        'dispatch_reason_order_number_busy',
+        'dispatch_reason_attempts_exhausted',
+        'dispatch_reason_channel_cannot_give_the_recipient',
+        'dispatch_reason_order_not_found_at_channel',
+        'dispatch_reason_not_shipped_by_the_seller',
+        'dispatch_reason_recipient_not_permitted',
+        'dispatch_reason_channel_error',
+        'dispatch_reason_channel_buyer_data_off',
+        'dispatch_reason_channel_not_approved',
+        'dispatch_reason_channel_account_off',
+        'dispatch_reason_channel_capability_off',
+        'dispatch_reason_channel_global_off',
+        'dispatch_reason_channel_auth_needed',
+        'dispatch_reason_buyer_data_expired',
+        'dispatch_problem_name_missing',
+        'dispatch_problem_phone_missing',
+        'dispatch_problem_phone_not_a_saudi_mobile',
+        'dispatch_problem_address_missing',
+        'dispatch_problem_city_missing',
+        'dispatch_problem_country_not_supported',
+        'shipment_creation_unset',
+        'shipment_creation_app',
+        'shipment_creation_provider_direct',
+        'dispatch_mode_manual',
+        'dispatch_mode_auto',
         'integration_capability_help_connection_test', 'integration_capability_help_read_only_sync', 'integration_capability_help_product_sync',
         'integration_capability_help_inventory_publishing', 'integration_capability_help_price_publishing', 'integration_capability_help_order_import',
         'integration_capability_help_fulfillment_dispatch', 'integration_capability_help_financial_reconciliation',
@@ -176,6 +236,33 @@ final class ChannelLabels
     public function orderReason(?string $code): string
     {
         return $this->label('order_reason_', $code);
+    }
+
+    public function dispatchState(?string $state): string
+    {
+        return $this->label('dispatch_state_', $state);
+    }
+
+    public function shipmentCreation(?string $value): string
+    {
+        return $this->label('shipment_creation_', $value);
+    }
+
+    public function dispatchMode(?string $value): string
+    {
+        return $this->label('dispatch_mode_', $value);
+    }
+
+    /** Why a dispatch is blocked or waits: `recipient_incomplete:phone_missing` carries what the buyer's details lack. */
+    public function dispatchReason(?string $reason): string
+    {
+        if ($reason === null || $reason === '') {
+            return self::NONE;
+        }
+        [$code, $problems] = array_pad(explode(':', $reason, 2), 2, null);
+        $missing = $problems === null ? [] : array_map(fn (string $problem): string => $this->label('dispatch_problem_', trim($problem)), explode(',', $problems));
+
+        return $this->label('dispatch_reason_', $code) . ($missing === [] ? '' : ' (' . implode(', ', $missing) . ')');
     }
 
     /** The reason a channel call or a shipment report did not happen: a switch that is off, an approval that is missing, a shipment that is not ready. */

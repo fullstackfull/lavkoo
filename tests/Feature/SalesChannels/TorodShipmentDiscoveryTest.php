@@ -108,6 +108,18 @@ class TorodShipmentDiscoveryTest extends TorodTestCase
         $this->assertSame(0, ProviderFulfillment::count(), 'nothing was created at the provider');
     }
 
+    public function test_the_accounts_own_setting_says_which_channel_value_torod_holds_as_the_reference(): void
+    {
+        $this->account->forceFill(['settings' => ['torod_reference_field' => 'package_id'] + (array) $this->account->settings])->save();
+        $mapping = $this->followed()->refresh();
+        $this->torodList([$this->torodOrder(self::ORDER, 'O001'), $this->torodOrder('3012345678', 'O002')]);
+
+        $candidates = $this->lookup()->candidates($mapping);
+
+        $this->assertSame(['O002'], array_map(static fn ($candidate): string => $candidate->reference, $candidates));
+        $this->assertSame('invoice_number = package_id', $candidates[0]->matchedOn);
+    }
+
     public function test_nothing_but_the_identifier_is_compared_the_buyers_own_details_prove_nothing(): void
     {
         $mapping = $this->followed();

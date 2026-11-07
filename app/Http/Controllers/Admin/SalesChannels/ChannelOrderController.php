@@ -6,17 +6,22 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
+use App\Enums\SalesChannels\RoutingAction;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\SalesChannels\Support\ProductDirectory;
 use App\Http\Controllers\Admin\SalesChannels\Support\ReadsFilters;
 use App\Http\Controllers\Admin\SalesChannels\Support\RunAnnouncer;
 use App\Http\Controllers\Admin\SalesChannels\Support\WriteState;
 use App\Http\Controllers\Controller;
+use App\Models\ChannelOrderDispatch;
 use App\Models\ExternalOrderMapping;
 use App\Models\FulfillmentRoutingDecision;
 use App\Models\InventoryLocation;
 use App\Models\SalesChannelAccount;
 use App\Services\Fulfillment\Support\SafeToast;
+use App\Services\SalesChannels\Dispatch\ChannelOrderDispatcher;
+use App\Services\SalesChannels\Dispatch\DispatchGate;
+use App\Services\SalesChannels\Dispatch\DispatchOutcome;
 use App\Services\SalesChannels\Routing\DynamicFulfillmentRoutingEngine;
 use App\Services\SalesChannels\Shipments\ChannelShipmentNotifier;
 use App\Services\SalesChannels\Shipments\ExternalShipmentLinker;
@@ -57,6 +62,8 @@ class ChannelOrderController extends Controller
         private readonly ProductDirectory $products,
         private readonly RunAnnouncer $announcer,
         private readonly ChannelLabels $labels,
+        private readonly ChannelOrderDispatcher $dispatcher,
+        private readonly DispatchGate $dispatchGate,
     ) {
     }
 
@@ -100,6 +107,8 @@ class ChannelOrderController extends Controller
     {
         $mapping->load(['account', 'lines']);
         $decisions = FulfillmentRoutingDecision::where('external_order_mapping_id', $mapping->id)->orderByDesc('version')->get();
+        $dispatch = ChannelOrderDispatch::where('mapping_id', $mapping->id)->first();
+        $routedToProvider = $decisions->firstWhere('is_current', true)?->action === RoutingAction::RouteToProvider->value;
 
         return view('admin-views.sales-channels.order', [
             'labels' => $this->labels,
@@ -114,8 +123,27 @@ class ChannelOrderController extends Controller
             'destination' => (array) ($mapping->snapshot['destination'] ?? []),
             'notified' => $mapping->snapshot['channel_notified'] ?? null,
             'notifyError' => $mapping->snapshot['channel_notify_error'] ?? null,
-            'canUnlink' => in_array($mapping->shipment_link_state, self::UNLINKABLE, true),
+            'canUnlink' => $mapping->order_id === null && in_array($mapping->shipment_link_state, self::UNLINKABLE, true),
+            'dispatch' => $dispatch,
+            'showDispatch' => $dispatch !== null || $mapping->order_id !== null || $routedToProvider,
+            'dispatchBlockers' => $mapping->order_id === null ? $this->dispatchGate->evaluate($mapping)->blockers : [],
         ]);
+    }
+
+    /** Turns the order into a provider shipment now, with the buyer's details read from the channel for this one purpose. The provider is never called from here: the platform's own fulfilment sends it. */
+    public function dispatchToProvider(ExternalOrderMapping $mapping): RedirectResponse
+    {
+        $outcome = $this->dispatcher->dispatch($mapping, trigger: 'manual', adminId: auth('admin')->id());
+        $reason = $outcome->reason === null ? '' : $this->labels->dispatchReason($outcome->reason);
+
+        match ($outcome->state) {
+            DispatchOutcome::MATERIALIZED => SafeToast::success(translate('order_dispatched_to_the_provider')),
+            DispatchOutcome::ALREADY_DONE => SafeToast::info(translate('order_already_dispatched_decision_stands')),
+            DispatchOutcome::BUSY => SafeToast::info(translate('dispatch_already_running')),
+            default => SafeToast::warning(translate('order_not_dispatched'), $reason),
+        };
+
+        return back();
     }
 
     /** Decides again now, with the rules as they are. It records a decision (and what it applies to the order); it sends nothing to a channel or a provider. */

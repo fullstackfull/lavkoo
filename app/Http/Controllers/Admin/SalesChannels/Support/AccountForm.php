@@ -41,8 +41,8 @@ final class AccountForm
     public const DEFAULT_POLICIES = [ExecutionPolicy::ManualReview, ExecutionPolicy::ExternallyManaged];
 
     private const SETTING_FIELDS = [
-        'amazon' => ['region', 'marketplace_ids', 'sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders'],
-        'trendyol' => ['storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'torod_reference_field', 'carrier_codes'],
+        'amazon' => ['region', 'marketplace_ids', 'sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders', 'shipment_creation', 'dispatch_mode'],
+        'trendyol' => ['storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'torod_reference_field', 'carrier_codes', 'shipment_creation', 'dispatch_mode'],
     ];
 
     public function __construct(private readonly ValidationFactory $validation)
@@ -144,7 +144,7 @@ final class AccountForm
 
         if ($channel === SalesChannel::Amazon) {
             return $flags(['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders'])
-                + ['settings.region' => ['required', Rule::in(ChannelSettings::AMAZON_REGIONS)]]
+                + ['settings.region' => ['required', Rule::in(ChannelSettings::AMAZON_REGIONS)], 'settings.shipment_creation' => ['nullable', Rule::in(['unset', 'app'])], 'settings.dispatch_mode' => ['nullable', Rule::in(ChannelSettings::DISPATCH_MODES)]]
                 + ($creating ? ['settings.marketplace_ids' => ['required', 'array', 'min:1'], 'settings.marketplace_ids.*' => ['string', 'regex:/^[A-Z0-9]{8,16}$/']] : []);
         }
 
@@ -153,6 +153,8 @@ final class AccountForm
             'settings.integration_name' => ['required', 'string', 'regex:/^[A-Za-z0-9]{1,30}$/'],
             'settings.accept_language' => ['required', Rule::in(['ar', 'en', 'tr'])],
             'settings.torod_reference_field' => ['required', Rule::in(['order_number', 'package_id', 'tracking_number'])],
+            'settings.shipment_creation' => ['nullable', Rule::in(ChannelSettings::SHIPMENT_CREATION)],
+            'settings.dispatch_mode' => ['nullable', Rule::in(ChannelSettings::DISPATCH_MODES)],
             'settings.carrier_codes' => ['nullable', 'array'],
             'settings.carrier_codes.*' => ['string', 'regex:/^[A-Z0-9_]{2,30}$/'],
         ];
@@ -188,6 +190,8 @@ final class AccountForm
             'settings.integration_name' => translate('integration_name'),
             'settings.accept_language' => translate('response_language'),
             'settings.torod_reference_field' => translate('torod_reference_field'),
+            'settings.shipment_creation' => translate('shipment_creation_setting'),
+            'settings.dispatch_mode' => translate('dispatch_mode_setting'),
             'settings.carrier_codes' => translate('carrier_codes'),
             'settings.carrier_codes.*' => translate('carrier_codes'),
             'clear_secrets' => translate('clear_stored_value'),
