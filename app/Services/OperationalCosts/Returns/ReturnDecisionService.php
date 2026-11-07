@@ -47,6 +47,9 @@ class ReturnDecisionService
         if ($restock < 0 || $writeOff < 0 || $restock + $writeOff < 1) {
             throw new InvalidReturnDecision(InvalidReturnDecision::NOTHING_TO_DECIDE);
         }
+        if (mb_strlen($returnEvent) > OperationalCostReturnDecision::RETURN_EVENT_LENGTH) {
+            throw new InvalidReturnDecision(InvalidReturnDecision::UNKNOWN_RETURN_EVENT);
+        }
 
         $result = DB::transaction(function () use ($line, $returnEvent, $restock, $writeOff, $locationId, $adminId, $note, $automatic): ReturnDecisionResult {
             $locked = ExternalOrderLine::whereKey($line->id)->lockForUpdate()->firstOrFail();

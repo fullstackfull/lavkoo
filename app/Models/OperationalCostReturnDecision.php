@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * What was decided about the units of a channel order line that came back, once per line and return event: some put back on the shelf at their original cost
@@ -18,6 +17,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OperationalCostReturnDecision extends Model
 {
     public const TARGET_CHANNEL_ORDER_LINE = 'channel_order_line';
+
+    /** The width of the `return_event` column: an event that does not fit is refused, never truncated into another one's key. */
+    public const RETURN_EVENT_LENGTH = 120;
 
     protected $table = 'operational_cost_return_decisions';
 
@@ -35,11 +37,6 @@ class OperationalCostReturnDecision extends Model
         'decided_by' => 'integer',
         'decided_at' => 'datetime',
     ];
-
-    public function line(): BelongsTo
-    {
-        return $this->belongsTo(ExternalOrderLine::class, 'target_id');
-    }
 
     public function units(): int
     {

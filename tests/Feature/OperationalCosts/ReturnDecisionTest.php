@@ -147,7 +147,7 @@ class ReturnDecisionTest extends TestCase
         $this->decide($line, 'claim:CLM-1', restock: 1, writeOff: 2);
 
         $this->assertSame('20.000000', $this->cogsNet($line), 'One unit was put back; the two damaged ones stay as cost.');
-        $this->assertSame(1, InventoryCostLayer::where('source_type', 'return')->sum('quantity_received'));
+        $this->assertSame(1, (int) InventoryCostLayer::where('source_type', 'return')->sum('quantity_received'));
         $this->assertSame(8, $this->onShelf());
         $this->assertSame([1, 2], [OperationalCostReturnDecision::firstOrFail()->units_restocked, OperationalCostReturnDecision::firstOrFail()->units_written_off]);
     }
@@ -276,6 +276,15 @@ class ReturnDecisionTest extends TestCase
 
         $line->forceFill(['product_id' => null])->save();
         $this->assertRefused('not_linked', fn () => $this->decide($line->fresh(), 'manual:e', restock: 1));
+        $this->assertSame(0, OperationalCostReturnDecision::count());
+    }
+
+    public function test_a_return_event_too_long_to_be_stored_is_refused_and_never_truncated(): void
+    {
+        $claim = str_repeat('c', 200);
+        $line = $this->acceptedReturn($this->soldLine(), [$claim => 2]);
+
+        $this->assertRefused('unknown_return_event', fn () => $this->decide($line, 'claim:' . $claim, restock: 2));
         $this->assertSame(0, OperationalCostReturnDecision::count());
     }
 
@@ -409,6 +418,19 @@ class ReturnDecisionTest extends TestCase
 
         $this->assertSame(0, $line->fresh()->quantity_returned);
         $this->assertSame(0, OperationalCostReturnDecision::count());
+    }
+
+    public function test_reading_returns_goes_on_when_the_setting_is_on_and_a_claim_cannot_be_decided(): void
+    {
+        $line = $this->soldLine();
+        $this->autoRestock(true);
+        Http::fake([self::TY . '/order/sellers/1234567/claims*' => Http::response(Trendyol::claimsPage([Trendyol::claim(['Accepted'], str_repeat('c', 200)), Trendyol::claim(['Accepted'], 'claim-2')]))]);
+
+        $result = app(ChannelSyncService::class)->syncReturns($this->account);
+
+        $this->assertSame('ok', $result['result']);
+        $this->assertSame(2, $line->fresh()->quantity_returned, 'Both claims are recorded on the line.');
+        $this->assertSame(['claim:claim-2'], OperationalCostReturnDecision::pluck('return_event')->all(), 'The claim that fits is put back; the other waits for a person.');
     }
 
     public function test_the_setting_does_nothing_while_the_cost_module_is_switched_off(): void
