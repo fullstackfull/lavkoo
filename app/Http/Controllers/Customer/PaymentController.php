@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
+use App\Services\Address\OrderAddressService;
 use App\Services\Analytics\Analytics;
 use App\Models\AdminWallet;
 use App\Models\Cart;
@@ -36,10 +38,37 @@ use Brian2694\Toastr\Facades\Toastr;
 use Illuminate\Http\RedirectResponse;
 use App\Library\Payment as PaymentInfo;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class PaymentController extends Controller
 {
     use Payment, PaymentGatewayTrait, OrderEditManager;
+
+    public function __construct(private readonly OrderAddressService $orderAddresses)
+    {
+    }
+
+    /** Why the address this payment is for cannot be ordered with (not the payer's, gone, or an old Saudi address to complete first), or null when it can. */
+    private function unusableAddressMessage(Request $request, mixed $user): ?string
+    {
+        $fromApp = in_array($request['payment_request_from'], ['app']);
+        $guestId = $fromApp ? $request['guest_id'] : session('guest_id');
+
+        try {
+            $this->orderAddresses->assertOrderable(
+                shippingId: $fromApp ? $request['address_id'] : session('address_id'),
+                billingId: $fromApp ? $request['billing_address_id'] : session('billing_address_id'),
+                customerId: $user === 'offline' ? $guestId : $user->id,
+                isGuest: $user === 'offline',
+                channel: $fromApp ? AddressChannel::Api : AddressChannel::Web,
+                guestId: $guestId,
+            );
+        } catch (ValidationException $exception) {
+            return $exception->validator->errors()->first();
+        }
+
+        return null;
+    }
 
     public function payment(Request $request): JsonResponse|Redirector|RedirectResponse
     {
@@ -83,6 +112,20 @@ class PaymentController extends Controller
                 }
                 return back();
             }
+        }
+
+        // The payer is whoever the request is authenticated as. The app also sends customer_id and is_guest, and they are
+        // kept for the order that is created once the gateway reports back, so they must not name anyone else.
+        if (in_array($request['payment_request_from'], ['app'])) {
+            $request->merge($user === 'offline' ? ['customer_id' => $request['guest_id'], 'is_guest' => 1] : ['customer_id' => $user->id, 'is_guest' => 0]);
+        }
+
+        if ($addressMessage = $this->unusableAddressMessage(request: $request, user: $user)) {
+            if (in_array($request['payment_request_from'], ['app'])) {
+                return response()->json(['message' => $addressMessage, 'errors' => [['code' => 'address', 'message' => $addressMessage]]], 403);
+            }
+            Toastr::error($addressMessage);
+            return redirect()->route('checkout-details');
         }
 
         $cartGroupIds = CartManager::get_cart_group_ids(request: $request, type: 'checked');

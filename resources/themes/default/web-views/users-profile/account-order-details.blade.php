@@ -1,3 +1,4 @@
+@use('App\Services\Address\AddressSnapshotLines')
 @extends('layouts.front-end.app')
 
 
@@ -310,29 +311,10 @@
                                     </div>
                                 @endif
                                 @if( $order->order_type == 'default_type')
-                                        <?php
-                                        $shipping = isset($order->shipping_address_data)
-                                            ? (is_string($order->shipping_address_data)
-                                                ? json_decode($order->shipping_address_data)
-                                                : $order->shipping_address_data)
-                                            : null;
-
-
-                                        $billing = isset($order->billing_address_data)
-                                            ? (is_string($order->billing_address_data)
-                                                ? json_decode($order->billing_address_data)
-                                                : $order->billing_address_data)
-                                            : null;
-
-
-                                        $hasShipping = $shipping;
-                                        $hasBilling = $billing;
-                                        $colClass = ($hasShipping && $hasBilling) ? 'col-md-6 col-sm-6' : 'col-md-12 col-sm-12';
-                                        ?>
-
-
-                                    @php($shipping = $order['shipping_address_data'] ?? null)
-                                    @if($hasShipping && !empty((array) $shipping))
+                                    @php($shipping = $order->shippingAddressSnapshot())
+                                    @php($billing = $order->billingAddressSnapshot())
+                                    @php($colClass = $shipping && $billing ? 'col-md-6 col-sm-6' : 'col-md-12 col-sm-12')
+                                    @if($shipping)
                                         <div class="{{ $colClass }}">
                                             <div class="light-box rounded-8 p--20 h-100">
                                                 <div class="pb-1">
@@ -343,24 +325,25 @@
                                                 <div class="text-capitalize fs-12">
                                                     <span
                                                         class="min-w-60px title-semidark">{{ translate('name') }}</span>
-                                                    : {{ $shipping->contact_person_name }}<br>
+                                                    : {{ $shipping['contact_person_name'] ?? '' }}<br>
                                                     <span
                                                         class="min-w-60px title-semidark">{{ translate('phone') }}</span>
-                                                    : {{ $shipping->phone }}<br>
-                                                    <span
-                                                        class="min-w-60px title-semidark">{{ translate('city') }} / {{ translate('zip') }}</span>
-                                                    :
-                                                    {{ $shipping->city }}, {{ $shipping->zip }}<br>
+                                                    : {{ $shipping['phone'] ?? '' }}<br>
+                                                    @foreach(AddressSnapshotLines::location($shipping) as $line)
+                                                        <span
+                                                            class="min-w-60px title-semidark">{{ translate($line['label']) }}</span>
+                                                        : {{ $line['value'] }}<br>
+                                                    @endforeach
                                                     <span
                                                         class="min-w-60px title-semidark">{{ translate('address') }}</span>
                                                     :
-                                                    {{ $shipping->address }}
+                                                    {{ $shipping['address'] ?? '' }}
                                                 </div>
                                             </div>
                                         </div>
                                     @endif
 
-                                    @if($hasBilling && !empty((array) $billing))
+                                    @if($billing)
                                         <div class="{{ $colClass }}">
                                             <div class="light-box rounded-8 p--20 h-100">
                                                 <div class="pb-1">
@@ -369,13 +352,7 @@
                                                     </h6>
                                                 </div>
 
-                                                    <?php
-                                                    $isSameAddress = $billing && $shipping && !empty((array) $shipping) &&
-                                                        ($billing->address == $shipping->address) &&
-                                                        ($billing->city == $shipping->city) &&
-                                                        ($billing->zip == $shipping->zip);
-                                                    ?>
-                                                @if($isSameAddress)
+                                                @if(AddressSnapshotLines::same($billing, $shipping))
                                                     <div class="bg-white card">
                                                         <div class="d-center py-5 px-4">
                                                             <p class="fs-14 m-0">{{ translate('Same as shipping address') }}</p>
@@ -386,18 +363,21 @@
                                                         <span
                                                             class="min-w-60px title-semidark">{{ translate('name') }}</span>
                                                         :
-                                                        {{ $billing->contact_person_name }}<br>
+                                                        {{ $billing['contact_person_name'] ?? '' }}<br>
                                                         <span
                                                             class="min-w-60px title-semidark">{{ translate('phone') }}</span>
                                                         :
-                                                        {{ $billing->phone }}<br>
-                                                        <span class="min-w-60px title-semidark">{{ translate('city') }} / {{ translate('zip') }}</span>
-                                                        :
-                                                        {{ $billing->city }}, {{ $billing->zip }}<br>
+                                                        {{ $billing['phone'] ?? '' }}<br>
+                                                        @foreach(AddressSnapshotLines::location($billing) as $line)
+                                                            <span
+                                                                class="min-w-60px title-semidark">{{ translate($line['label']) }}</span>
+                                                            :
+                                                            {{ $line['value'] }}<br>
+                                                        @endforeach
                                                         <span
                                                             class="min-w-60px title-semidark">{{ translate('address') }}</span>
                                                         :
-                                                        {{ $billing->address }}
+                                                        {{ $billing['address'] ?? '' }}
                                                     </div>
                                                 @endif
                                             </div>

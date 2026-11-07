@@ -897,6 +897,13 @@
                         <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="business-setup" aria-label="Pin"></button></div>
                     </a>
 
+                    @if (Route::has('admin.address-system.index'))
+                        <a class="v2-nav-item {{ Request::is('admin/address-system*') ? 'v2-is-active' : '' }}" data-item="address-system" href="{{ route('admin.address-system.index') }}">
+                            <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('address_system') }}</span></span>
+                            <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="address-system" aria-label="{{ translate('pin') }}"></button></div>
+                        </a>
+                    @endif
+
                     <a class="v2-nav-item {{ Request::is('admin/business-settings/inhouse-shop') || Request::is('admin/business-settings/inhouse-shop/setup*') ? 'v2-is-active' : '' }}" data-item="inhouse-shop" href="{{ route('admin.business-settings.inhouse-shop') }}">
                         <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('Inhouse_Shop') }}</span></span>
                         <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="inhouse-shop" aria-label="Pin"></button></div>

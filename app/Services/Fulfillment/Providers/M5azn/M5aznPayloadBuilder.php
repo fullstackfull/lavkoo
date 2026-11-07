@@ -6,6 +6,7 @@ use App\Enums\Fulfillment\PaymentMode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
+use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\SaudiPhone;
 
@@ -19,6 +20,9 @@ use App\Services\Fulfillment\Support\SaudiPhone;
  *
  * It contains ONLY the fulfillment's own items and its own allocated amounts: never the parent order's
  * other lines, and — for cash on delivery — only the share this provider collects.
+ *
+ * `city` is the store's own city name (Arabic) when the address carries one of the store's cities, and the text the customer
+ * typed for every older address. Which spelling M5AZN prefers is not documented.
  */
 class M5aznPayloadBuilder
 {
@@ -27,7 +31,7 @@ class M5aznPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
-        [$first, $last] = $this->splitName((string) ($address['contact_person_name'] ?? ''));
+        [$first, $last] = $this->splitName(AddressSnapshot::plain($address, 'contact_person_name'));
 
         return [
             'id' => (int) $order->id,
@@ -37,16 +41,16 @@ class M5aznPayloadBuilder
             'order_created_at' => $order->created_at?->format('Y-m-d H:i:s'),
             'platform_name' => $this->platformName($config),
             'shipping_info' => [
-                'address' => trim((string) ($address['address'] ?? '')),
+                'address' => AddressSnapshot::streetLine($address),
                 'country' => $config->string('country_name', 'Saudi Arabia'),
                 'country_code' => $config->string('country_code', 'SA'),
-                'city' => trim((string) ($address['city'] ?? '')),
+                'city' => trim((string) AddressSnapshot::cityName($address, 'ar')),
             ],
             'customer_info' => [
                 'first_name' => $first,
                 'last_name' => $last,
-                'email' => trim((string) ($address['email'] ?? '')),
-                'phone' => SaudiPhone::normalize((string) ($address['phone'] ?? '')) ?? '',
+                'email' => AddressSnapshot::plain($address, 'email'),
+                'phone' => SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone')) ?? '',
             ],
             'items' => $fulfillment->items->map(fn (ProviderFulfillmentItem $item): array => [
                 'id' => (int) $item->order_detail_id,

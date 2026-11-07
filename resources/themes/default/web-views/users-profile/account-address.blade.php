@@ -1,5 +1,10 @@
+@use('App\Services\Address\AddressSnapshot')
+@use('App\Services\Address\AddressSnapshotLines')
 @extends('layouts.front-end.app')
 @php($zipFieldStatus = getWebConfig(name: 'zip_code_field_status') || $zip_restrict_status)
+{{-- The structured Saudi address replaces the free-text city and the ZIP code for Saudi Arabia only; rows marked data-ua-other
+     are the old ones, shown (and posted) for the other countries. --}}
+@php($otherRow = $unified_address ? ' data-ua-other' : '')
 
 @section('title', translate('my_Address'))
 
@@ -78,7 +83,7 @@
                                         </div>
                                     </div>
                                     <div class="form-row">
-                                        <div class="form-group col-md-6">
+                                        <div class="form-group col-md-6"{{ $otherRow }}>
                                             <label for="address-city">
                                                 {{translate('city')}}
                                                 <span class="text-danger">*</span>
@@ -86,7 +91,7 @@
                                             <input class="form-control" type="text" id="address-city" name="city"
                                                    required>
                                         </div>
-                                        <div class="form-group col-md-6 {{ $zipFieldStatus ? '' : 'd-none' }}">
+                                        <div class="form-group col-md-6 {{ $zipFieldStatus ? '' : 'd-none' }}"{{ $otherRow }}>
                                             <label for="zip">
                                                 {{translate('zip_code')}}
                                                 @if($zip_restrict_status)<span class="text-danger">*</span>@endif
@@ -113,17 +118,25 @@
                                             <select name="country" id="" class="form-control selectpicker"
                                                     data-live-search="true">
                                                 @foreach($countries as $d)
-                                                    <option value="{{ $d['name'] }}">{{ $d['name'] }}</option>
+                                                    <option value="{{ $d['name'] }}"{{ $unified_address && $d['code'] === 'SA' ? ' selected' : '' }}>{{ $d['name'] }}</option>
                                                 @endforeach
                                             </select>
                                         </div>
                                     </div>
 
+                                    @if($unified_address)
+                                        <div class="form-row">
+                                            <div class="col-md-12">
+                                                @include('partials.address._unified-address-fields', ['address' => null, 'ui' => 'bs4', 'idPrefix' => 'new', 'namePrefix' => '', 'countrySelector' => 'select[name=country]'])
+                                            </div>
+                                        </div>
+                                    @endif
+
                                     <div class="form-row">
                                         <div class="col-md-12">
                                             <div class="form-group mb-1">
                                                 <label for="address">
-                                                    {{translate('address')}}
+                                                    {{ $unified_address ? translate('address_street_details') : translate('address') }}
                                                     <span class="text-danger">*</span>
                                                 </label>
 
@@ -153,11 +166,11 @@
                                 <input type="hidden" id="latitude"
                                        name="latitude" class="form-control d-inline"
                                        placeholder="{{ translate('ex')}} : -94.22213"
-                                       value="{{$default_location?$default_location['lat']:0}}" required readonly>
+                                       value="{{ $default_location?$default_location['lat']:0 }}" required readonly>
                                 <input type="hidden"
                                        name="longitude" class="form-control"
                                        placeholder="{{ translate('ex')}} : 103.344322" id="longitude"
-                                       value="{{$default_location?$default_location['lng']:0}}" required readonly>
+                                       value="{{ $default_location?$default_location['lng']:0 }}" required readonly>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary"
                                             data-dismiss="modal">{{translate('close')}}</button>
@@ -219,6 +232,9 @@
                                                 <h6 class="mb-0 fw-semibold">
                                                     {{translate($shippingAddress['address_type'])}}
                                                     <span class="font-semibold fs-12">( {{$shippingAddress['is_billing']==1?translate('Billing_address'):translate('shipping_address')}} )</span>
+                                                    @if(in_array($shippingAddress->id, $incomplete_address_ids))
+                                                        <span class="badge badge-warning ua-badge">{{ translate('address_needs_completion') }}</span>
+                                                    @endif
                                                 </h6>
                                             </div>
                                             <div class="d-flex justify-content-between gap-2 align-items-center">
@@ -255,24 +271,38 @@
                                                     {{$shippingAddress['phone']}}
                                                 </span>
                                             </div>
-                                            <div>
-                                                <span class="font-nameA">
-                                                    <span class="fw-semibold min-w-60px">
-                                                        {{translate('city')}}
+                                            @if($unified_address)
+                                                @foreach(AddressSnapshotLines::location(AddressSnapshot::build($shippingAddress)) as $line)
+                                                    <div>
+                                                        <span class="font-nameA">
+                                                            <span class="fw-semibold min-w-60px">
+                                                                {{ translate($line['label']) }}
+                                                            </span>
+                                                            <span class="px-1">:</span>
+                                                            {{ $line['value'] }}
+                                                        </span>
+                                                    </div>
+                                                @endforeach
+                                            @else
+                                                <div>
+                                                    <span class="font-nameA">
+                                                        <span class="fw-semibold min-w-60px">
+                                                            {{translate('city')}}
+                                                        </span>
+                                                        <span class="px-1">:</span>
+                                                        {{$shippingAddress['city']}}
                                                     </span>
-                                                    <span class="px-1">:</span>
-                                                    {{$shippingAddress['city']}}
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span class="font-nameA">
-                                                    <span class="fw-semibold min-w-60px">
-                                                        {{translate('zip_code')}}
+                                                </div>
+                                                <div>
+                                                    <span class="font-nameA">
+                                                        <span class="fw-semibold min-w-60px">
+                                                            {{translate('zip_code')}}
+                                                        </span>
+                                                        <span class="px-1">:</span>
+                                                        {{$shippingAddress['zip']}}
                                                     </span>
-                                                    <span class="px-1">:</span>
-                                                    {{$shippingAddress['zip']}}
-                                                </span>
-                                            </div>
+                                                </div>
+                                            @endif
                                             <div>
                                                 <span class="font-nameA">
                                                     <span class="fw-semibold min-w-60px">
@@ -303,11 +333,19 @@
         </div>
     </div>
     <span id="system-country-restrict-status" data-value="{{ $country_restrict_status }}"></span>
+    @if($unified_address)
+        @include('partials.address._unified-address-script')
+    @endif
 @endsection
 
 @push('script')
     <script src="{{ theme_asset(path: 'public/assets/front-end/js/bootstrap-select.min.js') }}"></script>
     <script src="{{ theme_asset(path: 'public/assets/front-end/js/account-address.js') }}"></script>
+    @if($unified_address)
+        @include('web-views.partials.address._storefront-address-guard', ['forms' => [
+            ['form' => '#exampleModal form', 'country' => 'select[name=country]', 'street' => '#address', 'phone' => '#phone'],
+        ]])
+    @endif
     <script>
         "use strict";
         const deliveryRestrictedCountries = @json($countriesName);

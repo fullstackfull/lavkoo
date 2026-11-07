@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Services\Address\AddressSchema;
+use App\Services\Address\StorefrontAddressService;
 use App\Services\Analytics\Analytics;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
@@ -82,6 +84,7 @@ class WebController extends Controller
         private readonly RobotsMetaContentRepositoryInterface $robotsMetaContentRepo,
         private readonly ProductService                       $productService,
         private readonly ShopService                              $shopService,
+        private readonly StorefrontAddressService                 $storefrontAddresses,
     )
     {
 
@@ -348,11 +351,7 @@ class WebController extends Controller
         $billingInputByCustomer = getWebConfig(name: 'billing_input_by_customer');
         $defaultLocation = getWebConfig(name: 'default_location');
 
-        $user = Helpers::getCustomerInformation($request);
-        $shippingAddresses = ShippingAddress::where([
-            'customer_id' => $user == 'offline' ? session('guest_id') : auth('customer')->id(),
-            'is_guest' => $user == 'offline' ? 1 : '0',
-        ])->get();
+        $shippingAddresses = $this->storefrontAddresses->checkoutAddresses();
 
         $countriesName = [];
         $countriesCode = [];
@@ -372,7 +371,10 @@ class WebController extends Controller
             'billing_input_by_customer' => $billingInputByCustomer,
             'default_location' => $defaultLocation,
             'shipping_addresses' => $shippingAddresses,
-            'billing_addresses' => $shippingAddresses
+            'billing_addresses' => $shippingAddresses,
+            'saved_address_prefill' => $shippingAddresses->mapWithKeys(fn (ShippingAddress $address): array => [$address->id => $this->storefrontAddresses->prefillJson($address)])->all(),
+            'incomplete_address_ids' => $this->storefrontAddresses->incompleteAddressIds($shippingAddresses),
+            'unified_address' => AddressSchema::enabled(),
         ]);
     }
 
@@ -581,6 +583,19 @@ class WebController extends Controller
             return redirect()->route('shop-cart');
         }
 
+        $addressRefusal = $this->storefrontAddresses->checkoutRefusal();
+        if ($addressRefusal !== null) {
+            if ($request->ajax()) {
+                return response()->json([
+                    'status' => 0,
+                    'message' => $addressRefusal,
+                    'redirect' => route('checkout-details'),
+                ]);
+            }
+            Toastr::error($addressRefusal);
+            return redirect()->route('checkout-details');
+        }
+
         if (session('newCustomerRegister')) {
             $newCustomerRegister = session('newCustomerRegister');
             if (User::where(['email' => $newCustomerRegister['email']])->orWhere(['phone' => $newCustomerRegister['phone']])->first()) {
@@ -725,6 +740,12 @@ class WebController extends Controller
             }
         }
 
+        $addressRefusal = $this->storefrontAddresses->checkoutRefusal();
+        if ($addressRefusal !== null) {
+            Toastr::error($addressRefusal);
+            return redirect()->route('checkout-details');
+        }
+
         if (session('newCustomerRegister')) {
             $newCustomerRegister = session('newCustomerRegister');
             if (User::where(['email' => $newCustomerRegister['email']])->orWhere(['phone' => $newCustomerRegister['phone']])->first()) {
@@ -825,6 +846,12 @@ class WebController extends Controller
             if ($verifyStatus['status'] == 0) {
                 Toastr::info(translate('check_minimum_order_amount_requirement'));
                 return redirect()->route('shop-cart');
+            }
+
+            $addressRefusal = $this->storefrontAddresses->checkoutRefusal();
+            if ($addressRefusal !== null) {
+                Toastr::error($addressRefusal);
+                return redirect()->route('checkout-details');
             }
 
             $order_ids = OrderManager::generateOrder(data: [

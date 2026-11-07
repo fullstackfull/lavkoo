@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
+use App\Enums\Address\AddressChannel;
+use App\Services\OrderAddressUpdateService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Events\OrderStatusEvent;
@@ -31,6 +33,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Ramsey\Uuid\Uuid;
 use App\Services\Marketplace\SellerOrderBreakdownService;
 use App\Services\Marketplace\SellerOrderTimelineService;
@@ -45,6 +48,7 @@ class OrderController extends Controller
         private DeliveryZipCode                   $delivery_zip_code,
         private Order                             $order,
         private readonly OrderRepositoryInterface $orderRepo,
+        private readonly OrderAddressUpdateService $addressUpdates,
     )
     {
     }
@@ -562,39 +566,18 @@ class OrderController extends Controller
         if (!$orderModel) {
             return response()->json(['message' => translate('order_not_found')], 404);
         }
-        $order = $orderModel->toArray();
-        $shipping_address_data = $order['shipping_address_data'] ? json_decode(json_encode($order['shipping_address_data']), true) : [];
-        $billing_address_data = $order['billing_address_data'] ? json_decode(json_encode($order['billing_address_data']), true) : [];
 
-        $common_address_data = [
-            'contact_person_name' => $request->contact_person_name,
-            'phone' => $request->phone,
-            'city' => $request->city,
-            'zip' => $request->zip,
-            'email' => $request->email,
-            'address' => $request->address,
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
-            'updated_at' => now(),
-        ];
-
-        if ($request->address_type == 'shipping') {
-            $shipping_address_data = array_merge($shipping_address_data, $common_address_data);
-        } elseif ($request->address_type == 'billing') {
-            $billing_address_data = array_merge($billing_address_data, $common_address_data);
-        }
-        $update_data = [];
-
-        if ($request->address_type == 'shipping') {
-            $update_data['shipping_address_data'] = json_encode($shipping_address_data);
-        } elseif ($request->address_type == 'billing') {
-            $update_data['billing_address_data'] = json_encode($billing_address_data);
-        }
-
-        if (!empty($update_data)) {
-            DB::table('orders')->where('id', $request->order_id)
-                ->where('seller_id', $seller['id'])->where('seller_is', 'seller')
-                ->update($update_data);
+        if (in_array($request->address_type, ['shipping', 'billing'], true)) {
+            try {
+                $this->addressUpdates->update(
+                    order: $orderModel,
+                    addressType: $request->address_type,
+                    input: $request->only(['contact_person_name', 'phone', 'city', 'zip', 'email', 'address', 'latitude', 'longitude', 'region_id', 'city_id', 'district', 'national_address']),
+                    channel: AddressChannel::Api,
+                );
+            } catch (ValidationException $exception) {
+                return response()->json(['errors' => Helpers::validationErrorProcessor($exception->validator)], 403);
+            }
         }
 
         return response()->json(['message' => 'Address updated successfully'], 200);

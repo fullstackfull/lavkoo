@@ -44,6 +44,8 @@ final class PersonalDataScrub
             'zip' => $text(''),
             'latitude' => $text(''),
             'longitude' => $text(''),
+            'district' => $text(''),
+            'national_address' => $text(''),
         ];
 
         $addressJson = static fn (string $column): \Closure => static fn (SqlDialect $sql): string => $sql->jsonReplace($column, [
@@ -52,6 +54,10 @@ final class PersonalDataScrub
             '$.email' => $sql->concat("'recipient'", 'id', "'@staging.invalid'"),
             '$.address' => "''",
             '$.zip' => "''",
+            '$.district' => "''",
+            '$.national_address' => "''",
+            '$.latitude' => "''",
+            '$.longitude' => "''",
         ]);
 
         return [

@@ -8,7 +8,7 @@ declare(strict_types=1);
  * application directories, with the checksum of its baseline version, so that the server can tell whether the file it is about
  * to replace is still the one the release was built against.
  *
- *   php scripts/deploy/build-overlay.php --base=<baseline> --head=<release> --out=build/overlay [--repo=.] [--archive]
+ *   php scripts/deploy/build-overlay.php --base=<baseline> --head=<release> --out=build/overlay [--repo=.] [--archive] [--exclude=<path>]...
  *
  * It refuses, rather than guesses, whenever the release does something an overlay cannot do: a deleted file, a changed
  * dependency list, or a changed file outside the application directories (public/, Modules/, composer.*, the web server
@@ -19,6 +19,10 @@ declare(strict_types=1);
  * can see exactly what a hotfix on the server changed) and tools/ (the backup scripts, which must run BEFORE anything is
  * installed). Neither is ever copied into the application. The output directory must be new or empty, so that nothing from an
  * earlier build can end up in the package.
+ *
+ * NEVER_PACKAGED names data files that no package carries (their licence is not settled). `--exclude=<path>` (repeatable) keeps one more
+ * file the release changes out of a package. The manifest lists what was left out, and the build refuses an `--exclude` that names a
+ * file the release does not change, so that a typing mistake cannot let the file through.
  */
 
 const FORMAT = 1;
@@ -26,6 +30,8 @@ const SHIPPED_TOP_LEVEL = ['app', 'bootstrap', 'config', 'database', 'resources'
 const DEV_ONLY = ['tests/', 'docs/', '.github/', 'scripts/', '.claude/', 'CLAUDE.md', '.gitignore', '.env.example', 'phpunit.xml', 'phpunit.mysql.xml', 'README.md'];
 const LANGUAGE_FILE = '#^resources/lang/[a-z_]+/new-messages\.php$#';
 const TOOLS = ['backup.sh', 'verify-backup.sh', 'mysql-defaults.php'];
+/** Data files whose licence is not settled: no package carries them, whoever builds it. The store reads its own copy from the source (`php artisan address:fetch-spl`). */
+const NEVER_PACKAGED = ['database/data/address/cities.json', 'database/data/address/regions.json'];
 
 exit(build($argv));
 
@@ -33,15 +39,21 @@ exit(build($argv));
 function build(array $argv): int
 {
     $options = [];
+    $excluded = [];
     foreach (array_slice($argv, 1) as $argument) {
         if (preg_match('/^--([a-z-]+)(?:=(.*))?$/', $argument, $match) === 1) {
+            if ($match[1] === 'exclude') {
+                $excluded[] = ltrim((string) ($match[2] ?? ''), '/');
+
+                continue;
+            }
             $options[$match[1]] = $match[2] ?? true;
         }
     }
 
     foreach (['base', 'head', 'out'] as $required) {
         if (!isset($options[$required]) || $options[$required] === true) {
-            fwrite(STDERR, "Usage: php build-overlay.php --base=REV --head=REV --out=DIR [--repo=.] [--archive]\n");
+            fwrite(STDERR, "Usage: php build-overlay.php --base=REV --head=REV --out=DIR [--repo=.] [--archive] [--exclude=PATH]...\n");
 
             return 2;
         }
@@ -52,6 +64,7 @@ function build(array $argv): int
         $base = git($repo, ['rev-parse', '--verify', $options['base'] . '^{commit}']);
         $head = git($repo, ['rev-parse', '--verify', $options['head'] . '^{commit}']);
         $changes = changes($repo, $base, $head);
+        [$changes, $excluded] = withoutExcluded($changes, array_values(array_unique($excluded)));
         assertScriptsAreTheOnesInTheRelease($repo, $head);
         $out = rtrim((string) $options['out'], '/');
         if (is_dir($out) && array_diff(scandir($out) ?: [], ['.', '..']) !== []) {
@@ -59,6 +72,9 @@ function build(array $argv): int
         }
 
         $manifest = ['format' => FORMAT, 'base' => $base, 'head' => $head, 'built_at' => gmdate('c'), 'files' => [], 'migrations' => []];
+        if ($excluded !== []) {
+            $manifest['excluded'] = $excluded;
+        }
         foreach ($changes as [$status, $path]) {
             $content = git($repo, ['show', "{$head}:{$path}"], trim: false);
             $target = "{$out}/files/{$path}";
@@ -102,6 +118,25 @@ function build(array $argv): int
     echo count($manifest['files']) . " file(s) in {$out} (" . count(array_filter($manifest['files'], static fn (array $file): bool => $file['status'] === 'M')) . ' modified, ' . count(array_filter($manifest['files'], static fn (array $file): bool => $file['status'] === 'A')) . " added), built from {$base} to {$head}.\n";
 
     return 0;
+}
+
+/**
+ * @param list<array{0: string, 1: string}> $changes
+ * @param list<string> $excluded the paths --exclude named
+ * @return array{0: list<array{0: string, 1: string}>, 1: list<string>} what is shipped, and every path left out (sorted)
+ */
+function withoutExcluded(array $changes, array $excluded): array
+{
+    $paths = array_column($changes, 1);
+    $unknown = array_diff($excluded, $paths);
+    if ($unknown !== []) {
+        throw new RuntimeException('--exclude names a file the release does not ship: ' . implode(', ', $unknown) . '. Nothing was built, so that a mistake cannot let the file through.');
+    }
+
+    $left = array_values(array_unique([...$excluded, ...array_intersect(NEVER_PACKAGED, $paths)]));
+    sort($left);
+
+    return [array_values(array_filter($changes, static fn (array $change): bool => !in_array($change[1], $left, true))), $left];
 }
 
 /** @return list<array{0: string, 1: string}> [status, path] of what the overlay ships; throws on what it cannot */

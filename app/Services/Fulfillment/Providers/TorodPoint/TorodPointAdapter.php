@@ -7,9 +7,11 @@ use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\Fulfillment\StockSource;
+use App\Models\AddressCity;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderProductMapping;
+use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\CatalogStagingService;
 use App\Services\Fulfillment\Contracts\HandlesWebhooks;
 use App\Services\Fulfillment\Contracts\ProviderAdapter;
@@ -217,14 +219,15 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             }
         }
 
-        if (trim((string) ($address['address'] ?? '')) === '') {
+        if (AddressSnapshot::plain($address, 'address') === '') {
             return PreflightResult::hold(HoldReason::ADDRESS_INCOMPLETE);
         }
-        if (SaudiPhone::normalize((string) ($address['phone'] ?? '')) === null) {
+        if (SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone')) === null) {
             return PreflightResult::hold(HoldReason::PHONE_INVALID);
         }
-        if ($this->cities->resolve($address['city'] ?? null, $address['state'] ?? null) === null) {
-            return PreflightResult::hold(HoldReason::CITY_UNMAPPED, trim((string) ($address['city'] ?? '')));
+        $resolution = $this->cities->resolveForAddress($address);
+        if (!$resolution->isResolved()) {
+            return PreflightResult::hold(HoldReason::CITY_UNMAPPED, $resolution->holdDetail());
         }
         if ($fulfillment->payment_mode === PaymentMode::CashOnDelivery
             && (!$config->bool('cod_supported', true) || $config->string('cod_collection_method') === '')) {
@@ -243,13 +246,13 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
 
         $config = $this->config();
         $address = $this->payloads->address($order);
-        $city = $this->cities->resolve($address['city'] ?? null, $address['state'] ?? null);
-        if ($city === null) {
+        $resolution = $this->cities->resolveForAddress($address);
+        if (!$resolution->isResolved()) {
             return SubmissionResult::rejected('city_unmapped', 'The delivery city cannot be mapped to a Torod Point city.');
         }
 
         try {
-            $payload = $this->payloads->build($fulfillment->loadMissing('items'), $order, $config, $city);
+            $payload = $this->payloads->build($fulfillment->loadMissing('items'), $order, $config, $resolution->city);
         } catch (Throwable $exception) {
             return SubmissionResult::rejected('payload_error', $exception::class . ': ' . $exception->getMessage());
         }
@@ -678,6 +681,18 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         $this->ensureCallable();
 
         return $this->cities->sync();
+    }
+
+    /**
+     * Asks Torod Point for the cities named like one of ours (a read), and, when `$apply`, caches them and proposes the exact ones.
+     *
+     * @return array{ok: bool, error?: string, found?: int, matches?: list<string>, proposed?: ?int, applied?: bool}
+     */
+    public function discoverCities(AddressCity $city, bool $apply = true): array
+    {
+        $this->ensureCallable();
+
+        return $this->cities->discoverForCity(city: $city, apply: $apply);
     }
 
     /**

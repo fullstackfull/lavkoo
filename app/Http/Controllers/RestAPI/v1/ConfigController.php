@@ -4,6 +4,8 @@ namespace App\Http\Controllers\RestAPI\v1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Request;
+use App\Services\Address\AddressSchema;
+use App\Services\Address\NationalAddress;
 use App\Traits\CacheManagerTrait;
 use App\Traits\MaintenanceModeTrait;
 use App\Traits\SettingsTrait;
@@ -166,6 +168,7 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             'company_fav_icon' => $companyFavIcon,
             'delivery_country_restriction' => (int)getWebConfig(name: 'delivery_country_restriction'),
             'delivery_zip_code_area_restriction' => (int)getWebConfig(name: 'delivery_zip_code_area_restriction'),
+            'unified_address' => $this->unifiedAddressConfig(),
             'base_urls' => [
                 'product_image_url' => ProductManager::product_image_path('product'),
                 'product_thumbnail_url' => ProductManager::product_image_path('thumbnail'),
@@ -286,6 +289,22 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             'active_auction_for_vendor' => $auctionFeatureStatus && (int)(getWebConfig(name: 'active_auction_for_vendor') ?? 0),
             'active_auction_for_customer' => $auctionFeatureStatus && (int)(getWebConfig(name: 'active_auction_for_customer') ?? 0),
         ]);
+    }
+
+    /**
+     * What an app needs to ask for the Saudi address: whether it is in use (off, soft or strict), the shape of the National Address and
+     * where the region and city lists are. The ZIP code settings above keep their meaning.
+     *
+     * @return array{mode: string, national_address_pattern: string, regions_url: string, cities_url: string}
+     */
+    public function unifiedAddressConfig(): array
+    {
+        return [
+            'mode' => AddressSchema::mode(),
+            'national_address_pattern' => '^' . NationalAddress::inputPattern() . '$',
+            'regions_url' => url('api/v1/address/regions'),
+            'cities_url' => url('api/v1/address/cities'),
+        ];
     }
 
     public function getBusinessPagesList(Request $request)

@@ -19,7 +19,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class CustomerController extends BaseController
 {
@@ -52,11 +54,17 @@ class CustomerController extends BaseController
 
     public function add(CustomerRequest $request, CustomerService $customerService): JsonResponse
     {
+        try {
+            $addressData = $this->shippingAddressService->getAddAddressData(request: $request, customerId: null, addressType: 'home');
+        } catch (ValidationException $exception) {
+            return response()->json(['errors' => $this->validationErrors($exception)], 422);
+        }
+
         $token = Str::random(120);
         $this->passwordResetRepo->add($this->passwordResetService->getAddData(identity: $request['phone'], token: $token, userType: 'customer'));
-        $this->customerRepo->add($customerService->getCustomerData(request: $request));
+        $this->customerRepo->add(array_merge($customerService->getCustomerData(request: $request), Arr::only($addressData, ['city', 'country'])));
         $customer = $this->customerRepo->getFirstWhere(params: ['email' => $request['email']]);
-        $this->shippingAddressRepo->add($this->shippingAddressService->getAddAddressData(request: $request, customerId: $customer['id'], addressType: 'home'));
+        $this->shippingAddressRepo->add(array_merge($addressData, ['customer_id' => $customer['id']]));
         $resetRoute = route('customer.auth.recover-password');
         $data = [
             'userName' => $request['f_name'],
@@ -69,5 +77,19 @@ class CustomerController extends BaseController
         ];
         event(new CustomerRegistrationEvent(email: $request['email'], data: $data));
         return response()->json(['success' => true, 'message' => translate('customer_added_successfully')]);
+    }
+
+    /**
+     * The address errors in the shape the add-customer form's script reads: one entry per field, naming the input.
+     *
+     * @return list<array{error_code: string, message: string}>
+     */
+    private function validationErrors(ValidationException $exception): array
+    {
+        return array_values(array_map(
+            static fn (string $field, array $messages): array => ['error_code' => $field, 'message' => $messages[0]],
+            array_keys($exception->errors()),
+            $exception->errors(),
+        ));
     }
 }

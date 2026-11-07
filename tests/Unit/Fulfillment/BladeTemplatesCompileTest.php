@@ -25,6 +25,10 @@ class BladeTemplatesCompileTest extends TestCase
             'resources/views/admin-views/partials/_fulfillment-provider.blade.php',
             'resources/themes/default/web-views/partials/_mixed-provider-notice.blade.php',
             'resources/themes/default/web-views/partials/_fulfillment-shipments.blade.php',
+            'resources/views/partials/address',
+            'resources/views/admin-views/address',
+            'resources/views/admin-views/order/partials/_invoice-address-rows.blade.php',
+            'resources/themes/default/web-views/partials/address',
         ];
 
         $files = [];

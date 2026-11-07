@@ -16,7 +16,8 @@ use App\Services\Fulfillment\Support\ProviderHttp;
  * order already produces its own last-mile package (the `packageBarcode` the Fulfillment webhook reports);
  * creating a shipment here as well would ship the parcel twice.
  *
- *   GET  /addresses/cities?returnAll=true            (company-id header)
+ *   GET  /addresses/cities?returnAll=true            (company-id header; `search` is the one documented filter, `page` and `pageSize` are
+ *                                                      the paging names the same vendor's other list calls use and are only ever tried)
  *   GET  /guests/packages/status?barcode=            (company-id header)
  *   PUT  /guests/{companyId}/packages/{barcode}/cancel   body {email, password}
  *   POST /guests/{companyId}/packages/pdf                body {barcodes: [...]}  → {url}
@@ -29,10 +30,10 @@ class TorodLastmileClient
     ) {
     }
 
-    public function cities(?string $search = null): HttpResult
+    public function cities(?string $search = null, bool $returnAll = true, ?int $page = null, ?int $pageSize = null): HttpResult
     {
         return $this->send('cities', 'GET', '/addresses/cities', query: array_filter(
-            ['returnAll' => 'true', 'search' => $search],
+            ['returnAll' => $returnAll ? 'true' : null, 'search' => $search, 'page' => $page, 'pageSize' => $pageSize],
             static fn ($value): bool => $value !== null && $value !== '',
         ));
     }

@@ -11,6 +11,10 @@
         </div>
         @include('admin-views.business-settings.business-setup-inline-menu')
 
+        @if ($addressZipNotice ?? null)
+            @include('admin-views.address.partials._zip-restriction-banner', ['notice' => $addressZipNotice])
+        @endif
+
         <div class="row g-4">
             <div class="col-lg-6">
                 <div class="card mb-3">

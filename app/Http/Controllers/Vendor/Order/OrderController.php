@@ -34,6 +34,7 @@ use App\Services\CustomerWalletService;
 use App\Services\DeliveryCountryCodeService;
 use App\Services\DeliveryManTransactionService;
 use App\Services\DeliveryManWalletService;
+use App\Services\OrderAddressUpdateService;
 use App\Services\OrderEditReturnAmountService;
 use App\Services\OrderEditService;
 use App\Services\OrderService;
@@ -56,6 +57,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\View as PdfView;
+use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 use Rap2hpoutre\FastExcel\FastExcel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -751,7 +753,7 @@ class OrderController extends BaseController
         ]);
     }
 
-    public function updateAddress(Request $request): RedirectResponse
+    public function updateAddress(Request $request, OrderAddressUpdateService $addressUpdateService): RedirectResponse
     {
         // Scope to the signed-in seller's own order — an unscoped lookup let a seller rewrite another
         // vendor's order shipping/billing address.
@@ -760,35 +762,12 @@ class OrderController extends BaseController
             ToastMagic::error(translate('Order_not_found'));
             return back();
         }
-        $shippingAddressData = json_decode(json_encode($order['shipping_address_data']), true);
-        $billingAddressData = json_decode(json_encode($order['billing_address_data']), true);
-        $commonAddressData = [
-            'contact_person_name' => $request['name'],
-            'phone' => $request['phone_number'],
-            'country' => $request['country'],
-            'city' => $request['city'],
-            'zip' => $request['zip'],
-            'address' => $request['address'],
-            'latitude' => $request['latitude'],
-            'longitude' => $request['longitude'],
-            'updated_at' => now(),
-        ];
 
-        if ($request['address_type'] == 'shipping') {
-            $shippingAddressData = array_merge($shippingAddressData, $commonAddressData);
-        } elseif ($request['address_type'] == 'billing') {
-            $billingAddressData = array_merge($billingAddressData, $commonAddressData);
-        }
-
-        $updateData = [];
-        if ($request['address_type'] == 'shipping') {
-            $updateData['shipping_address_data'] = json_encode($shippingAddressData);
-        } elseif ($request['address_type'] == 'billing') {
-            $updateData['billing_address_data'] = json_encode($billingAddressData);
-        }
-
-        if (!empty($updateData)) {
-            $this->orderRepo->update(id: $request['order_id'], data: $updateData);
+        try {
+            $addressUpdateService->update(order: $order, addressType: $request['address_type'], input: $request->all());
+        } catch (ValidationException $exception) {
+            ToastMagic::error($exception->validator->errors());
+            return back();
         }
 
         if ($order->delivery_type == 'self_delivery' && $order->delivery_man_id) {

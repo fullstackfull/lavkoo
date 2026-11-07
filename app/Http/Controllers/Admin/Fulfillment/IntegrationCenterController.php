@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\Fulfillment;
 
 use App\Services\Fulfillment\Support\SafeToast;
 use App\Contracts\Repositories\CategoryRepositoryInterface;
+use App\Enums\Fulfillment\CitySyncVerdict;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Http\Controllers\Controller;
@@ -152,6 +153,12 @@ class IntegrationCenterController extends Controller
 
         $result = $this->sync->run($code, [$task])[$task];
         $ok = (bool) ($result['ok'] ?? false);
+        if ($ok && ($result['verdict'] ?? null) === CitySyncVerdict::Partial->value) {
+            SafeToast::warning(translate('sync_incomplete'), (string) $result['reason']);
+
+            return back();
+        }
+
         $detail = $ok ? json_encode($result['stats'] ?? $result['count'] ?? []) : (string) ($result['error'] ?? '');
         $ok ? SafeToast::success(translate('sync_completed'), $detail) : SafeToast::warning(translate('sync_did_not_run'), $detail);
 
