@@ -17,10 +17,11 @@ Everything in this repository was tested on throwaway databases whose platform t
 | 3 | `php artisan channels:check-platform-schema` again | still `ok` (the module's own tables are not on its list; a migration must not have changed the platform's) |
 | 4 | `php artisan migrate:rollback --path=<each migration, newest first>` then migrate again | the `down()` of each migration leaves the platform's tables as they were (compare `SHOW CREATE TABLE` of the platform's tables before and after) |
 | 5 | the read-only reports of the cost module (`costs:refresh --days=7` on the copy, the profit screens) | numbers that look like the shop's own; entries marked "missing" instead of invented costs |
+| 5b | on the copy only, with `OPERATIONAL_COSTS_ENABLED=true` and `OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS=shadow`: `php artisan costs:reconcile-platform` and `php artisan costs:layers-from-purchase-orders --dry-run --since=YYYY-MM-DD` ([costs.md](costs.md), *Sources of truth*) | read-only reports (the row count of every table is the same before and after): the purchase-order lines it could layer and every line it refuses, with its reason; compare a few lines with the platform's own purchase-order and stock screens (cost per unit, currency, quantity received, whether `unit_cost` includes VAT, the dates of the receipts). A column or table the code expects and the copy lacks is named, not guessed |
 | 6 | with **dry run on** and a **fake** provider only: dispatch one hand-made channel order (see [dispatch.md](dispatch.md)) | one internal order in `orders` with customer 0, `is_stock_decreased = 0` lines, no stock change in `products.current_stock`; a second attempt finds the first |
 
 Run the test suite itself against a **different** empty database, never against the copy: several tests create and drop tables. Step 6 is the only step that writes platform tables, and only in the copy.
 
 ## What to bring back
 
-The output of steps 1 to 6, `SELECT VERSION();`, `SHOW CREATE TABLE orders` and `order_details` (structure only), and anything that failed. Until then the statement in the final report stays true: *nothing was tested against the real schema*.
+The output of steps 1 to 6 (including 5b), `SELECT VERSION();`, `SHOW CREATE TABLE orders` and `order_details` (structure only), and anything that failed. Until then the statement in the final report stays true: *nothing was tested against the real schema*.
