@@ -8,11 +8,9 @@ use App\Models\InventoryPool;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
-use App\Models\SalesChannelSyncState;
 use App\Services\SalesChannels\Inventory\Allocation\OrderFreshness;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Inventory\PoolKey;
-use App\Services\SalesChannels\Sync\ChannelSyncService;
 use Illuminate\Support\Collection;
 
 /**
@@ -97,14 +95,24 @@ final class StockAttention
      */
     private function raisesFrozen(Collection $accounts, Collection $listings): array
     {
-        $behind = $this->freshness->staleAccounts($listings->pluck('account_id')->unique()->map(static fn ($id): int => (int) $id)->values()->all());
-        $lastSuccess = SalesChannelSyncState::whereIn('account_id', $behind)->where('resource', ChannelSyncService::ORDERS)->pluck('last_success_at', 'account_id');
+        $behind = $this->freshness->why($this->freshness->staleAccounts($listings->pluck('account_id')->unique()->map(static fn ($id): int => (int) $id)->values()->all()));
 
-        return $this->section(translate('attention_stock_raises_frozen'), count($behind), collect($behind)->take(self::LIMIT)->map(fn (int $accountId): array => [
+        return $this->section(translate('attention_stock_raises_frozen'), count($behind), collect($behind)->take(self::LIMIT)->map(fn (array $why, int $accountId): array => [
             'title' => (string) ($accounts->firstWhere('id', $accountId)?->name ?? '#' . $accountId),
-            'detail' => ($lastSuccess[$accountId] ?? null) === null ? translate('no_successful_order_import_yet') : translate('last_successful_order_import') . ': ' . $lastSuccess[$accountId]->format('Y-m-d H:i'),
+            'detail' => $this->whyFrozen($why),
             'url' => route('admin.sales-channels.accounts.show', $accountId),
         ])->values()->all());
+    }
+
+    /** @param array{reason: string, last_success_at: \Carbon\CarbonInterface|null} $why */
+    private function whyFrozen(array $why): string
+    {
+        return match ($why['reason']) {
+            OrderFreshness::IMPORT_OFF => translate('order_import_is_off_so_a_quantity_here_is_never_raised'),
+            OrderFreshness::BACKLOG => translate('order_import_is_part_way_through_a_backlog'),
+            OrderFreshness::NEVER_COMPLETED => translate('no_successful_order_import_yet'),
+            default => translate('last_successful_order_import') . ': ' . $why['last_success_at']->format('Y-m-d H:i'),
+        };
     }
 
     /** @param Collection<int, SalesChannelAccount> $accounts */

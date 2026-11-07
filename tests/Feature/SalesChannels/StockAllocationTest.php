@@ -150,6 +150,7 @@ class StockAllocationTest extends TestCase
         $this->assertSame([3], $this->sent(self::SELLER_A), '14, half for the storefront, 7 shared by two listings: 3 each, and the unit left over stays with the storefront');
 
         InventoryPool::where($this->key()->columns())->update(['storefront_reserve_mode' => 'fixed', 'storefront_reserve_value' => 4]);
+        $this->completeOrderSweep($this->first, $this->second);
         $this->publish($this->first);
         $this->assertSame([3, 5], $this->sent(self::SELLER_A), 'the pool\'s own reserve of 4 units wins over the default: 10 shared by two');
     }
@@ -166,6 +167,7 @@ class StockAllocationTest extends TestCase
         $this->assertSame([3], $this->sent(self::SELLER_B), 'the product policy wins over the account policy');
 
         $b->forceFill(['stock_share_mode' => 'fixed', 'stock_share_value' => 9])->save();
+        $this->completeOrderSweep($this->first, $this->second);
         $this->publish($this->first, $this->second);
         $this->assertSame([10, 5], $this->sent(self::SELLER_A));
         $this->assertSame([3, 9], $this->sent(self::SELLER_B), 'the listing\'s own share wins over both policies');
@@ -308,6 +310,7 @@ class StockAllocationTest extends TestCase
         $this->figure(20);
         $this->listings();
         $this->publish($this->first, $this->second);
+        $this->completeOrderSweep($this->first);
         SalesChannelSyncState::create(['account_id' => $this->second->id, 'resource' => 'orders', 'last_success_at' => now()->subHour()]);
 
         $this->figure(40);
@@ -365,6 +368,7 @@ class StockAllocationTest extends TestCase
         }
         $this->assertSame([10, 0], $this->sent(self::SELLER_A));
 
+        $this->completeOrderSweep($this->first);
         $this->publish($this->first);
         $this->assertSame([10, 0, 10], $this->sent(self::SELLER_A), 'two clean computations later it is raised');
     }
@@ -404,6 +408,7 @@ class StockAllocationTest extends TestCase
         $this->assertSame([20], $this->sent(self::SELLER_A));
 
         $this->figure(30);
+        $this->completeOrderSweep($this->first);
         $this->publish($this->first);
         $this->assertSame([20, 30], $this->sent(self::SELLER_A), 'stock has arrived: the pool has more than when we wrote');
     }

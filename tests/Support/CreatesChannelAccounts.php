@@ -3,6 +3,7 @@
 namespace Tests\Support;
 
 use App\Models\SalesChannelAccount;
+use App\Models\SalesChannelSyncState;
 use App\Services\SalesChannels\ChannelAccountService;
 
 /** Channel accounts as the admin would have set them up: credentials stored encrypted, then switched on with the capabilities (and approvals) a test needs. */
@@ -30,6 +31,14 @@ trait CreatesChannelAccounts
         );
 
         return $this->switchOn($account, $capabilities, $writes);
+    }
+
+    /** The order import of these accounts has just finished a complete sweep: the proof a quantity of their listings needs before it may be raised. */
+    protected function completeOrderSweep(SalesChannelAccount ...$accounts): void
+    {
+        foreach ($accounts as $account) {
+            SalesChannelSyncState::updateOrCreate(['account_id' => $account->id, 'resource' => 'orders'], ['last_success_at' => now(), 'cursor' => null]);
+        }
     }
 
     private function switchOn(SalesChannelAccount $account, array $capabilities, bool $writes): SalesChannelAccount

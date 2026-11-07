@@ -174,7 +174,8 @@ return [
             // What the storefront keeps out of the channels' reach when a pool names no reserve of its own: `percent` of the pool or a number of `fixed` units. 0 keeps nothing.
             'storefront_reserve_mode' => (string) env('SALES_CHANNELS_STOCK_STOREFRONT_RESERVE_MODE', 'percent'),
             'storefront_reserve_value' => (int) env('SALES_CHANNELS_STOCK_STOREFRONT_RESERVE_VALUE', 0),
-            // A quantity is only RAISED while the order import of every account that offers the pool has succeeded this recently (an order not imported yet is stock sold twice).
+            // A quantity is only RAISED above what the channel shows while every account that offers the pool has finished a COMPLETE sweep of its orders this recently (an order not
+            // imported yet is stock sold twice). An account whose orders are not imported has no such sweep: a quantity of a pool it offers is never raised.
             'order_fresh_minutes' => (int) env('SALES_CHANNELS_STOCK_ORDER_FRESH_MINUTES', 15),
             // Units a channel is expected to sell before we hear of them can be held back from it: its sales of the last `lag_rate_minutes`, scaled to a window of at least
             // `lag_window_minutes` (and longer when the last order import is older, or the publish interval is). 0 holds nothing back, which is what every listing was offered

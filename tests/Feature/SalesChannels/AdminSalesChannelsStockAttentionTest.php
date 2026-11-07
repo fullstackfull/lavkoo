@@ -99,10 +99,14 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
         $this->providerFigure(self::PRODUCT, 10, now()->subMinutes(30));
         $late = $this->trendyolAccount();
         $never = $this->trendyolAccount(sellerId: '7654321');
-        $this->stockListing($late, self::PRODUCT, $this->torodLocation(), 'BAR-A');
-        $this->stockListing($never, self::PRODUCT, $this->torodLocation(), 'BAR-B');
+        $backlog = $this->trendyolAccount(sellerId: '7654322');
+        $withoutImport = $this->trendyolAccount(capabilities: ['connection_test', 'read_only_sync', 'product_sync', 'inventory_publishing'], sellerId: '7654323');
+        foreach ([$late, $never, $backlog, $withoutImport] as $number => $account) {
+            $this->stockListing($account, self::PRODUCT, $this->torodLocation(), 'BAR-' . $number);
+        }
         SalesChannelSyncState::create(['account_id' => $late->id, 'resource' => 'orders', 'last_success_at' => now()->subHour()]);
         SalesChannelSyncState::create(['account_id' => $never->id, 'resource' => 'orders']);
+        SalesChannelSyncState::create(['account_id' => $backlog->id, 'resource' => 'orders', 'last_success_at' => now()->subMinute(), 'cursor' => json_encode(['page' => 26])]);
         $this->divide();
 
         $html = $this->hub();
@@ -110,6 +114,8 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
         $this->assertStringContainsString(e(translate('attention_stock_raises_frozen')), $html);
         $this->assertStringContainsString(e(translate('last_successful_order_import')) . ': ' . now()->subHour()->format('Y-m-d H:i'), $html);
         $this->assertStringContainsString(e(translate('no_successful_order_import_yet')), $html);
+        $this->assertStringContainsString(e(translate('order_import_is_part_way_through_a_backlog')), $html, 'a sweep that stopped part of the way stamped its time: the hub does not call that a recent import');
+        $this->assertStringContainsString(e(translate('order_import_is_off_so_a_quantity_here_is_never_raised')), $html);
     }
 
     public function test_the_hub_counts_order_units_no_stock_is_told_about(): void
@@ -145,6 +151,7 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
         $account = $this->trendyolAccount();
         $this->stockListing($account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
         $this->ingestOrder($account, 'ORD-1', 'BAR-1', 2);
+        $this->completeOrderSweep($account);
         $this->divide();
 
         $html = $this->hub();

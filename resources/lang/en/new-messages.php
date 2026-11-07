@@ -10739,4 +10739,7 @@ return [
 	'stock_expected_sales_margin' => 'margin for sales not imported yet',
 	'stock_may_be_shown' => 'may be shown',
 	'channel_not_recorded' => 'channel not recorded',
+	// --- stock audit fixes (lane-stock) ---
+	'order_import_is_off_so_a_quantity_here_is_never_raised' => 'Order import is switched off for this account: its sales are unknown, so a quantity here is never raised',
+	'order_import_is_part_way_through_a_backlog' => 'The order import stopped part of the way through a backlog: the orders after that point are not read yet',
 ];

@@ -18,8 +18,9 @@ use App\Services\SalesChannels\Inventory\PoolNet;
  *
  *  - NEVER ABOVE THE CHANNEL'S OWN LOWERING. A channel lowers its quantity when it sells. When the channel was read AFTER our last write and shows less than we wrote, it sold the
  *    difference: writing our (older) figure again would put those units back on sale. The quantity stays at what the channel shows unless the pool has more than it had when we wrote.
- *  - A RAISE NEEDS CURRENT ORDERS. A quantity is only raised while the order import of every account offering the pool is up to date, and while the pool has not just been
- *    promised more than it holds (an order we have not imported is stock sold that the quantity does not show; a deficit means the figures are not to be trusted yet).
+ *  - A RAISE NEEDS CURRENT ORDERS. A quantity is only raised above what the channel shows while every account offering the pool has proof that its orders are all imported
+ *    (OrderFreshness), and while the pool has not just been promised more than it holds (an order we have not imported is stock sold that the quantity does not show; a deficit
+ *    means the figures are not to be trusted yet).
  *  - A RAISE WAITS FOR THE OTHERS TO COME DOWN. When a share moves from one listing to another (a listing joins, a setting changes) the listing that gives units up must be lowered
  *    before the one that gets them is raised, or the channels together show more than the pool has for a while.
  *
@@ -113,7 +114,7 @@ class StockPlanner
         $quantity = $this->notAboveTheChannel($listing, $allocation, $quantity);
         $raising = $shown === null || $quantity > $shown;
 
-        if ($raising && ($blocked = $allocation->blockedBy()) !== null) {
+        if (($blocked = $this->blockedFromRaising($allocation, $shown, $quantity)) !== null) {
             return $blocked;
         }
         if ($raising && $this->othersAreAboveTheirShare($listing, $allocation)) {
@@ -124,6 +125,21 @@ class StockPlanner
         }
 
         return new PlannedStock(quantity: $quantity, shown: $shown, allocation: $allocation);
+    }
+
+    /**
+     * Why this quantity may not go out: after a deficit nothing is raised, the first quantity of a listing included; while the orders of an account are not known to be all imported a
+     * quantity is not raised above what the channel is believed to show (the first quantity has no earlier one to protect).
+     */
+    private function blockedFromRaising(PoolAllocation $allocation, ?int $shown, int $quantity): ?string
+    {
+        $aboveWhatIsShown = $shown !== null && $quantity > $shown;
+
+        return match ($allocation->blockedBy()) {
+            PoolAllocation::DEFICIT_BLOCK => $shown === null || $aboveWhatIsShown ? PoolAllocation::DEFICIT_BLOCK : null,
+            PoolAllocation::ORDER_SYNC_STALE => $aboveWhatIsShown ? PoolAllocation::ORDER_SYNC_STALE : null,
+            default => null,
+        };
     }
 
     private function notAboveTheChannel(SalesChannelProductMapping $listing, PoolAllocation $allocation, int $quantity): int
