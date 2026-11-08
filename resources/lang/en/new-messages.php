@@ -10782,8 +10782,6 @@ return [
 	'product_is_sold_per_variant_so_a_draft_needs_one' => 'This product is sold per variant: a listing is made for one variant, not for the whole product.',
 	'product_is_not_a_physical_product_of_the_store' => 'Only the store\'s own physical products are listed on a channel.',
 	'product_data_not_ready' => 'The store\'s own product data is not ready.',
-
-	// --- putting one of our products on a channel: the listing screen, and every reason nothing was sent ---
 	'put_this_product_on_a_channel' => 'Put this product on a channel',
 	'back_to_the_product' => 'Back to the product',
 	'listing_screen_rules' => 'Opening this screen calls no channel. Checking it and asking what the channel holds only read; sending is the one action that can change anything there, and it needs this account\'s write approval as well.',
@@ -10865,8 +10863,6 @@ return [
 	'the_channel_reports_this_listing_buyable_although_no_offer_of_ours_was_published' => 'The channel reports this listing as buyable although no offer of ours was ever published: something else gave it a price or a quantity. Look at it.',
 	'channel_reason_rate_limited' => 'The channel asked us to wait, so nothing was sent; the next run sends it',
 	'channel_reason_buyer_data_off' => 'Reading a buyer\'s details is switched off on this host',
-
-	// --- the stock outbox: what is waiting, and what nobody could act on ---
 	'attention_stock_changes_not_worked' => 'Stock changes not acted on yet',
 	'stock_changes_nobody_could_work' => 'Changes nobody could act on',
 	'kept_for_you_until_somebody_deals_with_them' => 'kept for you until somebody deals with what stopped them; each one is a quantity at a channel that has not been corrected',
@@ -10876,7 +10872,6 @@ return [
 	'a_switch_or_an_approval_refused_the_send' => 'a switch or an approval refused the send, so the quantities were worked out and nothing went to the channel; turning it on sends them on the next regular run',
 	'storefront_stock_nobody_could_correct' => 'Our own stock could not be corrected',
 	'a_mapping_or_a_product_has_to_be_corrected_first' => 'changes whose quantity in our own shop the writer refused, so it is still showing units a channel has taken. Tried and kept here rather than retried for ever: a mapping or a product has to be corrected first (a whole-product figure on a product sold per variant, or a variant that is gone), then run channels:stock-events --retry-dead',
-
 	'MyFatoorah' => 'MyFatoorah',
 	'MyFatoorah_Saudi_Arabia' => 'MyFatoorah — Saudi Arabia',
 	'MyFatoorah_settings' => 'MyFatoorah settings',

@@ -567,7 +567,7 @@ live key, or one a paid order's history points at, is left alone.
 ./vendor/bin/phpunit tests/Feature/MyFatoorah/ tests/Unit/MyFatoorah/
 ```
 
-152 tests, 619 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
+153 tests, 623 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
 explicitly faked fails it, so nothing here can reach the real sandbox.
 
 They cover the gateway's switches and modes; encryption at rest and that a blank field keeps a stored key;

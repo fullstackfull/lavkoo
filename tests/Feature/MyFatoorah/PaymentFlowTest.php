@@ -588,6 +588,23 @@ class PaymentFlowTest extends MyFatoorahTestCase
         );
     }
 
+    public function test_recording_a_proof_leaves_the_rest_of_the_settings_alone(): void
+    {
+        // Recording a proof writes one key. Everything else on the settings row — the method catalogue,
+        // the credentials — is left where it was. (The reason it writes only that key is a concurrent
+        // write this single process cannot stage; see the comment on markInvoiceLookupProven.)
+        $this->configureGateway();
+        $this->configRepo()->storeAccountMethods([['PaymentMethodId' => 2, 'PaymentMethodCode' => 'md']]);
+
+        $this->configRepo()->markInvoiceLookupProven('test', 'invoice_by_reference');
+
+        $config = $this->configRepo()->get();
+        $this->assertTrue($config->invoiceLookupIsProven('invoice_by_reference'));
+        $this->assertSame([['PaymentMethodId' => 2, 'PaymentMethodCode' => 'md']], $config->accountMethods);
+        $this->assertTrue($config->hasApiKey(), 'and the credentials are untouched');
+        $this->assertTrue($config->hasWebhookSecret());
+    }
+
     public function test_a_proof_earned_in_sandbox_says_nothing_about_the_live_account(): void
     {
         // Different account, different host, and the sandbox is the one place an operator will have

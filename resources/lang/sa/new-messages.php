@@ -4361,8 +4361,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'product_is_not_a_physical_product_of_the_store' => 'لا تُدرج على القنوات إلا منتجات المتجر المادية.',
 	'product_not_found' => 'المنتج غير موجود.',
 	'product_data_not_ready' => 'بيانات المنتج في المتجر غير مكتملة.',
-
-	// --- عرض أحد منتجاتنا على قناة: شاشة القائمة، وكل سبب لعدم إرسال شيء ---
 	'put_this_product_on_a_channel' => 'اعرض هذا المنتج على قناة',
 	'back_to_the_product' => 'رجوع إلى المنتج',
 	'listing_screen_rules' => 'فتح هذه الشاشة لا يستدعي أي قناة. التحقق وسؤال القناة عمّا تحمله قراءة فقط؛ الإرسال هو الإجراء الوحيد الذي يمكن أن يغيّر شيئًا هناك، ويحتاج كذلك إلى موافقة الكتابة لهذا الحساب.',
@@ -4445,8 +4443,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'the_channel_reports_this_listing_buyable_although_no_offer_of_ours_was_published' => 'تُبلّغ القناة أن هذه القائمة قابلة للشراء مع أننا لم ننشر لها أي عرض: شيء آخر منحها سعرًا أو كمية. انظر فيها.',
 	'channel_reason_rate_limited' => 'طلبت القناة الانتظار، فلم يُرسل شيء؛ والتشغيل التالي يُرسلها',
 	'channel_reason_buyer_data_off' => 'قراءة بيانات المشتري معطّلة على هذا الخادم',
-
-	// --- the stock outbox: what is waiting, and what nobody could act on ---
 	'attention_stock_changes_not_worked' => 'تغييرات مخزون لم تُنفَّذ بعد',
 	'stock_changes_nobody_could_work' => 'تغييرات لم يُمكن تنفيذها',
 	'kept_for_you_until_somebody_deals_with_them' => 'محفوظة لك حتى يُعالَج ما أوقفها؛ كل واحدة كمية عند قناة لم تُصحَّح',
@@ -4456,8 +4452,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'a_switch_or_an_approval_refused_the_send' => 'مفتاح أو موافقة منعت الإرسال، فحُسبت الكميات ولم يخرج شيء إلى القناة؛ وتفعيلها يُرسلها في التشغيل المنتظم التالي',
 	'storefront_stock_nobody_could_correct' => 'مخزون متجرنا لم يُمكن تصحيحه',
 	'a_mapping_or_a_product_has_to_be_corrected_first' => 'تغييرات رفض الكاتبُ كميتها في متجرنا، فما زال يعرض وحدات أخذتها قناة. جُرّبت وحُفظت هنا بدل إعادة المحاولة بلا نهاية: يجب تصحيح ربط أو منتج أولًا (رقم للمنتج كلّه على منتج يُباع بالمتغيّر، أو متغيّر اختفى)، ثم شغّل channels:stock-events --retry-dead',
-
-	// --- MyFatoorah (Saudi Arabia) payment gateway ---
 	'MyFatoorah' => 'ماي فاتورة',
 	'MyFatoorah_Saudi_Arabia' => 'ماي فاتورة — السعودية',
 	'MyFatoorah_settings' => 'إعدادات ماي فاتورة',

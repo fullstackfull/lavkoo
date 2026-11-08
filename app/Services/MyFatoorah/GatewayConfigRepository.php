@@ -325,11 +325,20 @@ class GatewayConfigRepository
             'connection' => $fingerprint,
         ];
 
-        // The per-mode shape this replaced. Dropped rather than migrated: it cannot say WHICH path
-        // answered, and that is precisely what makes it unusable as proof.
-        unset($additional['invoice_lookup_proven_at']);
-
-        $this->save(settings: $additional, secretsMode: $mode);
+        /*
+         * Only this key is written, not the whole decoded blob. `save()` re-reads the row and merges
+         * what it is given, so handing it everything we read a moment ago would overwrite a setting
+         * another process changed in between — and this method can now be reached from any successful
+         * lookup, not just from the admin page. Losing a proof to a concurrent write costs one extra
+         * lookup; losing the method catalogue or a connection-test result costs an operator's time.
+         *
+         * The per-mode `invoice_lookup_proven_at` key this replaced is simply no longer read. It cannot
+         * say WHICH path answered, which is exactly what made it unusable as proof.
+         */
+        $this->save(
+            settings: ['invoice_lookup_proof' => $additional['invoice_lookup_proof']],
+            secretsMode: $mode,
+        );
     }
 
     /**
