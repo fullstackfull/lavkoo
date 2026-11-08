@@ -79,9 +79,10 @@ exactly which of the above is missing.
 Do all of this before anything Live. Nothing below moves real money.
 
 **1. Get a sandbox account.** The public demo account on `demo.myfatoorah.com` is a Kuwaiti one and its
-token only works for KWD — useless for testing a SAR integration. Ask MyFatoorah support
-(`tech@myfatoorah.com`) for a **Saudi test account**, naming the currency (SAR) and the methods you want
-enabled: mada, Visa/Mastercard, Apple Pay, STC Pay. They enable methods per account, so ask explicitly.
+token only works for KWD — useless for testing a SAR integration. Ask MyFatoorah's technical support
+(the address is on their contact page; it changes, so it is not written down here) for a **Saudi test
+account**, naming the currency (SAR) and the methods you want enabled: mada, Visa/Mastercard, Apple Pay,
+STC Pay. They enable methods per account, so ask explicitly.
 
 **2. Create the API token.** In the sandbox portal: *Integration Settings → API Key → Create*. Give it
 the permissions this integration uses — create payment, payment details, payment methods, and refunds if
