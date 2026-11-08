@@ -13,6 +13,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use RuntimeException;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\Fixtures\TrendyolFixtures as Trendyol;
 use Tests\TestCase;
@@ -39,6 +40,7 @@ class TrendyolProductCreateTest extends TestCase
     private const APPROVED = self::API . self::SELLER . '/products/approved*';
     private const UNAPPROVED = self::API . self::SELLER . '/products/unapproved*';
     private const BARCODE = '6281000000017';
+    private const BRANDS = self::API . '/product/brands/by-name*';
 
     private TrendyolConnector $trendyol;
 
@@ -272,6 +274,62 @@ class TrendyolProductCreateTest extends TestCase
         foreach (['listPrice', 'salePrice', 'quantity'] as $field) {
             $this->assertContains($field, $offer, "{$field} must be withheld from a create: a price and a quantity leave only through the publishing path");
         }
+    }
+
+    // ---- the channel's own brand list ----------------------------------------------------------------------------
+
+    public function test_a_brand_name_is_resolved_to_trendyols_own_id(): void
+    {
+        Http::fake([self::BRANDS => Http::response([['id' => 1584892, 'name' => 'Acme', 'luxe' => false]])]);
+
+        $brands = $this->trendyol->brandsNamed($this->account, 'Acme');
+
+        $this->assertSame([['id' => 1584892, 'name' => 'Acme']], $brands);
+    }
+
+    public function test_an_exact_match_leads_but_every_candidate_comes_back(): void
+    {
+        Http::fake([self::BRANDS => Http::response([
+            ['id' => 2, 'name' => 'Acme Health', 'luxe' => false],
+            ['id' => 1, 'name' => 'Acme', 'luxe' => false],
+            ['id' => 3, 'name' => 'Acme Pharma', 'luxe' => false],
+        ])]);
+
+        $brands = $this->trendyol->brandsNamed($this->account, 'Acme');
+
+        $this->assertSame('Acme', $brands[0]['name'], 'the exact match leads');
+        $this->assertCount(3, $brands, 'and none of the others is thrown away: a person may want one of them');
+    }
+
+    public function test_a_channel_with_no_such_brand_answers_an_empty_list_which_is_not_a_failure(): void
+    {
+        Http::fake([self::BRANDS => Http::response([])]);
+
+        $this->assertSame([], $this->trendyol->brandsNamed($this->account, 'Nobody'));
+    }
+
+    public function test_a_brand_lookup_that_could_not_be_asked_throws_rather_than_answering_nothing(): void
+    {
+        Http::fake([self::BRANDS => Http::response('', 503)]);
+
+        // "We do not know" must never arrive as "there is no such brand": the one would have a person register a brand that already exists.
+        $this->expectException(RuntimeException::class);
+        $this->trendyol->brandsNamed($this->account, 'Acme');
+    }
+
+    public function test_rows_without_an_id_or_a_name_are_not_offered_as_brands(): void
+    {
+        Http::fake([self::BRANDS => Http::response([['name' => 'No id'], ['id' => 7], ['id' => 8, 'name' => '  '], ['id' => 9, 'name' => 'Real']])]);
+
+        $this->assertSame([['id' => 9, 'name' => 'Real']], $this->trendyol->brandsNamed($this->account, 'Real'));
+    }
+
+    public function test_an_empty_name_asks_nothing(): void
+    {
+        Http::fake([self::BRANDS => Http::response([['id' => 1, 'name' => 'Acme']])]);
+
+        $this->assertSame([], $this->trendyol->brandsNamed($this->account, '   '));
+        Http::assertNothingSent();
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------

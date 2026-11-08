@@ -8,6 +8,7 @@ use App\Models\SalesChannelProductMapping;
 use App\Services\AuditLogger;
 use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
+use App\Services\SalesChannels\Contracts\ResolvesChannelBrands;
 use App\Services\SalesChannels\Data\ListingRequirements;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -114,6 +115,9 @@ class ListingDraftService
         }
 
         $payload = (array) ($draft->payload ?? []);
+        // A channel that keeps its own brand list needs its own id for the brand, which is not something a person can know. Where the draft carries a NAME and the channel
+        // wants an id, the name is turned into one here, so the product is not sent and refused days later for a brand that was spelled perfectly well.
+        $payload = $this->withTheChannelsBrandId($draft, $requirements, $payload);
         $problems = [...$requirements->missingFrom($payload), ...$requirements->refusedValuesIn($payload)];
         if ($problems !== []) {
             return $this->found($draft, $problems, null);
@@ -125,6 +129,60 @@ class ListingDraftService
     }
 
     /** What the channel requires, from the draft when that answer is still fresh, else asked again and stored. */
+    /**
+     * Turns the brand NAME on a draft into the CHANNEL's own brand id, where the channel keeps a brand list and insists on the id.
+     *
+     * It resolves and never chooses. Exactly one match is written onto the draft; several are reported as a problem with the names, for a person to pick between, because
+     * several brands can carry one name and putting our product under another company's brand is not a thing to guess at. A channel that could not be asked leaves the draft
+     * exactly as it was: the requirement then reports the id as missing, which is true, rather than the draft being quietly passed.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed> the payload as the requirements should judge it
+     */
+    private function withTheChannelsBrandId(ChannelListingDraft $draft, ListingRequirements $requirements, array $payload): array
+    {
+        if (!in_array('brandId', [...$requirements->required, ...$requirements->optional], true)) {
+            return $payload;
+        }
+        if (trim((string) ($payload['brandId'] ?? '')) !== '') {
+            return $payload;
+        }
+        $name = trim((string) ($payload['brand'] ?? $payload['brandName'] ?? ''));
+        $account = $draft->account;
+        if ($name === '' || $account === null) {
+            return $payload;
+        }
+
+        try {
+            $connector = $this->connectors->for($account);
+        } catch (Throwable) {
+            return $payload;
+        }
+        if (!$connector instanceof ResolvesChannelBrands) {
+            return $payload;
+        }
+
+        try {
+            $brands = $connector->brandsNamed($account, $name);
+        } catch (Throwable) {
+            // Could not be asked. The id stays missing, which is the truth, and the draft stays a draft.
+            return $payload;
+        }
+
+        if (count($brands) !== 1) {
+            // None: the brand has to be registered with the channel first, which is an errand and not a field. Several: a person picks. Either way the names are shown as
+            // they came -- they are the channel's words.
+            $draft->forceFill(['problems' => array_values(array_unique([...(array) ($draft->problems ?? []), ...array_map(static fn (array $brand): string => (string) $brand['name'], $brands) ?: ['brandId']]))])->save();
+
+            return $payload;
+        }
+
+        $payload['brandId'] = (string) $brands[0]['id'];
+        $draft->forceFill(['payload' => $payload])->save();
+
+        return $payload;
+    }
+
     public function requirementsFor(ChannelListingDraft $draft): ListingRequirements
     {
         $hours = (int) config('sales_channels.listing.requirements_fresh_hours', 24);

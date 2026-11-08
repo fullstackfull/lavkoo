@@ -19,6 +19,7 @@ use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
 use App\Services\SalesChannels\Contracts\ReadsRecipient;
 use App\Services\SalesChannels\Contracts\ReadsReturns;
+use App\Services\SalesChannels\Contracts\ResolvesChannelBrands;
 use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
@@ -45,7 +46,7 @@ use RuntimeException;
  *
  * Product V1 and Order V1 are not used anywhere: Trendyol retired them in 2026.
  */
-class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments, DescribesListingRequirements, CreatesListings
+class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments, DescribesListingRequirements, CreatesListings, ResolvesChannelBrands
 {
     private const MILLISECONDS_PER_DAY = 86_400_000;
 
@@ -525,6 +526,50 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         }
 
         return $this->categories->map((array) ($response->json ?? []), $categoryId);
+    }
+
+    /**
+     * Trendyol's own brands whose name matches. `GET /product/brands/by-name?name=` — a bare JSON array of `{id, name, luxe}`, which is the shape the documentation shows.
+     *
+     * It is the by-name call and not the paged full list: the list endpoint's response envelope is NOT in the documentation (the pages give only its `page` and `size`
+     * parameters and disagree on the size range), and this repository does not build a parser on an unverified shape.
+     *
+     * Trendyol's match is CASE SENSITIVE, which is worth knowing when nothing comes back for a brand that plainly exists. What comes back is sorted so that an exact match
+     * leads, because that is the one a person is almost always after — but every candidate is returned and none is chosen.
+     *
+     * @return list<array{id: int, name: string}>
+     * @throws RuntimeException when Trendyol could not be asked, so that "we do not know" is never read as "there is no such brand"
+     */
+    public function brandsNamed(SalesChannelAccount $account, string $name): array
+    {
+        $wanted = trim($name);
+        if ($wanted === '') {
+            return [];
+        }
+
+        $response = $this->client->call($account, 'trendyol.brands', 'GET', '/product/brands/by-name', ['name' => $wanted], capability: IntegrationCapability::ProductSync);
+        $this->assertOk($response, 'Trendyol brand lookup');
+
+        $brands = [];
+        // Documented as a bare array. A wrapper is accepted too rather than asserted against: either way only rows carrying both an id and a name are used.
+        $rows = $response->json;
+        $rows = is_array($rows) ? ($rows['brands'] ?? $rows['content'] ?? $rows) : [];
+        foreach ((array) $rows as $row) {
+            if (!is_array($row) || !isset($row['id'])) {
+                continue;
+            }
+            $brandName = trim((string) ($row['name'] ?? ''));
+            if ($brandName !== '') {
+                $brands[(int) $row['id']] = ['id' => (int) $row['id'], 'name' => $brandName];
+            }
+        }
+
+        $brands = array_values($brands);
+        usort($brands, static function (array $a, array $b) use ($wanted): int {
+            return [$a['name'] !== $wanted, mb_strlen($a['name']), $a['name']] <=> [$b['name'] !== $wanted, mb_strlen($b['name']), $b['name']];
+        });
+
+        return $brands;
     }
 
     // ---- creating and changing the listing of a product of ours --------------------------------------------------

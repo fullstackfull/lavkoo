@@ -4,14 +4,18 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\ChannelAccountService;
+use App\Services\SalesChannels\Listings\ListingDraftService;
+use App\Services\SalesChannels\Listings\ListingOutcome;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use App\Services\SalesChannels\Trendyol\TrendyolConnector;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Tests\Support\BuildsSalesChannelSchema;
+use Tests\Support\BuildsStockPools;
 use Tests\Support\Fixtures\TrendyolFixtures as Trendyol;
 use Tests\TestCase;
 
@@ -27,10 +31,13 @@ use Tests\TestCase;
 class TrendyolCategoryRequirementsTest extends TestCase
 {
     use BuildsSalesChannelSchema;
+    use BuildsStockPools;
 
     private const API = 'https://apigw.trendyol.com/integration';
     private const ATTRIBUTES = self::API . '/product/categories/*/attributes';
     private const CATEGORY = '1234';
+    private const BRANDS = self::API . '/product/brands/by-name*';
+    private const PRODUCT = 71;
 
     private TrendyolConnector $trendyol;
 
@@ -171,6 +178,82 @@ class TrendyolCategoryRequirementsTest extends TestCase
 
         $this->expectExceptionMessageMatches('/product_sync|capabilit/i');
         $this->trendyol->listingRequirements($this->account->fresh(), self::CATEGORY);
+    }
+
+    // ---- the brand id the check fills in -------------------------------------------------------------------------
+
+    public function test_the_check_turns_the_brand_name_into_trendyols_own_id(): void
+    {
+        $this->storeProduct(self::PRODUCT);
+        $this->makeTheProductFitToList(self::PRODUCT);
+        Http::fake([
+            self::ATTRIBUTES => Http::response($this->attributes([$this->attribute(1, 'brandId', required: true, values: [])])),
+            self::BRANDS => Http::response([['id' => 1584892, 'name' => 'Acme', 'luxe' => false]]),
+        ]);
+        $draft = app(ListingDraftService::class)->draftFor($this->account, self::PRODUCT, productType: self::CATEGORY, payload: ['brand' => 'Acme', 'sku' => '6281000000017']);
+
+        $outcome = app(ListingDraftService::class)->validate($draft);
+
+        $this->assertSame(ListingOutcome::VALIDATED, $outcome->state, 'the id was missing only because nobody could know it');
+        $this->assertSame('1584892', (string) ($draft->refresh()->payload['brandId'] ?? ''));
+    }
+
+    public function test_several_brands_of_one_name_are_left_for_a_person(): void
+    {
+        $this->storeProduct(self::PRODUCT);
+        $this->makeTheProductFitToList(self::PRODUCT);
+        Http::fake([
+            self::ATTRIBUTES => Http::response($this->attributes([$this->attribute(1, 'brandId', required: true, values: [])])),
+            self::BRANDS => Http::response([['id' => 1, 'name' => 'Acme'], ['id' => 2, 'name' => 'Acme Pharma']]),
+        ]);
+        $draft = app(ListingDraftService::class)->draftFor($this->account, self::PRODUCT, productType: self::CATEGORY, payload: ['brand' => 'Acme', 'sku' => '6281000000017']);
+
+        $outcome = app(ListingDraftService::class)->validate($draft);
+
+        $this->assertNotSame(ListingOutcome::VALIDATED, $outcome->state, 'putting our product under another company\'s brand is not a thing to guess at');
+        $this->assertSame('', (string) ($draft->refresh()->payload['brandId'] ?? ''));
+    }
+
+    public function test_a_brand_lookup_that_fails_leaves_the_id_missing_rather_than_passing_the_draft(): void
+    {
+        $this->storeProduct(self::PRODUCT);
+        $this->makeTheProductFitToList(self::PRODUCT);
+        Http::fake([
+            self::ATTRIBUTES => Http::response($this->attributes([$this->attribute(1, 'brandId', required: true, values: [])])),
+            self::BRANDS => Http::response('', 503),
+        ]);
+        $draft = app(ListingDraftService::class)->draftFor($this->account, self::PRODUCT, productType: self::CATEGORY, payload: ['brand' => 'Acme', 'sku' => '6281000000017']);
+
+        $outcome = app(ListingDraftService::class)->validate($draft);
+
+        $this->assertNotSame(ListingOutcome::VALIDATED, $outcome->state);
+        $this->assertContains('brandId', $draft->refresh()->problems ?? [], 'the id is reported missing, which is true');
+    }
+
+    public function test_a_brand_id_somebody_already_typed_is_not_looked_up(): void
+    {
+        $this->storeProduct(self::PRODUCT);
+        $this->makeTheProductFitToList(self::PRODUCT);
+        Http::fake([self::ATTRIBUTES => Http::response($this->attributes([$this->attribute(1, 'brandId', required: true, values: [])]))]);
+        $draft = app(ListingDraftService::class)->draftFor($this->account, self::PRODUCT, productType: self::CATEGORY, payload: ['brandId' => '999', 'brand' => 'Acme', 'sku' => '6281000000017']);
+
+        app(ListingDraftService::class)->validate($draft);
+
+        $this->assertSame('999', (string) $draft->refresh()->payload['brandId']);
+        $this->assertCount(0, Http::recorded(static fn ($request): bool => str_contains($request->url(), '/brands')));
+    }
+
+    /** The store's own data a product needs before any channel may be asked (ProductListingReadiness). */
+    private function makeTheProductFitToList(int $productId): void
+    {
+        DB::table('products')->where('id', $productId)->update([
+            'details' => '<p>Vitamin C, 500mg, 60 tablets.</p>',
+            'category_ids' => json_encode([['id' => '7', 'position' => 1]]),
+            'thumbnail' => 'thumb-' . $productId . '.png',
+            'images' => json_encode([['image_name' => 'front-' . $productId . '.png', 'storage' => 'public']]),
+            'brand_id' => 3,
+            'barcode' => '6281000000017',
+        ]);
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------
