@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\SalesChannels\ChannelAccountController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelAccountOperationsController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelHubController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelInventoryController;
+use App\Http\Controllers\Admin\SalesChannels\ChannelListingController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelLogController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelOrderController;
 use App\Http\Controllers\Admin\SalesChannels\ChannelProductController;
@@ -57,6 +58,17 @@ Route::group([
     Route::post('products/{mapping}/unignore', [ChannelProductController::class, 'unignore'])->whereNumber('mapping')->name('products.unignore');
     Route::post('products/{mapping}/accept-suggestion', [ChannelProductController::class, 'acceptSuggestion'])->whereNumber('mapping')->name('products.accept-suggestion');
     Route::post('products/{mapping}/settings', [ChannelProductController::class, 'settings'])->whereNumber('mapping')->name('products.settings');
+
+    // ---- putting one of OUR products on a channel (reached from the product form's channels card) ------------------
+    // Opening the screen calls no channel. `check` and `follow` only READ from one; `publish` is the single action that can change anything there, and the host's listing
+    // switch (SALES_CHANNELS_LISTING_PUBLISH_ENABLED) ships off, so until the owner turns it on it answers that nothing was sent.
+    Route::get('listings/{product}', [ChannelListingController::class, 'show'])->whereNumber('product')->name('listings.show');
+    Route::post('listings/{product}/accounts/{account}', [ChannelListingController::class, 'draft'])->whereNumber('product')->whereNumber('account')->name('listings.draft');
+    Route::post('listings/drafts/{draft}/clearance', [ChannelListingController::class, 'clearance'])->whereNumber('draft')->name('listings.clearance');
+    Route::post('listings/drafts/{draft}/withdraw', [ChannelListingController::class, 'withdraw'])->whereNumber('draft')->name('listings.withdraw');
+    Route::post('listings/drafts/{draft}/check', [ChannelListingController::class, 'check'])->whereNumber('draft')->middleware('throttle:12,1')->name('listings.check');
+    Route::post('listings/drafts/{draft}/follow', [ChannelListingController::class, 'follow'])->whereNumber('draft')->middleware('throttle:12,1')->name('listings.follow');
+    Route::post('listings/drafts/{draft}/publish', [ChannelListingController::class, 'publish'])->whereNumber('draft')->middleware('throttle:6,1')->name('listings.publish');
 
     // ---- stock by location (read only) ----------------------------------------------------------------------------
     Route::get('inventory', [ChannelInventoryController::class, 'index'])->name('inventory.index');

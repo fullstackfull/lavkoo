@@ -10,6 +10,7 @@ use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\RoutingAction;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\SalesChannels\ChannelLabels;
+use App\Http\Controllers\Admin\SalesChannels\Support\ListingLabels;
 use App\Http\Controllers\Admin\SalesChannels\Support\WriteState;
 use FilesystemIterator;
 use PHPUnit\Framework\TestCase;
@@ -27,8 +28,12 @@ class AdminSalesChannelsTranslationsTest extends TestCase
 {
     private const LOCALES = ['en', 'sa', 'ae'];
 
-    /** Where the module's user-visible text is written. */
-    private const SOURCES = ['resources/views/admin-views/sales-channels', 'app/Http/Controllers/Admin/SalesChannels'];
+    /** Where the module's user-visible text is written — including the card it adds to the platform's own product form. */
+    private const SOURCES = [
+        'resources/views/admin-views/sales-channels',
+        'app/Http/Controllers/Admin/SalesChannels',
+        'resources/views/admin-views/partials/_sales-channels-product.blade.php',
+    ];
 
     /** @var array<string, array<string, string>> */
     private array $catalogue = [];
@@ -91,7 +96,12 @@ class AdminSalesChannelsTranslationsTest extends TestCase
     {
         $files = [];
         foreach (self::SOURCES as $relative) {
-            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->path($relative), FilesystemIterator::SKIP_DOTS)) as $file) {
+            $path = $this->path($relative);
+            if (is_file($path)) {
+                $files[] = $path;
+                continue;
+            }
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS)) as $file) {
                 if (preg_match('/\.php$/', $file->getFilename()) === 1) {
                     $files[] = $file->getPathname();
                 }
@@ -120,6 +130,11 @@ class AdminSalesChannelsTranslationsTest extends TestCase
     public function test_every_key_built_from_a_code_exists_in_every_locale(): void
     {
         $this->assertTranslated(ChannelLabels::TRANSLATION_KEYS, 'label families');
+    }
+
+    public function test_every_listing_code_the_screens_put_words_to_exists_in_every_locale(): void
+    {
+        $this->assertTranslated(ListingLabels::translationKeys(), 'listing labels');
     }
 
     public function test_every_label_of_an_enum_the_screens_show_exists_in_every_locale(): void

@@ -35,6 +35,12 @@ class ProductListingReadiness
     public const NOT_A_PHYSICAL_PRODUCT = 'product_is_not_a_physical_product_of_the_store';
     public const NOT_FOUND = 'product_not_found';
 
+    /** Every code this class can produce. A screen translates these and nothing else; a test keeps the list complete. */
+    public const CODES = [
+        self::NO_NAME, self::NO_DESCRIPTION, self::NO_IDENTIFIER, self::NO_CATEGORY, self::NO_BRAND, self::NO_THUMBNAIL, self::NOT_ENOUGH_IMAGES,
+        self::VARIANT_NOT_FOUND, self::VARIANT_WITHOUT_A_PRICE, self::VARIANT_KEY_REQUIRED, self::NOT_A_PHYSICAL_PRODUCT, self::NOT_FOUND,
+    ];
+
     /**
      * What is missing before this product (or this variant of it) may be offered anywhere.
      *

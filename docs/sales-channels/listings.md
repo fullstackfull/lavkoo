@@ -170,10 +170,43 @@ state and what the channel is missing, the listing key, what is being published 
 last published. Opening the page calls no channel and reads no requirement, so the form never waits on a marketplace; before the module's migrations have run the card is not
 there at all.
 
+The card carries one button, **Put this product on a channel**, to the listing screen below.
+
+## The listing screen
+
+`admin/sales-channels/listings/{product}` (`ChannelListingController`, `listing.blade.php`, `_listing-draft.blade.php`) is where a person does the work, one card per channel
+account:
+
+| Action | What it is | Guard |
+| --- | --- | --- |
+| **Save the draft** | the channel's own field names and values, and its product type | nothing is sent and no channel is called |
+| **Check it** | the store's product first, then what the channel requires | may READ the channel's product-type definition; writes nothing |
+| **Record the clearance** | the licence or decision a regulated product needs | the admin's role must carry `sales_channels`; the id is `auth('admin')->id()`, never a field |
+| **Send it** | the create (PUT) or the change (PATCH) | the host switch, the account, `product_sync`, the recorded `product_writes` approval — and the confirmation box when the account really writes |
+| **Ask the channel what it holds** | turns a submission the channel took into a listing recorded here, or into its refusal | a READ; only for a draft that is waiting |
+| **Withdraw the draft** | a person stops it | refused while the draft is with the channel; tells the channel nothing and removes no listing |
+
+Why it is a screen of its own and not a panel inside the product form: that form is one big `<form>`, and a form inside a form is not valid HTML — the browser drops the inner
+one, so the buttons would quietly do nothing. Being its own screen also keeps the module's own guards on it (`module:sales_channels`, `EnsureSalesChannelsMigrated`) instead of
+hanging them on the catalogue.
+
+What the screen will not do:
+
+* **opening it calls nobody** — the draft, what the channel last said it requires and what it last said about the submission all come from our own tables;
+* **every action is a POST** behind a rate limit (6/min for the send, 12/min for the two reads), so a link on another site cannot start one;
+* **it decides nothing itself** — `ListingPublisher` and the transport do, and a refusal is shown as *nothing was sent* with the reason, never as done;
+* **the seller SKU is not on the form.** It is decided once, from the product's own code, by the draft service. A field a person could retype would be a way of making a second
+  listing of the same product;
+* **it writes no product.** A draft holds the channel's fields; the store's product is only read.
+
+The words come from `ListingLabels`, which translates only the codes OUR code produces. A field name a channel requires and a sentence a channel writes when it refuses are
+shown exactly as they came — `translate()` writes an unknown key into the language files, so a channel's own words must never reach it. A test reads the refusal codes out of
+the pipeline's source and fails if one of them has no translation.
+
 ## What is not built yet
 
-* **No actions on the screen yet.** The card shows the truth, the gates and the command do the work; completing the fields, previewing and sending from the product page (with its
-  own permission and audit) is the next slice.
+* **No preview of the listing as the channel will show it.** The screen shows the fields, what the channel requires and what it said about them; it does not render the page a
+  buyer would see.
 * **Trendyol and Noon** do not implement `CreatesListings` yet, so they refuse with `channel_cannot_create_listings` instead of pretending. Trendyol also needs its category,
   brand and attribute lookups; Noon has no connector at all.
 * **Amazon's full product-type schema** (the presigned link) is not fetched, and `catalog_items` (ASIN matching) and `JSON_LISTINGS_FEED` (bulk) are still not built.

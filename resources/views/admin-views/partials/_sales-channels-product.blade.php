@@ -1,21 +1,26 @@
 {{-- "Sales channels" card of the in-house product forms: where this product stands on each channel. Read only; it calls no channel. Expects $product on edit; omit it on create. --}}
 @php
     $channelPanel = app(\App\Services\SalesChannels\Listings\ProductChannelPanel::class);
-    $channelRows = $channelPanel->for(isset($product) ? (int) $product->id : null);
-    $channelProductProblems = $channelRows === [] ? [] : $channelPanel->productProblems(isset($product) ? (int) $product->id : null);
+    $channelLabels = app(\App\Http\Controllers\Admin\SalesChannels\Support\ListingLabels::class);
+    $channelProductId = isset($product) ? (int) $product->id : null;
+    $channelRows = $channelPanel->for($channelProductId);
+    $channelProductProblems = $channelRows === [] ? [] : $channelPanel->productProblems($channelProductId);
 @endphp
 @if ($channelRows !== [])
     <div class="card card-body mt-3 rest-part">
-        <div>
-            <h2 class="mb-1">{{ translate('sales_channels') }}</h2>
-            <p class="fs-12 mb-3">{{ translate('product_channels_card_help') }}</p>
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div>
+                <h2 class="mb-1">{{ translate('sales_channels') }}</h2>
+                <p class="fs-12 mb-3">{{ translate('product_channels_card_help') }}</p>
+            </div>
+            <a class="btn btn-outline-primary btn-sm" href="{{ route('admin.sales-channels.listings.show', $channelProductId) }}">{{ translate('put_this_product_on_a_channel') }}</a>
         </div>
         @if ($channelProductProblems !== [])
             <div class="alert alert-warning fs-12 py-2 mb-3">
                 <span class="d-block fw-bold">{{ translate('this_product_is_not_ready_for_any_channel_yet') }}</span>
                 <ul class="mb-0 ps-3">
                     @foreach ($channelProductProblems as $problem)
-                        <li>{{ translate($problem) }}</li>
+                        <li>{{ $channelLabels->problem($problem) }}</li>
                     @endforeach
                 </ul>
             </div>
@@ -38,9 +43,9 @@
                             <span class="d-block fs-12 text-muted">{{ translate('sales_channel_' . $row['account']->channel) }}</span>
                         </td>
                         <td>
-                            {{ translate('product_channel_state_' . $row['state']) }}
+                            {{ $channelLabels->state($row['state']) }}
                             @if ($row['problems'] !== [])
-                                <span class="d-block fs-12 text-danger">{{ implode('; ', array_slice($row['problems'], 0, 3)) }}</span>
+                                <span class="d-block fs-12 text-danger">{{ $channelLabels->problems(array_slice($row['problems'], 0, 3)) }}</span>
                             @elseif ($row['state'] === 'not_offered' && !$row['canCreate'])
                                 <span class="d-block fs-12 text-muted">{{ translate('channel_cannot_create_listings') }}</span>
                             @endif
