@@ -760,7 +760,7 @@ class StockOutboxTest extends TestCase
         $this->assertSame(ChannelStockEvent::PENDING, $event->state, 'the drain ran inside the request that recorded the change');
         $this->assertNull($event->outcome, 'and it even closed the row there');
         $this->assertSame(1, $this->outbox()->lag()['pending'], 'the change is recorded all the same; the minute schedule works it');
-        // Our own shop's number is still right: it is written with the hold, which owes nothing to a queue.
+        // Our own shop's number is still right: the request wrote it after its own commit, which owes nothing to a queue.
         $this->assertSame(17, $this->storefrontStock());
     }
 

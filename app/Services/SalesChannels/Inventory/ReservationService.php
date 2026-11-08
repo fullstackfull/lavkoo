@@ -54,8 +54,9 @@ class ReservationService
         } catch (UniqueConstraintViolationException) {
             // Another process inserted it between our look and our insert. The re-read has to LOCK, not merely select: inside a transaction a plain SELECT reads the snapshot
             // taken before that process committed, so it would find nothing and this would throw where it should simply hand back the row that exists. A locking read sees the
-            // latest committed version and waits for the writer, which is exactly what is wanted. (Caller-held transactions are why this matters: the hold and the storefront's
-            // own number are written together, so this runs inside one.)
+            // latest committed version and waits for the writer, which is exactly what is wanted. (Caller-held transactions are why this matters at all: a channel order's holds
+            // are brought into line inside one, so this runs inside it. Do not weaken the read back to a plain select on the grounds that nothing else shares that transaction
+            // any more — the snapshot is the caller's, not this method's, and MariaDB threw ModelNotFoundException here before the lock was added.)
             $existing = InventoryReservation::where('reservation_key', $key)->lockForUpdate()->first();
             if ($existing !== null) {
                 return $existing;
