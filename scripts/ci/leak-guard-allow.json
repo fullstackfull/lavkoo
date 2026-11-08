@@ -49,6 +49,12 @@
             "reason": "An English sentence for the admin panel ('No API key saved for the selected mode.') in an early commit of the MyFatoorah pull request. The scanner matched the shape -- an enum case named for a credential paired with mixed-case quoted text -- which is the right instinct on a payment class. A later commit of the same pull request returns a lowercase translation key instead, so no source line looks like a credential and the panel reads in Arabic too. It was never a credential."
         },
         {
+            "rule": "email-address",
+            "path": "docs/integrations/myfatoorah.md",
+            "line": 83,
+            "reason": "MyFatoorah's own technical-support mailbox, written into the sandbox setup steps in an early commit of the MyFatoorah pull request. A vendor's published support address, not anyone's personal data -- but the documentation exemption covers credential literals and not addresses, correctly, since a document leaks one as readily as code does. The next commit of the same pull request points at their contact page instead, so no line carries an address."
+        },
+        {
             "rule": "credential-literal",
             "path": "app/Enums/MyFatoorah/GatewayStatus.php",
             "line": 33,
