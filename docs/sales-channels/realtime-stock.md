@@ -151,7 +151,7 @@ sweep too old to raise a quantity on.
 | `SALES_CHANNELS_STOCK_OUTBOX_RETRY_SECONDS` | `60` | Multiplied by the number of tries so far |
 | `SALES_CHANNELS_STOCK_OUTBOX_CLAIM_TIMEOUT_MINUTES` | `10` | After this, a dead run's batch is taken back |
 | `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE` | `true` | Our own number written in the same request, straight after the holds commit. Off, only the worker writes it |
-| `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT` | `true` | The worker's own pass at it, for changes a transaction could not cover. Off as well, the storefront waits for the provider's next figure, as it did |
+| `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT` | `true` | The worker's own pass at it: it re-verifies what the request wrote, and is the only writer for changes no transaction could cover. Off as well, the storefront waits for the provider's next figure, as it did |
 | `SALES_CHANNELS_STOCK_OUTBOX_BEHIND_SECONDS` | `180` | When the hub says the workers are behind |
 | `SALES_CHANNELS_STOCK_OUTBOX_DONE_EVENT_DAYS` | `7` | `channels:prune` deletes worked events after this; **dead ones are kept** |
 

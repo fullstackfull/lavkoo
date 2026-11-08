@@ -13,8 +13,14 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Works the outbox: tells the CHANNELS. Our own shop's number is not its business — the change itself wrote that, in its own transaction — except for the changes a
- * transaction could not cover (a provider figure read by a sweep, a setting saved on a screen) and for a host with the inline write switched off.
+ * Works the outbox: tells the CHANNELS, and re-verifies OUR OWN number on the way.
+ *
+ * Our own number is written long before this, by the change itself: a provider sync writes it in its own transaction, and a channel hold writes it in the same request,
+ * straight after its holds commit. But the hold's write is NOT atomic with the hold — it cannot be, because inside that transaction the reads that count the promises would
+ * see its own snapshot — so a process that died in between would leave the holds committed and the number uncorrected. That is why the row keeps the storefront job, and why
+ * this pass does the arithmetic again: one event at a time, outside any transaction of ours, where every hold that exists is visible. It is a RECOMPUTE, so re-doing right
+ * work costs nothing; and it is also the only writer for the changes no transaction could cover (a provider figure read by a sweep, a setting saved on a screen) and for a
+ * host with the inline write switched off.
  *
  * How quickly the channels hear is therefore the only thing this governs, and it is seconds where a queue worker runs and up to a minute where none does. Not "the same
  * second": a marketplace has to be asked, and asking is what a worker is for. The scheduled runs stay exactly as they were, as the net beneath it.
@@ -171,12 +177,12 @@ class StockEventDrain
     }
 
     /**
-     * The storefront's own stock, for every product whose event still asks for it. A channel hold writes it in its OWN transaction, at the moment the units are held, and
-     * clears the flag: this is for the changes that cannot do that — a provider's figure read by a sweep, a setting saved on a screen — and for a host that has the inline
-     * write switched off.
+     * The storefront's own stock, for every product whose event still asks for it — which, for a channel hold, is every one of them: its own write happens after its commit
+     * and so is not covered by the transaction that recorded the row, and this pass is what makes it certain. The one caller that clears the flag is a provider sync, which
+     * really does write the number inside the transaction that recorded the event.
      *
      * One product is written once however many of its pools changed, and the write is a RECOMPUTE (figure minus promises), never a decrement, so doing it twice takes nothing
-     * off twice.
+     * off twice — and a pass that counted too few holds is corrected by the next one rather than compounded.
      *
      * @param list<ChannelStockEvent> $events
      * @return array{products: int, applied: int, refused: int}
