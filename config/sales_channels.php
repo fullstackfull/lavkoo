@@ -263,6 +263,10 @@ return [
         ],
         // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
         'requirements_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_REQUIREMENTS_FRESH_HOURS', 24),
+        // How long the channel CATALOGUE's answer about a barcode is trusted. Longer than the requirements, because an ASIN for a barcode does not move: what moves is the
+        // required fields of its product type. An `unknown` answer is never trusted for any length of time -- it is asked again at once, since it is the answer that stops a
+        // person from listing anything and freezing it for a week would be the worst of both.
+        'catalog_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_CATALOG_FRESH_HOURS', 168),
         /*
         | A pharmacy's catalogue. The code does not and cannot decide which of the shop's categories need a licence, so these are the OWNER's rules, and the gate FAILS CLOSED
         | when it is on: a product with no category recorded at all is refused, because "we could not tell" is not "it is fine".

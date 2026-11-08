@@ -67,6 +67,8 @@ Route::group([
     Route::post('listings/drafts/{draft}/clearance', [ChannelListingController::class, 'clearance'])->whereNumber('draft')->name('listings.clearance');
     Route::post('listings/drafts/{draft}/withdraw', [ChannelListingController::class, 'withdraw'])->whereNumber('draft')->name('listings.withdraw');
     Route::post('listings/drafts/{draft}/check', [ChannelListingController::class, 'check'])->whereNumber('draft')->middleware('throttle:12,1')->name('listings.check');
+    Route::post('listings/drafts/{draft}/identify', [ChannelListingController::class, 'identify'])->whereNumber('draft')->middleware('throttle:12,1')->name('listings.identify');
+    Route::post('listings/drafts/{draft}/catalog-item', [ChannelListingController::class, 'chooseCatalogItem'])->whereNumber('draft')->name('listings.catalog-item');
     Route::post('listings/drafts/{draft}/follow', [ChannelListingController::class, 'follow'])->whereNumber('draft')->middleware('throttle:12,1')->name('listings.follow');
     Route::post('listings/drafts/{draft}/publish', [ChannelListingController::class, 'publish'])->whereNumber('draft')->middleware('throttle:6,1')->name('listings.publish');
 

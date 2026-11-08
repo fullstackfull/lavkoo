@@ -17,7 +17,7 @@ Auth: Login with Amazon refresh-token flow (`POST https://api.amazon.com/auth/o2
 | FBA stock | FBA Inventory v1 | `GET /fba/inventory/v1/summaries` (`details=true`) | Amazon Fulfillment OR Product Listing | yes |
 | Fees and settlements | Finances **v2024-06-19** | `GET /finances/2024-06-19/transactions` (`postedBefore` ≥ 2 minutes ago) | Finance and Accounting | yes |
 | Shipment confirmation | Orders **v0** (no equivalent in v2026-01-01) | `POST /orders/v0/orders/{id}/shipmentConfirmation` (204 = success) | Inventory and Order Tracking OR Direct to Consumer Shipping (Restricted) | yes |
-| Catalog enrichment | Catalog Items 2022-04-01 | – | Product Listing | **no** |
+| Catalog identity | Catalog Items 2022-04-01 | `GET /catalog/2022-04-01/items` (`identifiers`, `identifiersType`, `marketplaceIds`, `includedData=identifiers,images,productTypes,summaries`). ONE identifier kind per call, so the kinds are tried most-trustworthy first; a 13-digit barcode is asked as `EAN`, a 12-digit one as `UPC`, and a barcode of any other shape is not offered under a kind it is not. Everything in the answer is keyed by marketplace and only OUR marketplace's entry is read — a German `productType` is not the requirements of a Saudi listing | Product Listing | yes |
 | Notifications | Notifications v1 | delivered only to the seller's own AWS SQS/EventBridge, never to a URL; polling is the source of truth | | **no** |
 | Reports / Feeds | Reports, Feeds 2021-06-30 | operations registered; `JSON_LISTINGS_FEED` is the only current listing feed (flat-file/XML listing feeds were removed by Amazon) | | **no** |
 

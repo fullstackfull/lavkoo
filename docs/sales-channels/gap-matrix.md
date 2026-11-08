@@ -38,7 +38,7 @@
 | LWA، Orders v2026-01-01، FBA/FBM، FBA inventory، Finances، confirmShipment | **مبني** | `AmazonConnector::capabilityMatrix()` |
 | Listings Items: بحث + `patch` للسعر والكمية + معاينة | **مبني** | `amazon.listings_patch_*` |
 | Listings Items: إنشاء/استبدال قائمة (`putListingsItem`) | **غير مبني ولا مسجَّل** | يحتاج عملية جديدة بنطاق `product_writes` وقدرة `ProductSync` |
-| Catalog Items (مطابقة ASIN) | مسجَّل، غير مبني | `catalog_items: built=false` |
+| Catalog Items (مطابقة ASIN) | **مبني (PR-C)** | يُعيد ASIN و`productType` الذي بدونه لا يمكن سؤال متطلبات القائمة. أربعة أجوبة مفصولة: واحد، أو عدّة (لشخص)، أو صفر مؤكَّد، أو **UNKNOWN** حين لا يُمكن السؤال — و`UNKNOWN` لا تُقرأ أبدًا كـ«لا يوجد»، وهو ما يمنع إنشاء قائمة ثانية لمنتج مُدرج. `ListingCatalogLookup`، `AmazonCatalogMapper` |
 | Product Type Definitions | مسجَّل، غير مبني | `product_type_definitions: built=false` |
 | `JSON_LISTINGS_FEED` | مسجَّل (أربع عمليات)، غير مبني | `feeds_json_listings: built=false` |
 | Notifications (SQS/EventBridge) | مسجَّل، غير مبني؛ الاستقصاء هو المصدر | `notifications: built=false` |

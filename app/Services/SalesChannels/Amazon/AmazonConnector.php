@@ -13,12 +13,14 @@ use App\Services\SalesChannels\Contracts\ChannelConnector;
 use App\Services\SalesChannels\Contracts\ConfirmsShipments;
 use App\Services\SalesChannels\Contracts\CreatesListings;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
+use App\Services\SalesChannels\Contracts\ReadsCatalog;
 use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsChannelInventory;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
 use App\Services\SalesChannels\Contracts\ReadsRecipient;
+use App\Services\SalesChannels\Data\CatalogMatch;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Data\ListingRequirements;
@@ -45,7 +47,7 @@ use RuntimeException;
  * What it will not do: guess a field, ask for personal data it does not need, treat an order Amazon fulfils (FBA) or one that is not an Amazon channel's own
  * as ours to ship, or write anything unless the transport (ChannelHttp) lets the call out.
  */
-class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments, CreatesListings, DescribesListingRequirements
+class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments, CreatesListings, DescribesListingRequirements, ReadsCatalog
 {
     private const LISTINGS_CAP = 1000;
 
@@ -54,6 +56,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         private readonly AmazonOrderMapper $orders,
         private readonly AmazonListingMapper $listings,
         private readonly AmazonFinanceMapper $finances,
+        private readonly AmazonCatalogMapper $catalog,
     ) {
     }
 
@@ -69,7 +72,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             'orders_v2026_01_01' => ['documented' => true, 'built' => true, 'note' => 'searchOrders / getOrder. Orders v0 reads are deprecated and are not used.'],
             'fba_vs_fbm' => ['documented' => true, 'built' => true, 'note' => 'fulfillment.fulfilledBy with salesChannel.channelName; an unclear order is never treated as FBM.'],
             'listings_items' => ['documented' => true, 'built' => true, 'note' => 'searchListingsItems (capped at 1000 per query: windows are split); patchListingsItem for a price or a quantity, with a validation preview, and for the CONTENT of a listing that exists (only the fields that differ, nothing removed); putListingsItem ONLY to create the listing of a SKU Amazon holds nothing for, with the product-only requirements mode and never an offer attribute; and getListingsItem with summaries and issues, which is the only thing that says a listing exists — `ACCEPTED` on a write means the submission was taken, not that anything is listed.'],
-            'catalog_items' => ['documented' => true, 'built' => false, 'note' => 'Read-only enrichment (EAN/UPC for matching) is designed; not built in this version.'],
+            'catalog_items' => ['documented' => true, 'built' => true, 'note' => 'searchCatalogItems by EAN/UPC (one identifier kind per call, tried most trustworthy first), read-only. It brings back the ASIN and Amazon\'s own productType, which is what makes the requirements call possible without a person guessing the type. Four answers are kept apart and a catalogue that could not be reached is UNKNOWN, never "holds nothing": one ASIN is a match, several wait for a person, and only an answered zero licenses anything.'],
             'product_type_definitions' => ['documented' => true, 'built' => true, 'note' => 'getDefinitionsProductType is read before a listing is created, and ONLY a `required` list the response itself carries is used. The full rules live in a JSON Schema behind a presigned link this version does not fetch (it is not on the allowed list), so where the response carries no such list the answer is UNKNOWN and the owner\'s own declared list on the account is used instead, recorded as the owner\'s and not Amazon\'s.'],
             'fba_inventory' => ['documented' => true, 'built' => true, 'note' => 'getInventorySummaries v1 with inventoryDetails; kept apart from Torod Point stock.'],
             'finances_v2024_06_19' => ['documented' => true, 'built' => true, 'note' => 'listTransactions; fee types are an open set classified by configurable patterns, anything unknown is kept for review.'],
@@ -241,6 +244,115 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         $middle = $from->addSeconds((int) ($from->diffInSeconds($to, true) / 2));
 
         return [[$from->toIso8601ZuluString(), $middle->toIso8601ZuluString()], [$middle->toIso8601ZuluString(), $to->toIso8601ZuluString()]];
+    }
+
+    // ---- the channel's own catalogue ------------------------------------------------------------------------------
+
+    /**
+     * Asks Amazon's catalogue whether it already holds a product with our barcode, and brings back the ASIN and — the reason this call exists — Amazon's own `productType`,
+     * without which the requirements of a listing cannot be asked for at all.
+     *
+     * `searchCatalogItems` takes ONE kind of identifier per call (`identifiersType`), so the kinds are tried in order of how much they can be trusted and the FIRST kind that
+     * produces an answer wins. A kind that finds nothing is not a failure: the next is tried. Amazon knows EAN, UPC, GTIN, JAN, ISBN and MINSAN; a kind it does not know is
+     * never sent, because the call would be refused for the whole batch.
+     *
+     * The four answers are kept apart deliberately, and the distinction is the point of the method:
+     *
+     *  - every kind asked, every one answered, none held anything  → `NONE`, a definite zero;
+     *  - exactly one ASIN                                          → `MATCHED`;
+     *  - several                                                   → `SEVERAL`, for a person; never a guess, because the wrong ASIN is another seller's product;
+     *  - a switch off, a rehearsal, a refusal, a rate limit        → `UNKNOWN`, with the reason.
+     *
+     * The last one is why `saysNothingIsThere()` exists. A rate-limited search that answered nothing looks exactly like an empty catalogue if you only count the results, and
+     * acting on that is how a product that is already listed gets listed a second time.
+     *
+     * @param array<string, string> $identifiers
+     */
+    public function catalogMatch(SalesChannelAccount $account, array $identifiers): CatalogMatch
+    {
+        $marketplace = $this->primaryMarketplace($account);
+        $usable = $this->catalogIdentifiers($identifiers);
+        if ($usable === []) {
+            return CatalogMatch::unknown('no_identifier_the_catalogue_knows', $identifiers);
+        }
+
+        $asked = [];
+        foreach ($usable as $kind => $value) {
+            $asked[$kind] = $value;
+            $response = $this->client->call(
+                $account,
+                'amazon.catalog_search',
+                'GET',
+                '/catalog/2022-04-01/items',
+                ['identifiers' => $value, 'identifiersType' => $kind, 'marketplaceIds' => $marketplace, 'includedData' => 'identifiers,images,productTypes,summaries', 'pageSize' => 10],
+                capability: IntegrationCapability::ProductSync,
+            );
+
+            // Not asked, or asked and not answered. Either way we do not know, and we say so instead of moving on to the next kind as though this one had come back empty.
+            if ($response->isDryRun()) {
+                return CatalogMatch::unknown('rehearsal', $asked);
+            }
+            if ($response->isTransient()) {
+                return CatalogMatch::unknown('channel_unreachable', $asked);
+            }
+            if (!$response->ok()) {
+                // Amazon refuses an identifier it considers malformed for the kind. That is about this identifier, not about the catalogue, so the next kind is still worth asking.
+                continue;
+            }
+
+            $candidates = [];
+            foreach ((array) $response->get('items', []) as $item) {
+                $candidate = $this->catalog->map((array) $item, $marketplace);
+                if ($candidate->externalId !== '') {
+                    $candidates[$candidate->externalId] = $candidate;
+                }
+            }
+            if ($candidates !== []) {
+                return CatalogMatch::of(array_values($candidates), $asked);
+            }
+        }
+
+        // Every kind we could ask was asked and answered, and Amazon holds nothing. This is the one path that may read as a definite zero.
+        return CatalogMatch::none($asked);
+    }
+
+    /**
+     * Our identifiers reduced to the kinds Amazon's catalogue accepts, most trustworthy first. A GTIN-shaped barcode is offered as EAN or UPC by its length, which is what
+     * those kinds are; anything else is left out rather than sent under a kind it is not.
+     *
+     * @param array<string, string> $identifiers
+     * @return array<string, string>
+     */
+    private function catalogIdentifiers(array $identifiers): array
+    {
+        $known = ['ASIN', 'EAN', 'UPC', 'GTIN', 'JAN', 'ISBN', 'MINSAN'];
+        $usable = [];
+        foreach ($identifiers as $kind => $value) {
+            $kind = mb_strtoupper(trim((string) $kind));
+            $value = trim((string) $value);
+            if ($value === '' || !in_array($kind, $known, true)) {
+                continue;
+            }
+            $usable[$kind] = $value;
+        }
+
+        // A bare barcode arrives under no kind at all: its length is the only honest thing to go on. 13 digits is an EAN, 12 a UPC; anything else is not offered as either.
+        $barcode = trim((string) ($identifiers['barcode'] ?? ''));
+        if ($barcode !== '' && ctype_digit($barcode)) {
+            $kind = match (mb_strlen($barcode)) {
+                13 => 'EAN',
+                12 => 'UPC',
+                default => null,
+            };
+            if ($kind !== null) {
+                $usable[$kind] ??= $barcode;
+            }
+        }
+
+        $order = array_flip($known);
+        uksort($usable, static fn (string $a, string $b): int => ($order[$a] ?? 99) <=> ($order[$b] ?? 99));
+
+        return $usable;
     }
 
     // ---- orders -------------------------------------------------------------------------------------------------

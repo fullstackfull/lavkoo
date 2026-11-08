@@ -12,6 +12,7 @@ use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\Fulfillment\Support\SafeToast;
 use App\Services\SalesChannels\Data\ListingRequirements;
+use App\Services\SalesChannels\Listings\ListingCatalogLookup;
 use App\Services\SalesChannels\Listings\ListingDraftService;
 use App\Services\SalesChannels\Listings\ListingOutcome;
 use App\Services\SalesChannels\Listings\ListingPublisher;
@@ -49,6 +50,7 @@ class ChannelListingController extends Controller
     public function __construct(
         private readonly ListingDraftService $drafts,
         private readonly ListingPublisher $publisher,
+        private readonly ListingCatalogLookup $catalog,
         private readonly ProductChannelPanel $panel,
         private readonly RegulatedProductGate $regulated,
         private readonly ProductDirectory $products,
@@ -99,6 +101,44 @@ class ChannelListingController extends Controller
             payload: $this->fieldsFrom($data['fields'] ?? []),
         );
         SafeToast::success(translate('listing_draft_saved_nothing_sent'));
+
+        return $this->back($draft);
+    }
+
+    /**
+     * Asks the CHANNEL'S CATALOGUE what it already holds for this product's barcode. A read, and the only way the draft can learn the channel's own product type without a
+     * person guessing it.
+     *
+     * It reports what KIND of answer came back, because the four are not interchangeable: one product found, several found (a person must choose), nothing there, or the
+     * catalogue could not be asked. The last one is said out loud rather than shown as an empty result, since an empty result is what invites somebody to create a second
+     * listing of a product that is already listed.
+     */
+    public function identify(ChannelListingDraft $draft): RedirectResponse
+    {
+        $match = $this->catalog->identify($draft, force: true);
+
+        match (true) {
+            $match->couldNotAsk() => SafeToast::warning(
+                translate('the_channels_catalogue_could_not_be_asked'),
+                $this->labels->refusal('catalog_' . (string) $match->reason),
+            ),
+            $match->needsAPerson() => SafeToast::info(
+                translate('the_channel_holds_more_than_one_product_with_this_barcode'),
+                translate('choose_the_right_one_before_sending_anything'),
+            ),
+            $match->saysNothingIsThere() => SafeToast::info(translate('the_channels_catalogue_holds_nothing_for_this_barcode')),
+            default => SafeToast::success(translate('the_channel_holds_this_product'), $match->theOne()?->productType),
+        };
+
+        return $this->back($draft);
+    }
+
+    /** Records WHICH of the catalogue's candidates this product is. A person's choice only: with several candidates there is no right one for a machine to pick. */
+    public function chooseCatalogItem(Request $request, ChannelListingDraft $draft): RedirectResponse
+    {
+        $data = $request->validateWithBag('catalog_' . $draft->id, ['external_id' => ['required', 'string', 'max:190']]);
+
+        $this->announce($this->catalog->choose($draft, (string) $data['external_id'], (int) auth('admin')->id()), translate('the_catalogue_choice_was_recorded'));
 
         return $this->back($draft);
     }
