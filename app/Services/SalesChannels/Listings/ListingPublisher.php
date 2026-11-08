@@ -29,6 +29,9 @@ use Throwable;
  *     exists is a PATCH of the fields that differ, so attributes we were never told about are not lost.
  *  5. NO OFFER EVER LEAVES HERE: every attribute the connector names as an offer attribute (a price, a quantity, an availability) is withheld and recorded. A quantity reaches
  *     a channel only through stock publishing, which is a capability of its own with an approval of its own.
+ *  5b. WHAT WAS SENT IS NOT WHAT WAS APPLIED: the fields of a write are kept as `submitted_payload` while the channel has not spoken, and become `published_payload` only when
+ *     it confirms the listing. An update is computed against the CONFIRMED payload, so a submission that was taken and then refused is sent again, and changing the same field
+ *     twice records the second value, not the first.
  *  6. A SUBMISSION IS NOT A LISTING: a channel that answers "accepted" has taken the submission, nothing more. The draft waits, and `follow()` asks the channel what it HOLDS
  *     (`listingFor`). Only that answer creates the listing row here, with what the channel says about it; and if the channel reports it BUYABLE although we published no offer,
  *     that is written down as a problem for a person, not as a success.
@@ -200,11 +203,16 @@ class ListingPublisher
     /**
      * Does the channel already hold a listing for our SKU? That decides create or update — and it is also where someone else's listing is kept safe.
      *
-     * The channel is asked, not guessed. If it holds one and we have no record linking it to this product, the attempt is REFUSED: replacing it would overwrite a listing we
-     * know nothing about, and linking it would be a guess about what it is. A person links it (the listing sync and the products screen are for exactly that) and then the
-     * draft updates it.
+     * The channel is asked, not guessed, and only two of its answers permit a write:
      *
-     * @return bool|ListingOutcome true when it is an update, false when nothing is there to update, or the refusal
+     *  - it HOLDS a listing for the SKU, and our own record says that listing is this product's → an update (a PATCH of what differs);
+     *  - it says it holds NOTHING (`ListingSubmission::ABSENT`, Amazon's 404) → a create (a PUT).
+     *
+     * Everything else refuses: a listing we have no record of is never replaced and never adopted (a person links it, which the listing sync and the products screen are for),
+     * a failed read tells us nothing, and an answer that settles nothing — the channel still busy, or Amazon answering 200 for the SKU with no summary for the marketplace,
+     * which means the item IS in its catalogue — must not be read as an absence. A create on any of those could replace a listing.
+     *
+     * @return bool|ListingOutcome true when it is an update, false when the channel has confirmed there is nothing there, or the refusal
      */
     private function whatTheChannelHolds(CreatesListings $connector, SalesChannelAccount $account, ChannelListingDraft $draft): bool|ListingOutcome
     {
@@ -225,14 +233,27 @@ class ListingPublisher
             return $this->refuse($draft, 'could_not_read_what_the_channel_holds');
         }
 
-        $theChannelHoldsIt = $held->isLive() || $held->isRejected();
-        if ($theChannelHoldsIt && !$this->weHaveARecordOfIt($draft)) {
-            $this->note($draft, 'sales_channel.listing_key_taken_at_the_channel', ['sku' => $this->skuOf($draft)], null);
+        if ($held->isLive() || $held->isRejected()) {
+            // The channel holds a listing for the SKU. It may only be changed when our own record says it is this product's.
+            if (!$this->weHaveARecordOfIt($draft)) {
+                $this->note($draft, 'sales_channel.listing_key_taken_at_the_channel', ['sku' => $this->skuOf($draft)], null);
 
-            return $this->refuse($draft, 'sku_already_listed_at_the_channel_and_not_linked_here');
+                return $this->refuse($draft, 'sku_already_listed_at_the_channel_and_not_linked_here');
+            }
+
+            return true;
         }
 
-        return $theChannelHoldsIt;
+        if ($held->isAbsent()) {
+            // The channel said it holds nothing. This is the ONLY answer a create is made on.
+            return false;
+        }
+
+        // Anything else settles nothing — the channel is still busy, or it answered about the SKU without saying whether a listing exists (Amazon: 200 with no summary for the
+        // marketplace, which means the item IS in the seller's catalogue). A create here could replace a listing, so the write waits for an answer or for a person.
+        $this->note($draft, 'sales_channel.listing_presence_unconfirmed', ['sku' => $this->skuOf($draft), 'channel_said' => $held->channelStatus], null);
+
+        return $this->refuse($draft, 'could_not_confirm_that_the_channel_holds_no_listing');
     }
 
     /** Is the draft linked to a listing of OURS for this very product? Only then may a write change what the channel holds. */
@@ -293,8 +314,9 @@ class ListingPublisher
             'channel_status' => $submission->channelStatus,
             'channel_problems' => null,
             'refusal_code' => null,
-            // What the channel now holds of ours, so that the next change patches only what differs.
-            'published_payload' => $updated ? ((array) ($draft->published_payload ?? [])) + $sent : $sent,
+            // What the channel will hold once it applies this: what it has CONFIRMED, with the fields just sent on top (array_merge, so a field sent again wins). It stays
+            // `submitted` until the channel confirms the listing; `published_payload` is only written then, so nothing is believed published because a submission was taken.
+            'submitted_payload' => $draft->payloadAfterSending($sent),
             'withheld_attributes' => $withheld,
             'submitted_at' => now(),
             'checked_at' => now(),
@@ -314,6 +336,8 @@ class ListingPublisher
             'submission_id' => $submission->id ?? $draft->submission_id,
             'channel_status' => $submission->channelStatus,
             'channel_problems' => $submission->problems,
+            // The refusal applied nothing, so what was sent is forgotten and what the channel holds is unchanged: the fields go out again next time.
+            'submitted_payload' => null,
             'checked_at' => now(),
         ])->save();
         $this->note($draft, 'sales_channel.listing_rejected', ['problems' => array_slice($submission->problems, 0, 10)], $adminId);
@@ -338,6 +362,9 @@ class ListingPublisher
             'state' => ChannelListingDraft::ACCEPTED,
             'channel_status' => $submission->channelStatus,
             'channel_listing_statuses' => $submission->statuses,
+            // The channel confirms the listing: what was sent is now what it holds, and nothing is waiting any more.
+            'published_payload' => $draft->submitted_payload ?? $draft->published_payload,
+            'submitted_payload' => null,
             'channel_problems' => $problems === [] ? null : $problems,
             'product_mapping_id' => $listingId ?? $draft->product_mapping_id,
             'checked_at' => now(),

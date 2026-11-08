@@ -65,7 +65,7 @@ class ThrowingListingConnector implements ChannelConnector, CreatesListings
     public function listingFor(SalesChannelAccount $account, string $sku): ListingSubmission
     {
         if (self::$holdsNothing) {
-            return ListingSubmission::working(null, 'not_there');
+            return ListingSubmission::absent();
         }
 
         return $this->refuse();

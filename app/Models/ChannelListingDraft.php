@@ -47,6 +47,7 @@ class ChannelListingDraft extends Model
         'product_mapping_id' => 'integer',
         'requested_by' => 'integer',
         'payload' => 'array',
+        'submitted_payload' => 'array',
         'published_payload' => 'array',
         'withheld_attributes' => 'array',
         'regulatory_clearance' => 'array',
@@ -89,23 +90,38 @@ class ChannelListingDraft extends Model
     }
 
     /**
-     * What an update has to send: the fields whose value differs from what the channel was last given. Nothing is ever removed — a field the draft no longer names keeps the
-     * value the channel holds, because a partial update must not be a way of emptying a listing.
+     * What an update has to send: the fields whose value differs from what the channel has CONFIRMED it holds (`published_payload`), not from what was merely sent to it. A
+     * submission the channel took and then refused leaves nothing published, so the field is sent again; and a field whose confirmed value already equals the new one is not
+     * sent at all.
+     *
+     * Nothing is ever removed — a field the draft no longer names keeps the value the channel holds, because a partial update must not be a way of emptying a listing.
      *
      * @param array<string, mixed> $attributes
      * @return array<string, mixed>
      */
     public function changedAttributes(array $attributes): array
     {
-        $published = (array) ($this->published_payload ?? []);
+        $confirmed = (array) ($this->published_payload ?? []);
         $changed = [];
         foreach ($attributes as $field => $value) {
-            if (!array_key_exists($field, $published) || $published[$field] !== $value) {
+            if (!array_key_exists($field, $confirmed) || $confirmed[$field] !== $value) {
                 $changed[$field] = $value;
             }
         }
 
         return $changed;
+    }
+
+    /**
+     * What the channel will hold once it has applied the submission now going out: what it has confirmed, with the fields just sent on top. `array_merge`, not `+`: the NEW
+     * value of a field that is sent again has to win, or a second change to the same field would be remembered as the first one.
+     *
+     * @param array<string, mixed> $sent
+     * @return array<string, mixed>
+     */
+    public function payloadAfterSending(array $sent): array
+    {
+        return array_merge((array) ($this->published_payload ?? []), $sent);
     }
 
     public function scopeWaitingForTheChannel(Builder $query): Builder

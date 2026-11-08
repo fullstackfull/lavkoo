@@ -21,7 +21,10 @@ final readonly class ListingSubmission
     /** The channel reports a listing for our SKU. */
     public const LIVE = 'live';
     public const REJECTED = 'rejected';
+    /** The channel is still busy with something, or answered in a way that settles nothing. NOT "it holds nothing". */
     public const WORKING = 'working';
+    /** The channel says, plainly, that it holds NOTHING for this SKU (Amazon: 404). The only answer a create may be made on. */
+    public const ABSENT = 'absent';
     /** The channel could not be asked at all (a failed call, a rehearsal): NOT an answer, and never read as "it holds nothing". */
     public const UNKNOWN = 'unknown';
 
@@ -68,6 +71,18 @@ final readonly class ListingSubmission
     public static function unknown(?string $channelStatus = null): self
     {
         return new self(self::UNKNOWN, null, [], $channelStatus);
+    }
+
+    /** The channel knows no listing of ours by this SKU and said so. */
+    public static function absent(?string $channelStatus = 'not_there'): self
+    {
+        return new self(self::ABSENT, null, [], $channelStatus);
+    }
+
+    /** May a listing be CREATED? Only when the channel has said it holds nothing; silence, a half answer and a failure are all not this. */
+    public function isAbsent(): bool
+    {
+        return $this->status === self::ABSENT;
     }
 
     /** Nobody knows: the call failed, or it was a rehearsal. A caller that was about to write must stop. */

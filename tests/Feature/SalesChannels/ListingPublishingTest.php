@@ -393,6 +393,29 @@ class ListingPublishingTest extends TestCase
         $this->assertSame(0, $this->callsTo('/listings/', 'PUT'));
     }
 
+    public function test_an_answer_that_does_not_say_whether_a_listing_exists_blocks_the_write(): void
+    {
+        // Amazon answers 200 for the SKU with no summary for the marketplace: the item IS in the seller's catalogue, so a PUT would set it.
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(['sku' => 'SKU70', 'summaries' => [], 'issues' => []]));
+
+        $outcome = $this->publisher()->publish($draft, adminId: 1);
+
+        $this->assertSame([ListingOutcome::REFUSED, 'could_not_confirm_that_the_channel_holds_no_listing'], [$outcome->state, $outcome->reason]);
+        $this->assertSame(0, $this->callsTo('/listings/', 'PUT'));
+        $this->assertSame(0, $this->callsTo('/listings/', 'PATCH'));
+        $this->assertSame(0, SalesChannelProductMapping::count());
+    }
+
+    public function test_only_a_plain_absence_lets_a_listing_be_created(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+
+        $this->assertSame(ListingOutcome::SUBMITTED, $this->publisher()->publish($draft, adminId: 1)->state);
+        $this->assertSame(1, $this->callsTo('/listings/', 'PUT'));
+    }
+
     // ---- create with PUT, change with PATCH ----------------------------------------------------------------
 
     public function test_a_listing_the_channel_does_not_hold_is_created_with_a_put_of_the_product_only(): void
@@ -436,15 +459,84 @@ class ListingPublishingTest extends TestCase
         ], $patch[0]->data(), 'only the field that changed, and nothing removed');
     }
 
-    public function test_what_was_sent_is_remembered_so_that_a_second_change_sends_only_the_new_difference(): void
+    public function test_what_was_sent_is_not_what_the_channel_has_confirmed(): void
     {
         $draft = $this->readyToSend();
         $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
         $this->publisher()->publish($draft, adminId: 1);
 
-        $this->assertSame(['item_name' => 'Vitamin C 500mg'], ChannelListingDraft::firstOrFail()->published_payload);
-        $this->assertSame([], ChannelListingDraft::firstOrFail()->changedAttributes(['item_name' => 'Vitamin C 500mg']));
-        $this->assertSame(['brand' => 'PharmaCo'], ChannelListingDraft::firstOrFail()->changedAttributes(['item_name' => 'Vitamin C 500mg', 'brand' => 'PharmaCo']));
+        $draft = ChannelListingDraft::firstOrFail();
+        $this->assertSame(['item_name' => 'Vitamin C 500mg'], $draft->submitted_payload, 'it is waiting for the channel');
+        $this->assertNull($draft->published_payload, 'and nothing is published because a submission was taken');
+        $this->assertSame(['item_name' => 'Vitamin C 500mg'], $draft->changedAttributes(['item_name' => 'Vitamin C 500mg']), 'so the field would still be sent');
+
+        $this->fake($this->listings($this->holdsAListing()));
+        $this->publisher()->follow($draft);
+
+        $draft = ChannelListingDraft::firstOrFail();
+        $this->assertSame(['item_name' => 'Vitamin C 500mg'], $draft->published_payload, 'now the channel holds it');
+        $this->assertNull($draft->submitted_payload, 'and nothing is waiting');
+        $this->assertSame([], $draft->changedAttributes(['item_name' => 'Vitamin C 500mg']));
+        $this->assertSame(['brand' => 'PharmaCo'], $draft->changedAttributes(['item_name' => 'Vitamin C 500mg', 'brand' => 'PharmaCo']));
+
+        // A second field, so that the merge is read back from the database with more than one key (MySQL stores a JSON object in its own key order, hence the canonical compare).
+        $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['brand' => 'PharmaCo']);
+        $this->fake($this->definitionSays(['item_name']) + $this->listings($this->holdsAListing()));
+        $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1);
+        $this->fake($this->listings($this->holdsAListing()));
+        $this->publisher()->follow(ChannelListingDraft::firstOrFail());
+
+        $confirmed = ChannelListingDraft::firstOrFail()->published_payload;
+        $this->assertEqualsCanonicalizing(['item_name' => 'Vitamin C 500mg', 'brand' => 'PharmaCo'], $confirmed);
+        $this->assertSame('Vitamin C 500mg', $confirmed['item_name'], 'the first field was not lost by the merge');
+        $this->assertSame([], ChannelListingDraft::firstOrFail()->changedAttributes(['item_name' => 'Vitamin C 500mg', 'brand' => 'PharmaCo']));
+    }
+
+    public function test_the_same_field_can_be_changed_again_and_again_and_the_last_value_is_the_one_remembered(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+        $this->publisher()->publish($draft, adminId: 1);
+        $this->fake($this->listings($this->holdsAListing()));
+        $this->publisher()->follow(ChannelListingDraft::firstOrFail());
+
+        foreach (['Vitamin C 1000mg', 'Vitamin C 1000mg (60 tablets)'] as $name) {
+            $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['item_name' => $name]);
+            $this->fake($this->definitionSays(['item_name']) + $this->listings($this->holdsAListing()));
+            $this->assertSame(ListingOutcome::SUBMITTED, $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1)->state, "sending {$name}");
+            $patch = collect(Http::recorded(fn ($request): bool => $request->method() === 'PATCH'))->last();
+            $this->assertSame([['op' => 'replace', 'path' => '/attributes/item_name', 'value' => $name]], $patch[0]->data()['patches'], "the patch carries {$name}");
+
+            $this->fake($this->listings($this->holdsAListing()));
+            $this->publisher()->follow(ChannelListingDraft::firstOrFail());
+            $this->assertSame(['item_name' => $name], ChannelListingDraft::firstOrFail()->published_payload, "the channel now holds {$name}");
+        }
+
+        // And the last value is not sent a third time.
+        $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['item_name' => 'Vitamin C 1000mg (60 tablets)']);
+        $this->fake($this->definitionSays(['item_name']) + $this->listings($this->holdsAListing()));
+        $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1);
+
+        $this->assertSame(0, $this->callsTo('/listings/', 'PATCH'), 'nothing differs from what the channel holds');
+    }
+
+    public function test_a_change_the_channel_refused_is_not_remembered_as_published_and_goes_out_again(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+        $this->publisher()->publish($draft, adminId: 1);
+        $this->fake($this->listings($this->holdsAListing()));
+        $this->publisher()->follow(ChannelListingDraft::firstOrFail());
+
+        // A change the channel refuses outright.
+        $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['item_name' => 'Vitamin C 1000mg']);
+        $this->fake($this->definitionSays(['item_name']) + $this->listings($this->holdsAListing(), ['status' => 'INVALID', 'issues' => [['code' => '1', 'message' => 'too long', 'severity' => 'ERROR']]]));
+        $this->assertSame(ListingOutcome::REJECTED, $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1)->state);
+
+        $draft = ChannelListingDraft::firstOrFail();
+        $this->assertNull($draft->submitted_payload, 'the refusal applied nothing');
+        $this->assertSame(['item_name' => 'Vitamin C 500mg'], $draft->published_payload, 'what the channel holds is unchanged');
+        $this->assertSame(['item_name' => 'Vitamin C 1000mg'], $draft->changedAttributes(['item_name' => 'Vitamin C 1000mg']), 'so the new value goes out again');
     }
 
     // ---- no offer ever leaves here -------------------------------------------------------------------------

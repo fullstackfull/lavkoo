@@ -608,8 +608,8 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             return ListingSubmission::unknown('dry_run');
         }
         if ($response->status === 404) {
-            // Amazon knows no listing of ours by that SKU. This is an answer, and the only one that makes a create safe.
-            return ListingSubmission::working(null, 'not_there');
+            // Amazon knows no listing of ours by that SKU, and says so. This is the only answer a create may be made on.
+            return ListingSubmission::absent();
         }
         if (!$response->ok()) {
             return ListingSubmission::unknown((string) $response->status);
@@ -620,7 +620,8 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
         $summaries = array_values(array_filter((array) $response->get('summaries', []), 'is_array'));
         if ($summaries === []) {
-            // Amazon answered about the SKU but reports no summary for this marketplace: there is nothing to call a listing yet.
+            // Amazon answered 200 for this SKU but gave no summary for the marketplace. That is NOT an absence: the item IS in the seller's catalogue, and a PUT would set it.
+            // It is an answer that settles nothing, which is what WORKING means, and the publisher refuses to write on it.
             return ListingSubmission::working(null, 'no_summary');
         }
 

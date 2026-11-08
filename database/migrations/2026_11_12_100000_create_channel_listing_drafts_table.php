@@ -41,7 +41,9 @@ return new class extends Migration
             $table->timestamp('requirements_read_at')->nullable();
             // What our own validation found: a list of field names and why each is refused. Empty means ready to send.
             $table->json('problems')->nullable();
-            // What was last SENT and the channel took, so that an update patches only what changed and a PUT never replaces a listing with fewer attributes than it has.
+            // Two different facts, never one. `submitted_payload` is what was last SENT and is waiting for the channel's word; `published_payload` is what the channel has
+            // CONFIRMED it holds, and it is the only thing an update is compared with, so a field is never thought published because a submission was merely taken.
+            $table->json('submitted_payload')->nullable();
             $table->json('published_payload')->nullable();
             // Attributes the publisher refused to send because they would make the listing sellable (a price, an offer, a quantity): those go out only through the
             // separately approved price and stock publishing.

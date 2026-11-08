@@ -37,9 +37,31 @@ told about would be gone.
 
 * **Create** (`putListingsItem`) is used **only** when the channel holds nothing for the SKU, and with the product-only requirements mode
   (`listing_requirements_mode`, default `LISTING_PRODUCT_ONLY` — UNVERIFIED for the KSA product types, which is why it is an account setting).
-* **Change** (`patchListingsItem`, `amazon.listings_patch_content`) sends **only the fields whose value differs** from what the channel was last given (`published_payload` on
-  the draft), each as a `replace`. Nothing is ever removed: a field the draft stops naming keeps the value the channel holds, because a partial update must not become a way of
-  emptying a listing.
+* **Change** (`patchListingsItem`, `amazon.listings_patch_content`) sends **only the fields whose value differs from what the channel has CONFIRMED it holds**, each as a
+  `replace`. Nothing is ever removed: a field the draft stops naming keeps the value the channel holds, because a partial update must not become a way of emptying a listing.
+
+**And a create is only ever made on a confirmed absence.** The channel is asked what it holds for the SKU, and exactly two answers permit a write: it says it holds **nothing**
+(`ListingSubmission::ABSENT`, Amazon's 404) → create; it **holds** a listing that our own record says is this product's → update. Everything else refuses the write:
+
+| The channel's answer | What happens |
+|---|---|
+| 404 — it holds nothing | create (PUT) |
+| a summary for our SKU, no ERROR issue | update (PATCH), if our record links that listing to this product |
+| an ERROR issue | update, if it is ours; otherwise `sku_already_listed_at_the_channel_and_not_linked_here` |
+| **200 with no summary for the marketplace** | `could_not_confirm_that_the_channel_holds_no_listing` — the item IS in the seller's catalogue, so a PUT would set it |
+| still working | the same refusal: an answer that settles nothing is not an absence |
+| the call failed, or a rehearsal | `could_not_read_what_the_channel_holds` |
+
+## Sent is not applied
+
+Two different facts are kept, never one:
+
+* `submitted_payload` — the fields of the write that is **waiting** for the channel's word (what it has confirmed, with the fields just sent on top: `array_merge`, so a field
+  sent again wins — with `+` a second change to the same field would have been remembered as the first one);
+* `published_payload` — what the channel has **confirmed** it holds. It is written only when `follow()` finds the listing, and it is the only thing an update is compared with.
+
+So a submission the channel took and then refused leaves nothing published (`submitted_payload` is cleared) and its fields go out again; the same field can be changed again and
+again, and the last value is the one remembered; and a field whose confirmed value already equals the new one is not sent at all.
 
 ## No offer ever leaves here
 
