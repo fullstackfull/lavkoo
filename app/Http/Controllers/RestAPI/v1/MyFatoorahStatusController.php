@@ -76,7 +76,12 @@ class MyFatoorahStatusController extends Controller
 
         // Re-ask MyFatoorah while the attempt is still in flight. This is what lets the app recover a
         // payment whose webhook was lost and whose redirect never arrived, without any extra plumbing.
-        if ($attempt->statusEnum()->isInFlight()) {
+        //
+        // Rate-limited per attempt, not just per IP: this endpoint needs no login (a guest checkout has
+        // no token), so without a floor a flood of requests for one reference — from anywhere — turns
+        // into the same flood at MyFatoorah. Inside the floor the stored status is returned, which is
+        // the right answer anyway because a webhook may well have just updated it.
+        if ($attempt->statusEnum()->isInFlight() && $this->mayAskProviderAgain($attempt)) {
             $verified = $this->verification->verify($attempt);
             $attempt = $verified['attempt'];
 
@@ -92,6 +97,23 @@ class MyFatoorahStatusController extends Controller
         }
 
         return response()->json($this->present($attempt, $paymentRequest->refresh()));
+    }
+
+    /**
+     * Has enough time passed since this attempt was last checked with MyFatoorah?
+     *
+     * An attempt that has never been checked is always allowed through, so the first poll after the
+     * customer returns is never delayed.
+     */
+    private function mayAskProviderAgain(MyFatoorahPaymentAttempt $attempt): bool
+    {
+        if ($attempt->last_verified_at === null) {
+            return true;
+        }
+
+        $floor = max(0, (int) config('myfatoorah.min_seconds_between_status_checks', 3));
+
+        return $attempt->last_verified_at->addSeconds($floor)->isPast();
     }
 
     /**

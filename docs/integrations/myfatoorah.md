@@ -240,7 +240,14 @@ nothing more than "the customer is back": the app takes the reference off the ca
 GET /api/v1/payment/myfatoorah/status?reference=<reference>
 ```
 
-until `is_final`. Three outcomes, and the third is the point:
+until `is_final`. The endpoint needs no login — a guest checkout has no token, and the customer may be
+coming back from an external browser that never had one — so the unguessable reference is the credential,
+and a signed-in customer may only read their own. It is rate limited two ways: 90 requests a minute per
+address on the route, and a floor of a few seconds between provider reads for the same attempt, because a
+per-address limit cannot stop requests spread over many addresses from becoming the same flood at
+MyFatoorah.
+
+Three outcomes, and the third is the point:
 
 - `paid` — and only once the order actually exists. Only then does the app show "order placed".
 - `failed` / `cancelled` / `expired` — a definite answer from MyFatoorah.
@@ -353,7 +360,7 @@ live key, or one a paid order's history points at, is left alone.
 ./vendor/bin/phpunit tests/Feature/MyFatoorah/
 ```
 
-113 tests, 399 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
+115 tests, 409 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
 explicitly faked fails it, so nothing here can reach the real sandbox.
 
 They cover the gateway's switches and modes; encryption at rest and that a blank field keeps a stored key;

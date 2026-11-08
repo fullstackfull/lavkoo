@@ -747,6 +747,49 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         }
     }
 
+    public function test_the_status_endpoint_does_not_ask_myfatoorah_on_every_poll(): void
+    {
+        // The endpoint needs no login, so without a floor a flood of requests for one reference becomes
+        // the same flood at MyFatoorah. Inside the floor the stored status is returned, which is the
+        // right answer anyway — a webhook may have just updated it.
+        config(['myfatoorah.min_seconds_between_status_checks' => 60]);
+
+        // A payment id is already known, as it is once the callback or a webhook has been seen. Keeps
+        // this test about the floor rather than about the invoice lookup.
+        $this->attempt->forceFill(['payment_id' => 'PAY-1'])->save();
+
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($this->attempt->external_identifier, invoiceStatus: 'PENDING', transactionStatus: 'INPROGRESS'),
+        )]);
+
+        $url = '/api/v1/payment/myfatoorah/status?reference=' . $this->attempt->external_identifier;
+
+        // The first poll always goes through: a customer who has just returned is never made to wait.
+        $this->getJson($url)->assertOk();
+        $afterFirst = Http::recorded()->count();
+        $this->assertGreaterThan(0, $afterFirst, 'the first poll asks MyFatoorah');
+
+        // The next few are answered from what we already know.
+        $this->getJson($url)->assertOk()->assertJson(['status' => 'pending']);
+        $this->getJson($url)->assertOk()->assertJson(['status' => 'pending']);
+
+        $this->assertSame($afterFirst, Http::recorded()->count(), 'no further provider calls');
+    }
+
+    public function test_the_floor_does_not_stop_a_resolved_payment_being_reported(): void
+    {
+        // The floor must only skip the provider READ. A payment that has since been confirmed by a
+        // webhook is still reported as paid immediately.
+        config(['myfatoorah.min_seconds_between_status_checks' => 3600]);
+
+        $this->fakePaid();
+        $this->postWebhook($this->webhookPayload($this->attempt->external_identifier))->assertOk();
+
+        $this->getJson('/api/v1/payment/myfatoorah/status?reference=' . $this->attempt->external_identifier)
+            ->assertOk()
+            ->assertJson(['status' => 'paid', 'paid' => true, 'is_final' => true]);
+    }
+
     public function test_an_unknown_reference_is_a_flat_not_found(): void
     {
         // Same answer as "belongs to someone else", so the endpoint cannot be used to probe for valid

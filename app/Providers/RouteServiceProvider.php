@@ -237,6 +237,12 @@ class RouteServiceProvider extends ServiceProvider
         // not to pace a provider that is behaving.
         RateLimiter::for('myfatoorah-webhooks', static fn (Request $request): Limit => Limit::perMinute(600)->by($request->ip()));
 
+        // The payment-status endpoint the app polls. The `api` group allows 3000 a minute, which is far
+        // too generous for a route that can cost one MyFatoorah read per request. The app's own polling
+        // tops out near ten requests per payment, so this leaves plenty of room for several customers
+        // behind one address while cutting the ceiling by a factor of thirty.
+        RateLimiter::for('myfatoorah-status', static fn (Request $request): Limit => Limit::perMinute(90)->by($request->ip()));
+
         RateLimiter::for('global', function (Request $request) {
             return Limit::perMinute(app(Policy::class)->int('api_requests_per_minute'));
         });

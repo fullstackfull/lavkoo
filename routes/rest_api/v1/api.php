@@ -538,5 +538,6 @@ Route::get('/cash', function () {
      * and tied to one attempt — and a logged-in customer may only read their own (see the controller).
      */
     Route::get('payment/myfatoorah/status', [\App\Http\Controllers\RestAPI\v1\MyFatoorahStatusController::class, 'status'])
+        ->middleware('throttle:myfatoorah-status')
         ->name('api.myfatoorah.status');
 });

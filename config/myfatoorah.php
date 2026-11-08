@@ -105,6 +105,15 @@ return [
     ],
 
     /*
+    | The app polls the status endpoint while a payment resolves, and each poll can cost one read at
+    | MyFatoorah. This is the floor between two reads for the SAME attempt: inside it the stored status
+    | is returned as-is. It protects MyFatoorah's (undocumented) rate limits even against requests
+    | spread over many IPs, which a per-IP route limit cannot. Small enough not to slow the app's own
+    | backoff, which starts at one second and widens.
+    */
+    'min_seconds_between_status_checks' => (int) env('MYFATOORAH_STATUS_MIN_INTERVAL', 3),
+
+    /*
     | How long a hosted payment page stays valid. MyFatoorah expires the invoice itself; this is what we
     | send as PaymentExpiry and what reconciliation uses to stop chasing an attempt that can no longer
     | be paid.
