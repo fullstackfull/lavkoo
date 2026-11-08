@@ -52,6 +52,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapApiv3Routes();
         $this->mapDeliverySyriaRoutes();
         $this->mapFulfillmentWebhookRoutes();
+        $this->mapMyFatoorahWebhookRoutes();
 
         //$this->mapInstallRoutes();
         //$this->mapUpdateRoutes();
@@ -143,6 +144,17 @@ class RouteServiceProvider extends ServiceProvider
     }
 
     /**
+     * The MyFatoorah payment webhook. Same reasoning as the fulfillment webhooks: under the `api`
+     * prefix, outside the `api` middleware group, authenticated by a signature in the controller.
+     */
+    protected function mapMyFatoorahWebhookRoutes(): void
+    {
+        Route::prefix('api')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/rest_api/myfatoorah_webhook.php'));
+    }
+
+    /**
      * Define the "beta" routes for the application.
      *
      * These routes all receive session state, CSRF protection, etc.
@@ -220,6 +232,11 @@ class RouteServiceProvider extends ServiceProvider
      */
     protected function configureRateLimiting(): void
     {
+        // MyFatoorah retries a delivery up to five times over three minutes, and a busy store can have
+        // many invoices changing state at once, so the limit is generous: it is here to stop a flood,
+        // not to pace a provider that is behaving.
+        RateLimiter::for('myfatoorah-webhooks', static fn (Request $request): Limit => Limit::perMinute(600)->by($request->ip()));
+
         RateLimiter::for('global', function (Request $request) {
             return Limit::perMinute(app(Policy::class)->int('api_requests_per_minute'));
         });
