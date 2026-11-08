@@ -6,6 +6,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * The tables the MyFatoorah integration touches, built for an in-memory database.
@@ -19,6 +20,8 @@ trait BuildsMyFatoorahSchema
 {
     protected function buildMyFatoorahSchema(): void
     {
+        $this->startFromCleanMyFatoorahTables();
+
         // Shared gateway settings table. `live_values`/`test_values` are JSON text; the Setting model
         // casts them to arrays.
         Schema::dropIfExists('addon_settings');
@@ -101,6 +104,33 @@ trait BuildsMyFatoorahSchema
         $this->runMyFatoorahMigrations();
     }
 
+    /**
+     * On a real database the schema outlives the test, so the feature's own tables are dropped and let
+     * the migrations rebuild them. In-memory SQLite needs none of this — each test gets a fresh
+     * database because the application is rebuilt per test.
+     *
+     * Guarded the same way the fulfillment helper guards its own drop: a database whose name does not
+     * say "test", or an environment that is not `testing`, is refused outright.
+     */
+    private function startFromCleanMyFatoorahTables(): void
+    {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            return;
+        }
+
+        $database = (string) $connection->getDatabaseName();
+
+        if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
+            throw new RuntimeException("Refusing to drop tables of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
+        }
+
+        foreach (['myfatoorah_refunds', 'myfatoorah_webhook_events', 'myfatoorah_payment_attempts'] as $table) {
+            Schema::dropIfExists($table);
+        }
+    }
+
     protected function runMyFatoorahMigrations(): void
     {
         foreach ([
@@ -109,6 +139,8 @@ trait BuildsMyFatoorahSchema
             '2026_11_08_100003_create_myfatoorah_refunds_table.php',
             '2026_11_08_100004_register_myfatoorah_payment_gateway.php',
             '2026_11_08_100005_add_hook_lease_to_myfatoorah_attempts.php',
+            '2026_11_08_100006_add_hook_lease_token_to_myfatoorah_attempts.php',
+            '2026_11_08_100007_add_live_slot_to_myfatoorah_attempts.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

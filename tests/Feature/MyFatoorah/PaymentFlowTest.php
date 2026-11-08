@@ -261,6 +261,170 @@ class PaymentFlowTest extends MyFatoorahTestCase
         $this->assertTrue($attempt->statusEnum()->isInFlight());
     }
 
+    public function test_only_one_payment_may_be_live_for_an_order_at_a_time(): void
+    {
+        /*
+         * The rule the database enforces, stated here in one process so the fast suite documents it too:
+         * while an attempt is live — anything short of a terminal state — a second payment for the same
+         * order is refused. The unique index on (payment_request_id, live_slot) is what makes it true
+         * under real concurrency; see tests/Feature/Concurrency/MyFatoorahConcurrencyTest.php.
+         */
+        $this->configureGateway();
+        $this->fakeCreatePayment();
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+
+        $first = $this->initiation()->start($paymentRequest);
+        $this->assertTrue($first['ok']);
+
+        $attempt = MyFatoorahPaymentAttempt::firstOrFail();
+        $this->assertSame(1, (int) $attempt->live_slot, 'the live attempt holds the order\'s slot');
+
+        // A pending payment is still live: the bank has not finished, so the order must not start another.
+        $attempt->forceFill(['status' => AttemptStatus::Pending->value, 'payment_url' => null])->save();
+
+        $second = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertFalse($second['ok']);
+        $this->assertSame(1, MyFatoorahPaymentAttempt::count(), 'no second invoice');
+
+        // Once it is terminal the slot is free and the customer may try again.
+        $attempt->forceFill(['status' => AttemptStatus::Failed->value, 'live_slot' => null])->save();
+        $this->fakeCreatePayment(invoiceId: 'INV-2');
+
+        $third = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertTrue($third['ok']);
+        $this->assertSame(2, MyFatoorahPaymentAttempt::count());
+    }
+
+    public function test_an_attempt_in_doubt_blocks_a_second_invoice_until_it_is_resolved(): void
+    {
+        /*
+         * The race the review caught. A create call that timed out leaves an attempt with no payment
+         * URL and no invoice id, and we cannot know whether MyFatoorah made an invoice for it. The old
+         * code skipped such an attempt — `findReusableAttempt()` requires a payment URL — and went
+         * straight on to create a second one.
+         */
+        $this->configureGateway();
+        Http::fake(['*/v3/payments' => fn () => throw new \Illuminate\Http\Client\ConnectionException('timed out')]);
+
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+        $this->initiation()->start($paymentRequest);
+
+        $inDoubt = MyFatoorahPaymentAttempt::firstOrFail();
+        $this->assertSame(AttemptStatus::Created->value, $inDoubt->status);
+        $this->assertNull($inDoubt->payment_url);
+
+        // MyFatoorah cannot be reached to settle the question either.
+        Http::fake(fn () => throw new \Illuminate\Http\Client\ConnectionException('still down'));
+
+        $second = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertFalse($second['ok']);
+        $this->assertSame('attempt_in_doubt', $second['code']);
+        $this->assertSame(1, MyFatoorahPaymentAttempt::count(), 'no second invoice was created');
+    }
+
+    public function test_an_attempt_myfatoorah_never_created_is_closed_and_a_new_one_allowed(): void
+    {
+        // The common case after a timeout on the way out: no invoice was ever made, so the customer must
+        // not be stuck. MyFatoorah is asked by our own reference, and a 404 is a definite "nothing here".
+        $this->configureGateway();
+
+        // One routing closure for the whole test: Http::fake() MERGES stub sets and the first match
+        // wins, so a later array stub for the same URL would never be reached.
+        $createShouldFail = true;
+
+        Http::fake(function ($request) use (&$createShouldFail) {
+            if (str_contains($request->url(), '/v3/invoices/')) {
+                return Http::response(['IsSuccess' => false, 'Message' => 'Not Found'], 404);
+            }
+
+            if ($createShouldFail) {
+                throw new \Illuminate\Http\Client\ConnectionException('timed out');
+            }
+
+            return Http::response([
+                'IsSuccess' => true,
+                'Data' => ['InvoiceId' => 'INV-2', 'PaymentURL' => 'https://sa.myfatoorah.com/KSA/ie/2'],
+            ], 201);
+        });
+
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+        $this->initiation()->start($paymentRequest);
+        $first = MyFatoorahPaymentAttempt::firstOrFail();
+
+        // Past the grace window, so MyFatoorah's answer about it can be believed. A fresh attempt is
+        // deliberately untouchable: its create call could still be running.
+        $first->forceFill(['created_at' => now()->subHour()])->save();
+
+        $createShouldFail = false;
+        $second = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertTrue($second['ok']);
+        $this->assertSame(AttemptStatus::Failed->value, $first->refresh()->status);
+        $this->assertSame('never_created', $first->last_error_code);
+        $this->assertSame(2, MyFatoorahPaymentAttempt::count());
+    }
+
+    public function test_an_attempt_in_doubt_that_turns_out_to_be_paid_stops_a_second_payment(): void
+    {
+        // The dangerous case: the create call's response was lost but the invoice existed and the
+        // customer paid it. Creating a second invoice here would invite a double charge.
+        $this->configureGateway();
+        Http::fake(['*/v3/payments' => fn () => throw new \Illuminate\Http\Client\ConnectionException('timed out')]);
+
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+        $this->initiation()->start($paymentRequest);
+        $first = MyFatoorahPaymentAttempt::firstOrFail();
+        $first->forceFill(['created_at' => now()->subHour()])->save();
+
+        Http::fake(function ($request) use ($first) {
+            if (str_contains($request->url(), '/v3/invoices/')) {
+                return Http::response([
+                    'IsSuccess' => true,
+                    'Data' => ['Transaction' => ['PaymentId' => 'PAY-LOST', 'Status' => 'SUCCESS']],
+                ]);
+            }
+
+            return Http::response($this->paymentDetails($first->external_identifier, paymentId: 'PAY-LOST'));
+        });
+
+        $second = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertFalse($second['ok']);
+        $this->assertSame('already_paid', $second['code']);
+        $this->assertSame(AttemptStatus::Paid->value, $first->refresh()->status);
+        $this->assertSame(1, MyFatoorahPaymentAttempt::count(), 'no second invoice');
+    }
+
+    public function test_one_order_cannot_mint_invoices_without_limit(): void
+    {
+        // A provider that keeps failing after returning a URL would otherwise let a customer pressing
+        // "pay" create a real invoice every time.
+        config(['myfatoorah.max_attempts_per_payment' => 3]);
+        $this->configureGateway();
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+
+        for ($i = 1; $i <= 3; $i++) {
+            $this->fakeCreatePayment(paymentUrl: 'https://sa.myfatoorah.com/KSA/ie/' . $i, invoiceId: 'INV-' . $i);
+            $result = $this->initiation()->start($paymentRequest->refresh());
+            $this->assertTrue($result['ok'], "attempt {$i} should be allowed");
+
+            // The customer abandons it. A terminal status releases the order's live slot, which is what
+            // lets the next attempt start at all.
+            MyFatoorahPaymentAttempt::query()->where('attempt_number', $i)
+                ->update(['status' => AttemptStatus::Cancelled->value, 'live_slot' => null]);
+        }
+
+        $this->fakeCreatePayment();
+        $fourth = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertFalse($fourth['ok']);
+        $this->assertSame('too_many_attempts', $fourth['code']);
+        $this->assertSame(3, MyFatoorahPaymentAttempt::count());
+    }
+
     public function test_a_definite_refusal_while_creating_closes_the_attempt(): void
     {
         $this->configureGateway();
@@ -367,6 +531,82 @@ class PaymentFlowTest extends MyFatoorahTestCase
 
         $this->assertSame(AttemptStatus::Mismatch, $result['status']);
         $this->assertSame('reference_mismatch', $attempt->refresh()->last_error_code);
+    }
+
+    public function test_a_payment_without_our_reference_is_never_accepted(): void
+    {
+        /*
+         * The hole this closes: the ownership check used to run only `if ($externalIdentifier !== '')`,
+         * so a response that carried no reference at all skipped it entirely and went straight on to the
+         * amount comparison. A matching amount is not proof of ownership — two customers checking out
+         * the same basket produce two invoices for the identical amount in the identical currency, so
+         * either one's payment would have settled the other's order.
+         */
+        $attempt = $this->anAttempt();
+
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($attempt->external_identifier, overrides: [
+                'Data' => ['Invoice' => ['ExternalIdentifier' => null]],
+            ]),
+        )]);
+
+        $result = app(PaymentVerificationService::class)->verify($attempt, 'PAY-1');
+
+        $this->assertSame(AttemptStatus::Mismatch, $result['status']);
+        $this->assertSame('reference_missing', $attempt->refresh()->last_error_code);
+        $this->assertNotSame(AttemptStatus::Paid->value, $attempt->status);
+    }
+
+    public function test_an_empty_reference_is_treated_the_same_as_a_missing_one(): void
+    {
+        $attempt = $this->anAttempt();
+
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($attempt->external_identifier, overrides: [
+                'Data' => ['Invoice' => ['ExternalIdentifier' => '']],
+            ]),
+        )]);
+
+        $result = app(PaymentVerificationService::class)->verify($attempt, 'PAY-1');
+
+        $this->assertSame(AttemptStatus::Mismatch, $result['status']);
+        $this->assertSame('reference_missing', $attempt->refresh()->last_error_code);
+    }
+
+    public function test_a_payment_reported_against_a_different_invoice_is_not_accepted(): void
+    {
+        // A second, independent tie. The reference can be right while the response describes another
+        // invoice — a reused or stale reference at the provider's end — and the invoice id we recorded
+        // when we created the payment catches it.
+        $attempt = $this->anAttempt();
+        $this->assertSame('INV-1', $attempt->invoice_id, 'the invoice id was recorded at creation');
+
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($attempt->external_identifier, invoiceId: 'INV-SOMEBODY-ELSE'),
+        )]);
+
+        $result = app(PaymentVerificationService::class)->verify($attempt, 'PAY-1');
+
+        $this->assertSame(AttemptStatus::Mismatch, $result['status']);
+        $this->assertSame('invoice_mismatch', $attempt->refresh()->last_error_code);
+    }
+
+    public function test_ownership_is_checked_before_the_amount_is_even_read(): void
+    {
+        // Order matters: a response with no reference must be refused on that ground, not accepted
+        // because the money happened to line up.
+        $attempt = $this->anAttempt();
+
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($attempt->external_identifier, amount: '150.00', overrides: [
+                'Data' => ['Invoice' => ['ExternalIdentifier' => null]],
+            ]),
+        )]);
+
+        app(PaymentVerificationService::class)->verify($attempt, 'PAY-1');
+
+        $this->assertSame('reference_missing', $attempt->refresh()->last_error_code);
+        $this->assertNull($attempt->captured_amount, 'the amount was never accepted as captured');
     }
 
     public function test_a_pending_payment_stays_pending_and_runs_no_hook(): void

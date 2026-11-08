@@ -34,8 +34,17 @@ class MyFatoorahPaymentAttempt extends Model
         'hook_started_at' => 'datetime',
         'hook_completed_at' => 'datetime',
         'hook_attempts' => 'integer',
+        'live_slot' => 'integer',
         'expires_at' => 'datetime',
     ];
+
+    /** Is a process inside this attempt's success hook right now? */
+    public function hookLeaseIsLive(): bool
+    {
+        return $this->hook_started_at !== null
+            && $this->hook_completed_at === null
+            && $this->hook_started_at->addMinutes(max(1, (int) config('myfatoorah.hook_lease_minutes', 15)))->isFuture();
+    }
 
     public function refunds(): HasMany
     {

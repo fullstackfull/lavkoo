@@ -4,7 +4,6 @@ namespace App\Services\MyFatoorah;
 
 use App\Enums\MyFatoorah\AttemptStatus;
 use App\Models\MyFatoorahPaymentAttempt;
-use App\Models\MyFatoorahRefund;
 use App\Models\MyFatoorahWebhookEvent;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
@@ -34,7 +33,6 @@ class WebhookProcessor
         private readonly WebhookSignatureVerifier $verifier,
         private readonly PaymentVerificationService $verification,
         private readonly PaymentSettlementService $settlement,
-        private readonly RefundService $refunds,
     ) {
     }
 
@@ -84,7 +82,6 @@ class WebhookProcessor
 
         $outcome = match ($eventCode) {
             MyFatoorahWebhookEvent::EVENT_PAYMENT_STATUS_CHANGED => $this->handlePaymentStatusChanged($externalIdentifier, $paymentId, $invoiceId),
-            MyFatoorahWebhookEvent::EVENT_REFUND_STATUS_CHANGED => $this->handleRefundStatusChanged($data),
             default => ['result' => 'unsupported', 'note' => 'This event type is recorded but not acted on.'],
         };
 
@@ -149,35 +146,6 @@ class WebhookProcessor
         ];
     }
 
-    /**
-     * A refund changed state.
-     *
-     * MyFatoorah does not publish which fields it signs for this event type, so its contents cannot be
-     * authenticated and are not believed. The event is used purely as a prompt to go and read the
-     * refund's real state from the API — a read, so acting on an unverifiable event changes nothing by
-     * itself.
-     *
-     * @return array{result: string, note: string}
-     */
-    private function handleRefundStatusChanged(array $data): array
-    {
-        $externalIdentifier = $this->str($data, 'Refund.ExternalIdentifier')
-            ?? $this->str($data, 'ExternalIdentifier');
-
-        if ($externalIdentifier === null) {
-            return ['result' => 'no_refund', 'note' => 'No refund reference in this event.'];
-        }
-
-        $refund = MyFatoorahRefund::query()->where('external_identifier', $externalIdentifier)->first();
-
-        if ($refund === null) {
-            return ['result' => 'no_refund', 'note' => 'No local refund matches this event.'];
-        }
-
-        $outcome = $this->refunds->refreshStatus($refund);
-
-        return ['result' => 'refund_updated', 'note' => $outcome];
-    }
 
     /**
      * Find the attempt this event is about.

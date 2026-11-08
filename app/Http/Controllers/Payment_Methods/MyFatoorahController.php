@@ -140,32 +140,69 @@ class MyFatoorahController extends Controller
         }
 
         // A definite failure from MyFatoorah.
-        $this->runFailureHook($paymentRequest);
+        $this->runFailureHook($paymentRequest, $verified['attempt']);
 
         return $this->payment_response($paymentRequest->refresh(), 'fail');
     }
 
     /**
-     * The failure hook, run only on a definite refusal from MyFatoorah.
+     * The failure hook, run only when nothing else about this order is still open.
      *
-     * Guarded against running for a payment that is actually paid: a stale callback for an earlier failed
-     * attempt must not tear down an order that a later attempt paid for.
+     * One `payment_requests` row can have several MyFatoorah attempts: a customer whose card is declined
+     * tries again, and both attempts share the row and therefore share this hook. So "attempt 1 failed"
+     * is not the same as "the payment failed", and running the hook on the first is how a checkout the
+     * customer is still in the middle of gets torn down — or worse, how a stale callback for a long-dead
+     * attempt cancels an order a later attempt has already paid for.
+     *
+     * Two guards, and the second is the one that was missing: the payment must not be paid, and no other
+     * attempt for the same row may still be live.
      */
-    private function runFailureHook(PaymentRequest $paymentRequest): void
+    private function runFailureHook(PaymentRequest $paymentRequest, MyFatoorahPaymentAttempt $failedAttempt): void
     {
         if ((int) ($paymentRequest->is_paid ?? 0) === 1) {
             return;
         }
 
+        if ($this->anotherAttemptIsStillOpen($paymentRequest, $failedAttempt)) {
+            Log::info('myfatoorah.failure_hook_withheld', [
+                'attempt' => $failedAttempt->external_identifier,
+                'payment_request_id' => (string) $paymentRequest->id,
+            ]);
+
+            return;
+        }
+
         $hook = (string) ($paymentRequest->failure_hook ?? '');
 
-        if ($hook !== '' && function_exists($hook)) {
-            try {
-                call_user_func($hook, $paymentRequest);
-            } catch (\Throwable $e) {
-                Log::error('myfatoorah.failure_hook_failed', ['exception' => $e::class]);
-            }
+        if ($hook === '' || !function_exists($hook)) {
+            return;
         }
+
+        try {
+            call_user_func($hook, $paymentRequest);
+        } catch (\Throwable $e) {
+            Log::error('myfatoorah.failure_hook_failed', ['exception' => $e::class]);
+        }
+    }
+
+    /**
+     * Is any other attempt for this payment request still able to succeed, or already succeeded?
+     *
+     * `settled_at` is included deliberately: an attempt that has been marked paid but whose order is
+     * still being created has not finished, and failing the row underneath it would be the worst
+     * possible timing.
+     */
+    private function anotherAttemptIsStillOpen(PaymentRequest $paymentRequest, MyFatoorahPaymentAttempt $failedAttempt): bool
+    {
+        return MyFatoorahPaymentAttempt::query()
+            ->where('payment_request_id', $paymentRequest->id)
+            ->whereKeyNot($failedAttempt->getKey())
+            ->where(function ($query): void {
+                $query->inFlight()
+                    ->orWhere('status', AttemptStatus::Paid->value)
+                    ->orWhereNotNull('settled_at');
+            })
+            ->exists();
     }
 
     /**

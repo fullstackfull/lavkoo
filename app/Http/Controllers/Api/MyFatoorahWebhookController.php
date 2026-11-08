@@ -54,7 +54,7 @@ class MyFatoorahWebhookController extends Controller
             return response()->json(['success' => false, 'message' => 'Invalid payload'], 422);
         }
 
-        if (!$this->authentic($request, $payload, $raw)) {
+        if (!$this->authentic($request, $payload)) {
             return $this->unauthorised('signature');
         }
 
@@ -75,18 +75,23 @@ class MyFatoorahWebhookController extends Controller
     }
 
     /**
-     * Is this really from MyFatoorah?
+     * Is this really from MyFatoorah? Nothing gets past here on anything but a verified signature.
      *
-     * The secret is the one for the mode the gateway is currently in. An event type whose signed-field
-     * order MyFatoorah does not publish cannot be verified at all; it is accepted only so it can be
-     * RECORDED, and the processor acts on such an event solely by re-reading the API, never by
-     * believing the body. The one event that moves money — PAYMENT_STATUS_CHANGED — is always verified.
+     * An earlier version let an event type through unverified on the grounds that the processor would
+     * only re-read the API rather than believe the body. That was wrong twice over: the re-read is
+     * itself an outbound provider call, so anyone who could reach this URL could spend our MyFatoorah
+     * rate limit and fill our tables, and "we only do something small with untrusted input" is not a
+     * basis for accepting untrusted input on a payment endpoint.
+     *
+     * So an event type whose signed-field order MyFatoorah does not publish — everything except
+     * PAYMENT_STATUS_CHANGED — cannot be authenticated and is therefore refused. Refund state is not
+     * lost by that: it is confirmed by an operator against the portal, which is how this integration
+     * treats refunds anyway.
      */
-    private function authentic(Request $request, array $payload, string $raw): bool
+    private function authentic(Request $request, array $payload): bool
     {
         $config = $this->configRepo->get();
         $signature = $request->header((string) config('myfatoorah.webhook.signature_header', 'MyFatoorah-Signature'));
-        $eventCode = $this->verifier->eventCode($payload);
 
         if ($this->verifier->verify($payload, $signature, $config->webhookSecret)) {
             return true;
@@ -101,24 +106,23 @@ class MyFatoorahWebhookController extends Controller
             return true;
         }
 
-        if ($eventCode !== null && !$this->verifier->canVerify($eventCode)) {
-            /*
-             * Nobody can verify this one: MyFatoorah publishes the signed-field order only for
-             * PAYMENT_STATUS_CHANGED. Letting it through is safe because the processor's only response to
-             * an event it cannot authenticate is to re-read the API — it never believes the body. Refusing
-             * it instead would just earn four retries of something we will never act on.
-             */
-            Log::info('myfatoorah.webhook_unverifiable_event', ['event_code' => $eventCode]);
+        return $this->signatureRequirementWaived($config->mode);
+    }
 
-            return true;
+    /**
+     * Is the signature requirement waived for this delivery?
+     *
+     * Only ever in sandbox. The switch exists so a sandbox integration can be debugged when the portal's
+     * secure key has not been set up yet; on a live account it does nothing at all, however it is
+     * configured. An accepted-unsigned production webhook is an open door to marking orders paid, and
+     * that must not be reachable by an environment variable.
+     */
+    private function signatureRequirementWaived(string $mode): bool
+    {
+        if ($mode === 'live') {
+            return false;
         }
 
-        /*
-         * A PAYMENT_STATUS_CHANGED whose signature does not check out, or a body with no event code at
-         * all. This is the case that must stay closed: it is the only event that moves money. It is let
-         * through only when an operator has deliberately switched the requirement off to debug a sandbox,
-         * which the admin page warns about.
-         */
         return !(bool) config('myfatoorah.webhook.require_signature', true);
     }
 

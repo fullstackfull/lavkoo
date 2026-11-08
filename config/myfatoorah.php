@@ -40,6 +40,19 @@ return [
     'verify_when_disabled' => filter_var(env('MYFATOORAH_VERIFY_WHEN_DISABLED', true), FILTER_VALIDATE_BOOLEAN),
 
     /*
+    | Second, independent switch for the reconciliation sweep, which runs on the platform's existing
+    | Laravel scheduler (app/Console/ScheduleDefinition.php — no second cron entry is needed, and none
+    | should be added). Both this and `enabled` above must be on before the sweep is registered at all,
+    | so running the migrations starts nothing on a clock.
+    |
+    | Separate from `enabled` because they answer different questions: `enabled` is "may this deployment
+    | talk to MyFatoorah", this is "should this deployment be the one sweeping". A staging copy of
+    | production wants the first without the second — two hosts sweeping the same account would double
+    | the provider reads to no purpose.
+    */
+    'schedule_enabled' => filter_var(env('MYFATOORAH_SCHEDULE_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
+    /*
     | API hosts. MyFatoorah gives every country its own production host and one shared sandbox; an
     | account's API token only works against the host of the country it was issued for.
     | Documented: https://docs.myfatoorah.com/docs/api-key
@@ -119,6 +132,39 @@ return [
     | be paid.
     */
     'payment_expiry_minutes' => (int) env('MYFATOORAH_PAYMENT_EXPIRY_MINUTES', 60),
+
+    /*
+    | How many invoices one order may ever produce. A customer pressing "pay" against a provider that
+    | keeps timing out would otherwise mint them without limit, and each one is a real invoice in the
+    | merchant's dashboard. Ten is far above any honest retry count and well below a runaway.
+    */
+    'max_attempts_per_payment' => (int) env('MYFATOORAH_MAX_ATTEMPTS', 10),
+
+    /*
+    | How long an attempt whose create call never came back is left alone before we are willing to
+    | conclude anything about it.
+    |
+    | This exists because "MyFatoorah has no invoice for this reference" and "MyFatoorah has not been
+    | told about this reference YET" look identical from here: both are a 404. An attempt created a
+    | second ago may have a POST still in flight, so treating that 404 as "nothing was created" and
+    | starting a fresh payment is how two simultaneous checkouts both make an invoice — which is exactly
+    | what the MySQL concurrency test caught.
+    |
+    | So nothing is concluded until the create call cannot still be running: the connect timeout, plus
+    | the read timeout, plus a margin for the provider writing it down.
+    */
+    'attempt_in_doubt_grace_seconds' => (int) env(
+        'MYFATOORAH_IN_DOUBT_GRACE',
+        (int) env('MYFATOORAH_CONNECT_TIMEOUT', 10) + (int) env('MYFATOORAH_TIMEOUT', 30) + 30,
+    ),
+
+    /*
+    | How long one process may hold the success-hook lease before another is allowed to take it. It has
+    | to exceed the slowest honest run of that hook — which creates an order, decrements stock and books
+    | a shipment with a courier — because taking the lease from a process that is still working is what
+    | risks doing the work twice. A fencing token makes such an overrun detectable either way.
+    */
+    'hook_lease_minutes' => (int) env('MYFATOORAH_HOOK_LEASE_MINUTES', 15),
 
     /*
     | Reconciliation: how many pending attempts one sweep may verify, and how long an attempt is chased

@@ -6,6 +6,7 @@ use App\Enums\MyFatoorah\AttemptStatus;
 use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\PaymentRequest;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,6 +35,7 @@ class PaymentInitiationService
         private readonly GatewayConfigRepository $configRepo,
         private readonly MyFatoorahClient $client,
         private readonly GatewayAvailability $availability,
+        private readonly PaymentVerificationService $verification,
     ) {
     }
 
@@ -76,10 +78,36 @@ class PaymentInitiationService
             return ['ok' => true, 'payment_url' => (string) $reusable->payment_url, 'attempt' => $reusable];
         }
 
-        $attempt = $this->claimAttempt($paymentRequest, $amount, $expectedCurrency, $config);
-        if ($attempt === null) {
-            return ['ok' => false, 'code' => 'attempt_conflict', 'error' => 'Another payment attempt for this order is already being created.'];
+        // An earlier attempt whose fate we never learnt blocks a new one until it is settled one way or
+        // the other. Done before the claim, and outside any transaction, because it makes a network call.
+        $blocked = $this->resolveAttemptsInDoubt($paymentRequest, $config);
+        if ($blocked !== null) {
+            return $blocked;
         }
+
+        $claim = $this->claimAttempt($paymentRequest, $amount, $expectedCurrency, $config);
+
+        if (is_string($claim)) {
+            return match ($claim) {
+                'in_doubt' => [
+                    'ok' => false,
+                    'code' => 'attempt_in_doubt',
+                    'error' => 'A payment for this order is already being created. Please wait a moment and try again.',
+                ],
+                'too_many' => [
+                    'ok' => false,
+                    'code' => 'too_many_attempts',
+                    'error' => 'Too many payment attempts have been made for this order. Please contact support.',
+                ],
+                default => [
+                    'ok' => false,
+                    'code' => 'attempt_conflict',
+                    'error' => 'Another payment attempt for this order is already being created.',
+                ],
+            };
+        }
+
+        $attempt = $claim;
 
         // If this row was claimed by us but a concurrent request already filled in a URL, use it.
         if (!empty($attempt->payment_url) && $attempt->statusEnum()->isInFlight()) {
@@ -96,6 +124,10 @@ class PaymentInitiationService
                 // and reconciliation has to be able to find it. A definite refusal means no invoice was
                 // created, so the attempt is closed and the customer may try again cleanly.
                 'status' => $response->isUnknown() ? AttemptStatus::Created->value : AttemptStatus::Failed->value,
+                // A definite refusal is terminal, so the live slot is released and the customer may try
+                // again at once. A transport failure is not: the slot stays held, which is what stops a
+                // second invoice while the first call's fate is unknown.
+                'live_slot' => $response->isUnknown() ? 1 : null,
             ])->save();
 
             Log::warning('myfatoorah.create_payment_failed', [
@@ -117,6 +149,7 @@ class PaymentInitiationService
             // Nothing else in the response matters if we cannot send the customer anywhere safe.
             $attempt->forceFill([
                 'status' => AttemptStatus::Failed->value,
+                'live_slot' => null,
                 'last_error_code' => 'bad_payment_url',
                 'last_error_message' => 'MyFatoorah did not return a usable HTTPS payment URL.',
                 'invoice_id' => $this->stringOrNull($response->get('InvoiceId')),
@@ -166,6 +199,7 @@ class PaymentInitiationService
             // must not be reused; it is abandoned so it cannot later be settled against this order.
             $candidate->forceFill([
                 'status' => AttemptStatus::Cancelled->value,
+                'live_slot' => null,
                 'last_error_code' => 'amount_changed',
                 'last_error_message' => 'The order total changed before this attempt was paid.',
             ])->save();
@@ -176,6 +210,7 @@ class PaymentInitiationService
         if ($candidate->expires_at !== null && $candidate->expires_at->isPast()) {
             $candidate->forceFill([
                 'status' => AttemptStatus::Expired->value,
+                'live_slot' => null,
             ])->save();
 
             return null;
@@ -185,21 +220,50 @@ class PaymentInitiationService
     }
 
     /**
-     * Take ownership of the next attempt number for this payment request.
+     * Take ownership of the next attempt for this payment request.
      *
-     * The unique index on `external_identifier` is the referee. Two web requests that arrive together
-     * compute the same identifier; one inserts and the other catches the integrity error and reads the
-     * winner's row. Neither calls MyFatoorah twice.
+     * Correctness comes from two unique indexes rather than from locks:
+     *
+     *   mf_attempts_one_live_per_request  (payment_request_id, live_slot)
+     *       At most one LIVE attempt per order — one that has not reached a terminal state. A second
+     *       simultaneous checkout's insert is refused by the database, so one order can never have two
+     *       invoices in flight. The slot is held for the whole life of the attempt, not just while its
+     *       create call is outstanding: when it was released as soon as the payment page arrived, the
+     *       window it protected lasted only as long as that call, and six simultaneous checkouts each
+     *       slipped through it against a fast provider.
+     *
+     *   external_identifier
+     *       The per-attempt reference. Two requests that compute the same attempt number collide here.
+     *
+     * Deliberately no row lock and no transaction. The lock-based version was wrong twice: a plain read
+     * inside the transaction could not see a sibling's just-committed attempt (REPEATABLE READ gives the
+     * transaction a snapshot from when it began), and making that read a locking one took gap locks on
+     * the `payment_request_id` range, which made different orders block each other. Both were found by
+     * the MySQL concurrency test. A unique index needs neither a snapshot nor a lock, and orders do not
+     * interact at all.
+     *
+     * @return MyFatoorahPaymentAttempt|'in_doubt'|'too_many'|'conflict'
      */
-    private function claimAttempt(PaymentRequest $paymentRequest, float $amount, string $currency, GatewayConfig $config): ?MyFatoorahPaymentAttempt
+    private function claimAttempt(PaymentRequest $paymentRequest, float $amount, string $currency, GatewayConfig $config): MyFatoorahPaymentAttempt|string
     {
         $expiryMinutes = max(5, (int) config('myfatoorah.payment_expiry_minutes', 60));
+        $maxAttempts = max(1, (int) config('myfatoorah.max_attempts_per_payment', 10));
 
-        for ($i = 0; $i < 5; $i++) {
-            $next = 1 + (int) MyFatoorahPaymentAttempt::query()
+        for ($try = 0; $try < 5; $try++) {
+            $used = (int) MyFatoorahPaymentAttempt::query()
                 ->where('payment_request_id', $paymentRequest->id)
                 ->max('attempt_number');
 
+            if ($used >= $maxAttempts) {
+                Log::warning('myfatoorah.attempt_cap_reached', [
+                    'payment_request_id' => (string) $paymentRequest->id,
+                    'attempts' => $used,
+                ]);
+
+                return 'too_many';
+            }
+
+            $next = $used + 1;
             $identifier = $this->externalIdentifier($paymentRequest->id, $next);
 
             try {
@@ -210,6 +274,9 @@ class PaymentInitiationService
                     'expected_amount' => number_format($amount, 2, '.', ''),
                     'expected_currency' => $currency,
                     'status' => AttemptStatus::Created->value,
+                    // Claims this order's single LIVE slot, and holds it until this attempt reaches a
+                    // terminal state. While it is held, no second payment can start for the order.
+                    'live_slot' => 1,
                     'mode' => $config->mode,
                     'platform' => $this->stringOrNull($paymentRequest->payment_platform),
                     'return_url' => $this->stringOrNull($paymentRequest->external_redirect_link),
@@ -220,17 +287,152 @@ class PaymentInitiationService
                     throw $e;
                 }
 
+                /*
+                 * Which rule did we hit? Read freshly — outside any transaction of ours, so this sees
+                 * whatever a sibling has just committed.
+                 *
+                 * Reusability is checked FIRST, and that matters: while we were losing the race the
+                 * winner may have finished, got its payment page and released the order's in-doubt
+                 * slot. Going straight on to the next attempt number would then be legitimate by every
+                 * other rule here and would still produce a second invoice — which is what the MySQL
+                 * concurrency test caught. The right answer is the page the winner just made.
+                 */
+                $reusable = $this->findReusableAttempt($paymentRequest, $amount, $currency, $config->mode);
+
+                if ($reusable !== null) {
+                    return $reusable;
+                }
+
+                if ($this->attemptsInDoubtQuery($paymentRequest, $config->mode)->exists()) {
+                    return 'in_doubt';
+                }
+
                 $existing = MyFatoorahPaymentAttempt::query()->where('external_identifier', $identifier)->first();
 
-                // The winner's row is usable as-is if it is still in flight; otherwise loop and take the
-                // next number (the customer is retrying after a failure).
                 if ($existing !== null && $existing->statusEnum()->isInFlight()) {
                     return $existing;
                 }
+
+                // Someone took this attempt number and finished with it. Try the next one.
+            }
+        }
+
+        return 'conflict';
+    }
+
+    /**
+     * Attempts we started and never learnt the fate of: created, with no payment URL to show.
+     *
+     * Not the same as "in flight". An attempt that has a payment URL is one the customer is looking at,
+     * and `findReusableAttempt()` hands them back to it. These are the ones where the create call itself
+     * did not come back, so an invoice may or may not exist at MyFatoorah.
+     */
+    private function attemptsInDoubtQuery(PaymentRequest $paymentRequest, string $mode): Builder
+    {
+        return MyFatoorahPaymentAttempt::query()
+            ->where('payment_request_id', $paymentRequest->id)
+            ->where('mode', $mode)
+            ->where('status', AttemptStatus::Created->value)
+            ->whereNull('payment_url');
+    }
+
+    /**
+     * Ask MyFatoorah about every attempt in doubt for this order, and say whether a new payment may start.
+     *
+     * Returns null when the way is clear. Otherwise it returns the answer the caller should give, which
+     * is never "here is a second invoice": either the earlier attempt turned out to be paid or still
+     * payable, or we could not find out and the customer is asked to wait.
+     *
+     * @return array{ok: bool, payment_url?: string, attempt?: MyFatoorahPaymentAttempt, error?: string, code?: string}|null
+     */
+    private function resolveAttemptsInDoubt(PaymentRequest $paymentRequest, GatewayConfig $config): ?array
+    {
+        $inDoubt = $this->attemptsInDoubtQuery($paymentRequest, $config->mode)->orderBy('attempt_number')->get();
+
+        if ($inDoubt->isEmpty()) {
+            return null;
+        }
+
+        foreach ($inDoubt as $attempt) {
+            if ($this->tooYoungToJudge($attempt)) {
+                /*
+                 * Its create call could still be running. A 404 from MyFatoorah right now would mean "not
+                 * told yet", not "never created", and acting on that is how two simultaneous checkouts
+                 * both end up with an invoice.
+                 */
+                return [
+                    'ok' => false,
+                    'code' => 'attempt_in_doubt',
+                    'error' => 'A payment for this order is already being created. Please wait a moment and try again.',
+                    'attempt' => $attempt,
+                ];
+            }
+
+            $outcome = $this->verification->resolveUnstartedAttempt($attempt);
+
+            if ($outcome === 'absent') {
+                // MyFatoorah never created an invoice for it. Closing it frees the order for a new
+                // payment, which is the common case after a timeout on the way out.
+                $attempt->forceFill([
+                    'status' => AttemptStatus::Failed->value,
+                    'live_slot' => null,
+                    'last_error_code' => 'never_created',
+                    'last_error_message' => 'MyFatoorah has no invoice for this attempt, so nothing was charged.',
+                ])->save();
+
+                continue;
+            }
+
+            if ($outcome === 'unknown') {
+                Log::warning('myfatoorah.attempt_in_doubt_unresolved', [
+                    'attempt' => $attempt->external_identifier,
+                    'payment_request_id' => (string) $paymentRequest->id,
+                ]);
+
+                return [
+                    'ok' => false,
+                    'code' => 'attempt_in_doubt',
+                    'error' => 'A previous payment for this order has not been confirmed yet. Please wait a moment before trying again.',
+                ];
+            }
+
+            // Resolved: the attempt now carries whatever MyFatoorah says. If that is paid, or still
+            // payable, a second invoice must not be created.
+            $attempt->refresh();
+
+            if ($attempt->statusEnum() === AttemptStatus::Paid) {
+                return [
+                    'ok' => false,
+                    'code' => 'already_paid',
+                    'error' => 'This order has already been paid.',
+                    'attempt' => $attempt,
+                ];
+            }
+
+            if ($attempt->statusEnum()->isInFlight()) {
+                return [
+                    'ok' => false,
+                    'code' => 'attempt_in_doubt',
+                    'error' => 'A previous payment for this order is still being processed. Please wait a moment before trying again.',
+                    'attempt' => $attempt,
+                ];
             }
         }
 
         return null;
+    }
+
+    /**
+     * Is this attempt still so new that its create call might not have finished?
+     *
+     * Within the grace window nothing MyFatoorah says about it can be trusted either way, because a
+     * reference it has not been told about yet is indistinguishable from one it never had.
+     */
+    private function tooYoungToJudge(MyFatoorahPaymentAttempt $attempt): bool
+    {
+        $grace = max(1, (int) config('myfatoorah.attempt_in_doubt_grace_seconds', 70));
+
+        return $attempt->created_at !== null && $attempt->created_at->addSeconds($grace)->isFuture();
     }
 
     /**

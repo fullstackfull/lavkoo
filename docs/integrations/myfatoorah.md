@@ -89,8 +89,14 @@ The admin page shows it with a copy button. The same URL is also sent with every
 Subscribe at least to **PAYMENT_STATUS_CHANGED**.
 
 Authentication is the `MyFatoorah-Signature` header: HMAC-SHA256 of a documented five-field string,
-keyed with the portal secret as raw binary, base64-encoded. An unsigned or wrongly signed delivery gets
-a flat `401`.
+keyed with the portal secret as raw binary, base64-encoded. **Every** delivery must verify; an unsigned,
+wrongly signed, or unverifiable one gets a flat `401` and is not even recorded.
+
+An earlier version let an event type through unverified on the grounds that the processor would only
+re-read the API rather than believe the body. That was wrong twice over: the re-read is itself an
+outbound provider call, so anyone who could reach the URL could spend our MyFatoorah rate limit and fill
+our tables; and "we only do something small with untrusted input" is not a basis for accepting untrusted
+input on a payment endpoint.
 
 Two things to know:
 
@@ -99,11 +105,14 @@ Two things to know:
   proves the notification is MyFatoorah's and nothing about how much was paid — which is why a verified
   webhook still only triggers a server-to-server read, never a decision.
 - **Only PAYMENT_STATUS_CHANGED can be verified.** MyFatoorah publishes the signed-field order for that
-  event only. Other event types are recorded and used purely as a prompt to re-read the API; their
-  contents are never believed.
+  event only, so no other event type can be authenticated and all of them are refused. Refund state is
+  not lost by that: it is confirmed by an operator against the portal, which is how this integration
+  treats refunds anyway.
 
-`MYFATOORAH_WEBHOOK_REQUIRE_SIGNATURE=false` exists only to debug a sandbox. The admin page shows a red
-warning while it is off. It must be `true` in production.
+`MYFATOORAH_WEBHOOK_REQUIRE_SIGNATURE=false` exists only to debug a sandbox, and **has no effect at all
+while the gateway is in live mode** — an accepted unsigned production webhook is an open door to marking
+orders paid, and that must not be reachable by an environment variable. The admin page shows a red
+warning while it is off.
 
 ---
 
@@ -112,15 +121,26 @@ warning while it is off. It must be `true` in production.
 The only thing allowed to declare a payment real is `PaymentVerificationService`, over a
 server-to-server `GET /v3/payments/{paymentId}` authenticated with our own API key.
 
-Four things must all agree before an attempt becomes `paid`:
+Ownership is proved **before** the money is even read, and a payment that cannot be proved to be ours is
+never accepted however well the amount lines up:
 
-1. `Data.Invoice.Status` is `PAID`;
-2. the amount matches what was recorded when the attempt was created, to the halala;
-3. the currency matches (SAR);
-4. `Data.Invoice.ExternalIdentifier` is **this** attempt's reference.
+1. `Data.Invoice.ExternalIdentifier` must be present. It is our own reference, sent when the invoice was
+   created and echoed back, and it is the only field that ties their money to our order. A response
+   without it proves nothing.
+2. It must equal **this** attempt's reference.
+3. The invoice id must match the one recorded when the invoice was created, whenever both are known —
+   a second, independent tie that catches a right reference describing a different invoice.
 
-If (1) holds but any of (2)–(4) does not, the status becomes `mismatch` — never `paid`, never `failed`.
-Real money has moved and a human has to look. The admin page shows these in red at the top.
+A matching amount is emphatically not proof: two customers checking out the same basket produce two
+invoices for the identical amount in the identical currency, so an amount check alone would let either
+one's payment settle the other's order. Only once ownership holds are the money checks made:
+
+4. `Data.Invoice.Status` is `PAID`;
+5. the amount matches what was recorded when the attempt was created, to the halala;
+6. the currency matches (SAR).
+
+If (4) holds but any other does not, the status becomes `mismatch` — never `paid`, never `failed`. Real
+money has moved and a human has to look. The admin page shows these in red at the top.
 
 A network failure, a timeout or a rejected API key is **`unknown`**, not a failure. Nothing in this
 integration runs the failure hook because a call did not come back — that is how a network blip cancels
@@ -128,6 +148,31 @@ an order a customer has paid for.
 
 Four independent things can learn that a payment succeeded — the customer's redirect, the webhook, the
 app polling, and the reconciliation sweep — and all four funnel into `PaymentSettlementService::settle()`.
+
+### One live payment per order
+
+A unique index on `(payment_request_id, live_slot)` says it: at most one attempt per order may be live —
+anything short of a terminal state. While one is live, a second payment is refused, because either the
+customer is looking at its payment page (and should be sent back to it) or its create call is
+unaccounted for (and we cannot know whether MyFatoorah already has an invoice).
+
+This was three wrong designs before it was right, and the MySQL concurrency test found each one:
+
+- a plain read inside a transaction could not see a sibling's just-committed attempt, because MySQL's
+  REPEATABLE READ gives the transaction a snapshot from when it began;
+- making that read a locking one took gap locks on the `payment_request_id` range, so **different
+  orders** blocked each other;
+- releasing the slot as soon as the payment page arrived left a window only as long as the create call —
+  microseconds against a fast provider — and six simultaneous checkouts each slipped through it.
+
+A unique index needs neither a snapshot nor a lock, and orders do not interact.
+
+An attempt whose create call never came back is additionally left alone for a grace period
+(`MYFATOORAH_IN_DOUBT_GRACE`, default connect + read timeout + 30s) before anything is concluded about
+it: "MyFatoorah has no invoice for this reference" and "MyFatoorah has not been told yet" are both a 404,
+and acting on the second as though it were the first is how a second invoice gets created. There is also
+a cap (`MYFATOORAH_MAX_ATTEMPTS`, default 10) so a flapping provider cannot let one order mint invoices
+without limit.
 
 ### Exactly once
 
@@ -144,8 +189,17 @@ app polling, and the reconciliation sweep — and all four funnel into `PaymentS
   process is inside it at a time. `settled_at` alone was not enough: a second delivery arriving while the
   first was still inside the hook found `settled_at` set and `hook_completed_at` still null, and the
   order-already-exists check could not help because the first caller had not created that order yet —
-  creating it is most of the way through the hook's work. The lease goes stale after ten minutes, so a
-  process killed mid-hook cannot hold the order hostage.
+  creating it is most of the way through the hook's work. The lease goes stale after
+  `MYFATOORAH_HOOK_LEASE_MINUTES` (default 15), so a process killed mid-hook cannot hold the order
+  hostage.
+- Each lease carries a **fencing token**, and a run may only record its outcome while its own token is
+  still on the row. A hook that outran its lease therefore cannot overwrite the result of whoever took
+  it, and is reported as needing a person rather than as a clean success — at that point we genuinely do
+  not know whether the side effects happened once or twice.
+- Recovery will not re-run a hook whose work it cannot check. An order hook is safe (an order carrying
+  the payment's reference proves it already ran); a **wallet top-up is not**, because
+  `add_fund_to_wallet_success` credits the balance with no reference to look for, so a retry could credit
+  it twice. Those are left for an operator, who can read the wallet's own history.
 - `hook_completed_at` records that it finished. An attempt with `settled_at` set and
   `hook_completed_at` null is an **interrupted settlement** — the one state that can take the money and
   lose the order. It is queryable by exactly that pair, counted on the admin page, and finished by
@@ -159,13 +213,22 @@ app polling, and the reconciliation sweep — and all four funnel into `PaymentS
 php artisan myfatoorah:reconcile
 ```
 
-Suggested cron (**not added for you** — changing cron needs your approval):
+It is registered on the platform's existing Laravel scheduler
+(`app/Console/ScheduleDefinition.php`), every ten minutes with `withoutOverlapping`. **No second cron
+entry is needed and none should be added** — the server already runs `schedule:run` every minute.
+
+It is registered only while **both** switches are on, and both ship off:
 
 ```
-*/10 * * * * cd /path/to/app && php artisan myfatoorah:reconcile >> storage/logs/myfatoorah-reconcile.log 2>&1
+MYFATOORAH_ENABLED=true
+MYFATOORAH_SCHEDULE_ENABLED=true
 ```
 
-There is also a **Reconcile now** button on the admin page.
+They answer different questions: the first is "may this deployment talk to MyFatoorah", the second is
+"should this deployment be the one sweeping". A staging copy of production wants the first without the
+second — two hosts sweeping one account double the provider reads to no purpose.
+
+There is also a **Reconcile now** button on the admin page, which does not depend on either switch.
 
 It asks MyFatoorah about every in-flight attempt and settles the ones that are paid, through the same
 verify-then-settle path a webhook uses — so a payment it recovers cannot produce a second order for one a
@@ -305,10 +368,10 @@ These could not be exercised here and must be confirmed on the real account:
    `/v2/MakeRefund` path is kept in config as a fallback for an account only permitted that one.
 7. **Apple Pay** needs the domain registering with MyFatoorah (`RegisterApplePayDomain`) and is subject
    to their own onboarding. Not exercised.
-8. **3-D Secure, STC Pay and Apple Pay app hand-offs on real devices.** The app now hands non-`http(s)`
-   schemes to the OS, which is what those flows need, but this was not run on a physical device — there
-   is no Flutter SDK in the build environment used for this change, so the Dart was not compiled or
-   analysed either. **Run `flutter analyze` and a device test before shipping the app.**
+8. **3-D Secure, STC Pay and Apple Pay app hand-offs on real devices.** The app hands non-`http(s)`
+   schemes to the OS, which is what those flows need, but it was not run on a physical device: this
+   environment has no Android SDK and no macOS, so no `.apk`, `.aab` or `.ipa` was produced. What WAS
+   done is in §10. **A device test on both platforms is still required before release.**
 
 ---
 
@@ -356,8 +419,10 @@ live key, or one a paid order's history points at, is left alone.
 
 ## 10. Tests
 
+### Backend, SQLite (the fast suite)
+
 ```bash
-./vendor/bin/phpunit tests/Feature/MyFatoorah/
+./vendor/bin/phpunit tests/Feature/MyFatoorah/ tests/Unit/MyFatoorah/
 ```
 
 115 tests, 409 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
@@ -377,5 +442,42 @@ payment and reporting an unavailable invoice lookup; full and partial refunds, t
 ceiling, pending requests counting against it, and an unknown refund outcome; the method catalogue read
 from the account; the gateway being hidden from both checkouts unless it can actually take a payment; and
 that it registers switched off with one card and no duplicate.
+
+### Backend, real MySQL/MariaDB (concurrency)
+
+```bash
+DB_CONNECTION=mysql DB_DATABASE=<something>_test DB_USERNAME=… DB_PASSWORD=… \
+  ./vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/Concurrency/MyFatoorahConcurrencyTest.php
+```
+
+Three tests, in separate real processes against a real server, because the thing being tested cannot be
+expressed in SQLite — an in-memory database is private to one process:
+
+- six simultaneous checkouts for one order create **exactly one** invoice;
+- simultaneous checkouts for **different** orders do not block each other (the gap-lock regression);
+- six simultaneous retries behind an attempt left in doubt create exactly one replacement.
+
+These are the tests that found the REPEATABLE READ snapshot bug, the gap-lock bug and the
+slot-released-too-early bug. They skip automatically on SQLite.
+
+### App
+
+```bash
+flutter pub get
+flutter analyze
+flutter test
+```
+
+What was actually run for this change, on Flutter 3.32.0 / Dart 3.8.0:
+
+| Step | Result |
+|---|---|
+| `flutter pub get` | resolved, 349 dependencies |
+| `flutter analyze` (whole project) | **0 errors**; 263 pre-existing infos/warnings (deprecated `withOpacity`, dead code in `price_converter.dart`, and so on) |
+| `flutter analyze` (the six changed files, explicitly) | **No issues found** |
+| `flutter build bundle` | **succeeded** — the app, including these changes, really compiles |
+| `flutter test` | 91 tests, 2 failures, both in `test/dynamic_theme_render_matrix_test.dart` and both **failing identically on `main`** — pre-existing, nothing to do with payments. `localization_keys_test.dart` passes for `en.json` and `ar.json`, which checks the new strings. |
+
+Not run: `.apk`/`.aab` (no Android SDK here), `.ipa` (no macOS), and anything on a device or simulator.
 
 **Passing tests are not evidence that a real payment works.** See §8.

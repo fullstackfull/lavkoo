@@ -177,6 +177,23 @@ class ScheduleDefinition
         $schedule->command('telemetry:rollup --prune')->dailyAt('01:30')->withoutOverlapping();
 
         /*
+        | MyFatoorah: verify payments in flight and settle any that turn out to be paid.
+        |
+        | On this scheduler rather than a cron entry of its own — the server already runs
+        | `schedule:run` every minute, and a second crontab line would be a second thing to install, to
+        | remember and to get wrong.
+        |
+        | Registered only while MYFATOORAH_ENABLED and MYFATOORAH_SCHEDULE_ENABLED are both on, and both
+        | ship off: running the migrations must not start a job that calls a payment provider. Ten
+        | minutes is the window a customer whose webhook was lost waits for their order, and
+        | `withoutOverlapping` matters more here than elsewhere — two sweeps would each verify the same
+        | attempts and spend the provider's rate limit twice to reach the same answer.
+        */
+        if (config('myfatoorah.enabled') && config('myfatoorah.schedule_enabled')) {
+            $schedule->command('myfatoorah:reconcile')->everyTenMinutes()->withoutOverlapping(30);
+        }
+
+        /*
         | An API surface snapshot, weekly.
         |
         | Four surfaces are wired to render deprecations and a change log — the portal screen, the

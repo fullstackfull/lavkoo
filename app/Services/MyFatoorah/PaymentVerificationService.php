@@ -146,6 +146,11 @@ class PaymentVerificationService
 
         $summary = $this->summarise($response);
 
+        // Read before the response is folded into the model below: once `invoice_id` has been
+        // overwritten with what MyFatoorah just said, it can no longer be used to check what MyFatoorah
+        // just said.
+        $knownInvoiceId = trim((string) $attempt->invoice_id);
+
         // Fields worth keeping whatever the outcome.
         $attempt->forceFill(array_filter([
             'invoice_id' => (string) $response->get('Invoice.Id', '') ?: null,
@@ -159,17 +164,12 @@ class PaymentVerificationService
             return $this->interpretUnpaid($attempt, $invoiceStatus, $transactionStatus, $response);
         }
 
-        // ---- Paid at MyFatoorah. Now check it is OUR payment, for OUR money. ----
+        // ---- Paid at MyFatoorah. Now prove the payment is OURS, before looking at the money. ----
 
-        if ($externalIdentifier !== '' && !hash_equals((string) $attempt->external_identifier, $externalIdentifier)) {
-            // Someone fed us a payment id belonging to a different attempt. The money is real but it is
-            // not this order's, so this order stays unpaid and the event is flagged.
-            return $this->mismatch(
-                $attempt,
-                'reference_mismatch',
-                'MyFatoorah reports this payment against a different order reference.',
-                $response,
-            );
+        $ownership = $this->ownershipProblem($attempt, $response, $externalIdentifier, $knownInvoiceId);
+
+        if ($ownership !== null) {
+            return $this->mismatch($attempt, $ownership['code'], $ownership['message'], $response);
         }
 
         [$capturedAmount, $capturedCurrency] = $this->capturedMoney($response, (string) $attempt->expected_currency);
@@ -206,6 +206,8 @@ class PaymentVerificationService
         // Everything agrees. This is the only path that produces Paid.
         $attempt->forceFill([
             'status' => AttemptStatus::Paid->value,
+            // Terminal: the order's single live slot is released.
+            'live_slot' => null,
             'payment_id' => $this->claimPaymentId($attempt, $paymentId),
             'captured_amount' => $captured,
             'captured_currency' => strtoupper($capturedCurrency),
@@ -221,6 +223,57 @@ class PaymentVerificationService
             'message' => 'Payment confirmed by MyFatoorah.',
             'attempt' => $attempt,
         ];
+    }
+
+    /**
+     * Can this payment be proved to belong to this attempt? Null when it can.
+     *
+     * `Order.ExternalIdentifier` is our own reference, sent when the invoice was created and echoed back
+     * by MyFatoorah. It is the ONLY field that ties their money to our order, so it is required: a
+     * response that does not carry it proves nothing, and a payment that cannot be proved to be ours
+     * must never release an order — however well the amount happens to match.
+     *
+     * A matching amount is emphatically not proof. Two customers checking out the same basket produce
+     * two invoices for the identical amount in the identical currency, so an amount check alone would
+     * let either one's payment settle the other's order. That is the hole this method exists to close.
+     *
+     * The invoice id is checked as a second, independent tie whenever we already know it, which we do
+     * from the moment the invoice was created. It catches the case where a reference is right but the
+     * response describes a different invoice — a reused or stale reference at the provider's end.
+     *
+     * @return array{code: string, message: string}|null
+     */
+    private function ownershipProblem(
+        MyFatoorahPaymentAttempt $attempt,
+        MyFatoorahResponse $response,
+        string $externalIdentifier,
+        string $knownInvoiceId,
+    ): ?array
+    {
+        if ($externalIdentifier === '') {
+            return [
+                'code' => 'reference_missing',
+                'message' => 'MyFatoorah reported this payment without the order reference we sent, so it cannot be proved to belong to this order.',
+            ];
+        }
+
+        if (!hash_equals((string) $attempt->external_identifier, $externalIdentifier)) {
+            return [
+                'code' => 'reference_mismatch',
+                'message' => 'MyFatoorah reports this payment against a different order reference.',
+            ];
+        }
+
+        $reportedInvoiceId = trim((string) $response->get('Invoice.Id', ''));
+
+        if ($knownInvoiceId !== '' && $reportedInvoiceId !== '' && !hash_equals($knownInvoiceId, $reportedInvoiceId)) {
+            return [
+                'code' => 'invoice_mismatch',
+                'message' => 'MyFatoorah reports this payment against invoice ' . $reportedInvoiceId . ', but this order was invoiced as ' . $knownInvoiceId . '.',
+            ];
+        }
+
+        return null;
     }
 
     /**
@@ -248,6 +301,10 @@ class PaymentVerificationService
 
         $attempt->forceFill([
             'status' => $status->value,
+            // Released only once this attempt can no longer be paid. A pending one is still live, and
+            // letting the order start another payment while the bank is still deciding on this one is
+            // how a customer ends up with two invoices.
+            'live_slot' => $status->isTerminal() ? null : 1,
             'last_error_code' => $errorCode !== '' ? Str::limit($errorCode, 32, '') : null,
             'last_error_message' => $errorMessage !== '' ? Str::limit($errorMessage, 200, '') : null,
         ])->save();
@@ -324,6 +381,7 @@ class PaymentVerificationService
     ): array {
         $attempt->forceFill([
             'status' => AttemptStatus::Mismatch->value,
+            'live_slot' => null,
             'captured_amount' => $capturedAmount !== null ? number_format((float) $capturedAmount, 2, '.', '') : $attempt->captured_amount,
             'captured_currency' => $capturedCurrency !== null ? strtoupper($capturedCurrency) : $attempt->captured_currency,
             'payment_id' => $this->claimPaymentId($attempt, (string) $response->get('Transaction.PaymentId', '')),
@@ -397,6 +455,61 @@ class PaymentVerificationService
         }
 
         return null;
+    }
+
+    /**
+     * Settle the question of an attempt we never heard back about at all.
+     *
+     * A `POST /v3/payments` that timed out leaves an attempt with no payment id, usually no invoice id,
+     * and no payment URL. We cannot know whether MyFatoorah created an invoice, and that matters because
+     * starting a fresh payment for the same order while this one is unresolved is how an order ends up
+     * with two live invoices.
+     *
+     * The invoice carries our own reference, so it can be looked up by it. Three answers, and the caller
+     * has to treat them differently:
+     *
+     *   resolved — an invoice exists; it has been verified through the normal path, so it may now be
+     *              paid, pending or failed. Its real status is on the attempt.
+     *   absent   — MyFatoorah has no invoice for this reference. Nothing was created, so the attempt is
+     *              closed and a new payment may safely be started.
+     *   unknown  — we could not find out. Nothing is assumed in either direction.
+     *
+     * @return 'resolved'|'absent'|'unknown'
+     */
+    public function resolveUnstartedAttempt(MyFatoorahPaymentAttempt $attempt): string
+    {
+        if (!$this->availability->verificationAllowed()) {
+            return 'unknown';
+        }
+
+        $config = $this->configRepo->forMode((string) $attempt->mode);
+        $lookups = [];
+
+        if (is_string($attempt->invoice_id) && $attempt->invoice_id !== '') {
+            $lookups[] = ['invoice_details', ['invoiceId' => $attempt->invoice_id]];
+        }
+
+        $lookups[] = ['invoice_by_reference', ['reference' => (string) $attempt->external_identifier]];
+
+        $allAbsent = true;
+
+        foreach ($lookups as [$endpoint, $params]) {
+            $response = $this->client->get($config, $endpoint, $params);
+
+            if ($response->succeeded) {
+                $this->verify($attempt);
+
+                return 'resolved';
+            }
+
+            if ($response->httpStatus !== 404) {
+                // A network failure, or an endpoint this account does not serve. Either way we have not
+                // learnt that the invoice is absent, and must not act as though we had.
+                $allAbsent = false;
+            }
+        }
+
+        return $allAbsent ? 'absent' : 'unknown';
     }
 
     /**

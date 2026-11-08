@@ -273,6 +273,76 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->assertSame(1, $this->successHookCalls(), 'the hook was not run again');
     }
 
+    public function test_a_hook_that_outran_its_lease_is_not_reported_as_a_clean_success(): void
+    {
+        /*
+         * The lease stops two processes STARTING the hook together. It does not stop one from expiring
+         * while its holder is still working — a hook that creates an order, decrements stock and books a
+         * shipment can outlive the window on a slow day. The fencing token makes that detectable: a
+         * process that finds someone else's token knows it lost the lease mid-flight, and must not
+         * overwrite the winner's result or claim everything went fine.
+         */
+        $this->fakePaid();
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+        $attempt = $verified['attempt'];
+
+        // Someone else takes the lease while this hook is running.
+        $GLOBALS['myfatoorah_success_reentry'] = function () use ($attempt): void {
+            DB::table('myfatoorah_payment_attempts')
+                ->where('id', $attempt->getKey())
+                ->update(['hook_lease_token' => 'taken-by-someone-else', 'hook_started_at' => now()]);
+        };
+
+        $result = app(PaymentSettlementService::class)->settle($attempt);
+
+        unset($GLOBALS['myfatoorah_success_reentry']);
+
+        $this->assertFalse($result['settled'], 'not reported as a clean settlement');
+        $this->assertFalse($result['already'], 'nor as something already done');
+        $this->assertStringContainsString('lost its lease', $result['reason']);
+        $this->assertSame(1, $this->successHookCalls(), 'the hook itself did run');
+
+        // Its own completion was not written over the other holder's state.
+        $this->assertNull($attempt->refresh()->hook_completed_at);
+    }
+
+    public function test_recovery_will_not_retry_a_wallet_top_up_hook(): void
+    {
+        /*
+         * An order hook is safe to retry: an order carrying the payment's reference proves it already
+         * ran. A wallet top-up is not — `add_fund_to_wallet_success` credits the balance with no
+         * reference to look for, so a retry that cannot tell whether the first run got that far would
+         * credit it twice. Stuck and visible beats silently credited twice.
+         */
+        $walletRequestId = $this->makePaymentRequest([
+            'attribute' => 'add_fund_to_wallet',
+            'success_hook' => 'myfatoorah_test_success_hook',
+        ]);
+
+        $walletAttempt = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $walletRequestId,
+            'attempt_number' => 1,
+            'external_identifier' => 'pk-wallet-1',
+            'expected_amount' => '50.00',
+            'expected_currency' => 'SAR',
+            'captured_amount' => '50.00',
+            'captured_currency' => 'SAR',
+            'status' => AttemptStatus::Paid->value,
+            'mode' => 'test',
+            'payment_id' => 'PAY-W1',
+            'verified_at' => now(),
+            // The interrupted state: money recorded, hook never finished.
+            'settled_at' => now()->subHour(),
+        ]);
+
+        $recovered = app(PaymentSettlementService::class)->recover();
+
+        $this->assertSame(0, $recovered['recovered']);
+        $this->assertSame(1, $recovered['skipped'], 'left for a person');
+        $this->assertSame(0, $this->successHookCalls(), 'the wallet was not credited again');
+        $this->assertNull($walletAttempt->refresh()->hook_completed_at);
+    }
+
     public function test_recovery_gives_up_rather_than_retrying_a_hook_forever(): void
     {
         $this->fakePaid();
@@ -414,6 +484,74 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->postWebhook($tampered, $signature)->assertStatus(401);
 
         $this->assertSame(0, $this->successHookCalls());
+    }
+
+    public function test_an_unsigned_event_of_any_type_is_refused_and_costs_nothing(): void
+    {
+        /*
+         * The hole this closes. An event type whose signed-field order MyFatoorah does not publish used
+         * to be let through unverified, on the grounds that the processor would only re-read the API
+         * rather than believe the body. But that re-read is itself an outbound provider call, so anyone
+         * who could reach this URL could spend our MyFatoorah rate limit and fill our tables — with no
+         * signature at all.
+         */
+        $this->fakePaid();
+
+        $refundEvent = [
+            'Event' => ['Code' => 2, 'Name' => 'REFUND_STATUS_CHANGED', 'Reference' => 'EV-R1'],
+            'Data' => ['Refund' => ['ExternalIdentifier' => 'rf-anything', 'Status' => 'Executed']],
+        ];
+
+        $this->postJson('/api/myfatoorah/webhook', $refundEvent)->assertStatus(401);
+        $this->postWebhook($refundEvent, 'made-up-signature')->assertStatus(401);
+
+        $this->assertSame(0, MyFatoorahWebhookEvent::count(), 'nothing was written');
+        Http::assertNothingSent();
+    }
+
+    public function test_an_event_type_that_cannot_be_authenticated_is_refused_even_when_signed(): void
+    {
+        // Signed with the real secret, but for an event whose signed fields MyFatoorah does not publish.
+        // We cannot compute what its signature should be, so we cannot accept it.
+        $this->fakePaid();
+
+        $payload = [
+            'Event' => ['Code' => 3, 'Name' => 'BALANCE_TRANSFERRED', 'Reference' => 'EV-B1'],
+            'Data' => ['Invoice' => ['Id' => 'INV-1', 'Status' => 'PAID']],
+        ];
+
+        $this->postWebhook($payload, $this->signatureFor($payload))->assertStatus(401);
+
+        $this->assertSame(0, MyFatoorahWebhookEvent::count());
+        Http::assertNothingSent();
+    }
+
+    public function test_the_unsigned_escape_hatch_does_nothing_on_a_live_account(): void
+    {
+        /*
+         * The switch exists so a sandbox can be debugged before the portal's secure key is set up. On a
+         * live account an accepted unsigned webhook is an open door to marking orders paid, so it is
+         * refused however the environment is configured.
+         */
+        config(['myfatoorah.webhook.require_signature' => false]);
+        $this->configureGateway(mode: 'live', apiKey: 'live-key', webhookSecret: 'live-secret');
+
+        $payload = $this->webhookPayload('pk-anything-1');
+
+        $this->postJson('/api/myfatoorah/webhook', $payload)->assertStatus(401);
+        $this->assertSame(0, $this->successHookCalls());
+    }
+
+    public function test_the_unsigned_escape_hatch_works_in_sandbox(): void
+    {
+        // The other half: it has to actually help when debugging a sandbox, or nobody will leave it off
+        // in production.
+        config(['myfatoorah.webhook.require_signature' => false]);
+        $this->fakePaid();
+
+        $this->postJson('/api/myfatoorah/webhook', $this->webhookPayload($this->attempt->external_identifier))
+            ->assertOk()
+            ->assertJson(['status' => 'settled']);
     }
 
     public function test_a_webhook_for_an_unknown_payment_is_accepted_and_ignored(): void
@@ -686,6 +824,78 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->assertSame(0, $this->failureHookCalls(), 'the failure hook is not run for an order that is paid');
         $this->assertSame(1, (int) PaymentRequest::find($this->paymentRequestId)->is_paid);
         $this->assertSame(1, $this->orderCount());
+    }
+
+    public function test_a_failed_attempt_does_not_fail_the_order_while_another_is_still_live(): void
+    {
+        /*
+         * One payment_requests row can have several MyFatoorah attempts — a declined card, then a retry
+         * — and they all share one failure hook. So "attempt 1 failed" is not "the payment failed", and
+         * running the hook on the first tears down a checkout the customer is still in the middle of.
+         */
+        $live = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $this->paymentRequestId,
+            'attempt_number' => 2,
+            'external_identifier' => 'pk-the-retry-2',
+            'expected_amount' => '150.00',
+            'expected_currency' => 'SAR',
+            'status' => AttemptStatus::Redirected->value,
+            'mode' => 'test',
+            'payment_url' => 'https://sa.myfatoorah.com/KSA/ie/2',
+        ]);
+
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($this->attempt->external_identifier, invoiceStatus: 'PENDING', transactionStatus: 'FAILED'),
+        )]);
+
+        $this->get('/payment/myfatoorah/callback?reference=' . $this->attempt->external_identifier . '&paymentId=PAY-1')
+            ->assertRedirect();
+
+        $this->assertSame(AttemptStatus::Failed->value, $this->attempt->refresh()->status, 'this attempt did fail');
+        $this->assertSame(0, $this->failureHookCalls(), 'but the order was not failed');
+        $this->assertTrue($live->refresh()->statusEnum()->isInFlight(), 'the retry is untouched');
+    }
+
+    public function test_the_failure_hook_runs_once_nothing_else_is_open(): void
+    {
+        // The other half: when it really is the end of the road, the hook must still run.
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($this->attempt->external_identifier, invoiceStatus: 'PENDING', transactionStatus: 'FAILED'),
+        )]);
+
+        $this->get('/payment/myfatoorah/callback?reference=' . $this->attempt->external_identifier . '&paymentId=PAY-1')
+            ->assertRedirect();
+
+        $this->assertSame(1, $this->failureHookCalls());
+    }
+
+    public function test_a_failed_attempt_does_not_fail_an_order_another_attempt_already_paid(): void
+    {
+        $paid = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $this->paymentRequestId,
+            'attempt_number' => 2,
+            'external_identifier' => 'pk-the-winner-2',
+            'expected_amount' => '150.00',
+            'expected_currency' => 'SAR',
+            'captured_amount' => '150.00',
+            'captured_currency' => 'SAR',
+            'status' => AttemptStatus::Paid->value,
+            'mode' => 'test',
+            'payment_id' => 'PAY-2',
+            'verified_at' => now(),
+            'settled_at' => now(),
+            'hook_completed_at' => now(),
+        ]);
+
+        Http::fake(['*/v3/payments/*' => Http::response(
+            $this->paymentDetails($this->attempt->external_identifier, invoiceStatus: 'PENDING', transactionStatus: 'FAILED'),
+        )]);
+
+        $this->get('/payment/myfatoorah/callback?reference=' . $this->attempt->external_identifier . '&paymentId=PAY-1')
+            ->assertRedirect();
+
+        $this->assertSame(0, $this->failureHookCalls());
+        $this->assertSame(AttemptStatus::Paid->value, $paid->refresh()->status);
     }
 
     // ---------------------------------------------------------------- the app's status endpoint

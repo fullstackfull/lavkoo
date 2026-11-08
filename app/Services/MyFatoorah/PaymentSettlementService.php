@@ -90,7 +90,20 @@ class PaymentSettlementService
 
         $ran = $this->runSuccessHookOnce($attempt);
 
-        return $this->result($ran['ran'], !$ran['ran'] && $ran['ok'], $ran['reason'], $attempt->refresh());
+        /*
+         * `settled` means the payment was APPLIED CLEANLY, which needs both: the hook ran, and it ran
+         * to a known-good end. A hook that ran but lost its lease on the way satisfies the first and not
+         * the second — the work may have been done twice — and reporting that as a settlement would hide
+         * exactly the case the fencing token exists to surface.
+         *
+         * `already` is the other way round: nothing ran, because the outcome was already there.
+         */
+        return $this->result(
+            settled: $ran['ran'] && $ran['ok'],
+            already: !$ran['ran'] && $ran['ok'],
+            reason: $ran['reason'],
+            attempt: $attempt->refresh(),
+        );
     }
 
     /**
@@ -167,7 +180,9 @@ class PaymentSettlementService
             return ['ran' => false, 'ok' => false, 'reason' => 'The payment request has disappeared.'];
         }
 
-        if (!$this->leaseHook($attempt)) {
+        $leaseToken = $this->leaseHook($attempt);
+
+        if ($leaseToken === null) {
             /*
              * Another process is inside the hook right now. It must not be run twice concurrently:
              * `settled_at` only guarantees one caller marked the payment paid, and the
@@ -183,11 +198,11 @@ class PaymentSettlementService
         // `transaction_ref`, so an order carrying this reference means the hook has already done its
         // work — even if the process died before it could say so. Asked of the outcome, not of a flag.
         if ($this->outcomeAlreadyExists($paymentRequest, $transactionId)) {
-            $attempt->forceFill([
+            $this->recordHookOutcome($attempt, $leaseToken, [
                 'hook_completed_at' => $attempt->hook_completed_at ?? now(),
                 'hook_started_at' => null,
                 'hook_error' => null,
-            ])->save();
+            ]);
 
             return ['ran' => false, 'ok' => true, 'reason' => 'The order for this payment already exists.'];
         }
@@ -195,7 +210,10 @@ class PaymentSettlementService
         $hook = (string) ($paymentRequest->success_hook ?? '');
 
         if ($hook === '' || !function_exists($hook)) {
-            $attempt->forceFill(['hook_error' => 'No success hook is registered for this payment.'])->save();
+            $this->recordHookOutcome($attempt, $leaseToken, [
+                'hook_started_at' => null,
+                'hook_error' => 'No success hook is registered for this payment.',
+            ]);
             Log::error('myfatoorah.missing_success_hook', ['attempt' => $attempt->external_identifier]);
 
             return ['ran' => false, 'ok' => false, 'reason' => 'No success hook is registered for this payment.'];
@@ -205,11 +223,19 @@ class PaymentSettlementService
             // The hook reads is_paid from the row it is handed, and `claim()` has already set it.
             call_user_func($hook, $paymentRequest->refresh());
 
-            $attempt->forceFill([
+            if (!$this->recordHookOutcome($attempt, $leaseToken, [
                 'hook_completed_at' => now(),
                 'hook_started_at' => null,
                 'hook_error' => null,
-            ])->save();
+            ])) {
+                // The hook finished, but its lease had already been taken. Someone else may have run it
+                // as well, so this is reported as needing a person rather than as a clean success.
+                return [
+                    'ran' => true,
+                    'ok' => false,
+                    'reason' => 'The payment was applied, but this run had lost its lease: check for duplicated work.',
+                ];
+            }
 
             return ['ran' => true, 'ok' => true, 'reason' => 'Payment applied.'];
         } catch (\Throwable $e) {
@@ -219,10 +245,10 @@ class PaymentSettlementService
             // The lease is released so recovery can pick this up, but hook_attempts stays where the
             // lease left it, so a hook that keeps throwing is eventually given up on rather than
             // retried for ever.
-            $attempt->forceFill([
+            $this->recordHookOutcome($attempt, $leaseToken, [
                 'hook_error' => Str::limit($e->getMessage(), 240, ''),
                 'hook_started_at' => null,
-            ])->save();
+            ]);
 
             Log::critical('myfatoorah.success_hook_failed', [
                 'attempt' => $attempt->external_identifier,
@@ -247,27 +273,67 @@ class PaymentSettlementService
      * recovery could never finish the order. Long enough that a slow-but-live hook is not interrupted,
      * short enough that recovery is not blocked for the rest of the day.
      */
-    private function leaseHook(MyFatoorahPaymentAttempt $attempt, int $staleAfterMinutes = 10): bool
+    private function leaseHook(MyFatoorahPaymentAttempt $attempt): ?string
     {
+        $token = (string) Str::uuid();
+
         $claimed = DB::table('myfatoorah_payment_attempts')
             ->where('id', $attempt->getKey())
             ->whereNull('hook_completed_at')
-            ->where(function ($query) use ($staleAfterMinutes): void {
+            ->where(function ($query): void {
                 $query->whereNull('hook_started_at')
-                    ->orWhere('hook_started_at', '<=', now()->subMinutes($staleAfterMinutes));
+                    ->orWhere('hook_started_at', '<=', now()->subMinutes($this->leaseMinutes()));
             })
             ->update([
                 'hook_started_at' => now(),
+                'hook_lease_token' => $token,
                 'hook_attempts' => DB::raw('hook_attempts + 1'),
                 'updated_at' => now(),
             ]);
 
         if ($claimed === 0) {
-            return false;
+            return null;
         }
 
         // Re-read so the caller sees the counter the lease just incremented.
         $attempt->refresh();
+
+        return $token;
+    }
+
+    private function leaseMinutes(): int
+    {
+        return max(1, (int) config('myfatoorah.hook_lease_minutes', 15));
+    }
+
+    /**
+     * Write the outcome of a hook run, but only while this run still owns the lease.
+     *
+     * A hook that outran its lease has had it taken by someone else, and that someone may already have
+     * done the work. Overwriting their result with ours would hide the overlap; recording nothing and
+     * saying so loudly is the only honest option, because at that point we genuinely do not know whether
+     * the side effects happened once or twice.
+     *
+     * @param array<string, mixed> $values
+     */
+    private function recordHookOutcome(MyFatoorahPaymentAttempt $attempt, string $token, array $values): bool
+    {
+        $written = DB::table('myfatoorah_payment_attempts')
+            ->where('id', $attempt->getKey())
+            ->where('hook_lease_token', $token)
+            ->update($values + ['hook_lease_token' => null, 'updated_at' => now()]);
+
+        $attempt->refresh();
+
+        if ($written === 0) {
+            Log::critical('myfatoorah.hook_outran_its_lease', [
+                'attempt' => $attempt->external_identifier,
+                'payment_request_id' => $attempt->payment_request_id,
+                'lease_minutes' => $this->leaseMinutes(),
+            ]);
+
+            return false;
+        }
 
         return true;
     }
@@ -321,7 +387,7 @@ class PaymentSettlementService
             // skipping it here keeps the batch doing useful work instead of spending it on no-ops.
             ->where(function ($query): void {
                 $query->whereNull('hook_started_at')
-                    ->orWhere('hook_started_at', '<=', now()->subMinutes(10));
+                    ->orWhere('hook_started_at', '<=', now()->subMinutes($this->leaseMinutes()));
             })
             ->orderBy('settled_at')
             ->limit(max(1, $limit))
@@ -339,6 +405,11 @@ class PaymentSettlementService
                 continue;
             }
 
+            if (!$this->canSafelyRetryHook($attempt)) {
+                $skipped++;
+                continue;
+            }
+
             $outcome = $this->runSuccessHookOnce($attempt);
 
             if ($outcome['ok']) {
@@ -349,6 +420,38 @@ class PaymentSettlementService
         }
 
         return ['recovered' => $recovered, 'still_broken' => $broken, 'skipped' => $skipped];
+    }
+
+    /**
+     * May this attempt's hook be run again unattended?
+     *
+     * Only when there is something to check it against. An order hook is safe to retry because an order
+     * carrying the payment's reference proves it already ran. A wallet top-up is not:
+     * `add_fund_to_wallet_success` credits the balance with no reference to look for, so a retry that
+     * cannot tell whether the first run got that far would credit it twice.
+     *
+     * Those are left for an operator, who can read the wallet's own transaction history — something the
+     * sweep has no safe way to do. Being stuck and visible is strictly better than being silently
+     * credited twice.
+     */
+    private function canSafelyRetryHook(MyFatoorahPaymentAttempt $attempt): bool
+    {
+        $paymentRequest = PaymentRequest::find($attempt->payment_request_id);
+
+        if ($paymentRequest === null) {
+            return false;
+        }
+
+        if ((string) ($paymentRequest->attribute ?? 'order') === 'order') {
+            return true;
+        }
+
+        Log::warning('myfatoorah.hook_retry_needs_a_person', [
+            'attempt' => $attempt->external_identifier,
+            'attribute' => (string) ($paymentRequest->attribute ?? ''),
+        ]);
+
+        return false;
     }
 
     /**
