@@ -1335,6 +1335,28 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
                     Route::put('addon-payment-set', 'UpdatePaymentConfig')->name('addon-payment-set');
                     Route::post('payment-status', 'UpdateStatus')->name('payment-status');
                 });
+
+                /*
+                 * MyFatoorah has its own page because the shared gateway form cannot hold separate
+                 * sandbox and production keys (it writes the same values into both blobs) and stores
+                 * what it is given in the clear. The on/off switch stays on the shared page with every
+                 * other gateway; this is where the credentials, the connection test, the webhook URL
+                 * and the payment monitor live.
+                 */
+                Route::group(['prefix' => 'myfatoorah', 'as' => 'myfatoorah.'], function () {
+                    Route::controller(\App\Http\Controllers\Admin\MyFatoorah\SettingsController::class)->group(function () {
+                        Route::get('/', 'index')->name('index');
+                        Route::put('settings', 'update')->name('settings');
+                        Route::post('test-connection', 'testConnection')->name('test-connection');
+                        Route::post('refresh-methods', 'refreshMethods')->name('refresh-methods');
+                        Route::post('reconcile', 'reconcile')->name('reconcile');
+                        Route::post('attempts/{attempt}/reverify', 'reverify')->name('attempts.reverify')->whereNumber('attempt');
+                        Route::post('attempts/{attempt}/never-created', 'confirmNeverCreated')->name('attempts.never-created')->whereNumber('attempt');
+                        Route::post('attempts/{attempt}/rerun-hook', 'rerunHook')->name('attempts.rerun-hook')->whereNumber('attempt');
+                        Route::post('attempts/{attempt}/refund', 'refund')->name('attempts.refund')->whereNumber('attempt');
+                        Route::post('refunds/{refund}/executed', 'markRefundExecuted')->name('refunds.executed')->whereNumber('refund');
+                    });
+                });
           
 
 

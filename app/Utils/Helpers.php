@@ -275,7 +275,12 @@ class Helpers
         return [
             'ssl_commerz', 'paypal', 'stripe', 'razor_pay', 'paystack', 'senang_pay', 'paymob_accept',
             'flutterwave', 'paytm', 'paytabs', 'liqpay', 'mercadopago', 'bkash', 'paymera',
-            'mtn_cash'
+            'mtn_cash',
+            // MyFatoorah (Saudi Arabia). This list is what `payment_gateways()` filters on, so it
+            // governs BOTH the web checkout and the `payment_methods` array the mobile app reads from
+            // /api/v1/config. Being listed here only makes the gateway eligible: it still has to be
+            // switched on in the admin panel and hold credentials before it is offered to anyone.
+            'fatoorah',
         ];
     }
 
@@ -834,6 +839,30 @@ if (!function_exists('payment_gateways')) {
             $paymentGatewaysList = $paymentGatewaysQuery->whereIn('key_name', Helpers::getDefaultPaymentGateways())->get();
         }
 
-        return $paymentGatewaysList;
+        /*
+         * MyFatoorah is additionally dropped unless it can actually take a payment right now.
+         *
+         * Being switched on is not the same as being usable: the environment kill switch may be off, or
+         * no API key may be saved for the selected mode. Offering it in that state means a customer
+         * picks it, waits, and gets an error they can do nothing about — and on the mobile app they
+         * would have to guess that another method exists. The server refuses such a payment either way;
+         * this stops it being offered in the first place.
+         *
+         * Scoped to this one gateway deliberately: the others have no equivalent readiness check and
+         * their behaviour is left exactly as it was.
+         */
+        return $paymentGatewaysList->reject(function ($gateway): bool {
+            if (($gateway->key_name ?? null) !== \App\Services\MyFatoorah\GatewayConfigRepository::KEY) {
+                return false;
+            }
+
+            try {
+                return !app(\App\Services\MyFatoorah\GatewayAvailability::class)->isReady();
+            } catch (\Throwable) {
+                // If readiness cannot be determined, keep the previous behaviour rather than letting
+                // one gateway's check empty the whole payment list.
+                return false;
+            }
+        })->values();
     }
 }
