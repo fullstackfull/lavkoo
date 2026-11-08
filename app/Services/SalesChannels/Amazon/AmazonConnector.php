@@ -5,11 +5,14 @@ namespace App\Services\SalesChannels\Amazon;
 use App\Enums\SalesChannels\ConnectionStatus;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
+use App\Models\ChannelListingDraft;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
 use App\Services\SalesChannels\Contracts\ConfirmsShipments;
+use App\Services\SalesChannels\Contracts\CreatesListings;
+use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
 use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsChannelInventory;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
@@ -18,6 +21,8 @@ use App\Services\SalesChannels\Contracts\ReadsOrders;
 use App\Services\SalesChannels\Contracts\ReadsRecipient;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
+use App\Services\SalesChannels\Data\ListingRequirements;
+use App\Services\SalesChannels\Data\ListingSubmission;
 use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
@@ -40,7 +45,7 @@ use RuntimeException;
  * What it will not do: guess a field, ask for personal data it does not need, treat an order Amazon fulfils (FBA) or one that is not an Amazon channel's own
  * as ours to ship, or write anything unless the transport (ChannelHttp) lets the call out.
  */
-class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments
+class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments, CreatesListings, DescribesListingRequirements
 {
     private const LISTINGS_CAP = 1000;
 
@@ -63,9 +68,9 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             'lwa_authentication' => ['documented' => true, 'built' => true, 'note' => 'Login with Amazon refresh-token flow; no AWS signing is required any more.'],
             'orders_v2026_01_01' => ['documented' => true, 'built' => true, 'note' => 'searchOrders / getOrder. Orders v0 reads are deprecated and are not used.'],
             'fba_vs_fbm' => ['documented' => true, 'built' => true, 'note' => 'fulfillment.fulfilledBy with salesChannel.channelName; an unclear order is never treated as FBM.'],
-            'listings_items' => ['documented' => true, 'built' => true, 'note' => 'searchListingsItems (capped at 1000 per query: windows are split) and patchListingsItem with a validation preview; getListingsItem is registered on the allowed list but not called.'],
+            'listings_items' => ['documented' => true, 'built' => true, 'note' => 'searchListingsItems (capped at 1000 per query: windows are split), patchListingsItem with a validation preview, putListingsItem to create or replace the listing of one of our SKUs (requirements LISTING; it sets rather than adds, so a repeat makes no second listing), and getListingsItem with its issues to read what became of a submission.'],
             'catalog_items' => ['documented' => true, 'built' => false, 'note' => 'Read-only enrichment (EAN/UPC for matching) is designed; not built in this version.'],
-            'product_type_definitions' => ['documented' => true, 'built' => false, 'note' => 'Reading a product type\'s attribute definitions before publishing a price is registered on the allowed list; nothing calls it in this version.'],
+            'product_type_definitions' => ['documented' => true, 'built' => true, 'note' => 'getDefinitionsProductType is read before a listing is created, and ONLY a `required` list the response itself carries is used. The full rules live in a JSON Schema behind a presigned link this version does not fetch (it is not on the allowed list), so where the response carries no such list the answer is UNKNOWN and the owner\'s own declared list on the account is used instead, recorded as the owner\'s and not Amazon\'s.'],
             'fba_inventory' => ['documented' => true, 'built' => true, 'note' => 'getInventorySummaries v1 with inventoryDetails; kept apart from Torod Point stock.'],
             'finances_v2024_06_19' => ['documented' => true, 'built' => true, 'note' => 'listTransactions; fee types are an open set classified by configurable patterns, anything unknown is kept for review.'],
             'feeds_json_listings' => ['documented' => true, 'built' => false, 'note' => 'JSON_LISTINGS_FEED for bulk price and quantity is registered on the allowed list but not called: stock and price go one SKU at a time through Listings Items. The legacy flat-file and XML listing feeds are removed by Amazon.'],
@@ -499,6 +504,164 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         }
 
         return null;
+    }
+
+    // ---- creating a listing from a product of ours --------------------------------------------------------------
+
+    /**
+     * putListingsItem: it SETS the listing of our own SKU (`requirements: LISTING`), so a repeat after a timeout changes the same listing instead of making a second one.
+     *
+     * Amazon answers at once with ACCEPTED or INVALID and a submissionId; the issues it returns are its own words, and only its codes and messages are kept.
+     */
+    public function putListing(SalesChannelAccount $account, ChannelListingDraft $draft): ListingSubmission
+    {
+        $payload = (array) ($draft->payload ?? []);
+        $sku = (string) ($payload['sku'] ?? '');
+        if ($sku === '' || (string) $draft->product_type === '') {
+            return ListingSubmission::rejected(['A listing needs our own SKU and Amazon\'s product type.']);
+        }
+
+        $response = $this->client->call(
+            $account,
+            'amazon.listings_put',
+            'PUT',
+            $this->listingPath($account, $sku),
+            ['marketplaceIds' => $this->primaryMarketplace($account), 'issueLocale' => (string) $account->setting('issue_locale', 'en_US')],
+            [
+                'productType' => (string) $draft->product_type,
+                'requirements' => 'LISTING',
+                'attributes' => $this->attributesOf($payload),
+            ],
+            IntegrationCapability::ProductSync,
+            'product_writes',
+        );
+
+        if ($response->isDryRun()) {
+            return ListingSubmission::working(null, 'dry_run');
+        }
+        if (!$response->ok()) {
+            return ListingSubmission::rejected([$response->message()], channelStatus: (string) $response->status);
+        }
+
+        return $this->submissionFrom($response, $sku);
+    }
+
+    /** getListingsItem with its issues: what Amazon has made of the listing since. It reads and changes nothing. */
+    public function listingSubmission(SalesChannelAccount $account, ChannelListingDraft $draft): ListingSubmission
+    {
+        $sku = (string) (($draft->payload ?? [])['sku'] ?? '');
+        if ($sku === '') {
+            return ListingSubmission::rejected(['A listing needs our own SKU.']);
+        }
+
+        $response = $this->client->call(
+            $account,
+            'amazon.listing_get',
+            'GET',
+            $this->listingPath($account, $sku),
+            ['marketplaceIds' => $this->primaryMarketplace($account), 'includedData' => 'issues,summaries', 'issueLocale' => (string) $account->setting('issue_locale', 'en_US')],
+            capability: IntegrationCapability::ProductSync,
+        );
+
+        if ($response->isDryRun()) {
+            return ListingSubmission::working($draft->submission_id, 'dry_run');
+        }
+        if ($response->status === 404) {
+            return ListingSubmission::working($draft->submission_id, 'not_there_yet');
+        }
+        if (!$response->ok()) {
+            return ListingSubmission::working($draft->submission_id, (string) $response->status);
+        }
+
+        $errors = $this->issueMessages($response, ['ERROR']);
+
+        return $errors === [] ? ListingSubmission::accepted($draft->submission_id, $sku, 'listed') : ListingSubmission::rejected($errors, $draft->submission_id, 'has_issues');
+    }
+
+    /**
+     * What Amazon says a product type requires. The definition's full rules live in a JSON Schema behind a presigned link that this version does not fetch (it is not on the
+     * allowed list), so only a `required` list the response itself carries is used; otherwise the answer is UNKNOWN and nothing is guessed from it.
+     */
+    public function listingRequirements(SalesChannelAccount $account, string $productType): ListingRequirements
+    {
+        if ($productType === '') {
+            return ListingRequirements::unknown();
+        }
+
+        $response = $this->client->call(
+            $account,
+            'amazon.product_type_definition',
+            'GET',
+            '/definitions/2020-09-01/productTypes/' . rawurlencode($productType),
+            ['marketplaceIds' => $this->primaryMarketplace($account), 'requirements' => 'LISTING', 'locale' => (string) $account->setting('definition_locale', 'DEFAULT')],
+            capability: IntegrationCapability::ProductSync,
+        );
+
+        if ($response->isDryRun() || !$response->ok()) {
+            return ListingRequirements::unknown($productType);
+        }
+
+        $required = array_values(array_filter(array_map('strval', (array) ($response->get('required', []) ?: $response->get('requiredAttributes', [])))));
+        if ($required === []) {
+            return ListingRequirements::unknown($productType);
+        }
+
+        return new ListingRequirements(
+            productType: (string) ($response->get('productType') ?? $productType),
+            required: $required,
+            optional: array_values(array_filter(array_map('strval', (array) $response->get('optionalAttributes', [])))),
+            readAt: now(),
+        );
+    }
+
+    private function listingPath(SalesChannelAccount $account, string $sku): string
+    {
+        return '/listings/2021-08-01/items/' . rawurlencode((string) $account->external_account_id) . '/' . rawurlencode($sku);
+    }
+
+    /**
+     * The channel's own attributes, as the draft holds them: everything except the fields that are ours (the SKU is in the path, not in the body).
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function attributesOf(array $payload): array
+    {
+        $attributes = (array) ($payload['attributes'] ?? []);
+        if ($attributes !== []) {
+            return $attributes;
+        }
+
+        return array_diff_key($payload, array_flip(['sku', 'product_type', 'attributes']));
+    }
+
+    private function submissionFrom(ChannelResponse $response, string $sku): ListingSubmission
+    {
+        $status = strtoupper((string) ($response->get('status') ?? ''));
+        $submissionId = ($id = $response->get('submissionId')) === null ? null : (string) $id;
+        $errors = $this->issueMessages($response, ['ERROR']);
+
+        if ($status === 'INVALID' || $errors !== []) {
+            return ListingSubmission::rejected($errors === [] ? ['Amazon refused the listing.'] : $errors, $submissionId, $status ?: null);
+        }
+
+        return $status === 'ACCEPTED' ? ListingSubmission::accepted($submissionId, $sku, $status) : ListingSubmission::working($submissionId, $status ?: null);
+    }
+
+    /**
+     * @param list<string> $severities
+     * @return list<string>
+     */
+    private function issueMessages(ChannelResponse $response, array $severities): array
+    {
+        $messages = [];
+        foreach ((array) $response->get('issues', []) as $issue) {
+            if (in_array($issue['severity'] ?? '', $severities, true)) {
+                $messages[] = trim(((string) ($issue['code'] ?? '')) . ': ' . ((string) ($issue['message'] ?? '')), ': ');
+            }
+        }
+
+        return array_values(array_filter($messages));
     }
 
     // ---- shipment confirmation ----------------------------------------------------------------------------------

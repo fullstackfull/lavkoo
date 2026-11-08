@@ -199,6 +199,24 @@ return [
         ],
     ],
 
+    /*
+    | Putting a product of the store ON a channel (creating or replacing a listing there). A draft can be prepared, checked against what the channel itself says it requires and
+    | previewed with this OFF — nothing leaves the host. Switching it on is not enough either: the account needs the `product_sync` capability and a recorded `product_writes`
+    | approval, and the channel's connector has to be able to create a listing at all.
+    */
+    'listing' => [
+        'publish_enabled' => filter_var(env('SALES_CHANNELS_LISTING_PUBLISH_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
+        'requirements_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_REQUIREMENTS_FRESH_HOURS', 24),
+        /*
+        | A pharmacy's catalogue: the owner's OWN list of what may not be published by anything automatic (a medicine, a device, a brand a channel has closed). A product whose
+        | category is on the first list, or whose name contains one of the second, is refused unless a named person asks for it, and that is recorded. Both empty: this stops
+        | nothing. The code does not and cannot decide which of the shop's categories are regulated.
+        */
+        'regulated_category_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_CATEGORY_IDS', ''))))),
+        'regulated_name_patterns' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_NAME_PATTERNS', ''))))),
+    ],
+
     'inventory' => [
         // Where the own warehouse's quantities come from. `manual`: balances a person typed (nothing writes them today, so the own warehouse offers nothing). `platform`: read
         // through from the storefront's own stock (`products.current_stock` and the variants' quantities), never copied and never written. Choosing `platform` changes nothing by

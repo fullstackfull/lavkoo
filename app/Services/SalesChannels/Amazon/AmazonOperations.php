@@ -50,6 +50,9 @@ final class AmazonOperations
             'amazon.listings_validate' => Ops::write(['PATCH'], $publishing, ['price_publishing', 'inventory_publishing'], retrySafe: true, requiredQuery: ['mode' => 'VALIDATION_PREVIEW']),
             'amazon.listings_patch_price' => Ops::write(['PATCH'], [Capability::PricePublishing], ['price_publishing'], retrySafe: true),
             'amazon.listings_patch_quantity' => Ops::write(['PATCH'], [Capability::InventoryPublishing], ['inventory_publishing'], retrySafe: true),
+            // Creating or replacing the whole listing of one of our SKUs (putListingsItem). It SETS the listing rather than adding one, and the SKU is ours, so repeating it after
+            // a timeout cannot make a second listing at Amazon. It needs the product-sync capability and the product-writes approval, not the price or quantity ones.
+            'amazon.listings_put' => Ops::write(['PUT'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
 
             // ---- bulk updates (JSON_LISTINGS_FEED) ----
             'amazon.feeds_create_document' => Ops::write(['POST'], $publishing, ['price_publishing', 'inventory_publishing'], retrySafe: true),
