@@ -36,9 +36,9 @@ class MyFatoorahConcurrencyTest extends TestCase
         $this->sarIsActive();
         $this->digitalPaymentOn();
 
-        // The workers are separate processes and read config from the environment, not from this one,
-        // so the switches have to be real for them.
-        putenv('MYFATOORAH_ENABLED=true');
+        // This process only. Each worker is a separate PHP process that boots the application itself
+        // and switches the gateway on for its own run (see MyFatoorahOperations::startPayment), so
+        // nothing here has to be exported into the environment for them.
         config(['myfatoorah.enabled' => true]);
 
         app(GatewayConfigRepository::class)->save(
@@ -47,13 +47,6 @@ class MyFatoorahConcurrencyTest extends TestCase
             secrets: ['api_key' => 'concurrency-key', 'webhook_secret' => 'concurrency-secret'],
             secretsMode: 'test',
         );
-    }
-
-    protected function tearDown(): void
-    {
-        putenv('MYFATOORAH_ENABLED');
-
-        parent::tearDown();
     }
 
     public function test_six_simultaneous_checkouts_create_exactly_one_invoice(): void

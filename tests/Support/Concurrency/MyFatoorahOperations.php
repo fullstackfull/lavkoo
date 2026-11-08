@@ -26,6 +26,15 @@ final class MyFatoorahOperations
      */
     public static function startPayment(array $args): array
     {
+        /*
+         * Each worker is its own PHP process that boots the application from scratch and reads config
+         * from its own environment — it does not inherit the test's `config()` calls. The environment
+         * switch is therefore set here rather than exported by whoever runs the suite: relying on an
+         * exported variable passed locally and failed in CI, where the job does not set it, and the
+         * tests reported `gateway_unavailable` instead of testing anything.
+         */
+        config(['myfatoorah.enabled' => true]);
+
         $createdInvoice = false;
 
         Http::fake(function ($request) use (&$createdInvoice) {
