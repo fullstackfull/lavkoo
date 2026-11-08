@@ -2,8 +2,12 @@
 
 namespace Tests\Support\Concurrency;
 
+use App\Enums\MyFatoorah\AttemptStatus;
+use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\PaymentRequest;
 use App\Services\MyFatoorah\PaymentInitiationService;
+use App\Services\MyFatoorah\PaymentSettlementService;
+use App\Services\MyFatoorah\PaymentVerificationService;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -15,6 +19,67 @@ use Illuminate\Support\Facades\Http;
  */
 final class MyFatoorahOperations
 {
+    /**
+     * Verify and settle one attempt, as a webhook delivery or a returning customer would.
+     *
+     * Used to race two attempts of the same order against each other in separate processes: an invoice
+     * we abandoned being paid late, at the same moment as the live one. What must hold is that the
+     * order is created once and for the right money.
+     *
+     * @param array{attempt: string, payment_id: string, amount: string, external_identifier: string}  $args
+     * @return array{status: string, settled: bool, reason: string}
+     */
+    public static function settleAttempt(array $args): array
+    {
+        config(['myfatoorah.enabled' => true]);
+
+        Http::fake(fn () => Http::response([
+            'IsSuccess' => true,
+            'Message' => '',
+            'Data' => [
+                'Invoice' => [
+                    'Id' => (string) ($args['invoice_id'] ?? 'INV-1'),
+                    'Status' => 'PAID',
+                    'ExternalIdentifier' => (string) $args['external_identifier'],
+                ],
+                'Transaction' => [
+                    'Status' => 'SUCCESS',
+                    'PaymentId' => (string) $args['payment_id'],
+                    'PaymentMethod' => 'MADA',
+                    'Error' => ['Code' => '', 'Message' => ''],
+                ],
+                'Amount' => [
+                    'BaseCurrency' => 'SAR',
+                    'ValueInBaseCurrency' => (string) $args['amount'],
+                    'DisplayCurrency' => 'SAR',
+                    'ValueInDisplayCurrency' => (string) $args['amount'],
+                    'PayCurrency' => 'SAR',
+                    'ValueInPayCurrency' => (string) $args['amount'],
+                ],
+            ],
+        ]));
+
+        $attempt = MyFatoorahPaymentAttempt::query()->where('external_identifier', $args['attempt'])->first();
+
+        if ($attempt === null) {
+            return ['status' => 'missing', 'settled' => false, 'reason' => 'no such attempt'];
+        }
+
+        $verified = app(PaymentVerificationService::class)->verify($attempt, (string) $args['payment_id']);
+
+        if ($verified['status'] !== AttemptStatus::Paid) {
+            return ['status' => $verified['status']->value, 'settled' => false, 'reason' => $verified['message']];
+        }
+
+        $settled = app(PaymentSettlementService::class)->settle($verified['attempt']);
+
+        return [
+            'status' => $verified['status']->value,
+            'settled' => (bool) $settled['settled'],
+            'reason' => (string) $settled['reason'],
+        ];
+    }
+
     /**
      * Start a MyFatoorah payment for one payment request, as a web request would.
      *

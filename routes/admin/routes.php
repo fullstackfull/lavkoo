@@ -1351,6 +1351,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
                         Route::post('refresh-methods', 'refreshMethods')->name('refresh-methods');
                         Route::post('reconcile', 'reconcile')->name('reconcile');
                         Route::post('attempts/{attempt}/reverify', 'reverify')->name('attempts.reverify')->whereNumber('attempt');
+                        Route::post('attempts/{attempt}/never-created', 'confirmNeverCreated')->name('attempts.never-created')->whereNumber('attempt');
+                        Route::post('attempts/{attempt}/rerun-hook', 'rerunHook')->name('attempts.rerun-hook')->whereNumber('attempt');
                         Route::post('attempts/{attempt}/refund', 'refund')->name('attempts.refund')->whereNumber('attempt');
                         Route::post('refunds/{refund}/executed', 'markRefundExecuted')->name('refunds.executed')->whereNumber('refund');
                     });

@@ -325,11 +325,102 @@ class PaymentFlowTest extends MyFatoorahTestCase
         $this->assertSame(1, MyFatoorahPaymentAttempt::count(), 'no second invoice was created');
     }
 
-    public function test_an_attempt_myfatoorah_never_created_is_closed_and_a_new_one_allowed(): void
+    public function test_a_404_from_an_unproven_invoice_lookup_is_not_proof_that_nothing_was_created(): void
     {
-        // The common case after a timeout on the way out: no invoice was ever made, so the customer must
-        // not be stuck. MyFatoorah is asked by our own reference, and a 404 is a definite "nothing here".
+        /*
+         * MyFatoorah publishes no literal path for its invoice lookups. On an account that does not
+         * serve them — or does not permit them — every lookup 404s, and that is indistinguishable from a
+         * genuinely absent invoice. Reading it as "nothing was created" would authorise a second invoice
+         * for an order that may already have one, so it is refused until the endpoint has been seen to
+         * work at least once.
+         */
         $this->configureGateway();
+
+        $createAttempted = 0;
+
+        Http::fake(function ($request) use (&$createAttempted) {
+            if (str_contains($request->url(), '/v3/invoices/')) {
+                return Http::response(['IsSuccess' => false, 'Message' => 'Not Found'], 404);
+            }
+
+            $createAttempted++;
+
+            throw new \Illuminate\Http\Client\ConnectionException('timed out');
+        });
+
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+        $this->initiation()->start($paymentRequest);
+
+        $inDoubt = MyFatoorahPaymentAttempt::firstOrFail();
+        $inDoubt->forceFill(['created_at' => now()->subHour()])->save();
+        $this->assertSame(1, $createAttempted);
+
+        $second = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertFalse($second['ok']);
+        $this->assertSame('attempt_in_doubt', $second['code']);
+        $this->assertSame(1, $createAttempted, 'no second invoice was attempted');
+        $this->assertSame(1, MyFatoorahPaymentAttempt::count());
+
+        // Still in doubt, still holding the order's live slot, and the reason is recorded for an operator.
+        $inDoubt->refresh();
+        $this->assertSame(AttemptStatus::Created->value, $inDoubt->status);
+        $this->assertSame(1, (int) $inDoubt->live_slot);
+        $this->assertSame('lookup_unproven', $inDoubt->last_error_code);
+
+        // And it is counted as needing a person.
+        $this->assertSame(1, app(\App\Services\MyFatoorah\ReconciliationService::class)->needsAttention()['in_doubt']);
+    }
+
+    public function test_an_operator_can_release_an_attempt_after_checking_the_portal(): void
+    {
+        // The escape hatch for the case above. A person can answer what the API will not, and nothing
+        // automatic reaches this.
+        $this->configureGateway();
+
+        // One closure for the whole test: Http::fake() merges stub sets and the first match wins, so a
+        // later stub for the same URL would never be reached.
+        $providerIsDown = true;
+
+        Http::fake(function () use (&$providerIsDown) {
+            if ($providerIsDown) {
+                throw new \Illuminate\Http\Client\ConnectionException('down');
+            }
+
+            return Http::response([
+                'IsSuccess' => true,
+                'Data' => ['InvoiceId' => 'INV-AFTER-RELEASE', 'PaymentURL' => 'https://sa.myfatoorah.com/KSA/ie/9'],
+            ], 201);
+        });
+
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+        $this->initiation()->start($paymentRequest);
+        $inDoubt = MyFatoorahPaymentAttempt::firstOrFail();
+
+        $this->assertSame(1, (int) $inDoubt->live_slot);
+
+        // What the admin action does, once the operator has read the portal.
+        $inDoubt->forceFill([
+            'status' => AttemptStatus::Failed->value,
+            'live_slot' => null,
+            'last_error_code' => 'never_created_confirmed',
+        ])->save();
+
+        // With the slot released the customer can pay again.
+        $providerIsDown = false;
+        $again = $this->initiation()->start($paymentRequest->refresh());
+
+        $this->assertTrue($again['ok']);
+        $this->assertSame(2, MyFatoorahPaymentAttempt::count());
+    }
+
+    public function test_a_404_is_proof_once_the_invoice_lookup_has_been_seen_to_work(): void
+    {
+        // The other half: on an account that does serve the lookup, a 404 really does mean the invoice
+        // is not there, and the customer is not left stuck.
+        $this->configureGateway();
+        $this->configRepo()->markInvoiceLookupProven('test');
+        $this->assertTrue($this->configRepo()->get()->invoiceLookupIsProven());
 
         // One routing closure for the whole test: Http::fake() MERGES stub sets and the first match
         // wins, so a later array stub for the same URL would never be reached.

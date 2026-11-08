@@ -89,6 +89,9 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->assertTrue($result['settled']);
         $this->assertSame(1, $this->successHookCalls());
         $this->assertSame(1, $this->orderCount());
+        // Not just "the hook ran once": each of its side effects happened once. A hook that ran twice
+        // and stopped early the second time would still leave a duplicate stock movement or shipment.
+        $this->assertAppliedExactlyOnce();
 
         // The shared ledger is what the rest of the application reads.
         $paymentRequest = PaymentRequest::find($this->paymentRequestId);
@@ -111,6 +114,7 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
 
         $this->assertSame(1, $this->successHookCalls());
         $this->assertSame(1, $this->orderCount());
+        $this->assertAppliedExactlyOnce();
     }
 
     public function test_an_unverified_attempt_cannot_be_settled(): void
@@ -228,24 +232,119 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->assertSame(1, $this->orderCount(), 'one order');
     }
 
-    public function test_a_hook_lease_left_behind_by_a_killed_process_does_not_block_recovery_for_ever(): void
+    public function test_a_hook_that_began_is_never_re_run_unattended_however_stale_its_lease(): void
     {
-        // The other half of the lease: a process killed mid-hook must not hold the order hostage.
+        /*
+         * The fencing token stops a run that outlived its lease from writing a stale result. It cannot
+         * stop its side effects from having happened: by the time the lease expired the first process
+         * may have taken the stock and be on its way to the order and the shipment. Re-running then
+         * does that work twice, and the order-already-exists check only helps once the order exists.
+         *
+         * Nothing here can tell a dead process from a slow one, so a hook that has started is never
+         * re-run unattended. It becomes a human-review item instead.
+         */
         $this->fakePaid();
         $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
 
-        $GLOBALS['myfatoorah_success_should_throw'] = true;
+        // Dies after taking the stock, before the order exists — the worst moment to retry blindly.
+        $GLOBALS['myfatoorah_success_throw_after_stock'] = true;
         app(PaymentSettlementService::class)->settle($verified['attempt']);
-        $GLOBALS['myfatoorah_success_should_throw'] = false;
+        $GLOBALS['myfatoorah_success_throw_after_stock'] = false;
 
-        // Simulate a process that died without releasing the lease, long enough ago to be stale.
+        $this->assertSame(1, $this->effectCount('stock_reservation'), 'the stock was taken once');
+        $this->assertSame(0, $this->effectCount('order'));
+        $this->assertSame(0, $this->effectCount('shipment'));
+
+        // A process that died without releasing its lease, long enough ago to look stale.
         $this->attempt->refresh()->forceFill(['hook_started_at' => now()->subHours(2)])->save();
 
         $recovered = app(PaymentSettlementService::class)->recover();
 
+        $this->assertSame(0, $recovered['recovered'], 'recovery does not touch it');
+        $this->assertSame(1, $this->effectCount('stock_reservation'), 'and the stock was not taken twice');
+        $this->assertSame(0, $this->effectCount('order'));
+        $this->assertSame(0, $this->effectCount('shipment'));
+
+        // It is reported, with the stronger flag that says single execution cannot be established.
+        $attention = app(ReconciliationService::class)->needsAttention();
+        $this->assertSame(1, $attention['stuck']);
+        $this->assertSame(1, $attention['hook_unverifiable']);
+    }
+
+    public function test_an_operator_can_force_a_re_run_once_they_have_checked_the_damage(): void
+    {
+        // The only route past that rule, and deliberately a manual one.
+        $this->fakePaid();
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $GLOBALS['myfatoorah_success_throw_after_stock'] = true;
+        app(PaymentSettlementService::class)->settle($verified['attempt']);
+        $GLOBALS['myfatoorah_success_throw_after_stock'] = false;
+
+        $this->attempt->refresh()->forceFill(['hook_started_at' => now()->subHours(2)])->save();
+
+        $outcome = app(PaymentSettlementService::class)->forceRerun($this->attempt->refresh(), operatorId: 3);
+
+        $this->assertTrue($outcome['ran']);
+        $this->assertSame(1, $this->effectCount('order'));
+        $this->assertSame(1, $this->effectCount('shipment'));
+        $this->assertNotNull($this->attempt->refresh()->hook_completed_at);
+    }
+
+    public function test_a_wallet_top_up_whose_hook_began_is_never_credited_again(): void
+    {
+        /*
+         * The wallet is the case with no idempotency marker at all: the real
+         * `add_fund_to_wallet_success` credits a balance and leaves nothing to look the credit up by.
+         * So a top-up whose hook began can never be retried automatically, however stale its lease.
+         */
+        $walletRequestId = $this->makePaymentRequest([
+            'attribute' => 'add_fund_to_wallet',
+            'payment_amount' => 50.00,
+        ]);
+
+        $walletAttempt = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $walletRequestId,
+            'attempt_number' => 1,
+            'external_identifier' => 'pk-wallet-1',
+            'expected_amount' => '50.00',
+            'expected_currency' => 'SAR',
+            'captured_amount' => '50.00',
+            'captured_currency' => 'SAR',
+            'status' => AttemptStatus::Paid->value,
+            'mode' => 'test',
+            'payment_id' => 'PAY-W1',
+            'verified_at' => now(),
+            'settled_at' => now()->subHour(),
+            // Its hook began and never finished.
+            'hook_started_at' => now()->subHour(),
+        ]);
+
+        $recovered = app(PaymentSettlementService::class)->recover();
+
+        $this->assertSame(0, $recovered['recovered']);
+        $this->assertSame(0, $this->effectCount('wallet_credit'), 'the wallet was not credited again');
+        $this->assertNull($walletAttempt->refresh()->hook_completed_at);
+        $this->assertSame(1, app(ReconciliationService::class)->needsAttention()['hook_unverifiable']);
+    }
+
+    public function test_a_settlement_that_never_started_its_hook_is_still_recovered_automatically(): void
+    {
+        // The safe half. A process that died between marking the payment paid and starting the hook
+        // left the hook definitely un-run, so finishing it duplicates nothing.
+        $this->fakePaid();
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+        $attempt = $verified['attempt'];
+
+        // Mark paid exactly as settle() does, then stop before the hook.
+        DB::table('payment_requests')->where('id', $this->paymentRequestId)
+            ->update(['is_paid' => 1, 'transaction_id' => 'PAY-1', 'payment_method' => 'fatoorah']);
+        $attempt->forceFill(['settled_at' => now()->subMinutes(5), 'hook_started_at' => null])->save();
+
+        $recovered = app(PaymentSettlementService::class)->recover();
+
         $this->assertSame(1, $recovered['recovered']);
-        $this->assertSame(1, $this->orderCount());
-        $this->assertNull($this->attempt->refresh()->hook_started_at, 'the lease is released');
+        $this->assertAppliedExactlyOnce();
     }
 
     public function test_recovery_does_not_create_a_second_order_when_the_first_one_already_exists(): void
@@ -389,6 +488,7 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
 
         $this->assertSame(1, $this->successHookCalls());
         $this->assertSame(1, $this->orderCount());
+        $this->assertAppliedExactlyOnce();
         $this->assertSame(1, MyFatoorahWebhookEvent::count(), 'nine deliveries were recognised as repeats');
     }
 
@@ -896,6 +996,128 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
 
         $this->assertSame(0, $this->failureHookCalls());
         $this->assertSame(AttemptStatus::Paid->value, $paid->refresh()->status);
+    }
+
+    // ---------------------------------------------------------------- an abandoned invoice paid anyway
+
+    public function test_a_late_payment_of_an_invoice_we_abandoned_is_never_settled(): void
+    {
+        /*
+         * Cancelling an attempt cancels OUR record of it. MyFatoorah is not told, and its invoice stays
+         * payable — so a customer who still has the old hosted page open can pay it minutes after the
+         * basket changed. The amount on that invoice is the amount we asked for at the time, so every
+         * money check would pass and the order would be released for the wrong total.
+         */
+        $this->attempt->forceFill([
+            'status' => AttemptStatus::Cancelled->value,
+            'live_slot' => null,
+            'last_error_code' => 'amount_changed',
+        ])->save();
+
+        $this->fakePaid();
+
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $this->assertSame(AttemptStatus::Mismatch, $verified['status']);
+        $this->assertSame('paid_after_abandonment', $this->attempt->refresh()->last_error_code);
+
+        // And it cannot be settled even if something tries.
+        $settled = app(PaymentSettlementService::class)->settle($this->attempt->refresh());
+
+        $this->assertFalse($settled['settled']);
+        $this->assertSame(0, $this->orderCount());
+        $this->assertSame(0, $this->effectCount('stock_reservation'));
+        $this->assertSame(0, $this->effectCount('shipment'));
+        $this->assertSame(0, (int) PaymentRequest::find($this->paymentRequestId)->is_paid);
+    }
+
+    public function test_a_webhook_for_an_abandoned_invoice_creates_no_order(): void
+    {
+        // The same thing arriving the way it really would.
+        $this->attempt->forceFill([
+            'status' => AttemptStatus::Expired->value,
+            'live_slot' => null,
+        ])->save();
+
+        $this->fakePaid();
+
+        $this->postWebhook($this->webhookPayload($this->attempt->external_identifier))
+            ->assertOk()
+            ->assertJson(['status' => 'mismatch']);
+
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(0, $this->orderCount());
+        $this->assertSame(1, app(ReconciliationService::class)->needsAttention()['mismatched']);
+    }
+
+    public function test_the_old_invoice_being_paid_late_does_not_release_a_repriced_order(): void
+    {
+        /*
+         * The whole sequence: basket 150, customer leaves the page open, basket becomes 180, a new
+         * invoice is made for 180, and then the OLD page is paid. One order at most, and never for 150.
+         */
+        $this->attempt->forceFill([
+            'status' => AttemptStatus::Cancelled->value,
+            'live_slot' => null,
+            'last_error_code' => 'amount_changed',
+        ])->save();
+
+        DB::table('payment_requests')->where('id', $this->paymentRequestId)->update(['payment_amount' => 180.00]);
+
+        $fresh = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $this->paymentRequestId,
+            'attempt_number' => 2,
+            'external_identifier' => 'pk-repriced-2',
+            'expected_amount' => '180.00',
+            'expected_currency' => 'SAR',
+            'status' => AttemptStatus::Redirected->value,
+            'live_slot' => 1,
+            'mode' => 'test',
+            'payment_id' => 'PAY-2',
+            'invoice_id' => 'INV-2',
+            'payment_url' => 'https://sa.myfatoorah.com/KSA/ie/2',
+        ]);
+
+        // The old invoice is paid, for the old amount.
+        Http::fake(function ($request) use ($fresh) {
+            if (str_contains($request->url(), '/v3/payments/PAY-2')) {
+                return Http::response($this->paymentDetails($fresh->external_identifier, amount: '180.00', paymentId: 'PAY-2', invoiceId: 'INV-2'));
+            }
+
+            return Http::response($this->paymentDetails($this->attempt->external_identifier, amount: '150.00'));
+        });
+
+        app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $this->assertSame(AttemptStatus::Mismatch->value, $this->attempt->refresh()->status);
+        $this->assertSame(0, $this->orderCount(), 'the stale invoice released nothing');
+
+        // The live attempt still settles, once, for the right money.
+        $verifiedFresh = app(PaymentVerificationService::class)->verify($fresh, 'PAY-2');
+        $this->assertSame(AttemptStatus::Paid, $verifiedFresh['status']);
+
+        app(PaymentSettlementService::class)->settle($verifiedFresh['attempt']);
+
+        $this->assertAppliedExactlyOnce();
+
+        // For the new total, not the one the stale invoice carried.
+        $this->assertEqualsWithDelta(180.00, (float) DB::table('orders')->value('order_amount'), 0.001);
+        $this->assertSame('PAY-2', PaymentRequest::find($this->paymentRequestId)->transaction_id);
+    }
+
+    public function test_an_order_repriced_mid_payment_is_not_released_against_the_old_snapshot(): void
+    {
+        // Even without an abandonment marker: the attempt's snapshot is what MyFatoorah charged, and if
+        // the order is now owed something else, releasing it would accept a wrong amount.
+        $this->fakePaid();
+
+        DB::table('payment_requests')->where('id', $this->paymentRequestId)->update(['payment_amount' => 180.00]);
+
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $this->assertSame(AttemptStatus::Mismatch, $verified['status']);
+        $this->assertSame('request_amount_changed', $this->attempt->refresh()->last_error_code);
+        $this->assertSame(0, $this->orderCount());
     }
 
     // ---------------------------------------------------------------- the app's status endpoint

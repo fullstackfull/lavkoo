@@ -5,6 +5,7 @@ namespace App\Services\MyFatoorah;
 use App\Enums\MyFatoorah\AttemptStatus;
 use App\Models\MyFatoorahPaymentAttempt;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -172,6 +173,34 @@ class PaymentVerificationService
             return $this->mismatch($attempt, $ownership['code'], $ownership['message'], $response);
         }
 
+        /*
+         * An attempt we abandoned has been paid anyway.
+         *
+         * Cancelling an attempt here cancels OUR record of it — it does not cancel the invoice at
+         * MyFatoorah. A customer who still has the old hosted page open can pay it minutes after the
+         * basket changed, and the amount on that invoice is the amount we asked for at the time, so
+         * every money check below would pass and the order would be released for the wrong total.
+         *
+         * So a payment against an abandoned attempt is never settled. The money is real, which is why
+         * this is a mismatch for a person to refund or apply deliberately, and not a failure.
+         */
+        if ($this->wasAbandoned($attempt)) {
+            return $this->mismatch(
+                $attempt,
+                'paid_after_abandonment',
+                'This invoice was abandoned before it was paid (' . (string) $attempt->last_error_code . '), and has been paid since. It needs a refund or a deliberate decision.',
+                $response,
+            );
+        }
+
+        // The order total may have moved since this attempt was created. The attempt's own snapshot is
+        // what MyFatoorah charged; this checks it is still what the order is owed.
+        $drift = $this->amountDriftedFromRequest($attempt);
+
+        if ($drift !== null) {
+            return $this->mismatch($attempt, 'request_amount_changed', $drift, $response);
+        }
+
         [$capturedAmount, $capturedCurrency] = $this->capturedMoney($response, (string) $attempt->expected_currency);
 
         if ($capturedCurrency === null || $capturedAmount === null) {
@@ -274,6 +303,48 @@ class PaymentVerificationService
         }
 
         return null;
+    }
+
+    /**
+     * Was this attempt deliberately abandoned before the money arrived?
+     *
+     * `cancelled` and `expired` are states WE put an attempt into — when the basket changed under it,
+     * or when its window closed. MyFatoorah is not told, and its invoice stays payable, so these are
+     * exactly the attempts whose late payment must not release an order.
+     *
+     * `failed` is not included: that is MyFatoorah's own verdict, and if it later reports the same
+     * attempt as paid, the later answer is the true one for that invoice.
+     */
+    private function wasAbandoned(MyFatoorahPaymentAttempt $attempt): bool
+    {
+        return in_array($attempt->statusEnum(), [AttemptStatus::Cancelled, AttemptStatus::Expired], true);
+    }
+
+    /**
+     * Has the order's total moved away from what this attempt was created to collect?
+     *
+     * Returns null when they still agree. The attempt's `expected_amount` is a snapshot taken when the
+     * invoice was created, and it is what the amount check compares MyFatoorah against — correctly, as
+     * that is what the customer was charged. But an order edited in the meantime is owed something
+     * else, and releasing it against a stale snapshot would accept a wrong amount.
+     */
+    private function amountDriftedFromRequest(MyFatoorahPaymentAttempt $attempt): ?string
+    {
+        $owed = DB::table('payment_requests')
+            ->where('id', $attempt->payment_request_id)
+            ->value('payment_amount');
+
+        if ($owed === null) {
+            return 'The order this payment belongs to no longer exists.';
+        }
+
+        if (Money::equal($owed, $attempt->expected_amount)) {
+            return null;
+        }
+
+        return 'This invoice was for ' . Money::format($attempt->expected_amount)
+            . ' but the order is now ' . Money::format($owed)
+            . '. The payment needs a refund or a deliberate decision.';
     }
 
     /**
@@ -470,9 +541,21 @@ class PaymentVerificationService
      *
      *   resolved — an invoice exists; it has been verified through the normal path, so it may now be
      *              paid, pending or failed. Its real status is on the attempt.
-     *   absent   — MyFatoorah has no invoice for this reference. Nothing was created, so the attempt is
-     *              closed and a new payment may safely be started.
-     *   unknown  — we could not find out. Nothing is assumed in either direction.
+     *   absent   — MyFatoorah has no invoice for this reference, PROVEN. Nothing was created, so the
+     *              attempt may be closed and a new payment started.
+     *   unknown  — we could not find out. Nothing is assumed in either direction, the attempt stays in
+     *              doubt, and no second invoice may be created for the order.
+     *
+     * A 404 is only proof of absence on an endpoint we have seen work. MyFatoorah publishes no literal
+     * path for "Get Invoice by InvoiceId" or "Get Invoice by ExternalIdentifier", so on an account that
+     * does not serve them — or does not permit them — every lookup 404s, and reading that as "nothing
+     * was created" would authorise a second invoice for an order that may already have one. So absence
+     * is only concluded once the endpoint has answered successfully at least once for this mode, which
+     * is recorded the first time it does.
+     *
+     * Where it cannot be concluded, the attempt stays in doubt and surfaces for review. An operator who
+     * has checked the MyFatoorah portal can release it by hand (see
+     * MyFatoorah\SettingsController::confirmNeverCreated) — a person confirming what the API will not.
      *
      * @return 'resolved'|'absent'|'unknown'
      */
@@ -491,25 +574,52 @@ class PaymentVerificationService
 
         $lookups[] = ['invoice_by_reference', ['reference' => (string) $attempt->external_identifier]];
 
-        $allAbsent = true;
+        $everyLookupSaidNotFound = true;
 
         foreach ($lookups as [$endpoint, $params]) {
             $response = $this->client->get($config, $endpoint, $params);
 
             if ($response->succeeded) {
+                // The endpoint works on this account, so a later 404 from it will mean something.
+                $this->configRepo->markInvoiceLookupProven((string) $attempt->mode);
                 $this->verify($attempt);
 
                 return 'resolved';
             }
 
             if ($response->httpStatus !== 404) {
-                // A network failure, or an endpoint this account does not serve. Either way we have not
-                // learnt that the invoice is absent, and must not act as though we had.
-                $allAbsent = false;
+                // A network failure, or a refusal that is not "not found". Either way we have not learnt
+                // that the invoice is absent, and must not act as though we had.
+                $everyLookupSaidNotFound = false;
             }
         }
 
-        return $allAbsent ? 'absent' : 'unknown';
+        if (!$everyLookupSaidNotFound) {
+            return 'unknown';
+        }
+
+        if (!$config->invoiceLookupIsProven()) {
+            /*
+             * Every lookup said 404 and we have never seen this endpoint work. That is exactly what an
+             * account without the path, or without permission for it, looks like — indistinguishable
+             * from a genuinely absent invoice. Treating it as absence is how a second invoice gets
+             * created for an order that already has one, so it is left for a person instead.
+             */
+            $this->recordError(
+                $attempt,
+                'lookup_unproven',
+                'MyFatoorah did not recognise the invoice lookup for this account, so whether an invoice exists cannot be established. Check the MyFatoorah portal for this reference.',
+            );
+
+            Log::warning('myfatoorah.invoice_lookup_unproven', [
+                'attempt' => $attempt->external_identifier,
+                'mode' => (string) $attempt->mode,
+            ]);
+
+            return 'unknown';
+        }
+
+        return 'absent';
     }
 
     /**

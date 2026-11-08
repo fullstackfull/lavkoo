@@ -27,7 +27,20 @@ final class GatewayConfig
         public readonly ?string $lastTestResult,      // 'ok' | 'failed'
         public readonly ?string $lastTestMessage,
         public readonly ?string $accountStatus,
+        /**
+         * When the invoice-lookup endpoint last answered successfully for this mode, or null if it
+         * never has. MyFatoorah does not publish the literal paths for "Get Invoice by InvoiceId" or
+         * "Get Invoice by ExternalIdentifier", so until one of them has actually worked we cannot read
+         * a 404 from it as "no such invoice" — it is equally "no such path" or "not permitted".
+         */
+        public readonly ?string $invoiceLookupProvenAt,
     ) {
+    }
+
+    /** Has the invoice-lookup endpoint ever answered? Only then can a 404 from it mean anything. */
+    public function invoiceLookupIsProven(): bool
+    {
+        return $this->invoiceLookupProvenAt !== null;
     }
 
     public function hasApiKey(): bool
@@ -108,6 +121,7 @@ final class GatewayConfig
             'last_test_result' => $this->lastTestResult,
             'last_test_message' => $this->lastTestMessage,
             'account_status' => $this->accountStatus,
+            'invoice_lookup_proven_at' => $this->invoiceLookupProvenAt,
         ];
     }
 }

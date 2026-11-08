@@ -36,6 +36,10 @@ class MyFatoorahConcurrencyTest extends TestCase
         $this->sarIsActive();
         $this->digitalPaymentOn();
 
+        // Also loaded by every worker through the operations registration file; needed here because this
+        // process asserts on what the hooks did.
+        require_once __DIR__ . '/../../Support/myfatoorah_test_hooks.php';
+
         // This process only. Each worker is a separate PHP process that boots the application itself
         // and switches the gateway on for its own run (see MyFatoorahOperations::startPayment), so
         // nothing here has to be exported into the environment for them.
@@ -128,6 +132,8 @@ class MyFatoorahConcurrencyTest extends TestCase
             'expected_amount' => '150.00',
             'expected_currency' => 'SAR',
             'status' => 'created',
+            // Holding the order's one live slot, as a real attempt in doubt does.
+            'live_slot' => 1,
             'mode' => 'test',
         ]);
 
@@ -142,11 +148,54 @@ class MyFatoorahConcurrencyTest extends TestCase
 
         $results = array_column($reports, 'result');
 
-        // Each worker's invoice lookup answers 404, so the attempt in doubt is closed as never created
-        // and exactly one of them goes on to make the one new invoice.
+        /*
+         * Every worker's invoice lookup answers 404, and this account has never been seen to serve that
+         * lookup — so a 404 from it proves nothing. None of them may conclude the invoice was never
+         * created, and none may make a second one.
+         */
         $created = array_filter($results, static fn (array $r): bool => $r['created_invoice'] === true);
-        $this->assertCount(1, $created, 'exactly one new invoice');
+        $this->assertCount(0, $created, 'no new invoice while the question is open');
 
+        $this->assertSame(
+            1,
+            MyFatoorahPaymentAttempt::query()->where('payment_request_id', $paymentRequestId)->count(),
+            'only the attempt that was already in doubt',
+        );
+
+        $this->assertSame('lookup_unproven', (string) $inDoubt->refresh()->last_error_code);
+        $this->assertSame(1, (int) $inDoubt->live_slot, 'it still holds the order\'s live slot');
+    }
+
+    public function test_once_the_invoice_lookup_is_proven_simultaneous_retries_create_exactly_one_replacement(): void
+    {
+        // The other half: on an account that does serve the lookup, a 404 really is "no invoice", the
+        // dead attempt is closed, and exactly one of six simultaneous retries makes the replacement.
+        $paymentRequestId = $this->makePaymentRequest();
+
+        $inDoubt = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $paymentRequestId,
+            'attempt_number' => 1,
+            'external_identifier' => 'pk-in-doubt-proven-1',
+            'expected_amount' => '150.00',
+            'expected_currency' => 'SAR',
+            'status' => 'created',
+            'live_slot' => 1,
+            'mode' => 'test',
+        ]);
+        $inDoubt->forceFill(['created_at' => now()->subHour()])->save();
+
+        // Recorded in the shared settings row, so every worker sees it.
+        app(GatewayConfigRepository::class)->markInvoiceLookupProven('test');
+
+        $reports = ConcurrentRunner::run(
+            'myfatoorah.start_payment',
+            array_fill(0, 6, ['payment_request' => $paymentRequestId]),
+        );
+
+        $results = array_column($reports, 'result');
+        $created = array_filter($results, static fn (array $r): bool => $r['created_invoice'] === true);
+
+        $this->assertCount(1, $created, 'exactly one new invoice');
         $this->assertSame(
             2,
             MyFatoorahPaymentAttempt::query()->where('payment_request_id', $paymentRequestId)->count(),
@@ -163,6 +212,110 @@ class MyFatoorahConcurrencyTest extends TestCase
         );
     }
 
+    public function test_a_stale_invoice_and_the_live_one_paid_at_once_create_one_order_for_the_right_money(): void
+    {
+        /*
+         * Case 3 under real concurrency. The basket was 150, the customer left that page open, the
+         * basket became 180 and a new invoice was made for it. Then BOTH are paid at the same instant —
+         * the stale page and the live one.
+         *
+         * What must hold: one order, for 180, and the stale payment recorded as needing a refund
+         * decision rather than quietly releasing anything.
+         */
+        $paymentRequestId = $this->makePaymentRequest(['payment_amount' => 180.00]);
+
+        $stale = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $paymentRequestId,
+            'attempt_number' => 1,
+            'external_identifier' => 'pk-stale-1',
+            'expected_amount' => '150.00',
+            'expected_currency' => 'SAR',
+            // Abandoned when the basket changed. MyFatoorah was never told, so its invoice is payable.
+            'status' => 'cancelled',
+            'live_slot' => null,
+            'last_error_code' => 'amount_changed',
+            'mode' => 'test',
+            'invoice_id' => 'INV-STALE',
+        ]);
+
+        $live = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $paymentRequestId,
+            'attempt_number' => 2,
+            'external_identifier' => 'pk-live-2',
+            'expected_amount' => '180.00',
+            'expected_currency' => 'SAR',
+            'status' => 'redirected',
+            'live_slot' => 1,
+            'mode' => 'test',
+            'invoice_id' => 'INV-LIVE',
+            'payment_url' => 'https://sa.myfatoorah.com/KSA/ie/live',
+        ]);
+
+        $reports = ConcurrentRunner::run('myfatoorah.settle_attempt', [
+            ['attempt' => $stale->external_identifier, 'external_identifier' => $stale->external_identifier, 'payment_id' => 'PAY-STALE', 'invoice_id' => 'INV-STALE', 'amount' => '150.00'],
+            ['attempt' => $live->external_identifier, 'external_identifier' => $live->external_identifier, 'payment_id' => 'PAY-LIVE', 'invoice_id' => 'INV-LIVE', 'amount' => '180.00'],
+        ]);
+
+        foreach ($reports as $index => $report) {
+            $this->assertTrue($report['ok'], "process {$index} failed: " . ($report['message'] ?? ''));
+        }
+
+        $results = array_column($reports, 'result');
+        $settled = array_filter($results, static fn (array $r): bool => $r['settled'] === true);
+
+        $this->assertCount(1, $settled, 'exactly one of the two settled');
+
+        // The stale one is flagged, not settled.
+        $this->assertSame('mismatch', $stale->refresh()->status);
+        $this->assertSame('paid_after_abandonment', $stale->last_error_code);
+
+        // One order, for the money the order is actually owed.
+        $orders = DB::table('orders')->where('transaction_ref', 'PAY-LIVE')->get();
+        $this->assertCount(1, $orders);
+        $this->assertSame(0, DB::table('orders')->where('transaction_ref', 'PAY-STALE')->count());
+        $this->assertEqualsWithDelta(180.00, (float) $orders->first()->order_amount, 0.001);
+
+        $paymentRequest = DB::table('payment_requests')->where('id', $paymentRequestId)->first();
+        $this->assertSame(1, (int) $paymentRequest->is_paid);
+        $this->assertSame('PAY-LIVE', $paymentRequest->transaction_id);
+    }
+
+    public function test_six_simultaneous_deliveries_of_one_payment_create_one_order(): void
+    {
+        // The settlement claim and the hook lease, under real processes rather than a re-entrant call.
+        $paymentRequestId = $this->makePaymentRequest();
+
+        $attempt = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $paymentRequestId,
+            'attempt_number' => 1,
+            'external_identifier' => 'pk-one-payment-1',
+            'expected_amount' => '150.00',
+            'expected_currency' => 'SAR',
+            'status' => 'redirected',
+            'live_slot' => 1,
+            'mode' => 'test',
+            'invoice_id' => 'INV-1',
+            'payment_url' => 'https://sa.myfatoorah.com/KSA/ie/1',
+        ]);
+
+        $reports = ConcurrentRunner::run('myfatoorah.settle_attempt', array_fill(0, 6, [
+            'attempt' => $attempt->external_identifier,
+            'external_identifier' => $attempt->external_identifier,
+            'payment_id' => 'PAY-1',
+            'invoice_id' => 'INV-1',
+            'amount' => '150.00',
+        ]));
+
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+
+        $settled = array_filter(array_column($reports, 'result'), static fn (array $r): bool => $r['settled'] === true);
+        $this->assertCount(1, $settled, 'exactly one process applied the payment');
+
+        $this->assertSame(1, DB::table('orders')->where('transaction_ref', 'PAY-1')->count(), 'one order');
+        $this->assertSame('paid', $attempt->refresh()->status);
+        $this->assertNotNull($attempt->hook_completed_at);
+    }
+
     /** @return string the payment_requests id */
     private function makePaymentRequest(array $overrides = []): string
     {
@@ -175,7 +328,7 @@ class MyFatoorahConcurrencyTest extends TestCase
             'payment_amount' => 150.00,
             'currency_code' => 'SAR',
             'payment_method' => 'fatoorah',
-            'success_hook' => 'myfatoorah_concurrency_noop_hook',
+            'success_hook' => 'myfatoorah_concurrency_order_hook',
             'failure_hook' => 'myfatoorah_concurrency_noop_hook',
             'additional_data' => json_encode(['customer_id' => 7]),
             'payer_information' => json_encode(['name' => 'Test Customer', 'email' => 'c@example.com', 'phone' => '0551234567']),

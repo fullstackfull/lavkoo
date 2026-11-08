@@ -172,7 +172,7 @@ class PaymentSettlementService
      *
      * @return array{ran: bool, ok: bool, reason: string}
      */
-    private function runSuccessHookOnce(MyFatoorahPaymentAttempt $attempt): array
+    private function runSuccessHookOnce(MyFatoorahPaymentAttempt $attempt, bool $takeOverStaleLease = false): array
     {
         $paymentRequest = PaymentRequest::find($attempt->payment_request_id);
 
@@ -180,16 +180,17 @@ class PaymentSettlementService
             return ['ran' => false, 'ok' => false, 'reason' => 'The payment request has disappeared.'];
         }
 
-        $leaseToken = $this->leaseHook($attempt);
+        $leaseToken = $this->leaseHook($attempt, $takeOverStaleLease);
 
         if ($leaseToken === null) {
             /*
-             * Another process is inside the hook right now. It must not be run twice concurrently:
-             * `settled_at` only guarantees one caller marked the payment paid, and the
-             * order-already-exists check below cannot help while the first caller is still on its way
-             * to creating that order — which is most of the hook's work.
+             * The hook has already been started by someone. It must not be started again: `settled_at`
+             * only guarantees one caller marked the payment paid, and the order-already-exists check
+             * below cannot help while the first caller is still on its way to creating that order —
+             * which is most of the hook's work. Whether that caller is alive, hung or dead cannot be
+             * told apart from here, so this is where an operator comes in.
              */
-            return ['ran' => false, 'ok' => true, 'reason' => 'This payment is already being applied.'];
+            return ['ran' => false, 'ok' => true, 'reason' => 'This payment is already being applied, or was started and needs review.'];
         }
 
         $transactionId = (string) ($paymentRequest->transaction_id ?: $this->transactionId($attempt));
@@ -273,16 +274,21 @@ class PaymentSettlementService
      * recovery could never finish the order. Long enough that a slow-but-live hook is not interrupted,
      * short enough that recovery is not blocked for the rest of the day.
      */
-    private function leaseHook(MyFatoorahPaymentAttempt $attempt): ?string
+    private function leaseHook(MyFatoorahPaymentAttempt $attempt, bool $takeOverStale = false): ?string
     {
         $token = (string) Str::uuid();
 
         $claimed = DB::table('myfatoorah_payment_attempts')
             ->where('id', $attempt->getKey())
             ->whereNull('hook_completed_at')
-            ->where(function ($query): void {
-                $query->whereNull('hook_started_at')
-                    ->orWhere('hook_started_at', '<=', now()->subMinutes($this->leaseMinutes()));
+            ->where(function ($query) use ($takeOverStale): void {
+                // A hook that has never started is always safe to start.
+                $query->whereNull('hook_started_at');
+
+                if ($takeOverStale) {
+                    // Only an operator may take a lease from a run that began. See forceRerun().
+                    $query->orWhere('hook_started_at', '<=', now()->subMinutes($this->leaseMinutes()));
+                }
             })
             ->update([
                 'hook_started_at' => now(),
@@ -379,16 +385,25 @@ class PaymentSettlementService
      */
     public function recover(int $limit = 25, int $maxHookAttempts = 5): array
     {
+        /*
+         * Only attempts whose hook NEVER BEGAN.
+         *
+         * A fencing token stops a run that outlived its lease from writing a stale result. It cannot
+         * stop its side effects from having happened: by the time the lease expired the first process
+         * may have created the order, decremented stock and booked a shipment, or be half way through
+         * doing so. Re-running the hook then does that work a second time, and the order-already-exists
+         * check only helps once the order exists — not while the first run is on its way there.
+         *
+         * There is no way from here to tell a dead process from a slow one, so a hook that has started
+         * is never re-run unattended. Those become human-review items (`needsAttention()['hook_
+         * unverifiable']`), and an operator who has checked the order, the stock, the shipment and the
+         * wallet can force a re-run with forceRerun().
+         */
         $stuck = MyFatoorahPaymentAttempt::query()
             ->whereNotNull('settled_at')
             ->whereNull('hook_completed_at')
+            ->whereNull('hook_started_at')
             ->where('status', AttemptStatus::Paid->value)
-            // Not one that a live process is inside right now: leaseHook() would refuse it anyway, but
-            // skipping it here keeps the batch doing useful work instead of spending it on no-ops.
-            ->where(function ($query): void {
-                $query->whereNull('hook_started_at')
-                    ->orWhere('hook_started_at', '<=', now()->subMinutes($this->leaseMinutes()));
-            })
             ->orderBy('settled_at')
             ->limit(max(1, $limit))
             ->get();
@@ -420,6 +435,37 @@ class PaymentSettlementService
         }
 
         return ['recovered' => $recovered, 'still_broken' => $broken, 'skipped' => $skipped];
+    }
+
+    /**
+     * Re-run a hook that began and never finished, on an operator's explicit instruction.
+     *
+     * The only route past the "a started hook is never re-run" rule, and deliberately a manual one. The
+     * operator is the thing this integration cannot supply: someone who can look at the order, the
+     * stock movements, the provider shipment and the wallet and say what actually happened. Until they
+     * have, re-running is as likely to duplicate the work as to complete it.
+     *
+     * @return array{ran: bool, reason: string}
+     */
+    public function forceRerun(MyFatoorahPaymentAttempt $attempt, ?int $operatorId = null): array
+    {
+        if ($attempt->statusEnum() !== AttemptStatus::Paid) {
+            return ['ran' => false, 'reason' => 'Only a payment confirmed as paid can be applied.'];
+        }
+
+        if ($attempt->hook_completed_at !== null) {
+            return ['ran' => false, 'reason' => 'This payment has already been applied.'];
+        }
+
+        Log::warning('myfatoorah.hook_rerun_forced_by_operator', [
+            'attempt' => $attempt->external_identifier,
+            'operator' => $operatorId,
+            'hook_attempts' => $attempt->hook_attempts,
+        ]);
+
+        $outcome = $this->runSuccessHookOnce($attempt, takeOverStaleLease: true);
+
+        return ['ran' => $outcome['ran'], 'reason' => $outcome['reason']];
     }
 
     /**

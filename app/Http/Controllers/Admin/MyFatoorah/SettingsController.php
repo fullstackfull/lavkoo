@@ -19,6 +19,7 @@ use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -254,6 +255,66 @@ class SettingsController extends Controller
 
         $this->refunds->markExecuted($row, auth('admin')->id());
         ToastMagic::success(translate('refund_marked_as_executed'));
+
+        return back();
+    }
+
+    /**
+     * Release an attempt whose create call never came back, on an operator's word that the MyFatoorah
+     * portal shows no invoice for it.
+     *
+     * This exists because the API cannot always answer the question. MyFatoorah publishes no literal
+     * path for its invoice lookups, so on an account that does not serve them every lookup 404s and
+     * "no invoice" is indistinguishable from "no such path". Rather than guess — which would authorise
+     * a second invoice for an order that may already have one — the attempt holds its order's live slot
+     * and waits for a person who can read the portal.
+     *
+     * Deliberately not reachable without a human: there is no automatic path to this action.
+     */
+    public function confirmNeverCreated(Request $request, int $attempt): RedirectResponse
+    {
+        $row = MyFatoorahPaymentAttempt::query()->findOrFail($attempt);
+
+        if ($row->statusEnum() !== AttemptStatus::Created || $row->payment_url !== null) {
+            ToastMagic::error(translate('only_an_attempt_whose_payment_page_never_arrived_can_be_released_this_way'));
+
+            return back();
+        }
+
+        $row->forceFill([
+            'status' => AttemptStatus::Failed->value,
+            // Frees the order's single live slot so the customer can pay again.
+            'live_slot' => null,
+            'last_error_code' => 'never_created_confirmed',
+            'last_error_message' => 'An operator confirmed in the MyFatoorah portal that no invoice exists for this reference.',
+        ])->save();
+
+        Log::warning('myfatoorah.attempt_released_by_operator', [
+            'attempt' => $row->external_identifier,
+            'admin' => auth('admin')->id(),
+        ]);
+
+        ToastMagic::success(translate('attempt_released_the_customer_can_start_a_new_payment'));
+
+        return back();
+    }
+
+    /**
+     * Apply a payment whose success hook began and never finished, on an operator's instruction.
+     *
+     * Never automatic. A hook that started may have created the order, taken the stock and booked the
+     * shipment, or be part way through any of them, and nothing here can tell a dead process from a
+     * slow one. The operator checks those four things first; this is the button they press afterwards.
+     */
+    public function rerunHook(Request $request, int $attempt): RedirectResponse
+    {
+        $row = MyFatoorahPaymentAttempt::query()->findOrFail($attempt);
+
+        $outcome = $this->settlement->forceRerun($row, auth('admin')->id());
+
+        $outcome['ran']
+            ? ToastMagic::success(translate('the_payment_was_applied'))
+            : ToastMagic::error($outcome['reason']);
 
         return back();
     }

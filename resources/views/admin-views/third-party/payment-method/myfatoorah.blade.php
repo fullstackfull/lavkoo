@@ -51,9 +51,10 @@
             </div>
         @endif
 
-        @if($attention['mismatched'] > 0 || $attention['stuck'] > 0)
-            {{-- The two states where money exists and no order was released for it. Nothing else on this
-                 page matters as much, so it sits at the top and is red. --}}
+        @if($attention['mismatched'] > 0 || $attention['stuck'] > 0 || $attention['in_doubt'] > 0)
+            {{-- Everything here is money that exists with no order released for it, or an order that
+                 cannot be paid until someone acts. Nothing else on this page matters as much, so it
+                 sits at the top and is red. --}}
             <div class="alert alert-danger">
                 <strong>{{ translate('these_need_a_person') }}:</strong>
                 <ul class="mb-0 mt-2 fs-12">
@@ -61,7 +62,21 @@
                         <li>{{ $attention['mismatched'] }} {{ translate('payment(s)_were_paid_but_for_a_different_amount_currency_or_order_reference') }}.</li>
                     @endif
                     @if($attention['stuck'] > 0)
-                        <li>{{ $attention['stuck'] }} {{ translate('payment(s)_were_confirmed_but_their_order_was_never_created') }}.</li>
+                        <li>
+                            {{ $attention['stuck'] }} {{ translate('payment(s)_were_confirmed_but_their_order_was_never_created') }}.
+                            @if($attention['hook_unverifiable'] > 0)
+                                <br>
+                                <strong>{{ $attention['hook_unverifiable'] }}</strong>
+                                {{ translate('of_those_began_creating_the_order_so_whether_the_work_ran_once_cannot_be_established_from_here') }}.
+                                {{ translate('check_the_order_the_stock_the_shipment_and_the_wallet_before_applying_it') }}.
+                            @endif
+                        </li>
+                    @endif
+                    @if($attention['in_doubt'] > 0)
+                        <li>
+                            {{ $attention['in_doubt'] }} {{ translate('payment(s)_were_started_and_myfatoorah_never_said_whether_an_invoice_exists') }}.
+                            {{ translate('the_customer_cannot_pay_this_order_again_until_you_check_the_portal_and_release_it') }}.
+                        </li>
                     @endif
                 </ul>
             </div>
@@ -369,6 +384,33 @@
                                             @csrf
                                             <button class="btn btn-sm btn-outline-primary" type="submit">{{ translate('re_check') }}</button>
                                         </form>
+
+                                        {{-- An attempt whose create call never came back, which MyFatoorah will not settle the
+                                             question of. It holds the order's one live slot, so the customer cannot pay again
+                                             until a person has read the portal and said there is no invoice. --}}
+                                        @if($attempt->status === 'created' && $attempt->payment_url === null && $attempt->live_slot !== null)
+                                            <form action="{{ route('admin.third-party.payment-method.myfatoorah.attempts.never-created', $attempt->id) }}"
+                                                  method="POST" class="d-inline"
+                                                  onsubmit="return confirm('{{ translate('confirm_only_if_the_myfatoorah_portal_shows_no_invoice_for_this_reference') }}');">
+                                                @csrf
+                                                <button class="btn btn-sm btn-outline-secondary" type="submit">
+                                                    {{ translate('no_invoice_in_portal_release') }}
+                                                </button>
+                                            </form>
+                                        @endif
+
+                                        {{-- Its hook began and never finished. Re-running may repeat work that already
+                                             happened, so the operator confirms the four side effects first. --}}
+                                        @if($attempt->status === 'paid' && $attempt->hook_completed_at === null && $attempt->hook_started_at !== null)
+                                            <form action="{{ route('admin.third-party.payment-method.myfatoorah.attempts.rerun-hook', $attempt->id) }}"
+                                                  method="POST" class="d-inline"
+                                                  onsubmit="return confirm('{{ translate('confirm_you_have_checked_the_order_the_stock_the_shipment_and_the_wallet') }}');">
+                                                @csrf
+                                                <button class="btn btn-sm btn-outline-danger" type="submit">
+                                                    {{ translate('apply_payment_after_review') }}
+                                                </button>
+                                            </form>
+                                        @endif
                                         @if($attempt->status === 'paid')
                                             <button class="btn btn-sm btn-outline-danger" type="button"
                                                     data-bs-toggle="collapse" data-bs-target="#refund-{{ $attempt->id }}">

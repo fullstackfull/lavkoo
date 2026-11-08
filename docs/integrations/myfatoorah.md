@@ -174,6 +174,15 @@ and acting on the second as though it were the first is how a second invoice get
 a cap (`MYFATOORAH_MAX_ATTEMPTS`, default 10) so a flapping provider cannot let one order mint invoices
 without limit.
 
+**A 404 only proves absence on an endpoint we have seen work.** MyFatoorah publishes no literal path for
+"Get Invoice by InvoiceId" or "Get Invoice by ExternalIdentifier", so on an account that does not serve
+them — or does not permit them — *every* lookup 404s, which is indistinguishable from a genuinely absent
+invoice. Absence is therefore only concluded once that endpoint has answered successfully at least once
+for the mode, which is recorded the first time it does. Until then the attempt stays in doubt, holds its
+order's live slot, is recorded with `lookup_unproven`, and is counted on the admin page under *these need
+a person*. An operator who has checked the portal releases it with **No invoice in portal: release** —
+a person answering what the API will not. There is no automatic path to that action.
+
 ### Exactly once
 
 - `settle()` refuses anything not already verified as `paid`.
@@ -193,13 +202,19 @@ without limit.
   `MYFATOORAH_HOOK_LEASE_MINUTES` (default 15), so a process killed mid-hook cannot hold the order
   hostage.
 - Each lease carries a **fencing token**, and a run may only record its outcome while its own token is
-  still on the row. A hook that outran its lease therefore cannot overwrite the result of whoever took
-  it, and is reported as needing a person rather than as a clean success — at that point we genuinely do
-  not know whether the side effects happened once or twice.
-- Recovery will not re-run a hook whose work it cannot check. An order hook is safe (an order carrying
-  the payment's reference proves it already ran); a **wallet top-up is not**, because
-  `add_fund_to_wallet_success` credits the balance with no reference to look for, so a retry could credit
-  it twice. Those are left for an operator, who can read the wallet's own history.
+  still on the row. A hook that outran its lease therefore cannot overwrite the result of whoever took it.
+- **A hook that has started is never re-run unattended, however stale its lease.** The token stops a
+  stale *write*; it cannot stop the side effects from having happened. By the time a lease expires the
+  first process may have taken the stock and be on its way to the order and the shipment, and the
+  order-already-exists check only helps once the order exists. Nothing here can tell a dead process from
+  a slow one, so these become human-review items (`needsAttention()['hook_unverifiable']`). An operator
+  who has checked **the order, the stock reservation, the shipment and the wallet** applies it with
+  **Apply payment (after review)**.
+- Only a hook that **never began** (`hook_started_at` null — the process died between marking the payment
+  paid and starting the hook) is finished automatically, because there nothing can have been duplicated.
+- A **wallet top-up** is never retried either way: `add_fund_to_wallet_success` credits a balance with no
+  reference to look the credit up by, so there is no idempotency boundary at all. It is left for an
+  operator, who can read the wallet's own history.
 - `hook_completed_at` records that it finished. An attempt with `settled_at` set and
   `hook_completed_at` null is an **interrupted settlement** — the one state that can take the money and
   lose the order. It is queryable by exactly that pair, counted on the admin page, and finished by
@@ -238,6 +253,25 @@ between calls) because MyFatoorah documents no rate limits.
 It is safe to run concurrently with itself and with live webhooks.
 
 ---
+
+## 5a. An invoice we abandoned, paid anyway
+
+Cancelling an attempt cancels **our record** of it. MyFatoorah is not told, and its invoice stays
+payable — so a customer who still has the old hosted page open can pay it minutes after the basket
+changed. The amount on that invoice is the amount we asked for at the time, so every money check would
+pass and the order would be released for the wrong total.
+
+Two guards, both before the amount is accepted:
+
+- a payment against an attempt we put into `cancelled` or `expired` is `paid_after_abandonment` — a
+  mismatch for a person to refund or apply deliberately, never a settlement. (`failed` is excluded: that
+  is MyFatoorah's own verdict, and a later "paid" for the same invoice is the true answer.)
+- the attempt's amount snapshot is re-checked against what the order is owed **now**; a difference is
+  `request_amount_changed`. This also covers an order edited mid-payment with no abandonment marker.
+
+Tested both single-process and, in `MyFatoorahConcurrencyTest`, with the stale invoice and the live one
+paid at the same instant in separate processes: one order, for the new total, and the stale payment
+flagged.
 
 ## 6. Refunds
 
@@ -450,15 +484,20 @@ DB_CONNECTION=mysql DB_DATABASE=<something>_test DB_USERNAME=… DB_PASSWORD=…
   ./vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/Concurrency/MyFatoorahConcurrencyTest.php
 ```
 
-Three tests, in separate real processes against a real server, because the thing being tested cannot be
+Six tests, in separate real processes against a real server, because the thing being tested cannot be
 expressed in SQLite — an in-memory database is private to one process:
 
 - six simultaneous checkouts for one order create **exactly one** invoice;
 - simultaneous checkouts for **different** orders do not block each other (the gap-lock regression);
-- six simultaneous retries behind an attempt left in doubt create exactly one replacement.
+- six simultaneous retries behind an attempt in doubt create **no** invoice while the lookup is unproven;
+- and exactly **one** replacement once it is proven;
+- a stale invoice and the live one paid at the same instant create one order, for the right money, with
+  the stale payment flagged;
+- six simultaneous deliveries of one payment create one order.
 
 These are the tests that found the REPEATABLE READ snapshot bug, the gap-lock bug and the
-slot-released-too-early bug. They skip automatically on SQLite.
+slot-released-too-early bug. They skip automatically on SQLite, and run in CI on both MySQL 8.0 and
+MariaDB 11.4.2.
 
 ### App
 
@@ -466,7 +505,15 @@ slot-released-too-early bug. They skip automatically on SQLite.
 flutter pub get
 flutter analyze
 flutter test
+flutter test test/myfatoorah_payment_status_test.dart test/myfatoorah_return_url_test.dart
 ```
+
+The two MyFatoorah files are 24 tests over the part that replaced the substring match on the redirect
+URL. The state tests pin that paid, failed, cancelled and expired are definite while pending, confirming
+and anything unrecognised are **not** — so a server that grows a new state cannot make the app tell a
+paying customer their payment failed. The return tests pin that only our own callback on our own host
+counts, and that a URL merely containing `success`, `fail` or `cancel` means nothing at all, which is
+exactly what the old code reacted to.
 
 What was actually run for this change, on Flutter 3.32.0 / Dart 3.8.0:
 
@@ -476,7 +523,7 @@ What was actually run for this change, on Flutter 3.32.0 / Dart 3.8.0:
 | `flutter analyze` (whole project) | **0 errors**; 263 pre-existing infos/warnings (deprecated `withOpacity`, dead code in `price_converter.dart`, and so on) |
 | `flutter analyze` (the six changed files, explicitly) | **No issues found** |
 | `flutter build bundle` | **succeeded** — the app, including these changes, really compiles |
-| `flutter test` | 91 tests, 2 failures, both in `test/dynamic_theme_render_matrix_test.dart` and both **failing identically on `main`** — pre-existing, nothing to do with payments. `localization_keys_test.dart` passes for `en.json` and `ar.json`, which checks the new strings. |
+| `flutter test` | 115 tests including **24 new MyFatoorah tests, all passing**. 2 failures, both in `test/dynamic_theme_render_matrix_test.dart` and both **failing identically on `main`** — pre-existing, nothing to do with payments. `localization_keys_test.dart` passes for `en.json` and `ar.json`, which checks the new strings. |
 
 Not run: `.apk`/`.aab` (no Android SDK here), `.ipa` (no macOS), and anything on a device or simulator.
 

@@ -59,6 +59,8 @@ abstract class MyFatoorahTestCase extends TestCase
         $GLOBALS['myfatoorah_success_calls'] = [];
         $GLOBALS['myfatoorah_failure_calls'] = [];
         $GLOBALS['myfatoorah_success_should_throw'] = false;
+        $GLOBALS['myfatoorah_success_throw_after_stock'] = false;
+        $GLOBALS['myfatoorah_effects'] = [];
 
         app()->forgetInstance(GatewayConfigRepository::class);
     }
@@ -99,6 +101,27 @@ abstract class MyFatoorahTestCase extends TestCase
     protected function failureHookCalls(): int
     {
         return count($GLOBALS['myfatoorah_failure_calls'] ?? []);
+    }
+
+    /**
+     * How many times one side effect of the success hook happened: `order`, `stock_reservation`,
+     * `shipment` or `wallet_credit`.
+     *
+     * Counted separately from hook calls because they are different claims. A hook that ran twice but
+     * stopped early the second time still leaves a duplicate stock movement behind, and that is the
+     * damage worth asserting about.
+     */
+    protected function effectCount(string $effect): int
+    {
+        return myfatoorah_test_effect_count($effect);
+    }
+
+    /** Every side effect happened exactly once. */
+    protected function assertAppliedExactlyOnce(): void
+    {
+        foreach (['order', 'stock_reservation', 'shipment'] as $effect) {
+            $this->assertSame(1, $this->effectCount($effect), "{$effect} should have happened exactly once");
+        }
     }
 
     /**

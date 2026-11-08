@@ -116,16 +116,43 @@ class ReconciliationService
      * Attempts that need a person: paid at the gateway but not applied, or paid for the wrong amount.
      * This is what the admin monitor shows at the top of the page.
      *
-     * @return array{mismatched: int, stuck: int}
+     * @return array{mismatched: int, stuck: int, in_doubt: int, hook_unverifiable: int}
      */
     public function needsAttention(): array
     {
+        $leaseMinutes = max(1, (int) config('myfatoorah.hook_lease_minutes', 15));
+
         return [
             'mismatched' => MyFatoorahPaymentAttempt::query()->where('status', AttemptStatus::Mismatch->value)->count(),
+
+            // Money recorded, order never created. Everything in here needs a person: see
+            // PaymentSettlementService for why a hook that has started is never re-run unattended.
             'stuck' => MyFatoorahPaymentAttempt::query()
                 ->where('status', AttemptStatus::Paid->value)
                 ->whereNotNull('settled_at')
                 ->whereNull('hook_completed_at')
+                ->count(),
+
+            // The subset of those where the hook definitely began, so whether its side effects ran once,
+            // twice or part-way cannot be established from here at all.
+            'hook_unverifiable' => MyFatoorahPaymentAttempt::query()
+                ->where('status', AttemptStatus::Paid->value)
+                ->whereNotNull('settled_at')
+                ->whereNull('hook_completed_at')
+                ->whereNotNull('hook_started_at')
+                ->count(),
+
+            /*
+             * Attempts whose create call never came back and which MyFatoorah will not settle the
+             * question of — typically because this account does not serve the invoice-lookup path. Each
+             * one holds its order's live slot, so the customer cannot start another payment until
+             * someone checks the portal and releases it.
+             */
+            'in_doubt' => MyFatoorahPaymentAttempt::query()
+                ->where('status', AttemptStatus::Created->value)
+                ->whereNull('payment_url')
+                ->whereNotNull('live_slot')
+                ->where('created_at', '<=', now()->subSeconds(max(1, (int) config('myfatoorah.attempt_in_doubt_grace_seconds', 70))))
                 ->count(),
         ];
     }

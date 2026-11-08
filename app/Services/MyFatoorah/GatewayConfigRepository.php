@@ -88,6 +88,7 @@ class GatewayConfigRepository
             lastTestResult: $additional['last_test_result'][$mode] ?? null,
             lastTestMessage: $additional['last_test_message'][$mode] ?? null,
             accountStatus: $additional['account_status'][$mode] ?? null,
+            invoiceLookupProvenAt: $additional['invoice_lookup_proven_at'][$mode] ?? null,
         );
     }
 
@@ -273,6 +274,31 @@ class GatewayConfigRepository
         // Truncated and already safe: the client strips bodies and headers before messages reach here.
         $additional['last_test_message'][$mode] = Str::limit($message, 200, '');
         $additional['account_status'][$mode] = $accountStatus;
+
+        $this->save(settings: $additional, secretsMode: $mode);
+    }
+
+    /**
+     * Record that the invoice-lookup endpoint answered for this mode.
+     *
+     * Until it has, a 404 from it proves nothing: MyFatoorah publishes no literal path for it, so a
+     * 404 is as likely to mean "no such path" or "no permission" as "no such invoice". Once it has
+     * answered once, a later 404 from the same path really does mean the invoice is not there.
+     */
+    public function markInvoiceLookupProven(string $mode): void
+    {
+        $mode = $mode === 'live' ? 'live' : 'test';
+        $additional = $this->decodeAdditional($this->row());
+
+        if (!is_array($additional['invoice_lookup_proven_at'] ?? null)) {
+            $additional['invoice_lookup_proven_at'] = [];
+        }
+
+        if (!empty($additional['invoice_lookup_proven_at'][$mode])) {
+            return;
+        }
+
+        $additional['invoice_lookup_proven_at'][$mode] = now()->toIso8601String();
 
         $this->save(settings: $additional, secretsMode: $mode);
     }
