@@ -690,7 +690,8 @@ class AmazonConnectorTest extends TestCase
         $this->assertTrue($matrix['orders_v2026_01_01']['built']);
         $this->assertFalse($matrix['notifications']['built']);
         $this->assertFalse($matrix['reports']['built']);
-        $this->assertFalse($matrix['catalog_items']['built']);
+        // Built in PR-C: searchCatalogItems brings back the ASIN and Amazon's own productType, without which the requirements call has nothing to ask about.
+        $this->assertTrue($matrix['catalog_items']['built']);
         $this->assertFalse($matrix['feeds_json_listings']['built'], 'The feed operations are on the allowed list but nothing calls them: price and stock go one SKU at a time.');
         $this->assertTrue($matrix['product_type_definitions']['built']);
     }
@@ -705,7 +706,7 @@ class AmazonConnectorTest extends TestCase
         }
         $notBuilt = [
             'amazon.feeds_create_document', 'amazon.feeds_upload', 'amazon.feeds_create', 'amazon.feeds_get', 'amazon.feeds_document',
-            'amazon.catalog_search', 'amazon.finances_groups', 'amazon.reports_create', 'amazon.reports_get', 'amazon.reports_document', 'amazon.report_download', 'amazon.notifications_read', 'amazon.notifications_write',
+            'amazon.finances_groups', 'amazon.reports_create', 'amazon.reports_get', 'amazon.reports_document', 'amazon.report_download', 'amazon.notifications_read', 'amazon.notifications_write',
         ];
 
         foreach ($notBuilt as $operation) {
@@ -715,6 +716,7 @@ class AmazonConnectorTest extends TestCase
             'amazon.listings_search', 'amazon.listings_patch_price', 'amazon.listings_patch_quantity', 'amazon.listings_validate', 'amazon.listings_put',
             'amazon.listings_patch_content', 'amazon.listing_get',
             'amazon.product_type_definition', 'amazon.orders_search', 'amazon.order_get', 'amazon.order_confirm_shipment', 'amazon.fba_inventory', 'amazon.finances_transactions',
+            'amazon.catalog_search',
         ] as $operation) {
             $this->assertStringContainsString("'{$operation}'", $sources, "{$operation} is what the matrix calls built.");
         }
