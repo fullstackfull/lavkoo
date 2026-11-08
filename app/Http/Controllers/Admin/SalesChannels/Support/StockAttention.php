@@ -68,6 +68,10 @@ final class StockAttention
         $late = $behind >= max(60, (int) config('sales_channels.stock.outbox.behind_seconds', 180));
         $items = [];
 
+        // First, because it is the one that means a unit is on sale here that is gone.
+        if (($lag['storefront_refused'] ?? 0) > 0) {
+            $items[] = ['title' => translate('storefront_stock_nobody_could_correct'), 'detail' => $lag['storefront_refused'] . ' ' . translate('a_mapping_or_a_product_has_to_be_corrected_first'), 'url' => route('admin.sales-channels.inventory.index')];
+        }
         if ($lag['dead'] > 0) {
             $items[] = ['title' => translate('stock_changes_nobody_could_work'), 'detail' => $lag['dead'] . ' ' . translate('kept_for_you_until_somebody_deals_with_them'), 'url' => route('admin.sales-channels.inventory.index')];
         }
@@ -80,7 +84,11 @@ final class StockAttention
             $items[] = ['title' => translate('stock_changes_recomputed_but_not_sent'), 'detail' => $lag['not_sent'] . ' ' . translate('a_switch_or_an_approval_refused_the_send'), 'url' => route('admin.sales-channels.index')];
         }
 
-        return $this->section(translate('attention_stock_changes_not_worked'), count($items) === 0 ? 0 : $lag['dead'] + ($late ? $lag['pending'] : 0) + (int) ($lag['not_sent'] ?? 0), $items);
+        return $this->section(
+            translate('attention_stock_changes_not_worked'),
+            count($items) === 0 ? 0 : $lag['dead'] + ($late ? $lag['pending'] : 0) + (int) ($lag['not_sent'] ?? 0) + (int) ($lag['storefront_refused'] ?? 0),
+            $items,
+        );
     }
 
     private function deficits(): array

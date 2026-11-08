@@ -28,8 +28,13 @@ use Throwable;
  * FBN). This class hands over pool keys and nothing else, so a listing that was skipped before is skipped now, for the same reason, in the same words.
  *
  * AND IT CLAIMS NOTHING IT DID NOT DO. A row becomes `worked` only when a pass really attended to it, and `outcome` says what that came to: the pool recomputed and nobody to
- * tell, the publisher asked and run, or the publisher asked and refused before anything left this host (which is a settled answer and NOT a successful publish). A publisher
- * that was BUSY, rate limited or that FAILED settles nothing, so the row stays open for another pass — because the alternative is a closed row and a wrong quantity.
+ * tell, the publisher asked and run, or the publisher asked and refused before anything left this host (which is a settled answer and NOT a successful publish). Two things
+ * settle nothing and therefore leave the row OPEN for another pass, because the alternative is a closed row and a wrong quantity:
+ *
+ *  - a publisher that was BUSY, rate limited or that FAILED;
+ *  - a storefront write the single writer REFUSED (a whole-product figure on a product sold per variant, a variant that is gone). That one is usually PERMANENT — a person
+ *    has to correct the mapping or the product — so it is tried the owner's number of times and then kept as `dead` with `storefront_write_refused` on it, which the hub
+ *    names. Bounded, visible, and never retried for ever.
  */
 class StockEventDrain
 {
@@ -82,10 +87,19 @@ class StockEventDrain
         }
 
         [$outcome, $result, $detail] = $this->whatThePassCameTo($worked);
-        if (in_array($result, self::UNSETTLED, true)) {
-            // The regular run holds the account's stock lease, the channel asked us to wait, or the run failed. Nothing is settled: the rows stay for another pass, with the
-            // reason on them, rather than being closed over a quantity that was never sent.
-            $this->outbox->retryLater($ids, 'publisher_' . $result, $detail);
+
+        // A storefront write the single writer REFUSED settles nothing either, and it is the more serious of the two: the channels can be behind for a minute without harm,
+        // but OUR OWN number being wrong is a unit on sale here that is gone. The row stays open with that reason — never closed with `storefront_written_at` set over a
+        // number nobody corrected, which is what `products > 0` (the count ATTEMPTED, not written) used to do.
+        $refusedHere = $storefront['refused'] > 0;
+        if ($refusedHere || in_array($result, self::UNSETTLED, true)) {
+            // The regular run holds the account's stock lease, the channel asked us to wait, the run failed, or our own number was refused. Nothing is settled: the rows stay
+            // for another pass, with the reason on them, rather than being closed over a quantity that was never sent or a number that was never corrected.
+            $this->outbox->retryLater(
+                $ids,
+                $refusedHere ? 'storefront_write_refused' : 'publisher_' . $result,
+                $refusedHere ? null : $detail,
+            );
 
             return array_merge($empty, [
                 'claimed' => count($ids), 'pools' => count($pools), 'recomputed' => (int) ($worked['recomputed'] ?? 0),
@@ -94,7 +108,8 @@ class StockEventDrain
             ]);
         }
 
-        $this->outbox->finish($ids, $outcome, $result, $detail, recomputed: (int) ($worked['recomputed'] ?? 0) > 0, storefrontWritten: $storefront['products'] > 0);
+        // Written only when the writer really wrote it (or had nothing to write), never when it was merely asked.
+        $this->outbox->finish($ids, $outcome, $result, $detail, recomputed: (int) ($worked['recomputed'] ?? 0) > 0, storefrontWritten: $storefront['applied'] > 0);
 
         return [
             'claimed' => count($ids),

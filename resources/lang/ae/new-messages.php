@@ -17470,4 +17470,6 @@ return [
 	'changes_oldest_of_them_minutes_ago' => 'تغييرات تنتظر، أقدمها قبل :minutes دقيقة: العمال متوقّفون، أو الطابور لا يُشغَّل',
 	'stock_changes_recomputed_but_not_sent' => 'تغييرات حُسبت ولم تُرسل',
 	'a_switch_or_an_approval_refused_the_send' => 'مفتاح أو موافقة منعت الإرسال، فحُسبت الكميات ولم يخرج شيء إلى القناة؛ وتفعيلها يُرسلها في التشغيل المنتظم التالي',
+	'storefront_stock_nobody_could_correct' => 'مخزون متجرنا لم يُمكن تصحيحه',
+	'a_mapping_or_a_product_has_to_be_corrected_first' => 'تغييرات رفض الكاتبُ كميتها في متجرنا، فما زال يعرض وحدات أخذتها قناة. جُرّبت وحُفظت هنا بدل إعادة المحاولة بلا نهاية: يجب تصحيح ربط أو منتج أولًا (رقم للمنتج كلّه على منتج يُباع بالمتغيّر، أو متغيّر اختفى)، ثم شغّل channels:stock-events --retry-dead',
 ];

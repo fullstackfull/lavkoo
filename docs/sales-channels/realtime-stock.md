@@ -78,6 +78,20 @@ Conflating any two of these is how a quantity ends up wrong while every screen s
 | `skipped` (a switch, an approval, before anything left this host) | `worked`, outcome **`not_sent`**, with the reason — a settled answer, and **counted on the hub**, because an empty queue must not read as "everything is at the channels" |
 | `busy` / `rate_limited` / `failed` | **stays pending**, with `publisher_<result>` on it, and is tried again. Closing it would be closing a row over a quantity that never left |
 
+And one more thing settles nothing, the most serious of them: **a storefront write the single writer refused**. `storefront_written_at` is set only when the writer really
+wrote it (or had nothing to write), never when it was merely asked — the count of products *attempted* is not the count written. A refusal keeps the row open with
+`storefront_write_refused` on it.
+
+That refusal is usually **permanent**: a whole-product figure on a product the storefront sells per variant, a variant that no longer exists. No retry can fix either — a
+person has to correct the mapping or the product. So it is tried the owner's number of times and then kept as `dead` with that code, and the hub names it first, above
+everything else in the section, because it is the one that means **a unit is on sale in our own shop that is gone**. Once the mapping is fixed:
+
+```bash
+php artisan channels:stock-events --retry-dead
+```
+
+Bounded, visible, and never retried for ever — which is the difference between a wrong number somebody will correct and a wrong number nobody knows about.
+
 ### The order within a pass: lowest first
 
 The channels are told **lowest first** (`publishReductions` sends only what *lowers* a quantity): a reduction that is late is an oversell, a rise that is late is only a lost

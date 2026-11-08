@@ -163,12 +163,12 @@ class StockEventOutbox
     /**
      * What is waiting, and for how long — the figure a monitoring screen needs, and the one that says the workers have stopped.
      *
-     * @return array{pending: int, claimed: int, dead: int, not_sent: int, oldest_pending_seconds: int|null}
+     * @return array{pending: int, claimed: int, dead: int, not_sent: int, storefront_refused: int, oldest_pending_seconds: int|null}
      */
     public function lag(): array
     {
         if (!$this->on()) {
-            return ['pending' => 0, 'claimed' => 0, 'dead' => 0, 'not_sent' => 0, 'oldest_pending_seconds' => null];
+            return ['pending' => 0, 'claimed' => 0, 'dead' => 0, 'not_sent' => 0, 'storefront_refused' => 0, 'oldest_pending_seconds' => null];
         }
         $oldest = ChannelStockEvent::where('state', ChannelStockEvent::PENDING)->min('created_at');
 
@@ -179,6 +179,10 @@ class StockEventOutbox
             // Rows a pass attended to where the publisher refused before anything left this host. Not a failure — but not a published quantity either, so it is counted
             // rather than read as success.
             'not_sent' => ChannelStockEvent::where('state', ChannelStockEvent::WORKED)->where('outcome', ChannelStockEvent::NOT_SENT)->count(),
+            // Rows whose STOREFRONT number the writer refused. The most serious count on this list: a unit on sale in our own shop that is gone, waiting for a person to
+            // correct a mapping or a product.
+            'storefront_refused' => ChannelStockEvent::where('failure_code', 'storefront_write_refused')
+                ->whereIn('state', [ChannelStockEvent::PENDING, ChannelStockEvent::CLAIMED, ChannelStockEvent::DEAD])->count(),
             'oldest_pending_seconds' => $oldest === null ? null : max(0, (int) now()->diffInSeconds($oldest, absolute: true)),
         ];
     }

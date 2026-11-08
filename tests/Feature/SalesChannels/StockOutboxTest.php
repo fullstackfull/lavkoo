@@ -10,6 +10,7 @@ use App\Models\InventoryLocation;
 use App\Models\ProviderProductMapping;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
+use App\Http\Controllers\Admin\SalesChannels\Support\StockAttention;
 use App\Models\SalesChannelProductMapping;
 use App\Services\Fulfillment\InventorySyncService;
 use App\Services\Fulfillment\StorefrontStockRefresher;
@@ -557,6 +558,79 @@ class StockOutboxTest extends TestCase
         $this->assertTrue($event->rewrites_storefront_stock, 'a refused write was recorded as done');
         $this->assertNull($event->storefront_written_at);
         $this->assertNotNull($listing->id);
+    }
+
+    /**
+     * The review's last finding, as a test. A storefront write the writer REFUSES, then a real drain whose publisher settles normally: the refusal must not disappear from
+     * follow-up, and must not be recorded as a correction that happened.
+     *
+     * The refusal here is the permanent kind — a whole-product figure on a product the storefront sells per variant, which no retry can fix: it needs a person to correct the
+     * mapping or the product. So it is tried the owner's number of times and then kept in a state a person can see, rather than retried for ever or closed quietly.
+     */
+    public function test_a_refused_storefront_write_is_neither_closed_as_a_correction_nor_retried_for_ever(): void
+    {
+        config(['sales_channels.stock.outbox.attempts' => 2]);
+        [$product, $event] = $this->givenAStorefrontWriteTheWriterRefuses();
+        $this->assertTrue($event->rewrites_storefront_stock, 'the drain has to be the one that tries');
+        $stockBefore = $this->storefrontStock($product);
+
+        // A real pass. The publisher settles normally for this pool (no listing offers it), so nothing else could keep the row open.
+        $worked = app(StockEventDrain::class)->drain();
+
+        $this->assertSame(1, $worked['claimed']);
+        $this->assertSame(1, $worked['storefront']['refused'], 'the refusal was not even counted');
+        $this->assertSame(0, $worked['storefront']['applied']);
+
+        $event = $event->fresh();
+        $this->assertNull($event->storefront_written_at, 'a refused write was recorded as a correction that happened');
+        $this->assertTrue($event->rewrites_storefront_stock, 'and the job was cleared off the row');
+        $this->assertNotSame(ChannelStockEvent::WORKED, $event->state, 'the row was closed over a number nobody corrected');
+        $this->assertSame('storefront_write_refused', $event->failure_code, 'and it does not say what is wrong');
+        $this->assertSame($stockBefore, $this->storefrontStock($product), 'the number is indeed still uncorrected');
+
+        // It is tried the owner's number of times and then kept where a person sees it — not retried for ever.
+        app(StockEventDrain::class)->drain();
+        $this->travelTo(now()->addHours(2));
+        app(StockEventDrain::class)->drain();
+
+        $event = $event->fresh();
+        $this->assertSame(ChannelStockEvent::DEAD, $event->state);
+        $this->assertSame('storefront_write_refused', $event->failure_code);
+        $lag = $this->outbox()->lag();
+        $this->assertSame(1, $lag['storefront_refused'], 'the administration is not told that a storefront number is wrong');
+        $this->assertSame(1, $lag['dead']);
+    }
+
+    public function test_the_hub_names_a_storefront_number_nobody_could_correct(): void
+    {
+        config(['sales_channels.stock.outbox.attempts' => 1]);
+        $this->givenAStorefrontWriteTheWriterRefuses();
+        app(StockEventDrain::class)->drain();
+        $this->assertSame(ChannelStockEvent::DEAD, ChannelStockEvent::firstOrFail()->state);
+
+        $sections = app(StockAttention::class)->sections(SalesChannelAccount::all());
+        $titles = array_column($sections, 'title');
+        $details = collect($sections)->flatMap(static fn (array $section): array => array_column($section['items'], 'title'))->all();
+
+        $this->assertContains(translate('attention_stock_changes_not_worked'), $titles);
+        $this->assertContains(translate('storefront_stock_nobody_could_correct'), $details, 'the hub says nothing about a storefront number that was never corrected');
+    }
+
+    /**
+     * A change whose storefront write the single writer refuses, with the job left on the row for the drain.
+     *
+     * The product is sold per variant and its provider mapping is for the whole product: one figure cannot be spread over the variants, so `writeStoreStock` answers
+     * UNSUPPORTED. That is the permanent kind of refusal — a person has to correct the mapping or the product.
+     *
+     * @return array{0: int, 1: ChannelStockEvent}
+     */
+    private function givenAStorefrontWriteTheWriterRefuses(): array
+    {
+        $product = $this->storeProduct(65, stock: 10, variation: json_encode([['type' => 'Red', 'price' => 5, 'qty' => 10]]));
+        $this->providerFigure($product, 20, now()->subHour());
+        $this->ingestOrder($this->account, 'TY-65', $this->stockListing($this->account, $product, $this->torodLocation(), 'LK-65')->listing_key, 2);
+
+        return [$product, ChannelStockEvent::where('product_id', $product)->firstOrFail()];
     }
 
     // ---- the internal number owes nothing to a queue -------------------------------------------------------
