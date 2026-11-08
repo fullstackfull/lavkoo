@@ -13,8 +13,9 @@ use Illuminate\Support\Facades\DB;
  * channel orders hold. That subtraction happens when a provider figure ARRIVES, which is a sync cycle away (thirty minutes as it ships). So between two figures a channel can
  * sell three units and the storefront keeps offering the old number. This closes that window: the same arithmetic is done again on the figure already stored.
  *
- * `writeFor()` is the one a change calls INSIDE its own transaction (a channel hold does), so the hold and the number can never disagree and nothing is left for a schedule
- * to catch up on. `refresh()` is the same work for one product, which the outbox's worker uses for the changes a transaction could not cover.
+ * `writeFor()` is the one a change calls straight after its own transaction has committed (a channel hold does), so the number is right before the request returns and
+ * nothing waits for a schedule. `refresh()` is the same work for one product, which the outbox's worker uses — and which re-verifies what `writeFor()` did, because the
+ * worker runs one at a time and outside any transaction of ours.
  *
  * What it does NOT do:
  *
@@ -37,25 +38,23 @@ class StorefrontStockRefresher implements WritesStorefrontStock
     /**
      * Writes these products' storefront stock now, for a caller that has just changed what is promised against them (a channel hold being taken or given back).
      *
-     * It is meant to be called INSIDE that caller's own transaction, so the hold and the number cannot disagree: either both are written or neither is. With the inline write
-     * switched off it writes nothing and says so, and the outbox's worker does it a moment later instead.
+     * It must be called AFTER that caller's transaction has committed, in a transaction of its own — which is what each write below opens. Called inside the caller's
+     * transaction, the reads that count the promises would see that transaction's own snapshot, taken before any other process committed its holds, and the number would come
+     * out short by every one of them: six orders of two units each would each write "twenty minus my two". The concurrency tests on a real engine are what showed it.
+     *
+     * Whatever happens here, the outbox row keeps the job, so the worker (one at a time, outside any transaction of ours) does it again. This is the fast path, not the
+     * guarantee.
      *
      * @param list<int> $productIds
      */
-    public function writeFor(array $productIds): bool
+    public function writeFor(array $productIds): void
     {
         if (!(bool) config('sales_channels.stock.outbox.rewrite_storefront_stock_inline', true)) {
-            return false;
+            return;
         }
-        $refused = 0;
         foreach (array_unique($productIds) as $productId) {
-            $refused += $this->refresh((int) $productId)['refused'];
+            $this->refresh((int) $productId);
         }
-
-        // True only when NOTHING is left for a worker to do. A mapping the writer refused (a whole-product figure on a product sold per variant, a variant that is gone, a
-        // product no longer assigned to that provider) is not written, and saying it was would close the row over a number nobody updated. The row keeps the job instead, the
-        // worker tries again, and if it is refused there too that shows up as `storefront.refused` rather than as silence.
-        return $refused === 0;
     }
 
     /**

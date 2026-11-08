@@ -15,8 +15,10 @@ namespace App\Services\Fulfillment\Contracts;
 interface WritesStorefrontStock
 {
     /**
+     * Call it straight AFTER the transaction that changed what is promised has committed — never inside it. Inside, the reads that count the promises see that transaction's
+     * own snapshot and miss every hold another process committed meanwhile, and the number comes out short by all of them.
+     *
      * @param list<int> $productIds
-     * @return bool true when the write was attempted for them (so nobody else need do it), false when it is switched off and a later pass must
      */
-    public function writeFor(array $productIds): bool;
+    public function writeFor(array $productIds): void;
 }

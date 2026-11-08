@@ -131,8 +131,9 @@ class StockOutboxTest extends TestCase
         $this->assertSame(self::PRODUCT, (int) $events[0]->product_id);
         $this->assertSame((int) $this->torodLocation()->id, (int) $events[0]->location_id);
         $this->assertSame(ChannelStockEvent::PENDING, $events[0]->state);
-        $this->assertFalse($events[0]->rewrites_storefront_stock, 'our own shop\'s number was left for a worker instead of being written with the hold');
-        $this->assertNotNull($events[0]->storefront_written_at, 'and the row says when it was written');
+        // The row keeps the storefront job whatever the fast path did, so a process that died between the commit and that write loses nothing: the worker re-verifies.
+        $this->assertTrue($events[0]->rewrites_storefront_stock);
+        $this->assertNull($events[0]->storefront_written_at, 'only a pass that really wrote it stamps this');
         $this->assertSame('external_order_mapping', $events[0]->subject_type);
     }
 
@@ -215,7 +216,7 @@ class StockOutboxTest extends TestCase
 
         $event = ChannelStockEvent::firstOrFail();
         $this->assertSame(ChannelStockEvent::ORDER_CANCELLED, $event->reason);
-        $this->assertNotNull($event->storefront_written_at, 'units coming back are our own number changing too, and in the same transaction');
+        $this->assertSame(20, $this->storefrontStock(), 'units coming back are our own number changing too, and before the call returned');
     }
 
     // ---- claiming, retrying, dying -------------------------------------------------------------------------
@@ -295,14 +296,14 @@ class StockOutboxTest extends TestCase
 
     // ---- the drain -----------------------------------------------------------------------------------------
 
-    public function test_our_own_shops_number_drops_with_the_hold_itself_not_at_the_drain(): void
+    public function test_our_own_shops_number_drops_before_the_call_returns_not_at_the_drain(): void
     {
         $this->providerSync(20);
         $this->assertSame(20, $this->storefrontStock(), 'the shelf holds twenty and nothing is promised yet');
 
         $this->channelOrderFor(3);
 
-        // No drain has run, no worker, no queue: the number is already right, because it was written in the hold's own transaction.
+        // No drain has run, no worker, no queue: the number is already right, because it was written straight after the holds were committed, in the same request.
         $this->assertSame(17, $this->storefrontStock(), 'three units a channel sold were still on offer in our own shop until a worker got to it');
         $this->assertSame(1, $this->outbox()->lag()['pending'], 'the channels still have to be told, which is the worker\'s job');
         Http::assertNothingSent();
@@ -350,7 +351,7 @@ class StockOutboxTest extends TestCase
 
         $this->assertSame(1, $worked['claimed']);
         $this->assertSame(1, $worked['pools']);
-        $this->assertSame(0, $worked['products'], 'our own number was already written with the hold');
+        $this->assertSame(1, $worked['products'], 'the worker re-verifies our own number rather than trusting the fast path');
         $this->assertSame(0, $worked['failed']);
         $this->assertSame(0, $worked['reopened']);
         $event = ChannelStockEvent::firstOrFail();

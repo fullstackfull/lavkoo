@@ -19,20 +19,31 @@ sold stayed on offer in our own shop and on Trendyol.
 ```
 a change (an order, a hold, a return, a provider figure, a setting)
         │
-        │  ONE transaction — all three, or none of them
+        │  ONE transaction — both, or neither
         ├──────────────► the change itself          (the reservation; the pool's settings; the provider's figure)
-        ├──────────────► products.current_stock     (OUR OWN shop's number, recomputed: figure − promises)
-        └──────────────► channel_stock_events       ("ask the channels about this pool again, because …")
+        └──────────────► channel_stock_events       ("correct our number and ask the channels, because …")
         │
-        │  after the COMMIT
+        │  straight after the COMMIT, same request, no queue
+        ├──────────────► products.current_stock     (OUR OWN number, recomputed: figure − promises)
         └──────────────► a nudge: DrainStockEvents (queued)        ── and, whatever happens to it, ──
                                                                        channels:stock-events, every minute
         │
-   StockEventDrain                                   ← the CHANNELS' half only
-        ├── the storefront's number, for the changes a transaction could not cover
+   StockEventDrain
+        ├── our own number again, to re-verify it (one at a time, outside any transaction)
         └── its OWN pool keys → PoolAllocationService → StockPricePublisher::publishReductions
                                                        (every gate it ever applied, unchanged)
 ```
+
+### Why our own number is written after the commit and not inside it
+
+It was inside it, and the concurrency tests on a real engine showed why that is wrong. The write counts what is promised, and inside the holds' own transaction those reads see
+**that transaction's snapshot** — taken before any other process committed its holds. Six orders of two units each therefore each wrote *"twenty minus my two"*, and our own
+shop went on offering ten units that were gone: the exact overselling this work exists to prevent, and invisible on SQLite, where the test cannot run.
+
+Written after the commit, in a transaction of its own and serialized on the product's row lock, each pass counts every hold that exists. It is still immediate — the same
+request, before the ingest returns, with no queue and no worker — it is simply **not atomic with the hold**. That is what the outbox row is for: it is written *with* the
+holds, it keeps the storefront job whatever the fast path did, and the worker does it again. A number that can be a moment stale and is then corrected is worth far more than
+a number that is confidently wrong.
 
 ## What is immediate and what is not
 
@@ -40,7 +51,7 @@ Being exact about this matters more than the headline:
 
 | | When |
 | --- | --- |
-| **`products.current_stock`, on a channel hold or release** | **In the hold's own transaction.** No queue, no worker, no schedule: by the time the ingest returns, our own shop has stopped offering the units |
+| **`products.current_stock`, on a channel hold or release** | **Straight after the holds commit, in the same request.** No queue, no worker, no schedule: by the time the ingest returns, our own shop has stopped offering the units. (Not *inside* the holds' transaction — see below for why that was wrong) |
 | **`products.current_stock`, on a provider figure** | In the sync's own transaction, as it always was |
 | **The quantity at Amazon / Trendyol** | At the next drain: **seconds** where a queue worker runs, **up to a minute** where none does (the schedule). Never "the same second" — a marketplace has to be asked, and asking is what a worker is for |
 | **The channel having APPLIED it** | Later still, and not this table's business: it is the listing's own `publish_state` (`queued` → `applied`), because a submission a channel merely took is not an applied quantity |
@@ -64,8 +75,8 @@ Conflating any two of these is how a quantity ends up wrong while every screen s
 
 | The fact | Where it is recorded |
 | --- | --- |
-| **1. Recorded** — the change happened and the channels must be asked again | the row exists; `created_at`, written in the change's own transaction |
-| **2. Worked out** — the pool was really divided again, and our own number written | `recomputed_at`, `storefront_written_at` |
+| **1. Recorded** — the change happened, our number must be corrected and the channels asked | the row exists; `created_at`, written in the change's own transaction |
+| **2. Worked out** — the pool was really divided again, and our own number written | `recomputed_at`, `storefront_written_at` (only a pass that really wrote it stamps this; the fast path leaves the job on the row so the worker re-verifies) |
 | **3. Asked to be sent** — the publisher was really asked, and what it answered | `outcome` (`nothing_to_do` / `recomputed_only` / `sent` / `not_sent`), `publish_result`, `publish_detail` |
 | **4. Confirmed by the channel** | **not here.** The listing's own `publish_state`: `queued` until the channel confirms, then `applied` |
 
@@ -139,7 +150,7 @@ sweep too old to raise a quantity on.
 | `SALES_CHANNELS_STOCK_OUTBOX_ATTEMPTS` | `5` | Tries before an event is kept as dead |
 | `SALES_CHANNELS_STOCK_OUTBOX_RETRY_SECONDS` | `60` | Multiplied by the number of tries so far |
 | `SALES_CHANNELS_STOCK_OUTBOX_CLAIM_TIMEOUT_MINUTES` | `10` | After this, a dead run's batch is taken back |
-| `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE` | `true` | Our own number written in the hold's own transaction. Off, the row is left for the worker instead |
+| `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE` | `true` | Our own number written in the same request, straight after the holds commit. Off, only the worker writes it |
 | `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT` | `true` | The worker's own pass at it, for changes a transaction could not cover. Off as well, the storefront waits for the provider's next figure, as it did |
 | `SALES_CHANNELS_STOCK_OUTBOX_BEHIND_SECONDS` | `180` | When the hub says the workers are behind |
 | `SALES_CHANNELS_STOCK_OUTBOX_DONE_EVENT_DAYS` | `7` | `channels:prune` deletes worked events after this; **dead ones are kept** |
@@ -227,7 +238,7 @@ Every step is a switch; none needs a deployment, and **none of them touches the 
 | Step | Set | What you get back | What you lose |
 | --- | --- | --- | --- |
 | 1. Stop asking for workers | `SALES_CHANNELS_STOCK_OUTBOX_NUDGE_ENABLED=false` | the queue is left alone entirely | the channels hear at the next minute instead of in seconds. **Nothing else changes, and nothing is lost** |
-| 2. Stop writing our own number from a hold | `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE=false` | holds no longer touch `products` at all | our own shop's number waits for the worker (and then for the provider's next figure if step 3 is taken too) |
+| 2. Stop writing our own number in the request | `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE=false` | an ingest no longer touches `products` at all | our own shop's number waits for the worker (and then for the provider's next figure if step 3 is taken too) |
 | 3. Stop writing it from the worker as well | `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT=false` | `products.current_stock` is written only by the provider sync, exactly as before PR-B | between two provider figures the storefront can offer units a channel has sold — the behaviour this work was done to end |
 | 4. Stop the whole thing | `SALES_CHANNELS_STOCK_OUTBOX_ENABLED=false` | the module behaves precisely as it did before this work: the marks and the scheduled runs | both holes come back: a change lost when a process dies, and a change waiting a quarter of an hour |
 
@@ -269,8 +280,9 @@ quantity that was never offered to it at all.
    transaction it would read a snapshot taken before the winner committed);
 2. a channel order that has an internal order of its own holds **nothing** besides — its reservation is released with `internal_order_counts_it`, because the internal
    order's provider lines already count those units;
-3. `products.current_stock` is **recomputed, never decremented**: the provider's figure minus every promise against it. So the inline write, the worker's write and the
-   drain can all run, twice over, and the number does not drift (`test_a_unit_is_never_held_twice_however_many_times_anything_runs`).
+3. `products.current_stock` is **recomputed, never decremented**: the provider's figure minus every promise against it. So the fast write, the worker's write and the drain
+   can all run, twice over, and the number does not drift (`test_a_unit_is_never_held_twice_however_many_times_anything_runs`); and because it is recomputed from what is
+   promised *now*, it is also what makes a pass that counted too few holds self-correcting rather than cumulative.
 
 **No old figure is pushed out.** Also three:
 
