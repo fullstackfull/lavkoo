@@ -24,6 +24,14 @@ if (!function_exists('myfatoorah_test_success_hook')) {
             throw new RuntimeException('Order creation failed on purpose.');
         }
 
+        // Lets a test act as a second delivery arriving while this hook is mid-flight — before the
+        // order below exists, which is the window the hook lease has to close.
+        if (isset($GLOBALS['myfatoorah_success_reentry']) && is_callable($GLOBALS['myfatoorah_success_reentry'])) {
+            $reentry = $GLOBALS['myfatoorah_success_reentry'];
+            unset($GLOBALS['myfatoorah_success_reentry']);
+            $reentry();
+        }
+
         // What the real hook does that this integration depends on: it stamps the order it creates with
         // the payment's transaction reference. The duplicate-settlement check reads exactly that, so
         // without it the test would not be exercising the real idempotency boundary.

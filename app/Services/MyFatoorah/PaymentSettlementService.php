@@ -84,9 +84,7 @@ class PaymentSettlementService
 
         $attempt->refresh();
 
-        // `already` means another process owns the hook right now, or finished it. Either way this
-        // caller must not run it.
-        if ($claim === 'already' && $attempt->hook_completed_at !== null) {
+        if ($attempt->hook_completed_at !== null) {
             return $this->result(false, true, 'This payment has already been applied.', $attempt);
         }
 
@@ -157,7 +155,7 @@ class PaymentSettlementService
     }
 
     /**
-     * Run the success hook, unless the store shows it has already run.
+     * Run the success hook, unless the store shows it has already run or another process owns it.
      *
      * @return array{ran: bool, ok: bool, reason: string}
      */
@@ -169,6 +167,16 @@ class PaymentSettlementService
             return ['ran' => false, 'ok' => false, 'reason' => 'The payment request has disappeared.'];
         }
 
+        if (!$this->leaseHook($attempt)) {
+            /*
+             * Another process is inside the hook right now. It must not be run twice concurrently:
+             * `settled_at` only guarantees one caller marked the payment paid, and the
+             * order-already-exists check below cannot help while the first caller is still on its way
+             * to creating that order — which is most of the hook's work.
+             */
+            return ['ran' => false, 'ok' => true, 'reason' => 'This payment is already being applied.'];
+        }
+
         $transactionId = (string) ($paymentRequest->transaction_id ?: $this->transactionId($attempt));
 
         // The idempotency boundary. `OrderManager::generateOrder` stamps every order it creates with
@@ -177,6 +185,7 @@ class PaymentSettlementService
         if ($this->outcomeAlreadyExists($paymentRequest, $transactionId)) {
             $attempt->forceFill([
                 'hook_completed_at' => $attempt->hook_completed_at ?? now(),
+                'hook_started_at' => null,
                 'hook_error' => null,
             ])->save();
 
@@ -192,14 +201,13 @@ class PaymentSettlementService
             return ['ran' => false, 'ok' => false, 'reason' => 'No success hook is registered for this payment.'];
         }
 
-        $attempt->forceFill(['hook_attempts' => (int) $attempt->hook_attempts + 1])->save();
-
         try {
             // The hook reads is_paid from the row it is handed, and `claim()` has already set it.
             call_user_func($hook, $paymentRequest->refresh());
 
             $attempt->forceFill([
                 'hook_completed_at' => now(),
+                'hook_started_at' => null,
                 'hook_error' => null,
             ])->save();
 
@@ -208,7 +216,13 @@ class PaymentSettlementService
             // The money is taken and the order did not complete. Left with settled_at set and
             // hook_completed_at null so `recover()` finds it, and logged loudly because this is the
             // state that needs a human if recovery cannot finish it either.
-            $attempt->forceFill(['hook_error' => Str::limit($e->getMessage(), 240, '')])->save();
+            // The lease is released so recovery can pick this up, but hook_attempts stays where the
+            // lease left it, so a hook that keeps throwing is eventually given up on rather than
+            // retried for ever.
+            $attempt->forceFill([
+                'hook_error' => Str::limit($e->getMessage(), 240, ''),
+                'hook_started_at' => null,
+            ])->save();
 
             Log::critical('myfatoorah.success_hook_failed', [
                 'attempt' => $attempt->external_identifier,
@@ -219,6 +233,43 @@ class PaymentSettlementService
 
             return ['ran' => false, 'ok' => false, 'reason' => 'The payment was recorded but the order could not be completed.'];
         }
+    }
+
+    /**
+     * Take the exclusive right to run this attempt's success hook.
+     *
+     * A conditional UPDATE, so the database decides: whoever's statement affects the row owns the hook
+     * and everyone else is told it is in progress. This is what makes "exactly one order" true even when
+     * a webhook and the customer's redirect land in the same moment — `settled_at` alone only made
+     * "exactly one caller marks it paid" true.
+     *
+     * The lease goes stale, because a process killed mid-hook would otherwise hold it for ever and
+     * recovery could never finish the order. Long enough that a slow-but-live hook is not interrupted,
+     * short enough that recovery is not blocked for the rest of the day.
+     */
+    private function leaseHook(MyFatoorahPaymentAttempt $attempt, int $staleAfterMinutes = 10): bool
+    {
+        $claimed = DB::table('myfatoorah_payment_attempts')
+            ->where('id', $attempt->getKey())
+            ->whereNull('hook_completed_at')
+            ->where(function ($query) use ($staleAfterMinutes): void {
+                $query->whereNull('hook_started_at')
+                    ->orWhere('hook_started_at', '<=', now()->subMinutes($staleAfterMinutes));
+            })
+            ->update([
+                'hook_started_at' => now(),
+                'hook_attempts' => DB::raw('hook_attempts + 1'),
+                'updated_at' => now(),
+            ]);
+
+        if ($claimed === 0) {
+            return false;
+        }
+
+        // Re-read so the caller sees the counter the lease just incremented.
+        $attempt->refresh();
+
+        return true;
     }
 
     /**
@@ -266,6 +317,12 @@ class PaymentSettlementService
             ->whereNotNull('settled_at')
             ->whereNull('hook_completed_at')
             ->where('status', AttemptStatus::Paid->value)
+            // Not one that a live process is inside right now: leaseHook() would refuse it anyway, but
+            // skipping it here keeps the batch doing useful work instead of spending it on no-ops.
+            ->where(function ($query): void {
+                $query->whereNull('hook_started_at')
+                    ->orWhere('hook_started_at', '<=', now()->subMinutes(10));
+            })
             ->orderBy('settled_at')
             ->limit(max(1, $limit))
             ->get();

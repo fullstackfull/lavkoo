@@ -108,6 +108,7 @@ trait BuildsMyFatoorahSchema
             '2026_11_08_100002_create_myfatoorah_webhook_events_table.php',
             '2026_11_08_100003_create_myfatoorah_refunds_table.php',
             '2026_11_08_100004_register_myfatoorah_payment_gateway.php',
+            '2026_11_08_100005_add_hook_lease_to_myfatoorah_attempts.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

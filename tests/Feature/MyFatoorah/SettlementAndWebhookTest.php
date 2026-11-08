@@ -180,6 +180,9 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         // The sweep reports it as needing a person.
         $this->assertSame(1, app(ReconciliationService::class)->needsAttention()['stuck']);
 
+        // The lease is released on failure, so recovery can take it straight away.
+        $this->assertNull($stuck->hook_started_at);
+
         // And recovery finishes it once the underlying problem is gone.
         $GLOBALS['myfatoorah_success_should_throw'] = false;
         $recovered = app(PaymentSettlementService::class)->recover();
@@ -187,6 +190,62 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->assertSame(1, $recovered['recovered']);
         $this->assertSame(1, $this->orderCount());
         $this->assertNotNull($this->attempt->refresh()->hook_completed_at);
+    }
+
+    public function test_a_second_caller_arriving_mid_hook_does_not_run_the_hook_as_well(): void
+    {
+        /*
+         * The race `settled_at` alone did not close.
+         *
+         * `settled_at` guarantees one caller marks the payment paid. It does not stop a SECOND caller
+         * running the success hook while the first is still inside it — and the "an order already
+         * carries this reference" check cannot help there, because the first caller has not created
+         * that order yet. The hook does a lot before it does (stock, courier), so the window is wide.
+         *
+         * Reproduced by settling from inside the hook itself: at that moment the first settlement is
+         * mid-flight, exactly as a concurrent delivery would find it.
+         */
+        $this->fakePaid();
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $attempt = $verified['attempt'];
+        $reentered = null;
+
+        $GLOBALS['myfatoorah_success_reentry'] = function () use ($attempt, &$reentered): void {
+            // A webhook landing while the first caller is between "marked paid" and "order created".
+            $reentered = app(PaymentSettlementService::class)->settle($attempt->fresh());
+        };
+
+        $result = app(PaymentSettlementService::class)->settle($attempt);
+
+        unset($GLOBALS['myfatoorah_success_reentry']);
+
+        $this->assertTrue($result['settled']);
+        $this->assertNotNull($reentered, 'the re-entrant settle really ran');
+        $this->assertFalse($reentered['settled'], 'the second caller must not run the hook');
+
+        $this->assertSame(1, $this->successHookCalls(), 'the hook ran once');
+        $this->assertSame(1, $this->orderCount(), 'one order');
+    }
+
+    public function test_a_hook_lease_left_behind_by_a_killed_process_does_not_block_recovery_for_ever(): void
+    {
+        // The other half of the lease: a process killed mid-hook must not hold the order hostage.
+        $this->fakePaid();
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $GLOBALS['myfatoorah_success_should_throw'] = true;
+        app(PaymentSettlementService::class)->settle($verified['attempt']);
+        $GLOBALS['myfatoorah_success_should_throw'] = false;
+
+        // Simulate a process that died without releasing the lease, long enough ago to be stale.
+        $this->attempt->refresh()->forceFill(['hook_started_at' => now()->subHours(2)])->save();
+
+        $recovered = app(PaymentSettlementService::class)->recover();
+
+        $this->assertSame(1, $recovered['recovered']);
+        $this->assertSame(1, $this->orderCount());
+        $this->assertNull($this->attempt->refresh()->hook_started_at, 'the lease is released');
     }
 
     public function test_recovery_does_not_create_a_second_order_when_the_first_one_already_exists(): void
@@ -201,7 +260,11 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->assertSame(1, $this->orderCount());
 
         // Put it back into the interrupted state, as if the recording had been lost.
-        $this->attempt->refresh()->forceFill(['hook_completed_at' => null, 'hook_error' => 'pretend crash'])->save();
+        $this->attempt->refresh()->forceFill([
+            'hook_completed_at' => null,
+            'hook_started_at' => null,
+            'hook_error' => 'pretend crash',
+        ])->save();
 
         $recovered = app(PaymentSettlementService::class)->recover();
 

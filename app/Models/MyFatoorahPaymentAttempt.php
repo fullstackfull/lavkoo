@@ -31,6 +31,7 @@ class MyFatoorahPaymentAttempt extends Model
         'verified_at' => 'datetime',
         'last_verified_at' => 'datetime',
         'settled_at' => 'datetime',
+        'hook_started_at' => 'datetime',
         'hook_completed_at' => 'datetime',
         'hook_attempts' => 'integer',
         'expires_at' => 'datetime',
