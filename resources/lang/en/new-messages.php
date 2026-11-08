@@ -8573,6 +8573,7 @@ return [
 	'follow_m5azn_stock' => 'Follow M5AZN stock levels',
 	'follow_warehouse_stock' => 'Follow warehouse stock levels',
 	'fulfillment_active_operations_exist' => 'Orders for this product are still being fulfilled by its current provider. Change it once they finish.',
+	'fulfillment_orders_stay_with_the_old_provider' => 'Orders already placed stay with the provider they were placed with; the change applies to new orders.',
 	'fulfillment_api_base_url' => 'Fulfillment API base URL (v5)',
 	'fulfillment_api_credentials' => 'Fulfillment API credentials (v5)',
 	'fulfillment_api_credentials_help' => 'Used for warehouse products and warehouse orders. Stored encrypted and never shown again.',

@@ -2101,6 +2101,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'follow_m5azn_stock' => 'اتباع مستويات مخزون M5AZN',
 	'follow_warehouse_stock' => 'اتباع مستويات مخزون المستودع',
 	'fulfillment_active_operations_exist' => 'ما زالت طلبات هذا المنتج قيد التنفيذ لدى مزوّده الحالي. غيّره بعد انتهائها.',
+	'fulfillment_orders_stay_with_the_old_provider' => 'الطلبات المسجّلة تبقى عند المزوّد الذي سُجّلت به؛ والتغيير يسري على الطلبات الجديدة.',
 	'fulfillment_api_base_url' => 'الرابط الأساسي لواجهة التنفيذ (v5)',
 	'fulfillment_api_credentials' => 'بيانات اعتماد واجهة التنفيذ (v5)',
 	'fulfillment_api_credentials_help' => 'تُستخدم لمنتجات المستودع وطلباته. تُحفظ مشفّرة ولا تُعرض مرة أخرى.',

@@ -23,6 +23,9 @@
                             </span>
                             @if ($choice['reason'])
                                 <span class="d-block fs-12 text-danger">{{ translate($choice['reason']) }}</span>
+                            @elseif ($choice['warning'] ?? null)
+                                <span class="d-block fs-12 text-warning">{{ translate($choice['warning']) }}
+                                    ({{ $choice['kept_with_the_old_provider'] }})</span>
                             @endif
                         </label>
                     </div>

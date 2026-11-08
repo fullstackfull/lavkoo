@@ -37,6 +37,16 @@ return [
     | Parent-order currency the providers are paid/collect in. The store is KSA-only; amounts sent to a
     | provider are converted from the platform's stored base currency to this code.
     */
+    /*
+    | Changing a product's fulfilment provider is a decision about what comes NEXT: an order already placed carries the provider it was placed with
+    | (the line's own snapshot, which the router reads instead of the product), so a shipment in flight never moves and a line not routed yet keeps
+    | its provider too. The change records how many such lines stayed behind.
+    |
+    | true restores the older, stricter rule: refuse the change until every order for the product has finished with its current provider. Nothing in
+    | the code needs it; it is here for an owner who prefers the product and its open orders never to disagree.
+    */
+    'lock_provider_while_orders_are_in_flight' => filter_var(env('FULFILLMENT_LOCK_PROVIDER_WHILE_ORDERS_IN_FLIGHT', false), FILTER_VALIDATE_BOOLEAN),
+
     'currency' => env('FULFILLMENT_CURRENCY', 'SAR'),
 
     /*
