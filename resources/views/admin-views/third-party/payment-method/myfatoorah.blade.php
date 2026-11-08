@@ -6,8 +6,11 @@
     <div class="content container-fluid">
 
         <div class="mb-4 pb-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            {{-- A brand name, so it is not run through translate(): there is nothing to translate, and
+                 passing an Arabic string as a translation KEY would add that string to the language
+                 files as a key of its own on first render. --}}
             <h2 class="h1 mb-0 d-flex align-items-center gap-2">
-                {{ translate('MyFatoorah') }} — {{ translate('ماي_فاتورة_السعودية') }}
+                MyFatoorah — ماي فاتورة السعودية
             </h2>
             <a href="{{ route('admin.third-party.payment-method.index') }}" class="btn btn-outline-primary">
                 {{ translate('back_to_payment_gateways') }}
