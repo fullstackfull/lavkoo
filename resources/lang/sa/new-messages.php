@@ -4549,4 +4549,11 @@ ____________________________________________________on_search_engines_and_see_th
 	'only_an_attempt_whose_payment_page_never_arrived_can_be_released_this_way' => 'لا يمكن تحرير إلا محاولة لم تصل صفحة الدفع الخاصة بها.',
 	'attempt_released_the_customer_can_start_a_new_payment' => 'تم التحرير. يمكن للعميل بدء عملية دفع جديدة.',
 	'the_payment_was_applied' => 'تم تطبيق الدفعة.',
+	'sales_channel_noon' => 'نون',
+	'product_sync_not_built_for_noon' => 'رفع المنتجات إلى نون لم يُبنَ: نون تنشر المسار لا الطلب، فلا يُرسل شيء',
+	'inventory_publishing_not_built_for_noon' => 'نشر المخزون إلى نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'price_publishing_not_built_for_noon' => 'نشر الأسعار إلى نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'order_import_not_built_for_noon' => 'استيراد طلبات نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'fulfillment_dispatch_not_built_for_noon' => 'إنشاء شحنات نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'financial_reconciliation_not_built_for_noon' => 'لا تنشر نون نقطة تسويات أو رسوم، فلا يمكن قراءة عمولاتها تلقائيًا بعد',
 ];

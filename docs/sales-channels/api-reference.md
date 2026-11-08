@@ -46,6 +46,37 @@ Hosts: production `https://apigw.trendyol.com/integration`, stage `https://stage
 
 UNVERIFIED: whether Order V1 still answers after its 15 Oct 2026 sunset (not used); what exactly `is4P` / `3pByTrendyol` mean for a Gulf local seller; the header Trendyol sends for `BASIC_AUTHENTICATION` webhooks (API key is used); whether a webhook body is wrapped in `content[]` or bare (both accepted); the currency of statement rows; stage rate limits and data retention; the offset of `orderDate` (verify on stage).
 
+## noon Partner API
+
+Source: the official partner documentation at `noon-docs.noonpartners.dev`, read on **2026-11-08**. Hosts: production `https://noon-api-gateway.noon.partners`, static sandbox `https://noon-sandbox-api-gateway.noon.partners`.
+
+**What is verified and what is not.** The HTTP method and the exact path of every operation below are quoted from noon's own reference pages. **The request and response SHAPES are not published in a readable form**: on every reference page the Request and Responses sections are rendered in the browser and come back empty to anything that fetches the page. So apart from the sign-in, no field name is known, and a path being registered in `NoonOperations` means only that the transport would not refuse it — not that a call exists.
+
+Auth: a JWT signed **RS256** with the service account's private key (claims `sub` = `key_id`, `iat` = now in seconds, `jti` = a fresh uuid) is POSTed as `{token, default_project_code}` to `POST /identity/public/v1/api/login`; noon answers with `Set-Cookie` and the session lasts **30 days**. A token more than five minutes from noon's clock is refused, so one is made per attempt. The cookie is **not named** in the documentation, so the whole cookie string is kept and replayed. Every request must carry a `User-Agent`. The key file (`key_id`, `private_key`, `project_code`, `channel_identifier`) is downloaded once from noon's Access app. **The sign-in always goes to the production host, even for a sandbox account** — the documentation says to point only the other calls at the sandbox.
+
+| Capability | Endpoint(s) | Notes | Built |
+|---|---|---|---|
+| Sign-in | `POST /identity/public/v1/api/login` | the one call whose request body noon publishes | yes |
+| Identity | `GET /identity/v1/whoami` | the connection test: proves key file, project code, address allow-list and cookie in one read. Response shape not published, so no field of it is trusted | yes |
+| Static sandbox | same paths, sandbox host | a mock: persists nothing, emits no events, never answers 5xx, builds answers from the request — so it cannot test stock or pricing logic. Its traffic still counts against the project quota | yes |
+| OAuth (integrators) | `POST /identity/oauth/v1/token/create`, `POST /identity/oauth/v1/token/exchange`, consent at `https://oauth.noon.partners/` | hands an integrator a service-account credential scoped to a seller's project. Access token 1 h and single use; code 10 min and single use. Not built: this application holds one seller's own key file | no |
+| Warehouses | `POST /v1/warehouses/list` | needed first, because stock is addressed by a (warehouse, `partner_sku`) **pair**. Rate limit 30 per 60 s (burst 15 per 30 s), unlike everything else | no |
+| Stock | `POST /v1/stock-list` (read), `POST /v1/stock-update` (write) | by (warehouse, `partner_sku`). Bodies not published | no |
+| Price | `POST /v1/pricing/get`, `POST /v1/pricing/upsert` | by partner SKU; a batch upsert does exist. Bodies not published | no |
+| Catalogue | `POST /v1/product/upsert` | noon decides create from amend by our `partner_sku`; an item cannot enter quality review below 100% completeness. **FBPI's own page says an item must be listed in Seller Lab and cannot be created through the API**; the Content API names no fulfilment model, so whether an FBPI seller may call this is **UNVERIFIED** | no |
+| Barcode | `POST /v1/barcode/map` | ties our `partner_sku` to a barcode, creating the barcode if noon lacks it | no |
+| FBPI orders | `GET /v1/fbpi-order/:fbpi_order_nr/get`, `POST /v1/fbpi-orders/list` | a webhook announces an order and it is then fetched by number. Pages of at most 50, continued with the `next_token` the previous answer gave, filtered by `created_after` / `created_before` in UTC. The buyer's details are a separate call | no |
+| Shipments | `POST /v1/shipment/create` | unique `integration_shipment_nr` and an AWB, noon's or our courier's | no |
+| Event destinations | `POST /v1/destination/https-destination/create` | where noon sends events | no |
+| Returns | — | a Returns service exists with one operation (listing return references); neither method nor path was readable, so nothing is registered | no |
+| Settlements / fees | — | **none found in the reference.** noon's commissions cannot be read automatically, so `OperationalCosts` has nothing to ingest for this channel yet | no |
+
+Rate limits: per **project code**, 1 500 per 60 s with a burst of 1 500 per 60 s on every operation except listing warehouses. Sandbox traffic counts against the same quota. Exceeded requests answer HTTP 429.
+
+Fulfilment models, in noon's own words: **FBPI** — our warehouse, we fulfil, we handle returns, no inbound shipment. **FBN** — noon's fulfilment centre, noon fulfils and handles returns, inbound via an ASN API; **FBN stock is noon's, not ours, and must never enter the shared pool**, exactly as Amazon FBA does not. **FBPO** — purchase-order driven, for B2B2C. **FBP does not appear anywhere in noon's documentation**, so nothing here assumes it exists.
+
+UNVERIFIED for noon: every request and response body but the sign-in's; pagination beyond FBPI's `next_token`; whether a sandbox needs its own account; the session cookie's name; whether `UpsertProduct` is available to an FBPI seller or to a seller's own service account rather than only an integrator's.
+
 ## Statuses: how the channel's words become ours
 
 | Trendyol package status | Ours | Amazon `fulfillmentStatus` | Ours |

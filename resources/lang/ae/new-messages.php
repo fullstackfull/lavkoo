@@ -17472,4 +17472,11 @@ return [
 	'a_switch_or_an_approval_refused_the_send' => 'مفتاح أو موافقة منعت الإرسال، فحُسبت الكميات ولم يخرج شيء إلى القناة؛ وتفعيلها يُرسلها في التشغيل المنتظم التالي',
 	'storefront_stock_nobody_could_correct' => 'مخزون متجرنا لم يُمكن تصحيحه',
 	'a_mapping_or_a_product_has_to_be_corrected_first' => 'تغييرات رفض الكاتبُ كميتها في متجرنا، فما زال يعرض وحدات أخذتها قناة. جُرّبت وحُفظت هنا بدل إعادة المحاولة بلا نهاية: يجب تصحيح ربط أو منتج أولًا (رقم للمنتج كلّه على منتج يُباع بالمتغيّر، أو متغيّر اختفى)، ثم شغّل channels:stock-events --retry-dead',
+	'sales_channel_noon' => 'نون',
+	'product_sync_not_built_for_noon' => 'رفع المنتجات إلى نون لم يُبنَ: نون تنشر المسار لا الطلب، فلا يُرسل شيء',
+	'inventory_publishing_not_built_for_noon' => 'نشر المخزون إلى نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'price_publishing_not_built_for_noon' => 'نشر الأسعار إلى نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'order_import_not_built_for_noon' => 'استيراد طلبات نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'fulfillment_dispatch_not_built_for_noon' => 'إنشاء شحنات نون لم يُبنَ: نون تنشر المسار لا الطلب',
+	'financial_reconciliation_not_built_for_noon' => 'لا تنشر نون نقطة تسويات أو رسوم، فلا يمكن قراءة عمولاتها تلقائيًا بعد',
 ];

@@ -10965,4 +10965,11 @@ return [
 	'attempt_released_the_customer_can_start_a_new_payment' => 'Released. The customer can start a new payment.',
 	'the_payment_was_applied' => 'The payment was applied.',
 	'myfatoorah_switched_off_on_this_page' => 'Myfatoorah switched off on this page',
+	'sales_channel_noon' => 'Sales channel noon',
+	'product_sync_not_built_for_noon' => 'putting products on noon is not built: noon publishes the path but not the request, so nothing is sent',
+	'inventory_publishing_not_built_for_noon' => 'publishing stock to noon is not built: noon publishes the path but not the request',
+	'price_publishing_not_built_for_noon' => 'publishing prices to noon is not built: noon publishes the path but not the request',
+	'order_import_not_built_for_noon' => 'importing noon orders is not built: noon publishes the path but not the request',
+	'fulfillment_dispatch_not_built_for_noon' => 'creating noon shipments is not built: noon publishes the path but not the request',
+	'financial_reconciliation_not_built_for_noon' => 'noon publishes no settlement or fee endpoint, so its commissions cannot be read automatically yet',
 ];

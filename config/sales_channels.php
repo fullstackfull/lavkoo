@@ -28,6 +28,7 @@ return [
     'operation_providers' => [
         \App\Services\SalesChannels\Trendyol\TrendyolOperations::class,
         \App\Services\SalesChannels\Amazon\AmazonOperations::class,
+        \App\Services\SalesChannels\Noon\NoonOperations::class,
     ],
 
     'http' => [
@@ -160,6 +161,26 @@ return [
         ],
         // The largest body a webhook delivery may have before it is refused (a package with many lines is a few kilobytes).
         'webhook_max_bytes' => 262144,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | noon (partners.noon.com)
+    |--------------------------------------------------------------------------
+    | Paths and hosts follow the official partner documentation as read on 2026-11-08. The request and response SHAPES of every call but the sign-in are not published in a
+    | readable form, so this version signs in and asks who it is, and nothing else: see NoonOperations.
+    */
+    'noon' => [
+        'bases' => ['production' => 'https://noon-api-gateway.noon.partners', 'sandbox' => 'https://noon-sandbox-api-gateway.noon.partners'],
+        // The sign-in ALWAYS goes to production, even for a sandbox account: the documentation says to keep the login call on the production host and point only the other
+        // calls at the sandbox. A sandbox that answered a sign-in would hand out a session that production does not know.
+        'login_always_production' => true,
+        // noon requires a User-Agent on every request.
+        'user_agent' => ['application' => 'PharmacyChannelHub', 'version' => '1.0'],
+        // A session lasts 30 days; it is renewed once less than this is left of it, so a run never starts with a session about to lapse.
+        'session_refresh_margin_hours' => 24,
+        // The JWT noon is sent is rejected if it is more than five minutes away from its clock, so it is made per sign-in and never cached.
+        'jwt_lifetime_seconds' => 120,
     ],
 
     'stock' => [
@@ -348,6 +369,7 @@ return [
     'connectors' => [
         'amazon' => \App\Services\SalesChannels\Amazon\AmazonConnector::class,
         'trendyol' => \App\Services\SalesChannels\Trendyol\TrendyolConnector::class,
+        'noon' => \App\Services\SalesChannels\Noon\NoonConnector::class,
     ],
 
     'sync' => [

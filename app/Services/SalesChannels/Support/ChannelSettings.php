@@ -44,6 +44,17 @@ final class ChannelSettings
                 'shipment_creation' => 'unset',
                 'dispatch_mode' => 'manual',
             ],
+            'noon' => [
+                // The sandbox is a drop-in replacement for every call but the sign-in, which always goes to production.
+                'use_sandbox' => false,
+                // noon addresses stock by a (warehouse, partner_sku) pair, so a default warehouse is what a one-figure-per-product view would mean here. Empty until the
+                // warehouses can be listed, which needs a request shape noon does not publish.
+                'warehouse_code' => '',
+                // FBN units sit in noon's own fulfilment centre: they are noon's stock, not ours, and must never join the shared pool. Off, and here to be read rather than
+                // assumed, exactly as Amazon's `sync_fba_inventory` is.
+                'sync_fbn_inventory' => false,
+                'route_cod_orders' => false,
+            ],
             default => [],
         };
     }
@@ -56,7 +67,7 @@ final class ChannelSettings
     {
         $merged = array_replace(self::defaults($channel), array_intersect_key($input, self::defaults($channel)));
 
-        foreach (['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns'] as $flag) {
+        foreach (['sync_fba_inventory', 'sync_fbn_inventory', 'use_sandbox', 'request_buyer_data', 'auto_link_exact_sku', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns'] as $flag) {
             if (array_key_exists($flag, $merged)) {
                 $merged[$flag] = filter_var($merged[$flag], FILTER_VALIDATE_BOOLEAN);
             }

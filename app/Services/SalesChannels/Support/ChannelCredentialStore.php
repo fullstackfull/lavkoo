@@ -25,17 +25,22 @@ class ChannelCredentialStore
     public const SECRET_KEYS = [
         'amazon' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token', 'aws_access_key_id', 'aws_secret_access_key'],
         'trendyol' => ['api_key', 'api_secret', 'webhook_api_key', 'webhook_password'],
+        // The four fields of the service-account key file noon hands over once, when the account is made in its Access app.
+        'noon' => ['key_id', 'private_key', 'project_code', 'channel_identifier'],
     ];
 
     /** What a complete set of typed credentials is, for the one case where it replaces a blob nobody can read. */
     private const COMPLETE_SET = [
         'amazon' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token'],
         'trendyol' => ['api_key', 'api_secret'],
+        'noon' => ['key_id', 'private_key', 'project_code'],
     ];
 
     public const RUNTIME_KEYS = [
         'amazon' => ['access_token', 'access_token_expires_at', 'grantless_token', 'grantless_token_expires_at'],
         'trendyol' => [],
+        // The session noon's sign-in returns. Its cookie is NOT named in the documentation, so the whole cookie string is kept rather than one named value.
+        'noon' => ['session_cookie', 'session_expires_at'],
     ];
 
     public function get(SalesChannelAccount $account): ChannelCredentials

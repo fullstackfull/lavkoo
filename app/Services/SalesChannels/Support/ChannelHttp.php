@@ -217,7 +217,12 @@ class ChannelHttp
         $decoded = $response->json();
         $headers = [];
         foreach ($response->headers() as $name => $values) {
-            $headers[strtolower((string) $name)] = is_array($values) ? (string) ($values[0] ?? '') : (string) $values;
+            $name = strtolower((string) $name);
+            // One value per header is enough for everything this module reads EXCEPT `Set-Cookie`, which HTTP allows a server to repeat and which a session is built out of:
+            // a channel that sets a session cookie and a CSRF cookie sends two, and keeping only the first would hand back half a session. So that one keeps every value.
+            $headers[$name] = $name === 'set-cookie'
+                ? array_values(array_map('strval', is_array($values) ? $values : [$values]))
+                : (is_array($values) ? (string) ($values[0] ?? '') : (string) $values);
         }
 
         return new ChannelResponse($kind, $status, is_array($decoded) ? $decoded : null, (string) $response->body(), null, $durationMs, $correlationId, $headers);
