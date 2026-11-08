@@ -1,6 +1,8 @@
 {{-- "Sales channels" card of the in-house product forms: where this product stands on each channel. Read only; it calls no channel. Expects $product on edit; omit it on create. --}}
 @php
-    $channelRows = app(\App\Services\SalesChannels\Listings\ProductChannelPanel::class)->for(isset($product) ? (int) $product->id : null);
+    $channelPanel = app(\App\Services\SalesChannels\Listings\ProductChannelPanel::class);
+    $channelRows = $channelPanel->for(isset($product) ? (int) $product->id : null);
+    $channelProductProblems = $channelRows === [] ? [] : $channelPanel->productProblems(isset($product) ? (int) $product->id : null);
 @endphp
 @if ($channelRows !== [])
     <div class="card card-body mt-3 rest-part">
@@ -8,6 +10,16 @@
             <h2 class="mb-1">{{ translate('sales_channels') }}</h2>
             <p class="fs-12 mb-3">{{ translate('product_channels_card_help') }}</p>
         </div>
+        @if ($channelProductProblems !== [])
+            <div class="alert alert-warning fs-12 py-2 mb-3">
+                <span class="d-block fw-bold">{{ translate('this_product_is_not_ready_for_any_channel_yet') }}</span>
+                <ul class="mb-0 ps-3">
+                    @foreach ($channelProductProblems as $problem)
+                        <li>{{ translate($problem) }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
                 <thead>

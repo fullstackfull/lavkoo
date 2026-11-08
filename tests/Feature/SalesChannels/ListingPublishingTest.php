@@ -11,6 +11,7 @@ use App\Services\SalesChannels\Listings\ListingDraftService;
 use App\Services\SalesChannels\Listings\ListingOutcome;
 use App\Services\SalesChannels\Listings\ListingPublisher;
 use App\Services\SalesChannels\Listings\ProductChannelPanel;
+use App\Services\SalesChannels\Listings\ProductListingReadiness;
 use App\Services\SalesChannels\Listings\RegulatedProductGate;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
@@ -63,7 +64,19 @@ class ListingPublishingTest extends TestCase
         config(['sales_channels.enabled' => true, 'sales_channels.external_writes_enabled' => true]);
         $this->account = $this->amazonAccount();
         $this->storeProduct(self::PRODUCT, provider: null);
-        DB::table('products')->where('id', self::PRODUCT)->update(['category_ids' => json_encode([['id' => '7', 'position' => 1]])]);
+        $this->makeTheProductFitToList(self::PRODUCT);
+    }
+
+    /** The store's own data a product needs before any channel may be asked (ProductListingReadiness): a description, a category, a thumbnail and an image. */
+    private function makeTheProductFitToList(int $productId): void
+    {
+        DB::table('products')->where('id', $productId)->update([
+            'details' => '<p>Vitamin C, 500mg, 60 tablets.</p>',
+            'category_ids' => json_encode([['id' => '7', 'position' => 1]]),
+            'thumbnail' => 'thumb-' . $productId . '.png',
+            'images' => json_encode([['image_name' => 'front-' . $productId . '.png', 'storage' => 'public']]),
+            'brand_id' => 3,
+        ]);
     }
 
     private function approveProductWrites(): void
@@ -222,6 +235,66 @@ class ListingPublishingTest extends TestCase
 
         $this->assertSame(['brand'], $outcome->problems);
         $this->assertSame(ListingRequirements::DECLARED_BY_THE_OWNER, ChannelListingDraft::firstOrFail()->requirements['source']);
+    }
+
+    // ---- the store's own product data ----------------------------------------------------------------------
+
+    public function test_a_product_the_store_has_not_finished_is_not_offered_to_any_channel(): void
+    {
+        $this->fake($this->definitionSays(['item_name']));
+        DB::table('products')->where('id', self::PRODUCT)->update(['details' => null, 'thumbnail' => null, 'images' => null, 'barcode' => null, 'code' => null, 'category_ids' => null]);
+
+        $outcome = $this->drafts()->validate($this->draft());
+
+        $this->assertSame([ListingOutcome::REFUSED, 'product_data_not_ready'], [$outcome->state, $outcome->reason]);
+        $this->assertSame([
+            ProductListingReadiness::NO_DESCRIPTION,
+            ProductListingReadiness::NO_IDENTIFIER,
+            ProductListingReadiness::NO_CATEGORY,
+            ProductListingReadiness::NO_THUMBNAIL,
+            ProductListingReadiness::NOT_ENOUGH_IMAGES,
+        ], $outcome->problems);
+        $this->assertSame(0, $this->callsTo('/definitions/'), 'the channel is not asked about a product that is not ready');
+    }
+
+    public function test_the_number_of_images_and_whether_a_brand_is_needed_are_the_owners_to_set(): void
+    {
+        config(['sales_channels.listing.product_data' => ['images_at_least' => 3, 'brand_required' => true]]);
+        DB::table('products')->where('id', self::PRODUCT)->update(['brand_id' => null]);
+
+        $problems = app(ProductListingReadiness::class)->problemsFor(self::PRODUCT);
+
+        $this->assertSame([ProductListingReadiness::NO_BRAND, ProductListingReadiness::NOT_ENOUGH_IMAGES], $problems);
+
+        config(['sales_channels.listing.product_data' => ['images_at_least' => 0, 'brand_required' => false]]);
+        $this->assertSame([], app(ProductListingReadiness::class)->problemsFor(self::PRODUCT));
+    }
+
+    public function test_a_product_sold_per_variant_is_listed_per_variant_and_the_variant_must_exist_and_have_a_price(): void
+    {
+        DB::table('products')->where('id', self::PRODUCT)->update(['variation' => json_encode([
+            ['type' => 'Red', 'price' => 39, 'qty' => 5],
+            ['type' => 'Blue', 'price' => 0, 'qty' => 5],
+        ])]);
+        $readiness = app(ProductListingReadiness::class);
+
+        $this->assertSame([ProductListingReadiness::VARIANT_KEY_REQUIRED], $readiness->problemsFor(self::PRODUCT));
+        $this->assertSame([], $readiness->problemsFor(self::PRODUCT, 'Red'));
+        $this->assertSame([ProductListingReadiness::VARIANT_WITHOUT_A_PRICE], $readiness->problemsFor(self::PRODUCT, 'Blue'));
+        $this->assertSame([ProductListingReadiness::VARIANT_NOT_FOUND], $readiness->problemsFor(self::PRODUCT, 'Green'));
+    }
+
+    public function test_a_vendors_product_and_a_digital_one_are_not_ours_to_list(): void
+    {
+        $this->storeProduct(81, provider: null);
+        DB::table('products')->where('id', 81)->update(['added_by' => 'seller']);
+        $this->storeProduct(82, provider: null);
+        DB::table('products')->where('id', 82)->update(['product_type' => 'digital']);
+        $readiness = app(ProductListingReadiness::class);
+
+        $this->assertSame([ProductListingReadiness::NOT_A_PHYSICAL_PRODUCT], $readiness->problemsFor(81));
+        $this->assertSame([ProductListingReadiness::NOT_A_PHYSICAL_PRODUCT], $readiness->problemsFor(82));
+        $this->assertSame([ProductListingReadiness::NOT_FOUND], $readiness->problemsFor(999));
     }
 
     // ---- the gates -----------------------------------------------------------------------------------------
@@ -544,27 +617,40 @@ class ListingPublishingTest extends TestCase
         DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Vitamin C 500mg']);
     }
 
-    public function test_with_the_gate_off_it_stops_nothing(): void
+    public function test_with_the_gate_off_a_product_the_rules_would_name_goes_through(): void
     {
         $draft = $this->readyToSend();
-        DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Vitamin C 500mg', 'category_ids' => null]);
+        DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Vitamin C 500mg']);
         $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
 
         $this->assertSame(ListingOutcome::SUBMITTED, $this->publisher()->publish($draft, adminId: 1)->state);
         $this->assertSame(RegulatedProductGate::MODE_OFF, app(RegulatedProductGate::class)->modeFor('amazon'));
+        $this->assertFalse(app(RegulatedProductGate::class)->needsClearance(self::PRODUCT, 'amazon'));
     }
 
-    public function test_a_product_nobody_has_classified_is_refused_not_waved_through(): void
+    public function test_a_product_whose_classification_is_taken_away_after_the_check_is_refused_not_waved_through(): void
+    {
+        // The draft passed its checks with a category; somebody removed it before the draft was sent. The gate is the last word, and it fails closed.
+        $draft = $this->readyToSend();
+        $this->regulate();
+        DB::table('products')->where('id', self::PRODUCT)->update(['category_ids' => null]);
+        $draft->forceFill(['state' => ChannelListingDraft::VALIDATED, 'problems' => null])->save();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+
+        $outcome = $this->publisher()->publish($draft->fresh(), adminId: 1);
+
+        $this->assertContains($outcome->reason, [RegulatedProductGate::CLASSIFICATION_MISSING, 'product_data_not_ready'], 'either lock catches it; neither lets it through');
+        $this->assertSame(0, $this->callsTo('/listings/'));
+    }
+
+    public function test_the_gate_itself_refuses_an_unclassified_product_whatever_the_rest_says(): void
     {
         $draft = $this->readyToSend();
         $this->regulate();
         DB::table('products')->where('id', self::PRODUCT)->update(['category_ids' => null]);
-        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
 
-        $outcome = $this->publisher()->publish($draft, adminId: 1);
-
-        $this->assertSame(RegulatedProductGate::CLASSIFICATION_MISSING, $outcome->reason);
-        $this->assertSame(0, $this->callsTo('/listings/'));
+        $this->assertSame(RegulatedProductGate::CLASSIFICATION_MISSING, app(RegulatedProductGate::class)->refusalFor($draft->fresh()));
+        $this->assertTrue(app(RegulatedProductGate::class)->needsClearance(self::PRODUCT, 'amazon'));
     }
 
     public function test_a_regulated_product_needs_a_recorded_clearance_and_an_admin_id_is_not_one(): void
@@ -707,6 +793,16 @@ class ListingPublishingTest extends TestCase
         $this->assertFalse($rows[$trendyol->id]['canCreate']);
         $this->assertSame('not_offered', $rows[$trendyol->id]['state']);
         $this->assertTrue($rows[$this->account->id]['canCreate']);
+    }
+
+    public function test_the_form_says_what_the_store_still_has_to_finish(): void
+    {
+        DB::table('products')->where('id', self::PRODUCT)->update(['thumbnail' => null, 'details' => null]);
+
+        $problems = app(ProductChannelPanel::class)->productProblems(self::PRODUCT);
+
+        $this->assertSame([ProductListingReadiness::NO_DESCRIPTION, ProductListingReadiness::NO_THUMBNAIL], $problems);
+        $this->assertSame([], app(ProductChannelPanel::class)->productProblems(null));
     }
 
     public function test_the_panel_answers_with_nothing_before_the_modules_migrations_have_run(): void

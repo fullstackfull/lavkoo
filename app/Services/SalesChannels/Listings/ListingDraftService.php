@@ -19,14 +19,17 @@ use Throwable;
  * A draft is one intention per (account, product, variant) — the table's unique key — so asking twice edits the first instead of making a second. It holds the CHANNEL's fields;
  * the store's product is only read (its code becomes the seller SKU when nobody chose one), never written.
  *
- * Checking means asking the channel what it requires and comparing: the fields it insists on and, where it says so, the values it accepts. A channel that cannot be asked
- * (its read switch is off, the call failed) leaves the requirements UNKNOWN, and an unknown requirement is never treated as "nothing is required": the draft stays a draft.
+ * Checking is two questions. First the STORE's own product (`ProductListingReadiness`): a name, a description, a barcode or code, a category, a thumbnail and enough images,
+ * and for a product sold per variant a variant that exists and has a price. Then the CHANNEL's own fields: what it insists on and, where it says so, the values it accepts. A
+ * channel that cannot be asked (its read switch is off, the call failed) leaves the requirements UNKNOWN, and an unknown requirement is never treated as "nothing is required":
+ * the draft stays a draft.
  */
 class ListingDraftService
 {
     public function __construct(
         private readonly ChannelConnectorRegistry $connectors,
         private readonly RegulatedProductGate $regulated,
+        private readonly ProductListingReadiness $readiness,
         private readonly AuditLogger $audit,
     ) {
     }
@@ -98,6 +101,11 @@ class ListingDraftService
         }
         if ((string) $draft->product_type === '') {
             return $this->found($draft, ['product_type'], 'listing_product_type_missing');
+        }
+
+        // The store's own product first: a channel will take a listing with no image and no barcode and refuse it days later.
+        if (($ownData = $this->readiness->problemsFor((int) $draft->product_id, (string) $draft->variant_key)) !== []) {
+            return $this->found($draft, $ownData, 'product_data_not_ready');
         }
 
         $requirements = $this->requirementsFor($draft);

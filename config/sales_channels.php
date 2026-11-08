@@ -216,6 +216,15 @@ return [
             'trendyol' => ['listPrice', 'salePrice', 'quantity', 'stockCode'],
             'noon' => ['price', 'sale_price', 'stock', 'quantity'],
         ],
+        /*
+        | What the shop wants of its OWN product before it is offered anywhere (ProductListingReadiness): nothing here fetches an image or judges its pixels — it checks that the
+        | product has what a channel will ask for. A name, a description, a barcode or code, a category, a thumbnail and this many images are always required; a brand only when
+        | the owner says so.
+        */
+        'product_data' => [
+            'images_at_least' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_LEAST', 1),
+            'brand_required' => filter_var(env('SALES_CHANNELS_LISTING_BRAND_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
         // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
         'requirements_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_REQUIREMENTS_FRESH_HOURS', 24),
         /*

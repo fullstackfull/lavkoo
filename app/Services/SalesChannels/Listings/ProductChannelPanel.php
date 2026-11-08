@@ -20,8 +20,21 @@ use Throwable;
  */
 class ProductChannelPanel
 {
-    public function __construct(private readonly ChannelConnectorRegistry $connectors)
+    public function __construct(
+        private readonly ChannelConnectorRegistry $connectors,
+        private readonly ProductListingReadiness $readiness,
+    ) {
+    }
+
+    /**
+     * What the STORE still has to finish about this product before any channel may be asked (a description, a category, a thumbnail, images, a variant with a price). It is the
+     * same answer for every channel, so it is asked once; and it calls nobody.
+     *
+     * @return list<string>
+     */
+    public function productProblems(?int $productId, string $variantKey = ''): array
     {
+        return $productId === null ? [] : $this->readiness->problemsFor($productId, $variantKey);
     }
 
     /**

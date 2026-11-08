@@ -63,6 +63,16 @@ Before anything is written, our own records and then the channel are asked:
   an answer with no summary, makes a create safe;
 * and when the channel confirms a listing whose key already belongs to another product of ours, the row is **not** re-pointed: the draft keeps the problem instead.
 
+## The store's own product first
+
+A channel will take a listing with no image and no barcode, and refuse it or show it badly days later. So before any channel is asked, the shop's own product is checked
+(`ProductListingReadiness`) — a name, a description, a barcode or code, a category, a thumbnail, at least `SALES_CHANNELS_LISTING_IMAGES_AT_LEAST` images (1), a brand when
+`SALES_CHANNELS_LISTING_BRAND_REQUIRED` says so, and for a product sold per variant a variant that exists and has a price. Each problem is a code a screen translates
+(`product_has_no_description`, `product_has_too_few_images`, …) and the draft stays a draft with `product_data_not_ready`. Nothing here fetches an image or judges its pixels: it
+checks that the product HAS what a channel will ask for. Only the store's own physical products are listed at all.
+
+The product form shows this list above the channels table, so the person editing the product sees what is missing before anybody tries to publish.
+
 ## What the channel requires
 
 Asked of the channel, never invented (`DescribesListingRequirements`). For Amazon that is `getDefinitionsProductType`, and **only a `required` list the response itself carries
@@ -85,6 +95,7 @@ Validation compares the payload with that list: a required field that is missing
 | 4 | a recorded `product_writes` approval on the account | `product_writes_approval_missing` |
 | 5 | the channel's connector can really create a listing | `channel_cannot_create_listings` |
 | 6 | the draft is not already with the channel | `listing_already_submitted` / `listing_already_accepted` |
+| 7a | the store's own product data is finished | `product_data_not_ready` (with the field codes) |
 | 7 | every field the channel requires is there | `listing_fields_missing` (with the field names) / `listing_requirements_unknown` |
 | 8 | the pharmacy gate: classified, and cleared if the owner's rules name it | `regulated_classification_missing` / `regulated_product_needs_recorded_clearance` |
 | 9 | our own records do not use the key for another product, and no other listing of this product | `listing_key_belongs_to_another_product` / `listing_already_exists` |
