@@ -358,8 +358,10 @@ class StockConcurrencyTest extends TestCase
         app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-' . self::PRODUCT => 20], now());
         $this->assertSame(20, $this->storefrontStock());
 
+        // Not a static closure: it reads $this->first. (A static one has no $this, and SQLite skips this test, so only a real engine shows it.)
+        $accountId = (int) $this->first->id;
         $reports = ConcurrentRunner::run('stock.ingest_many', array_map(static fn (int $worker): array => [
-            'account' => $this->first->id, 'listing_key' => 'BAR-A', 'quantity' => 2, 'count' => 1, 'prefix' => 'CONC-' . $worker,
+            'account' => $accountId, 'listing_key' => 'BAR-A', 'quantity' => 2, 'count' => 1, 'prefix' => 'CONC-' . $worker,
         ], range(1, 6)));
 
         $this->assertAllWorkersSucceeded($reports);
