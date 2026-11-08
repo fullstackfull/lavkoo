@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Services\Fulfillment\Contracts\NotesStockChanged;
+use App\Services\SalesChannels\Contracts\ListsOrderParcels;
+use App\Services\Fulfillment\ProviderParcels;
 use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\SalesChannels\Accounting\AccountingDestination;
 use App\Services\SalesChannels\Accounting\NullAccountingDestination;
@@ -34,6 +36,10 @@ class SalesChannelsServiceProvider extends ServiceProvider
         $this->app->bind(ReportsChannelHolds::class, ChannelHoldsOnProviderStock::class);
         // ... and tells them, in the same breath, when that figure moves, so a quantity is not offered for another quarter of an hour after it is gone.
         $this->app->bind(NotesStockChanged::class, ProviderFigureNotes::class);
+        // How many parcels an order left in is FULFILLMENT's knowledge: the router groups items by provider, so one order can be two boxes with two tracking numbers. This
+        // provider registers after Fulfillment's, so the choice is made HERE and in one place only, rather than depending on which provider happened to bind last.
+        // ProviderParcels falls back to OneParcelPerOrder by itself where there is nothing of ours to count, so a host without the fulfilment tables behaves as it always did.
+        $this->app->bind(ListsOrderParcels::class, ProviderParcels::class);
         // Odoo is deferred: the books have an extension point (AccountingDestination) and, until one is built, a destination that posts nothing.
         $this->app->bind(AccountingDestination::class, NullAccountingDestination::class);
     }

@@ -343,6 +343,15 @@ class ShipmentLinkingTest extends TestCase
         $this->assertCount(2, $this->puts(), 'Picking and the tracking number, once.');
     }
 
+    /** This order left in one parcel, so there is one entry: how many times the channel has said no to it. */
+    private function refusalsOfTheOnlyParcel(ExternalOrderMapping $mapping): int
+    {
+        $parcels = (array) ($mapping->snapshot['channel_notify_error']['parcels'] ?? []);
+        $this->assertCount(1, $parcels, 'one parcel, one record');
+
+        return (int) (reset($parcels)['refusals'] ?? 0);
+    }
+
     /** @return int how many times the package was read from Trendyol */
     private function packageReads(): int
     {
@@ -366,11 +375,12 @@ class ShipmentLinkingTest extends TestCase
 
         $byAPerson = $notifier->notify($mapping->refresh()->load('lines', 'account'), byAPerson: true);
         $this->assertSame('channel_did_not_confirm', $byAPerson['reason'], 'A person pressing the button is always heard.');
-        $this->assertSame(4, $mapping->refresh()->snapshot['channel_notify_error']['refusals']);
+        // Counted per PARCEL now, not per order: an order can leave in two boxes, and one box being refused must not silence the other.
+        $this->assertSame(4, $this->refusalsOfTheOnlyParcel($mapping->refresh()));
 
         $mapping->forceFill(['tracking_number' => 'TRK-10'])->save();
         $this->assertSame('channel_did_not_confirm', $notifier->notify($mapping->refresh()->load('lines', 'account'))['reason'], 'A new tracking number is a new question.');
-        $this->assertSame(1, $mapping->refresh()->snapshot['channel_notify_error']['refusals']);
+        $this->assertSame(1, $this->refusalsOfTheOnlyParcel($mapping->refresh()));
     }
 
     private function assertOnlyTheTrackingNumberIsSentFor(string $status): void
