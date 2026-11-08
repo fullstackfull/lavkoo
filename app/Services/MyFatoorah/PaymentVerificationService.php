@@ -546,12 +546,17 @@ class PaymentVerificationService
      *   unknown  — we could not find out. Nothing is assumed in either direction, the attempt stays in
      *              doubt, and no second invoice may be created for the order.
      *
-     * A 404 is only proof of absence on an endpoint we have seen work. MyFatoorah publishes no literal
-     * path for "Get Invoice by InvoiceId" or "Get Invoice by ExternalIdentifier", so on an account that
-     * does not serve them — or does not permit them — every lookup 404s, and reading that as "nothing
-     * was created" would authorise a second invoice for an order that may already have one. So absence
-     * is only concluded once the endpoint has answered successfully at least once for this mode, which
-     * is recorded the first time it does.
+     * A 404 is only proof of absence FROM A PATH WE HAVE SEEN WORK, on the account and host in use now.
+     * MyFatoorah publishes no literal path for "Get Invoice by InvoiceId" or "Get Invoice by
+     * ExternalIdentifier", so on an account that does not serve them — or does not permit them — every
+     * lookup 404s, and reading that as "nothing was created" would authorise a second invoice for an
+     * order that may already have one.
+     *
+     * The proof is therefore per path and per connection, and is never pooled. One path answering says
+     * nothing about the other: they are different paths, and MyFatoorah grants permissions per endpoint,
+     * so "by InvoiceId" working is perfectly compatible with "by ExternalIdentifier" returning 404
+     * because it is not available to this account. Every path that 404s has to have earned its own
+     * proof, or the answer is unknown.
      *
      * Where it cannot be concluded, the attempt stays in doubt and surfaces for review. An operator who
      * has checked the MyFatoorah portal can release it by hand (see
@@ -574,46 +579,63 @@ class PaymentVerificationService
 
         $lookups[] = ['invoice_by_reference', ['reference' => (string) $attempt->external_identifier]];
 
-        $everyLookupSaidNotFound = true;
+        $saidNotFound = [];
+        $inconclusive = false;
 
         foreach ($lookups as [$endpoint, $params]) {
             $response = $this->client->get($config, $endpoint, $params);
 
             if ($response->succeeded) {
-                // The endpoint works on this account, so a later 404 from it will mean something.
-                $this->configRepo->markInvoiceLookupProven((string) $attempt->mode);
+                // THIS path works on this account and host, so a later 404 from THIS path will mean
+                // something. Recorded against the path and the connection, never pooled across either.
+                $this->configRepo->markInvoiceLookupProven((string) $attempt->mode, $endpoint);
                 $this->verify($attempt);
 
                 return 'resolved';
             }
 
-            if ($response->httpStatus !== 404) {
-                // A network failure, or a refusal that is not "not found". Either way we have not learnt
-                // that the invoice is absent, and must not act as though we had.
-                $everyLookupSaidNotFound = false;
+            if ($response->httpStatus === 404) {
+                $saidNotFound[] = $endpoint;
+                continue;
             }
+
+            // A network failure, or a refusal that is not "not found". Either way we have not learnt
+            // that the invoice is absent, and must not act as though we had.
+            $inconclusive = true;
         }
 
-        if (!$everyLookupSaidNotFound) {
+        if ($inconclusive || $saidNotFound === []) {
             return 'unknown';
         }
 
-        if (!$config->invoiceLookupIsProven()) {
+        $unproven = array_values(array_filter(
+            $saidNotFound,
+            fn (string $endpoint): bool => !$config->invoiceLookupIsProven($endpoint),
+        ));
+
+        if ($unproven !== []) {
             /*
-             * Every lookup said 404 and we have never seen this endpoint work. That is exactly what an
-             * account without the path, or without permission for it, looks like — indistinguishable
-             * from a genuinely absent invoice. Treating it as absence is how a second invoice gets
-             * created for an order that already has one, so it is left for a person instead.
+             * At least one path answered 404 without ever having answered anything else here. That is
+             * exactly what an account without the path, or without permission for it, looks like —
+             * indistinguishable from a genuinely absent invoice. Treating it as absence is how a second
+             * invoice gets created for an order that already has one, so it is left for a person.
+             *
+             * Note that this holds even when the OTHER path is proven and 404ed as well. A proven path
+             * returning 404 is good evidence, but it is not the whole question while another path we
+             * cannot read is still unanswered, and this is the branch where being wrong costs money.
              */
             $this->recordError(
                 $attempt,
                 'lookup_unproven',
-                'MyFatoorah did not recognise the invoice lookup for this account, so whether an invoice exists cannot be established. Check the MyFatoorah portal for this reference.',
+                'MyFatoorah did not recognise an invoice lookup for this account, so whether an invoice exists cannot be established. Check the MyFatoorah portal for this reference.',
             );
 
             Log::warning('myfatoorah.invoice_lookup_unproven', [
                 'attempt' => $attempt->external_identifier,
                 'mode' => (string) $attempt->mode,
+                // Which paths were not believed, so an operator can see what to enable. Endpoint keys,
+                // not URLs or credentials.
+                'unproven_endpoints' => $unproven,
             ]);
 
             return 'unknown';
@@ -659,6 +681,12 @@ class PaymentVerificationService
 
                 return null;
             }
+
+            // A 2xx from this path, on this account and host. That is the same evidence
+            // resolveUnstartedAttempt() records, and it is the only thing that lets a later 404 from
+            // THIS path be read as "no such invoice" — so it is banked wherever it turns up, not only
+            // where it happens to be needed. Written at most once per path per connection.
+            $this->configRepo->markInvoiceLookupProven((string) $attempt->mode, $endpoint);
 
             $found = $this->firstPaymentIdIn($response);
 

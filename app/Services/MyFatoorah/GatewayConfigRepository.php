@@ -73,11 +73,12 @@ class GatewayConfigRepository
         $mode = $forceMode ?? (($row && $row->mode === 'live') ? 'live' : 'test');
         $values = $this->decodeValues($row, $mode);
         $additional = $this->decodeAdditional($row);
+        $apiKey = $this->readSecret($values, 'api_key');
 
         return new GatewayConfig(
             activeInAdmin: (bool) (int) ($row->is_active ?? 0),
             mode: $mode,
-            apiKey: $this->readSecret($values, 'api_key'),
+            apiKey: $apiKey,
             webhookSecret: $this->readSecret($values, 'webhook_secret'),
             baseUrl: $this->baseUrlFor($mode),
             currency: strtoupper((string) config('myfatoorah.currency', 'SAR')),
@@ -88,7 +89,7 @@ class GatewayConfigRepository
             lastTestResult: $additional['last_test_result'][$mode] ?? null,
             lastTestMessage: $additional['last_test_message'][$mode] ?? null,
             accountStatus: $additional['account_status'][$mode] ?? null,
-            invoiceLookupProvenAt: $additional['invoice_lookup_proven_at'][$mode] ?? null,
+            invoiceLookupProof: $this->invoiceLookupProof($additional, $mode, $apiKey),
         );
     }
 
@@ -279,28 +280,119 @@ class GatewayConfigRepository
     }
 
     /**
-     * Record that the invoice-lookup endpoint answered for this mode.
+     * Record that ONE invoice-lookup path answered, on the connection in use now.
      *
-     * Until it has, a 404 from it proves nothing: MyFatoorah publishes no literal path for it, so a
-     * 404 is as likely to mean "no such path" or "no permission" as "no such invoice". Once it has
-     * answered once, a later 404 from the same path really does mean the invoice is not there.
+     * Until a path has answered, a 404 from it proves nothing: MyFatoorah publishes no literal path for
+     * "Get Invoice by InvoiceId" or "Get Invoice by ExternalIdentifier", so the 404 is as likely to mean
+     * "no such path" or "no permission" as "no such invoice". Once that path has answered once, a later
+     * 404 from THE SAME path on THE SAME connection really does mean the invoice is not there.
+     *
+     * Both halves of that sentence are load-bearing, and an earlier version of this method had neither:
+     * it recorded one timestamp per mode, so the "Get Invoice by InvoiceId" path answering marked the
+     * "by ExternalIdentifier" path proven as well — and a later 404 from a path that had never worked
+     * was then read as "no invoice exists", which authorises a second invoice for an order that may
+     * already have one. The same went for a change of API key or host: the proof outlived the account it
+     * was earned on.
      */
-    public function markInvoiceLookupProven(string $mode): void
+    public function markInvoiceLookupProven(string $mode, string $endpointKey): void
     {
         $mode = $mode === 'live' ? 'live' : 'test';
-        $additional = $this->decodeAdditional($this->row());
+        $row = $this->row();
+        $additional = $this->decodeAdditional($row);
+        $apiKey = $this->readSecret($this->decodeValues($row, $mode), 'api_key');
+        $fingerprint = $this->connectionFingerprint($mode, $apiKey, $endpointKey);
 
-        if (!is_array($additional['invoice_lookup_proven_at'] ?? null)) {
-            $additional['invoice_lookup_proven_at'] = [];
+        if (!is_array($additional['invoice_lookup_proof'] ?? null)) {
+            $additional['invoice_lookup_proof'] = [];
         }
 
-        if (!empty($additional['invoice_lookup_proven_at'][$mode])) {
+        if (!is_array($additional['invoice_lookup_proof'][$mode] ?? null)) {
+            $additional['invoice_lookup_proof'][$mode] = [];
+        }
+
+        $existing = $additional['invoice_lookup_proof'][$mode][$endpointKey] ?? null;
+
+        if (is_array($existing) && hash_equals($fingerprint, (string) ($existing['connection'] ?? ''))) {
+            // Already proven for this exact connection. Nothing to write, and no point taking a write
+            // lock on the settings row on every sweep.
             return;
         }
 
-        $additional['invoice_lookup_proven_at'][$mode] = now()->toIso8601String();
+        // One entry per path per mode: a new connection replaces the old proof rather than adding to it,
+        // which keeps the blob bounded and errs towards "not proven" if the key is ever changed back.
+        $additional['invoice_lookup_proof'][$mode][$endpointKey] = [
+            'at' => now()->toIso8601String(),
+            'connection' => $fingerprint,
+        ];
+
+        // The per-mode shape this replaced. Dropped rather than migrated: it cannot say WHICH path
+        // answered, and that is precisely what makes it unusable as proof.
+        unset($additional['invoice_lookup_proven_at']);
 
         $this->save(settings: $additional, secretsMode: $mode);
+    }
+
+    /**
+     * Which invoice-lookup paths have been seen to work on the connection in use now.
+     *
+     * A stored proof whose fingerprint no longer matches is ignored — not deleted, just not believed —
+     * so switching the API key back restores nothing and the path has to answer again.
+     *
+     * @param array<string, mixed> $additional
+     *
+     * @return array<string, string> endpoint key => when it last answered
+     */
+    private function invoiceLookupProof(array $additional, string $mode, ?string $apiKey): array
+    {
+        $stored = $additional['invoice_lookup_proof'][$mode] ?? null;
+
+        if (!is_array($stored)) {
+            return [];
+        }
+
+        $proven = [];
+
+        foreach ($stored as $endpointKey => $entry) {
+            if (!is_string($endpointKey) || !is_array($entry)) {
+                continue;
+            }
+
+            $at = $entry['at'] ?? null;
+            $connection = $entry['connection'] ?? null;
+
+            if (!is_string($at) || $at === '' || !is_string($connection) || $connection === '') {
+                continue;
+            }
+
+            if (!hash_equals($this->connectionFingerprint($mode, $apiKey, $endpointKey), $connection)) {
+                continue;
+            }
+
+            $proven[$endpointKey] = $at;
+        }
+
+        return $proven;
+    }
+
+    /**
+     * The identity of the connection a lookup proof belongs to.
+     *
+     * Everything that decides what a request to this path hits, and who it is sent as: the host, the
+     * path template (env-overridable, so it can change under us) and the API key for the mode. Change
+     * any of them and the proof is void — a different key may be a different merchant with different
+     * permissions, and a different path is simply a different request.
+     *
+     * Hashed, because the API key is one of the inputs and this value is stored in `addon_settings`
+     * alongside the rest of the non-secret configuration.
+     */
+    private function connectionFingerprint(string $mode, ?string $apiKey, string $endpointKey): string
+    {
+        return hash('sha256', implode("\n", [
+            $mode,
+            $this->baseUrlFor($mode),
+            (string) config('myfatoorah.endpoints.' . $endpointKey, ''),
+            (string) $apiKey,
+        ]));
     }
 
     /** Cache the catalogue of methods the account actually has enabled. Non-secret. */

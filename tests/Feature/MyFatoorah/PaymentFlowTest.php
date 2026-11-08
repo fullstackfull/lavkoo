@@ -414,13 +414,200 @@ class PaymentFlowTest extends MyFatoorahTestCase
         $this->assertSame(2, MyFatoorahPaymentAttempt::count());
     }
 
+    /**
+     * An attempt in the state the by-id lookup exists for: the create call came back with an invoice id
+     * but no payment page, so there is something to look up by id.
+     */
+    private function attemptInDoubt(string $paymentRequestId, string $reference, ?string $invoiceId = null): MyFatoorahPaymentAttempt
+    {
+        $attempt = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $paymentRequestId,
+            'attempt_number' => 1,
+            'external_identifier' => $reference,
+            'expected_amount' => '150.00',
+            'expected_currency' => 'SAR',
+            'status' => AttemptStatus::Created->value,
+            'invoice_id' => $invoiceId,
+            // Holding the order's one live slot, as a real attempt in doubt does.
+            'live_slot' => 1,
+            'mode' => 'test',
+        ]);
+
+        // Past the grace window, so MyFatoorah's answer about it can be believed at all.
+        $attempt->forceFill(['created_at' => now()->subHour()])->save();
+
+        return $attempt->refresh();
+    }
+
+    public function test_one_lookup_path_working_is_not_proof_about_a_different_path(): void
+    {
+        /*
+         * MyFatoorah lists two invoice lookups — by InvoiceId and by ExternalIdentifier — and publishes
+         * the literal path of neither. They are separate endpoints with separate permissions, so an
+         * account can serve the first and not the second at all.
+         *
+         * An earlier version held one proof per mode, so the first path answering marked the second
+         * proven as well, and a 404 from a path that had never worked was then read as "no invoice
+         * exists". That authorises a second invoice for an order that may already have one — the exact
+         * double-charge this whole mechanism exists to prevent.
+         */
+        $this->configureGateway();
+
+        $createCalls = 0;
+
+        // One routing closure for the whole test: Http::fake() MERGES stub sets and the FIRST match
+        // wins, so a later stub for the same pattern would never be reached. Most specific first.
+        Http::fake(function ($request) use (&$createCalls) {
+            $url = $request->url();
+
+            if (str_contains($url, '/v3/invoices/external/')) {
+                // This account does not serve the by-reference lookup. From here that is
+                // indistinguishable from a reference which genuinely has no invoice.
+                return Http::response(['IsSuccess' => false, 'Message' => 'Not Found'], 404);
+            }
+
+            if (str_contains($url, '/v3/invoices/')) {
+                return Http::response([
+                    'IsSuccess' => true,
+                    'Data' => ['Transaction' => ['PaymentId' => 'PAY-BY-ID', 'Status' => 'INPROGRESS']],
+                ]);
+            }
+
+            if (str_contains($url, '/v3/payments/')) {
+                return Http::response($this->paymentDetails(
+                    'pk-has-invoice-id',
+                    invoiceStatus: 'PENDING',
+                    transactionStatus: 'INPROGRESS',
+                    paymentId: 'PAY-BY-ID',
+                ));
+            }
+
+            $createCalls++;
+
+            return Http::response([
+                'IsSuccess' => true,
+                'Data' => ['InvoiceId' => 'INV-NEW', 'PaymentURL' => 'https://sa.myfatoorah.com/KSA/ie/9'],
+            ], 201);
+        });
+
+        // One order's attempt is resolved through the path that works. That proves THAT path.
+        $byId = $this->attemptInDoubt($this->makePaymentRequest(), 'pk-has-invoice-id', invoiceId: 'INV-A');
+
+        $this->assertSame('resolved', app(PaymentVerificationService::class)->resolveUnstartedAttempt($byId));
+
+        $config = $this->configRepo()->get();
+        $this->assertTrue($config->invoiceLookupIsProven('invoice_details'), 'the path that answered');
+        $this->assertFalse($config->invoiceLookupIsProven('invoice_by_reference'), 'and only that path');
+
+        /*
+         * A different order, whose create call never came back at all. It has no invoice id, so the only
+         * lookup available for it is the by-reference one — the path this account does not serve. Its
+         * 404 may not borrow the other path's proof.
+         */
+        $paymentRequest = PaymentRequest::find($this->makePaymentRequest());
+        $blind = $this->attemptInDoubt((string) $paymentRequest->id, 'pk-no-invoice-id');
+
+        $this->assertSame('unknown', app(PaymentVerificationService::class)->resolveUnstartedAttempt($blind));
+
+        // So the order gets no second invoice, and the customer is asked to wait instead.
+        $createCallsBefore = $createCalls;
+        $second = $this->initiation()->start($paymentRequest);
+
+        $this->assertFalse($second['ok']);
+        $this->assertSame('attempt_in_doubt', $second['code']);
+        $this->assertSame($createCallsBefore, $createCalls, 'no second invoice was created');
+        $this->assertSame(
+            1,
+            MyFatoorahPaymentAttempt::query()->where('payment_request_id', $paymentRequest->id)->count(),
+            'only the attempt that was already in doubt',
+        );
+
+        $blind->refresh();
+        $this->assertSame(AttemptStatus::Created->value, $blind->status);
+        $this->assertSame(1, (int) $blind->live_slot, 'it still holds the order\'s live slot');
+        $this->assertSame('lookup_unproven', $blind->last_error_code);
+
+        // And it is on the admin page as something a person has to settle.
+        $this->assertSame(1, app(\App\Services\MyFatoorah\ReconciliationService::class)->needsAttention()['in_doubt']);
+    }
+
+    public function test_a_404_from_a_proven_path_is_not_enough_while_another_path_cannot_be_read(): void
+    {
+        /*
+         * Both lookups 404, and only one of them has ever worked here. The proven path's 404 is good
+         * evidence; the other path's is no evidence at all, and this is the branch where being wrong
+         * means a second invoice for an order that already has one. So the answer stays unknown until
+         * every path that was asked can be read.
+         */
+        $this->configureGateway();
+        $this->configRepo()->markInvoiceLookupProven('test', 'invoice_details');
+
+        Http::fake(['*/v3/invoices/*' => Http::response(['IsSuccess' => false, 'Message' => 'Not Found'], 404)]);
+
+        $attempt = $this->attemptInDoubt($this->makePaymentRequest(), 'pk-both-404', invoiceId: 'INV-GONE');
+
+        $this->assertSame('unknown', app(PaymentVerificationService::class)->resolveUnstartedAttempt($attempt));
+        $this->assertSame('lookup_unproven', $attempt->refresh()->last_error_code);
+        $this->assertSame(1, (int) $attempt->live_slot);
+
+        // Once the by-reference path has been seen to work too, the same two 404s are an answer.
+        $this->configRepo()->markInvoiceLookupProven('test', 'invoice_by_reference');
+
+        $this->assertSame('absent', app(PaymentVerificationService::class)->resolveUnstartedAttempt($attempt->refresh()));
+    }
+
+    public function test_changing_the_api_key_voids_what_a_lookup_path_had_proven(): void
+    {
+        // A proof says "this path answered, as this account". A new key may be a different merchant with
+        // different permissions, so nothing carries over and the path has to answer again.
+        $this->configureGateway();
+        $this->configRepo()->markInvoiceLookupProven('test', 'invoice_by_reference');
+        $this->assertTrue($this->configRepo()->get()->invoiceLookupIsProven('invoice_by_reference'));
+
+        $this->configureGateway(apiKey: 'a-different-merchants-key');
+
+        $this->assertFalse(
+            $this->configRepo()->get()->invoiceLookupIsProven('invoice_by_reference'),
+            'a proof does not survive a change of credentials',
+        );
+    }
+
+    public function test_changing_a_lookup_path_voids_what_it_had_proven(): void
+    {
+        // The paths are overridable from the environment precisely because MyFatoorah does not publish
+        // them. A different path is a different request, and nothing is known about it yet.
+        $this->configureGateway();
+        $this->configRepo()->markInvoiceLookupProven('test', 'invoice_by_reference');
+        $this->assertTrue($this->configRepo()->get()->invoiceLookupIsProven('invoice_by_reference'));
+
+        config(['myfatoorah.endpoints.invoice_by_reference' => '/v3/invoices/by-external-id/{reference}']);
+
+        $this->assertFalse(
+            $this->configRepo()->get()->invoiceLookupIsProven('invoice_by_reference'),
+            'a proof does not survive a change of path',
+        );
+    }
+
+    public function test_a_proof_earned_in_sandbox_says_nothing_about_the_live_account(): void
+    {
+        // Different account, different host, and the sandbox is the one place an operator will have
+        // tried things. A live 404 may never lean on a sandbox success.
+        $this->configureGateway(mode: 'test');
+        $this->configRepo()->markInvoiceLookupProven('test', 'invoice_by_reference');
+
+        $this->assertTrue($this->configRepo()->forMode('test')->invoiceLookupIsProven('invoice_by_reference'));
+        $this->assertFalse($this->configRepo()->forMode('live')->invoiceLookupIsProven('invoice_by_reference'));
+    }
+
     public function test_a_404_is_proof_once_the_invoice_lookup_has_been_seen_to_work(): void
     {
         // The other half: on an account that does serve the lookup, a 404 really does mean the invoice
         // is not there, and the customer is not left stuck.
         $this->configureGateway();
-        $this->configRepo()->markInvoiceLookupProven('test');
-        $this->assertTrue($this->configRepo()->get()->invoiceLookupIsProven());
+        // The by-reference path specifically: this attempt has no invoice id, so it is the only lookup
+        // available for it, and a proof earned by any other path would not count.
+        $this->configRepo()->markInvoiceLookupProven('test', 'invoice_by_reference');
+        $this->assertTrue($this->configRepo()->get()->invoiceLookupIsProven('invoice_by_reference'));
 
         // One routing closure for the whole test: Http::fake() MERGES stub sets and the first match
         // wins, so a later array stub for the same URL would never be reached.

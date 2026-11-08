@@ -231,14 +231,30 @@ and acting on the second as though it were the first is how a second invoice get
 a cap (`MYFATOORAH_MAX_ATTEMPTS`, default 10) so a flapping provider cannot let one order mint invoices
 without limit.
 
-**A 404 only proves absence on an endpoint we have seen work.** MyFatoorah publishes no literal path for
-"Get Invoice by InvoiceId" or "Get Invoice by ExternalIdentifier", so on an account that does not serve
-them — or does not permit them — *every* lookup 404s, which is indistinguishable from a genuinely absent
-invoice. Absence is therefore only concluded once that endpoint has answered successfully at least once
-for the mode, which is recorded the first time it does. Until then the attempt stays in doubt, holds its
-order's live slot, is recorded with `lookup_unproven`, and is counted on the admin page under *these need
-a person*. An operator who has checked the portal releases it with **No invoice in portal: release** —
-a person answering what the API will not. There is no automatic path to that action.
+**A 404 only proves absence on a path we have seen work, on the account and host in use now.**
+MyFatoorah publishes no literal path for "Get Invoice by InvoiceId" or "Get Invoice by
+ExternalIdentifier", so on an account that does not serve them — or does not permit them — *every* lookup
+404s, which is indistinguishable from a genuinely absent invoice. Absence is therefore only concluded
+from a path that has answered successfully at least once, which is recorded the first time it does
+(wherever it happens — resolving an attempt in doubt, or discovering a payment id).
+
+The proof is **per path** and **per connection**, and is never pooled:
+
+- *Per path*, because the two lookups are separate endpoints with separate permissions. An account can
+  serve "by InvoiceId" and not serve "by ExternalIdentifier" at all, so the first one answering says
+  nothing about a 404 from the second. Every path that was asked and answered 404 has to have earned its
+  own proof, or the answer is *unknown* — including the case where one proven path and one unproven path
+  both return 404.
+- *Per connection*, because a proof says "this path answered, as this account, at this host, at this
+  path". It is stored with a hash of the API key for the mode, the host and that path's template, and is
+  ignored the moment any of them changes: a new key may be a different merchant with different
+  permissions, and an overridden path (`MYFATOORAH_PATH_INVOICE_BY_REFERENCE`,
+  `MYFATOORAH_PATH_INVOICE_DETAILS`) is simply a different request. Sandbox and live never share one.
+
+Until a path is proven, the attempt stays in doubt, holds its order's live slot, is recorded with
+`lookup_unproven`, and is counted on the admin page under *these need a person*. An operator who has
+checked the portal releases it with **No invoice in portal: release** — a person answering what the API
+will not. There is no automatic path to that action.
 
 ### Exactly once
 
@@ -269,6 +285,15 @@ a person answering what the API will not. There is no automatic path to that act
   **Apply payment (after review)**.
 - Only a hook that **never began** (`hook_started_at` null — the process died between marking the payment
   paid and starting the hook) is finished automatically, because there nothing can have been duplicated.
+- **A hook that threw is in the same position as one that was killed**, and `hook_started_at` is left set
+  on its way out for exactly that reason. An exception says nothing about how far the hook got: it may
+  have reserved stock, created the order or booked a shipment first. So it is not resumed automatically
+  either — it becomes a `hook_unverifiable` review item like any other started hook. (An earlier version
+  cleared the mark here, calling it "releasing the lease". That made a hook which had already taken the
+  stock look exactly like one that had never run, and the sweep then took the stock a second time.)
+  Because the failed run *did* release its lease token as it reported, **Apply payment (after review)**
+  works immediately on these, with no wait for the lease to go stale — the wait only applies to a process
+  that vanished without reporting, where a slow hook cannot be told from a dead one.
 - A **wallet top-up** is never retried either way: `add_fund_to_wallet_success` credits a balance with no
   reference to look the credit up by, so there is no idempotency boundary at all. It is left for an
   operator, who can read the wallet's own history.
@@ -542,7 +567,7 @@ live key, or one a paid order's history points at, is left alone.
 ./vendor/bin/phpunit tests/Feature/MyFatoorah/ tests/Unit/MyFatoorah/
 ```
 
-115 tests, 409 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
+152 tests, 619 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
 explicitly faked fails it, so nothing here can reach the real sandbox.
 
 They cover the gateway's switches and modes; encryption at rest and that a blank field keeps a stored key;
@@ -551,8 +576,11 @@ basket that changed mid-payment; a timeout while creating; a payment URL that is
 paid / failed / pending / cancelled / expired; a wrong amount, a wrong currency and another order's
 payment; a network failure and a rejected key both being `unknown` rather than failures; a confirmed
 payment surviving a stale failure notice; settling five times; two attempts both paid; an interrupted
-settlement and its recovery, including when the order already exists; webhook before and after the
-redirect; the same webhook ten times; a second caller arriving while the hook is mid-flight; a lease left
+settlement staying for a person and an operator finishing it; a hook that completed the stock
+reservation, the order or the shipment and then threw, surviving reconciliation without duplicating any
+of them; a wallet top-up credited once and never again; one lookup path answering while another 404s,
+and neither a changed API key nor a changed path template carrying a proof over; webhook before and after
+the redirect; the same webhook ten times; a second caller arriving while the hook is mid-flight; a lease left
 behind by a killed process; no signature, a wrong signature and a tampered payload; an unknown reference
 not being matched by a colliding invoice id; the body not being stored; reconciliation recovering a lost
 payment and reporting an unavailable invoice lookup; full and partial refunds, the paid amount as a

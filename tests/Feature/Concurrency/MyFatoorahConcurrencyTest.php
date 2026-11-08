@@ -184,8 +184,9 @@ class MyFatoorahConcurrencyTest extends TestCase
         ]);
         $inDoubt->forceFill(['created_at' => now()->subHour()])->save();
 
-        // Recorded in the shared settings row, so every worker sees it.
-        app(GatewayConfigRepository::class)->markInvoiceLookupProven('test');
+        // Recorded in the shared settings row, so every worker sees it. The by-reference path, which is
+        // the only lookup available for an attempt with no invoice id.
+        app(GatewayConfigRepository::class)->markInvoiceLookupProven('test', 'invoice_by_reference');
 
         $reports = ConcurrentRunner::run(
             'myfatoorah.start_payment',

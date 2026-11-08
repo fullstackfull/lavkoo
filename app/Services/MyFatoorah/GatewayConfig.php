@@ -28,19 +28,36 @@ final class GatewayConfig
         public readonly ?string $lastTestMessage,
         public readonly ?string $accountStatus,
         /**
-         * When the invoice-lookup endpoint last answered successfully for this mode, or null if it
-         * never has. MyFatoorah does not publish the literal paths for "Get Invoice by InvoiceId" or
-         * "Get Invoice by ExternalIdentifier", so until one of them has actually worked we cannot read
-         * a 404 from it as "no such invoice" — it is equally "no such path" or "not permitted".
+         * When each invoice-lookup path last answered successfully ON THIS CONNECTION: endpoint key =>
+         * ISO timestamp. A path that has never answered is simply absent from the map.
+         *
+         * MyFatoorah publishes no literal path for "Get Invoice by InvoiceId" or "Get Invoice by
+         * ExternalIdentifier", so until one of them has actually worked a 404 from it is equally "no
+         * such invoice", "no such path" and "not permitted".
+         *
+         * Held per path, not per mode, because they are separate paths with separate permissions: one of
+         * them answering says nothing about the other. And only for the connection it was earned on —
+         * the repository drops a proof whose API key, host or path template no longer match, because a
+         * different key may be a different merchant and a different path is a different request.
+         *
+         * @var array<string, string>
          */
-        public readonly ?string $invoiceLookupProvenAt,
+        public readonly array $invoiceLookupProof,
     ) {
     }
 
-    /** Has the invoice-lookup endpoint ever answered? Only then can a 404 from it mean anything. */
-    public function invoiceLookupIsProven(): bool
+    /**
+     * Has this invoice-lookup path ever answered, on the connection in use now? Only then does a 404
+     * from it mean the invoice is not there.
+     */
+    public function invoiceLookupIsProven(string $endpointKey): bool
     {
-        return $this->invoiceLookupProvenAt !== null;
+        return isset($this->invoiceLookupProof[$endpointKey]);
+    }
+
+    public function invoiceLookupProvenAt(string $endpointKey): ?string
+    {
+        return $this->invoiceLookupProof[$endpointKey] ?? null;
     }
 
     public function hasApiKey(): bool
@@ -121,7 +138,9 @@ final class GatewayConfig
             'last_test_result' => $this->lastTestResult,
             'last_test_message' => $this->lastTestMessage,
             'account_status' => $this->accountStatus,
-            'invoice_lookup_proven_at' => $this->invoiceLookupProvenAt,
+            // Which lookup paths have been seen to work here, and when. No fingerprints: those are
+            // derived from the API key and are nobody's business outside this class.
+            'invoice_lookup_proof' => $this->invoiceLookupProof,
         ];
     }
 }
