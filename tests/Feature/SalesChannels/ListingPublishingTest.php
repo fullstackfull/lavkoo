@@ -25,6 +25,7 @@ use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\BuildsStockPools;
 use Tests\Support\CreatesChannelAccounts;
 use Tests\Support\ThrowingListingConnector;
+use Tests\Support\UnreachableChannelConnector;
 use Tests\TestCase;
 
 /**
@@ -335,9 +336,10 @@ class ListingPublishingTest extends TestCase
     public function test_a_channel_whose_connector_cannot_create_a_listing_says_so_instead_of_pretending(): void
     {
         config(['sales_channels.listing.publish_enabled' => true]);
-        $trendyol = $this->trendyolAccount();
-        $trendyol->forceFill(['capability_approvals' => ((array) $trendyol->capability_approvals) + [ChannelOperations::SCOPE_PRODUCT_WRITES => ['by' => 1]]])->save();
-        $draft = $this->drafts()->draftFor($trendyol->fresh(), self::PRODUCT, productType: '1234', payload: ['item_name' => 'X']);
+        // A connector that implements ChannelConnector and nothing about listings. Trendyol used to stand in for this and no longer can: it creates listings since PR-D, so
+        // the case needs a connector that really cannot, or it would be testing nothing.
+        config(['sales_channels.connectors.amazon' => UnreachableChannelConnector::class]);
+        $draft = $this->readyToSend();
 
         $this->assertSame('channel_cannot_create_listings', $this->publisher()->publish($draft, adminId: 1)->reason);
     }
@@ -876,15 +878,25 @@ class ListingPublishingTest extends TestCase
         $this->assertFalse((bool) $rows[0]['listing']->inventory_publish, 'listed and selling nothing yet');
     }
 
-    public function test_a_channel_that_cannot_create_listings_is_said_so_on_the_form(): void
+    public function test_the_form_says_which_channels_can_be_sent_a_product(): void
     {
         $trendyol = $this->trendyolAccount();
 
         $rows = collect(app(ProductChannelPanel::class)->for(self::PRODUCT))->keyBy(static fn (array $row): int => (int) $row['account']->id);
 
-        $this->assertFalse($rows[$trendyol->id]['canCreate']);
+        // Trendyol creates listings since PR-D, so the form offers it. What the product is not yet ON is a separate fact from what it CAN be sent to.
+        $this->assertTrue($rows[$trendyol->id]['canCreate']);
         $this->assertSame('not_offered', $rows[$trendyol->id]['state']);
         $this->assertTrue($rows[$this->account->id]['canCreate']);
+    }
+
+    public function test_a_channel_whose_connector_knows_nothing_of_listings_is_not_offered_on_the_form(): void
+    {
+        config(['sales_channels.connectors.amazon' => UnreachableChannelConnector::class]);
+
+        $rows = collect(app(ProductChannelPanel::class)->for(self::PRODUCT))->keyBy(static fn (array $row): int => (int) $row['account']->id);
+
+        $this->assertFalse($rows[$this->account->id]['canCreate']);
     }
 
     public function test_the_form_says_what_the_store_still_has_to_finish(): void

@@ -7,9 +7,11 @@ use App\Enums\SalesChannels\ConnectionStatus;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Models\ExternalOrderMapping;
+use App\Models\ChannelListingDraft;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
 use App\Services\SalesChannels\Contracts\ConfirmsShipments;
+use App\Services\SalesChannels\Contracts\CreatesListings;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
 use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
@@ -21,6 +23,8 @@ use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Data\ListingRequirements;
+use App\Services\SalesChannels\Data\ListingSubmission;
+use App\Services\SalesChannels\Support\ChannelOperations;
 use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
@@ -41,9 +45,15 @@ use RuntimeException;
  *
  * Product V1 and Order V1 are not used anywhere: Trendyol retired them in 2026.
  */
-class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments, DescribesListingRequirements
+class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments, DescribesListingRequirements, CreatesListings
 {
     private const MILLISECONDS_PER_DAY = 86_400_000;
+
+    /**
+     * What Trendyol will not let an APPROVED product change. Refused here by name rather than sent and refused as a whole batch, because the batch's reason is one a person
+     * then has to decipher. Changing any of these makes it a different product, which is a decision and not an edit.
+     */
+    private const IMMUTABLE_ONCE_APPROVED = ['barcode', 'productMainId', 'brandId', 'categoryId'];
     private const LIST_PAGE_SIZE = 100;
     private const LIST_WINDOW_LIMIT = 10_000;
     private const STREAM_PAGE_SIZE = 200;
@@ -73,7 +83,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             'basic_authentication' => ['documented' => true, 'built' => true, 'note' => 'API key and secret as HTTP Basic, the mandatory "{sellerId} - {integration name}" User-Agent and the storeFrontCode header. Stage and production use different keys and hosts.'],
             'product_v2' => ['documented' => true, 'built' => true, 'note' => 'Approved and unapproved product lists, price-and-inventory with batch results. Product V1 was retired in 2026 and is not used.'],
             'category_requirements' => ['documented' => true, 'built' => true, 'note' => 'Product V2 `/product/categories/{id}/attributes`: which attributes a category requires, the values it accepts where Trendyol embeds them, and whether a value of our own is allowed. The attribute and value IDS are kept beside the names because a write sends ids. A category that cannot be read, or that names no attribute, is UNKNOWN and never "nothing is required". The very long value lists have an endpoint of their own which this version does not page through.'],
-            'product_create_update' => ['documented' => true, 'built' => false, 'note' => 'Creating or editing product content (brand, category, attributes, images) needs the lookups and an approval review at Trendyol; it is designed (operations are registered) but not built. Products are created in the seller panel and then linked here.'],
+            'product_create_update' => ['documented' => true, 'built' => true, 'note' => 'Product V2, both as BATCHES. Create: `POST .../v2/products`. Content change: `POST .../products/content-bulk-update` (V2 has no PUT at that path -- the PUT belonged to V1, retired). HTTP 200 answers a batchRequestId and means the batch was taken, never that anything is listed, so a submission is ACCEPTED_FOR_PROCESSING and `batchResult()` says what became of each item. The barcode is the identity. A barcode in the UNAPPROVED list is WORKING, never absent: it exists and awaits Trendyol\'s review, and creating it again would leave two of the same item and a locked barcode. Trendyol will not change an approved item\'s barcode, productMainId, brandId or categoryId, so those are refused here by name before anything is sent. Brand lookup and images are not built.'],
             'order_v2' => ['documented' => true, 'built' => true, 'note' => 'The cursor stream (lastModified windows of at most 14 days) for sync and /v2/orders for single-order lookups. Order V1 is not used.'],
             'shipment_packages' => ['documented' => true, 'built' => true, 'note' => 'A package is the unit (shipmentPackageId); a split or partial cancellation yields new package ids and the replaced package is terminal.'],
             'picking_and_tracking' => ['documented' => true, 'built' => true, 'note' => 'Picking, then the tracking number for packages on the seller-pays agreement only. Trendyol-pays packages use the carrier label Trendyol issues; the app never sets Shipped or Delivered (the carrier feed does).'],
@@ -515,6 +525,175 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         }
 
         return $this->categories->map((array) ($response->json ?? []), $categoryId);
+    }
+
+    // ---- creating and changing the listing of a product of ours --------------------------------------------------
+
+    /**
+     * Trendyol's own fields that would price a listing or put stock behind it. The publisher withholds every one of them from a create, because a price and a quantity may
+     * only leave through the separately switched and separately approved price-and-stock path.
+     *
+     * A zero price is worse than withheld at Trendyol: it reads the price 0 as a delisting.
+     *
+     * @return list<string>
+     */
+    public function offerAttributes(): array
+    {
+        return ['listPrice', 'salePrice', 'quantity', 'stock', 'price'];
+    }
+
+    /**
+     * Creates the product at Trendyol. Product **V2**: `POST /product/sellers/{id}/v2/products`.
+     *
+     * HTTP 200 is a BATCH TAKEN, never a product listed — the answer is a `batchRequestId` and nothing else, and what became of each item is `batchResult()`'s to say. So the
+     * submission comes back as ACCEPTED_FOR_PROCESSING, which is what makes `ListingPublisher` ask again instead of reporting a success nobody confirmed.
+     *
+     * The barcode is the identity of a Trendyol product, so it is required here: without one the call would make a product nothing can ever be matched to, and a second
+     * attempt would make another.
+     *
+     * @param array<string, mixed> $attributes
+     */
+    public function createListing(SalesChannelAccount $account, ChannelListingDraft $draft, array $attributes): ListingSubmission
+    {
+        $seller = $this->client->sellerId($account);
+        // The publisher keeps our own key for the listing in the draft's payload (`ListingPublisher::skuOf`). At Trendyol that key IS the barcode: it is the identity of a product there.
+        $barcode = trim((string) ($attributes['barcode'] ?? (($draft->payload ?? [])['sku'] ?? '')));
+        if ($barcode === '') {
+            return ListingSubmission::rejected(['barcode_is_required_by_trendyol']);
+        }
+
+        $response = $this->client->call(
+            $account,
+            'trendyol.products_create',
+            'POST',
+            "/product/sellers/{$seller}/v2/products",
+            json: ['items' => [$attributes + ['barcode' => $barcode]]],
+            capability: IntegrationCapability::ProductSync,
+            scope: ChannelOperations::SCOPE_PRODUCT_WRITES,
+        );
+
+        if ($response->isDryRun()) {
+            return ListingSubmission::unknown('dry_run');
+        }
+        if (!$response->ok()) {
+            return ListingSubmission::rejected([$response->message()], channelStatus: 'http_' . $response->status);
+        }
+
+        $batch = trim((string) $response->get('batchRequestId', ''));
+
+        // A 200 with no batch id is not a success we can follow up, and claiming it was taken would leave a product nobody ever asks about again.
+        return $batch === ''
+            ? ListingSubmission::working(channelStatus: 'no_batch_id')
+            : ListingSubmission::acceptedForProcessing($batch, 'batch_taken');
+    }
+
+    /**
+     * Changes the CONTENT of a product Trendyol already holds. Product **V2** has no `PUT v2/products` — the PUT was V1, which is retired — so this is
+     * `POST /product/sellers/{id}/products/content-bulk-update`, a batch like the create.
+     *
+     * Trendyol REFUSES to change some fields of an approved product: its barcode, `productMainId`, `brandId`, `categoryId`, and the values of slicer/varianter attributes.
+     * Sending one would have the whole batch refused for a reason a person then has to decipher, so they are refused here, by name, before anything is sent. Changing any of
+     * them is a different product, which is a person's decision and not an edit.
+     *
+     * @param array<string, mixed> $changedAttributes
+     */
+    public function updateListing(SalesChannelAccount $account, ChannelListingDraft $draft, array $changedAttributes): ListingSubmission
+    {
+        $barcode = trim((string) (($draft->payload ?? [])['sku'] ?? ''));
+        if ($barcode === '') {
+            return ListingSubmission::rejected(['barcode_is_required_by_trendyol']);
+        }
+
+        $immutable = array_values(array_intersect(array_keys($changedAttributes), self::IMMUTABLE_ONCE_APPROVED));
+        if ($immutable !== []) {
+            return ListingSubmission::rejected(array_map(static fn (string $field): string => 'trendyol_will_not_change_' . $field, $immutable));
+        }
+        if ($changedAttributes === []) {
+            return ListingSubmission::working(channelStatus: 'nothing_changed');
+        }
+
+        $seller = $this->client->sellerId($account);
+        $response = $this->client->call(
+            $account,
+            'trendyol.products_update',
+            'POST',
+            "/product/sellers/{$seller}/products/content-bulk-update",
+            json: ['items' => [$changedAttributes + ['barcode' => $barcode]]],
+            capability: IntegrationCapability::ProductSync,
+            scope: ChannelOperations::SCOPE_PRODUCT_WRITES,
+        );
+
+        if ($response->isDryRun()) {
+            return ListingSubmission::unknown('dry_run');
+        }
+        if (!$response->ok()) {
+            return ListingSubmission::rejected([$response->message()], channelStatus: 'http_' . $response->status);
+        }
+
+        $batch = trim((string) $response->get('batchRequestId', ''));
+
+        return $batch === ''
+            ? ListingSubmission::working(channelStatus: 'no_batch_id')
+            : ListingSubmission::acceptedForProcessing($batch, 'batch_taken');
+    }
+
+    /**
+     * What Trendyol holds for one of our barcodes, asked afresh. The four answers are kept apart, and the middle one is the trap:
+     *
+     *  - in the APPROVED list      → LIVE, with Trendyol's own words about it;
+     *  - in the UNAPPROVED list    → **WORKING**, not absent. The product EXISTS and is waiting for Trendyol's review; creating it again because it is not approved yet is
+     *                                how a seller ends up with two of the same product and a locked barcode;
+     *  - in neither, both answered → ABSENT, the only answer a create may be made on;
+     *  - a call that failed        → UNKNOWN. Never "it holds nothing".
+     */
+    public function listingFor(SalesChannelAccount $account, string $sku): ListingSubmission
+    {
+        $barcode = trim($sku);
+        if ($barcode === '') {
+            return ListingSubmission::unknown('no_barcode');
+        }
+        $seller = $this->client->sellerId($account);
+
+        $approved = $this->client->call($account, 'trendyol.products_approved', 'GET', "/product/sellers/{$seller}/products/approved", ['barcode' => $barcode, 'size' => 1], capability: IntegrationCapability::ProductSync);
+        if ($approved->isDryRun() || !$approved->ok()) {
+            return ListingSubmission::unknown($approved->isDryRun() ? 'dry_run' : 'http_' . $approved->status);
+        }
+        if ($this->holdsTheBarcode((array) ($approved->json ?? []), $barcode)) {
+            return ListingSubmission::live($barcode, ['APPROVED']);
+        }
+
+        $unapproved = $this->client->call($account, 'trendyol.products_unapproved', 'GET', "/product/sellers/{$seller}/products/unapproved", ['barcode' => $barcode, 'size' => 1], capability: IntegrationCapability::ProductSync);
+        if ($unapproved->isDryRun() || !$unapproved->ok()) {
+            return ListingSubmission::unknown($unapproved->isDryRun() ? 'dry_run' : 'http_' . $unapproved->status);
+        }
+        if ($this->holdsTheBarcode((array) ($unapproved->json ?? []), $barcode)) {
+            // It exists. It is simply not approved yet, and a create here would be a duplicate.
+            return ListingSubmission::working(channelStatus: 'awaiting_trendyol_approval');
+        }
+
+        return ListingSubmission::absent();
+    }
+
+    /**
+     * Whether a product list really names this barcode. The filter is Trendyol's, but a channel that ignored it and answered with something else must not be read as holding
+     * our product: the barcode is checked here rather than trusting a non-empty page.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function holdsTheBarcode(array $body, string $barcode): bool
+    {
+        foreach ((array) ($body['content'] ?? []) as $record) {
+            if (trim((string) ($record['barcode'] ?? '')) === $barcode) {
+                return true;
+            }
+            foreach ((array) ($record['variants'] ?? []) as $variant) {
+                if (trim((string) ($variant['barcode'] ?? '')) === $barcode) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public function batchResult(SalesChannelAccount $account, string $batchId): array
