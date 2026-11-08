@@ -53,11 +53,11 @@ class NoonClient
      * One authenticated call. The session is signed in for if there is none, or if it is near its end.
      *
      * @param array<string, mixed> $query
-     * @param array<string, mixed>|null $json
+     * @param array<string, mixed>|object|null $json
      * @throws ChannelUnavailableException
      * @throws ChannelPermissionDenied
      */
-    public function call(SalesChannelAccount $account, string $operation, string $method, string $path, array $query = [], ?array $json = null, ?IntegrationCapability $capability = null, ?string $scope = null): ChannelResponse
+    public function call(SalesChannelAccount $account, string $operation, string $method, string $path, array $query = [], array|object|null $json = null, ?IntegrationCapability $capability = null, ?string $scope = null): ChannelResponse
     {
         $url = $this->baseUrl($account) . $path;
         if ($this->http->assertAllowed($account, $operation, $method, $capability, $scope, $query)) {

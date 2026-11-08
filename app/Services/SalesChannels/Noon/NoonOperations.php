@@ -6,21 +6,21 @@ use App\Enums\SalesChannels\IntegrationCapability as Capability;
 use App\Services\SalesChannels\Support\ChannelOperations as Ops;
 
 /**
- * Every call the noon connector may make. Versions and paths follow the official partner documentation (noon-docs.noonpartners.dev) as read on 2026-11-08.
+ * Every call the noon connector may make. Paths follow the official partner documentation (noon-docs.noonpartners.dev) as read on 2026-11-08.
  *
- * WHAT IS VERIFIED AND WHAT IS NOT, because it decides what this module is allowed to do:
+ * THE SERVICE SEGMENT IS PART OF THE PATH. `stock`, `pricing`, `content`, `catplat`, `fbpi`, `warehouse-platform`, `event-notifications`, `identity`: noon's reference pages
+ * document one full URL on one gateway host, not a path relative to a per-service base. An earlier version of this file registered `/v1/stock-update` and the like, which
+ * would have been a 404 against every one of them. `paths()` below is the single place that says what a call is, and a test holds it to this list.
  *
- *  - The HTTP METHOD and the exact PATH of every operation below are quoted from the documentation's own reference pages. Nothing here is inferred from an operation's name
- *    or from a documentation URL slug.
- *  - The REQUEST AND RESPONSE SHAPES ARE NOT PUBLISHED in a form that can be read: on every reference page the Request and Responses sections are rendered in the browser
- *    and come back empty. So the FIELD NAMES of every call but the sign-in are unverified.
+ * Note the two identity prefixes are genuinely different and neither is a typo: the sign-in is `/identity/public/v1/api/login` and the identity read is `/identity/v1/whoami`.
  *
- * That is why a path being registered here does NOT mean the connector calls it. Registering it only means the transport would not refuse it; the connector implements a call
- * only once its body is known from the documentation or from a real account. This file is therefore the allow-list AND the honest record of how far the documentation goes,
- * in the same way `AmazonOperations` and `TrendyolOperations` are for theirs. See docs/sales-channels/api-reference.md.
+ * NOTHING IS REGISTERED ON A PATH THAT WAS NOT READ. Several operations exist in noon's index whose own reference pages were not opened — OAuth, the single FBPI order read,
+ * the buyer's details, cancelling or reading a shipment, invoices, the sandbox order, creating an event destination, returns, FBPO, Offer and the Reports exports. Their
+ * paths are NOT guessed from the pattern of their neighbours, because a plausible path is still a wrong one; they are absent until their page is read. See
+ * docs/sales-channels/api-reference.md for what is verified and what is not.
  *
- * Rate limits the reference pages state: 1 500 requests per 60 seconds with a burst of 1 500 per 60 seconds for every operation, except listing warehouses (30 per 60
- * seconds, burst 15 per 30 seconds). They are per PROJECT CODE, and sandbox traffic counts against the same quota.
+ * Rate limits the reference pages state: 1 500 requests per 60 seconds with a burst of 1 500 per 60 seconds for every operation EXCEPT listing warehouses, which is 30 per
+ * 60 seconds with a burst of 15 per 30 seconds. They are per PROJECT CODE, and sandbox traffic counts against the same quota.
  */
 final class NoonOperations
 {
@@ -30,60 +30,54 @@ final class NoonOperations
         $read = [Capability::ReadOnlySync, Capability::ProductSync, Capability::OrderImport, Capability::FinancialReconciliation];
         $probe = [Capability::ConnectionTest];
         $orders = [Capability::ReadOnlySync, Capability::OrderImport, Capability::FulfillmentDispatch];
-        $publishing = [Capability::InventoryPublishing, Capability::PricePublishing];
 
         return [
             // ---- signing in -------------------------------------------------------------------------------------
-            // A JWT signed RS256 with the service account's private key is exchanged for a session cookie that lasts 30 days. This is the one call whose body IS documented:
-            // `token` (the JWT) and `default_project_code`. It ALWAYS goes to the production host, even when every other call goes to the sandbox.
+            // A JWT signed RS256 with the key file's private key is exchanged for session cookies. Body: `token` and `default_project_code`.
+            // It ALWAYS goes to the production host, even when every other call of a sandbox account goes to the sandbox.
             'noon.login' => Ops::auth(['POST']),
-            // Who the session belongs to. The connection test, and the only call this version makes besides signing in.
+            // Who the session belongs to: `user_code` and `username`. The connection test.
             'noon.whoami' => Ops::read(capabilities: $probe),
 
-            // ---- OAuth, for an integrator acting on a seller's behalf --------------------------------------------
-            // Registered because the flow is documented, not because it is built: this application holds one seller's own credentials, not an integrator's.
-            'noon.oauth_token_create' => Ops::write(['POST'], [Capability::ConnectionTest], [Ops::SCOPE_PRODUCT_WRITES]),
-            'noon.oauth_token_exchange' => Ops::write(['POST'], [Capability::ConnectionTest], [Ops::SCOPE_PRODUCT_WRITES]),
-
             // ---- the seller's warehouses ------------------------------------------------------------------------
-            // Stock is addressed by a (warehouse, partner_sku) PAIR, so the warehouses have to be known before any stock call means anything.
+            // Stock is addressed by a (warehouse_code, partner_sku) PAIR, so the warehouses have to be known before a stock figure means anything.
             'noon.warehouses_list' => Ops::read(['POST'], capabilities: $read),
 
             // ---- stock ------------------------------------------------------------------------------------------
-            // A read and a write, both POST. The read's description names the identifier: "a list of warehouse and partner_sku pairs".
+            // `qty` is ABSOLUTE: it becomes the new available quantity and is not added to what noon holds.
             'noon.stock_list' => Ops::read(['POST'], capabilities: $read),
             'noon.stock_update' => Ops::write(['POST'], [Capability::InventoryPublishing], ['inventory_publishing'], retrySafe: true),
 
             // ---- price ------------------------------------------------------------------------------------------
+            // Per (partner_sku, country_code). Omitting a field, or sending null, leaves the stored value as it is — null does NOT clear it.
             'noon.pricing_get' => Ops::read(['POST'], capabilities: $read),
             'noon.pricing_upsert' => Ops::write(['POST'], [Capability::PricePublishing], ['price_publishing'], retrySafe: true),
 
             // ---- the catalogue ----------------------------------------------------------------------------------
-            // Creates or updates a product; noon decides create from update by our own `partner_sku`. A product cannot enter its quality review until it is 100% complete.
+            // The category codes, each a complete `family-product_type-product_subtype` path, and the attributes of one category with `is_mandatory` on each.
+            'noon.categories_list' => Ops::read(['POST'], capabilities: $read),
+            'noon.category_attributes_list' => Ops::read(['POST'], capabilities: $read),
+            // Creates or amends a catalogue item, noon deciding which by our own `partner_sku`, and answers `sku_parent` plus a variant per size.
             'noon.product_upsert' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
-            // Ties one of our `partner_sku`s to a barcode, creating the barcode if noon does not hold it yet.
+            // What noon holds for a `sku_parent`: its completeness, the attributes it is still missing or rejects, and its quality-review state.
+            'noon.product_content_get' => Ops::read(['POST'], capabilities: $read),
+            'noon.product_group_upsert' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
+            // Ties one of our `partner_sku` values to a barcode, creating the barcode if noon does not hold it yet.
             'noon.barcode_map' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
 
             // ---- orders fulfilled from OUR warehouse (FBPI) -----------------------------------------------------
-            // noon sends a webhook when an order is created and the order itself is then fetched by its number. The buyer's details are a separate call and are gated as such.
-            'noon.fbpi_order_get' => Ops::read(capabilities: $orders, people: true),
+            // Pages of at most 50 for one warehouse, continued with `next_token` as a QUERY parameter, filtered by `created_after` / `created_before` in UTC.
             'noon.fbpi_orders_list' => Ops::read(['POST'], capabilities: $orders, people: true),
-            // Pages of at most 50, continued with the `next_token` the previous answer gave, filtered by `created_after` / `created_before` in UTC.
             'noon.shipment_create' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
 
             // ---- where noon sends its events --------------------------------------------------------------------
-            'noon.webhook_destination_create' => Ops::write(['POST'], [Capability::OrderImport], [Ops::SCOPE_WEBHOOK_MANAGEMENT]),
-
-            // ---- the sandbox's own call -------------------------------------------------------------------------
-            // Makes a test order in the static sandbox and triggers the order webhook. It persists nothing and calls nothing downstream.
-            'noon.sandbox_order_create' => Ops::write(['POST'], [Capability::ConnectionTest], [Ops::SCOPE_PRODUCT_WRITES]),
+            // Reading the destinations only. Creating one is a different operation whose page was not read, so it is not registered.
+            'noon.webhook_destinations_list' => Ops::read(capabilities: [Capability::ReadOnlySync, Capability::OrderImport]),
         ];
     }
 
     /**
-     * The documented path of each operation, so that one place says what every call is and a test can hold this file to the documentation.
-     *
-     * `:fbpi_order_nr` is replaced by the order's number. Paths are relative to the host; the sign-in path is relative to the PRODUCTION host always.
+     * The documented FULL path of each operation, service segment and all. One place says what every call is.
      *
      * @return array<string, string>
      */
@@ -92,30 +86,51 @@ final class NoonOperations
         return [
             'noon.login' => '/identity/public/v1/api/login',
             'noon.whoami' => '/identity/v1/whoami',
-            'noon.oauth_token_create' => '/identity/oauth/v1/token/create',
-            'noon.oauth_token_exchange' => '/identity/oauth/v1/token/exchange',
-            'noon.warehouses_list' => '/v1/warehouses/list',
-            'noon.stock_list' => '/v1/stock-list',
-            'noon.stock_update' => '/v1/stock-update',
-            'noon.pricing_get' => '/v1/pricing/get',
-            'noon.pricing_upsert' => '/v1/pricing/upsert',
-            'noon.product_upsert' => '/v1/product/upsert',
-            'noon.barcode_map' => '/v1/barcode/map',
-            'noon.fbpi_order_get' => '/v1/fbpi-order/:fbpi_order_nr/get',
-            'noon.fbpi_orders_list' => '/v1/fbpi-orders/list',
-            'noon.shipment_create' => '/v1/shipment/create',
-            'noon.webhook_destination_create' => '/v1/destination/https-destination/create',
-            'noon.sandbox_order_create' => '/v1/sandbox-order/create',
+            'noon.warehouses_list' => '/warehouse-platform/v1/warehouses/list',
+            'noon.stock_list' => '/stock/v1/stock-list',
+            'noon.stock_update' => '/stock/v1/stock-update',
+            'noon.pricing_get' => '/pricing/v1/pricing/get',
+            'noon.pricing_upsert' => '/pricing/v1/pricing/upsert',
+            'noon.categories_list' => '/content/v1/categories/list',
+            'noon.category_attributes_list' => '/content/v1/categories/attributes/list',
+            'noon.product_upsert' => '/content/v1/product/upsert',
+            'noon.product_content_get' => '/content/v1/product/content/get',
+            'noon.product_group_upsert' => '/content/v1/product/group/upsert',
+            'noon.barcode_map' => '/catplat/v1/barcode/map',
+            'noon.fbpi_orders_list' => '/fbpi/v1/fbpi-orders/list',
+            'noon.shipment_create' => '/fbpi/v1/shipment/create',
+            'noon.webhook_destinations_list' => '/event-notifications/v1/destination/list',
         ];
     }
 
     /**
-     * The operations this version really CALLS. Everything else above is registered and unused, because its request body is not documented.
+     * Operations noon's index names but whose own reference page has not been read, so no path is known for them.
+     *
+     * They are listed here rather than left unsaid, so that "not registered" reads as a gap somebody can close by reading one page, and never as "noon has no such call".
+     * Guessing their paths from their neighbours is exactly what produced the 404s this file was corrected for.
      *
      * @return list<string>
      */
-    public static function built(): array
+    public static function documentedButUnread(): array
     {
-        return ['noon.login', 'noon.whoami'];
+        return [
+            'oauth.create_token', 'oauth.exchange_token', 'api_user.create_credential', 'api_user.remove_credentials',
+            'fbpi.get_order', 'fbpi.get_order_customer_data', 'fbpi.update_order', 'fbpi.cancel_shipment', 'fbpi.get_shipment',
+            'fbpi.add_shipment_courier_awbs', 'fbpi.get_noon_logistics_awbs', 'fbpi.upload_order_invoice', 'fbpi.upload_shipment_invoice',
+            'fbpi.create_sandbox_order',
+            'catalog.sku_generate', 'catalog.batch_sku_map', 'catalog.sku_rename', 'catalog.sku_delete', 'catalog.barcode_import',
+            'content.get_product_group', 'content.delete_product_group',
+            'event_notifications.create_destination', 'event_notifications.get_destination', 'event_notifications.update_destination', 'event_notifications.list_event_types',
+            'returns.list_return_references', 'fbpo.get_purchase_order', 'offer.get_product_offers',
+            'reports.create_export', 'reports.get_export_status', 'reports.get_export_category_list',
+        ];
     }
+
+    /**
+     * Noon's own success marker inside a 200. Every batch call answers one `items[]` entry per item submitted, each carrying its own `status`, and the pricing guide is
+     * explicit that "a 200 response does not mean every price was set".
+     */
+    public const ITEM_OK_CODE = 'OK';
+
+    public const ITEM_OK_ID = 0;
 }

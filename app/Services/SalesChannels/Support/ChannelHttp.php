@@ -40,7 +40,7 @@ class ChannelHttp
 
     /**
      * @param array<string, string> $headers
-     * @param array<string, mixed>|null $json
+     * @param array<string, mixed>|object|null $json an object where the service insists on a JSON object: an empty PHP array would encode to `[]`, which a gRPC gateway refuses
      * @param array<string, mixed> $query
      * @param array<string, string>|null $form an application/x-www-form-urlencoded body
      * @param IntegrationCapability|null $capability the capability the caller is acting under (defaults to the first one the account holds)
@@ -53,7 +53,7 @@ class ChannelHttp
         string $method,
         string $url,
         array $headers = [],
-        ?array $json = null,
+        array|object|null $json = null,
         array $query = [],
         ?array $form = null,
         ?IntegrationCapability $capability = null,
@@ -174,7 +174,7 @@ class ChannelHttp
      * @param array<string, mixed> $query
      * @param array<string, string>|null $form
      */
-    private function attempt(string $method, string $url, array $headers, ?array $json, array $query, ?array $form, string $correlationId): ChannelResponse
+    private function attempt(string $method, string $url, array $headers, array|object|null $json, array $query, ?array $form, string $correlationId): ChannelResponse
     {
         $started = hrtime(true);
 
@@ -276,9 +276,11 @@ class ChannelHttp
         return SecretRedactor::truncate($text, $limit - 16);
     }
 
-    private function log(SalesChannelAccount $account, string $operation, string $method, string $url, array $headers, ?array $body, array $query, ChannelResponse $response): void
+    private function log(SalesChannelAccount $account, string $operation, string $method, string $url, array $headers, array|object|null $body, array $query, ChannelResponse $response): void
     {
         try {
+            // An object body (a service that insists on `{}`) is logged as the array it stands for; an empty one logs as nothing, which is what it is.
+            $body = is_object($body) ? (array) $body : $body;
             $maxBytes = (int) config('sales_channels.logs.max_body_bytes', 8192);
             $strict = ChannelOperations::describesPeople($operation);
             $request = PiiRedactor::redact(SecretRedactor::redact(array_filter(['headers' => $headers, 'query' => $query, 'body' => $body], static fn ($value): bool => $value !== [] && $value !== null)), $strict);

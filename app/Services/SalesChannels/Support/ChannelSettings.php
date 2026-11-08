@@ -50,6 +50,8 @@ final class ChannelSettings
                 // noon addresses stock by a (warehouse, partner_sku) pair, so a default warehouse is what a one-figure-per-product view would mean here. Empty until the
                 // warehouses can be listed, which needs a request shape noon does not publish.
                 'warehouse_code' => '',
+                // A noon price belongs to a COUNTRY (`ae`, `sa`, `eg`), not to an account: the same SKU carries a different price per marketplace.
+                'country_code' => 'sa',
                 // FBN units sit in noon's own fulfilment centre: they are noon's stock, not ours, and must never join the shared pool. Off, and here to be read rather than
                 // assumed, exactly as Amazon's `sync_fba_inventory` is.
                 'sync_fbn_inventory' => false,

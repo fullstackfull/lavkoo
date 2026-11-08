@@ -249,26 +249,58 @@ class NoonConnectionTest extends TestCase
     {
         $matrix = app(NoonConnector::class)->capabilityMatrix();
 
-        $this->assertTrue($matrix['service_account_login']['built']);
-        $this->assertTrue($matrix['identity_whoami']['built']);
-        $this->assertTrue($matrix['static_sandbox']['built']);
-        foreach (['warehouses', 'stock', 'pricing', 'catalog_product_upsert', 'barcode_map', 'fbpi_orders', 'shipments', 'event_destinations', 'oauth_for_integrators'] as $documentedButNotBuilt) {
-            $this->assertTrue($matrix[$documentedButNotBuilt]['documented'], "{$documentedButNotBuilt} is documented by noon");
-            $this->assertFalse($matrix[$documentedButNotBuilt]['built'], "{$documentedButNotBuilt} has no published request body, so it may not claim to be built");
+        foreach (['service_account_login', 'identity_whoami', 'static_sandbox', 'warehouses', 'stock', 'pricing', 'category_discovery'] as $built) {
+            $this->assertTrue($matrix[$built]['built'], "{$built} is built and its path and body are documented");
         }
-        // FBP is not a noon fulfilment model, whatever a third party says.
+        // Documented by noon, and deliberately not built: either its reference page was never read (so no path is known) or nothing here needs it yet.
+        foreach (['product_groups', 'oauth_for_integrators', 'returns', 'catalog_product_upsert', 'catalog_content_state', 'barcode_map', 'fbpi_orders', 'shipments', 'event_destinations'] as $notBuilt) {
+            $this->assertTrue($matrix[$notBuilt]['documented']);
+            $this->assertFalse($matrix[$notBuilt]['built']);
+        }
+        // No settlement or fee endpoint exists anywhere in noon's index, so OperationalCosts has nothing to ingest and no figure for noon is invented.
+        $this->assertFalse($matrix['settlements_and_fees']['documented']);
+        $this->assertFalse($matrix['settlements_and_fees']['built']);
+        // FBP: NOT a claim that it does not exist. It is not on the reference or guide pages read, and noon's help centre is where it has to be read.
         $this->assertFalse($matrix['fbp']['documented']);
-        $this->assertFalse($matrix['finance']['documented'], 'no settlement or fee endpoint was found, so OperationalCosts has nothing to ingest for noon yet');
+        $this->assertStringContainsString('help centre', $matrix['fbp']['note']);
+        $this->assertStringNotContainsString('does not exist', $matrix['fbp']['note']);
     }
 
-    public function test_only_the_two_calls_that_are_built_are_the_ones_the_connector_makes(): void
+    public function test_the_matrix_and_the_allow_list_agree_about_every_operation(): void
     {
         $sources = file_get_contents(app_path('Services/SalesChannels/Noon/NoonConnector.php')) . file_get_contents(app_path('Services/SalesChannels/Noon/NoonClient.php'));
 
+        // Each registered operation is either called by this module or named in the matrix as something it does not do. Nothing may be registered and silently unused, and
+        // nothing may be called that the matrix calls unbuilt.
+        $uncalled = [];
         foreach (array_keys(NoonOperations::operations()) as $operation) {
-            $called = str_contains($sources, "'{$operation}'");
-            $expected = in_array($operation, NoonOperations::built(), true);
-            $this->assertSame($expected, $called, $expected ? "{$operation} is listed as built and must be called" : "{$operation} is registered but not built, so nothing may call it");
+            if (!str_contains($sources, "'{$operation}'")) {
+                $uncalled[] = $operation;
+            }
+        }
+
+        // Every one of these is registered with a verified path and a documented body, and the matrix says plainly that nothing calls it yet. A registered operation may
+        // be unused; it may NOT be claimed as built.
+        $this->assertSame([
+            'noon.product_upsert', 'noon.product_content_get', 'noon.product_group_upsert',
+            'noon.barcode_map', 'noon.fbpi_orders_list', 'noon.shipment_create', 'noon.webhook_destinations_list',
+        ], $uncalled, 'a registered operation nothing calls must be a row the matrix marks unbuilt');
+        $matrix = app(NoonConnector::class)->capabilityMatrix();
+        foreach (['catalog_product_upsert', 'catalog_content_state', 'product_groups', 'barcode_map', 'fbpi_orders', 'shipments', 'event_destinations'] as $row) {
+            $this->assertFalse($matrix[$row]['built'], "{$row} is registered and uncalled, so the matrix may not claim it");
+            $this->assertStringContainsString('NOT BUILT YET', $matrix[$row]['note']);
+        }
+    }
+
+    public function test_an_operation_whose_reference_page_was_never_read_is_not_registered_at_all(): void
+    {
+        $registered = array_keys(NoonOperations::operations());
+
+        // Their paths are NOT guessed from the pattern of their neighbours: a plausible path is still a wrong one, and guessing is what produced the 404s this module was
+        // corrected for. They are named so that "not registered" reads as a gap somebody can close by reading one page.
+        $this->assertNotSame([], NoonOperations::documentedButUnread());
+        foreach (NoonOperations::documentedButUnread() as $unread) {
+            $this->assertNotContains('noon.' . $unread, $registered);
         }
     }
 
