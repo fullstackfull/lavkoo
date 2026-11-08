@@ -7,6 +7,8 @@ use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
 use App\Services\SalesChannels\Inventory\Allocation\PoolMembers;
+use App\Services\SalesChannels\Inventory\PoolKey;
+use App\Services\SalesChannels\Sync\ChannelSyncRunner;
 
 /**
  * The quick run after orders were imported: every pool whose promises changed is divided again, and what LOWERS a quantity at a channel is sent at once, so that stock another
@@ -26,17 +28,36 @@ class DirtyPoolRun
     }
 
     /**
+     * The pools the MARKS name. With the division switched off nothing is ever marked (`DirtyPools::mark` does nothing), so this finds nothing then — which is what it did
+     * before the division existed, and why a caller that knows its own pools must hand them over instead (`runFor`).
+     *
      * @param SalesChannelAccount|null $only the one account to send for (the pools it does not offer are left alone)
      * @return array{pools: int, accounts: array<int, array{result: string, detail: string|null, stats: array<string, mixed>}>}
      */
     public function run(?SalesChannelAccount $only = null): array
     {
+        return $this->runFor($this->dirty->pending(), $only);
+    }
+
+    /**
+     * The same work for pools a caller names itself. It does not read the marks, so it is right whether the division is on or off: the outbox's worker knows exactly which
+     * pools changed, and handing them over is the difference between really doing the work and reporting that it was done.
+     *
+     * @param iterable<PoolKey> $keys
+     * @param SalesChannelAccount|null $only the one account to send for (the pools it does not offer are left alone)
+     * @return array{pools: int, recomputed: int, accounts: array<int, array{result: string, detail: string|null, stats: array<string, mixed>}>}
+     */
+    public function runFor(iterable $keys, ?SalesChannelAccount $only = null): array
+    {
         $poolsByAccount = [];
-        $pools = $this->dirty->pending();
+        $recomputed = 0;
+        $pools = is_array($keys) ? $keys : iterator_to_array($keys);
         foreach ($pools as $key) {
             $accountIds = array_unique(array_map(static fn ($member): int => (int) $member->account->id, $this->members->of($key, InventoryLocation::find($key->locationId))));
             if ($accountIds === [] && $only === null) {
+                // Nobody offers it: there is nothing to send, but the pool's own figures are still brought up to date.
                 $this->allocations->allocate($key);
+                $recomputed++;
             }
             foreach ($accountIds as $accountId) {
                 $poolsByAccount[$accountId][] = (string) $key;
@@ -46,8 +67,10 @@ class DirtyPoolRun
         $results = [];
         foreach (SalesChannelAccount::whereIn('id', array_keys($poolsByAccount))->when($only !== null, static fn ($query) => $query->whereKey($only->id))->orderBy('id')->get() as $account) {
             $results[(int) $account->id] = $this->publisher->publishReductions($account, $poolsByAccount[$account->id]);
+            // The publisher divides each pool again just before it sends it (StockPlanner), so a pool offered by an account it really ran for has been recomputed.
+            $recomputed += ($results[(int) $account->id]['result'] ?? null) === ChannelSyncRunner::OK ? count($poolsByAccount[$account->id]) : 0;
         }
 
-        return ['pools' => count($pools), 'accounts' => $results];
+        return ['pools' => count($pools), 'recomputed' => $recomputed, 'accounts' => $results];
     }
 }

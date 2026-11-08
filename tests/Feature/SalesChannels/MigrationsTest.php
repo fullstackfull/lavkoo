@@ -27,6 +27,8 @@ class MigrationsTest extends TestCase
         '2026_11_09_200000_create_channel_order_dispatches_table.php',
         '2026_11_10_100000_add_stock_allocation.php',
         '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php',
+        '2026_11_12_100000_create_channel_listing_drafts_table.php',
+        '2026_11_13_100000_create_channel_stock_events_table.php',
     ];
 
     private const STOCK_MIGRATION = '2026_11_10_100000_add_stock_allocation.php';
@@ -39,6 +41,7 @@ class MigrationsTest extends TestCase
         'sales_channel_accounts', 'sales_channel_product_mappings', 'external_order_mappings', 'external_order_lines', 'sales_channel_sync_states', 'sales_channel_api_logs',
         'sales_channel_events', 'inventory_locations', 'inventory_location_balances', 'inventory_source_policies', 'inventory_reservations', 'fulfillment_routing_rules',
         'fulfillment_routing_decisions', 'operational_cost_return_decisions', 'channel_order_dispatches', 'inventory_pools',
+        'channel_listing_drafts', 'channel_stock_events',
     ];
 
     protected function setUp(): void

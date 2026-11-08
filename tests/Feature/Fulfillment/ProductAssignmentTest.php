@@ -5,6 +5,7 @@ namespace Tests\Feature\Fulfillment;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Enums\Fulfillment\StockSource;
 use App\Http\Controllers\Admin\Product\ProductController;
 use App\Models\Admin;
 use App\Models\Product;
@@ -17,7 +18,9 @@ use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProductFulfillmentPanel;
 use App\Services\Fulfillment\ProductProviderAssignmentService;
 use Illuminate\Http\Request;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use ReflectionClass;
 use ReflectionMethod;
 
@@ -37,6 +40,29 @@ class ProductAssignmentTest extends FulfillmentTestCase
             'provider' => $provider->value, 'product_id' => $productId, 'variant_key' => $variantKey,
             'external_id' => 'EXT-' . $productId . '-' . $variantKey, 'external_variant_id' => $variantKey, 'status' => $status,
         ]);
+    }
+
+    /** The platform's own stock ledger, which comes from the installation dump: a test that reads it builds it (the same shape as BuildsPlatformProcurementSchema). */
+    private function buildStockLedger(): void
+    {
+        if (Schema::hasTable('stock_movements')) {
+            return;
+        }
+        Schema::create('stock_movements', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('type', 24);
+            $table->integer('qty_change');
+            $table->integer('balance_after')->nullable();
+            $table->string('reason', 40)->nullable();
+            $table->string('reference_type', 40)->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->string('created_by_type', 24)->nullable();
+            $table->timestamps();
+        });
     }
 
     private function providerOf(int $productId): ?string
@@ -175,31 +201,162 @@ class ProductAssignmentTest extends FulfillmentTestCase
         $this->assertSame('fulfillment_product_not_found', $this->assignments()->assign(99, 'm5azn', 'admin', 1)->reasonKey);
     }
 
-    public function test_the_provider_cannot_change_while_an_order_is_in_flight_with_it(): void
+    public function test_the_provider_changes_for_what_comes_next_while_a_shipment_is_in_flight_and_that_shipment_does_not_move(): void
     {
         $this->makeProduct(1, ProviderCode::TorodPoint);
         $this->approveMapping(1, ProviderCode::M5azn);
         $fulfillment = $this->inFlightOrder(100, 1, ProviderCode::TorodPoint);
 
-        $toOther = $this->assignments()->assign(1, 'm5azn', 'admin', 1);
-        $toDefault = $this->assignments()->assign(1, 'default', 'admin', 1);
+        $outcome = $this->assignments()->assign(1, 'm5azn', 'admin', 1);
 
-        $this->assertSame('fulfillment_active_operations_exist', $toOther->reasonKey);
-        $this->assertSame('fulfillment_active_operations_exist', $toDefault->reasonKey);
+        $this->assertTrue($outcome->ok);
+        $this->assertSame(1, $outcome->keptWithTheOldProvider, 'the line in flight is counted and left where it is');
+        $this->assertSame('m5azn', $this->providerOf(1), 'what comes next belongs to the new provider');
+        $this->assertSame('torod_point', $fulfillment->fresh()->provider, 'the shipment keeps the provider it was created for');
+        $this->assertSame(['torod_point'], ProviderFulfillmentItem::where('order_id', 100)->pluck('provider')->unique()->values()->all());
+        $this->assertSame(1, ProductProviderChange::where('product_id', 1)->first()->context['kept_with_the_old_provider']);
+    }
+
+    public function test_a_line_that_is_not_routed_yet_keeps_its_provider_too_and_still_routes_to_it(): void
+    {
+        $this->makeProduct(1, ProviderCode::TorodPoint);
+        $this->approveMapping(1, ProviderCode::M5azn);
+        $this->makeOrder(100, ['order_status' => 'confirmed']);
+        $this->addLine(100, 1, 1, 50, ProviderCode::TorodPoint);
+
+        $outcome = $this->assignments()->assign(1, 'm5azn', 'admin', 1);
+
+        $this->assertTrue($outcome->ok);
+        $this->assertSame(1, $outcome->keptWithTheOldProvider);
+        $this->assertSame('torod_point', ProviderFulfillmentItem::where('order_id', 100)->value('provider'), 'the order was placed for Torod Point and stays its work');
+    }
+
+    // ---- the stock follows the new owner -------------------------------------------------------------------
+
+    public function test_the_storefront_stock_becomes_the_new_providers_own_figure_when_the_product_moves_to_it(): void
+    {
+        $this->makeProduct(1, overrides: ['current_stock' => 5]);
+        $this->approveMapping(1, ProviderCode::TorodPoint)->forceFill([
+            'provider_stock' => 20, 'stock_source' => StockSource::ProviderSync, 'provider_stock_synced_at' => now()->subMinutes(5),
+        ])->save();
+
+        $outcome = $this->assignments()->assign(1, 'torod_point', 'admin', 1);
+
+        $this->assertTrue($outcome->ok);
+        $this->assertSame(1, $outcome->stockRewrittenFrom, 'one stored figure was read');
+        $this->assertSame(20, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+        $this->assertSame(20, (int) ProviderProductMapping::where('product_id', 1)->value('provider_stock'), 'the provider figure itself is untouched');
+    }
+
+    public function test_the_figure_the_new_owner_gave_is_not_made_to_look_fresher_than_it_is(): void
+    {
+        $typedLongAgo = now()->subDays(3);
+        $this->makeProduct(1, overrides: ['current_stock' => 5]);
+        $this->approveMapping(1, ProviderCode::TorodPoint)->forceFill([
+            'provider_stock' => 20, 'stock_source' => StockSource::ProviderSync, 'provider_stock_synced_at' => $typedLongAgo,
+        ])->save();
+
+        $this->assignments()->assign(1, 'torod_point', 'admin', 1);
+
+        $this->assertSame($typedLongAgo->toDateTimeString(), ProviderProductMapping::where('product_id', 1)->first()->provider_stock_synced_at->toDateTimeString(), 'a stale figure stays stale');
+    }
+
+    public function test_store_orders_the_new_owner_has_not_taken_on_come_off_the_figure_it_writes(): void
+    {
+        $this->makeProduct(1, overrides: ['current_stock' => 5]);
+        $this->approveMapping(1, ProviderCode::TorodPoint)->forceFill([
+            'provider_stock' => 20, 'stock_source' => StockSource::ProviderSync, 'provider_stock_synced_at' => now(),
+        ])->save();
+        $this->makeOrder(100, ['order_status' => 'confirmed']);
+        $this->addLine(100, 1, 3, 50, ProviderCode::TorodPoint);
+
+        $this->assignments()->assign(1, 'torod_point', 'admin', 1);
+
+        $this->assertSame(17, (int) DB::table('products')->where('id', 1)->value('current_stock'), '20 at the warehouse less the 3 units it has not taken on');
+    }
+
+    public function test_a_product_that_leaves_a_provider_stops_being_sold_until_its_balance_is_confirmed(): void
+    {
+        // Torod Point's count is what Torod Point holds; the store's own shelf is a different shelf and nobody has counted it.
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 12]);
+        $this->approveMapping(1, ProviderCode::TorodPoint)->forceFill([
+            'provider_stock' => 20, 'stock_source' => StockSource::ProviderSync, 'provider_stock_synced_at' => now(),
+        ])->save();
+
+        $this->buildStockLedger();
+
+        $outcome = $this->assignments()->assign(1, 'default', 'admin', 1);
+
+        $this->assertTrue($outcome->ok);
+        $this->assertSame(0, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'nothing is sold from a balance nobody confirmed');
+        // The keys are compared by name, not by position: MySQL stores a JSON object in its own key order.
+        $stopped = ProductProviderChange::where('product_id', 1)->first()->context['stock']['stopped_selling'];
+        $this->assertSame([12, 0], [$stopped['was'], $stopped['now']]);
+        $movement = DB::table('stock_movements')->where('product_id', 1)->latest('id')->first();
+        $this->assertSame(['provider_change_balance_unconfirmed', -12, 0], [$movement->reason, (int) $movement->qty_change, (int) $movement->balance_after]);
+    }
+
+    public function test_a_product_moving_to_a_provider_that_has_reported_nothing_also_stops_being_sold(): void
+    {
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 9]);
+        $this->approveMapping(1, ProviderCode::TorodPoint);
+        $this->approveMapping(1, ProviderCode::M5azn);
+
+        $outcome = $this->assignments()->assign(1, 'm5azn', 'admin', 1);
+
+        $this->assertSame(0, $outcome->stockRewrittenFrom, 'the new owner gave no figure');
+        $this->assertSame(0, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+    }
+
+    public function test_a_new_owner_that_has_a_figure_writes_it_instead_of_stopping_the_sale(): void
+    {
+        $this->makeProduct(1, overrides: ['current_stock' => 5]);
+        $this->approveMapping(1, ProviderCode::TorodPoint)->forceFill([
+            'provider_stock' => 20, 'stock_source' => StockSource::ProviderSync, 'provider_stock_synced_at' => now(),
+        ])->save();
+
+        $this->assignments()->assign(1, 'torod_point', 'admin', 1);
+
+        $this->assertSame(20, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+        $this->assertNull(ProductProviderChange::where('product_id', 1)->first()->context['stock']['stopped_selling']);
+    }
+
+    public function test_a_product_that_was_never_with_a_provider_keeps_its_own_number(): void
+    {
+        $this->makeProduct(1, overrides: ['current_stock' => 5]);
+        $this->approveMapping(1, ProviderCode::TorodPoint);
+
+        $outcome = $this->assignments()->assign(1, 'torod_point', 'admin', 1);
+
+        $this->assertSame(0, $outcome->stockRewrittenFrom);
+        $this->assertSame(5, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'it is the store\'s own count and it is leaving nobody');
+    }
+
+    public function test_the_owner_can_keep_the_old_number_and_correct_it_themselves(): void
+    {
+        config(['fulfillment.stop_selling_when_a_product_leaves_a_provider' => false]);
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 12]);
+        $this->approveMapping(1, ProviderCode::TorodPoint);
+
+        $this->assignments()->assign(1, 'default', 'admin', 1);
+
+        $this->assertSame(12, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+    }
+
+    public function test_the_owner_can_put_the_older_lock_back(): void
+    {
+        config(['fulfillment.lock_provider_while_orders_are_in_flight' => true]);
+        $this->makeProduct(1, ProviderCode::TorodPoint);
+        $this->approveMapping(1, ProviderCode::M5azn);
+        $fulfillment = $this->inFlightOrder(100, 1, ProviderCode::TorodPoint);
+
+        $this->assertSame('fulfillment_active_operations_exist', $this->assignments()->assign(1, 'm5azn', 'admin', 1)->reasonKey);
+        $this->assertSame('fulfillment_active_operations_exist', $this->assignments()->assign(1, 'default', 'admin', 1)->reasonKey);
         $this->assertSame('torod_point', $this->providerOf(1));
 
         $fulfillment->forceFill(['status' => FulfillmentStatus::Delivered])->save();
 
         $this->assertTrue($this->assignments()->assign(1, 'm5azn', 'admin', 1)->ok, 'finished work no longer pins the product');
-    }
-
-    public function test_an_open_order_whose_line_is_not_routed_yet_also_blocks_the_change(): void
-    {
-        $this->makeProduct(1, ProviderCode::TorodPoint);
-        $this->makeOrder(100, ['order_status' => 'confirmed']);
-        $this->addLine(100, 1, 1, 50, ProviderCode::TorodPoint);
-
-        $this->assertSame('fulfillment_active_operations_exist', $this->assignments()->assign(1, 'default', 'admin', 1)->reasonKey);
     }
 
     public function test_a_closed_order_does_not_block_the_change(): void
@@ -248,7 +405,7 @@ class ProductAssignmentTest extends FulfillmentTestCase
         $this->assertSame('fulfillment_mapping_required', $byValue['m5azn']['reason']);
     }
 
-    public function test_the_form_locks_a_product_with_work_in_flight_but_keeps_its_current_choice(): void
+    public function test_the_form_warns_about_the_work_in_flight_instead_of_locking_the_product(): void
     {
         $this->makeProduct(1, ProviderCode::TorodPoint);
         $this->approveMapping(1, ProviderCode::M5azn);
@@ -259,6 +416,24 @@ class ProductAssignmentTest extends FulfillmentTestCase
 
         $this->assertSame('torod_point', $form['current']);
         $this->assertTrue($byValue['torod_point']['selectable'], 'staying put is always allowed');
+        $this->assertNull($byValue['torod_point']['warning'], 'nothing moves when nothing changes');
+        foreach (['default', 'm5azn'] as $value) {
+            $this->assertTrue($byValue[$value]['selectable']);
+            $this->assertNull($byValue[$value]['reason']);
+            $this->assertSame('fulfillment_orders_stay_with_the_old_provider', $byValue[$value]['warning']);
+            $this->assertSame(1, $byValue[$value]['kept_with_the_old_provider']);
+        }
+    }
+
+    public function test_the_form_locks_the_product_when_the_owner_asked_for_the_older_rule(): void
+    {
+        config(['fulfillment.lock_provider_while_orders_are_in_flight' => true]);
+        $this->makeProduct(1, ProviderCode::TorodPoint);
+        $this->approveMapping(1, ProviderCode::M5azn);
+        $this->inFlightOrder(100, 1, ProviderCode::TorodPoint);
+
+        $byValue = collect($this->assignments()->choicesFor(1)['choices'])->keyBy('value');
+
         foreach (['default', 'm5azn'] as $value) {
             $this->assertFalse($byValue[$value]['selectable']);
             $this->assertSame('fulfillment_active_operations_exist', $byValue[$value]['reason']);

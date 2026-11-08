@@ -10,6 +10,7 @@ use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Inventory\Allocation\OrderFreshness;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use Illuminate\Support\Collection;
 
@@ -30,6 +31,7 @@ final class StockAttention
         private readonly ProductDirectory $products,
         private readonly OrderFreshness $freshness,
         private readonly ChannelOrderReservations $reservations,
+        private readonly StockEventOutbox $outbox,
     ) {
     }
 
@@ -49,7 +51,44 @@ final class StockAttention
             $this->raisesFrozen($accounts, $listings),
             $this->unattributed($accounts),
             $this->agedHolds(),
+            $this->changesNotWorkedYet(),
         ];
+    }
+
+    /**
+     * Changes waiting to be acted on, and ones nobody could act on.
+     *
+     * This is the figure that says the WORKERS have stopped — a quantity that should have dropped seconds ago and has not. A few waiting for a moment is the arrangement
+     * working; a pile that is minutes old, or one dead event, is somebody's to look at: the dead ones name a quantity nobody has corrected.
+     */
+    private function changesNotWorkedYet(): array
+    {
+        $lag = $this->outbox->lag();
+        $behind = max(0, (int) ($lag['oldest_pending_seconds'] ?? 0));
+        $late = $behind >= max(60, (int) config('sales_channels.stock.outbox.behind_seconds', 180));
+        $items = [];
+
+        // First, because it is the one that means a unit is on sale here that is gone.
+        if (($lag['storefront_refused'] ?? 0) > 0) {
+            $items[] = ['title' => translate('storefront_stock_nobody_could_correct'), 'detail' => $lag['storefront_refused'] . ' ' . translate('a_mapping_or_a_product_has_to_be_corrected_first'), 'url' => route('admin.sales-channels.inventory.index')];
+        }
+        if ($lag['dead'] > 0) {
+            $items[] = ['title' => translate('stock_changes_nobody_could_work'), 'detail' => $lag['dead'] . ' ' . translate('kept_for_you_until_somebody_deals_with_them'), 'url' => route('admin.sales-channels.inventory.index')];
+        }
+        if ($late) {
+            $items[] = ['title' => translate('stock_changes_waiting_too_long'), 'detail' => $lag['pending'] . ' ' . translate('changes_oldest_of_them_minutes_ago', ['minutes' => (int) floor($behind / 60)]), 'url' => route('admin.sales-channels.inventory.index')];
+        }
+        // Changes a pass attended to where a switch or an approval refused the send. Nothing failed — but nothing was published either, and an empty queue must never be
+        // read as "everything is at the channels".
+        if (($lag['not_sent'] ?? 0) > 0) {
+            $items[] = ['title' => translate('stock_changes_recomputed_but_not_sent'), 'detail' => $lag['not_sent'] . ' ' . translate('a_switch_or_an_approval_refused_the_send'), 'url' => route('admin.sales-channels.index')];
+        }
+
+        return $this->section(
+            translate('attention_stock_changes_not_worked'),
+            count($items) === 0 ? 0 : $lag['dead'] + ($late ? $lag['pending'] : 0) + (int) ($lag['not_sent'] ?? 0) + (int) ($lag['storefront_refused'] ?? 0),
+            $items,
+        );
     }
 
     private function deficits(): array

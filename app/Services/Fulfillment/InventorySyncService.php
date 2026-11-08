@@ -9,6 +9,7 @@ use App\Enums\Fulfillment\StockSource;
 use App\Models\ProviderFulfillmentItem;
 use App\Models\ProviderProductMapping;
 use App\Models\StockMovement;
+use App\Services\Fulfillment\Contracts\NotesStockChanged;
 use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\Marketplace\InventoryService;
 use Carbon\CarbonInterface;
@@ -52,8 +53,11 @@ class InventorySyncService
     private const UNSUPPORTED = 'unsupported';
     private const NOT_ASSIGNED = 'not_assigned';
 
-    public function __construct(private readonly InventoryService $inventory, private readonly ReportsChannelHolds $channelHolds)
-    {
+    public function __construct(
+        private readonly InventoryService $inventory,
+        private readonly ReportsChannelHolds $channelHolds,
+        private readonly NotesStockChanged $stockNotes,
+    ) {
     }
 
     /**
@@ -156,6 +160,50 @@ class InventorySyncService
     }
 
     /**
+     * Writes the storefront's stock again from the figures the provider has ALREADY given, without asking the provider and without making an old figure look new.
+     *
+     * It is for the moment a product changes hands: the number the storefront sells from has to become the new owner's, computed the way every other write computes it (the
+     * provider's figure less the store orders it has not taken on and less what the channels hold), and each figure keeps the age it really has, so a stale one stays stale
+     * and is not published as confirmed. Nothing is sent anywhere and no mapping is re-stamped.
+     *
+     * @return array{products: int, updated: int, unchanged: int, unsupported: int, not_assigned: int} `products` counts the mappings whose figure was read
+     */
+    public function rewriteStoreStockFromStoredFigures(ProviderCode $provider, int $productId): array
+    {
+        $stats = ['products' => 0, 'updated' => 0, 'unchanged' => 0, 'unsupported' => 0, 'not_assigned' => 0];
+        $mappings = ProviderProductMapping::where('provider', $provider->value)
+            ->where('product_id', $productId)
+            ->where('status', MappingStatus::Approved->value)
+            ->orderBy('id')
+            ->get();
+
+        foreach ($mappings as $mapping) {
+            if ($mapping->provider_stock === null) {
+                continue;
+            }
+            $stats['products']++;
+            $outcome = DB::transaction(fn (): string => $this->writeStoreStock($mapping, $provider, (int) $mapping->provider_stock, $mapping->provider_stock_synced_at, assignedOnly: true));
+            $stats[$outcome] = ($stats[$outcome] ?? 0) + 1;
+        }
+
+        return $stats;
+    }
+
+    /** One line in the platform's own stock ledger, for a change to a product's stock this module made outside a provider sync (a product leaving a provider). */
+    public function recordStockMovement(int $productId, int $qtyChange, int $balanceAfter, string $reason, ?string $note = null): void
+    {
+        $this->inventory->record(
+            productId: $productId,
+            type: StockMovement::TYPE_ADJUSTMENT,
+            qtyChange: $qtyChange,
+            balanceAfter: $balanceAfter,
+            reason: $reason,
+            referenceType: $reason,
+            note: $note,
+        );
+    }
+
+    /**
      * @param iterable<ProviderProductMapping> $mappings
      * @return array<string, ProviderProductMapping>
      */
@@ -208,13 +256,28 @@ class InventorySyncService
      */
     private function storeAssigned(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity, ?CarbonInterface $acceptedSince): string
     {
-        return DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince): string {
-            $outcome = $this->writeStoreStock($mapping, $provider, $providerQuantity, $acceptedSince, assignedOnly: true);
-            if ($outcome === self::UPDATED || $outcome === self::UNCHANGED) {
-                $this->stamp($mapping, $providerQuantity);
-            }
+        $before = (int) ($mapping->provider_stock ?? -1);
 
-            return $outcome;
+        // The note goes in the SAME transaction as the figure. Outside it, a process that died between the two would leave the new figure stored and nothing to say that
+        // whoever else sells this shelf must be told — which is exactly the loss the note exists to prevent, so it may not be made after the commit.
+        return DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince, $before): string {
+            $written = $this->writeStoreStock($mapping, $provider, $providerQuantity, $acceptedSince, assignedOnly: true);
+            if ($written !== self::UPDATED && $written !== self::UNCHANGED) {
+                return $written;
+            }
+            // These figures were just READ from the provider, so the mapping records when. Re-applying a figure already stored goes through
+            // rewriteStoreStockFromStoredFigures instead, which never stamps: a stale figure must not come to read as current.
+            $this->stamp($mapping, $providerQuantity);
+            // Whoever else sells this shelf (Amazon FBM, Trendyol) may now be shown a different quantity, and used to find out only at the next quarter-hour sweep. It sends
+            // nothing to any channel and decides nothing about whether anything may be sent; where the sales-channel module is absent the note goes nowhere.
+            $this->stockNotes->providerFigureChanged(
+                provider: $provider,
+                productId: (int) $mapping->product_id,
+                variantKey: (string) $mapping->variant_key,
+                figureChanged: $before !== $providerQuantity,
+            );
+
+            return $written;
         });
     }
 

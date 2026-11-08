@@ -692,7 +692,7 @@ class AmazonConnectorTest extends TestCase
         $this->assertFalse($matrix['reports']['built']);
         $this->assertFalse($matrix['catalog_items']['built']);
         $this->assertFalse($matrix['feeds_json_listings']['built'], 'The feed operations are on the allowed list but nothing calls them: price and stock go one SKU at a time.');
-        $this->assertFalse($matrix['product_type_definitions']['built']);
+        $this->assertTrue($matrix['product_type_definitions']['built']);
     }
 
     public function test_every_operation_the_matrix_calls_built_is_called_by_the_connector_and_every_one_it_does_not_is_not(): void
@@ -704,14 +704,18 @@ class AmazonConnectorTest extends TestCase
             }
         }
         $notBuilt = [
-            'amazon.feeds_create_document', 'amazon.feeds_upload', 'amazon.feeds_create', 'amazon.feeds_get', 'amazon.feeds_document', 'amazon.product_type_definition', 'amazon.listing_get',
+            'amazon.feeds_create_document', 'amazon.feeds_upload', 'amazon.feeds_create', 'amazon.feeds_get', 'amazon.feeds_document',
             'amazon.catalog_search', 'amazon.finances_groups', 'amazon.reports_create', 'amazon.reports_get', 'amazon.reports_document', 'amazon.report_download', 'amazon.notifications_read', 'amazon.notifications_write',
         ];
 
         foreach ($notBuilt as $operation) {
             $this->assertStringNotContainsString("'{$operation}'", $sources, "{$operation} is called, so the matrix may not say it is not built.");
         }
-        foreach (['amazon.listings_search', 'amazon.listings_patch_price', 'amazon.listings_patch_quantity', 'amazon.listings_validate', 'amazon.orders_search', 'amazon.order_get', 'amazon.order_confirm_shipment', 'amazon.fba_inventory', 'amazon.finances_transactions'] as $operation) {
+        foreach ([
+            'amazon.listings_search', 'amazon.listings_patch_price', 'amazon.listings_patch_quantity', 'amazon.listings_validate', 'amazon.listings_put',
+            'amazon.listings_patch_content', 'amazon.listing_get',
+            'amazon.product_type_definition', 'amazon.orders_search', 'amazon.order_get', 'amazon.order_confirm_shipment', 'amazon.fba_inventory', 'amazon.finances_transactions',
+        ] as $operation) {
             $this->assertStringContainsString("'{$operation}'", $sources, "{$operation} is what the matrix calls built.");
         }
     }

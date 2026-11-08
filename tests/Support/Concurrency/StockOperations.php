@@ -2,11 +2,15 @@
 
 namespace Tests\Support\Concurrency;
 
+use App\Models\ChannelStockEvent;
 use App\Models\SalesChannelAccount;
+use App\Services\Fulfillment\StorefrontStockRefresher;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Inventory\Allocation\MemberShare;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocation;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventDrain;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Inventory\ReservationService;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
@@ -24,6 +28,33 @@ use Tests\Support\BuildsRemoteOrders;
  */
 final class StockOperations
 {
+    /**
+     * Claims a batch of the stock outbox and says which event ids this process got. Two processes must never name the same id: that is what makes the outbox safe to work from
+     * several workers, which is the whole point of having workers.
+     *
+     * @param array{limit?: int} $args
+     * @return list<int>
+     */
+    public static function claimStockEvents(array $args): array
+    {
+        StockEventOutbox::$runId = '';
+
+        return array_map(static fn (ChannelStockEvent $event): int => (int) $event->id, app(StockEventOutbox::class)->claim((int) ($args['limit'] ?? 50)));
+    }
+
+    /**
+     * Works the outbox the way a queue worker does, and says what the pass came to. Several at once must not double-work an event, and must not leave one behind.
+     *
+     * @param array{limit?: int} $args
+     */
+    public static function drainStockEvents(array $args): array
+    {
+        StockEventOutbox::$runId = '';
+        $worked = app(StockEventDrain::class)->drain((int) ($args['limit'] ?? 50));
+
+        return ['claimed' => $worked['claimed'], 'pools' => $worked['pools'], 'failed' => $worked['failed']];
+    }
+
     /** One of several different operations started at the same instant: the harness runs one name for all its processes, so this one is told which to run. @param array{operation: string, arguments: array<string, mixed>} $args */
     public static function mixed(array $args): mixed
     {
@@ -90,6 +121,36 @@ final class StockOperations
     }
 
     /** Takes the pool's row `FOR UPDATE` as the division does and keeps it for a while, so that a process that wants it has to wait. @param array{location: int, product: int, hold_microseconds: int} $args */
+    /**
+     * Holds the PRODUCT row locked for a while, so another process's storefront write has to queue behind it. The counterpart of holdPoolLock, for the product side.
+     *
+     * @param array{product: int, hold_microseconds: int} $args
+     */
+    public static function holdProductLock(array $args): bool
+    {
+        DB::transaction(function () use ($args): void {
+            DB::table('products')->where('id', (int) $args['product'])->lockForUpdate()->first();
+            usleep((int) $args['hold_microseconds']);
+        });
+
+        return true;
+    }
+
+    /**
+     * Writes the storefront's own number the way a caller does it after its transaction has committed, and says what it came to. What it must come to is the figure minus
+     * every hold that exists WHEN IT GETS THE LOCK — not the holds there were when it began to wait for it.
+     *
+     * @param array{product: int, delay_microseconds?: int} $args
+     * @return array{current_stock: int}
+     */
+    public static function writeStorefront(array $args): array
+    {
+        usleep((int) ($args['delay_microseconds'] ?? 0));
+        app(StorefrontStockRefresher::class)->writeFor([(int) $args['product']]);
+
+        return ['current_stock' => (int) DB::table('products')->where('id', (int) $args['product'])->value('current_stock')];
+    }
+
     public static function holdPoolLock(array $args): bool
     {
         DB::transaction(function () use ($args): void {
