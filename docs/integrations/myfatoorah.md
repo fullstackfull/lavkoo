@@ -74,6 +74,62 @@ exactly which of the above is missing.
 
 ---
 
+## 2a. Sandbox on a Saudi MyFatoorah account, step by step
+
+Do all of this before anything Live. Nothing below moves real money.
+
+**1. Get a sandbox account.** The public demo account on `demo.myfatoorah.com` is a Kuwaiti one and its
+token only works for KWD — useless for testing a SAR integration. Ask MyFatoorah support
+(`tech@myfatoorah.com`) for a **Saudi test account**, naming the currency (SAR) and the methods you want
+enabled: mada, Visa/Mastercard, Apple Pay, STC Pay. They enable methods per account, so ask explicitly.
+
+**2. Create the API token.** In the sandbox portal: *Integration Settings → API Key → Create*. Give it
+the permissions this integration uses — create payment, payment details, payment methods, and refunds if
+you want to test those. Copy the token once; the portal will not show it again.
+
+**3. Enter it in the admin panel.** *Payment & Withdraw Methods Setup → MyFatoorah*, Mode = **Sandbox
+(test)**, paste into **Test API key**, save. Then press **Test sandbox connection**. It should report the
+methods your account has enabled. If it reports none in SAR, the account is not set up for Saudi yet —
+go back to step 1 rather than working around it.
+
+**4. Enable the webhook.** Sandbox portal → *Webhook*: paste the URL the admin page shows
+(`https://pharmacyksa.com/api/myfatoorah/webhook`), enable the **secure key**, copy it, and paste it into
+**Test webhook secret key** in the admin panel. Subscribe at least to **PAYMENT_STATUS_CHANGED**.
+
+**5. Switch it on.** `MYFATOORAH_ENABLED=true` in `.env`, `php artisan optimize:clear`, then the gateway
+toggle on the payment-gateway card. The store-wide *Digital payment* switch must be on too.
+
+**6. Pay a sandbox payment, once per method.** MyFatoorah's sandbox test cards are in their own docs
+(*Testing Cards*) and change from time to time, so take them from the portal rather than from here. For
+each method, check on the admin page that:
+
+- the attempt reaches **paid**, with the amount and currency you expected;
+- exactly **one** order exists for it;
+- the webhook delivery shows outcome **settled** under *Recent webhook deliveries*.
+
+**7. Check the three states deliberately**, because the differences are the point:
+
+| What to do | What should happen |
+|---|---|
+| Pay successfully | attempt `paid`, one order, webhook `settled` |
+| Cancel on the hosted page | attempt `cancelled`, no order, customer sees the cancelled page |
+| Use a card the sandbox declines | attempt `failed`, no order |
+| Close the tab immediately after paying | the webhook settles it; the order appears without the customer returning |
+| Pay, then open the old page again and pay again | the second is `mismatch`, flagged, **no second order** |
+
+**8. Check the amount end to end.** Put a basket together with shipping, a discount and tax so the total
+is not a round number, and confirm the attempt's amount, the MyFatoorah invoice and the order total all
+agree to the halala. This is also the check that tells you which of MyFatoorah's three amount fields is
+authoritative on your account (§8.4).
+
+**9. Test a refund** while still in sandbox: a partial one, then the remainder, then confirm a third is
+refused. Remember the status only reaches `executed` when someone marks it so after reading the portal —
+MyFatoorah executes refunds after review.
+
+**10. Only then consider Live**, and as a separate decision: a new token from the Saudi production
+portal, a new webhook secret, Mode = Live, and one small real payment watched end to end before the
+gateway is left on.
+
 ## 3. Webhook
 
 Register this URL in the MyFatoorah portal (*Integration Settings → Webhook*), and enable the
@@ -402,10 +458,36 @@ These could not be exercised here and must be confirmed on the real account:
    `/v2/MakeRefund` path is kept in config as a fallback for an account only permitted that one.
 7. **Apple Pay** needs the domain registering with MyFatoorah (`RegisterApplePayDomain`) and is subject
    to their own onboarding. Not exercised.
-8. **3-D Secure, STC Pay and Apple Pay app hand-offs on real devices.** The app hands non-`http(s)`
-   schemes to the OS, which is what those flows need, but it was not run on a physical device: this
-   environment has no Android SDK and no macOS, so no `.apk`, `.aab` or `.ipa` was produced. What WAS
-   done is in §10. **A device test on both platforms is still required before release.**
+8. **Anything on a real Android or iOS device.** What was and was not run is in §10; the device gap is
+   spelled out below because it is the largest remaining one.
+
+### 8a. Android and iOS tests that were NOT run
+
+This environment has **no Android SDK and no macOS**, so no `.apk`, `.aab` or `.ipa` was produced and
+nothing ran on a device or simulator. The Dart compiles (`flutter build bundle` succeeds) and the logic
+is unit-tested, but every item below needs real hardware:
+
+| Not run | Why it matters | Platform |
+|---|---|---|
+| 3-D Secure step on mada and on Visa/Mastercard | The bank's page runs inside the WebView and may navigate in ways only a device shows | both |
+| STC Pay hand-off | Leaves the WebView for the STC Pay app via a non-`http(s)` scheme; the app hands those to the OS, but whether the customer comes *back* cleanly is a device behaviour | both |
+| Apple Pay | Needs the domain registered with MyFatoorah (`RegisterApplePayDomain`) and a real device with a card in Wallet. Not available in a simulator | iOS |
+| Google Pay | Same shape as Apple Pay, needs a device with a card | Android |
+| Returning to the app from an external browser | Where the OS sends the customer back, and whether the screen is still alive to poll | both |
+| Killing the app mid-payment and reopening | The server settles regardless; what the customer *sees* on reopening is untested | both |
+| Losing connectivity during the return | Should show "confirming", never a failure. The logic is tested; the real radio behaviour is not | both |
+| A release build | Only a debug kernel was built. R8/ProGuard on Android and bitcode/signing on iOS can behave differently | both |
+| Arabic RTL on the payment and confirming screens | Strings are in place and the key test passes, but the layout was never rendered | both |
+
+Suggested order on a device: a successful mada payment, then a cancellation, then a 3-D Secure card, then
+STC Pay, then Apple Pay / Google Pay, then kill-and-reopen, then aeroplane mode on the way back.
+
+To build once an SDK is available:
+
+```bash
+flutter build appbundle --release    # Android
+flutter build ipa --release          # iOS, needs macOS and Xcode
+```
 
 ---
 

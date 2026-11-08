@@ -10846,4 +10846,5 @@ return [
 	'only_an_attempt_whose_payment_page_never_arrived_can_be_released_this_way' => 'Only an attempt whose payment page never arrived can be released this way.',
 	'attempt_released_the_customer_can_start_a_new_payment' => 'Released. The customer can start a new payment.',
 	'the_payment_was_applied' => 'The payment was applied.',
+	'myfatoorah_switched_off_on_this_page' => 'Myfatoorah switched off on this page',
 ];
