@@ -140,6 +140,12 @@ app polling, and the reconciliation sweep — and all four funnel into `PaymentS
   shipment with a courier — work a rollback cannot undo. Before it runs, the store is asked whether an
   order already carries this transaction reference (`orders.transaction_ref`); if one does, the hook
   already did its job on an earlier interrupted run and is not called again.
+- The right to run the hook is **leased** with a conditional UPDATE on `hook_started_at`, so exactly one
+  process is inside it at a time. `settled_at` alone was not enough: a second delivery arriving while the
+  first was still inside the hook found `settled_at` set and `hook_completed_at` still null, and the
+  order-already-exists check could not help because the first caller had not created that order yet —
+  creating it is most of the way through the hook's work. The lease goes stale after ten minutes, so a
+  process killed mid-hook cannot hold the order hostage.
 - `hook_completed_at` records that it finished. An attempt with `settled_at` set and
   `hook_completed_at` null is an **interrupted settlement** — the one state that can take the money and
   lose the order. It is queryable by exactly that pair, counted on the admin page, and finished by
@@ -305,12 +311,12 @@ These could not be exercised here and must be confirmed on the real account:
 
 1. Merge the backend PR. **Do not** run migrations on the server without approval; when approved:
    ```bash
-   php artisan migrate   # four migrations, all additive
+   php artisan migrate   # five migrations, all additive
    php artisan optimize:clear
    ```
    Three new tables (`myfatoorah_payment_attempts`, `myfatoorah_webhook_events`,
-   `myfatoorah_refunds`) and one inactive row in `addon_settings`. Nothing existing is altered or
-   dropped.
+   `myfatoorah_refunds`), one added column on the first of those, and one inactive row in
+   `addon_settings`. Nothing existing is altered or dropped.
 2. `MYFATOORAH_ENABLED=true`, then configure and test in the admin panel as in §2.
 3. Register the webhook (§3).
 4. Add the reconciliation cron (§5) once approved.
@@ -347,7 +353,7 @@ live key, or one a paid order's history points at, is left alone.
 ./vendor/bin/phpunit tests/Feature/MyFatoorah/
 ```
 
-86 tests, 319 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
+113 tests, 399 assertions. `Http::preventStrayRequests()` is on throughout: any request a test has not
 explicitly faked fails it, so nothing here can reach the real sandbox.
 
 They cover the gateway's switches and modes; encryption at rest and that a blank field keeps a stored key;
@@ -357,11 +363,12 @@ paid / failed / pending / cancelled / expired; a wrong amount, a wrong currency 
 payment; a network failure and a rejected key both being `unknown` rather than failures; a confirmed
 payment surviving a stale failure notice; settling five times; two attempts both paid; an interrupted
 settlement and its recovery, including when the order already exists; webhook before and after the
-redirect; the same webhook ten times; no signature, a wrong signature and a tampered payload; an unknown
-reference not being matched by a colliding invoice id; the body not being stored; reconciliation
-recovering a lost payment and reporting an unavailable invoice lookup; full and partial refunds, the paid
-amount as a ceiling, pending requests counting against it, and an unknown refund outcome; the method
-catalogue read from the account; and that the gateway registers switched off with one card and no
-duplicate.
+redirect; the same webhook ten times; a second caller arriving while the hook is mid-flight; a lease left
+behind by a killed process; no signature, a wrong signature and a tampered payload; an unknown reference
+not being matched by a colliding invoice id; the body not being stored; reconciliation recovering a lost
+payment and reporting an unavailable invoice lookup; full and partial refunds, the paid amount as a
+ceiling, pending requests counting against it, and an unknown refund outcome; the method catalogue read
+from the account; the gateway being hidden from both checkouts unless it can actually take a payment; and
+that it registers switched off with one card and no duplicate.
 
 **Passing tests are not evidence that a real payment works.** See §8.
