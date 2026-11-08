@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\SkipsUntilSalesChannelsMigrated;
+use App\Models\ChannelStockEvent;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelApiLog;
 use App\Models\SalesChannelEvent;
@@ -36,6 +37,12 @@ class SalesChannelsPruneCommand extends Command
         $reservationDays = (int) config('sales_channels.stock.allocation.released_reservation_days');
         $reservations = InventoryReservation::where('state', InventoryReservation::RELEASED)->where('released_at', '<', now()->subDays($reservationDays))->delete();
         $this->info("Deleted {$reservations} released stock reservation(s) older than {$reservationDays} days.");
+
+        // Worked stock events are history: the quantity they led to is on the listing. A DEAD one is never deleted here — it is an event nobody could work, which means a
+        // quantity somewhere that nobody has corrected, and it stays until a person has dealt with it (`channels:stock-events --status`, then `--retry-dead`).
+        $eventDays = (int) config('sales_channels.stock.outbox.done_event_days', 7);
+        $events = ChannelStockEvent::where('state', ChannelStockEvent::DONE)->where('worked_at', '<', now()->subDays(max(1, $eventDays)))->delete();
+        $this->info("Deleted {$events} worked stock event(s) older than {$eventDays} days; dead ones are kept.");
 
         return self::SUCCESS;
     }

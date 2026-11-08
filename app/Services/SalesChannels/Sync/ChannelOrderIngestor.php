@@ -3,6 +3,7 @@
 namespace App\Services\SalesChannels\Sync;
 
 use App\Enums\SalesChannels\ChannelOrderStatus;
+use App\Models\ChannelStockEvent;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
@@ -47,8 +48,14 @@ class ChannelOrderIngestor
 
             return $this->update($this->mappingOf($account, $remote)->lockForUpdate()->firstOrFail(), $remote);
         }, attempts: 3);
-        // What the order now promises of our stock is recorded beside it, so what is offered to the channels is never more than is left.
-        $this->reservations->sync($result->mapping);
+        // What the order now promises of our stock is recorded beside it, so what is offered to the channels is never more than is left. The reason is passed on so that a person
+        // reading the outbox later can tell an order we had never seen from one that moved on.
+        $this->reservations->sync($result->mapping, match (true) {
+            $result->outcome === IngestResult::CREATED => ChannelStockEvent::ORDER_IMPORTED,
+            $result->mapping->orderStatus() === ChannelOrderStatus::Cancelled => ChannelStockEvent::ORDER_CANCELLED,
+            $result->mapping->orderStatus() === ChannelOrderStatus::Returned => ChannelStockEvent::UNITS_RETURNED,
+            default => ChannelStockEvent::ORDER_CHANGED,
+        });
 
         return $result;
     }

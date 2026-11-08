@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\SalesChannels\Support\ListingLinker;
 use App\Http\Controllers\Admin\SalesChannels\Support\ProductDirectory;
 use App\Http\Controllers\Admin\SalesChannels\Support\ReadsFilters;
 use App\Http\Controllers\Controller;
+use App\Models\ChannelStockEvent;
 use App\Models\InventoryLocation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
@@ -16,6 +17,8 @@ use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
 use App\Services\SalesChannels\Inventory\Allocation\PoolWarnings;
 use App\Services\SalesChannels\Inventory\Allocation\StockShare;
 use App\Services\SalesChannels\Inventory\Allocation\StockShareValidator;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventNudge;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -57,6 +60,8 @@ class ChannelProductController extends Controller
         private readonly StockShareValidator $shares,
         private readonly PoolWarnings $warnings,
         private readonly DirtyPools $dirtyPools,
+        private readonly StockEventOutbox $outbox,
+        private readonly StockEventNudge $nudge,
         private readonly PublishPolicyResolver $policies,
     ) {
     }
@@ -185,8 +190,12 @@ class ChannelProductController extends Controller
             after: $mapping->only(self::SETTINGS),
             context: ['by' => auth('admin')->id(), 'manual_price_set' => $validated['price_source'] === 'manual'],
         );
-        // What the pool this listing took part in is shared out as has changed, and so has the pool it takes part in now: both are worked out again.
-        $this->dirtyPools->mark(array_filter([$poolBefore, $poolAfter]));
+        // What the pool this listing took part in is shared out as has changed, and so has the pool it takes part in now: both are worked out again, and recorded so that a
+        // setting saved while the queue was down is still acted on.
+        $pools = array_filter([$poolBefore, $poolAfter]);
+        $this->dirtyPools->mark($pools);
+        $this->outbox->record($pools, ChannelStockEvent::LISTING_SETTINGS, subjectType: 'sales_channel_product_mapping', subjectId: (int) $mapping->id);
+        $this->nudge->soon();
 
         ToastMagic::success(translate('listing_settings_saved_nothing_published'));
         $this->announceStockWarnings($mapping);

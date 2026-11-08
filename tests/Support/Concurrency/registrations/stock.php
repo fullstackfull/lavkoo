@@ -16,3 +16,5 @@ Operations::register('stock.ingest', [StockOperations::class, 'ingest']);
 Operations::register('stock.checkout', [StockOperations::class, 'checkout']);
 Operations::register('stock.hold_lease', [StockOperations::class, 'holdLease']);
 Operations::register('stock.acquire', [StockOperations::class, 'acquire']);
+Operations::register('stock.claim_events', [StockOperations::class, 'claimStockEvents']);
+Operations::register('stock.drain_events', [StockOperations::class, 'drainStockEvents']);

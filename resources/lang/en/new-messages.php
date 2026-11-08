@@ -10865,4 +10865,11 @@ return [
 	'the_channel_reports_this_listing_buyable_although_no_offer_of_ours_was_published' => 'The channel reports this listing as buyable although no offer of ours was ever published: something else gave it a price or a quantity. Look at it.',
 	'channel_reason_rate_limited' => 'The channel asked us to wait, so nothing was sent; the next run sends it',
 	'channel_reason_buyer_data_off' => 'Reading a buyer\'s details is switched off on this host',
+
+	// --- the stock outbox: what is waiting, and what nobody could act on ---
+	'attention_stock_changes_not_worked' => 'Stock changes not acted on yet',
+	'stock_changes_nobody_could_work' => 'Changes nobody could act on',
+	'kept_for_you_until_somebody_deals_with_them' => 'kept for you until somebody deals with what stopped them; each one is a quantity at a channel that has not been corrected',
+	'stock_changes_waiting_too_long' => 'Changes waiting longer than they should',
+	'changes_oldest_of_them_minutes_ago' => 'changes waiting, the oldest of them :minutes minute(s) ago: the workers have stopped, or the queue is not being run',
 ];

@@ -17461,4 +17461,11 @@ return [
 	'the_channel_reports_this_listing_buyable_although_no_offer_of_ours_was_published' => 'تُبلّغ القناة أن هذه القائمة قابلة للشراء مع أننا لم ننشر لها أي عرض: شيء آخر منحها سعرًا أو كمية. انظر فيها.',
 	'channel_reason_rate_limited' => 'طلبت القناة الانتظار، فلم يُرسل شيء؛ والتشغيل التالي يُرسلها',
 	'channel_reason_buyer_data_off' => 'قراءة بيانات المشتري معطّلة على هذا الخادم',
+
+	// --- the stock outbox: what is waiting, and what nobody could act on ---
+	'attention_stock_changes_not_worked' => 'تغييرات مخزون لم تُنفَّذ بعد',
+	'stock_changes_nobody_could_work' => 'تغييرات لم يُمكن تنفيذها',
+	'kept_for_you_until_somebody_deals_with_them' => 'محفوظة لك حتى يُعالَج ما أوقفها؛ كل واحدة كمية عند قناة لم تُصحَّح',
+	'stock_changes_waiting_too_long' => 'تغييرات تنتظر أطول مما ينبغي',
+	'changes_oldest_of_them_minutes_ago' => 'تغييرات تنتظر، أقدمها قبل :minutes دقيقة: العمال متوقّفون، أو الطابور لا يُشغَّل',
 ];

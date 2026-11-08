@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Concurrency;
 
+use App\Models\ChannelStockEvent;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryPool;
@@ -9,6 +10,7 @@ use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
@@ -312,5 +314,46 @@ class StockConcurrencyTest extends TestCase
         $this->assertSame('busy', $reports[1]['result']['result']);
         $this->assertSame([], $reports[1]['result']['sent']);
         $this->assertSame(0, InventoryPool::count(), 'a run that was not given the lease did not touch the pool either');
+    }
+
+    // ---- T8: the outbox under several workers -------------------------------------------------------------------------------------------------
+
+    public function test_six_workers_claiming_the_outbox_at_once_each_get_their_own_events_and_none_is_taken_twice(): void
+    {
+        $this->givenEventsWaiting(30);
+
+        $reports = ConcurrentRunner::run('stock.claim_events', array_fill(0, 6, ['limit' => 10]));
+
+        $this->assertAllWorkersSucceeded($reports);
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $claimed = array_merge(...array_column($reports, 'result'));
+        $this->assertSame(count($claimed), count(array_unique($claimed)), 'two workers were given the same event: it would be worked twice');
+        $this->assertLessThanOrEqual(30, count($claimed));
+        $this->assertSame(count($claimed), ChannelStockEvent::where('state', ChannelStockEvent::CLAIMED)->count());
+    }
+
+    public function test_six_workers_draining_the_outbox_at_once_leave_nothing_waiting_and_work_nothing_twice(): void
+    {
+        $this->givenEventsWaiting(24);
+
+        $reports = ConcurrentRunner::run('stock.drain_events', array_fill(0, 6, ['limit' => 10]));
+
+        $this->assertAllWorkersSucceeded($reports);
+        $claimed = array_sum(array_column(array_column($reports, 'result'), 'claimed'));
+        $this->assertSame(24, $claimed, 'the workers between them took every event exactly once: ' . json_encode(array_column($reports, 'result')));
+        $this->assertSame(0, ChannelStockEvent::where('state', ChannelStockEvent::PENDING)->count(), 'an event was left waiting');
+        $this->assertSame(24, ChannelStockEvent::where('state', ChannelStockEvent::DONE)->count());
+    }
+
+    /** `$count` changes waiting in the outbox, on as many pools, each recorded the way a real change records it. */
+    private function givenEventsWaiting(int $count): void
+    {
+        $outbox = app(StockEventOutbox::class);
+        for ($number = 1; $number <= $count; $number++) {
+            $product = 400 + $number;
+            $this->storeProduct($product);
+            DB::transaction(fn (): int => $outbox->record([new PoolKey($this->torodLocation()->id, $product)], ChannelStockEvent::ORDER_IMPORTED));
+        }
+        $this->assertSame($count, ChannelStockEvent::where('state', ChannelStockEvent::PENDING)->count());
     }
 }

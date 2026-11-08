@@ -2,8 +2,11 @@
 
 namespace App\Services\SalesChannels\Inventory\Allocation;
 
+use App\Models\ChannelStockEvent;
 use App\Models\InventoryPool;
 use App\Services\AuditLogger;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventNudge;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use Illuminate\Support\Facades\DB;
 
@@ -17,6 +20,8 @@ class PoolSettings
         private readonly StockShareValidator $validator,
         private readonly AuditLogger $audit,
         private readonly DirtyPools $dirtyPools,
+        private readonly StockEventOutbox $outbox,
+        private readonly StockEventNudge $nudge,
     ) {
     }
 
@@ -35,10 +40,13 @@ class PoolSettings
             $before = $pool->only(array_keys($values));
             $pool->forceFill($values)->save();
             $this->audit->record(action: 'sales_channel.pool_settings_changed', subject: $pool, before: $before, after: $pool->only(array_keys($values)), context: ['by' => $adminId, 'pool' => (string) $key]);
+            $this->dirtyPools->mark([$key]);
+            // In the same transaction as the settings: a reserve or a share that was saved and never acted on would leave the channels divided by the old rule.
+            $this->outbox->record([$key], ChannelStockEvent::POOL_SETTINGS, subjectType: 'inventory_pool', subjectId: (int) $pool->id);
 
             return $pool;
         });
-        $this->dirtyPools->mark([$key]);
+        $this->nudge->soon();
 
         return $pool;
     }

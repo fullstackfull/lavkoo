@@ -4,14 +4,18 @@ namespace App\Services\SalesChannels\Inventory;
 
 use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
+use App\Models\ChannelStockEvent;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventNudge;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Keeps the units that open channel orders have promised out of the quantity offered to the channels, so that stock is neither sold twice nor pushed back over a channel's own
@@ -44,18 +48,45 @@ class ChannelOrderReservations
         private readonly PublishPolicyResolver $policies,
         private readonly DirtyPools $dirtyPools,
         private readonly StoreOrderItems $storeOrders,
+        private readonly StockEventOutbox $outbox,
+        private readonly StockEventNudge $nudge,
     ) {
     }
 
-    /** Brings the order's reservations in line with the order, and marks the pools whose promises that changed so that their division is worked out again. */
-    public function sync(ExternalOrderMapping $mapping): void
+    /**
+     * Brings the order's reservations in line with the order and, when that changed what is promised, records it.
+     *
+     * The reservations and the record of the change are written in ONE transaction, so there is no moment in which a unit is held and nothing says the pool must be worked out
+     * again. That moment used to exist: the mark was a statement of its own after the writes, so a process that died between them left the unit held and the quantity still on
+     * offer until the next full sweep — and on a host with the division switched off the mark never happened at all. Both pools are named: the one the units left and the one
+     * they went to.
+     *
+     * The worker is nudged AFTER the commit, never inside it: a job that started first would read the database as it was. And the nudge is only speed — if it is lost, the
+     * rows are still in the table and the next run works them.
+     *
+     * @param string $reason why, for the person who reads the row later (ChannelStockEvent::ORDER_IMPORTED and the rest)
+     */
+    public function sync(ExternalOrderMapping $mapping, string $reason = ChannelStockEvent::ORDER_CHANGED): void
     {
-        $before = $this->holdsOf($mapping);
-        $this->bringIntoLine($mapping);
-        $after = $this->holdsOf($mapping);
+        $changed = DB::transaction(function () use ($mapping, $reason): bool {
+            $before = $this->holdsOf($mapping);
+            $this->bringIntoLine($mapping);
+            $after = $this->holdsOf($mapping);
+            if ($before->all() === $after->all()) {
+                return false;
+            }
 
-        if ($before->all() !== $after->all()) {
-            $this->dirtyPools->mark($before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey(locationId: $hold['location_id'], productId: $hold['product_id'], variantKey: $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values());
+            $pools = $before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey(locationId: $hold['location_id'], productId: $hold['product_id'], variantKey: $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values();
+            $this->dirtyPools->mark($pools);
+            // The storefront's own stock has to be written again too: these units are off the same shelf it sells from, and it must not keep offering them until the provider's
+            // next figure arrives.
+            $this->outbox->record($pools, $reason, subjectType: 'external_order_mapping', subjectId: (int) $mapping->id, rewritesStorefrontStock: true);
+
+            return true;
+        });
+
+        if ($changed) {
+            $this->nudge->soon();
         }
     }
 

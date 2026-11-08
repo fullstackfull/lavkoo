@@ -9,6 +9,7 @@ use App\Enums\Fulfillment\StockSource;
 use App\Models\ProviderFulfillmentItem;
 use App\Models\ProviderProductMapping;
 use App\Models\StockMovement;
+use App\Services\Fulfillment\Contracts\NotesStockChanged;
 use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\Marketplace\InventoryService;
 use Carbon\CarbonInterface;
@@ -52,8 +53,11 @@ class InventorySyncService
     private const UNSUPPORTED = 'unsupported';
     private const NOT_ASSIGNED = 'not_assigned';
 
-    public function __construct(private readonly InventoryService $inventory, private readonly ReportsChannelHolds $channelHolds)
-    {
+    public function __construct(
+        private readonly InventoryService $inventory,
+        private readonly ReportsChannelHolds $channelHolds,
+        private readonly NotesStockChanged $stockNotes,
+    ) {
     }
 
     /**
@@ -252,14 +256,28 @@ class InventorySyncService
      */
     private function storeAssigned(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity, ?CarbonInterface $acceptedSince): string
     {
-        return DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince): string {
-            $outcome = $this->writeStoreStock($mapping, $provider, $providerQuantity, $acceptedSince, assignedOnly: true);
-            if ($outcome === self::UPDATED || $outcome === self::UNCHANGED) {
+        $before = (int) ($mapping->provider_stock ?? -1);
+        $outcome = DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince): string {
+            $written = $this->writeStoreStock($mapping, $provider, $providerQuantity, $acceptedSince, assignedOnly: true);
+            if ($written === self::UPDATED || $written === self::UNCHANGED) {
                 $this->stamp($mapping, $providerQuantity);
             }
 
-            return $outcome;
+            return $written;
         });
+
+        // Whoever else sells this shelf (Amazon FBM, Trendyol) may now be shown a different quantity, and used to find out only at the next quarter-hour sweep. The note is
+        // made once the figure is written and only when it really moved; it sends nothing to any channel and decides nothing about whether anything may be sent.
+        if ($outcome === self::UPDATED || $outcome === self::UNCHANGED) {
+            $this->stockNotes->providerFigureChanged(
+                provider: $provider,
+                productId: (int) $mapping->product_id,
+                variantKey: (string) $mapping->variant_key,
+                figureChanged: $before !== $providerQuantity,
+            );
+        }
+
+        return $outcome;
     }
 
     private function writeStoreStock(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity, ?CarbonInterface $acceptedSince = null, bool $assignedOnly = false): string
