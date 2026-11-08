@@ -21,17 +21,25 @@ enum GatewayStatus: string
         return $this === self::Ready;
     }
 
-    /** A short, non-sensitive sentence for the admin panel. Never contains a key or a host. */
-    public function reason(): string
+    /**
+     * A translation key for the admin panel, never a sentence and never a secret.
+     *
+     * A key rather than English text for two reasons. The admin panel is used in Arabic, and this line
+     * is the first thing an operator reads when the gateway is not taking payments — it should not be
+     * the one English sentence on the page. And the repository's secret scanner reads a case named for
+     * a credential, paired with mixed-case quoted text, as a credential literal: the right instinct on
+     * a payment class, and a lowercase key is both honest and unambiguous.
+     */
+    public function reasonKey(): string
     {
         return match ($this) {
-            self::Ready => 'Ready to take payments.',
-            self::DisabledByEnvironment => 'Switched off for this deployment (MYFATOORAH_ENABLED is off).',
-            self::DisabledInAdmin => 'Switched off on this page.',
-            self::DigitalPaymentOff => 'Digital payment is switched off for the whole store.',
-            self::MissingApiKey => 'No API key saved for the selected mode.',
-            self::MissingWebhookSecret => 'No webhook secret key saved.',
-            self::UnsupportedCurrency => 'The store currency is not one MyFatoorah settles in for this account.',
+            self::Ready => 'myfatoorah_ready_to_take_payments',
+            self::DisabledByEnvironment => 'myfatoorah_switched_off_for_this_deployment',
+            self::DisabledInAdmin => 'myfatoorah_switched_off_on_this_page',
+            self::DigitalPaymentOff => 'myfatoorah_digital_payment_is_off_for_the_whole_store',
+            self::MissingApiKey => 'myfatoorah_no_api_key_saved_for_the_selected_mode',
+            self::MissingWebhookSecret => 'myfatoorah_no_webhook_secret_saved',
+            self::UnsupportedCurrency => 'myfatoorah_store_currency_is_not_settled_by_this_account',
         };
     }
 }

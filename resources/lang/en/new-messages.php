@@ -10553,7 +10553,6 @@ return [
 	'address_provider_requests' => 'API requests',
 	'address_results_available' => 'Results available:',
 	'address_copy_complete_required' => 'This address was saved before regions, cities and National Addresses were introduced. Choose the region and city and enter the National Address to complete it.',
-	// --- dispatch to providers (lane-dispatch) ---
 	'dispatch_card_title' => 'Delivery through a provider',
 	'dispatch_card_help' => 'Turns this order into a shipment at the delivery provider (Torod Point or M5AZN). The buyer\'s name, mobile, street and city are read from the channel for this one purpose, kept on the internal order only as long as the shipment needs them, and then removed.',
 	'dispatch_state' => 'State',
@@ -10697,7 +10696,6 @@ return [
 	'return_refused_more_than_taken_from_stock' => 'More units than were taken from stock for this line and not yet put back.',
 	'auto_restock_accepted_returns' => 'Put units of accepted returns back on the shelf automatically',
 	'auto_restock_accepted_returns_help' => 'Off by default, and an owner\'s decision: every unit of a return Trendyol accepts goes back at the cost it left at, damaged or not, with no one looking at it. It needs the cost module switched on. Only a person can write off a damaged unit.',
-	// --- stock allocation (lane-stock) ---
 	'publish_skip_variant_key_required' => 'The product is sold per variant: link the listing to one variant',
 	'publish_skip_storefront_owned_needs_owner_decision' => 'This stock is the store\'s own: whether to offer it to channels is the owner\'s decision',
 	'held_by_store_orders' => 'held by store orders (not yet with the provider)',
@@ -10739,11 +10737,8 @@ return [
 	'stock_expected_sales_margin' => 'margin for sales not imported yet',
 	'stock_may_be_shown' => 'may be shown',
 	'channel_not_recorded' => 'channel not recorded',
-	// --- costs audit fixes (lane-costs) ---
 	'return_refused_stale_form' => 'The line changed since this form was opened: reload the page and check what was already recorded.',
 	'needs_the_operational_costs_permission' => 'Needs the Operational costs permission: only a role that holds it can change this.',
-
-	// --- purchase-order sources (lane-po) ---
 	'layer_source_purchase_order' => 'Purchase order',
 	'purchase_order_line' => 'Purchase order line',
 	'purchase_order_line_help' => 'To bill goods a purchase order already received, enter the number of its line: the invoice line then makes no second cost layer and only records how far it is from the order\'s cost. It needs the purchase-order source switched on.',
@@ -10752,18 +10747,13 @@ return [
 	'these_lines_look_like_goods_a_purchase_order_received' => 'The lines below are for a product and supplier of a purchase order that received goods no invoice has billed yet, and are not linked to it: costing them again may count the same goods twice. Void this invoice and enter it again with the purchase order line number, or confirm that it is a separate purchase.',
 	'this_is_a_separate_purchase' => 'This is a separate purchase',
 	'missing_reason_vendor_owned_goods' => 'The goods belong to a vendor, not to the platform: their cost is not ours to know',
-	// --- stock audit fixes (lane-stock) ---
 	'order_import_is_off_so_a_quantity_here_is_never_raised' => 'Order import is switched off for this account: its sales are unknown, so a quantity here is never raised',
 	'order_import_is_part_way_through_a_backlog' => 'The order import stopped part of the way through a backlog: the orders after that point are not read yet',
 	'attention_stock_not_updated' => 'Showing stock that is no longer being updated',
 	'publish_skip_outside_the_pool' => 'Takes no part in sharing its stock (publishing is off or the listing is refused) while the channel still shows a quantity',
 	'publish_skip_variant_figure_missing' => 'The warehouse holds one figure for the whole product and none for this variant: nothing is offered until it has one for the variant',
 	'location_source_platform' => 'The store\'s own stock (read from the storefront, never copied)',
-	// --- purchase-order sources, audit fixes (lane-po) ---
 	'a_purchase_order_received_these_goods_confirm_a_separate_purchase' => 'A purchase order (line :lines) received goods of this product from this supplier that no invoice has billed. Recording a cost for them here as well may count the same goods twice. If this is a separate purchase, tick the box below and record it again.',
-
-
-	// --- MyFatoorah (Saudi Arabia) payment gateway ---
 	'MyFatoorah' => 'MyFatoorah',
 	'MyFatoorah_Saudi_Arabia' => 'MyFatoorah — Saudi Arabia',
 	'MyFatoorah_settings' => 'MyFatoorah settings',
@@ -10844,4 +10834,5 @@ return [
 	'we_are_confirming_your_payment' => 'We are confirming your payment',
 	'webhook_signature_checking_is_switched_off' => 'Webhook signature checking is switched off',
 	'your_bank_or_wallet_has_not_finished_telling_us_the_result_yet_this_page_will_update_by_itself' => 'Your bank or wallet has not finished telling us the result yet. This page will update by itself',
+	'myfatoorah_ready_to_take_payments' => 'Myfatoorah ready to take payments',
 ];

@@ -39,7 +39,10 @@ class GatewayAvailability
         return [
             'ready' => $status->isReady(),
             'status' => $status,
-            'reason' => $status->reason(),
+            'reason_key' => $status->reasonKey(),
+            // Translated here rather than in the enum so the enum stays free of presentation, and so a
+            // caller that is not a view (the initiation service, the API) still gets readable text.
+            'reason' => translate($status->reasonKey()),
         ];
     }
 
