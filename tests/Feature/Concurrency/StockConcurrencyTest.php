@@ -2,8 +2,8 @@
 
 namespace Tests\Feature\Concurrency;
 
-use App\Models\ChannelStockEvent;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Models\ChannelStockEvent;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryPool;
@@ -348,9 +348,12 @@ class StockConcurrencyTest extends TestCase
     }
 
     /**
-     * Six processes each holding units of the SAME product at the same instant. Our own shop's number is written inside each hold's transaction, so this is where a wrong
-     * lock order would deadlock and a decrement would take the same unit off twice. It is neither: the number is RECOMPUTED (the figure minus every promise), so whichever
-     * process writes last writes the right number, and the locks are taken in one order throughout.
+     * Six processes each holding units of the SAME product at the same instant. This is the test that found the defect: our own shop's number USED to be written inside each
+     * hold's own transaction, and the reads that count what is promised therefore saw that transaction's snapshot — taken before the other five committed their holds. Each
+     * process wrote "twenty minus my two", and the shop went on offering ten units that were gone.
+     *
+     * It is written after the commit now, in a transaction of its own, so each pass counts every hold that exists. What this pins: no deadlock from a wrong lock order, no
+     * unit taken off twice (the number is RECOMPUTED, never decremented), and the final number right to the unit.
      */
     public function test_six_processes_holding_units_of_one_product_at_once_leave_our_own_number_right_and_never_deadlock(): void
     {
@@ -370,6 +373,32 @@ class StockConcurrencyTest extends TestCase
         $held = (int) InventoryReservation::where('product_id', self::PRODUCT)->where('state', InventoryReservation::RESERVED)->sum('quantity');
         $this->assertSame(12, $held, 'six orders of two units each are twelve units held');
         $this->assertSame(20 - $held, $this->storefrontStock(), 'our own number is the figure minus what is promised, once — not a decrement applied twice');
+    }
+
+    /**
+     * The mechanism the fix above rests on, pinned on its own rather than argued in a comment: a storefront write that has to QUEUE for the product's row lock reads what is
+     * promised AFTER it is granted it. Here a holder keeps the product locked for two and a half seconds; the write starts waiting almost at once; and a hold of four units
+     * is committed a second later, while the write is still blocked. If its reservation count came from a snapshot taken when it began to wait, it would write twenty.
+     *
+     * This is the product-side twin of test_a_division_waiting_for_the_pool_lock_reads_its_inputs_after_it_was_granted_it, and it is what makes the write safe to call from
+     * any caller: `writeStoreStock` takes the product's lock as the FIRST statement of its transaction, so the read view for the counts is created after the wait.
+     */
+    public function test_a_storefront_write_waiting_for_the_products_lock_counts_the_holds_committed_while_it_waited(): void
+    {
+        $this->stockListing($this->first, self::PRODUCT, $this->torodLocation(), 'BAR-A');
+        app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-' . self::PRODUCT => 20], now());
+        $this->assertSame(20, $this->storefrontStock());
+
+        $holder = ['product' => self::PRODUCT, 'hold_microseconds' => 2500000];
+        $waiting = ['product' => self::PRODUCT, 'delay_microseconds' => 400000];
+        $writer = $this->pool() + ['times' => 1, 'quantity' => 4, 'account' => $this->first->id, 'delay_microseconds' => 1200000];
+
+        $reports = $this->runTogether([['stock.hold_product_lock', $holder], ['stock.write_storefront', $waiting], ['stock.reserve_repeatedly', $writer]]);
+
+        $this->assertAllWorkersSucceeded($reports);
+        $this->assertSame(16, $reports[1]['result']['current_stock'], 'a hold of 4 units was committed while this write waited for the product lock: what it wrote is 20 - 4, not what was promised when it began to wait');
+        $this->assertSame(16, $this->storefrontStock());
+        $this->assertSame(4, (int) InventoryReservation::where('product_id', self::PRODUCT)->where('state', InventoryReservation::RESERVED)->sum('quantity'));
     }
 
     private function storefrontStock(): int

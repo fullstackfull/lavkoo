@@ -28,8 +28,9 @@ class StockEventOutbox
      * Records one row per pool the change affects. Call it inside the transaction that writes the change.
      *
      * @param iterable<PoolKey> $keys the pools the change affects — the one a reservation left as well as the one it went to
-     * @param bool $storefrontWritten true when the caller has ALREADY written our own shop's number for it, in this same transaction (a channel hold does; a provider sync
-     *                                does by definition). False leaves it for a worker, and the row says which of the two it is.
+     * @param bool $storefrontWritten true only when our own shop's number is ALREADY right for this pool by the time the row is committed — which means the writer did it in
+     *                                this very transaction, as a provider sync does. A channel hold does NOT qualify: it writes the number after its commit, so the row keeps
+     *                                the job and the worker re-verifies it. False is the safe answer, and the row says which of the two it is.
      * @return int how many rows were written
      */
     public function record(iterable $keys, string $reason, ?string $subjectType = null, ?int $subjectId = null, bool $storefrontWritten = false): int
