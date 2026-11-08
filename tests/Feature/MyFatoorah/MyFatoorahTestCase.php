@@ -59,7 +59,7 @@ abstract class MyFatoorahTestCase extends TestCase
         $GLOBALS['myfatoorah_success_calls'] = [];
         $GLOBALS['myfatoorah_failure_calls'] = [];
         $GLOBALS['myfatoorah_success_should_throw'] = false;
-        $GLOBALS['myfatoorah_success_throw_after_stock'] = false;
+        $GLOBALS['myfatoorah_success_throw_after'] = null;
         $GLOBALS['myfatoorah_effects'] = [];
 
         app()->forgetInstance(GatewayConfigRepository::class);

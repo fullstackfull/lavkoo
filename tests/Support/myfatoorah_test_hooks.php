@@ -24,6 +24,22 @@ if (!function_exists('myfatoorah_test_record_effect')) {
     }
 }
 
+if (!function_exists('myfatoorah_test_throw_if_requested')) {
+    /**
+     * Throw straight after one named side effect, if a test asked for it.
+     *
+     * The real hook can die at any point in its sequence, and where it died decides what a retry would
+     * duplicate — stock taken but no order, an order with no shipment, and so on. A test sets
+     * `$GLOBALS['myfatoorah_success_throw_after']` to the effect it wants to survive.
+     */
+    function myfatoorah_test_throw_if_requested(string $effect): void
+    {
+        if (($GLOBALS['myfatoorah_success_throw_after'] ?? null) === $effect) {
+            throw new RuntimeException("Died straight after {$effect}.");
+        }
+    }
+}
+
 if (!function_exists('myfatoorah_test_effect_count')) {
     function myfatoorah_test_effect_count(string $effect): int
     {
@@ -53,6 +69,7 @@ if (!function_exists('myfatoorah_test_success_hook')) {
         // afterwards. That is why recovery refuses to retry it.
         if ((string) ($paymentData->attribute ?? 'order') !== 'order') {
             myfatoorah_test_record_effect('wallet_credit', $reference);
+            myfatoorah_test_throw_if_requested('wallet_credit');
 
             return;
         }
@@ -60,10 +77,7 @@ if (!function_exists('myfatoorah_test_success_hook')) {
         // Stock first, then the order, then the courier — the real hook's order, so a test can stop it
         // part way through and see which effects a retry would duplicate.
         myfatoorah_test_record_effect('stock_reservation', $reference);
-
-        if (!empty($GLOBALS['myfatoorah_success_throw_after_stock'])) {
-            throw new RuntimeException('Died after reserving stock, before creating the order.');
-        }
+        myfatoorah_test_throw_if_requested('stock_reservation');
 
         // What the real hook does that this integration depends on: it stamps the order it creates with
         // the payment's transaction reference. The duplicate-settlement check reads exactly that, so
@@ -80,8 +94,10 @@ if (!function_exists('myfatoorah_test_success_hook')) {
             'updated_at' => now(),
         ]);
         myfatoorah_test_record_effect('order', $reference);
+        myfatoorah_test_throw_if_requested('order');
 
         myfatoorah_test_record_effect('shipment', $reference);
+        myfatoorah_test_throw_if_requested('shipment');
     }
 }
 

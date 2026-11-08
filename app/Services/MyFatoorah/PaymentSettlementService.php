@@ -240,15 +240,25 @@ class PaymentSettlementService
 
             return ['ran' => true, 'ok' => true, 'reason' => 'Payment applied.'];
         } catch (\Throwable $e) {
-            // The money is taken and the order did not complete. Left with settled_at set and
-            // hook_completed_at null so `recover()` finds it, and logged loudly because this is the
-            // state that needs a human if recovery cannot finish it either.
-            // The lease is released so recovery can pick this up, but hook_attempts stays where the
-            // lease left it, so a hook that keeps throwing is eventually given up on rather than
-            // retried for ever.
+            /*
+             * The money is taken and the hook did not finish. `hook_started_at` is DELIBERATELY LEFT
+             * SET.
+             *
+             * An earlier version cleared it here, with a comment saying the lease was being released so
+             * recovery could pick the attempt up. That was a leftover from before `recover()` was
+             * narrowed to hooks that never began, and it undid the narrowing completely: clearing the
+             * mark made a hook that had already run part of its work look like one that had never
+             * started, so the sweep would run it again. By the time this catch block is reached the
+             * hook may have reserved stock, created the order, or booked a shipment — an exception says
+             * nothing about how far it got.
+             *
+             * So a hook that began and threw stays a human-review item
+             * (`needsAttention()['hook_unverifiable']`). An operator who has checked the order, the
+             * stock, the shipment and the wallet resumes it with `forceRerun()`, which may take the
+             * lease once it is stale. Nothing automatic may.
+             */
             $this->recordHookOutcome($attempt, $leaseToken, [
                 'hook_error' => Str::limit($e->getMessage(), 240, ''),
-                'hook_started_at' => null,
             ]);
 
             Log::critical('myfatoorah.success_hook_failed', [
@@ -286,8 +296,19 @@ class PaymentSettlementService
                 $query->whereNull('hook_started_at');
 
                 if ($takeOverStale) {
-                    // Only an operator may take a lease from a run that began. See forceRerun().
-                    $query->orWhere('hook_started_at', '<=', now()->subMinutes($this->leaseMinutes()));
+                    /*
+                     * Only an operator may take a lease from a run that began. See forceRerun().
+                     *
+                     * Two conditions, for the two ways a run can be known not to be holding the lease
+                     * any more. A released token is the definite one: the run reached
+                     * recordHookOutcome() and said what happened, so nothing is executing now -- which
+                     * is the state a hook that threw leaves behind, and an operator who has checked the
+                     * damage should not have to wait out a lease nobody holds. The stale timestamp is
+                     * the guess, for a process killed mid-hook that never released anything; that one
+                     * has to wait, because a slow hook cannot be told from a dead one.
+                     */
+                    $query->orWhereNull('hook_lease_token')
+                        ->orWhere('hook_started_at', '<=', now()->subMinutes($this->leaseMinutes()));
                 }
             })
             ->update([

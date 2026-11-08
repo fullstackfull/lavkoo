@@ -163,15 +163,25 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
 
     // ---------------------------------------------------------------- interrupted settlement
 
-    public function test_a_settlement_interrupted_after_the_money_was_recorded_is_recoverable(): void
+    public function test_a_settlement_interrupted_after_the_money_was_recorded_waits_for_a_person(): void
     {
-        // The worst state available: the payment is marked paid and the process died before the order
-        // was created. It has to be findable and finishable, or the customer has paid for nothing.
+        /*
+         * The worst state available: the payment is marked paid and the hook threw before the order was
+         * created. It has to be findable and finishable — the customer has paid — but it must not be
+         * finished by anything automatic.
+         *
+         * An earlier version of this test asserted the opposite, because the catch block cleared
+         * `hook_started_at` on its way out and called it "releasing the lease". That made a hook which
+         * had already reserved stock look exactly like one that had never run, and the sweep would then
+         * run it again. An exception carries no information about how far the hook got, so the mark of a
+         * run that began now stays on the record and the row becomes a human-review item.
+         */
         $this->fakePaid();
         $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
 
         $GLOBALS['myfatoorah_success_should_throw'] = true;
         $result = app(PaymentSettlementService::class)->settle($verified['attempt']);
+        $GLOBALS['myfatoorah_success_should_throw'] = false;
 
         $this->assertFalse($result['settled']);
         $this->assertSame(0, $this->orderCount());
@@ -180,20 +190,161 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->assertNotNull($stuck->settled_at, 'the money is recorded');
         $this->assertNull($stuck->hook_completed_at, 'but the order was never created');
         $this->assertNotNull($stuck->hook_error);
+        $this->assertNotNull($stuck->hook_started_at, 'and the run that began is still on the record');
+        $this->assertNull($stuck->hook_lease_token, 'the failed run released the lease as it reported');
 
-        // The sweep reports it as needing a person.
-        $this->assertSame(1, app(ReconciliationService::class)->needsAttention()['stuck']);
+        // Reported twice over: as money that has not reached an order, and as a hook whose single
+        // execution cannot be established from here.
+        $attention = app(ReconciliationService::class)->needsAttention();
+        $this->assertSame(1, $attention['stuck']);
+        $this->assertSame(1, $attention['hook_unverifiable']);
 
-        // The lease is released on failure, so recovery can take it straight away.
-        $this->assertNull($stuck->hook_started_at);
+        // Nothing automatic picks it up, even with the original problem gone.
+        $this->assertSame(0, app(PaymentSettlementService::class)->recover()['recovered']);
+        $this->assertSame(0, $this->orderCount());
 
-        // And recovery finishes it once the underlying problem is gone.
-        $GLOBALS['myfatoorah_success_should_throw'] = false;
-        $recovered = app(PaymentSettlementService::class)->recover();
+        // An operator who has checked the order, the stock and the shipment finishes it. No waiting for
+        // the lease to go stale first: the run that failed released it on its way out, so nothing is
+        // executing and there is no slow-or-dead question left to answer.
+        $outcome = app(PaymentSettlementService::class)->forceRerun($this->attempt->refresh(), operatorId: 3);
 
-        $this->assertSame(1, $recovered['recovered']);
+        $this->assertTrue($outcome['ran'], $outcome['reason']);
         $this->assertSame(1, $this->orderCount());
         $this->assertNotNull($this->attempt->refresh()->hook_completed_at);
+    }
+
+    /**
+     * Where the real success hook can die, and what it has already done by then. The order is the real
+     * hook's: stock, then the order, then the courier.
+     *
+     * @return array<string, array{0: string, 1: array<string, int>}>
+     */
+    public static function pointsTheSuccessHookCanDieAfter(): array
+    {
+        return [
+            'after reserving the stock' => ['stock_reservation', ['stock_reservation' => 1, 'order' => 0, 'shipment' => 0]],
+            'after creating the order' => ['order', ['stock_reservation' => 1, 'order' => 1, 'shipment' => 0]],
+            'after booking the shipment' => ['shipment', ['stock_reservation' => 1, 'order' => 1, 'shipment' => 1]],
+        ];
+    }
+
+    /**
+     * @dataProvider pointsTheSuccessHookCanDieAfter
+     *
+     * @param array<string, int> $done
+     */
+    public function test_a_hook_that_did_part_of_its_work_then_threw_is_never_resumed_by_reconciliation(
+        string $diedAfter,
+        array $done,
+    ): void {
+        /*
+         * The case the cleared lease made dangerous, at each point the hook can reach before it throws.
+         * Reserving the stock is the sharp one: a retry there takes the stock a second time, and the
+         * order-already-exists check cannot help because the first run never got as far as the order.
+         */
+        $this->fakePaid();
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $GLOBALS['myfatoorah_success_throw_after'] = $diedAfter;
+        $result = app(PaymentSettlementService::class)->settle($verified['attempt']);
+        $GLOBALS['myfatoorah_success_throw_after'] = null;
+
+        $this->assertFalse($result['settled']);
+
+        foreach ($done as $effect => $count) {
+            $this->assertSame($count, $this->effectCount($effect), "{$effect}, before recovery");
+        }
+
+        // Reconciliation as the scheduler runs it, which ends in the recovery sweep, and then the sweep
+        // again on its own. Neither may touch a hook that began.
+        app(ReconciliationService::class)->sweep();
+        $recovered = app(PaymentSettlementService::class)->recover();
+
+        $this->assertSame(0, $recovered['recovered'], 'nothing automatic may resume a hook that began');
+
+        foreach ($done as $effect => $count) {
+            $this->assertSame($count, $this->effectCount($effect), "{$effect}, after recovery");
+        }
+
+        $this->assertSame($done['order'], $this->orderCount(), 'and no second order was created');
+        $this->assertSame(1, $this->successHookCalls(), 'the hook was entered once');
+
+        $stuck = $this->attempt->refresh();
+        $this->assertNotNull($stuck->hook_started_at, 'the run that began is still on the record');
+        $this->assertNull($stuck->hook_completed_at);
+        $this->assertNotNull($stuck->hook_error);
+        $this->assertSame(1, app(ReconciliationService::class)->needsAttention()['hook_unverifiable']);
+    }
+
+    public function test_a_wallet_top_up_whose_hook_credited_then_threw_is_never_credited_again(): void
+    {
+        /*
+         * The wallet has no idempotency marker at all: the real `add_fund_to_wallet_success` credits a
+         * balance and leaves nothing to look the credit up by. Here the credit really happened and then
+         * the hook threw, which is indistinguishable from the hook having thrown before the credit —
+         * so the only safe answer is to credit nothing and show the row to a person.
+         */
+        $walletRequestId = $this->makePaymentRequest([
+            'attribute' => 'add_fund_to_wallet',
+            'payment_amount' => 50.00,
+        ]);
+
+        $walletAttempt = MyFatoorahPaymentAttempt::create([
+            'payment_request_id' => $walletRequestId,
+            'attempt_number' => 1,
+            'external_identifier' => 'pk-wallet-2',
+            'expected_amount' => '50.00',
+            'expected_currency' => 'SAR',
+            'captured_amount' => '50.00',
+            'captured_currency' => 'SAR',
+            'status' => AttemptStatus::Paid->value,
+            'mode' => 'test',
+            'payment_id' => 'PAY-W2',
+            'verified_at' => now(),
+        ]);
+
+        $GLOBALS['myfatoorah_success_throw_after'] = 'wallet_credit';
+        $result = app(PaymentSettlementService::class)->settle($walletAttempt);
+        $GLOBALS['myfatoorah_success_throw_after'] = null;
+
+        $this->assertFalse($result['settled']);
+        $this->assertSame(1, $this->effectCount('wallet_credit'), 'the balance was credited once');
+
+        app(ReconciliationService::class)->sweep();
+        app(PaymentSettlementService::class)->recover();
+
+        $this->assertSame(1, $this->effectCount('wallet_credit'), 'and never a second time');
+        $this->assertSame(0, $this->orderCount(), 'a top-up creates no order');
+
+        $stuck = $walletAttempt->refresh();
+        $this->assertNotNull($stuck->hook_started_at);
+        $this->assertNull($stuck->hook_completed_at);
+        $this->assertSame(1, app(ReconciliationService::class)->needsAttention()['hook_unverifiable']);
+    }
+
+    public function test_an_operator_re_running_a_hook_that_got_as_far_as_the_order_does_not_duplicate_it(): void
+    {
+        // The other half of the rule: once a person has released it, the re-run still has to be safe.
+        // The order the first run created carries the payment's reference, so the hook is not called
+        // again at all and the attempt is simply marked done.
+        $this->fakePaid();
+        $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
+
+        $GLOBALS['myfatoorah_success_throw_after'] = 'order';
+        app(PaymentSettlementService::class)->settle($verified['attempt']);
+        $GLOBALS['myfatoorah_success_throw_after'] = null;
+
+        $this->assertSame(1, $this->orderCount());
+
+        $outcome = app(PaymentSettlementService::class)->forceRerun($this->attempt->refresh(), operatorId: 3);
+
+        $this->assertFalse($outcome['ran'], 'the hook itself is not called again');
+        $this->assertSame('The order for this payment already exists.', $outcome['reason']);
+        $this->assertSame(1, $this->orderCount(), 'one order');
+        $this->assertSame(1, $this->effectCount('order'));
+        $this->assertSame(1, $this->effectCount('stock_reservation'), 'and the stock was taken once');
+        $this->assertNotNull($this->attempt->refresh()->hook_completed_at);
+        $this->assertSame(0, app(ReconciliationService::class)->needsAttention()['hook_unverifiable']);
     }
 
     public function test_a_second_caller_arriving_mid_hook_does_not_run_the_hook_as_well(): void
@@ -247,9 +398,9 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
 
         // Dies after taking the stock, before the order exists — the worst moment to retry blindly.
-        $GLOBALS['myfatoorah_success_throw_after_stock'] = true;
+        $GLOBALS['myfatoorah_success_throw_after'] = 'stock_reservation';
         app(PaymentSettlementService::class)->settle($verified['attempt']);
-        $GLOBALS['myfatoorah_success_throw_after_stock'] = false;
+        $GLOBALS['myfatoorah_success_throw_after'] = null;
 
         $this->assertSame(1, $this->effectCount('stock_reservation'), 'the stock was taken once');
         $this->assertSame(0, $this->effectCount('order'));
@@ -277,9 +428,9 @@ class SettlementAndWebhookTest extends MyFatoorahTestCase
         $this->fakePaid();
         $verified = app(PaymentVerificationService::class)->verify($this->attempt, 'PAY-1');
 
-        $GLOBALS['myfatoorah_success_throw_after_stock'] = true;
+        $GLOBALS['myfatoorah_success_throw_after'] = 'stock_reservation';
         app(PaymentSettlementService::class)->settle($verified['attempt']);
-        $GLOBALS['myfatoorah_success_throw_after_stock'] = false;
+        $GLOBALS['myfatoorah_success_throw_after'] = null;
 
         $this->attempt->refresh()->forceFill(['hook_started_at' => now()->subHours(2)])->save();
 
