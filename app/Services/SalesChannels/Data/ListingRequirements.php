@@ -21,6 +21,10 @@ final readonly class ListingRequirements
      * @param list<string> $required
      * @param list<string> $optional
      * @param array<string, list<string>> $allowedValues field name => the values the channel accepts, where it says so
+     * @param array<string, array<string, mixed>> $channelFields what the CHANNEL needs to be told about a field beyond its name, by field name. Amazon needs nothing: its
+     *                                                          attribute names are what a write carries. Trendyol writes attribute IDS and value ids, so the ids it gave
+     *                                                          with the names are kept here -- a create call cannot be built from names alone, and asking a person to type
+     *                                                          an id instead would be asking them to guess.
      */
     public function __construct(
         public string $productType,
@@ -30,6 +34,7 @@ final readonly class ListingRequirements
         public ?CarbonInterface $readAt = null,
         public bool $unknown = false,
         public string $source = self::FROM_THE_CHANNEL,
+        public array $channelFields = [],
     ) {
     }
 
@@ -92,6 +97,7 @@ final readonly class ListingRequirements
         return [
             'product_type' => $this->productType, 'required' => $this->required, 'optional' => $this->optional,
             'allowed_values' => $this->allowedValues, 'unknown' => $this->unknown, 'source' => $this->source,
+            'channel_fields' => $this->channelFields,
         ];
     }
 }

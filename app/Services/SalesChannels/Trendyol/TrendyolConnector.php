@@ -10,6 +10,7 @@ use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
 use App\Services\SalesChannels\Contracts\ConfirmsShipments;
+use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
 use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
@@ -19,6 +20,7 @@ use App\Services\SalesChannels\Contracts\ReadsReturns;
 use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
+use App\Services\SalesChannels\Data\ListingRequirements;
 use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
@@ -39,7 +41,7 @@ use RuntimeException;
  *
  * Product V1 and Order V1 are not used anywhere: Trendyol retired them in 2026.
  */
-class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments
+class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsReturns, ReadsFinances, PublishesStockAndPrices, ReportsPublishResults, ConfirmsShipments, DescribesListingRequirements
 {
     private const MILLISECONDS_PER_DAY = 86_400_000;
     private const LIST_PAGE_SIZE = 100;
@@ -56,6 +58,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         private readonly TrendyolListingMapper $listings,
         private readonly TrendyolFinanceMapper $finances,
         private readonly TrendyolReturnMapper $returns,
+        private readonly TrendyolCategoryMapper $categories,
     ) {
     }
 
@@ -69,6 +72,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         return [
             'basic_authentication' => ['documented' => true, 'built' => true, 'note' => 'API key and secret as HTTP Basic, the mandatory "{sellerId} - {integration name}" User-Agent and the storeFrontCode header. Stage and production use different keys and hosts.'],
             'product_v2' => ['documented' => true, 'built' => true, 'note' => 'Approved and unapproved product lists, price-and-inventory with batch results. Product V1 was retired in 2026 and is not used.'],
+            'category_requirements' => ['documented' => true, 'built' => true, 'note' => 'Product V2 `/product/categories/{id}/attributes`: which attributes a category requires, the values it accepts where Trendyol embeds them, and whether a value of our own is allowed. The attribute and value IDS are kept beside the names because a write sends ids. A category that cannot be read, or that names no attribute, is UNKNOWN and never "nothing is required". The very long value lists have an endpoint of their own which this version does not page through.'],
             'product_create_update' => ['documented' => true, 'built' => false, 'note' => 'Creating or editing product content (brand, category, attributes, images) needs the lookups and an approval review at Trendyol; it is designed (operations are registered) but not built. Products are created in the seller panel and then linked here.'],
             'order_v2' => ['documented' => true, 'built' => true, 'note' => 'The cursor stream (lastModified windows of at most 14 days) for sync and /v2/orders for single-order lookups. Order V1 is not used.'],
             'shipment_packages' => ['documented' => true, 'built' => true, 'note' => 'A package is the unit (shipmentPackageId); a split or partial cancellation yields new package ids and the replaced package is terminal.'],
@@ -479,6 +483,40 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
      *
      * @return array{complete: bool, items: array<string, array{status: string, reasons: list<string>}>}
      */
+    /**
+     * What Trendyol requires of a product in one of its CATEGORIES. `$productType` is a Trendyol category id, which is what a category is to this pipeline.
+     *
+     * Product **V2** paths are used (`/product/categories/{id}/attributes`): V1's `/product/product-categories/{id}/attributes` is retired, and the module does not use V1
+     * anywhere. Trendyol embeds the acceptable values with the attributes where the list is short; a very long list has an endpoint of its own which this version does not
+     * page through, and an attribute whose values were not embedded is recorded as required with NO value list rather than an empty one — an empty list would read as "no
+     * value is acceptable" and refuse every product.
+     *
+     * A category that cannot be read, or that names no attribute at all, is UNKNOWN. It is never "nothing is required": the draft then stays a draft, which is the whole
+     * point of `ListingRequirements::unknown()`.
+     */
+    public function listingRequirements(SalesChannelAccount $account, string $productType): ListingRequirements
+    {
+        $categoryId = trim($productType);
+        if ($categoryId === '' || !ctype_digit($categoryId)) {
+            // Trendyol's categories are numeric ids. Anything else is not a category, and asking about it would spend a call to be told so.
+            return ListingRequirements::unknown($productType);
+        }
+
+        $response = $this->client->call(
+            $account,
+            'trendyol.category_attributes',
+            'GET',
+            '/product/categories/' . rawurlencode($categoryId) . '/attributes',
+            capability: IntegrationCapability::ProductSync,
+        );
+
+        if ($response->isDryRun() || !$response->ok()) {
+            return ListingRequirements::unknown($categoryId);
+        }
+
+        return $this->categories->map((array) ($response->json ?? []), $categoryId);
+    }
+
     public function batchResult(SalesChannelAccount $account, string $batchId): array
     {
         $seller = $this->client->sellerId($account);

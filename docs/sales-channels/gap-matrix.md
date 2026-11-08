@@ -50,7 +50,8 @@
 | القدرة | الحالة | ملاحظة |
 |---|---|---|
 | المصادقة، Product V2 (قراءة + سعر/مخزون بدفعات)، Order V2، الطرود، Picking/التتبع، Webhooks، المطالبات (قراءة)، كشف الحساب | **مبني** | `TrendyolConnector::capabilityMatrix()` |
-| إنشاء/تعديل محتوى المنتج + جلب الفئات والعلامات والخصائص | **غير مبني** | `product_create_update: built=false` |
+| **جلب خصائص الفئة كمتطلبات قائمة** | **مبني (PR-D)** | Product **V2**: `/product/categories/{id}/attributes`. أي الخصائص إلزامية، والقيم المقبولة حيث تُضمّنها Trendyol، و`allowCustom` (قيمة من عندنا مقبولة فلا تُسجَّل قائمة قيم). ومعرّفات الخصائص والقيم تُحفظ بجانب الأسماء لأن الكتابة تُرسل معرّفات. وفئة لا تُقرأ أو لا تسمّي خاصية واحدة = **UNKNOWN** لا «لا شيء مطلوب». `TrendyolCategoryMapper` |
+| إنشاء/تعديل محتوى المنتج + جلب العلامات | **غير مبني** | `product_create_update: built=false`؛ العمليات مسجَّلة (`trendyol.products_create`، `trendyol.products_update`، `trendyol.brands`) ولا يستدعيها شيء بعد |
 | إلغاء بنود / Unsupplied | غير مبني **بقرار** (يقفل المنتج عند Trendyol) | `cancel_unsupplied: built=false` |
 | تقسيم الطرود | غير مبني | `split_packages: built=false` |
 | رفع/ربط الفاتورة | مسجَّل، غير مبني | `invoice_upload: built=false` |
