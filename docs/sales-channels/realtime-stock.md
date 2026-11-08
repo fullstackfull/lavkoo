@@ -145,6 +145,88 @@ php artisan channels:stock-events --retry-dead --status
 A queue worker gives the seconds; the schedule (`channels:stock-events`, every minute) is the net beneath it, and the whole of it where no worker runs. Neither can
 double-send: the publisher compares every quantity with what it last wrote.
 
+## The queue worker, for production
+
+Nothing here starts a worker, and the arrangement is **correct without one** — only slower. Decide which you want, and the table below says what each costs.
+
+| | Our own shop's number | The channels |
+| --- | --- | --- |
+| **No worker, schedule only** | immediate (it was never the worker's job) | up to a minute |
+| **A worker running** | immediate | seconds |
+
+### What to run
+
+One worker is enough; the drain is one-at-a-time by its own lock, so a second adds nothing. The queue is the default one, because the job is tiny and must not wait behind
+a long job: give it a queue of its own if the default is busy.
+
+```bash
+php artisan queue:work --queue=default --sleep=1 --tries=1 --max-time=3600 --max-jobs=500
+```
+
+* `--tries=1` matters: a job never retries itself. Whether an event may be worked again is the event's own business (its attempts, its next time, the owner's limit), and a
+  blind re-run of a job whose publish call timed out would be a blind re-send to a marketplace.
+* `--max-time`/`--max-jobs` let the process be recycled; nothing is lost when it is, because the rows are in the table.
+* The worker needs **no new permission and no new credential**: it calls the same publisher the scheduled run calls, under the same switches.
+
+Keep it alive with whatever the server already uses. With Supervisor:
+
+```ini
+[program:pharmacyksa-queue]
+command=php /path/to/pharmacyksa/artisan queue:work --queue=default --sleep=1 --tries=1 --max-time=3600
+directory=/path/to/pharmacyksa
+autostart=true
+autorestart=true
+user=www-data
+numprocs=1
+stopwaitsecs=120
+redirect_stderr=true
+stdout_logfile=/path/to/pharmacyksa/storage/logs/queue.log
+```
+
+`stopwaitsecs` is generous on purpose: a drain mid-batch should be allowed to finish rather than be killed (though being killed is safe — its rows are reclaimed after
+`claim_timeout_minutes`).
+
+### The host must also run the scheduler
+
+`channels:stock-events` runs every minute from the application's schedule, so the one cron entry the application already needs is the only cron entry this adds:
+
+```bash
+* * * * * cd /path/to/pharmacyksa && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Without it, and without a worker, events accumulate and the hub says so (below).
+
+### Checking it is working
+
+```bash
+php artisan channels:stock-events --status
+```
+
+`pending` near zero and `oldest_pending_seconds` in the low tens is the arrangement working. Minutes of backlog means neither a worker nor the scheduler is running.
+
+## Rolling back safely
+
+Every step is a switch; none needs a deployment, and **none of them touches the database's contents**. In increasing order of how much they give up:
+
+| Step | Set | What you get back | What you lose |
+| --- | --- | --- | --- |
+| 1. Stop asking for workers | `SALES_CHANNELS_STOCK_OUTBOX_NUDGE_ENABLED=false` | the queue is left alone entirely | the channels hear at the next minute instead of in seconds. **Nothing else changes, and nothing is lost** |
+| 2. Stop writing our own number from a hold | `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE=false` | holds no longer touch `products` at all | our own shop's number waits for the worker (and then for the provider's next figure if step 3 is taken too) |
+| 3. Stop writing it from the worker as well | `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT=false` | `products.current_stock` is written only by the provider sync, exactly as before PR-B | between two provider figures the storefront can offer units a channel has sold — the behaviour this work was done to end |
+| 4. Stop the whole thing | `SALES_CHANNELS_STOCK_OUTBOX_ENABLED=false` | the module behaves precisely as it did before this work: the marks and the scheduled runs | both holes come back: a change lost when a process dies, and a change waiting a quarter of an hour |
+
+After a rollback, run this once so nothing is left half-worked (it is safe at any time, and does nothing when the outbox is off):
+
+```bash
+php artisan channels:publish --only=allocate,stock
+```
+
+**The table stays.** Rolling a switch back never drops `channel_stock_events`: its rows are a record of what changed and are worth keeping even unworked, and
+`channels:prune` clears the worked ones on its own. Dropping the table is a migration (`down()`), and it is the last thing to do, not the first.
+
+**What a rollback cannot undo:** nothing. No step here changes a product, a listing, a reservation or a quantity at a channel — they change only who does the work and how
+soon. The quantities themselves are computed the same way by the same code in every one of these states.
+
 ## Watching it
 
 The hub's **stock changes not acted on yet** section is the figure that says the workers have stopped: how many changes are waiting, how old the oldest is, how many nobody
@@ -162,6 +244,29 @@ quantity that was never offered to it at all.
 | The division between several listings of one shelf | `Allocation/StockAllocator.php` |
 | Fail-closed on a stale figure or an incomplete order import | `Allocation/OrderFreshness.php`, `StockAvailability::isPublishable()` |
 | Confirming that a channel applied an update | `Publishing/StockPricePublisher.php` |
+
+## The two things the final review asked to be sure of
+
+**No unit is held twice.** Three separate properties, and each has a test:
+
+1. a reservation is one row per order line with a **unique key**, so a second attempt finds the first (and the re-read after that race is a *locking* read, or inside a
+   transaction it would read a snapshot taken before the winner committed);
+2. a channel order that has an internal order of its own holds **nothing** besides — its reservation is released with `internal_order_counts_it`, because the internal
+   order's provider lines already count those units;
+3. `products.current_stock` is **recomputed, never decremented**: the provider's figure minus every promise against it. So the inline write, the worker's write and the
+   drain can all run, twice over, and the number does not drift (`test_a_unit_is_never_held_twice_however_many_times_anything_runs`).
+
+**No old figure is pushed out.** Also three:
+
+1. an outbox row carries **no figure at all** — it names a pool and says why, and the figures are read afresh when it is worked, so a row worked late sends a *fresh*
+   quantity late;
+2. re-applying a stored figure **does not re-stamp its read time** (`stampTheFigure: false`), so a stale figure never reads as current and a shipment the provider accepted
+   since it is still held back — the CI caught this one, and `test_re_applying_a_stored_figure_never_makes_it_look_newly_read` pins it;
+3. the **publisher's own staleness gate** still decides what reaches a channel: a figure the source has not confirmed within `stock.stale_after_minutes` is not offered, on
+   a drain exactly as on a scheduled run (`test_a_figure_too_old_to_trust_is_not_pushed_to_the_channel`).
+
+What this does *not* claim: the freshness of the provider's figure itself is the provider sync's cadence, not this work's. Re-applying it subtracts a new promise from the
+last known figure — the same formula the single writer has always used — and never invents stock.
 
 ## What is still not done
 

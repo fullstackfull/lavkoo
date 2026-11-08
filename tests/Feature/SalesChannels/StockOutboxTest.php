@@ -484,6 +484,111 @@ class StockOutboxTest extends TestCase
         $this->assertNull($drained['outcome']);
     }
 
+    // ---- what the final review asked: no unit held twice, no old figure pushed out -------------------------
+
+    /**
+     * The storefront's number is the figure MINUS the promises, so holding, releasing and re-holding cannot drift it. Nothing here decrements, which is the property that
+     * makes a unit impossible to hold twice however many times any of this runs.
+     */
+    public function test_a_unit_is_never_held_twice_however_many_times_anything_runs(): void
+    {
+        $this->providerSync(20);
+
+        $this->channelOrderFor(3, 'TY-A');
+        $this->channelOrderFor(2, 'TY-B');
+        $this->assertSame(15, $this->storefrontStock());
+
+        // Everything that could write it, twice over: the inline path, the worker's path, and the drain itself.
+        app(StorefrontStockRefresher::class)->writeFor([self::PRODUCT]);
+        app(StorefrontStockRefresher::class)->refresh(self::PRODUCT);
+        app(StockEventDrain::class)->drain();
+        app(StockEventDrain::class)->drain();
+        app(ChannelOrderReservations::class)->sync(ExternalOrderMapping::firstWhere('external_order_id', 'TY-A'));
+
+        $this->assertSame(15, $this->storefrontStock(), 'five units were taken off more than once');
+        $this->assertSame(5, (int) DB::table('inventory_reservations')->where('state', 'reserved')->sum('quantity'), 'and the holds themselves doubled');
+    }
+
+    /** And a release gives back exactly what was held, not more: the same formula, read again. */
+    public function test_a_release_gives_back_exactly_what_was_held(): void
+    {
+        $this->providerSync(20);
+        $this->channelOrderFor(3);
+        $this->assertSame(17, $this->storefrontStock());
+
+        $this->channelOrderFor(3, 'TY-1', ChannelOrderStatus::Cancelled);
+
+        $this->assertSame(20, $this->storefrontStock());
+        $this->assertSame(0, (int) DB::table('inventory_reservations')->where('state', 'reserved')->sum('quantity'));
+    }
+
+    /**
+     * An old figure is never pushed to a channel. The drain hands pools to the publisher, and the publisher's own staleness gate decides — so a figure the source has not
+     * confirmed within `stale_after_minutes` is not offered, exactly as on a scheduled run.
+     */
+    public function test_a_figure_too_old_to_trust_is_not_pushed_to_the_channel(): void
+    {
+        config(['sales_channels.stock.stale_after_minutes' => 60]);
+        Http::fake(['apigw.trendyol.com/*' => Http::response(['batchRequestId' => 'batch-1'])]);
+        $this->providerFigure(self::PRODUCT, 20, now()->subHours(5));
+        $this->providerSync(20);
+        $this->channelOrderFor(3);
+        $this->listing()->forceFill(['last_published_quantity' => 20, 'remote_quantity' => 20, 'last_published_at' => now()->subMinute()])->save();
+        // The figure is five hours old, and the re-apply left its read time where it was.
+        ProviderProductMapping::where('product_id', self::PRODUCT)->update(['provider_stock_synced_at' => now()->subHours(5)]);
+
+        $worked = app(StockEventDrain::class)->drain();
+
+        $this->assertSame([], Http::recorded(static fn ($request): bool => str_contains($request->url(), 'price-and-inventory'))->all(), 'a quantity from a figure nobody has confirmed for five hours went to the channel');
+        $this->assertSame(ChannelStockEvent::WORKED, ChannelStockEvent::firstOrFail()->state, 'the gate is an answer, not a failure to retry for ever');
+        $this->assertNotSame(null, $worked['outcome']);
+    }
+
+    /** A mapping the writer refuses leaves the job on the row instead of closing it over a number nobody updated. */
+    public function test_a_refused_storefront_write_is_not_recorded_as_written(): void
+    {
+        // A product the storefront sells per variant, with a whole-product figure: the writer cannot spread one figure over the variants and refuses it.
+        $perVariant = $this->storeProduct(64, stock: 10, variation: json_encode([['type' => 'Red', 'price' => 5, 'qty' => 10]]));
+        $this->providerFigure($perVariant, 20, now()->subHour());
+        $listing = $this->stockListing($this->account, $perVariant, $this->torodLocation(), 'LK-64');
+        $this->ingestOrder($this->account, 'TY-64', 'LK-64', 2);
+
+        $event = ChannelStockEvent::where('product_id', $perVariant)->firstOrFail();
+        $this->assertTrue($event->rewrites_storefront_stock, 'a refused write was recorded as done');
+        $this->assertNull($event->storefront_written_at);
+        $this->assertNotNull($listing->id);
+    }
+
+    // ---- the internal number owes nothing to a queue -------------------------------------------------------
+
+    /**
+     * The guarantee the owner asked to have pinned: OUR OWN number needs no worker, no queue and no schedule, while the CHANNELS need all three. Nothing is faked away
+     * here — the queue is the real `sync` one, nothing is drained, and no command is run.
+     */
+    public function test_our_own_number_needs_no_worker_while_the_channels_do(): void
+    {
+        Queue::swap($this->realQueue);
+        config(['queue.default' => 'sync']);
+        Http::fake(['apigw.trendyol.com/*' => Http::response(['batchRequestId' => 'batch-1'])]);
+        $this->providerSync(20);
+        $this->listing()->forceFill(['last_published_quantity' => 20, 'remote_quantity' => 20, 'last_published_at' => now()->subMinute()])->save();
+
+        $this->channelOrderFor(3);
+
+        // Our own shop: right already.
+        $this->assertSame(17, $this->storefrontStock(), 'our own number waited for a worker');
+        // The channels: nothing has gone out, and the row says so.
+        $this->assertSame([], Http::recorded(static fn ($request): bool => str_contains($request->url(), 'price-and-inventory'))->all());
+        $this->assertSame(1, $this->outbox()->lag()['pending']);
+
+        // And they are told as soon as something works the outbox — a worker, or the minute schedule.
+        $this->artisan('channels:stock-events')->assertSuccessful();
+
+        $this->assertSame([17], Http::recorded(static fn ($request): bool => str_contains($request->url(), 'price-and-inventory'))
+            ->map(static fn (array $pair): int => (int) $pair[0]->data()['items'][0]['quantity'])->values()->all());
+        $this->assertSame(0, $this->outbox()->lag()['pending']);
+    }
+
     // ---- the division switched off ------------------------------------------------------------------------
 
     /**

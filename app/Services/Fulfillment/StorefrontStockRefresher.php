@@ -45,11 +45,15 @@ class StorefrontStockRefresher implements WritesStorefrontStock
         if (!(bool) config('sales_channels.stock.outbox.rewrite_storefront_stock_inline', true)) {
             return false;
         }
+        $refused = 0;
         foreach (array_unique($productIds) as $productId) {
-            $this->refresh((int) $productId);
+            $refused += $this->refresh((int) $productId)['refused'];
         }
 
-        return true;
+        // True only when NOTHING is left for a worker to do. A mapping the writer refused (a whole-product figure on a product sold per variant, a variant that is gone, a
+        // product no longer assigned to that provider) is not written, and saying it was would close the row over a number nobody updated. The row keeps the job instead, the
+        // worker tries again, and if it is refused there too that shows up as `storefront.refused` rather than as silence.
+        return $refused === 0;
     }
 
     public function __construct(private readonly InventorySyncService $sync)
