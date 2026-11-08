@@ -74,8 +74,13 @@ final class StockAttention
         if ($late) {
             $items[] = ['title' => translate('stock_changes_waiting_too_long'), 'detail' => $lag['pending'] . ' ' . translate('changes_oldest_of_them_minutes_ago', ['minutes' => (int) floor($behind / 60)]), 'url' => route('admin.sales-channels.inventory.index')];
         }
+        // Changes a pass attended to where a switch or an approval refused the send. Nothing failed — but nothing was published either, and an empty queue must never be
+        // read as "everything is at the channels".
+        if (($lag['not_sent'] ?? 0) > 0) {
+            $items[] = ['title' => translate('stock_changes_recomputed_but_not_sent'), 'detail' => $lag['not_sent'] . ' ' . translate('a_switch_or_an_approval_refused_the_send'), 'url' => route('admin.sales-channels.index')];
+        }
 
-        return $this->section(translate('attention_stock_changes_not_worked'), count($items) === 0 ? 0 : $lag['dead'] + ($late ? $lag['pending'] : 0), $items);
+        return $this->section(translate('attention_stock_changes_not_worked'), count($items) === 0 ? 0 : $lag['dead'] + ($late ? $lag['pending'] : 0) + (int) ($lag['not_sent'] ?? 0), $items);
     }
 
     private function deficits(): array

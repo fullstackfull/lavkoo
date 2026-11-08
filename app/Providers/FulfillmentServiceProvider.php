@@ -4,11 +4,13 @@ namespace App\Providers;
 
 use App\Services\Fulfillment\Contracts\NotesStockChanged;
 use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
+use App\Services\Fulfillment\Contracts\WritesStorefrontStock;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\Readiness\Compatibility\MigrationsSection;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\Fulfillment\Support\NoChannelHolds;
+use App\Services\Fulfillment\StorefrontStockRefresher;
 use App\Services\Fulfillment\Support\NoStockNotes;
 use App\Services\Fulfillment\Support\StoreCurrencyRateSource;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -31,6 +33,8 @@ class FulfillmentServiceProvider extends ServiceProvider
         // On its own the fulfilment module knows of no other seller of a provider's stock; the sales-channel module replaces this with its own holds.
         $this->app->bind(ReportsChannelHolds::class, NoChannelHolds::class);
         $this->app->bind(NotesStockChanged::class, NoStockNotes::class);
+        // The storefront's own number stays Fulfillment's to write, however asks for it.
+        $this->app->bind(WritesStorefrontStock::class, StorefrontStockRefresher::class);
         $this->app->singleton(ProviderRegistry::class);
         $this->app->singleton(ProviderConnectionManager::class);
 

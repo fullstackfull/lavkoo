@@ -68,7 +68,7 @@ class StockAllocationCommandsTest extends TestCase
     {
         $account = $this->trendyolAccount();
         $this->stockListing($account, self::PRODUCT, $this->torodLocation(), 'BAR-1');
-        $this->artisan('channels:publish', ['--only' => 'allocate'])->expectsOutputToContain('allocate: {"pools":0,"accounts":[]}')->assertSuccessful();
+        $this->artisan('channels:publish', ['--only' => 'allocate'])->expectsOutputToContain('allocate: {"pools":0,"recomputed":0,"accounts":[]}')->assertSuccessful();
         $this->assertSame([], $this->sentQuantities());
 
         config(['sales_channels.enabled' => false]);

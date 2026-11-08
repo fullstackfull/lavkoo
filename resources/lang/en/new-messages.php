@@ -10872,4 +10872,6 @@ return [
 	'kept_for_you_until_somebody_deals_with_them' => 'kept for you until somebody deals with what stopped them; each one is a quantity at a channel that has not been corrected',
 	'stock_changes_waiting_too_long' => 'Changes waiting longer than they should',
 	'changes_oldest_of_them_minutes_ago' => 'changes waiting, the oldest of them :minutes minute(s) ago: the workers have stopped, or the queue is not being run',
+	'stock_changes_recomputed_but_not_sent' => 'Changes worked out but not sent',
+	'a_switch_or_an_approval_refused_the_send' => 'a switch or an approval refused the send, so the quantities were worked out and nothing went to the channel; turning it on sends them on the next regular run',
 ];

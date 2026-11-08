@@ -17468,4 +17468,6 @@ return [
 	'kept_for_you_until_somebody_deals_with_them' => 'محفوظة لك حتى يُعالَج ما أوقفها؛ كل واحدة كمية عند قناة لم تُصحَّح',
 	'stock_changes_waiting_too_long' => 'تغييرات تنتظر أطول مما ينبغي',
 	'changes_oldest_of_them_minutes_ago' => 'تغييرات تنتظر، أقدمها قبل :minutes دقيقة: العمال متوقّفون، أو الطابور لا يُشغَّل',
+	'stock_changes_recomputed_but_not_sent' => 'تغييرات حُسبت ولم تُرسل',
+	'a_switch_or_an_approval_refused_the_send' => 'مفتاح أو موافقة منعت الإرسال، فحُسبت الكميات ولم يخرج شيء إلى القناة؛ وتفعيلها يُرسلها في التشغيل المنتظم التالي',
 ];

@@ -96,9 +96,12 @@ class InventorySyncService
      *
      * @param array<string, mixed> $stockByKey the provider's figure keyed "externalId" or "externalId|externalVariantId"; null where there was none
      * @param CarbonInterface|null $readStartedAt when the figures began to be read: an order the provider accepted after that moment may not be in them yet, so it is still held back
+     * @param bool $stampTheFigure whether these figures were just READ from the provider. False when a figure already stored is merely being applied again (because what is
+     *                             promised against it changed): the figure is no newer than it was, and recording it as freshly read would make a stale one look current and
+     *                             would make a shipment the provider accepted since look as though it were already counted.
      * @return array{updated: int, unchanged: int, unmapped: int, not_assigned: int, invalid: int, unsupported: int, absent: int} `absent` counts assigned products the response said nothing about
      */
-    public function applyToAssignedProducts(ProviderCode $provider, array $stockByKey, ?CarbonInterface $readStartedAt = null): array
+    public function applyToAssignedProducts(ProviderCode $provider, array $stockByKey, ?CarbonInterface $readStartedAt = null, bool $stampTheFigure = true): array
     {
         $stats = ['updated' => 0, 'unchanged' => 0, 'unmapped' => 0, 'not_assigned' => 0, 'invalid' => 0, 'unsupported' => 0, 'absent' => 0];
 
@@ -117,7 +120,7 @@ class InventorySyncService
             } elseif (($quantity = $this->wholeUnits($figure)) === null) {
                 $stats['invalid']++;
             } else {
-                $stats[$this->storeAssigned($mapping, $provider, $quantity, $readStartedAt)]++;
+                $stats[$this->storeAssigned($mapping, $provider, $quantity, $readStartedAt, $stampTheFigure)]++;
             }
         }
 
@@ -254,30 +257,31 @@ class InventorySyncService
      *
      * @return string one of the stats keys: updated, unchanged, unsupported, not_assigned
      */
-    private function storeAssigned(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity, ?CarbonInterface $acceptedSince): string
+    private function storeAssigned(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity, ?CarbonInterface $acceptedSince, bool $stampTheFigure = true): string
     {
         $before = (int) ($mapping->provider_stock ?? -1);
-        $outcome = DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince): string {
+
+        // The note goes in the SAME transaction as the figure. Outside it, a process that died between the two would leave the new figure stored and nothing to say that
+        // whoever else sells this shelf must be told — which is exactly the loss the note exists to prevent, so it may not be made after the commit.
+        return DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince, $before, $stampTheFigure): string {
             $written = $this->writeStoreStock($mapping, $provider, $providerQuantity, $acceptedSince, assignedOnly: true);
-            if ($written === self::UPDATED || $written === self::UNCHANGED) {
+            if ($written !== self::UPDATED && $written !== self::UNCHANGED) {
+                return $written;
+            }
+            if ($stampTheFigure) {
                 $this->stamp($mapping, $providerQuantity);
             }
-
-            return $written;
-        });
-
-        // Whoever else sells this shelf (Amazon FBM, Trendyol) may now be shown a different quantity, and used to find out only at the next quarter-hour sweep. The note is
-        // made once the figure is written and only when it really moved; it sends nothing to any channel and decides nothing about whether anything may be sent.
-        if ($outcome === self::UPDATED || $outcome === self::UNCHANGED) {
+            // Whoever else sells this shelf (Amazon FBM, Trendyol) may now be shown a different quantity, and used to find out only at the next quarter-hour sweep. It sends
+            // nothing to any channel and decides nothing about whether anything may be sent; where the sales-channel module is absent the note goes nowhere.
             $this->stockNotes->providerFigureChanged(
                 provider: $provider,
                 productId: (int) $mapping->product_id,
                 variantKey: (string) $mapping->variant_key,
                 figureChanged: $before !== $providerQuantity,
             );
-        }
 
-        return $outcome;
+            return $written;
+        });
     }
 
     private function writeStoreStock(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity, ?CarbonInterface $acceptedSince = null, bool $assignedOnly = false): string

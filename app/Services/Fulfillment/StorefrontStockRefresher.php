@@ -5,6 +5,7 @@ namespace App\Services\Fulfillment;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderProductMapping;
+use App\Services\Fulfillment\Contracts\WritesStorefrontStock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -13,21 +14,44 @@ use Illuminate\Support\Facades\DB;
  *
  * Why it is needed. The storefront's number is the provider's figure minus every promise against it: store orders the provider has not taken on yet, and the units open
  * channel orders hold. That subtraction happens when a provider figure ARRIVES, which is a sync cycle away (thirty minutes as it ships). So between two figures a channel can
- * sell three units and the storefront keeps offering the old number. This closes that window: as soon as a channel's units are held, the same arithmetic is done again on the
- * figure already stored, and the storefront's number drops at once.
+ * sell three units and the storefront keeps offering the old number. This closes that window: the same arithmetic is done again on the figure already stored.
+ *
+ * `writeFor()` is the one a change calls INSIDE its own transaction (a channel hold does), so the hold and the number can never disagree and nothing is left for a schedule
+ * to catch up on. `refresh()` is the same work for one product, which the outbox's worker uses for the changes a transaction could not cover.
  *
  * What it does NOT do:
  *
- *  - IT ASKS NO PROVIDER. It re-applies `provider_stock`, the figure the last sync stored on the mapping, with the time it was read (`provider_stock_synced_at`) — so a
- *    shipment the provider accepted after that figure is still held back, exactly as it is on a real sync. Nothing here makes a stale figure look fresh.
+ *  - IT ASKS NO PROVIDER, AND IT DOES NOT MAKE THE FIGURE LOOK NEWER. It re-applies `provider_stock`, the figure the last sync stored, with the time that sync read it
+ *    (`provider_stock_synced_at`) — and leaves that time exactly as it was. So a shipment the provider accepted after the figure is still held back, exactly as on a real
+ *    sync. Re-stamping it would be the worst thing this class could do: a stale figure would read as current, and units the provider already holds would go back on sale.
  *  - IT HAS NO ARITHMETIC OF ITS OWN. The write goes through InventorySyncService, the one writer of the storefront's stock: its locking, its refusals (a whole-product figure
  *    on a product sold per variant, a variant with no price, a product no longer assigned to the provider) and its stock-movement line all apply unchanged. A second copy of
  *    that arithmetic is the one thing that would make the two numbers disagree.
  *  - IT TOUCHES NO PRODUCT THE PROVIDER DOES NOT OWN. A product fulfilled in-house has no provider figure to re-apply, and its stock is a person's to set.
  *  - IT NEVER TOUCHES Amazon FBA OR Noon FBN STOCK. Those are the channel's own shelves, not a provider's, and they are not what `provider_stock` holds.
  */
-class StorefrontStockRefresher
+class StorefrontStockRefresher implements WritesStorefrontStock
 {
+    /**
+     * Writes these products' storefront stock now, for a caller that has just changed what is promised against them (a channel hold being taken or given back).
+     *
+     * It is meant to be called INSIDE that caller's own transaction, so the hold and the number cannot disagree: either both are written or neither is. With the inline write
+     * switched off it writes nothing and says so, and the outbox's worker does it a moment later instead.
+     *
+     * @param list<int> $productIds
+     */
+    public function writeFor(array $productIds): bool
+    {
+        if (!(bool) config('sales_channels.stock.outbox.rewrite_storefront_stock_inline', true)) {
+            return false;
+        }
+        foreach (array_unique($productIds) as $productId) {
+            $this->refresh((int) $productId);
+        }
+
+        return true;
+    }
+
     public function __construct(private readonly InventorySyncService $sync)
     {
     }
@@ -45,7 +69,9 @@ class StorefrontStockRefresher
         $applied = 0;
         $refused = 0;
         foreach ($this->storedFigures($provider, $productId) as $readAt => $figures) {
-            $stats = $this->sync->applyToAssignedProducts($provider, $figures, $readAt === '' ? null : CarbonImmutable::parse($readAt));
+            // `stampTheFigure: false` is the whole point: the figure is no newer than it was. Recording it as freshly read would make a stale figure look current, and would
+            // make a shipment the provider has accepted since look as though it were already counted — which would put units back on sale that are gone.
+            $stats = $this->sync->applyToAssignedProducts($provider, $figures, $readAt === '' ? null : CarbonImmutable::parse($readAt), stampTheFigure: false);
             $applied += $stats['updated'] + $stats['unchanged'];
             $refused += $stats['invalid'] + $stats['unsupported'] + $stats['not_assigned'] + $stats['unmapped'];
         }

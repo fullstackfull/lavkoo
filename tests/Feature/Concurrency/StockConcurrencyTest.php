@@ -3,12 +3,14 @@
 namespace Tests\Feature\Concurrency;
 
 use App\Models\ChannelStockEvent;
+use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryPool;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
+use App\Services\Fulfillment\InventorySyncService;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
 use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
@@ -342,7 +344,35 @@ class StockConcurrencyTest extends TestCase
         $claimed = array_sum(array_column(array_column($reports, 'result'), 'claimed'));
         $this->assertSame(24, $claimed, 'the workers between them took every event exactly once: ' . json_encode(array_column($reports, 'result')));
         $this->assertSame(0, ChannelStockEvent::where('state', ChannelStockEvent::PENDING)->count(), 'an event was left waiting');
-        $this->assertSame(24, ChannelStockEvent::where('state', ChannelStockEvent::DONE)->count());
+        $this->assertSame(24, ChannelStockEvent::where('state', ChannelStockEvent::WORKED)->count());
+    }
+
+    /**
+     * Six processes each holding units of the SAME product at the same instant. Our own shop's number is written inside each hold's transaction, so this is where a wrong
+     * lock order would deadlock and a decrement would take the same unit off twice. It is neither: the number is RECOMPUTED (the figure minus every promise), so whichever
+     * process writes last writes the right number, and the locks are taken in one order throughout.
+     */
+    public function test_six_processes_holding_units_of_one_product_at_once_leave_our_own_number_right_and_never_deadlock(): void
+    {
+        $this->stockListing($this->first, self::PRODUCT, $this->torodLocation(), 'BAR-A');
+        app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-' . self::PRODUCT => 20], now());
+        $this->assertSame(20, $this->storefrontStock());
+
+        $reports = ConcurrentRunner::run('stock.ingest_many', array_map(static fn (int $worker): array => [
+            'account' => $this->first->id, 'listing_key' => 'BAR-A', 'quantity' => 2, 'count' => 1, 'prefix' => 'CONC-' . $worker,
+        ], range(1, 6)));
+
+        $this->assertAllWorkersSucceeded($reports);
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertSame(0, array_sum(array_column(array_column($reports, 'result'), 'deadlocks')), 'a deadlock got through: ' . json_encode(array_column($reports, 'result')));
+        $held = (int) InventoryReservation::where('product_id', self::PRODUCT)->where('state', InventoryReservation::RESERVED)->sum('quantity');
+        $this->assertSame(12, $held, 'six orders of two units each are twelve units held');
+        $this->assertSame(20 - $held, $this->storefrontStock(), 'our own number is the figure minus what is promised, once — not a decrement applied twice');
+    }
+
+    private function storefrontStock(): int
+    {
+        return (int) DB::table('products')->where('id', self::PRODUCT)->value('current_stock');
     }
 
     /** `$count` changes waiting in the outbox, on as many pools, each recorded the way a real change records it. */

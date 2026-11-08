@@ -7,6 +7,7 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Jobs\SalesChannels\DrainStockEvents;
 use App\Models\ChannelStockEvent;
 use App\Models\InventoryLocation;
+use App\Models\ProviderProductMapping;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
@@ -17,6 +18,8 @@ use App\Services\SalesChannels\Inventory\Outbox\StockEventDrain;
 use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Publishing\DirtyPoolRun;
+use App\Services\SalesChannels\Publishing\StockPricePublisher;
+use App\Services\SalesChannels\Sync\SyncStateStore;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -127,7 +130,8 @@ class StockOutboxTest extends TestCase
         $this->assertSame(self::PRODUCT, (int) $events[0]->product_id);
         $this->assertSame((int) $this->torodLocation()->id, (int) $events[0]->location_id);
         $this->assertSame(ChannelStockEvent::PENDING, $events[0]->state);
-        $this->assertTrue($events[0]->rewrites_storefront_stock, 'a channel taking units is also the storefront\'s own number changing');
+        $this->assertFalse($events[0]->rewrites_storefront_stock, 'our own shop\'s number was left for a worker instead of being written with the hold');
+        $this->assertNotNull($events[0]->storefront_written_at, 'and the row says when it was written');
         $this->assertSame('external_order_mapping', $events[0]->subject_type);
     }
 
@@ -210,7 +214,7 @@ class StockOutboxTest extends TestCase
 
         $event = ChannelStockEvent::firstOrFail();
         $this->assertSame(ChannelStockEvent::ORDER_CANCELLED, $event->reason);
-        $this->assertTrue($event->rewrites_storefront_stock, 'units coming back are the storefront\'s number changing too');
+        $this->assertNotNull($event->storefront_written_at, 'units coming back are our own number changing too, and in the same transaction');
     }
 
     // ---- claiming, retrying, dying -------------------------------------------------------------------------
@@ -290,19 +294,53 @@ class StockOutboxTest extends TestCase
 
     // ---- the drain -----------------------------------------------------------------------------------------
 
-    public function test_the_storefronts_own_stock_drops_in_the_same_pass_without_asking_the_provider(): void
+    public function test_our_own_shops_number_drops_with_the_hold_itself_not_at_the_drain(): void
     {
         $this->providerSync(20);
         $this->assertSame(20, $this->storefrontStock(), 'the shelf holds twenty and nothing is promised yet');
 
         $this->channelOrderFor(3);
-        app(StockEventDrain::class)->drain();
 
-        $this->assertSame(17, $this->storefrontStock(), 'three units a channel sold were still on offer in our own shop');
+        // No drain has run, no worker, no queue: the number is already right, because it was written in the hold's own transaction.
+        $this->assertSame(17, $this->storefrontStock(), 'three units a channel sold were still on offer in our own shop until a worker got to it');
+        $this->assertSame(1, $this->outbox()->lag()['pending'], 'the channels still have to be told, which is the worker\'s job');
         Http::assertNothingSent();
     }
 
-    public function test_the_drain_works_the_events_and_marks_them_done(): void
+    public function test_the_number_is_recomputed_not_decremented_so_writing_it_again_takes_nothing_off_twice(): void
+    {
+        $this->providerSync(20);
+        $this->channelOrderFor(3);
+        $this->assertSame(17, $this->storefrontStock());
+
+        // Whatever asks, however often: the number is the figure minus the promises, so it cannot drift down.
+        app(StorefrontStockRefresher::class)->refresh(self::PRODUCT);
+        app(StorefrontStockRefresher::class)->writeFor([self::PRODUCT]);
+        app(StockEventDrain::class)->drain();
+        app(StockEventDrain::class)->drain();
+
+        $this->assertSame(17, $this->storefrontStock(), 'the same three units were taken off more than once');
+    }
+
+    public function test_with_the_inline_write_off_the_worker_does_it_instead_and_the_row_says_so(): void
+    {
+        config(['sales_channels.stock.outbox.rewrite_storefront_stock_inline' => false]);
+        $this->providerSync(20);
+
+        $this->channelOrderFor(3);
+
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertTrue($event->rewrites_storefront_stock, 'nobody was asked to write our own number');
+        $this->assertNull($event->storefront_written_at);
+        $this->assertSame(20, $this->storefrontStock(), 'the inline write is off, so the number waits');
+
+        app(StockEventDrain::class)->drain();
+
+        $this->assertSame(17, $this->storefrontStock());
+        $this->assertNotNull(ChannelStockEvent::firstOrFail()->storefront_written_at);
+    }
+
+    public function test_the_drain_works_the_events_and_says_what_the_pass_came_to(): void
     {
         $this->providerSync(20);
         $this->channelOrderFor(3);
@@ -311,10 +349,66 @@ class StockOutboxTest extends TestCase
 
         $this->assertSame(1, $worked['claimed']);
         $this->assertSame(1, $worked['pools']);
-        $this->assertSame(1, $worked['products']);
+        $this->assertSame(0, $worked['products'], 'our own number was already written with the hold');
         $this->assertSame(0, $worked['failed']);
-        $this->assertSame(ChannelStockEvent::DONE, ChannelStockEvent::firstOrFail()->state);
+        $this->assertSame(0, $worked['reopened']);
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::WORKED, $event->state);
+        $this->assertTrue($event->wasRecomputed(), 'the row was closed without the pool having been divided again');
         $this->assertSame(0, $this->outbox()->lag()['pending']);
+    }
+
+    // ---- the four facts, kept apart -----------------------------------------------------------------------
+
+    public function test_a_row_is_never_closed_as_worked_while_the_publisher_settled_nothing(): void
+    {
+        $this->providerSync(20);
+        $this->channelOrderFor(3);
+        // The regular run holds the account's stock lease: this pass sent nothing and nothing is settled.
+        app(SyncStateStore::class)->acquire((int) $this->account->id, StockPricePublisher::STOCK);
+
+        $worked = app(StockEventDrain::class)->drain();
+
+        $this->assertSame(1, $worked['reopened'], 'a busy publisher closed the row anyway');
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::PENDING, $event->state);
+        $this->assertSame('publisher_busy', $event->failure_code);
+        $this->assertSame(1, $event->attempts);
+    }
+
+    public function test_a_publisher_that_refused_before_anything_left_this_host_is_recorded_as_not_sent_never_as_a_publish(): void
+    {
+        // Writing is off on this host: the transport refuses the call before anything leaves, which is a settled answer and not a success.
+        config(['sales_channels.external_writes_enabled' => false]);
+        $this->providerSync(20);
+        $this->channelOrderFor(3);
+        // The channel is showing twenty, so seventeen really is a lowering to send: without that the run would have nothing to send and would answer `ok`.
+        $this->listing()->forceFill(['last_published_quantity' => 20, 'remote_quantity' => 20, 'last_published_at' => now()->subMinute()])->save();
+
+        $worked = app(StockEventDrain::class)->drain();
+
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::WORKED, $event->state, 'a switch the owner turned off is a settled answer, not something to retry for ever');
+        $this->assertSame(ChannelStockEvent::NOT_SENT, $event->outcome);
+        $this->assertFalse($event->wasSent(), 'a refusal was reported as a publish');
+        $this->assertSame(1, $this->outbox()->lag()['not_sent'], 'and it is counted, so nobody reads the queue being empty as everything being published');
+        $this->assertSame(ChannelStockEvent::NOT_SENT, $worked['outcome']);
+        Http::assertNothingSent();
+    }
+
+    public function test_a_pool_no_channel_offers_is_recomputed_and_says_so_rather_than_claiming_a_send(): void
+    {
+        $this->providerSync(20);
+        // A pool with no listing on it at all: there is nothing to tell anybody, and the row must not pretend otherwise.
+        $other = $this->storeProduct(62);
+        DB::transaction(fn (): int => $this->outbox()->record([new PoolKey((int) $this->torodLocation()->id, $other)], ChannelStockEvent::PROVIDER_FIGURE));
+
+        $worked = app(StockEventDrain::class)->drain();
+
+        $this->assertSame(ChannelStockEvent::RECOMPUTED_ONLY, $worked['outcome']);
+        $event = ChannelStockEvent::where('product_id', $other)->firstOrFail();
+        $this->assertSame(ChannelStockEvent::RECOMPUTED_ONLY, $event->outcome);
+        $this->assertNull($event->publish_result, 'no publisher was asked, so none is reported');
     }
 
     public function test_many_events_for_one_pool_are_worked_once(): void
@@ -331,7 +425,7 @@ class StockOutboxTest extends TestCase
 
         $this->assertSame(3, $worked['claimed']);
         $this->assertSame(1, $worked['pools'], 'one pool was worked out three times');
-        $this->assertSame(3, ChannelStockEvent::where('state', ChannelStockEvent::DONE)->count());
+        $this->assertSame(3, ChannelStockEvent::where('state', ChannelStockEvent::WORKED)->count());
     }
 
     public function test_a_batch_that_threw_goes_back_and_nothing_is_marked_done(): void
@@ -367,10 +461,13 @@ class StockOutboxTest extends TestCase
         $this->stockListing($amazon, self::PRODUCT, $fba, 'FBA-1', ['fulfillment_mode' => 'fba']);
         DB::transaction(fn () => $this->outbox()->record([new PoolKey((int) $fba->id, self::PRODUCT)], ChannelStockEvent::PROVIDER_FIGURE));
 
-        app(StockEventDrain::class)->drain();
+        $worked = app(StockEventDrain::class)->drain();
 
         Http::assertNothingSent();
-        $this->assertSame(ChannelStockEvent::DONE, ChannelStockEvent::firstOrFail()->state, 'the gate said no, which is an answer, not a failure to retry for ever');
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::WORKED, $event->state, 'the gate said no, which is an answer, not a failure to retry for ever');
+        $this->assertFalse($event->wasSent(), 'an FBA pool was reported as published');
+        $this->assertNotSame(ChannelStockEvent::SENT, $worked['outcome']);
     }
 
     public function test_with_the_outbox_switched_off_nothing_is_recorded_and_the_scheduled_runs_do_the_work(): void
@@ -381,7 +478,70 @@ class StockOutboxTest extends TestCase
 
         $this->assertSame(0, ChannelStockEvent::count());
         $this->assertSame(1, DB::table('inventory_pools')->whereNotNull('dirty_at')->count(), 'the mark the scheduled run reads is still made');
-        $this->assertSame(['claimed' => 0, 'pools' => 0, 'products' => 0, 'storefront' => ['applied' => 0, 'refused' => 0], 'sent' => [], 'failed' => 0, 'reclaimed' => 0], app(StockEventDrain::class)->drain());
+        $drained = app(StockEventDrain::class)->drain();
+        $this->assertSame(0, $drained['claimed']);
+        $this->assertSame(0, $drained['pools']);
+        $this->assertNull($drained['outcome']);
+    }
+
+    // ---- the division switched off ------------------------------------------------------------------------
+
+    /**
+     * With the division off, `DirtyPools::mark()` does nothing, so a worker that read the MARKS would find no pools, publish nothing — and close its rows as though the work
+     * had been done. The worker hands over its own pools instead, so the work really happens and the row tells the truth either way.
+     */
+    public function test_with_the_division_off_the_drain_still_does_the_work_and_really_sends(): void
+    {
+        config(['sales_channels.stock.allocation.enabled' => false]);
+        Http::fake(['apigw.trendyol.com/*' => Http::response(['batchRequestId' => 'batch-1'])]);
+        $this->providerSync(20);
+        $this->channelOrderFor(3);
+        $this->listing()->forceFill(['last_published_quantity' => 20, 'remote_quantity' => 20, 'last_published_at' => now()->subMinute()])->save();
+
+        $worked = app(StockEventDrain::class)->drain();
+
+        $this->assertSame(0, DB::table('inventory_pools')->whereNotNull('dirty_at')->count(), 'the marks are off, as they were');
+        $this->assertSame(1, $worked['pools'], 'the worker found its own pools all the same');
+        $this->assertGreaterThan(0, $worked['recomputed'], 'the row would have been closed with nothing recomputed');
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::WORKED, $event->state);
+        $this->assertTrue($event->wasRecomputed());
+        $this->assertSame(ChannelStockEvent::SENT, $event->outcome);
+        // And the quantity really went out: seventeen, the shelf's twenty less the three a channel holds.
+        $this->assertSame([17], Http::recorded(static fn ($request): bool => str_contains($request->url(), 'price-and-inventory'))
+            ->map(static fn (array $pair): int => (int) $pair[0]->data()['items'][0]['quantity'])->values()->all());
+    }
+
+    /** The other half of point five: a run that FAILED settles nothing, so the row stays open rather than being closed over a quantity that never left. */
+    public function test_a_publisher_that_failed_leaves_the_row_open_and_never_claims_a_send(): void
+    {
+        $this->providerSync(20);
+        $this->channelOrderFor(3);
+        $this->listing()->forceFill(['last_published_quantity' => 20, 'remote_quantity' => 20, 'last_published_at' => now()->subMinute()])->save();
+
+        // Nothing answers the channel: the call fails. (Http::preventStrayRequests is on, which is exactly what an unreachable channel looks like from here.)
+        $worked = app(StockEventDrain::class)->drain();
+
+        $this->assertSame(1, $worked['reopened']);
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::PENDING, $event->state, 'a failed send closed the row');
+        $this->assertSame('publisher_failed', $event->failure_code);
+        $this->assertNull($event->outcome, 'and claimed an outcome for a pass that settled nothing');
+        // Our own shop's number is right all the same: it never depended on the channel answering.
+        $this->assertSame(17, $this->storefrontStock());
+    }
+
+    public function test_with_the_division_off_a_pool_nobody_offers_is_still_recomputed_and_recorded_honestly(): void
+    {
+        config(['sales_channels.stock.allocation.enabled' => false]);
+        $this->providerSync(20);
+        $other = $this->storeProduct(63);
+        DB::transaction(fn (): int => $this->outbox()->record([new PoolKey((int) $this->torodLocation()->id, $other)], ChannelStockEvent::PROVIDER_FIGURE));
+
+        $worked = app(StockEventDrain::class)->drain();
+
+        $this->assertSame(ChannelStockEvent::RECOMPUTED_ONLY, $worked['outcome']);
+        $this->assertSame(ChannelStockEvent::RECOMPUTED_ONLY, ChannelStockEvent::where('product_id', $other)->firstOrFail()->outcome);
     }
 
     // ---- the nudge -----------------------------------------------------------------------------------------
@@ -413,10 +573,15 @@ class StockOutboxTest extends TestCase
         Queue::swap($this->realQueue);
         config(['queue.default' => 'sync']);
 
+        $this->providerSync(20);
         $this->channelOrderFor(3);
 
+        $event = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::PENDING, $event->state, 'the drain ran inside the request that recorded the change');
+        $this->assertNull($event->outcome, 'and it even closed the row there');
         $this->assertSame(1, $this->outbox()->lag()['pending'], 'the change is recorded all the same; the minute schedule works it');
-        $this->assertSame(0, DB::table('products')->where('id', self::PRODUCT)->where('current_stock', 17)->count(), 'the drain ran inside the request that recorded the change');
+        // Our own shop's number is still right: it is written with the hold, which owes nothing to a queue.
+        $this->assertSame(17, $this->storefrontStock());
     }
 
     public function test_with_the_nudge_off_no_job_is_asked_for_and_the_events_still_wait_in_the_table(): void
@@ -436,7 +601,7 @@ class StockOutboxTest extends TestCase
 
         app()->call([new DrainStockEvents(), 'handle']);
 
-        $this->assertSame(ChannelStockEvent::DONE, ChannelStockEvent::firstOrFail()->state);
+        $this->assertSame(ChannelStockEvent::WORKED, ChannelStockEvent::firstOrFail()->state);
         $this->assertSame(17, $this->storefrontStock());
     }
 
@@ -452,6 +617,33 @@ class StockOutboxTest extends TestCase
         $locations = ChannelStockEvent::where('reason', ChannelStockEvent::PROVIDER_FIGURE)->pluck('location_id')->map(static fn ($id): int => (int) $id)->all();
         $this->assertContains((int) $torod->id, $locations);
         $this->assertNotContains((int) $fba->id, $locations, 'the channel\'s own shelf was mixed into the shared pool');
+    }
+
+    /**
+     * The note and the figure are one transaction. Recorded after the commit, a process that died between them would leave the new figure stored and nothing to say that
+     * whoever else sells the shelf must be told — the very loss the table exists to prevent.
+     */
+    public function test_a_provider_sync_that_dies_between_the_two_writes_leaves_neither_the_figure_nor_the_event(): void
+    {
+        $torod = $this->torodLocation();
+        $this->providerSync(20);
+        ChannelStockEvent::query()->delete();
+        $figureBefore = (int) ProviderProductMapping::where('product_id', self::PRODUCT)->value('provider_stock');
+        $stockBefore = $this->storefrontStock();
+
+        try {
+            DB::transaction(function (): void {
+                app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-' . self::PRODUCT => 11], now());
+                throw new RuntimeException('the sync died after storing the figure');
+            });
+        } catch (RuntimeException) {
+            // what the test is about
+        }
+
+        $this->assertSame(0, ChannelStockEvent::count(), 'the event outlived the figure it describes');
+        $this->assertSame($figureBefore, (int) ProviderProductMapping::where('product_id', self::PRODUCT)->value('provider_stock'), 'the figure outlived the event');
+        $this->assertSame($stockBefore, $this->storefrontStock());
+        $this->assertNotNull($torod);
     }
 
     public function test_a_figure_that_came_back_the_same_is_not_recorded(): void
@@ -478,6 +670,30 @@ class StockOutboxTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /**
+     * The nastiest way this could go wrong. Re-applying a figure must not record it as freshly read: a stale figure would then read as current, and a shipment the provider
+     * accepted since the figure would look as though it were already counted — which puts units the provider no longer has back on sale.
+     */
+    public function test_re_applying_a_stored_figure_never_makes_it_look_newly_read(): void
+    {
+        $readAt = now()->subHours(3);
+        $this->providerFigure(self::PRODUCT, 20, $readAt);
+        $this->providerSync(20);
+        $stamped = ProviderProductMapping::where('product_id', self::PRODUCT)->firstOrFail()->provider_stock_synced_at;
+        $this->travelTo(now()->addHour());
+
+        $this->channelOrderFor(4);
+        app(StorefrontStockRefresher::class)->refresh(self::PRODUCT);
+        app(StockEventDrain::class)->drain();
+
+        $this->assertSame(
+            $stamped?->toDateTimeString(),
+            ProviderProductMapping::where('product_id', self::PRODUCT)->firstOrFail()->provider_stock_synced_at?->toDateTimeString(),
+            'the figure was recorded as freshly read, so a stale one now reads as current',
+        );
+        $this->assertSame(16, $this->storefrontStock(), 'and the arithmetic itself still holds');
+    }
+
     public function test_a_product_the_store_fulfils_itself_has_no_provider_figure_to_re_apply(): void
     {
         $this->storeProduct(61, provider: null, stock: 7);
@@ -500,7 +716,7 @@ class StockOutboxTest extends TestCase
 
         $this->artisan('channels:stock-events')->assertSuccessful();
 
-        $this->assertSame(ChannelStockEvent::DONE, ChannelStockEvent::firstOrFail()->state);
+        $this->assertSame(ChannelStockEvent::WORKED, ChannelStockEvent::firstOrFail()->state);
         $this->assertSame(17, $this->storefrontStock());
     }
 

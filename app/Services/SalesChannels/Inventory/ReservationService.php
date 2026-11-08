@@ -34,23 +34,35 @@ class ReservationService
             return $existing;
         }
 
+        $values = [
+            'reservation_key' => $key,
+            'location_id' => $locationId,
+            'product_id' => $productId,
+            'variant_key' => $variantKey,
+            'sku' => $sku,
+            'quantity' => $quantity,
+            'state' => InventoryReservation::RESERVED,
+            'external_order_mapping_id' => $mappingId,
+            'order_id' => $orderId,
+            'sales_channel' => $salesChannel,
+            'account_id' => $accountId,
+            'reserved_at' => now(),
+        ];
+
         try {
-            return InventoryReservation::create([
-                'reservation_key' => $key,
-                'location_id' => $locationId,
-                'product_id' => $productId,
-                'variant_key' => $variantKey,
-                'sku' => $sku,
-                'quantity' => $quantity,
-                'state' => InventoryReservation::RESERVED,
-                'external_order_mapping_id' => $mappingId,
-                'order_id' => $orderId,
-                'sales_channel' => $salesChannel,
-                'account_id' => $accountId,
-                'reserved_at' => now(),
-            ]);
+            return InventoryReservation::create($values);
         } catch (UniqueConstraintViolationException) {
-            return InventoryReservation::where('reservation_key', $key)->firstOrFail();
+            // Another process inserted it between our look and our insert. The re-read has to LOCK, not merely select: inside a transaction a plain SELECT reads the snapshot
+            // taken before that process committed, so it would find nothing and this would throw where it should simply hand back the row that exists. A locking read sees the
+            // latest committed version and waits for the writer, which is exactly what is wanted. (Caller-held transactions are why this matters: the hold and the storefront's
+            // own number are written together, so this runs inside one.)
+            $existing = InventoryReservation::where('reservation_key', $key)->lockForUpdate()->first();
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            // The other process rolled back after all, so the key is free again and this one makes the row.
+            return InventoryReservation::create($values);
         }
     }
 

@@ -19,19 +19,33 @@ sold stayed on offer in our own shop and on Trendyol.
 ```
 a change (an order, a hold, a return, a provider figure, a setting)
         │
-        │  ONE transaction
-        ├──────────────► the change itself      (the reservation, the pool's settings, products.current_stock)
-        └──────────────► channel_stock_events   ("work this pool out again, because …")
+        │  ONE transaction — all three, or none of them
+        ├──────────────► the change itself          (the reservation; the pool's settings; the provider's figure)
+        ├──────────────► products.current_stock     (OUR OWN shop's number, recomputed: figure − promises)
+        └──────────────► channel_stock_events       ("ask the channels about this pool again, because …")
         │
         │  after the COMMIT
         └──────────────► a nudge: DrainStockEvents (queued)        ── and, whatever happens to it, ──
                                                                        channels:stock-events, every minute
         │
-   StockEventDrain
-        ├── 1. the storefront's own stock, at once, from the figure already stored   (StorefrontStockRefresher)
-        └── 2. the pools → DirtyPools → PoolAllocationService → StockPricePublisher::publishReductions
-                                                                 (every gate it ever applied, unchanged)
+   StockEventDrain                                   ← the CHANNELS' half only
+        ├── the storefront's number, for the changes a transaction could not cover
+        └── its OWN pool keys → PoolAllocationService → StockPricePublisher::publishReductions
+                                                       (every gate it ever applied, unchanged)
 ```
+
+## What is immediate and what is not
+
+Being exact about this matters more than the headline:
+
+| | When |
+| --- | --- |
+| **`products.current_stock`, on a channel hold or release** | **In the hold's own transaction.** No queue, no worker, no schedule: by the time the ingest returns, our own shop has stopped offering the units |
+| **`products.current_stock`, on a provider figure** | In the sync's own transaction, as it always was |
+| **The quantity at Amazon / Trendyol** | At the next drain: **seconds** where a queue worker runs, **up to a minute** where none does (the schedule). Never "the same second" — a marketplace has to be asked, and asking is what a worker is for |
+| **The channel having APPLIED it** | Later still, and not this table's business: it is the listing's own `publish_state` (`queued` → `applied`), because a submission a channel merely took is not an applied quantity |
+
+On a host whose queue connection is `sync` there is **no worker at all**, and nothing is nudged there on purpose (see below) — so the channels are told by the minute schedule. Our own shop's number is unaffected by any of that.
 
 ### The table is the guarantee; the job is the speed
 
@@ -44,11 +58,36 @@ a change (an order, a hold, a return, a provider figure, a setting)
 
 A row carries **no figure**. That is deliberate: a row worked late sends a *fresh* quantity late, never a stale quantity. It names a pool and says why.
 
-### The order within a pass: the storefront first
+### The four facts, kept apart
 
-The storefront is the shop we control. A unit Amazon has sold must stop being offered on pharmacyksa.com in the same second, not when a marketplace gets round to
-acknowledging a push. The channels come second, and **lowest first** (`publishReductions` sends only what *lowers* a quantity): a reduction that is late is an oversell, a rise
-that is late is only a lost sale.
+Conflating any two of these is how a quantity ends up wrong while every screen says it is fine, so the row keeps them separately:
+
+| The fact | Where it is recorded |
+| --- | --- |
+| **1. Recorded** — the change happened and the channels must be asked again | the row exists; `created_at`, written in the change's own transaction |
+| **2. Worked out** — the pool was really divided again, and our own number written | `recomputed_at`, `storefront_written_at` |
+| **3. Asked to be sent** — the publisher was really asked, and what it answered | `outcome` (`nothing_to_do` / `recomputed_only` / `sent` / `not_sent`), `publish_result`, `publish_detail` |
+| **4. Confirmed by the channel** | **not here.** The listing's own `publish_state`: `queued` until the channel confirms, then `applied` |
+
+`state = worked` therefore means *a pass attended to this row* — never *a channel accepted a quantity*. And a row is not closed at all unless something was settled:
+
+| The publisher answered | The row |
+| --- | --- |
+| `ok` | `worked`, outcome `sent` — the publisher ran. What each listing's quantity came to is the listing's business |
+| nobody to ask (no listing offers the pool) | `worked`, outcome `recomputed_only` — the figures are right and there was nobody to tell |
+| `skipped` (a switch, an approval, before anything left this host) | `worked`, outcome **`not_sent`**, with the reason — a settled answer, and **counted on the hub**, because an empty queue must not read as "everything is at the channels" |
+| `busy` / `rate_limited` / `failed` | **stays pending**, with `publisher_<result>` on it, and is tried again. Closing it would be closing a row over a quantity that never left |
+
+### The order within a pass: lowest first
+
+The channels are told **lowest first** (`publishReductions` sends only what *lowers* a quantity): a reduction that is late is an oversell, a rise that is late is only a lost
+sale. Our own shop needs no ordering at all, because its number was already written by the change itself.
+
+### With the division switched off
+
+`DirtyPools::mark()` does nothing while `SALES_CHANNELS_STOCK_ALLOCATION_ENABLED` is off. A worker that read the **marks** would therefore find no pools, publish nothing,
+and close its rows as though the work had been done — a false "done" over a wrong quantity. So the worker hands over **its own** pool keys (`DirtyPoolRun::runFor`), which it
+knows because the rows say so. The arrangement is right with the division on or off, and two tests pin it.
 
 ### The storefront's own number, without asking anybody
 
@@ -84,7 +123,8 @@ sweep too old to raise a quantity on.
 | `SALES_CHANNELS_STOCK_OUTBOX_ATTEMPTS` | `5` | Tries before an event is kept as dead |
 | `SALES_CHANNELS_STOCK_OUTBOX_RETRY_SECONDS` | `60` | Multiplied by the number of tries so far |
 | `SALES_CHANNELS_STOCK_OUTBOX_CLAIM_TIMEOUT_MINUTES` | `10` | After this, a dead run's batch is taken back |
-| `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT` | `true` | Off, the storefront waits for the provider's next figure, as it did |
+| `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE` | `true` | Our own number written in the hold's own transaction. Off, the row is left for the worker instead |
+| `SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT` | `true` | The worker's own pass at it, for changes a transaction could not cover. Off as well, the storefront waits for the provider's next figure, as it did |
 | `SALES_CHANNELS_STOCK_OUTBOX_BEHIND_SECONDS` | `180` | When the hub says the workers are behind |
 | `SALES_CHANNELS_STOCK_OUTBOX_DONE_EVENT_DAYS` | `7` | `channels:prune` deletes worked events after this; **dead ones are kept** |
 
@@ -107,9 +147,10 @@ double-send: the publisher compares every quantity with what it last wrote.
 
 ## Watching it
 
-The hub's **stock changes not acted on yet** section is the figure that says the workers have stopped: how many changes are waiting, how old the oldest is, and how many
-nobody could act on. A few waiting for a moment is the arrangement working. Minutes of backlog, or one dead event, is somebody's to look at — a dead event is a quantity at a
-channel that has not been corrected.
+The hub's **stock changes not acted on yet** section is the figure that says the workers have stopped: how many changes are waiting, how old the oldest is, how many nobody
+could act on, and how many were worked out but **not sent** because a switch or an approval refused it. A few waiting for a moment is the arrangement working. Minutes of
+backlog, one dead event, or a pile of `not_sent` is somebody's to look at — a dead event is a quantity at a channel that has not been corrected, and a `not_sent` one is a
+quantity that was never offered to it at all.
 
 ## What was already here, and is not rebuilt
 

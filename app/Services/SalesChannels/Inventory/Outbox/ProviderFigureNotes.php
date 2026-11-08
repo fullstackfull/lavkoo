@@ -39,8 +39,8 @@ class ProviderFigureNotes implements NotesStockChanged
             return;
         }
 
-        // The storefront's own stock was just written by the sync that called this, with this very figure: writing it again would be the same arithmetic on the same numbers.
-        $written = $this->outbox->record($pools, ChannelStockEvent::PROVIDER_FIGURE, subjectType: 'product', subjectId: $productId, rewritesStorefrontStock: false);
+        // Our own shop's number was just written by the sync that called this, with this very figure: writing it again would be the same arithmetic on the same numbers.
+        $written = $this->outbox->record($pools, ChannelStockEvent::PROVIDER_FIGURE, subjectType: 'product', subjectId: $productId, storefrontWritten: true);
         if ($written > 0) {
             $this->nudge->soon();
         }

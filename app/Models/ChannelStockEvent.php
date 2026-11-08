@@ -12,6 +12,11 @@ use Illuminate\Database\Eloquent\Model;
  * It carries no figure and no quantity: it names a pool and says why, and the figures are read afresh when it is worked. So a row that is worked late is not a stale quantity
  * being sent — it is a fresh one being sent late.
  *
+ * Four facts, never conflated. The row being RECORDED is one thing (`created_at`, written in the transaction of the change). The pool having been RECOMPUTED is another
+ * (`recomputed_at`, and `storefront_written_at` for our own number). The publisher having been ASKED, and what it answered, is a third (`outcome`, `publish_result`,
+ * `publish_detail`). And what the CHANNEL confirmed is a fourth — which is not here at all: it is the listing's own `publish_state`, because a submission a channel merely
+ * took is not an applied quantity, and only the listing knows which it is.
+ *
  * @property int $location_id
  * @property int $product_id
  * @property string $variant_key
@@ -26,9 +31,22 @@ class ChannelStockEvent extends Model
     public const PENDING = 'pending';
     /** A run holds it. A run that died leaves this behind, and it is taken back after `claim_timeout_minutes`. */
     public const CLAIMED = 'claimed';
-    public const DONE = 'done';
-    /** Tried as often as the owner allows and still failing: kept for a person, never dropped, and never silently "done". */
+    /** A pass ATTENDED to it. Not "a channel accepted it", and not "a quantity was published": `outcome` says what the pass came to. */
+    public const WORKED = 'worked';
+    /** Tried as often as the owner allows and still failing: kept for a person, never dropped, and never called worked. */
     public const DEAD = 'dead';
+
+    /** There was nothing for this pass to do with it (no listing offers the pool; the storefront's number was already written by the change itself). */
+    public const NOTHING_TO_DO = 'nothing_to_do';
+    /** The pool was divided again and the storefront's number is right; no channel was asked, because none offers the pool. */
+    public const RECOMPUTED_ONLY = 'recomputed_only';
+    /** The publisher was asked and ran. What each listing's quantity came to is the listing's own `publish_state`, not this. */
+    public const SENT = 'sent';
+    /** The publisher was asked and refused before anything left this host (a switch, an approval). A settled answer — and NOT a successful publish. */
+    public const NOT_SENT = 'not_sent';
+
+    /** @var list<string> */
+    public const OUTCOMES = [self::NOTHING_TO_DO, self::RECOMPUTED_ONLY, self::SENT, self::NOT_SENT];
 
     /** Why the pool has to be worked out again. */
     public const ORDER_IMPORTED = 'order_imported';
@@ -60,7 +78,21 @@ class ChannelStockEvent extends Model
         'available_at' => 'datetime',
         'claimed_at' => 'datetime',
         'worked_at' => 'datetime',
+        'recomputed_at' => 'datetime',
+        'storefront_written_at' => 'datetime',
     ];
+
+    /** Was it really divided again? The question a person asks when a quantity looks wrong and the row says `worked`. */
+    public function wasRecomputed(): bool
+    {
+        return $this->recomputed_at !== null;
+    }
+
+    /** Did the publisher run for it? A refusal before anything left this host is not this. */
+    public function wasSent(): bool
+    {
+        return $this->outcome === self::SENT;
+    }
 
     /** Waiting, and due: a row put off after a failure is not due until its time. */
     public function scopeDue(Builder $query, ?string $now = null): Builder

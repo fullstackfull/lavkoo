@@ -218,8 +218,12 @@ return [
             'retry_seconds' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_RETRY_SECONDS', 60),
             // A run that died leaves its batch claimed; after this many minutes another run takes it back. Longer than a drain can reasonably take.
             'claim_timeout_minutes' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_CLAIM_TIMEOUT_MINUTES', 10),
-            // Whether a channel taking units also writes the storefront's own stock again at once, from the figure the provider already gave (no provider is asked). Off, the
-            // storefront waits for the provider's next figure, which is what it did before.
+            // Whether the storefront's own number is written again when a channel's units are held or given back, from the figure the provider already gave (no provider is
+            // asked, and the number is recomputed rather than decremented, so it cannot be taken off twice).
+            //  - `_inline`: in the SAME transaction as the hold, so our own shop stops offering the units at once. Off, the row is left for the worker instead.
+            //  - the other: in the worker, for the changes a transaction cannot cover (a provider figure read by a sweep, a setting saved on a screen) and for a host with
+            //    the inline write off. Off as well, the storefront waits for the provider's next figure, which is what it did before any of this.
+            'rewrite_storefront_stock_inline' => filter_var(env('SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE', true), FILTER_VALIDATE_BOOLEAN),
             'rewrite_storefront_stock' => filter_var(env('SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT', true), FILTER_VALIDATE_BOOLEAN),
             // Worked events are deleted by `channels:prune` after this many days; a dead one is kept until a person has dealt with it.
             'done_event_days' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_DONE_EVENT_DAYS', 7),
