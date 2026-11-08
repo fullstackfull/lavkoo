@@ -206,15 +206,39 @@ return [
     */
     'listing' => [
         'publish_enabled' => filter_var(env('SALES_CHANNELS_LISTING_PUBLISH_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        /*
+        | The channels' own attribute names that would give a listing a price, an offer or a quantity. The publisher WITHHOLDS every one of them when it creates or changes a
+        | listing: a new listing must not be sellable because a draft happened to carry a price, and a quantity may only reach a channel through stock publishing, which is a
+        | capability of its own with an approval of its own. Withheld fields are recorded on the draft.
+        */
+        'offer_attributes' => [
+            'amazon' => ['purchasable_offer', 'list_price', 'fulfillment_availability', 'offer', 'price', 'quantity', 'main_offer_image_locator'],
+            'trendyol' => ['listPrice', 'salePrice', 'quantity', 'stockCode'],
+            'noon' => ['price', 'sale_price', 'stock', 'quantity'],
+        ],
         // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
         'requirements_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_REQUIREMENTS_FRESH_HOURS', 24),
         /*
-        | A pharmacy's catalogue: the owner's OWN list of what may not be published by anything automatic (a medicine, a device, a brand a channel has closed). A product whose
-        | category is on the first list, or whose name contains one of the second, is refused unless a named person asks for it, and that is recorded. Both empty: this stops
-        | nothing. The code does not and cannot decide which of the shop's categories are regulated.
+        | A pharmacy's catalogue. The code does not and cannot decide which of the shop's categories need a licence, so these are the OWNER's rules, and the gate FAILS CLOSED
+        | when it is on: a product with no category recorded at all is refused, because "we could not tell" is not "it is fine".
+        |
+        |   mode `off` (how it ships): the gate stops nothing. A deliberate choice, not an accident of empty lists.
+        |   mode `strict`: an unclassifiable product is refused, and a product these rules name may be listed only with a RECORDED clearance on the draft (a reference and the
+        |                  person who recorded it, who must hold the `sales_channels` module). An admin id on a request is not a clearance.
+        |
+        | `channels` carries the same four keys per channel, because what Amazon closes and what Trendyol closes are different lists; a channel's mode overrides the global one
+        | and its lists are added to the global ones.
         */
-        'regulated_category_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_CATEGORY_IDS', ''))))),
-        'regulated_name_patterns' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_NAME_PATTERNS', ''))))),
+        'regulated' => [
+            'mode' => in_array(env('SALES_CHANNELS_LISTING_REGULATED_MODE', 'off'), ['off', 'strict'], true) ? env('SALES_CHANNELS_LISTING_REGULATED_MODE', 'off') : 'off',
+            'category_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_CATEGORY_IDS', ''))))),
+            'name_patterns' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_NAME_PATTERNS', ''))))),
+            'brand_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_BRAND_IDS', ''))))),
+            'channels' => [
+                'amazon' => ['mode' => null, 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => []],
+                'trendyol' => ['mode' => null, 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => []],
+            ],
+        ],
     ],
 
     'inventory' => [

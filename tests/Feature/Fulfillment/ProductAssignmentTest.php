@@ -18,7 +18,9 @@ use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProductFulfillmentPanel;
 use App\Services\Fulfillment\ProductProviderAssignmentService;
 use Illuminate\Http\Request;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use ReflectionClass;
 use ReflectionMethod;
 
@@ -38,6 +40,29 @@ class ProductAssignmentTest extends FulfillmentTestCase
             'provider' => $provider->value, 'product_id' => $productId, 'variant_key' => $variantKey,
             'external_id' => 'EXT-' . $productId . '-' . $variantKey, 'external_variant_id' => $variantKey, 'status' => $status,
         ]);
+    }
+
+    /** The platform's own stock ledger, which comes from the installation dump: a test that reads it builds it (the same shape as BuildsPlatformProcurementSchema). */
+    private function buildStockLedger(): void
+    {
+        if (Schema::hasTable('stock_movements')) {
+            return;
+        }
+        Schema::create('stock_movements', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('type', 24);
+            $table->integer('qty_change');
+            $table->integer('balance_after')->nullable();
+            $table->string('reason', 40)->nullable();
+            $table->string('reference_type', 40)->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->string('created_by_type', 24)->nullable();
+            $table->timestamps();
+        });
     }
 
     private function providerOf(int $productId): ?string
@@ -250,22 +275,52 @@ class ProductAssignmentTest extends FulfillmentTestCase
         $this->assertSame(17, (int) DB::table('products')->where('id', 1)->value('current_stock'), '20 at the warehouse less the 3 units it has not taken on');
     }
 
-    public function test_moving_a_product_back_in_house_leaves_the_number_alone_and_records_that_nothing_was_read(): void
+    public function test_a_product_that_leaves_a_provider_stops_being_sold_until_its_balance_is_confirmed(): void
     {
+        // Torod Point's count is what Torod Point holds; the store's own shelf is a different shelf and nobody has counted it.
         $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 12]);
         $this->approveMapping(1, ProviderCode::TorodPoint)->forceFill([
             'provider_stock' => 20, 'stock_source' => StockSource::ProviderSync, 'provider_stock_synced_at' => now(),
         ])->save();
 
+        $this->buildStockLedger();
+
         $outcome = $this->assignments()->assign(1, 'default', 'admin', 1);
 
         $this->assertTrue($outcome->ok);
-        $this->assertSame(-1, $outcome->stockRewrittenFrom, 'nothing else knows the number, so it is left as it is');
-        $this->assertSame(12, (int) DB::table('products')->where('id', 1)->value('current_stock'));
-        $this->assertSame(-1, ProductProviderChange::where('product_id', 1)->first()->context['stock']['products']);
+        $this->assertSame(0, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'nothing is sold from a balance nobody confirmed');
+        $stock = ProductProviderChange::where('product_id', 1)->first()->context['stock'];
+        $this->assertSame(['was' => 12, 'now' => 0], $stock['stopped_selling']);
+        $movement = DB::table('stock_movements')->where('product_id', 1)->latest('id')->first();
+        $this->assertSame(['provider_change_balance_unconfirmed', -12, 0], [$movement->reason, (int) $movement->qty_change, (int) $movement->balance_after]);
     }
 
-    public function test_a_provider_with_no_figure_yet_writes_nothing(): void
+    public function test_a_product_moving_to_a_provider_that_has_reported_nothing_also_stops_being_sold(): void
+    {
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 9]);
+        $this->approveMapping(1, ProviderCode::TorodPoint);
+        $this->approveMapping(1, ProviderCode::M5azn);
+
+        $outcome = $this->assignments()->assign(1, 'm5azn', 'admin', 1);
+
+        $this->assertSame(0, $outcome->stockRewrittenFrom, 'the new owner gave no figure');
+        $this->assertSame(0, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+    }
+
+    public function test_a_new_owner_that_has_a_figure_writes_it_instead_of_stopping_the_sale(): void
+    {
+        $this->makeProduct(1, overrides: ['current_stock' => 5]);
+        $this->approveMapping(1, ProviderCode::TorodPoint)->forceFill([
+            'provider_stock' => 20, 'stock_source' => StockSource::ProviderSync, 'provider_stock_synced_at' => now(),
+        ])->save();
+
+        $this->assignments()->assign(1, 'torod_point', 'admin', 1);
+
+        $this->assertSame(20, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+        $this->assertNull(ProductProviderChange::where('product_id', 1)->first()->context['stock']['stopped_selling']);
+    }
+
+    public function test_a_product_that_was_never_with_a_provider_keeps_its_own_number(): void
     {
         $this->makeProduct(1, overrides: ['current_stock' => 5]);
         $this->approveMapping(1, ProviderCode::TorodPoint);
@@ -273,7 +328,18 @@ class ProductAssignmentTest extends FulfillmentTestCase
         $outcome = $this->assignments()->assign(1, 'torod_point', 'admin', 1);
 
         $this->assertSame(0, $outcome->stockRewrittenFrom);
-        $this->assertSame(5, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'the store keeps its own number until the provider reports one');
+        $this->assertSame(5, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'it is the store\'s own count and it is leaving nobody');
+    }
+
+    public function test_the_owner_can_keep_the_old_number_and_correct_it_themselves(): void
+    {
+        config(['fulfillment.stop_selling_when_a_product_leaves_a_provider' => false]);
+        $this->makeProduct(1, ProviderCode::TorodPoint, ['current_stock' => 12]);
+        $this->approveMapping(1, ProviderCode::TorodPoint);
+
+        $this->assignments()->assign(1, 'default', 'admin', 1);
+
+        $this->assertSame(12, (int) DB::table('products')->where('id', 1)->value('current_stock'));
     }
 
     public function test_the_owner_can_put_the_older_lock_back(): void

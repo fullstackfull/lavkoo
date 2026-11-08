@@ -7,16 +7,42 @@ use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Data\ListingSubmission;
 
 /**
- * A channel that can be asked to create (or replace) a listing for a product of ours.
+ * A channel that can be asked to create a listing for a product of ours, change one, and say what it holds for one of our SKUs.
  *
- * Both calls set an absolute state rather than adding one, so repeating either after a timeout cannot make a second listing. What makes a listing OURS is the seller's own
- * identifier in the draft (the SKU we chose), so the channel itself refuses to make a second listing for it.
+ * Creating and updating are DIFFERENT calls on purpose. A create sets the whole listing (Amazon's `putListingsItem`), which is only ever right when the channel holds nothing for
+ * that SKU: used on an existing listing it would replace it, and every attribute the draft does not name would be gone. An update sends only the fields that changed
+ * (`patchListingsItem`), so what the channel already holds and we were never told about stays as it is.
+ *
+ * Neither call makes a listing sellable: the publisher withholds every attribute named by `offerAttributes()`, because a price and a quantity may only go out through the
+ * separately switched and separately approved price and stock publishing.
  */
 interface CreatesListings
 {
-    /** @throws \App\Services\SalesChannels\Exceptions\ChannelUnavailableException when a switch, a capability or an approval stops the write before anything is sent */
-    public function putListing(SalesChannelAccount $account, ChannelListingDraft $draft): ListingSubmission;
+    /**
+     * The channel's own attribute names that would give the listing a price, an offer or a quantity.
+     *
+     * @return list<string>
+     */
+    public function offerAttributes(): array;
 
-    /** What the channel has made of a submission since: still working, accepted, or refused with its reasons. */
-    public function listingSubmission(SalesChannelAccount $account, ChannelListingDraft $draft): ListingSubmission;
+    /**
+     * Creates the listing of our own SKU. Only called when the channel holds nothing for that SKU.
+     *
+     * @param array<string, mixed> $attributes the channel's fields, already without any offer attribute
+     * @throws \App\Services\SalesChannels\Exceptions\ChannelUnavailableException when a switch, a capability or an approval stops the write before anything is sent
+     */
+    public function createListing(SalesChannelAccount $account, ChannelListingDraft $draft, array $attributes): ListingSubmission;
+
+    /**
+     * Changes the fields given and nothing else.
+     *
+     * @param array<string, mixed> $changedAttributes only the fields whose value is different; never a removal
+     */
+    public function updateListing(SalesChannelAccount $account, ChannelListingDraft $draft, array $changedAttributes): ListingSubmission;
+
+    /**
+     * What the channel holds for one of our SKUs, asked afresh: LIVE with the channel's own statuses, REJECTED with its reasons, or WORKING when there is nothing (yet) or it
+     * could not be asked. It reads and changes nothing, and it is what tells a submission from a listing.
+     */
+    public function listingFor(SalesChannelAccount $account, string $sku): ListingSubmission;
 }

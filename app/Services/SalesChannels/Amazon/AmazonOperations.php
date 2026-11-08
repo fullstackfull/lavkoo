@@ -53,6 +53,9 @@ final class AmazonOperations
             // Creating or replacing the whole listing of one of our SKUs (putListingsItem). It SETS the listing rather than adding one, and the SKU is ours, so repeating it after
             // a timeout cannot make a second listing at Amazon. It needs the product-sync capability and the product-writes approval, not the price or quantity ones.
             'amazon.listings_put' => Ops::write(['PUT'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
+            // Changing the CONTENT of a listing that exists (title, brand, attributes): only the fields given, each replaced, nothing removed. A full PUT on an existing listing
+            // would replace it and lose every attribute the draft does not name, so content changes come this way.
+            'amazon.listings_patch_content' => Ops::write(['PATCH'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
 
             // ---- bulk updates (JSON_LISTINGS_FEED) ----
             'amazon.feeds_create_document' => Ops::write(['POST'], $publishing, ['price_publishing', 'inventory_publishing'], retrySafe: true),

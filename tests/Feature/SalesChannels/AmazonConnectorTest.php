@@ -712,7 +712,8 @@ class AmazonConnectorTest extends TestCase
             $this->assertStringNotContainsString("'{$operation}'", $sources, "{$operation} is called, so the matrix may not say it is not built.");
         }
         foreach ([
-            'amazon.listings_search', 'amazon.listings_patch_price', 'amazon.listings_patch_quantity', 'amazon.listings_validate', 'amazon.listings_put', 'amazon.listing_get',
+            'amazon.listings_search', 'amazon.listings_patch_price', 'amazon.listings_patch_quantity', 'amazon.listings_validate', 'amazon.listings_put',
+            'amazon.listings_patch_content', 'amazon.listing_get',
             'amazon.product_type_definition', 'amazon.orders_search', 'amazon.order_get', 'amazon.order_confirm_shipment', 'amazon.fba_inventory', 'amazon.finances_transactions',
         ] as $operation) {
             $this->assertStringContainsString("'{$operation}'", $sources, "{$operation} is what the matrix calls built.");

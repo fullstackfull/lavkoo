@@ -185,6 +185,20 @@ class InventorySyncService
         return $stats;
     }
 
+    /** One line in the platform's own stock ledger, for a change to a product's stock this module made outside a provider sync (a product leaving a provider). */
+    public function recordStockMovement(int $productId, int $qtyChange, int $balanceAfter, string $reason, ?string $note = null): void
+    {
+        $this->inventory->record(
+            productId: $productId,
+            type: StockMovement::TYPE_ADJUSTMENT,
+            qtyChange: $qtyChange,
+            balanceAfter: $balanceAfter,
+            reason: $reason,
+            referenceType: $reason,
+            note: $note,
+        );
+    }
+
     /**
      * @param iterable<ProviderProductMapping> $mappings
      * @return array<string, ProviderProductMapping>

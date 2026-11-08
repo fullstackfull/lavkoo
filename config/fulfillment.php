@@ -47,6 +47,15 @@ return [
     */
     'lock_provider_while_orders_are_in_flight' => filter_var(env('FULFILLMENT_LOCK_PROVIDER_WHILE_ORDERS_IN_FLIGHT', false), FILTER_VALIDATE_BOOLEAN),
 
+    /*
+    | A provider's count is what THAT provider holds. When a product leaves a provider and the new owner has given no figure of its own (it goes back in-house, or the new
+    | provider has reported nothing), the storefront's stock is set to zero and the number it had is recorded with the change: the product stops being sold until a person
+    | confirms what is really on the shelf, instead of selling units that are in somebody else's warehouse.
+    |
+    | false leaves the old number in place for an owner who would rather correct it themselves. The stock is never raised by this, only stopped.
+    */
+    'stop_selling_when_a_product_leaves_a_provider' => filter_var(env('FULFILLMENT_STOP_SELLING_WHEN_A_PRODUCT_LEAVES_A_PROVIDER', true), FILTER_VALIDATE_BOOLEAN),
+
     'currency' => env('FULFILLMENT_CURRENCY', 'SAR'),
 
     /*

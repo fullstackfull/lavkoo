@@ -17,6 +17,52 @@ and what it made of it.
 * **A product that is already listed on the account** is an update from the start — the draft is linked to that listing row (`product_mapping_id`) when it is created.
 * **Editing the fields sends the draft back to `draft`**: what the channel accepted before says nothing about the new values.
 
+## A submission is not a listing
+
+A channel that answers "accepted" has **taken the submission**. Amazon's `putListingsItem` answers `ACCEPTED` to something it has merely queued, and the listing can still be
+refused, held or left incomplete afterwards. So:
+
+* a write that is taken leaves the draft **`submitted`**, with the submission id, and **creates no listing row here**;
+* `follow()` asks what the channel **holds** (`getListingsItem` with `summaries,issues`). Only that answer creates the listing row, and only when a summary for our SKU exists
+  and no issue of severity ERROR is attached. An `ERROR` makes it `rejected` with the channel's own words; no summary yet, a 404, a failed call or a rehearsal leave it waiting;
+* what the channel says about the listing is kept as it said it (`channel_listing_statuses`: `BUYABLE`, `DISCOVERABLE`), so that **"the listing exists" is never read as "the
+  listing is sellable"**;
+* and because this pipeline never publishes an offer, a channel that reports the listing **BUYABLE** is a surprise, not a success: it is recorded as a problem on the draft
+  (`the_channel_reports_this_listing_buyable_although_no_offer_of_ours_was_published`) for a person to look at — a quantity came from somewhere else.
+
+## Create with PUT, change with PATCH
+
+They are different calls, and the difference matters: a `PUT` SETS the whole listing, so used on a listing that exists it would replace it and every attribute we were never
+told about would be gone.
+
+* **Create** (`putListingsItem`) is used **only** when the channel holds nothing for the SKU, and with the product-only requirements mode
+  (`listing_requirements_mode`, default `LISTING_PRODUCT_ONLY` — UNVERIFIED for the KSA product types, which is why it is an account setting).
+* **Change** (`patchListingsItem`, `amazon.listings_patch_content`) sends **only the fields whose value differs** from what the channel was last given (`published_payload` on
+  the draft), each as a `replace`. Nothing is ever removed: a field the draft stops naming keeps the value the channel holds, because a partial update must not become a way of
+  emptying a listing.
+
+## No offer ever leaves here
+
+A draft may carry a price because a person filled in a form. It never reaches a channel from this pipeline: every attribute the connector names in `offerAttributes()`
+(`purchasable_offer`, `list_price`, `fulfillment_availability`, `price`, `quantity`, …, configurable per channel) is **withheld** and written on the draft
+(`withheld_attributes`), so nobody believes it was sent. A quantity and a price reach a channel only through stock and price publishing, which are capabilities of their own
+with approvals of their own. A draft that holds nothing BUT an offer sends nothing at all (`listing_has_nothing_to_send_that_is_not_an_offer`).
+
+This does not depend on `inventory_publish` being off — that is the second lock, not the first.
+
+## Whose SKU is it
+
+Before anything is written, our own records and then the channel are asked:
+
+* a listing of ours with that key that stands for **another product** refuses the attempt (`listing_key_belongs_to_another_product`) — and the channel is not even called;
+* any other listing of this product on the account refuses it (`listing_already_exists`);
+* the channel is asked what it **holds** for the SKU. If it holds a listing and we have no record linking it to this product, the attempt is refused
+  (`sku_already_listed_at_the_channel_and_not_linked_here`): replacing it would overwrite a listing we know nothing about, and adopting it would be a guess. A person links it
+  (the listing sync and the products screen are for that) and then the draft updates it;
+* a read that **failed** is not "the channel holds nothing": it is `could_not_read_what_the_channel_holds` and nothing is written (`ListingSubmission::UNKNOWN`). Only a 404, or
+  an answer with no summary, makes a create safe;
+* and when the channel confirms a listing whose key already belongs to another product of ours, the row is **not** re-pointed: the draft keeps the problem instead.
+
 ## What the channel requires
 
 Asked of the channel, never invented (`DescribesListingRequirements`). For Amazon that is `getDefinitionsProductType`, and **only a `required` list the response itself carries
@@ -30,6 +76,7 @@ Validation compares the payload with that list: a required field that is missing
 
 ## The gates, in order
 
+
 | # | Gate | Refusal |
 |---|---|---|
 | 1 | the host switch | `listing_publishing_off` |
@@ -39,38 +86,49 @@ Validation compares the payload with that list: a required field that is missing
 | 5 | the channel's connector can really create a listing | `channel_cannot_create_listings` |
 | 6 | the draft is not already with the channel | `listing_already_submitted` / `listing_already_accepted` |
 | 7 | every field the channel requires is there | `listing_fields_missing` (with the field names) / `listing_requirements_unknown` |
-| 8 | a regulated product was asked for by a person | `regulated_product_needs_a_person` |
-| 9 | no other listing of this product on this account | `listing_already_exists` |
+| 8 | the pharmacy gate: classified, and cleared if the owner's rules name it | `regulated_classification_missing` / `regulated_product_needs_recorded_clearance` |
+| 9 | our own records do not use the key for another product, and no other listing of this product | `listing_key_belongs_to_another_product` / `listing_already_exists` |
+| 10 | the channel does not already hold a listing for the SKU that we have no record of | `sku_already_listed_at_the_channel_and_not_linked_here` / `could_not_read_what_the_channel_holds` |
+| 11 | there is something to send that is not an offer | `listing_has_nothing_to_send_that_is_not_an_offer` |
 
-**A pharmacy's catalogue (8).** The code cannot know which of the shop's categories need a licence, so it makes the OWNER's list the condition:
-`SALES_CHANNELS_LISTING_REGULATED_CATEGORY_IDS` and `SALES_CHANNELS_LISTING_REGULATED_NAME_PATTERNS`. A product that matches is never published by anything automatic; a named
-person may publish it, and that is recorded. **Both lists ship empty, so this gate stops nothing until the owner fills it** — and it is not a substitute for checking each
-channel's own rules and the Saudi requirements for health products.
+**A pharmacy's catalogue (8).** The code cannot know which of the shop's categories need a licence, so the OWNER's rules are the condition — and the gate **fails closed**:
 
-## The call, and what becomes of it
+* `SALES_CHANNELS_LISTING_REGULATED_MODE` is `off` as it ships: the gate stops nothing. That is a deliberate choice, not an accident of empty lists.
+* With `strict`, a product **nobody has classified** (no category recorded at all) is refused: `regulated_classification_missing`. "We could not tell" is not "it is fine".
+* A product the rules name — category, brand or name pattern, globally or for that channel only (`listing.regulated.channels.<channel>`) — needs a **recorded clearance** on
+  the draft: the reference of the licence, registration or decision, and the person who recorded it. **An `--admin=` on a command line is not a clearance**, and neither is a
+  request that merely carries an admin id (`regulated_product_needs_recorded_clearance`).
+* The person recording it must hold the `sales_channels` module, checked against their role (`regulatory_clearance_needs_the_sales_channels_permission`), and a clearance
+  without a reference is refused.
 
-One `PUT` that SETS the listing (`requirements: LISTING`), so repeating it after a timeout cannot make a second listing at the channel. Then:
+None of this is a substitute for checking each channel's own rules and the Saudi requirements for health products; it is the lock that stops the code from deciding.
 
-* **accepted** → the listing row is created here, `mapped` to the product, **with stock and price publishing OFF**: the listing exists at the channel and sells nothing until
-  somebody has decided where its stock comes from and switched publishing on. This is the separation the owner asked for — a product can be on a channel before it has a
-  fulfilment provider or any stock.
-* **refused** → the channel's own reasons are kept on the draft (`channel_problems`) and no listing row is made. A corrected draft goes out again as the SAME listing.
-* **neither** → the draft waits (`submitted`) and `follow()` asks the channel what became of it (`getListingsItem` with its issues). Nothing is ever sent a second time to find out.
-* **a rate limit** is not a refusal of the listing: the draft stays ready and the next run sends it.
+## When the listing is recorded here
+
+Only when the channel says it holds one (above). The row is `mapped` to the product — we asked for it, so there is nothing to guess — and it starts **with stock and price
+publishing OFF**: the listing exists at the channel and sells nothing until somebody has decided where its stock comes from and switched publishing on. This is the separation
+the owner asked for: a product can be on a channel before it has a fulfilment provider or any stock.
+
+* **a rate limit** is not a refusal of the listing: the draft stays ready and the next run sends it;
 * **any other failure** keeps only the KIND of failure (`listing_write_failed`); what a channel says about a product can repeat the whole payload back, so its words are not stored.
 
-Every submission, acceptance and refusal is an audit line (`sales_channel.listing_submitted|accepted|rejected`) with the person who asked.
+Every submission, update, refusal, confirmation and clearance is an audit line (`sales_channel.listing_submitted|listing_update_submitted|listing_rejected|listing_live|
+listing_regulatory_clearance_recorded|listing_key_taken_at_the_channel`) with the person who asked.
 
 ## From the command line
 
 ```bash
-php artisan channels:listings                      # every draft and its state
+php artisan channels:listings                      # every draft, its state and what the channel says about it
 php artisan channels:listings --check              # ask each channel what it requires; writes nothing to any channel
-php artisan channels:listings --follow             # what became of the submissions the channels are still working on
+php artisan channels:listings --follow             # ask the channels what they HOLD for the drafts they are still working on
 php artisan channels:listings --publish=12 --admin=4   # send one draft; a person must say which
 ```
 
-A sweep never publishes by itself: `--publish` needs a draft id and an admin id, because a regulated product may only be published by a named person.
+```bash
+php artisan channels:listings --clear-regulated=12 --admin=4 --reference=SFDA-12345
+```
+
+A sweep never publishes by itself: `--publish` needs a draft id and an admin id. Recording a clearance sends nothing and needs the reference and an admin who holds the module.
 
 ## On the product form
 

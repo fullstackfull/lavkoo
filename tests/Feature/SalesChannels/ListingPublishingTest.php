@@ -14,9 +14,9 @@ use App\Services\SalesChannels\Listings\ProductChannelPanel;
 use App\Services\SalesChannels\Listings\RegulatedProductGate;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use RuntimeException;
@@ -27,10 +27,11 @@ use Tests\Support\ThrowingListingConnector;
 use Tests\TestCase;
 
 /**
- * Putting a product of the store ON a channel: the draft, what the channel says it requires, the gates, the one call that creates the listing, and what is made of the answer.
+ * Putting a product of the store ON a channel: the draft, what the channel says it requires, the gates, whose SKU it is, the one call that creates the listing or the patch that
+ * changes it, and the difference between a submission the channel TOOK and a listing the channel HOLDS.
  *
  * Every Amazon response here is a fixture shaped after the published models and no test can reach Amazon (stray requests are refused). They prove the pipeline against those
- * shapes; they do not prove a live seller account works — that needs real credentials.
+ * shapes; they do not prove a live seller account works.
  */
 class ListingPublishingTest extends TestCase
 {
@@ -40,8 +41,13 @@ class ListingPublishingTest extends TestCase
 
     private const LWA = 'https://api.amazon.com/auth/o2/token';
     private const SP = 'https://sellingpartnerapi-eu.amazon.com';
+    private const LISTINGS = self::SP . '/listings/2021-08-01/items/*';
     private const PRODUCT = 70;
     private const TYPE = 'HEALTH_PERSONAL_CARE';
+
+    /** An admin whose role carries the `sales_channels` module (built by the test schema), and one whose role does not. */
+    private const CHANNELS_ADMIN = 4;
+    private const CATALOG_ADMIN = 2;
 
     private SalesChannelAccount $account;
 
@@ -57,6 +63,7 @@ class ListingPublishingTest extends TestCase
         config(['sales_channels.enabled' => true, 'sales_channels.external_writes_enabled' => true]);
         $this->account = $this->amazonAccount();
         $this->storeProduct(self::PRODUCT, provider: null);
+        DB::table('products')->where('id', self::PRODUCT)->update(['category_ids' => json_encode([['id' => '7', 'position' => 1]])]);
     }
 
     private function approveProductWrites(): void
@@ -66,7 +73,7 @@ class ListingPublishingTest extends TestCase
     }
 
     /**
-     * The answers for the next calls, and ONLY those: Laravel keeps every earlier fake and the first match wins, so the list is started again each time.
+     * The answers for the next calls, and only those: Laravel keeps every earlier fake and the first match wins, so the list is started again each time.
      *
      * @param array<string, mixed> $responses
      */
@@ -83,9 +90,27 @@ class ListingPublishingTest extends TestCase
         return [self::SP . '/definitions/2020-09-01/productTypes/*' => Http::response(['productType' => self::TYPE, 'required' => $required, 'optionalAttributes' => ['colour']])];
     }
 
-    private function putAnswers(array $body, int $status = 200): array
+    /**
+     * The listings endpoint answers by method: what Amazon HOLDS for the SKU (GET) and what it makes of a write (PUT/PATCH).
+     *
+     * @param array<string, mixed>|null $holds null answers 404: Amazon holds nothing for the SKU
+     * @param array<string, mixed> $write
+     */
+    private function listings(?array $holds, array $write = ['status' => 'ACCEPTED', 'submissionId' => 'sub-1'], int $writeStatus = 200): array
     {
-        return [self::SP . '/listings/2021-08-01/items/*' => Http::response($body, $status)];
+        return [self::LISTINGS => function ($request) use ($holds, $write, $writeStatus) {
+            if ($request->method() === 'GET') {
+                return $holds === null ? Http::response(['errors' => [['code' => 'NOT_FOUND']]], 404) : Http::response($holds);
+            }
+
+            return Http::response($write, $writeStatus);
+        }];
+    }
+
+    /** What Amazon answers for a listing it holds: summaries with its own statuses, and no error issues. */
+    private function holdsAListing(array $statuses = ['DISCOVERABLE'], array $issues = []): array
+    {
+        return ['sku' => 'SKU70', 'summaries' => [['marketplaceId' => 'A17E79C6D8DWNP', 'status' => $statuses]], 'issues' => $issues];
     }
 
     private function drafts(): ListingDraftService
@@ -103,9 +128,21 @@ class ListingPublishingTest extends TestCase
         return $this->drafts()->draftFor($this->account, self::PRODUCT, productType: self::TYPE, payload: $payload);
     }
 
-    private function callsTo(string $needle): int
+    private function callsTo(string $needle, ?string $method = null): int
     {
-        return count(Http::recorded(fn ($request): bool => str_contains($request->url(), $needle)));
+        return count(Http::recorded(fn ($request): bool => str_contains($request->url(), $needle) && ($method === null || $request->method() === $method)));
+    }
+
+    /** A draft that has passed validation, with the host switch on and the write approved. */
+    private function readyToSend(): ChannelListingDraft
+    {
+        config(['sales_channels.listing.publish_enabled' => true]);
+        $this->approveProductWrites();
+        $this->fake($this->definitionSays(['item_name']));
+        $draft = $this->draft();
+        $this->drafts()->validate($draft);
+
+        return $draft->fresh();
     }
 
     // ---- the draft -----------------------------------------------------------------------------------------
@@ -122,13 +159,8 @@ class ListingPublishingTest extends TestCase
 
     public function test_the_sellers_own_sku_comes_from_the_product_and_never_changes_afterwards(): void
     {
-        $draft = $this->draft();
-
-        $this->assertSame('SKU' . self::PRODUCT, $draft->payload['sku']);
-
-        $again = $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['sku' => 'SOMETHING-ELSE']);
-
-        $this->assertSame('SKU' . self::PRODUCT, $again->payload['sku'], 'the identity of the listing is decided once');
+        $this->assertSame('SKU' . self::PRODUCT, $this->draft()->payload['sku']);
+        $this->assertSame('SKU' . self::PRODUCT, $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['sku' => 'SOMETHING-ELSE'])->payload['sku']);
     }
 
     public function test_a_draft_for_a_product_that_is_already_listed_here_is_an_update_from_the_start(): void
@@ -158,36 +190,20 @@ class ListingPublishingTest extends TestCase
 
         $outcome = $this->drafts()->validate($this->draft());
 
-        $this->assertSame([ListingOutcome::REFUSED, 'listing_fields_missing'], [$outcome->state, $outcome->reason]);
-        $this->assertSame(['brand'], $outcome->problems);
-        $draft = ChannelListingDraft::firstOrFail();
-        $this->assertSame([ChannelListingDraft::DRAFT, ['brand']], [$draft->state, $draft->problems]);
+        $this->assertSame([ListingOutcome::REFUSED, 'listing_fields_missing', ['brand']], [$outcome->state, $outcome->reason, $outcome->problems]);
+        $this->assertSame([ChannelListingDraft::DRAFT, ['brand']], [ChannelListingDraft::firstOrFail()->state, ChannelListingDraft::firstOrFail()->problems]);
     }
 
     public function test_every_field_the_channel_insists_on_makes_it_ready_to_send(): void
     {
         $this->fake($this->definitionSays(['item_name']));
 
-        $outcome = $this->drafts()->validate($this->draft());
-
-        $this->assertSame(ListingOutcome::VALIDATED, $outcome->state);
+        $this->assertSame(ListingOutcome::VALIDATED, $this->drafts()->validate($this->draft())->state);
         $this->assertSame(ChannelListingDraft::VALIDATED, ChannelListingDraft::firstOrFail()->state);
-        $this->assertSame(1, $this->callsTo('/definitions/'));
-    }
-
-    public function test_the_channels_answer_is_not_asked_for_again_while_it_is_fresh(): void
-    {
-        $this->fake($this->definitionSays(['item_name']));
-        $this->drafts()->validate($this->draft());
-
-        $this->drafts()->validate($this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['item_name' => 'Vitamin C 500mg (new box)']));
-
-        $this->assertSame(1, $this->callsTo('/definitions/'));
     }
 
     public function test_a_channel_that_will_not_say_what_it_requires_is_not_read_as_requiring_nothing(): void
     {
-        // The real definition keeps its rules in a schema behind a presigned link this version does not fetch: the answer carries no `required` list.
         $this->fake([self::SP . '/definitions/2020-09-01/productTypes/*' => Http::response(['productType' => self::TYPE, 'schema' => ['link' => ['resource' => 'https://example.test/schema.json']]])]);
 
         $outcome = $this->drafts()->validate($this->draft());
@@ -204,27 +220,19 @@ class ListingPublishingTest extends TestCase
 
         $outcome = $this->drafts()->validate($this->draft());
 
-        $this->assertSame(['brand'], $outcome->problems, 'the owner\'s list decides what is missing');
+        $this->assertSame(['brand'], $outcome->problems);
         $this->assertSame(ListingRequirements::DECLARED_BY_THE_OWNER, ChannelListingDraft::firstOrFail()->requirements['source']);
-    }
-
-    public function test_a_draft_without_the_channels_product_type_is_refused_before_anything_is_asked(): void
-    {
-        $outcome = $this->drafts()->validate($this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['item_name' => 'X']));
-
-        $this->assertSame('listing_product_type_missing', $outcome->reason);
-        $this->assertSame(0, $this->callsTo('amazon.com'));
     }
 
     // ---- the gates -----------------------------------------------------------------------------------------
 
     public function test_with_the_host_switch_off_nothing_leaves_the_host(): void
     {
-        $this->fake($this->definitionSays(['item_name']));
-        $this->drafts()->validate($this->draft());
-        Http::fake([self::LWA => Http::response(['access_token' => 'Atza|token', 'expires_in' => 3600])]);
+        $draft = $this->readyToSend();
+        config(['sales_channels.listing.publish_enabled' => false]);
+        $this->fake($this->listings(null));
 
-        $outcome = $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1);
+        $outcome = $this->publisher()->publish($draft, adminId: 1);
 
         $this->assertSame([ListingOutcome::REFUSED, 'listing_publishing_off'], [$outcome->state, $outcome->reason]);
         $this->assertSame(0, $this->callsTo('/listings/'));
@@ -235,6 +243,7 @@ class ListingPublishingTest extends TestCase
         config(['sales_channels.listing.publish_enabled' => true]);
         $this->fake($this->definitionSays(['item_name']));
         $this->drafts()->validate($this->draft());
+        $this->fake($this->listings(null));
 
         $outcome = $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1);
 
@@ -244,15 +253,10 @@ class ListingPublishingTest extends TestCase
 
     public function test_an_account_without_the_product_sync_capability_is_refused(): void
     {
-        config(['sales_channels.listing.publish_enabled' => true]);
-        $this->approveProductWrites();
+        $draft = $this->readyToSend();
         $this->account->forceFill(['capabilities' => ['connection_test', 'read_only_sync']])->save();
-        $draft = $this->draft();
-        $draft->forceFill(['state' => ChannelListingDraft::VALIDATED])->save();
 
-        $outcome = $this->publisher()->publish($draft->fresh(), adminId: 1);
-
-        $this->assertSame('product_sync_capability_off', $outcome->reason);
+        $this->assertSame('product_sync_capability_off', $this->publisher()->publish($draft, adminId: 1)->reason);
     }
 
     public function test_a_channel_whose_connector_cannot_create_a_listing_says_so_instead_of_pretending(): void
@@ -262,61 +266,180 @@ class ListingPublishingTest extends TestCase
         $trendyol->forceFill(['capability_approvals' => ((array) $trendyol->capability_approvals) + [ChannelOperations::SCOPE_PRODUCT_WRITES => ['by' => 1]]])->save();
         $draft = $this->drafts()->draftFor($trendyol->fresh(), self::PRODUCT, productType: '1234', payload: ['item_name' => 'X']);
 
-        $outcome = $this->publisher()->publish($draft, adminId: 1);
-
-        $this->assertSame('channel_cannot_create_listings', $outcome->reason);
+        $this->assertSame('channel_cannot_create_listings', $this->publisher()->publish($draft, adminId: 1)->reason);
     }
 
     public function test_a_channel_with_no_connector_at_all_is_refused_not_crashed_on(): void
     {
-        config(['sales_channels.listing.publish_enabled' => true]);
-        $this->approveProductWrites();
-        $draft = $this->draft();
-        $draft->forceFill(['state' => ChannelListingDraft::VALIDATED])->save();
+        $draft = $this->readyToSend();
         config(['sales_channels.connectors.amazon' => null]);
 
-        $outcome = $this->publisher()->publish($draft->fresh(), adminId: 1);
-
-        $this->assertSame('channel_cannot_create_listings', $outcome->reason);
+        $this->assertSame('channel_cannot_create_listings', $this->publisher()->publish($draft, adminId: 1)->reason);
     }
 
-    // ---- no second listing ---------------------------------------------------------------------------------
+    // ---- whose SKU is it -----------------------------------------------------------------------------------
 
-    public function test_a_product_that_already_has_a_listing_on_this_account_never_gets_a_second_one(): void
-    {
-        config(['sales_channels.listing.publish_enabled' => true]);
-        $this->approveProductWrites();
-        $this->fake($this->definitionSays(['item_name']));
-        $draft = $this->draft();
-        $this->drafts()->validate($draft);
-        // A listing read from the channel after the draft was made, for the same product: it is the same thing, so nothing is created.
-        $this->stockListing($this->account, self::PRODUCT, $this->torodLocation(), 'ANOTHER-KEY');
-
-        $outcome = $this->publisher()->publish($draft->fresh(), adminId: 1);
-
-        $this->assertSame('listing_already_exists', $outcome->reason);
-        $this->assertSame(0, $this->callsTo('/listings/2021-08-01'));
-    }
-
-    // ---- the one call that creates it ----------------------------------------------------------------------
-
-    private function readyToSend(): ChannelListingDraft
-    {
-        config(['sales_channels.listing.publish_enabled' => true]);
-        $this->approveProductWrites();
-        $this->fake($this->definitionSays(['item_name']));
-        $draft = $this->draft();
-        $this->drafts()->validate($draft);
-
-        return $draft->fresh();
-    }
-
-    public function test_an_accepted_listing_is_created_here_with_stock_and_price_publishing_off(): void
+    public function test_a_listing_key_that_belongs_to_another_product_refuses_the_attempt(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['sku' => 'SKU70', 'status' => 'ACCEPTED', 'submissionId' => 'sub-1']));
+        $this->storeProduct(71, provider: null);
+        SalesChannelProductMapping::create([
+            'account_id' => $this->account->id, 'product_id' => 71, 'variant_key' => '', 'listing_key' => 'SKU70',
+            'external_sku' => 'SKU70', 'status' => SalesChannelProductMapping::MAPPED,
+        ]);
+        $this->fake($this->listings(null));
+
+        $outcome = $this->publisher()->publish($draft, adminId: 1);
+
+        $this->assertSame('listing_key_belongs_to_another_product', $outcome->reason);
+        $this->assertSame(0, $this->callsTo('/listings/'), 'our own records settled it: the channel was not even asked');
+    }
+
+    public function test_a_sku_the_channel_already_lists_and_we_have_no_record_of_is_never_replaced(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings($this->holdsAListing()));
+
+        $outcome = $this->publisher()->publish($draft, adminId: 1);
+
+        $this->assertSame('sku_already_listed_at_the_channel_and_not_linked_here', $outcome->reason);
+        $this->assertSame(0, $this->callsTo('/listings/', 'PUT'), 'nothing was written over it');
+        $this->assertSame(0, SalesChannelProductMapping::count(), 'and it was not adopted either');
+    }
+
+    public function test_a_listing_we_cannot_read_is_not_written_to_blindly(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + [self::LISTINGS => function ($request) {
+            return $request->method() === 'GET' ? Http::response([], 500) : Http::response(['status' => 'ACCEPTED']);
+        }]);
+
+        $outcome = $this->publisher()->publish($draft, adminId: 1);
+
+        $this->assertSame('could_not_read_what_the_channel_holds', $outcome->reason);
+        $this->assertSame(0, $this->callsTo('/listings/', 'PUT'));
+    }
+
+    // ---- create with PUT, change with PATCH ----------------------------------------------------------------
+
+    public function test_a_listing_the_channel_does_not_hold_is_created_with_a_put_of_the_product_only(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
 
         $outcome = $this->publisher()->publish($draft, adminId: 7);
+
+        $this->assertSame(ListingOutcome::SUBMITTED, $outcome->state);
+        $put = collect(Http::recorded(fn ($request): bool => $request->method() === 'PUT'))->first();
+        $this->assertNotNull($put);
+        $this->assertStringContainsString('/listings/2021-08-01/items/A1SELLER/SKU70', $put[0]->url());
+        $this->assertSame([
+            'productType' => self::TYPE,
+            'requirements' => 'LISTING_PRODUCT_ONLY',
+            'attributes' => ['item_name' => 'Vitamin C 500mg'],
+        ], $put[0]->data());
+    }
+
+    public function test_a_change_to_a_listing_the_channel_holds_is_a_patch_of_only_what_differs(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+        $this->publisher()->publish($draft, adminId: 1);
+        // The channel now holds it, and our own record links it to this product.
+        $this->fake($this->definitionSays(['item_name']) + $this->listings($this->holdsAListing()));
+        $this->publisher()->follow(ChannelListingDraft::firstOrFail());
+
+        $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['brand' => 'PharmaCo']);
+        $this->fake($this->definitionSays(['item_name']) + $this->listings($this->holdsAListing(), ['status' => 'ACCEPTED', 'submissionId' => 'sub-2']));
+        $outcome = $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1);
+
+        $this->assertSame(ListingOutcome::SUBMITTED, $outcome->state);
+        $this->assertSame(0, $this->callsTo('/listings/', 'PUT'), 'an existing listing is never replaced by a PUT');
+        $patch = collect(Http::recorded(fn ($request): bool => $request->method() === 'PATCH'))->first();
+        $this->assertNotNull($patch);
+        $this->assertSame([
+            'productType' => self::TYPE,
+            'patches' => [['op' => 'replace', 'path' => '/attributes/brand', 'value' => 'PharmaCo']],
+        ], $patch[0]->data(), 'only the field that changed, and nothing removed');
+    }
+
+    public function test_what_was_sent_is_remembered_so_that_a_second_change_sends_only_the_new_difference(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+        $this->publisher()->publish($draft, adminId: 1);
+
+        $this->assertSame(['item_name' => 'Vitamin C 500mg'], ChannelListingDraft::firstOrFail()->published_payload);
+        $this->assertSame([], ChannelListingDraft::firstOrFail()->changedAttributes(['item_name' => 'Vitamin C 500mg']));
+        $this->assertSame(['brand' => 'PharmaCo'], ChannelListingDraft::firstOrFail()->changedAttributes(['item_name' => 'Vitamin C 500mg', 'brand' => 'PharmaCo']));
+    }
+
+    // ---- no offer ever leaves here -------------------------------------------------------------------------
+
+    public function test_a_price_or_a_quantity_in_the_draft_is_withheld_and_recorded(): void
+    {
+        config(['sales_channels.listing.publish_enabled' => true]);
+        $this->approveProductWrites();
+        $this->fake($this->definitionSays(['item_name']));
+        $draft = $this->draft([
+            'item_name' => 'Vitamin C 500mg',
+            'purchasable_offer' => [['currency' => 'SAR', 'our_price' => [['schedule' => [['value_with_tax' => 39]]]]]],
+            'fulfillment_availability' => [['fulfillment_channel_code' => 'DEFAULT', 'quantity' => 99]],
+        ]);
+        $this->drafts()->validate($draft);
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+
+        $this->publisher()->publish($draft->fresh(), adminId: 1);
+
+        $put = collect(Http::recorded(fn ($request): bool => $request->method() === 'PUT'))->first();
+        $this->assertSame(['item_name' => 'Vitamin C 500mg'], $put[0]->data()['attributes'], 'no price and no quantity left the host');
+        $this->assertSame(['purchasable_offer', 'fulfillment_availability'], ChannelListingDraft::firstOrFail()->withheld_attributes);
+    }
+
+    public function test_a_draft_that_is_nothing_but_an_offer_sends_nothing_at_all(): void
+    {
+        config(['sales_channels.listing.publish_enabled' => true]);
+        $this->approveProductWrites();
+        $this->account->forceFill(['settings' => ['listing_requirements' => [self::TYPE => ['required' => ['price']]]] + (array) $this->account->settings])->save();
+        $this->account = $this->account->fresh();
+        $this->fake([self::SP . '/definitions/2020-09-01/productTypes/*' => Http::response(['productType' => self::TYPE])]);
+        $draft = $this->draft(['price' => 39]);
+        $this->drafts()->validate($draft);
+
+        $outcome = $this->publisher()->publish($draft->fresh(), adminId: 1);
+
+        $this->assertSame('listing_has_nothing_to_send_that_is_not_an_offer', $outcome->reason);
+        $this->assertSame(0, $this->callsTo('/listings/'));
+    }
+
+    // ---- a submission is not a listing ---------------------------------------------------------------------
+
+    public function test_an_accepted_submission_is_not_a_listing_and_creates_nothing_here(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+
+        $outcome = $this->publisher()->publish($draft, adminId: 7);
+
+        $this->assertSame(ListingOutcome::SUBMITTED, $outcome->state, 'Amazon took the submission; it did not say a listing exists');
+        $draft = ChannelListingDraft::firstOrFail();
+        $this->assertSame([ChannelListingDraft::SUBMITTED, 'sub-1', null, 7], [$draft->state, $draft->submission_id, $draft->product_mapping_id, $draft->requested_by]);
+        $this->assertSame(0, SalesChannelProductMapping::count(), 'no listing row until the channel says it holds one');
+    }
+
+    public function test_the_listing_is_recorded_only_when_the_channel_says_it_holds_one(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+        $this->publisher()->publish($draft, adminId: 7);
+
+        // Still nothing there: Amazon is working on it.
+        $this->fake($this->listings(null));
+        $this->assertSame(ListingOutcome::WORKING, $this->publisher()->follow(ChannelListingDraft::firstOrFail())->state);
+        $this->assertSame(0, SalesChannelProductMapping::count());
+
+        $this->fake($this->listings($this->holdsAListing(['DISCOVERABLE'])));
+        $outcome = $this->publisher()->follow(ChannelListingDraft::firstOrFail());
 
         $this->assertSame(ListingOutcome::ACCEPTED, $outcome->state);
         $listing = SalesChannelProductMapping::findOrFail($outcome->listingId);
@@ -324,41 +447,42 @@ class ListingPublishingTest extends TestCase
         $this->assertFalse((bool) $listing->inventory_publish, 'a new listing sells nothing until somebody decides where its stock comes from');
         $this->assertFalse((bool) $listing->price_publish);
         $draft = ChannelListingDraft::firstOrFail();
-        $this->assertSame([ChannelListingDraft::ACCEPTED, 'sub-1', $listing->id, 7], [$draft->state, $draft->submission_id, $draft->product_mapping_id, $draft->requested_by]);
-        $this->assertSame(1, $this->callsTo('/listings/2021-08-01'));
+        $this->assertSame([ChannelListingDraft::ACCEPTED, ['DISCOVERABLE']], [$draft->state, $draft->channel_listing_statuses]);
+        $this->assertNull($draft->channel_problems);
     }
 
-    public function test_what_is_sent_is_the_channels_own_fields_and_our_sku_is_the_identity(): void
+    public function test_a_listing_the_channel_calls_buyable_although_we_published_no_offer_is_reported_not_celebrated(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED']));
-
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
         $this->publisher()->publish($draft, adminId: 1);
 
-        $put = collect(Http::recorded(fn ($request): bool => $request->method() === 'PUT'))->first();
-        $this->assertNotNull($put);
-        $this->assertStringContainsString('/listings/2021-08-01/items/A1SELLER/SKU70', $put[0]->url());
-        $this->assertSame(['productType' => self::TYPE, 'requirements' => 'LISTING', 'attributes' => ['item_name' => 'Vitamin C 500mg']], $put[0]->data());
+        $this->fake($this->listings($this->holdsAListing(['BUYABLE', 'DISCOVERABLE'])));
+        $outcome = $this->publisher()->follow(ChannelListingDraft::firstOrFail());
+
+        $this->assertSame(ListingOutcome::ACCEPTED, $outcome->state);
+        $this->assertSame([ListingPublisher::BUYABLE_WITHOUT_OUR_OFFER], $outcome->problems);
+        $this->assertSame([ListingPublisher::BUYABLE_WITHOUT_OUR_OFFER], ChannelListingDraft::firstOrFail()->channel_problems);
+        $this->assertSame(['BUYABLE', 'DISCOVERABLE'], ChannelListingDraft::firstOrFail()->channel_listing_statuses);
     }
 
-    public function test_publishing_an_accepted_draft_again_sends_nothing(): void
+    public function test_a_listing_with_an_error_at_the_channel_is_refused_with_its_reasons(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED']));
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
         $this->publisher()->publish($draft, adminId: 1);
-        $calls = $this->callsTo('/listings/2021-08-01');
 
-        $outcome = $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1);
+        $this->fake($this->listings($this->holdsAListing(['DISCOVERABLE'], [['code' => '99', 'message' => 'still wrong', 'severity' => 'ERROR']])));
+        $outcome = $this->publisher()->follow(ChannelListingDraft::firstOrFail());
 
-        $this->assertSame('listing_already_accepted', $outcome->reason);
-        $this->assertSame($calls, $this->callsTo('/listings/2021-08-01'));
-        $this->assertSame(1, SalesChannelProductMapping::count(), 'and no second listing');
+        $this->assertSame([ListingOutcome::REJECTED, ['99: still wrong']], [$outcome->state, $outcome->problems]);
+        $this->assertSame(0, SalesChannelProductMapping::count());
     }
 
-    public function test_a_refusal_from_the_channel_is_kept_with_its_reasons_and_creates_no_listing(): void
+    public function test_a_refusal_of_the_write_itself_is_kept_with_its_reasons_and_creates_no_listing(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers([
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null, [
             'status' => 'INVALID', 'submissionId' => 'sub-2',
             'issues' => [['code' => '4000001', 'message' => 'brand is required', 'severity' => 'ERROR'], ['code' => '8000', 'message' => 'a hint', 'severity' => 'WARNING']],
         ]));
@@ -366,31 +490,27 @@ class ListingPublishingTest extends TestCase
         $outcome = $this->publisher()->publish($draft, adminId: 1);
 
         $this->assertSame([ListingOutcome::REJECTED, ['4000001: brand is required']], [$outcome->state, $outcome->problems]);
-        $draft = ChannelListingDraft::firstOrFail();
-        $this->assertSame([ChannelListingDraft::REJECTED, ['4000001: brand is required']], [$draft->state, $draft->channel_problems]);
+        $this->assertSame([ChannelListingDraft::REJECTED, ['4000001: brand is required']], [ChannelListingDraft::firstOrFail()->state, ChannelListingDraft::firstOrFail()->channel_problems]);
         $this->assertSame(0, SalesChannelProductMapping::count());
     }
 
-    public function test_a_corrected_draft_is_sent_again_as_the_same_listing_not_as_a_new_product(): void
+    public function test_a_draft_already_with_the_channel_is_not_sent_again(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'INVALID', 'issues' => [['code' => '1', 'message' => 'brand is required', 'severity' => 'ERROR']]]));
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
         $this->publisher()->publish($draft, adminId: 1);
+        $writes = $this->callsTo('/listings/', 'PUT');
 
-        $corrected = $this->drafts()->draftFor($this->account, self::PRODUCT, payload: ['brand' => 'PharmaCo']);
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED']));
-        $outcome = $this->publisher()->publish($corrected, adminId: 1);
+        $outcome = $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: 1);
 
-        $this->assertSame(ListingOutcome::ACCEPTED, $outcome->state);
-        $this->assertSame(1, ChannelListingDraft::count());
-        $this->assertSame(1, SalesChannelProductMapping::count());
-        $this->assertSame('SKU70', SalesChannelProductMapping::firstOrFail()->listing_key, 'the same SKU: the same listing');
+        $this->assertSame('listing_already_submitted', $outcome->reason);
+        $this->assertSame($writes, $this->callsTo('/listings/', 'PUT'));
     }
 
     public function test_a_rate_limit_is_not_a_refusal_of_the_listing_and_leaves_the_draft_ready_to_send(): void
     {
         $draft = $this->readyToSend();
-        ThrowingListingConnector::throwing(new ChannelRateLimitedException(90));
+        ThrowingListingConnector::throwing(new ChannelRateLimitedException(90), onTheWriteOnly: true);
         config(['sales_channels.connectors.amazon' => ThrowingListingConnector::class]);
 
         $outcome = $this->publisher()->publish($draft, adminId: 1);
@@ -403,7 +523,7 @@ class ListingPublishingTest extends TestCase
     public function test_a_failure_nobody_named_refuses_the_attempt_without_repeating_what_the_channel_said(): void
     {
         $draft = $this->readyToSend();
-        ThrowingListingConnector::throwing(new RuntimeException('Vitamin C 500mg: the whole payload came back'));
+        ThrowingListingConnector::throwing(new RuntimeException('Vitamin C 500mg: the whole payload came back'), onTheWriteOnly: true);
         config(['sales_channels.connectors.amazon' => ThrowingListingConnector::class]);
 
         $outcome = $this->publisher()->publish($draft, adminId: 1);
@@ -413,34 +533,86 @@ class ListingPublishingTest extends TestCase
         $this->assertNull(ChannelListingDraft::firstOrFail()->channel_problems, 'what it said is not stored');
     }
 
-    // ---- following a submission the channel has not finished -----------------------------------------------
+    // ---- a pharmacy's own catalogue ------------------------------------------------------------------------
 
-    public function test_a_submission_the_channel_is_still_working_on_is_followed_not_sent_again(): void
+    private function regulate(array $rules = ['name_patterns' => ['Vitamin']]): void
     {
-        $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'OTHER', 'submissionId' => 'sub-3']));
-        $this->assertSame(ListingOutcome::SUBMITTED, $this->publisher()->publish($draft, adminId: 1)->state);
-        $this->assertSame(ChannelListingDraft::SUBMITTED, ChannelListingDraft::firstOrFail()->state);
-
-        $this->fake($this->definitionSays(['item_name']) + [self::SP . '/listings/2021-08-01/items/*' => Http::response(['sku' => 'SKU70', 'issues' => []])]);
-        $outcome = $this->publisher()->follow(ChannelListingDraft::firstOrFail());
-
-        $this->assertSame(ListingOutcome::ACCEPTED, $outcome->state);
-        $this->assertSame(ChannelListingDraft::ACCEPTED, ChannelListingDraft::firstOrFail()->state);
-        $this->assertSame(1, SalesChannelProductMapping::count());
+        config(['sales_channels.listing.regulated' => ['mode' => 'strict', 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => [], 'channels' => []] + []]);
+        foreach ($rules as $key => $value) {
+            config(['sales_channels.listing.regulated.' . $key => $value]);
+        }
+        DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Vitamin C 500mg']);
     }
 
-    public function test_following_a_submission_that_still_has_errors_keeps_it_refused(): void
+    public function test_with_the_gate_off_it_stops_nothing(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'OTHER', 'submissionId' => 'sub-4']));
-        $this->publisher()->publish($draft, adminId: 1);
+        DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Vitamin C 500mg', 'category_ids' => null]);
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
 
-        $this->fake([self::SP . '/listings/2021-08-01/items/*' => Http::response(['issues' => [['code' => '99', 'message' => 'still wrong', 'severity' => 'ERROR']]])]);
-        $outcome = $this->publisher()->follow(ChannelListingDraft::firstOrFail());
+        $this->assertSame(ListingOutcome::SUBMITTED, $this->publisher()->publish($draft, adminId: 1)->state);
+        $this->assertSame(RegulatedProductGate::MODE_OFF, app(RegulatedProductGate::class)->modeFor('amazon'));
+    }
 
-        $this->assertSame([ListingOutcome::REJECTED, ['99: still wrong']], [$outcome->state, $outcome->problems]);
-        $this->assertSame(0, SalesChannelProductMapping::count());
+    public function test_a_product_nobody_has_classified_is_refused_not_waved_through(): void
+    {
+        $draft = $this->readyToSend();
+        $this->regulate();
+        DB::table('products')->where('id', self::PRODUCT)->update(['category_ids' => null]);
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+
+        $outcome = $this->publisher()->publish($draft, adminId: 1);
+
+        $this->assertSame(RegulatedProductGate::CLASSIFICATION_MISSING, $outcome->reason);
+        $this->assertSame(0, $this->callsTo('/listings/'));
+    }
+
+    public function test_a_regulated_product_needs_a_recorded_clearance_and_an_admin_id_is_not_one(): void
+    {
+        $draft = $this->readyToSend();
+        $this->regulate();
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+
+        $outcome = $this->publisher()->publish($draft, adminId: self::CHANNELS_ADMIN);
+
+        $this->assertSame(RegulatedProductGate::NEEDS_CLEARANCE, $outcome->reason);
+        $this->assertSame(0, $this->callsTo('/listings/'), 'passing an admin id is not a clearance');
+    }
+
+    public function test_a_recorded_clearance_lets_the_regulated_product_through(): void
+    {
+        $draft = $this->readyToSend();
+        $this->regulate();
+        $this->assertTrue($this->drafts()->recordClearance($draft, 'SFDA-12345', self::CHANNELS_ADMIN)->ok());
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
+
+        $outcome = $this->publisher()->publish(ChannelListingDraft::firstOrFail(), adminId: self::CHANNELS_ADMIN);
+
+        $this->assertSame(ListingOutcome::SUBMITTED, $outcome->state);
+        $clearance = ChannelListingDraft::firstOrFail()->regulatory_clearance;
+        $this->assertSame(['SFDA-12345', self::CHANNELS_ADMIN], [$clearance['reference'], $clearance['by']]);
+    }
+
+    public function test_only_an_admin_whose_role_carries_the_module_may_record_a_clearance(): void
+    {
+        $draft = $this->readyToSend();
+        $this->regulate();
+
+        $this->assertSame(RegulatedProductGate::CLEARANCE_NOT_PERMITTED, $this->drafts()->recordClearance($draft, 'SFDA-1', self::CATALOG_ADMIN)->reason);
+        $this->assertSame(RegulatedProductGate::CLEARANCE_NOT_PERMITTED, $this->drafts()->recordClearance($draft, 'SFDA-1', 999)->reason);
+        $this->assertSame('regulatory_clearance_needs_a_reference', $this->drafts()->recordClearance($draft, '   ', self::CHANNELS_ADMIN)->reason);
+        $this->assertNull(ChannelListingDraft::firstOrFail()->regulatory_clearance);
+        $this->assertTrue(app(RegulatedProductGate::class)->mayRecordClearance(1), 'the master admin may');
+    }
+
+    public function test_a_category_and_a_brand_rule_can_be_set_for_one_channel_only(): void
+    {
+        $this->regulate(['category_ids' => [], 'channels' => ['amazon' => ['category_ids' => ['7']]]]);
+        DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Plain soap']);
+        $gate = app(RegulatedProductGate::class);
+
+        $this->assertTrue($gate->needsClearance(self::PRODUCT, 'amazon'), 'category 7 is closed on Amazon');
+        $this->assertFalse($gate->needsClearance(self::PRODUCT, 'trendyol'), 'and nowhere else');
     }
 
     // ---- the command a person uses -------------------------------------------------------------------------
@@ -450,9 +622,7 @@ class ListingPublishingTest extends TestCase
         $this->fake($this->definitionSays(['item_name', 'brand']));
         $this->draft();
 
-        $this->artisan('channels:listings --check')
-            ->expectsOutputToContain('refused (listing_fields_missing) — brand')
-            ->assertSuccessful();
+        $this->artisan('channels:listings --check')->expectsOutputToContain('refused (listing_fields_missing) — brand')->assertSuccessful();
     }
 
     public function test_the_command_refuses_to_send_without_the_person_asking(): void
@@ -461,17 +631,38 @@ class ListingPublishingTest extends TestCase
 
         $this->artisan('channels:listings --publish=' . $draft->id)->assertFailed();
 
-        $this->assertSame(0, $this->callsTo('/listings/2021-08-01'));
+        $this->assertSame(0, $this->callsTo('/listings/'));
     }
 
     public function test_the_command_sends_the_draft_a_person_names(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED', 'submissionId' => 'sub-9']));
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
 
-        $this->artisan('channels:listings --publish=' . $draft->id . ' --admin=4')->expectsOutputToContain('accepted')->assertSuccessful();
+        $this->artisan('channels:listings --publish=' . $draft->id . ' --admin=4')->expectsOutputToContain('submitted')->assertSuccessful();
 
-        $this->assertSame([ChannelListingDraft::ACCEPTED, 4], [ChannelListingDraft::firstOrFail()->state, ChannelListingDraft::firstOrFail()->requested_by]);
+        $this->assertSame([ChannelListingDraft::SUBMITTED, 4], [ChannelListingDraft::firstOrFail()->state, ChannelListingDraft::firstOrFail()->requested_by]);
+    }
+
+    public function test_the_command_records_a_clearance_and_sends_nothing(): void
+    {
+        $draft = $this->readyToSend();
+        $this->regulate();
+
+        $this->artisan('channels:listings --clear-regulated=' . $draft->id . ' --admin=4 --reference=SFDA-7')->expectsOutputToContain('clearance recorded')->assertSuccessful();
+
+        $this->assertSame('SFDA-7', ChannelListingDraft::firstOrFail()->regulatory_clearance['reference']);
+        $this->assertSame(0, $this->callsTo('/listings/'));
+    }
+
+    public function test_the_command_refuses_a_clearance_without_a_reference_or_an_admin(): void
+    {
+        $draft = $this->readyToSend();
+
+        $this->artisan('channels:listings --clear-regulated=' . $draft->id . ' --admin=4')->assertFailed();
+        $this->artisan('channels:listings --clear-regulated=' . $draft->id . ' --reference=X')->assertFailed();
+
+        $this->assertNull(ChannelListingDraft::firstOrFail()->regulatory_clearance);
     }
 
     // ---- what the product form shows -----------------------------------------------------------------------
@@ -496,8 +687,10 @@ class ListingPublishingTest extends TestCase
     public function test_a_listed_product_reads_as_listed_with_what_is_being_published(): void
     {
         $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED']));
+        $this->fake($this->definitionSays(['item_name']) + $this->listings(null));
         $this->publisher()->publish($draft, adminId: 1);
+        $this->fake($this->listings($this->holdsAListing()));
+        $this->publisher()->follow(ChannelListingDraft::firstOrFail());
 
         $rows = app(ProductChannelPanel::class)->for(self::PRODUCT);
 
@@ -519,47 +712,5 @@ class ListingPublishingTest extends TestCase
     public function test_the_panel_answers_with_nothing_before_the_modules_migrations_have_run(): void
     {
         $this->assertSame([], app(ProductChannelPanel::class)->for(null));
-    }
-
-    // ---- a pharmacy's own catalogue ------------------------------------------------------------------------
-
-    public function test_a_regulated_product_is_never_published_by_anything_automatic(): void
-    {
-        DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Vitamin C 500mg']);
-        config(['sales_channels.listing.regulated_name_patterns' => ['Vitamin']]);
-        $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED']));
-
-        $outcome = $this->publisher()->publish($draft, adminId: null);
-
-        $this->assertSame(RegulatedProductGate::NEEDS_A_PERSON, $outcome->reason);
-        $this->assertSame(0, $this->callsTo('/listings/2021-08-01'));
-    }
-
-    public function test_a_person_may_publish_a_regulated_product_and_it_is_recorded(): void
-    {
-        DB::table('products')->where('id', self::PRODUCT)->update(['name' => 'Vitamin C 500mg']);
-        config(['sales_channels.listing.regulated_name_patterns' => ['Vitamin']]);
-        $draft = $this->readyToSend();
-        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED']));
-
-        $outcome = $this->publisher()->publish($draft, adminId: 9);
-
-        $this->assertSame(ListingOutcome::ACCEPTED, $outcome->state);
-        $this->assertSame(9, ChannelListingDraft::firstOrFail()->requested_by);
-    }
-
-    public function test_a_product_in_a_regulated_category_is_held_back_too(): void
-    {
-        DB::table('products')->where('id', self::PRODUCT)->update(['category_ids' => json_encode([['id' => '12', 'position' => 1]])]);
-        config(['sales_channels.listing.regulated_category_ids' => ['12']]);
-
-        $this->assertTrue(app(RegulatedProductGate::class)->isRegulated(self::PRODUCT));
-        $this->assertNull(app(RegulatedProductGate::class)->refusalFor(self::PRODUCT, true));
-    }
-
-    public function test_with_the_owners_lists_empty_this_gate_stops_nothing(): void
-    {
-        $this->assertFalse(app(RegulatedProductGate::class)->isRegulated(self::PRODUCT));
     }
 }

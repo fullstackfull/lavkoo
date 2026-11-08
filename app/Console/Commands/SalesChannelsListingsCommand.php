@@ -24,11 +24,13 @@ class SalesChannelsListingsCommand extends Command
     protected $signature = 'channels:listings
         {--account= : only this account id}
         {--check : ask each channel what it requires and say what is missing; writes nothing to any channel}
-        {--publish= : the draft id to send (a person must say which; an accepted draft is never sent again)}
-        {--admin= : the admin id asking, recorded with the submission and required for a regulated product}
-        {--follow : ask the channels what became of the drafts they are still working on}';
+        {--publish= : the draft id to send (a person must say which; a draft the channel already holds is never sent again)}
+        {--admin= : the admin id asking, recorded with the submission}
+        {--clear-regulated= : the draft id to record a regulatory clearance for (with --admin and --reference); nothing is sent}
+        {--reference= : the licence, registration or decision that allows this product on this channel}
+        {--follow : ask the channels what they HOLD for the drafts they are still working on}';
 
-    protected $description = 'Show, check, send and follow up the drafts that list the store\'s products on a sales channel (sending is a WRITE: it needs the listing switch, the product-sync capability and a recorded product-writes approval)';
+    protected $description = 'Show, check, send and follow up the drafts that list the store\'s products on a sales channel, and record the regulatory clearance a regulated product needs (sending is a WRITE: it needs the listing switch, the product-sync capability and a recorded product-writes approval)';
 
     public function handle(ListingDraftService $drafts, ListingPublisher $publisher): int
     {
@@ -40,6 +42,9 @@ class SalesChannelsListingsCommand extends Command
 
         $query = ChannelListingDraft::query()->when($this->option('account'), fn ($builder, $id) => $builder->where('account_id', (int) $id))->orderBy('id');
 
+        if ($this->option('clear-regulated') !== null) {
+            return $this->recordClearance($drafts, (int) $this->option('clear-regulated'));
+        }
         if ($this->option('publish') !== null) {
             return $this->publishOne($publisher, (int) $this->option('publish'));
         }
@@ -57,10 +62,11 @@ class SalesChannelsListingsCommand extends Command
         }
 
         $this->table(
-            ['id', 'account', 'channel', 'product', 'variant', 'state', 'listing', 'submission', 'refusal', 'problems'],
+            ['id', 'account', 'channel', 'product', 'variant', 'state', 'channel says', 'listing', 'submission', 'refusal', 'problems'],
             $query->get()->map(static fn (ChannelListingDraft $draft): array => [
                 $draft->id, $draft->account_id, $draft->sales_channel, $draft->product_id, $draft->variant_key === '' ? '—' : $draft->variant_key,
-                $draft->state, $draft->product_mapping_id ?? '—', $draft->submission_id ?? '—', $draft->refusal_code ?? '—',
+                $draft->state, implode(',', (array) ($draft->channel_listing_statuses ?? [])) ?: '—', $draft->product_mapping_id ?? '—',
+                $draft->submission_id ?? '—', $draft->refusal_code ?? '—',
                 count((array) ($draft->problems ?? [])) + count((array) ($draft->channel_problems ?? [])),
             ])->all(),
         );
@@ -68,11 +74,37 @@ class SalesChannelsListingsCommand extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * Records the clearance a regulated product needs. It sends nothing: the person recording it must hold the `sales_channels` module, and a reference (the licence, the
+     * registration, the decision) is what makes it a clearance — an admin id on its own is not one.
+     */
+    private function recordClearance(ListingDraftService $drafts, int $draftId): int
+    {
+        $admin = $this->option('admin');
+        $reference = (string) $this->option('reference');
+        if ($admin === null || trim($reference) === '') {
+            $this->error('A clearance needs --admin= (who records it) and --reference= (the licence, registration or decision that allows this product on this channel).');
+
+            return self::FAILURE;
+        }
+        $draft = ChannelListingDraft::find($draftId);
+        if ($draft === null) {
+            $this->error("There is no draft #{$draftId}.");
+
+            return self::FAILURE;
+        }
+
+        $outcome = $drafts->recordClearance($draft, $reference, (int) $admin);
+        $this->line("#{$draft->id}: " . ($outcome->ok() ? 'clearance recorded' : (string) $outcome->reason));
+
+        return $outcome->ok() ? self::SUCCESS : self::FAILURE;
+    }
+
     private function publishOne(ListingPublisher $publisher, int $draftId): int
     {
         $admin = $this->option('admin');
         if ($admin === null) {
-            $this->error('Say which admin is asking (--admin=): a submission is recorded against a person, and a regulated product may not be published without one.');
+            $this->error('Say which admin is asking (--admin=): a submission is recorded against a person.');
 
             return self::FAILURE;
         }

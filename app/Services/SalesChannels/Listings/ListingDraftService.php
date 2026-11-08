@@ -5,6 +5,7 @@ namespace App\Services\SalesChannels\Listings;
 use App\Models\ChannelListingDraft;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
+use App\Services\AuditLogger;
 use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
 use App\Services\SalesChannels\Data\ListingRequirements;
@@ -23,8 +24,11 @@ use Throwable;
  */
 class ListingDraftService
 {
-    public function __construct(private readonly ChannelConnectorRegistry $connectors)
-    {
+    public function __construct(
+        private readonly ChannelConnectorRegistry $connectors,
+        private readonly RegulatedProductGate $regulated,
+        private readonly AuditLogger $audit,
+    ) {
     }
 
     /**
@@ -57,6 +61,32 @@ class ListingDraftService
         ])->save();
 
         return $draft;
+    }
+
+    /**
+     * Records the clearance a regulated product needs: the reference of the licence, registration or decision that allows it on this channel, and the person who recorded it.
+     *
+     * The person must hold the `sales_channels` module — it is checked against their role, not taken from a request — and the reference must say something. Nothing else counts
+     * as a clearance: not an admin id on a command line, and not a request that merely has one.
+     */
+    public function recordClearance(ChannelListingDraft $draft, string $reference, int $adminId): ListingOutcome
+    {
+        $reference = trim($reference);
+        if ($reference === '') {
+            return ListingOutcome::refused('regulatory_clearance_needs_a_reference');
+        }
+        if (!$this->regulated->mayRecordClearance($adminId)) {
+            return ListingOutcome::refused(RegulatedProductGate::CLEARANCE_NOT_PERMITTED);
+        }
+
+        $draft->forceFill(['regulatory_clearance' => ['reference' => mb_substr($reference, 0, 190), 'by' => $adminId, 'at' => now()->toIso8601String()], 'refusal_code' => null])->save();
+        $this->audit->record(
+            action: 'sales_channel.listing_regulatory_clearance_recorded',
+            subject: $draft,
+            context: ['draft_id' => $draft->id, 'product_id' => $draft->product_id, 'sales_channel' => $draft->sales_channel, 'reference' => mb_substr($reference, 0, 190), 'by' => $adminId],
+        );
+
+        return ListingOutcome::validated();
     }
 
     /** Checks the draft against what the channel says it requires, writes what it found, and says whether it may be sent. */

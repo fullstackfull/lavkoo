@@ -29,8 +29,9 @@ use Illuminate\Support\Facades\DB;
  * `fulfillment.lock_provider_while_orders_are_in_flight` restores the older, stricter behaviour (refuse until they finish) for an owner who wants it.
  *
  * The storefront's stock follows the new owner at once: the new provider's own stored figures are written to it again (`InventorySyncService`), without
- * asking the provider and without making an old figure look new. Moving a product back in-house writes nothing — the units are the store's own from then
- * on, and the figure it keeps is the last one the old provider gave, which the change records.
+ * asking the provider and without making an old figure look new. And where the new owner has given no figure — the product goes back in-house, or the new
+ * provider has reported nothing — the stock is set to ZERO and the old number is recorded with the change: the old provider's count is what that provider
+ * holds, not a balance of the store's own shelf, so the product stops being sold until a person confirms what is really there.
  *
  * Existing products are never touched: NULL (in-house / default) stays NULL until someone assigns it here.
  */
@@ -69,8 +70,9 @@ class ProductProviderAssignmentService
                 'updated_at' => now(),
             ]);
 
-            // The storefront sells from the new owner's figure from now on; in-house keeps the number it has, because nothing else knows it.
-            $stock = $target === null ? ['products' => -1] : $this->inventory->rewriteStoreStockFromStoredFigures($target, $productId);
+            // The storefront sells from the new owner's figure from now on; and a figure the new owner has not given is not a figure at all (below).
+            $stock = $target === null ? ['products' => 0] : $this->inventory->rewriteStoreStockFromStoredFigures($target, $productId);
+            $stock['stopped_selling'] = $this->stopSellingUntilTheBalanceIsConfirmed($product, $current, $target, (int) $stock['products']);
 
             ProductProviderChange::create([
                 'product_id' => $productId,
@@ -92,6 +94,41 @@ class ProductProviderAssignmentService
 
             return AssignmentResult::ok(keptWithTheOldProvider: $stay, stockRewrittenFrom: (int) $stock['products']);
         });
+    }
+
+    /**
+     * A product that LEAVES a provider must not keep that provider's balance as if it were the new owner's.
+     *
+     * Torod Point's count is what Torod Point holds; the own warehouse's shelf is a different shelf and nobody has counted it. So when the figures of the new owner wrote
+     * nothing (there is no provider, or it has reported none), the storefront's stock is set to **zero** and the number it had is recorded on the change: the product stops
+     * being sold until a person enters a balance they have actually confirmed, instead of selling units that may be in another warehouse.
+     *
+     * `FULFILLMENT_STOP_SELLING_WHEN_A_PRODUCT_LEAVES_A_PROVIDER=false` leaves the old number in place for an owner who would rather correct it themselves.
+     *
+     * @return array{was: int, now: int}|null what it did, or null when it had nothing to do
+     */
+    private function stopSellingUntilTheBalanceIsConfirmed(object $product, ?ProviderCode $current, ?ProviderCode $target, int $figuresWritten): ?array
+    {
+        $leavingAProvider = $current !== null && $current !== $target;
+        if (!$leavingAProvider || $figuresWritten > 0 || !config('fulfillment.stop_selling_when_a_product_leaves_a_provider', true)) {
+            return null;
+        }
+
+        $before = (int) $product->current_stock;
+        if ($before === 0) {
+            return null;
+        }
+
+        DB::table('products')->where('id', $product->id)->update(['current_stock' => 0, 'updated_at' => now()]);
+        $this->inventory->recordStockMovement(
+            productId: (int) $product->id,
+            qtyChange: -$before,
+            balanceAfter: 0,
+            reason: 'provider_change_balance_unconfirmed',
+            note: ($current?->value ?? 'default') . '->' . ($target?->value ?? 'default'),
+        );
+
+        return ['was' => $before, 'now' => 0];
     }
 
     /**

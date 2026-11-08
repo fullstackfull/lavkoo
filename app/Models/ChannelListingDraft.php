@@ -30,7 +30,7 @@ class ChannelListingDraft extends Model
     public const VALIDATED = 'validated';
     /** Sent, and the channel has not finished with it. */
     public const SUBMITTED = 'submitted';
-    /** The channel took it; the listing exists. */
+    /** The channel confirms a listing for our SKU exists. It is not a promise that the listing is sellable: what the channel reports is in `channel_listing_statuses`. */
     public const ACCEPTED = 'accepted';
     /** The channel refused it; `channel_problems` says why, and a corrected draft is sent again — never as a new product. */
     public const REJECTED = 'rejected';
@@ -47,6 +47,10 @@ class ChannelListingDraft extends Model
         'product_mapping_id' => 'integer',
         'requested_by' => 'integer',
         'payload' => 'array',
+        'published_payload' => 'array',
+        'withheld_attributes' => 'array',
+        'regulatory_clearance' => 'array',
+        'channel_listing_statuses' => 'array',
         'requirements' => 'array',
         'problems' => 'array',
         'channel_problems' => 'array',
@@ -74,6 +78,34 @@ class ChannelListingDraft extends Model
     public function isWaitingForTheChannel(): bool
     {
         return $this->state === self::SUBMITTED;
+    }
+
+    /** Has a person recorded the clearance a regulated product needs: a reference and who recorded it? */
+    public function hasRecordedClearance(): bool
+    {
+        $clearance = (array) ($this->regulatory_clearance ?? []);
+
+        return trim((string) ($clearance['reference'] ?? '')) !== '' && (int) ($clearance['by'] ?? 0) > 0;
+    }
+
+    /**
+     * What an update has to send: the fields whose value differs from what the channel was last given. Nothing is ever removed — a field the draft no longer names keeps the
+     * value the channel holds, because a partial update must not be a way of emptying a listing.
+     *
+     * @param array<string, mixed> $attributes
+     * @return array<string, mixed>
+     */
+    public function changedAttributes(array $attributes): array
+    {
+        $published = (array) ($this->published_payload ?? []);
+        $changed = [];
+        foreach ($attributes as $field => $value) {
+            if (!array_key_exists($field, $published) || $published[$field] !== $value) {
+                $changed[$field] = $value;
+            }
+        }
+
+        return $changed;
     }
 
     public function scopeWaitingForTheChannel(Builder $query): Builder

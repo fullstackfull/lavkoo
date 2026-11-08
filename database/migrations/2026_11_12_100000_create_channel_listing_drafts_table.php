@@ -41,6 +41,15 @@ return new class extends Migration
             $table->timestamp('requirements_read_at')->nullable();
             // What our own validation found: a list of field names and why each is refused. Empty means ready to send.
             $table->json('problems')->nullable();
+            // What was last SENT and the channel took, so that an update patches only what changed and a PUT never replaces a listing with fewer attributes than it has.
+            $table->json('published_payload')->nullable();
+            // Attributes the publisher refused to send because they would make the listing sellable (a price, an offer, a quantity): those go out only through the
+            // separately approved price and stock publishing.
+            $table->json('withheld_attributes')->nullable();
+            // The recorded clearance a regulated product needs before it may be listed: the reference of the licence or decision, who recorded it and when. Nothing else is proof.
+            $table->json('regulatory_clearance')->nullable();
+            // What the channel reports about the listing itself once it exists (Amazon's summary statuses: BUYABLE, DISCOVERABLE), as it said them.
+            $table->json('channel_listing_statuses')->nullable();
             // The channel's identifier for the submission (Amazon's submissionId, Trendyol's batchRequestId), and what it last said about it.
             $table->string('submission_id', 191)->nullable();
             $table->string('channel_status', 64)->nullable();

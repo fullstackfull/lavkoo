@@ -39,9 +39,10 @@ final readonly class ListingOutcome
         return new self(self::WORKING);
     }
 
-    public static function accepted(?int $listingId): self
+    /** @param list<string> $problems what the channel reports that a person has to look at, although the listing exists */
+    public static function accepted(?int $listingId, array $problems = []): self
     {
-        return new self(self::ACCEPTED, listingId: $listingId);
+        return new self(self::ACCEPTED, problems: $problems, listingId: $listingId);
     }
 
     /** @param list<string> $problems */
