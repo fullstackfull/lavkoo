@@ -289,8 +289,9 @@ class ProductAssignmentTest extends FulfillmentTestCase
 
         $this->assertTrue($outcome->ok);
         $this->assertSame(0, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'nothing is sold from a balance nobody confirmed');
-        $stock = ProductProviderChange::where('product_id', 1)->first()->context['stock'];
-        $this->assertSame(['was' => 12, 'now' => 0], $stock['stopped_selling']);
+        // The keys are compared by name, not by position: MySQL stores a JSON object in its own key order.
+        $stopped = ProductProviderChange::where('product_id', 1)->first()->context['stock']['stopped_selling'];
+        $this->assertSame([12, 0], [$stopped['was'], $stopped['now']]);
         $movement = DB::table('stock_movements')->where('product_id', 1)->latest('id')->first();
         $this->assertSame(['provider_change_balance_unconfirmed', -12, 0], [$movement->reason, (int) $movement->qty_change, (int) $movement->balance_after]);
     }
