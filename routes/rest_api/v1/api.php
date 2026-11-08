@@ -530,4 +530,14 @@ Route::get('/cash', function () {
         Route::get('get-guest-id', 'get_guest_id');
         Route::post('contact-us', 'contact_store');
     });
+
+    /*
+     * What the app asks after a MyFatoorah payment, instead of reading the outcome out of the redirect
+     * URL. Not behind `auth:api`: a guest checkout has no token, and the customer may be coming back
+     * from an external browser that never had one. The reference is the credential — it is unguessable
+     * and tied to one attempt — and a logged-in customer may only read their own (see the controller).
+     */
+    Route::get('payment/myfatoorah/status', [\App\Http\Controllers\RestAPI\v1\MyFatoorahStatusController::class, 'status'])
+        ->middleware('throttle:myfatoorah-status')
+        ->name('api.myfatoorah.status');
 });

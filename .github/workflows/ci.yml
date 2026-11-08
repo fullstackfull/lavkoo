@@ -219,7 +219,9 @@ jobs:
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: sales channels
             # tests/Feature/Concurrency and the dispatch/stock concurrency tests start several PHP processes at the same instant against this database; they skip on SQLite.
-            paths: tests/Feature/SalesChannels tests/Feature/Concurrency
+            # tests/Feature/MyFatoorah runs here as well as on SQLite: three of its failures were visible only on a real server — an `orders` table that
+            # outlives the test, a currency left switched off by an earlier test, and REPEATABLE READ hiding a sibling's just-committed row from a plain SELECT.
+            paths: tests/Feature/SalesChannels tests/Feature/Concurrency tests/Feature/MyFatoorah tests/Unit/MyFatoorah
           - group: costs
             paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Feature/CiDatabaseTest.php
     services:

@@ -52,7 +52,10 @@ trait Payment
             'paystack' => 'payment/paystack/pay',
             'paymera' => 'payment/paymera/pay',
 'mtn_cash' => 'payment/mtn-cash/pay',
-            'fatoorah' => 'payment/fatoorah/pay',
+            // MyFatoorah. Both `payment/myfatoorah/pay` and `payment/fatoorah/pay` are registered and
+            // reach the same controller; the canonical one is used for new links.
+            'fatoorah' => 'payment/myfatoorah/pay',
+            'my_fatoorah' => 'payment/myfatoorah/pay',
             'xendit' => 'payment/xendit/pay',
             'amazon_pay' => 'payment/amazon/pay',
             'iyzi_pay' => 'payment/iyzipay/pay',
