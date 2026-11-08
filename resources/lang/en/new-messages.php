@@ -10891,4 +10891,9 @@ return [
 	'catalog_product_has_no_barcode_or_code' => 'the product has no barcode to ask the catalogue about',
 	'catalog_account_is_gone' => 'the account this draft belongs to no longer exists',
 	'catalog_product_type_differs' => 'the catalogue calls this a different kind of product than the draft does; the draft was left as it is for a person to decide',
+	'ask_the_catalogue' => 'Ask the catalogue',
+	'ask_the_catalogue_help' => 'asks the channel whether it already holds a product with this barcode, and what it calls that kind of product. Reads only.',
+	'what_the_channels_catalogue_says' => 'What the channel\'s catalogue says',
+	'this_one' => 'chosen',
+	'it_is_this_one' => 'It is this one',
 ];

@@ -17487,4 +17487,9 @@ return [
 	'catalog_product_has_no_barcode_or_code' => 'لا باركود للمنتج ليُسأل عنه الكتالوج',
 	'catalog_account_is_gone' => 'الحساب الذي تنتمي إليه هذه المسودة لم يبقَ موجودًا',
 	'catalog_product_type_differs' => 'يسمّي الكتالوج هذا نوعًا مختلفًا عمّا تقوله المسودة؛ وتُركت المسودة كما هي ليقرّر شخص',
+	'ask_the_catalogue' => 'اسأل الكتالوج',
+	'ask_the_catalogue_help' => 'يسأل القناة إن كانت تحمل منتجًا بهذا الباركود، وبأيّ نوع تسمّيه. قراءة فقط.',
+	'what_the_channels_catalogue_says' => 'ما يقوله كتالوج القناة',
+	'this_one' => 'المختار',
+	'it_is_this_one' => 'هو هذا',
 ];
