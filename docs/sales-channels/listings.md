@@ -72,10 +72,17 @@ php artisan channels:listings --publish=12 --admin=4   # send one draft; a perso
 
 A sweep never publishes by itself: `--publish` needs a draft id and an admin id, because a regulated product may only be published by a named person.
 
+## On the product form
+
+The in-house product form gains a **Sales channels** card (`_sales-channels-product.blade.php`, read only): for every channel account, whether the product is listed, the draft's
+state and what the channel is missing, the listing key, what is being published (and the plain words *nothing is published yet* when neither stock nor price is), and when it was
+last published. Opening the page calls no channel and reads no requirement, so the form never waits on a marketplace; before the module's migrations have run the card is not
+there at all.
+
 ## What is not built yet
 
-* **No admin screen.** The pipeline, the gates and the command are built; the unified product screen (choose channels, complete the fields, preview, send, watch the approval)
-  is the next slice.
+* **No actions on the screen yet.** The card shows the truth, the gates and the command do the work; completing the fields, previewing and sending from the product page (with its
+  own permission and audit) is the next slice.
 * **Trendyol and Noon** do not implement `CreatesListings` yet, so they refuse with `channel_cannot_create_listings` instead of pretending. Trendyol also needs its category,
   brand and attribute lookups; Noon has no connector at all.
 * **Amazon's full product-type schema** (the presigned link) is not fetched, and `catalog_items` (ASIN matching) and `JSON_LISTINGS_FEED` (bulk) are still not built.

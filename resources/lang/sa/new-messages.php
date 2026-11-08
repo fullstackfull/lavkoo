@@ -4132,7 +4132,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'City_/_Zip' => 'المدينة / الرمز البريدي',
 	'address_results_available' => 'النتائج المتاحة:',
 	'address_copy_complete_required' => 'حُفظ هذا العنوان قبل اعتماد المناطق والمدن والعنوان الوطني. اختر المنطقة والمدينة وأدخل العنوان الوطني لاستكماله.',
-	// --- dispatch to providers (lane-dispatch) ---
 	'dispatch_card_title' => 'التوصيل عبر مزوّد الشحن',
 	'dispatch_card_help' => 'يحوّل هذا الطلب إلى شحنة لدى مزوّد التوصيل (Torod Point أو M5AZN). يُقرأ اسم المشتري وجواله والشارع والمدينة من القناة لهذا الغرض فقط، ولا يُحتفظ بها في الطلب الداخلي إلا بقدر حاجة الشحنة، ثم تُحذف.',
 	'dispatch_state' => 'الحالة',
@@ -4276,7 +4275,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'return_refused_more_than_taken_from_stock' => 'عدد الوحدات أكبر مما أُخذ من المخزون لهذا البند ولم يُعد بعد.',
 	'auto_restock_accepted_returns' => 'إعادة وحدات المرتجعات المقبولة إلى الرف تلقائيًا',
 	'auto_restock_accepted_returns_help' => 'مُطفأ افتراضيًا وهو قرار للمالك: تُعاد كل وحدة من مرتجع تقبله Trendyol إلى الرف بالتكلفة التي خرجت بها، تالفة كانت أم لا، دون أن يراها أحد. ويحتاج إلى تفعيل وحدة التكاليف. ولا يشطب الوحدة التالفة إلا شخص.',
-	// --- stock allocation (lane-stock) ---
 	'publish_skip_variant_key_required' => 'المنتج يُباع حسب النوع: اربط القائمة بنوع محدد',
 	'publish_skip_storefront_owned_needs_owner_decision' => 'هذا المخزون يخص المتجر نفسه: قرار عرضه على القنوات يعود إلى المالك',
 	'held_by_store_orders' => 'محجوز بطلبات المتجر (لم يستلمها المزوّد بعد)',
@@ -4318,11 +4316,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'stock_expected_sales_margin' => 'هامش المبيعات غير المستوردة بعد',
 	'stock_may_be_shown' => 'يجوز عرضه',
 	'channel_not_recorded' => 'القناة غير مسجلة',
-	// --- costs audit fixes (lane-costs) ---
 	'return_refused_stale_form' => 'تغيّر البند منذ فتح هذا النموذج: أعد تحميل الصفحة وراجع ما سُجّل بالفعل.',
 	'needs_the_operational_costs_permission' => 'يتطلب صلاحية «التكاليف التشغيلية»: لا يغيّره إلا دور يملكها.',
-
-	// --- purchase-order sources (lane-po) ---
 	'layer_source_purchase_order' => 'أمر شراء',
 	'purchase_order_line' => 'بند أمر الشراء',
 	'purchase_order_line_help' => 'لمحاسبة بضاعة استلمها أمر شراء بالفعل، أدخل رقم بنده: عندها لا ينشئ بند الفاتورة طبقة تكلفة ثانية ويكتفي بتسجيل مقدار اختلافه عن تكلفة أمر الشراء. ويتطلب تشغيل مصدر أوامر الشراء.',
@@ -4331,13 +4326,25 @@ ____________________________________________________on_search_engines_and_see_th
 	'these_lines_look_like_goods_a_purchase_order_received' => 'البنود التالية لمنتج ومورّد أمر شراء استلم بضاعة لم تُحاسَب بفاتورة بعد، وهي غير مربوطة به، وتسعيرها مرة أخرى قد يعني احتساب البضاعة نفسها مرتين. أبطل هذه الفاتورة وأدخلها من جديد مع رقم بند أمر الشراء، أو أكّد أنها عملية شراء مستقلة.',
 	'this_is_a_separate_purchase' => 'هذه عملية شراء مستقلة',
 	'missing_reason_vendor_owned_goods' => 'البضاعة ملك لبائع وليست ملكًا للمنصة، فتكلفتها ليست مما نعرفه',
-	// --- stock audit fixes (lane-stock) ---
 	'order_import_is_off_so_a_quantity_here_is_never_raised' => 'استيراد الطلبات متوقف لهذا الحساب: مبيعاته غير معروفة لذلك لا تُرفع أي كمية هنا أبدًا',
 	'order_import_is_part_way_through_a_backlog' => 'توقف استيراد الطلبات في منتصف مجموعة متراكمة: الطلبات بعد تلك النقطة لم تُقرأ بعد',
 	'attention_stock_not_updated' => 'قوائم تعرض مخزونًا لم يعد يُحدَّث',
 	'publish_skip_outside_the_pool' => 'لا تشارك في توزيع مخزونها (النشر متوقف أو القائمة مرفوضة) بينما لا تزال القناة تعرض كمية',
 	'publish_skip_variant_figure_missing' => 'يحتفظ المستودع برقم واحد للمنتج كله ولا رقم لهذا النوع: لا يُعرض شيء حتى يتوفر رقم خاص بالنوع',
 	'location_source_platform' => 'مخزون المتجر نفسه (يُقرأ من المتجر ولا يُنسخ)',
-	// --- purchase-order sources, audit fixes (lane-po) ---
 	'a_purchase_order_received_these_goods_confirm_a_separate_purchase' => 'استلم أمر شراء (البند :lines) بضاعة من هذا المنتج ومن هذا المورّد لم تُحاسَب بفاتورة بعد. تسجيل تكلفة لها هنا أيضًا قد يعني احتساب البضاعة نفسها مرتين. إن كانت هذه عملية شراء مستقلة فحدّد المربع أدناه وسجّلها من جديد.',
+	'listing_key' => 'مفتاح القائمة',
+	'last_published' => 'آخر نشر',
+	'nothing_is_published_yet' => 'لا شيء يُنشر بعد',
+	'channel_cannot_create_listings' => 'موصّل هذه القناة لا يستطيع إنشاء قائمة بعد.',
+	'product_channels_card_help' => 'موضع هذا المنتج في كل قناة بيع. فتح هذه الصفحة لا يتصل بأي قناة.',
+	'product_channels_card_footnote' => 'القائمة الجديدة تُنشأ ونشر المخزون والسعر مطفأ: لا تبيع شيئًا حتى يُقرَّر مصدر مخزونها. وتُجهَّز المسودات وتُرسل بأمر channels:listings.',
+	'product_channel_state_listed' => 'مُدرج',
+	'product_channel_state_draft' => 'مسودة (حقول ناقصة)',
+	'product_channel_state_validated' => 'جاهز للإرسال',
+	'product_channel_state_submitted' => 'أُرسل، في انتظار القناة',
+	'product_channel_state_accepted' => 'مقبول',
+	'product_channel_state_rejected' => 'رفضته القناة',
+	'product_channel_state_withdrawn' => 'مُلغى',
+	'product_channel_state_not_offered' => 'غير معروض',
 ];

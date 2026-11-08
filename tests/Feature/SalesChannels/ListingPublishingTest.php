@@ -10,6 +10,7 @@ use App\Services\SalesChannels\Exceptions\ChannelRateLimitedException;
 use App\Services\SalesChannels\Listings\ListingDraftService;
 use App\Services\SalesChannels\Listings\ListingOutcome;
 use App\Services\SalesChannels\Listings\ListingPublisher;
+use App\Services\SalesChannels\Listings\ProductChannelPanel;
 use App\Services\SalesChannels\Listings\RegulatedProductGate;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
@@ -471,6 +472,53 @@ class ListingPublishingTest extends TestCase
         $this->artisan('channels:listings --publish=' . $draft->id . ' --admin=4')->expectsOutputToContain('accepted')->assertSuccessful();
 
         $this->assertSame([ChannelListingDraft::ACCEPTED, 4], [ChannelListingDraft::firstOrFail()->state, ChannelListingDraft::firstOrFail()->requested_by]);
+    }
+
+    // ---- what the product form shows -----------------------------------------------------------------------
+
+    public function test_the_product_form_shows_where_the_product_stands_on_every_channel_without_calling_any(): void
+    {
+        $this->fake($this->definitionSays(['item_name', 'brand']));
+        $this->draft();
+        $this->drafts()->validate(ChannelListingDraft::firstOrFail());
+        $calls = count(Http::recorded(fn ($request): bool => true));
+
+        $rows = app(ProductChannelPanel::class)->for(self::PRODUCT);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame([$this->account->id, ChannelListingDraft::DRAFT, ['brand'], true], [
+            $rows[0]['account']->id, $rows[0]['state'], $rows[0]['problems'], $rows[0]['canCreate'],
+        ]);
+        $this->assertNull($rows[0]['listing']);
+        $this->assertSame($calls, count(Http::recorded(fn ($request): bool => true)), 'the panel calls no channel');
+    }
+
+    public function test_a_listed_product_reads_as_listed_with_what_is_being_published(): void
+    {
+        $draft = $this->readyToSend();
+        $this->fake($this->definitionSays(['item_name']) + $this->putAnswers(['status' => 'ACCEPTED']));
+        $this->publisher()->publish($draft, adminId: 1);
+
+        $rows = app(ProductChannelPanel::class)->for(self::PRODUCT);
+
+        $this->assertSame('listed', $rows[0]['state']);
+        $this->assertFalse((bool) $rows[0]['listing']->inventory_publish, 'listed and selling nothing yet');
+    }
+
+    public function test_a_channel_that_cannot_create_listings_is_said_so_on_the_form(): void
+    {
+        $trendyol = $this->trendyolAccount();
+
+        $rows = collect(app(ProductChannelPanel::class)->for(self::PRODUCT))->keyBy(static fn (array $row): int => (int) $row['account']->id);
+
+        $this->assertFalse($rows[$trendyol->id]['canCreate']);
+        $this->assertSame('not_offered', $rows[$trendyol->id]['state']);
+        $this->assertTrue($rows[$this->account->id]['canCreate']);
+    }
+
+    public function test_the_panel_answers_with_nothing_before_the_modules_migrations_have_run(): void
+    {
+        $this->assertSame([], app(ProductChannelPanel::class)->for(null));
     }
 
     // ---- a pharmacy's own catalogue ------------------------------------------------------------------------

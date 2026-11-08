@@ -17351,4 +17351,18 @@ return [
 	'location_source_platform' => 'مخزون المتجر نفسه (يُقرأ من المتجر ولا يُنسخ)',
 	// --- purchase-order sources, audit fixes (lane-po) ---
 	'a_purchase_order_received_these_goods_confirm_a_separate_purchase' => 'استلم أمر شراء (البند :lines) بضاعة من هذا المنتج ومن هذا المورّد لم تُحاسَب بفاتورة بعد. تسجيل تكلفة لها هنا أيضًا قد يعني احتساب البضاعة نفسها مرتين. إن كانت هذه عملية شراء مستقلة فحدّد المربع أدناه وسجّلها من جديد.',
+	'listing_key' => 'مفتاح القائمة',
+	'last_published' => 'آخر نشر',
+	'nothing_is_published_yet' => 'لا شيء يُنشر بعد',
+	'channel_cannot_create_listings' => 'موصّل هذه القناة لا يستطيع إنشاء قائمة بعد.',
+	'product_channels_card_help' => 'موضع هذا المنتج في كل قناة بيع. فتح هذه الصفحة لا يتصل بأي قناة.',
+	'product_channels_card_footnote' => 'القائمة الجديدة تُنشأ ونشر المخزون والسعر مطفأ: لا تبيع شيئًا حتى يُقرَّر مصدر مخزونها. وتُجهَّز المسودات وتُرسل بأمر channels:listings.',
+	'product_channel_state_listed' => 'مُدرج',
+	'product_channel_state_draft' => 'مسودة (حقول ناقصة)',
+	'product_channel_state_validated' => 'جاهز للإرسال',
+	'product_channel_state_submitted' => 'أُرسل، في انتظار القناة',
+	'product_channel_state_accepted' => 'مقبول',
+	'product_channel_state_rejected' => 'رفضته القناة',
+	'product_channel_state_withdrawn' => 'مُلغى',
+	'product_channel_state_not_offered' => 'غير معروض',
 ];
