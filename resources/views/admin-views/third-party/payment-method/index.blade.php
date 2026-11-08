@@ -201,11 +201,24 @@
                                             </label>
                                         @endif
 
-                                        <button class="btn btn-outline-warning btn-outline-warning-dark icon-btn"
-                                                data-bs-toggle="offcanvas"
-                                                data-bs-target="#offcanvas-{{ $gateway->key_name }}">
-                                            <i class="fi fi-sr-settings"></i>
-                                        </button>
+                                        {{-- MyFatoorah keeps its credentials on its own page: the shared form
+                                             writes the same values into both the live and the test blob and
+                                             stores them in the clear, which cannot hold a sandbox key and a
+                                             production key side by side. The on/off switch above is the
+                                             normal one. --}}
+                                        @if($gateway->key_name === 'fatoorah')
+                                            <a class="btn btn-outline-warning btn-outline-warning-dark icon-btn"
+                                               href="{{ route('admin.third-party.payment-method.myfatoorah.index') }}"
+                                               title="{{ translate('MyFatoorah_settings') }}">
+                                                <i class="fi fi-sr-settings"></i>
+                                            </a>
+                                        @else
+                                            <button class="btn btn-outline-warning btn-outline-warning-dark icon-btn"
+                                                    data-bs-toggle="offcanvas"
+                                                    data-bs-target="#offcanvas-{{ $gateway->key_name }}">
+                                                <i class="fi fi-sr-settings"></i>
+                                            </button>
+                                        @endif
                                     </div>
                                 </div>
                             </div>
@@ -264,6 +277,9 @@
         </div>
 
         @foreach($paymentGatewaysList as $key=> $gateway)
+            {{-- Skipped for MyFatoorah: its settings live on their own page, and rendering this form
+                 would offer a second place to type an API key that would be stored unencrypted. --}}
+            @continue($gateway->key_name === 'fatoorah')
             @include("admin-views.third-party.payment-method._payment-gateways-offcanvas", ['gateway' => $gateway])
         @endforeach
     </div>

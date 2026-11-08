@@ -1141,7 +1141,11 @@ enum GlobalConstant
         'mercadopago',
         'bkash',
         'paymera',
-            'mtn_cash'
+            'mtn_cash',
+        // MyFatoorah (Saudi Arabia). The key stays `fatoorah` — the name this codebase already used in
+        // every gateway list and in historical payment_requests rows — so no second card appears and no
+        // old record becomes unresolvable. The customer-facing title lives in additional_data.
+        'fatoorah',
     ];
 
     const DEFAULT_SMS_GATEWAYS = [

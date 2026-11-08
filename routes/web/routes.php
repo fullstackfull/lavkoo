@@ -15,6 +15,7 @@ use App\Http\Controllers\Payment_Methods\BkashPaymentController;
 use App\Http\Controllers\Payment_Methods\FlutterwaveV3Controller;
 use App\Http\Controllers\Payment_Methods\LiqPayController;
 use App\Http\Controllers\Payment_Methods\MercadoPagoController;
+use App\Http\Controllers\Payment_Methods\MyFatoorahController;
 use App\Http\Controllers\Payment_Methods\PaymobController;
 use App\Http\Controllers\Payment_Methods\PaypalPaymentController;
 use App\Http\Controllers\Payment_Methods\PaystackController;
@@ -580,6 +581,34 @@ if (!$isGatewayPublished) {
             Route::any('pay', [PaytabsController::class, 'payment'])->name('pay');
             Route::any('callback', [PaytabsController::class, 'callback'])->name('callback');
             Route::any('response', [PaytabsController::class, 'response'])->name('response');
+        });
+
+        /*
+         * MYFATOORAH (Saudi Arabia)
+         *
+         * `pay` reads the amount from the payment_requests row — never from the request — and redirects
+         * to MyFatoorah's hosted page. `callback` is where the customer comes back; it carries only our
+         * own reference and MyFatoorah's paymentId, and the controller verifies the outcome
+         * server-to-server before showing anything. Nothing here is CSRF-exempt because both are GETs
+         * from an external redirect, and neither changes state on the strength of its parameters.
+         *
+         * The `fatoorah` prefix is kept as an alias: it is the path the Payment trait has always
+         * generated, so an old link, a queued job or an installed app build that still points at it
+         * keeps working.
+         */
+        Route::group(['prefix' => 'myfatoorah', 'as' => 'myfatoorah.'], function () {
+            Route::get('pay', [MyFatoorahController::class, 'pay'])->name('pay');
+            Route::get('callback', [MyFatoorahController::class, 'callback'])->name('callback');
+            // "We are confirming your payment". Its own page because the shared success/fail helper
+            // cannot express "we do not know yet", and guessing either way is how a paid customer is
+            // told their payment failed.
+            Route::get('pending', [MyFatoorahController::class, 'pending'])->name('pending');
+        });
+
+        Route::group(['prefix' => 'fatoorah', 'as' => 'fatoorah.'], function () {
+            Route::get('pay', [MyFatoorahController::class, 'pay'])->name('pay');
+            Route::get('callback', [MyFatoorahController::class, 'callback'])->name('callback');
+            Route::get('pending', [MyFatoorahController::class, 'pending'])->name('pending');
         });
 
 
