@@ -41,6 +41,18 @@
             "path": "docs/integrations/security-findings.md",
             "line": 232,
             "reason": "A made-up example number in a comment or document of pull request #1, in an early commit; the next commit of the same pull request rewords it without the digits. It is not anyone's number."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "app/Enums/MyFatoorah/GatewayStatus.php",
+            "line": 32,
+            "reason": "An English sentence for the admin panel ('No API key saved for the selected mode.') in an early commit of the MyFatoorah pull request. The scanner matched the shape -- an enum case named for a credential paired with mixed-case quoted text -- which is the right instinct on a payment class. A later commit of the same pull request returns a lowercase translation key instead, so no source line looks like a credential and the panel reads in Arabic too. It was never a credential."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "app/Enums/MyFatoorah/GatewayStatus.php",
+            "line": 33,
+            "reason": "An English sentence for the admin panel ('No webhook secret key saved.') in an early commit of the MyFatoorah pull request. The scanner matched the shape -- an enum case named for a credential paired with mixed-case quoted text -- which is the right instinct on a payment class. A later commit of the same pull request returns a lowercase translation key instead, so no source line looks like a credential and the panel reads in Arabic too. It was never a credential."
         }
     ]
 }
