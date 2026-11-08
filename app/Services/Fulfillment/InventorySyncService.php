@@ -156,6 +156,50 @@ class InventorySyncService
     }
 
     /**
+     * Writes the storefront's stock again from the figures the provider has ALREADY given, without asking the provider and without making an old figure look new.
+     *
+     * It is for the moment a product changes hands: the number the storefront sells from has to become the new owner's, computed the way every other write computes it (the
+     * provider's figure less the store orders it has not taken on and less what the channels hold), and each figure keeps the age it really has, so a stale one stays stale
+     * and is not published as confirmed. Nothing is sent anywhere and no mapping is re-stamped.
+     *
+     * @return array{products: int, updated: int, unchanged: int, unsupported: int, not_assigned: int} `products` counts the mappings whose figure was read
+     */
+    public function rewriteStoreStockFromStoredFigures(ProviderCode $provider, int $productId): array
+    {
+        $stats = ['products' => 0, 'updated' => 0, 'unchanged' => 0, 'unsupported' => 0, 'not_assigned' => 0];
+        $mappings = ProviderProductMapping::where('provider', $provider->value)
+            ->where('product_id', $productId)
+            ->where('status', MappingStatus::Approved->value)
+            ->orderBy('id')
+            ->get();
+
+        foreach ($mappings as $mapping) {
+            if ($mapping->provider_stock === null) {
+                continue;
+            }
+            $stats['products']++;
+            $outcome = DB::transaction(fn (): string => $this->writeStoreStock($mapping, $provider, (int) $mapping->provider_stock, $mapping->provider_stock_synced_at, assignedOnly: true));
+            $stats[$outcome] = ($stats[$outcome] ?? 0) + 1;
+        }
+
+        return $stats;
+    }
+
+    /** One line in the platform's own stock ledger, for a change to a product's stock this module made outside a provider sync (a product leaving a provider). */
+    public function recordStockMovement(int $productId, int $qtyChange, int $balanceAfter, string $reason, ?string $note = null): void
+    {
+        $this->inventory->record(
+            productId: $productId,
+            type: StockMovement::TYPE_ADJUSTMENT,
+            qtyChange: $qtyChange,
+            balanceAfter: $balanceAfter,
+            reason: $reason,
+            referenceType: $reason,
+            note: $note,
+        );
+    }
+
+    /**
      * @param iterable<ProviderProductMapping> $mappings
      * @return array<string, ProviderProductMapping>
      */

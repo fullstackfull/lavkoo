@@ -199,6 +199,57 @@ return [
         ],
     ],
 
+    /*
+    | Putting a product of the store ON a channel (creating or replacing a listing there). A draft can be prepared, checked against what the channel itself says it requires and
+    | previewed with this OFF — nothing leaves the host. Switching it on is not enough either: the account needs the `product_sync` capability and a recorded `product_writes`
+    | approval, and the channel's connector has to be able to create a listing at all.
+    */
+    'listing' => [
+        'publish_enabled' => filter_var(env('SALES_CHANNELS_LISTING_PUBLISH_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        /*
+        | The channels' own attribute names that would give a listing a price, an offer or a quantity. The publisher WITHHOLDS every one of them when it creates or changes a
+        | listing: a new listing must not be sellable because a draft happened to carry a price, and a quantity may only reach a channel through stock publishing, which is a
+        | capability of its own with an approval of its own. Withheld fields are recorded on the draft.
+        */
+        'offer_attributes' => [
+            'amazon' => ['purchasable_offer', 'list_price', 'fulfillment_availability', 'offer', 'price', 'quantity', 'main_offer_image_locator'],
+            'trendyol' => ['listPrice', 'salePrice', 'quantity', 'stockCode'],
+            'noon' => ['price', 'sale_price', 'stock', 'quantity'],
+        ],
+        /*
+        | What the shop wants of its OWN product before it is offered anywhere (ProductListingReadiness): nothing here fetches an image or judges its pixels — it checks that the
+        | product has what a channel will ask for. A name, a description, a barcode or code, a category, a thumbnail and this many images are always required; a brand only when
+        | the owner says so.
+        */
+        'product_data' => [
+            'images_at_least' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_LEAST', 1),
+            'brand_required' => filter_var(env('SALES_CHANNELS_LISTING_BRAND_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+        // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
+        'requirements_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_REQUIREMENTS_FRESH_HOURS', 24),
+        /*
+        | A pharmacy's catalogue. The code does not and cannot decide which of the shop's categories need a licence, so these are the OWNER's rules, and the gate FAILS CLOSED
+        | when it is on: a product with no category recorded at all is refused, because "we could not tell" is not "it is fine".
+        |
+        |   mode `off` (how it ships): the gate stops nothing. A deliberate choice, not an accident of empty lists.
+        |   mode `strict`: an unclassifiable product is refused, and a product these rules name may be listed only with a RECORDED clearance on the draft (a reference and the
+        |                  person who recorded it, who must hold the `sales_channels` module). An admin id on a request is not a clearance.
+        |
+        | `channels` carries the same four keys per channel, because what Amazon closes and what Trendyol closes are different lists; a channel's mode overrides the global one
+        | and its lists are added to the global ones.
+        */
+        'regulated' => [
+            'mode' => in_array(env('SALES_CHANNELS_LISTING_REGULATED_MODE', 'off'), ['off', 'strict'], true) ? env('SALES_CHANNELS_LISTING_REGULATED_MODE', 'off') : 'off',
+            'category_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_CATEGORY_IDS', ''))))),
+            'name_patterns' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_NAME_PATTERNS', ''))))),
+            'brand_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('SALES_CHANNELS_LISTING_REGULATED_BRAND_IDS', ''))))),
+            'channels' => [
+                'amazon' => ['mode' => null, 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => []],
+                'trendyol' => ['mode' => null, 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => []],
+            ],
+        ],
+    ],
+
     'inventory' => [
         // Where the own warehouse's quantities come from. `manual`: balances a person typed (nothing writes them today, so the own warehouse offers nothing). `platform`: read
         // through from the storefront's own stock (`products.current_stock` and the variants' quantities), never copied and never written. Choosing `platform` changes nothing by

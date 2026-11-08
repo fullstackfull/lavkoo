@@ -4,6 +4,8 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Http\Controllers\Admin\SalesChannels\ChannelLabels;
 use App\Http\Controllers\Admin\SalesChannels\Support\AccountForm;
+use App\Http\Controllers\Admin\SalesChannels\Support\ListingLabels;
+use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
@@ -68,6 +70,7 @@ class AdminSalesChannelsHygieneTest extends AdminSalesChannelsTestCase
             route('admin.sales-channels.accounts.show', $trendyol),
             route('admin.sales-channels.accounts.show', $amazon),
             route('admin.sales-channels.products.index'),
+            route('admin.sales-channels.listings.show', $product),
             route('admin.sales-channels.inventory.index'),
             route('admin.sales-channels.orders.index'),
             route('admin.sales-channels.orders.show', $order),
@@ -216,7 +219,7 @@ class AdminSalesChannelsHygieneTest extends AdminSalesChannelsTestCase
         $routes = array_filter(Route::getRoutes()->getRoutes(), static fn ($route): bool => str_starts_with((string) $route->getName(), 'admin.sales-channels.'));
 
         foreach ($routes as $route) {
-            foreach (['account', 'mapping', 'rule'] as $parameter) {
+            foreach (['account', 'mapping', 'rule', 'product', 'draft'] as $parameter) {
                 if (in_array($parameter, $route->parameterNames(), true)) {
                     $this->assertSame('[0-9]+', $route->wheres[$parameter] ?? null, $route->getName() . ' accepts a non-numeric {' . $parameter . '}');
                 }
@@ -258,6 +261,57 @@ class AdminSalesChannelsHygieneTest extends AdminSalesChannelsTestCase
 
         $this->assertSame(translate('publish_skip_stock_not_confirmed') . ' (' . translate('stock_quality_stale') . ')', $labels->publishSkip('stock_not_confirmed:stale'));
         $this->assertSame(translate('publish_skip_unchanged'), $labels->publishSkip('unchanged'));
+    }
+
+    /**
+     * Every reason the listing pipeline can give for not sending something has words on the screen.
+     *
+     * It is read out of the source, not out of a list somebody keeps up to date: a refusal code is a literal in those services, so a new one that nobody translated fails
+     * here instead of reaching an administrator as `could_not_confirm_that_the_channel_holds_no_listing` in the middle of an Arabic page.
+     */
+    public function test_every_refusal_the_listing_pipeline_can_give_has_words_on_the_screen(): void
+    {
+        $labels = app(ListingLabels::class);
+        $found = [];
+        foreach ($this->files(app_path('Services/SalesChannels/Listings'), '/\.php$/') as $file) {
+            // A whole code only: the lookahead drops `'channel_' . $exception->reason`, whose halves are checked by the test below instead.
+            preg_match_all('/(?:refuse\(\$draft,|ListingOutcome::refused\(|found\(\$draft, \[[^\]]*\],)\s*\x27([a-z0-9_]+)\x27(?=\s*[,)])/', (string) file_get_contents($file), $matches);
+            $found = [...$found, ...$matches[1]];
+        }
+        $found = array_values(array_unique($found));
+
+        $this->assertNotEmpty($found, 'no refusal code was found in the listing services at all');
+        $this->assertContains('could_not_confirm_that_the_channel_holds_no_listing', $found, 'the scan no longer sees the refusals it is meant to check');
+        $this->assertSame([], array_values(array_filter($found, static fn (string $code): bool => !$labels->knows($code))), 'these refusal codes would be shown to an administrator as a bare code');
+    }
+
+    /** A code from a channel is never turned into a translation key: the field names and sentences a channel writes are its own and are shown as they came. */
+    public function test_a_listing_code_this_version_does_not_know_is_shown_as_it_came(): void
+    {
+        $labels = app(ListingLabels::class);
+
+        $this->assertSame('a_refusal_added_next_year', $labels->refusal('a_refusal_added_next_year'));
+        $this->assertSame('item_package_weight', $labels->problem('item_package_weight'));
+        $this->assertSame('exotic', $labels->state('exotic'));
+        $this->assertSame(ListingLabels::NONE, $labels->refusal(null));
+        $this->assertSame(ListingLabels::NONE, $labels->state(''));
+        $this->assertSame(translate('listing_publishing_off'), $labels->refusal('listing_publishing_off'));
+        // The transport's own refusals keep the words the account pages use for them, rather than a second set of their own.
+        $this->assertSame(translate('channel_reason_writes_off_account'), $labels->refusal('channel_writes_off_account'));
+        $this->assertSame(translate('channel_reason_account_off'), $labels->refusal('account_off'));
+        $this->assertSame(translate('channel_reason_rate_limited'), $labels->refusal('channel_rate_limited'));
+    }
+
+    /** The reasons ListingLabels hands to the account pages are the transport's own list, so a new one cannot be forgotten. */
+    public function test_the_transports_refusals_are_the_exceptions_own_list(): void
+    {
+        $reasons = [];
+        foreach ((new \ReflectionClass(ChannelUnavailableException::class))->getConstants() as $value) {
+            $reasons[] = (string) $value;
+        }
+
+        $this->assertSame([], array_values(array_diff($reasons, ListingLabels::CHANNEL_REFUSALS)), 'a ChannelUnavailableException reason has no words on the listing screen');
+        $this->assertSame([], array_values(array_diff(ListingLabels::CHANNEL_REFUSALS, [...$reasons, 'rate_limited'])), 'ListingLabels claims a reason the transport does not have');
     }
 
     public function test_a_count_of_zero_says_nothing_and_a_run_with_nothing_to_report_says_so(): void

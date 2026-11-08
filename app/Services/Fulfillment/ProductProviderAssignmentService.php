@@ -21,14 +21,23 @@ use Illuminate\Support\Facades\DB;
  *
  *  - only an admin-owned physical product may belong to a provider;
  *  - a provider other than "default" needs an APPROVED mapping (every variant, when the product has variants);
- *  - it cannot change while orders for the product are still unrouted or in flight with the old provider;
- *  - every change is recorded: who, from what, to what, why.
+ *  - every change is recorded: who, from what, to what, why, and what stayed behind.
+ *
+ * THE CHANGE IS FOR WHAT COMES NEXT. Orders already placed do not move: the line of an order carries the provider it was placed with
+ * (`OrderItemOwnershipSnapshotter`) and the router reads only that snapshot, never the product's current provider, so a shipment in flight and a
+ * line not routed yet both stay with the provider they were placed for. The number of those lines is counted and recorded with the change, and
+ * `fulfillment.lock_provider_while_orders_are_in_flight` restores the older, stricter behaviour (refuse until they finish) for an owner who wants it.
+ *
+ * The storefront's stock follows the new owner at once: the new provider's own stored figures are written to it again (`InventorySyncService`), without
+ * asking the provider and without making an old figure look new. And where the new owner has given no figure — the product goes back in-house, or the new
+ * provider has reported nothing — the stock is set to ZERO and the old number is recorded with the change: the old provider's count is what that provider
+ * holds, not a balance of the store's own shelf, so the product stops being sold until a person confirms what is really there.
  *
  * Existing products are never touched: NULL (in-house / default) stays NULL until someone assigns it here.
  */
 class ProductProviderAssignmentService
 {
-    public function __construct(private readonly AuditLogger $audit)
+    public function __construct(private readonly AuditLogger $audit, private readonly InventorySyncService $inventory)
     {
     }
 
@@ -54,10 +63,16 @@ class ProductProviderAssignmentService
                 return $refusal;
             }
 
+            $stay = $current === null ? 0 : $this->activeOperations($productId, $current);
+
             DB::table('products')->where('id', $productId)->update([
                 'fulfillment_provider' => $target?->value,
                 'updated_at' => now(),
             ]);
+
+            // The storefront sells from the new owner's figure from now on; and a figure the new owner has not given is not a figure at all (below).
+            $stock = $target === null ? ['products' => 0] : $this->inventory->rewriteStoreStockFromStoredFigures($target, $productId);
+            $stock['stopped_selling'] = $this->stopSellingUntilTheBalanceIsConfirmed($product, $current, $target, (int) $stock['products']);
 
             ProductProviderChange::create([
                 'product_id' => $productId,
@@ -66,6 +81,7 @@ class ProductProviderAssignmentService
                 'actor_type' => $actorType,
                 'actor_id' => $actorId,
                 'reason' => $reason,
+                'context' => ['kept_with_the_old_provider' => $stay, 'stock' => $stock],
             ]);
 
             $this->audit->record(
@@ -73,11 +89,46 @@ class ProductProviderAssignmentService
                 subject: ['type' => 'product', 'id' => $productId],
                 before: ['fulfillment_provider' => $current?->value],
                 after: ['fulfillment_provider' => $target?->value],
-                context: ['reason' => $reason],
+                context: ['reason' => $reason, 'kept_with_the_old_provider' => $stay, 'stock' => $stock],
             );
 
-            return AssignmentResult::ok();
+            return AssignmentResult::ok(keptWithTheOldProvider: $stay, stockRewrittenFrom: (int) $stock['products']);
         });
+    }
+
+    /**
+     * A product that LEAVES a provider must not keep that provider's balance as if it were the new owner's.
+     *
+     * Torod Point's count is what Torod Point holds; the own warehouse's shelf is a different shelf and nobody has counted it. So when the figures of the new owner wrote
+     * nothing (there is no provider, or it has reported none), the storefront's stock is set to **zero** and the number it had is recorded on the change: the product stops
+     * being sold until a person enters a balance they have actually confirmed, instead of selling units that may be in another warehouse.
+     *
+     * `FULFILLMENT_STOP_SELLING_WHEN_A_PRODUCT_LEAVES_A_PROVIDER=false` leaves the old number in place for an owner who would rather correct it themselves.
+     *
+     * @return array{was: int, now: int}|null what it did, or null when it had nothing to do
+     */
+    private function stopSellingUntilTheBalanceIsConfirmed(object $product, ?ProviderCode $current, ?ProviderCode $target, int $figuresWritten): ?array
+    {
+        $leavingAProvider = $current !== null && $current !== $target;
+        if (!$leavingAProvider || $figuresWritten > 0 || !config('fulfillment.stop_selling_when_a_product_leaves_a_provider', true)) {
+            return null;
+        }
+
+        $before = (int) $product->current_stock;
+        if ($before === 0) {
+            return null;
+        }
+
+        DB::table('products')->where('id', $product->id)->update(['current_stock' => 0, 'updated_at' => now()]);
+        $this->inventory->recordStockMovement(
+            productId: (int) $product->id,
+            qtyChange: -$before,
+            balanceAfter: 0,
+            reason: 'provider_change_balance_unconfirmed',
+            note: ($current?->value ?? 'default') . '->' . ($target?->value ?? 'default'),
+        );
+
+        return ['was' => $before, 'now' => 0];
     }
 
     /**
@@ -86,7 +137,10 @@ class ProductProviderAssignmentService
      * and the rule cannot disagree. A product that does not exist yet (the create form) cannot be matched
      * to a provider's product, so no provider is selectable until it has been saved.
      *
-     * @return array{current: string, choices: list<array{value: string, provider: ?ProviderCode, selectable: bool, reason: ?string}>}
+     * A choice that is allowed but moves nothing already placed carries a `warning` instead of a reason: the lines that stay with the provider they
+     * were placed for, so the person choosing reads it before they choose.
+     *
+     * @return array{current: string, choices: list<array{value: string, provider: ?ProviderCode, selectable: bool, reason: ?string, warning: ?string, kept_with_the_old_provider: int}>}
      */
     public function choicesFor(?int $productId): array
     {
@@ -100,7 +154,15 @@ class ProductProviderAssignmentService
                 $product === null => $candidate === null ? null : 'fulfillment_save_product_first',
                 default => $this->refusal($product, $current, $candidate)?->reasonKey,
             };
-            $choices[] = ['value' => $candidate?->value ?? 'default', 'provider' => $candidate, 'selectable' => $reason === null, 'reason' => $reason];
+            $stay = $reason !== null || $candidate === $current || $current === null || $product === null ? 0 : $this->activeOperations((int) $product->id, $current);
+            $choices[] = [
+                'value' => $candidate?->value ?? 'default',
+                'provider' => $candidate,
+                'selectable' => $reason === null,
+                'reason' => $reason,
+                'warning' => $stay > 0 ? 'fulfillment_orders_stay_with_the_old_provider' : null,
+                'kept_with_the_old_provider' => $stay,
+            ];
         }
 
         return ['current' => $current?->value ?? 'default', 'choices' => $choices];
@@ -142,7 +204,8 @@ class ProductProviderAssignmentService
             }
         }
 
-        if ($current !== null && $this->activeOperations($product->id, $current) > 0) {
+        // Orders already placed keep the provider they were placed with, so work in flight does not stand in the way; an owner who wants the older, stricter rule switches it back on.
+        if (config('fulfillment.lock_provider_while_orders_are_in_flight', false) && $current !== null && $this->activeOperations($product->id, $current) > 0) {
             return AssignmentResult::refused('fulfillment_active_operations_exist');
         }
 

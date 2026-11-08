@@ -27,6 +27,7 @@ class EnsureSalesChannelsMigrated
         '2026_11_09_200000_create_channel_order_dispatches_table',
         '2026_11_10_100000_add_stock_allocation',
         '2026_11_11_100000_add_purchase_order_sources_to_cost_tables',
+        '2026_11_12_100000_create_channel_listing_drafts_table',
     ];
 
     public function handle(Request $request, Closure $next): Response

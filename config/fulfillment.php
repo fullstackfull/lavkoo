@@ -37,6 +37,25 @@ return [
     | Parent-order currency the providers are paid/collect in. The store is KSA-only; amounts sent to a
     | provider are converted from the platform's stored base currency to this code.
     */
+    /*
+    | Changing a product's fulfilment provider is a decision about what comes NEXT: an order already placed carries the provider it was placed with
+    | (the line's own snapshot, which the router reads instead of the product), so a shipment in flight never moves and a line not routed yet keeps
+    | its provider too. The change records how many such lines stayed behind.
+    |
+    | true restores the older, stricter rule: refuse the change until every order for the product has finished with its current provider. Nothing in
+    | the code needs it; it is here for an owner who prefers the product and its open orders never to disagree.
+    */
+    'lock_provider_while_orders_are_in_flight' => filter_var(env('FULFILLMENT_LOCK_PROVIDER_WHILE_ORDERS_IN_FLIGHT', false), FILTER_VALIDATE_BOOLEAN),
+
+    /*
+    | A provider's count is what THAT provider holds. When a product leaves a provider and the new owner has given no figure of its own (it goes back in-house, or the new
+    | provider has reported nothing), the storefront's stock is set to zero and the number it had is recorded with the change: the product stops being sold until a person
+    | confirms what is really on the shelf, instead of selling units that are in somebody else's warehouse.
+    |
+    | false leaves the old number in place for an owner who would rather correct it themselves. The stock is never raised by this, only stopped.
+    */
+    'stop_selling_when_a_product_leaves_a_provider' => filter_var(env('FULFILLMENT_STOP_SELLING_WHEN_A_PRODUCT_LEAVES_A_PROVIDER', true), FILTER_VALIDATE_BOOLEAN),
+
     'currency' => env('FULFILLMENT_CURRENCY', 'SAR'),
 
     /*
