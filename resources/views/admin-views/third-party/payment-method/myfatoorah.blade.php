@@ -24,7 +24,7 @@
             <i class="fi {{ $availability['ready'] ? 'fi-sr-check' : 'fi-sr-info' }}"></i>
             <div>
                 <strong>{{ $availability['ready'] ? translate('live_on_your_checkout') : translate('not_taking_payments') }}:</strong>
-                {{ $availability['reason'] }}
+                {{ translate($availability['reason_key']) }}
                 @unless($availability['ready'])
                     @if($availability['status']->value === 'disabled_in_admin')
                         — {{ translate('turn_it_on_from_the') }}

@@ -105,9 +105,17 @@ trait BuildsMyFatoorahSchema
     }
 
     /**
-     * On a real database the schema outlives the test, so the feature's own tables are dropped and let
-     * the migrations rebuild them. In-memory SQLite needs none of this — each test gets a fresh
-     * database because the application is rebuilt per test.
+     * On a real database the schema and its rows outlive the test, so everything is dropped and rebuilt.
+     * In-memory SQLite needs none of this — each test gets a brand new database because the application
+     * is rebuilt per test, which is also why none of the problems this prevents ever showed there.
+     *
+     * Dropping everything rather than only this feature's tables, because the rows of the shared ones
+     * are what bite:
+     *
+     *   - `orders` persists from whichever suite ran before, with its own columns, and the success hook
+     *     inserts into it — so the hook threw and settlement looked broken;
+     *   - `currencies` kept SAR switched off after the test that deliberately switches it off, which
+     *     made every later test see an unusable gateway.
      *
      * Guarded the same way the fulfillment helper guards its own drop: a database whose name does not
      * say "test", or an environment that is not `testing`, is refused outright.
@@ -123,12 +131,10 @@ trait BuildsMyFatoorahSchema
         $database = (string) $connection->getDatabaseName();
 
         if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
-            throw new RuntimeException("Refusing to drop tables of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
+            throw new RuntimeException("Refusing to drop every table of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
         }
 
-        foreach (['myfatoorah_refunds', 'myfatoorah_webhook_events', 'myfatoorah_payment_attempts'] as $table) {
-            Schema::dropIfExists($table);
-        }
+        Schema::dropAllTables();
     }
 
     protected function runMyFatoorahMigrations(): void
@@ -146,19 +152,26 @@ trait BuildsMyFatoorahSchema
         }
     }
 
-    /** SAR, switched on, so the currency check passes. */
+    /**
+     * SAR, switched ON.
+     *
+     * updateOrInsert, not insertOrIgnore: on a real database the schema and its rows outlive the test,
+     * so a test that deliberately switches SAR off (there is one, for the checkout visibility rule)
+     * would leave it off for every test that ran after it. SQLite never showed this because each test
+     * gets a brand new in-memory database.
+     */
     protected function sarIsActive(): void
     {
-        DB::table('currencies')->insertOrIgnore([
-            'id' => 1,
-            'name' => 'Saudi Riyal',
-            'symbol' => 'SAR',
-            'code' => 'SAR',
-            'exchange_rate' => 1,
-            'status' => 1,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        DB::table('currencies')->updateOrInsert(
+            ['code' => 'SAR'],
+            [
+                'name' => 'Saudi Riyal',
+                'symbol' => 'SAR',
+                'exchange_rate' => 1,
+                'status' => 1,
+                'updated_at' => now(),
+            ],
+        );
     }
 
     /** The store-wide digital-payment switch that gates every gateway. */

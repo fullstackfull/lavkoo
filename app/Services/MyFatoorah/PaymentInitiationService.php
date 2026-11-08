@@ -53,7 +53,9 @@ class PaymentInitiationService
         if (!$availability['ready']) {
             // The gateway is off, unconfigured, or the store's currency is not one it settles in. Refusing
             // here is what makes "disable it in the admin panel" actually stop new payments.
-            return ['ok' => false, 'code' => 'gateway_unavailable', 'error' => $availability['reason']];
+            // Translated here, not in GatewayAvailability: this is a refused payment, not the hot path
+            // that renders a checkout, so the helper's disk write for an unknown key costs nothing.
+            return ['ok' => false, 'code' => 'gateway_unavailable', 'error' => translate($availability['reason_key'])];
         }
 
         $config = $this->configRepo->get();

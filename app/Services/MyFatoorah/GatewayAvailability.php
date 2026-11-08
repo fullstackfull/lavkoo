@@ -26,7 +26,7 @@ class GatewayAvailability
     }
 
     /**
-     * @return array{ready: bool, status: GatewayStatus, reason: string}
+     * @return array{ready: bool, status: GatewayStatus, reason_key: string}
      */
     public function check(): array
     {
@@ -36,13 +36,17 @@ class GatewayAvailability
             activeCurrencies: $this->activeCurrencies(),
         );
 
+        /*
+         * A KEY, not translated text. `translate()` in this method would be on the hottest path there
+         * is — `payment_gateways()` calls it for every checkout render and every /api/v1/config request
+         * — and this application's `translate()` helper WRITES a key it cannot find into
+         * `resources/lang/<locale>/new-messages.php` on disk. Translating here would therefore put a
+         * file write in the middle of serving a checkout. Whoever displays the text translates it.
+         */
         return [
             'ready' => $status->isReady(),
             'status' => $status,
             'reason_key' => $status->reasonKey(),
-            // Translated here rather than in the enum so the enum stays free of presentation, and so a
-            // caller that is not a view (the initiation service, the API) still gets readable text.
-            'reason' => translate($status->reasonKey()),
         ];
     }
 
