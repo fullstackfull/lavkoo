@@ -105,12 +105,14 @@ knows because the rows say so. The arrangement is right with the division on or 
 
 ### The storefront's own number, without asking anybody
 
-`StorefrontStockRefresher` re-applies `provider_product_mappings.provider_stock` — the figure the last sync stored — with the time it was read, through
-`InventorySyncService::applyToAssignedProducts()`, the one writer of `products.current_stock`. So:
+`StorefrontStockRefresher` delegates to **`InventorySyncService::rewriteStoreStockFromStoredFigures()`** — the one writer of `products.current_stock`, by the one method made
+for re-applying a figure already stored. It takes each mapping's `provider_stock` with the age that figure really has, and **never stamps it**. So:
 
-* **no provider is called**, and a stale figure is not made to look fresh (a shipment the provider accepted after that figure is still held back, exactly as on a real sync);
-* **there is no second copy of the arithmetic.** The writer's locking, its refusals (a whole-product figure on a product sold per variant, a variant with no price, a product no
-  longer assigned to that provider) and its stock-movement line all apply unchanged. A second copy is the one thing that would make the two numbers disagree.
+* **no provider is called**, and a stale figure is not made to look fresh (a shipment the provider accepted after that figure is still held back, exactly as on a real sync).
+  That property is the writer's **by construction** — there is no flag a caller has to remember to pass — and a test pins it;
+* **there is no second copy of the arithmetic, and no second path.** The writer's locking, its refusals (a whole-product figure on a product sold per variant, a variant with
+  no price, a product no longer assigned to that provider) and its stock-movement line all apply unchanged. A second copy is the one thing that would make the two numbers
+  disagree.
 * a product the store fulfils itself has no provider figure to re-apply, and its stock stays a person's to set.
 
 ### What it does not touch
@@ -274,8 +276,8 @@ quantity that was never offered to it at all.
 
 1. an outbox row carries **no figure at all** — it names a pool and says why, and the figures are read afresh when it is worked, so a row worked late sends a *fresh*
    quantity late;
-2. re-applying a stored figure **does not re-stamp its read time** (`stampTheFigure: false`), so a stale figure never reads as current and a shipment the provider accepted
-   since it is still held back — the CI caught this one, and `test_re_applying_a_stored_figure_never_makes_it_look_newly_read` pins it;
+2. re-applying a stored figure **does not re-stamp its read time** — `rewriteStoreStockFromStoredFigures()` never stamps, so a stale figure never reads as current and a
+   shipment the provider accepted since it is still held back. The CI caught this one, and `test_re_applying_a_stored_figure_never_makes_it_look_newly_read` pins it;
 3. the **publisher's own staleness gate** still decides what reaches a channel: a figure the source has not confirmed within `stock.stale_after_minutes` is not offered, on
    a drain exactly as on a scheduled run (`test_a_figure_too_old_to_trust_is_not_pushed_to_the_channel`).
 
