@@ -9,6 +9,7 @@ use App\Enums\Fulfillment\StockSource;
 use App\Models\ProviderFulfillmentItem;
 use App\Models\ProviderProductMapping;
 use App\Models\StockMovement;
+use App\Services\Fulfillment\Contracts\NotesStockChanged;
 use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\Marketplace\InventoryService;
 use Carbon\CarbonInterface;
@@ -52,8 +53,11 @@ class InventorySyncService
     private const UNSUPPORTED = 'unsupported';
     private const NOT_ASSIGNED = 'not_assigned';
 
-    public function __construct(private readonly InventoryService $inventory, private readonly ReportsChannelHolds $channelHolds)
-    {
+    public function __construct(
+        private readonly InventoryService $inventory,
+        private readonly ReportsChannelHolds $channelHolds,
+        private readonly NotesStockChanged $stockNotes,
+    ) {
     }
 
     /**
@@ -252,13 +256,28 @@ class InventorySyncService
      */
     private function storeAssigned(ProviderProductMapping $mapping, ProviderCode $provider, int $providerQuantity, ?CarbonInterface $acceptedSince): string
     {
-        return DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince): string {
-            $outcome = $this->writeStoreStock($mapping, $provider, $providerQuantity, $acceptedSince, assignedOnly: true);
-            if ($outcome === self::UPDATED || $outcome === self::UNCHANGED) {
-                $this->stamp($mapping, $providerQuantity);
-            }
+        $before = (int) ($mapping->provider_stock ?? -1);
 
-            return $outcome;
+        // The note goes in the SAME transaction as the figure. Outside it, a process that died between the two would leave the new figure stored and nothing to say that
+        // whoever else sells this shelf must be told — which is exactly the loss the note exists to prevent, so it may not be made after the commit.
+        return DB::transaction(function () use ($mapping, $provider, $providerQuantity, $acceptedSince, $before): string {
+            $written = $this->writeStoreStock($mapping, $provider, $providerQuantity, $acceptedSince, assignedOnly: true);
+            if ($written !== self::UPDATED && $written !== self::UNCHANGED) {
+                return $written;
+            }
+            // These figures were just READ from the provider, so the mapping records when. Re-applying a figure already stored goes through
+            // rewriteStoreStockFromStoredFigures instead, which never stamps: a stale figure must not come to read as current.
+            $this->stamp($mapping, $providerQuantity);
+            // Whoever else sells this shelf (Amazon FBM, Trendyol) may now be shown a different quantity, and used to find out only at the next quarter-hour sweep. It sends
+            // nothing to any channel and decides nothing about whether anything may be sent; where the sales-channel module is absent the note goes nowhere.
+            $this->stockNotes->providerFigureChanged(
+                provider: $provider,
+                productId: (int) $mapping->product_id,
+                variantKey: (string) $mapping->variant_key,
+                figureChanged: $before !== $providerQuantity,
+            );
+
+            return $written;
         });
     }
 

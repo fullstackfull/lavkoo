@@ -10865,4 +10865,15 @@ return [
 	'the_channel_reports_this_listing_buyable_although_no_offer_of_ours_was_published' => 'The channel reports this listing as buyable although no offer of ours was ever published: something else gave it a price or a quantity. Look at it.',
 	'channel_reason_rate_limited' => 'The channel asked us to wait, so nothing was sent; the next run sends it',
 	'channel_reason_buyer_data_off' => 'Reading a buyer\'s details is switched off on this host',
+
+	// --- the stock outbox: what is waiting, and what nobody could act on ---
+	'attention_stock_changes_not_worked' => 'Stock changes not acted on yet',
+	'stock_changes_nobody_could_work' => 'Changes nobody could act on',
+	'kept_for_you_until_somebody_deals_with_them' => 'kept for you until somebody deals with what stopped them; each one is a quantity at a channel that has not been corrected',
+	'stock_changes_waiting_too_long' => 'Changes waiting longer than they should',
+	'changes_oldest_of_them_minutes_ago' => 'changes waiting, the oldest of them :minutes minute(s) ago: the workers have stopped, or the queue is not being run',
+	'stock_changes_recomputed_but_not_sent' => 'Changes worked out but not sent',
+	'a_switch_or_an_approval_refused_the_send' => 'a switch or an approval refused the send, so the quantities were worked out and nothing went to the channel; turning it on sends them on the next regular run',
+	'storefront_stock_nobody_could_correct' => 'Our own stock could not be corrected',
+	'a_mapping_or_a_product_has_to_be_corrected_first' => 'changes whose quantity in our own shop the writer refused, so it is still showing units a channel has taken. Tried and kept here rather than retried for ever: a mapping or a product has to be corrected first (a whole-product figure on a product sold per variant, or a variant that is gone), then run channels:stock-events --retry-dead',
 ];

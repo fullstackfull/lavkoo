@@ -4,14 +4,19 @@ namespace App\Services\SalesChannels\Inventory;
 
 use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
+use App\Models\ChannelStockEvent;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelProductMapping;
+use App\Services\Fulfillment\Contracts\WritesStorefrontStock;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventNudge;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Keeps the units that open channel orders have promised out of the quantity offered to the channels, so that stock is neither sold twice nor pushed back over a channel's own
@@ -30,7 +35,10 @@ use Illuminate\Support\Collection;
  *
  * A line linked to no product, or whose listing and routing name no location, holds nothing: no pool can be told about it (`unattributedUnits` says how many units that is).
  *
- * Safe to run as often as you like: it only brings the reservations in line with the order as it is now.
+ * Safe to run as often as you like: it only brings the reservations in line with the order as it is now. And when a hold changes, OUR OWN shop's number is written again at
+ * once — in a transaction of its own, straight after the holds are committed, because a read inside the holds' transaction sees only what that transaction can see and would
+ * miss every hold another process committed meanwhile. It is never decremented either: it is recomputed from the provider's figure minus every promise against it, so running
+ * twice takes nothing off twice. The channels are told by the outbox's worker, because unlike our own shop they have to be asked.
  */
 class ChannelOrderReservations
 {
@@ -44,19 +52,60 @@ class ChannelOrderReservations
         private readonly PublishPolicyResolver $policies,
         private readonly DirtyPools $dirtyPools,
         private readonly StoreOrderItems $storeOrders,
+        private readonly WritesStorefrontStock $storefront,
+        private readonly StockEventOutbox $outbox,
+        private readonly StockEventNudge $nudge,
     ) {
     }
 
-    /** Brings the order's reservations in line with the order, and marks the pools whose promises that changed so that their division is worked out again. */
-    public function sync(ExternalOrderMapping $mapping): void
+    /**
+     * Brings the order's reservations in line with the order and, when that changed what is promised, records it.
+     *
+     * The reservations and the record of the change are written in ONE transaction, so there is no moment in which a unit is held and nothing says the pool must be worked out
+     * again. That moment used to exist: the mark was a statement of its own after the writes, so a process that died between them left the unit held and the quantity still on
+     * offer until the next full sweep — and on a host with the division switched off the mark never happened at all. Both pools are named: the one the units left and the one
+     * they went to.
+     *
+     * The worker is nudged AFTER the commit, never inside it: a job that started first would read the database as it was. And the nudge is only speed — if it is lost, the
+     * rows are still in the table and the next run works them.
+     *
+     * @param string $reason why, for the person who reads the row later (ChannelStockEvent::ORDER_IMPORTED and the rest)
+     */
+    public function sync(ExternalOrderMapping $mapping, string $reason = ChannelStockEvent::ORDER_CHANGED): void
     {
-        $before = $this->holdsOf($mapping);
-        $this->bringIntoLine($mapping);
-        $after = $this->holdsOf($mapping);
+        // Three attempts, like the ingestor's own transaction: two processes reading the SAME order at once each hold their reservation rows and each want the product row, so a
+        // deadlock is possible and losing one is not a reason to drop a hold. The work is idempotent — it brings the reservations in line with the order as it is now — so a
+        // retry is simply the same work again.
+        $products = DB::transaction(function () use ($mapping, $reason): array {
+            $before = $this->holdsOf($mapping);
+            $this->bringIntoLine($mapping);
+            $after = $this->holdsOf($mapping);
+            if ($before->all() === $after->all()) {
+                return [];
+            }
 
-        if ($before->all() !== $after->all()) {
-            $this->dirtyPools->mark($before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey(locationId: $hold['location_id'], productId: $hold['product_id'], variantKey: $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values());
+            $pools = $before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey(locationId: $hold['location_id'], productId: $hold['product_id'], variantKey: $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values();
+            $this->dirtyPools->mark($pools);
+            // The row is written HERE, with the holds, so the intention to correct our own number and to ask the channels cannot be lost. The correcting itself happens below.
+            $this->outbox->record($pools, $reason, subjectType: 'external_order_mapping', subjectId: (int) $mapping->id);
+
+            return $pools->map(static fn (PoolKey $key): int => $key->productId)->unique()->values()->all();
+        }, attempts: 3);
+
+        if ($products === []) {
+            return;
         }
+
+        // AFTER the commit, and in a transaction of its own. Not in the one above, and this is the whole lesson of the concurrency test: inside that transaction the reads
+        // that count what is promised see the SNAPSHOT taken when it began — before the other processes holding units of the same product committed theirs. Six orders of two
+        // units each then each wrote "twenty minus my two", and our own shop went on offering ten units that were gone. Reading after the commit, serialized on the product's
+        // own row lock, each pass counts every hold that exists.
+        //
+        // It is still immediate: the same request, before the ingest returns, with no queue and no worker. What it is not is atomic with the hold — so the outbox row above
+        // keeps the job, and the worker (one at a time, outside any transaction of ours) does it again whatever happens here. A number that can be a moment stale and is then
+        // corrected is worth far more than a number that is confidently wrong.
+        $this->storefront->writeFor($products);
+        $this->nudge->soon();
     }
 
     /** @return Collection<string, array{location_id: int, product_id: int, variant_key: string, state: string, quantity: int}> what the order holds now, by reservation */

@@ -45,6 +45,7 @@ trait BuildsSalesChannelSchema
             '2026_11_10_100000_add_stock_allocation.php',
             '2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php',
             '2026_11_12_100000_create_channel_listing_drafts_table.php',
+            '2026_11_13_100000_create_channel_stock_events_table.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

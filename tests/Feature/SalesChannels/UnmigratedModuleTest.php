@@ -25,6 +25,7 @@ class UnmigratedModuleTest extends TestCase
         ['channels:dispatch-sync', []],
         ['channels:purge-buyer-data', []],
         ['channels:find-shipments', []],
+        ['channels:stock-events', []],
     ];
 
     protected function setUp(): void

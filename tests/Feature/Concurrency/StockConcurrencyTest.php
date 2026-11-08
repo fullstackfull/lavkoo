@@ -2,13 +2,17 @@
 
 namespace Tests\Feature\Concurrency;
 
+use App\Enums\Fulfillment\ProviderCode;
+use App\Models\ChannelStockEvent;
 use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
 use App\Models\InventoryPool;
 use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
+use App\Services\Fulfillment\InventorySyncService;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
+use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Publishing\StockPricePublisher;
@@ -312,5 +316,105 @@ class StockConcurrencyTest extends TestCase
         $this->assertSame('busy', $reports[1]['result']['result']);
         $this->assertSame([], $reports[1]['result']['sent']);
         $this->assertSame(0, InventoryPool::count(), 'a run that was not given the lease did not touch the pool either');
+    }
+
+    // ---- T8: the outbox under several workers -------------------------------------------------------------------------------------------------
+
+    public function test_six_workers_claiming_the_outbox_at_once_each_get_their_own_events_and_none_is_taken_twice(): void
+    {
+        $this->givenEventsWaiting(30);
+
+        $reports = ConcurrentRunner::run('stock.claim_events', array_fill(0, 6, ['limit' => 10]));
+
+        $this->assertAllWorkersSucceeded($reports);
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $claimed = array_merge(...array_column($reports, 'result'));
+        $this->assertSame(count($claimed), count(array_unique($claimed)), 'two workers were given the same event: it would be worked twice');
+        $this->assertLessThanOrEqual(30, count($claimed));
+        $this->assertSame(count($claimed), ChannelStockEvent::where('state', ChannelStockEvent::CLAIMED)->count());
+    }
+
+    public function test_six_workers_draining_the_outbox_at_once_leave_nothing_waiting_and_work_nothing_twice(): void
+    {
+        $this->givenEventsWaiting(24);
+
+        $reports = ConcurrentRunner::run('stock.drain_events', array_fill(0, 6, ['limit' => 10]));
+
+        $this->assertAllWorkersSucceeded($reports);
+        $claimed = array_sum(array_column(array_column($reports, 'result'), 'claimed'));
+        $this->assertSame(24, $claimed, 'the workers between them took every event exactly once: ' . json_encode(array_column($reports, 'result')));
+        $this->assertSame(0, ChannelStockEvent::where('state', ChannelStockEvent::PENDING)->count(), 'an event was left waiting');
+        $this->assertSame(24, ChannelStockEvent::where('state', ChannelStockEvent::WORKED)->count());
+    }
+
+    /**
+     * Six processes each holding units of the SAME product at the same instant. This is the test that found the defect: our own shop's number USED to be written inside each
+     * hold's own transaction, and the reads that count what is promised therefore saw that transaction's snapshot — taken before the other five committed their holds. Each
+     * process wrote "twenty minus my two", and the shop went on offering ten units that were gone.
+     *
+     * It is written after the commit now, in a transaction of its own, so each pass counts every hold that exists. What this pins: no deadlock from a wrong lock order, no
+     * unit taken off twice (the number is RECOMPUTED, never decremented), and the final number right to the unit.
+     */
+    public function test_six_processes_holding_units_of_one_product_at_once_leave_our_own_number_right_and_never_deadlock(): void
+    {
+        $this->stockListing($this->first, self::PRODUCT, $this->torodLocation(), 'BAR-A');
+        app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-' . self::PRODUCT => 20], now());
+        $this->assertSame(20, $this->storefrontStock());
+
+        // Not a static closure: it reads $this->first. (A static one has no $this, and SQLite skips this test, so only a real engine shows it.)
+        $accountId = (int) $this->first->id;
+        $reports = ConcurrentRunner::run('stock.ingest_many', array_map(static fn (int $worker): array => [
+            'account' => $accountId, 'listing_key' => 'BAR-A', 'quantity' => 2, 'count' => 1, 'prefix' => 'CONC-' . $worker,
+        ], range(1, 6)));
+
+        $this->assertAllWorkersSucceeded($reports);
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertSame(0, array_sum(array_column(array_column($reports, 'result'), 'deadlocks')), 'a deadlock got through: ' . json_encode(array_column($reports, 'result')));
+        $held = (int) InventoryReservation::where('product_id', self::PRODUCT)->where('state', InventoryReservation::RESERVED)->sum('quantity');
+        $this->assertSame(12, $held, 'six orders of two units each are twelve units held');
+        $this->assertSame(20 - $held, $this->storefrontStock(), 'our own number is the figure minus what is promised, once — not a decrement applied twice');
+    }
+
+    /**
+     * The mechanism the fix above rests on, pinned on its own rather than argued in a comment: a storefront write that has to QUEUE for the product's row lock reads what is
+     * promised AFTER it is granted it. Here a holder keeps the product locked for two and a half seconds; the write starts waiting almost at once; and a hold of four units
+     * is committed a second later, while the write is still blocked. If its reservation count came from a snapshot taken when it began to wait, it would write twenty.
+     *
+     * This is the product-side twin of test_a_division_waiting_for_the_pool_lock_reads_its_inputs_after_it_was_granted_it, and it is what makes the write safe to call from
+     * any caller: `writeStoreStock` takes the product's lock as the FIRST statement of its transaction, so the read view for the counts is created after the wait.
+     */
+    public function test_a_storefront_write_waiting_for_the_products_lock_counts_the_holds_committed_while_it_waited(): void
+    {
+        $this->stockListing($this->first, self::PRODUCT, $this->torodLocation(), 'BAR-A');
+        app(InventorySyncService::class)->applyToAssignedProducts(ProviderCode::TorodPoint, ['ext-' . self::PRODUCT => 20], now());
+        $this->assertSame(20, $this->storefrontStock());
+
+        $holder = ['product' => self::PRODUCT, 'hold_microseconds' => 2500000];
+        $waiting = ['product' => self::PRODUCT, 'delay_microseconds' => 400000];
+        $writer = $this->pool() + ['times' => 1, 'quantity' => 4, 'account' => $this->first->id, 'delay_microseconds' => 1200000];
+
+        $reports = $this->runTogether([['stock.hold_product_lock', $holder], ['stock.write_storefront', $waiting], ['stock.reserve_repeatedly', $writer]]);
+
+        $this->assertAllWorkersSucceeded($reports);
+        $this->assertSame(16, $reports[1]['result']['current_stock'], 'a hold of 4 units was committed while this write waited for the product lock: what it wrote is 20 - 4, not what was promised when it began to wait');
+        $this->assertSame(16, $this->storefrontStock());
+        $this->assertSame(4, (int) InventoryReservation::where('product_id', self::PRODUCT)->where('state', InventoryReservation::RESERVED)->sum('quantity'));
+    }
+
+    private function storefrontStock(): int
+    {
+        return (int) DB::table('products')->where('id', self::PRODUCT)->value('current_stock');
+    }
+
+    /** `$count` changes waiting in the outbox, on as many pools, each recorded the way a real change records it. */
+    private function givenEventsWaiting(int $count): void
+    {
+        $outbox = app(StockEventOutbox::class);
+        for ($number = 1; $number <= $count; $number++) {
+            $product = 400 + $number;
+            $this->storeProduct($product);
+            DB::transaction(fn (): int => $outbox->record([new PoolKey($this->torodLocation()->id, $product)], ChannelStockEvent::ORDER_IMPORTED));
+        }
+        $this->assertSame($count, ChannelStockEvent::where('state', ChannelStockEvent::PENDING)->count());
     }
 }

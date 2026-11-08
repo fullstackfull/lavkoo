@@ -197,6 +197,42 @@ return [
             // Old released reservations are deleted by `channels:prune` after this many days.
             'released_reservation_days' => (int) env('SALES_CHANNELS_STOCK_RELEASED_RESERVATION_DAYS', 30),
         ],
+
+        // The outbox: every change that could change what a channel should be shown is recorded in the same transaction as the change, and worked at once instead of at the
+        // next scheduled run. It is not a switch that lets anything out: a drain hands its pools to the division and the publisher, so the host's switches, the account's
+        // capability and its recorded approval all still decide whether a single quantity leaves this host.
+        'outbox' => [
+            // For rolling back only. Off, the module behaves exactly as it did before this table existed: the marks and the scheduled runs, with the gap the table closes
+            // (a change written while the process died, and a host with the division switched off, both leave a quantity on offer until the next full sweep).
+            'enabled' => filter_var(env('SALES_CHANNELS_STOCK_OUTBOX_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+            // Whether a queued job is asked for as soon as something is recorded. Off, nothing is lost: `channels:stock-events` works the table on the schedule instead, so a
+            // host with no queue worker turns this off and loses only the seconds.
+            'nudge_enabled' => filter_var(env('SALES_CHANNELS_STOCK_OUTBOX_NUDGE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+            // At most one nudge per this many seconds: a drain takes everything that is due, so an order import that changed four hundred orders does not need four hundred jobs.
+            'nudge_seconds' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_NUDGE_SECONDS', 5),
+            // How many events one pass works.
+            'batch' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_BATCH', 200),
+            // A batch that failed is tried again after `retry_seconds` times the number of tries so far; after `attempts` tries the events are kept as dead for a person to
+            // look at (`channels:stock-events --status`, and the hub), never dropped and never called done.
+            'attempts' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_ATTEMPTS', 5),
+            'retry_seconds' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_RETRY_SECONDS', 60),
+            // A run that died leaves its batch claimed; after this many minutes another run takes it back. Longer than a drain can reasonably take.
+            'claim_timeout_minutes' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_CLAIM_TIMEOUT_MINUTES', 10),
+            // Whether the storefront's own number is written again when a channel's units are held or given back, from the figure the provider already gave (no provider is
+            // asked, and the number is recomputed rather than decremented, so it cannot be taken off twice).
+            //  - `_inline`: in the same REQUEST as the hold, straight after its transaction commits (not inside it: there the reads that count the promises would see that
+            //    transaction's own snapshot and miss every hold another process committed meanwhile). So our own shop stops offering the units before the ingest returns,
+            //    with no queue and no worker. Off, the row is left for the worker instead.
+            //  - the other: in the worker, which re-verifies what the request wrote — the request's write is not atomic with the hold, so a process that died in between
+            //    would leave the number uncorrected — and which is the only writer for the changes no transaction can cover (a provider figure read by a sweep, a setting
+            //    saved on a screen) and for a host with the inline write off. Off as well, the storefront waits for the provider's next figure, as it did before any of this.
+            'rewrite_storefront_stock_inline' => filter_var(env('SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT_INLINE', true), FILTER_VALIDATE_BOOLEAN),
+            'rewrite_storefront_stock' => filter_var(env('SALES_CHANNELS_STOCK_OUTBOX_REWRITE_STOREFRONT', true), FILTER_VALIDATE_BOOLEAN),
+            // Worked events are deleted by `channels:prune` after this many days; a dead one is kept until a person has dealt with it.
+            'done_event_days' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_DONE_EVENT_DAYS', 7),
+            // The hub says the workers are behind once the oldest waiting change is this old. A few seconds is the arrangement working; three minutes is somebody's to look at.
+            'behind_seconds' => (int) env('SALES_CHANNELS_STOCK_OUTBOX_BEHIND_SECONDS', 180),
+        ],
     ],
 
     /*

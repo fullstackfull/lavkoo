@@ -71,7 +71,7 @@ class PlatformTablesStayThePlatformsTest extends TestCase
     ];
 
     /** What the name of a file anywhere under app/ says it belongs to the modules: their models, their commands (and the traits of the commands), their provider and their middleware. */
-    private const MODULE_FILE_NAMES = '/^(OperationalCost|SalesChannel|InventoryCost|InventoryLocation|InventoryPool|InventoryReservation|InventorySourcePolicy|ChannelOrderDispatch|Costs[A-Z]|SkipsUntilSalesChannels|SkipsWhileOperationalCosts|EnsureSalesChannels)/';
+    private const MODULE_FILE_NAMES = '/^(OperationalCost|SalesChannel|InventoryCost|InventoryLocation|InventoryPool|InventoryReservation|InventorySourcePolicy|ChannelOrderDispatch|ChannelStockEvent|Costs[A-Z]|SkipsUntilSalesChannels|SkipsWhileOperationalCosts|EnsureSalesChannels)/';
 
     /** Files of the modules that are in neither of the above and are read all the same. */
     private const MODULE_FILES_BY_PATH = ['routes/admin/operational-costs.php', 'routes/admin/sales-channels.php', 'app/Http/Controllers/Api/TrendyolWebhookController.php'];
@@ -82,8 +82,8 @@ class PlatformTablesStayThePlatformsTest extends TestCase
         'Console/Commands/Concerns/SkipsUntilSalesChannelsMigrated.php', 'Console/Commands/Concerns/SkipsWhileOperationalCostsAreOff.php',
         'Console/Commands/CostsAccrueStorageCommand.php', 'Console/Commands/CostsLayersFromPurchaseOrdersCommand.php', 'Console/Commands/CostsPostPendingFeesCommand.php',
         'Console/Commands/CostsReconcilePlatformCommand.php', 'Console/Commands/CostsRefreshCommand.php', 'Console/Commands/SalesChannelsDispatchCommand.php',
-        'Console/Commands/SalesChannelsPurgeBuyerDataCommand.php', 'Console/Commands/SalesChannelsStockUsePlatformForOwnWarehouseCommand.php', 'Console/Commands/SalesChannelsSyncCommand.php',
-        'Models/ChannelOrderDispatch.php', 'Models/InventoryCostConsumption.php', 'Models/InventoryCostLayer.php', 'Models/InventoryLocation.php', 'Models/InventoryLocationBalance.php',
+        'Console/Commands/SalesChannelsPurgeBuyerDataCommand.php', 'Console/Commands/SalesChannelsStockEventsCommand.php', 'Console/Commands/SalesChannelsStockUsePlatformForOwnWarehouseCommand.php', 'Console/Commands/SalesChannelsSyncCommand.php',
+        'Models/ChannelOrderDispatch.php', 'Models/ChannelStockEvent.php', 'Models/InventoryCostConsumption.php', 'Models/InventoryCostLayer.php', 'Models/InventoryLocation.php', 'Models/InventoryLocationBalance.php',
         'Models/InventoryPool.php', 'Models/InventoryReservation.php', 'Models/InventorySourcePolicy.php', 'Models/OperationalCostEntry.php', 'Models/OperationalCostInvoice.php',
         'Models/OperationalCostInvoiceItem.php', 'Models/SalesChannelAccount.php', 'Models/SalesChannelEvent.php',
     ];
