@@ -168,14 +168,15 @@ class AdminChannelListingScreenTest extends AdminSalesChannelsTestCase
         ])->assertRedirect($this->screen());
 
         $draft = ChannelListingDraft::where('product_id', $this->productId)->firstOrFail();
-        $this->assertSame(['brand' => 'Acme', 'sku' => 'VITC-500'], $draft->payload);
+        // Read back by NAME: MySQL stores a JSON object in its own key order, and assertSame on arrays compares order too.
+        $this->assertEqualsCanonicalizing(['brand' => 'Acme', 'sku' => 'VITC-500'], $draft->payload);
 
         $this->post(route('admin.sales-channels.listings.draft', ['product' => $this->productId, 'account' => $this->account->id]), [
             'product_type' => self::TYPE,
             'fields' => [['name' => 'brand"><script>', 'value' => 'Acme']],
         ])->assertSessionHasErrors(['fields.0.name'], null, 'draft_' . $this->account->id);
 
-        $this->assertSame(['brand' => 'Acme', 'sku' => 'VITC-500'], $draft->fresh()->payload, 'a refused request changed the draft');
+        $this->assertEqualsCanonicalizing(['brand' => 'Acme', 'sku' => 'VITC-500'], $draft->fresh()->payload, 'a refused request changed the draft');
     }
 
     // ---- checking it --------------------------------------------------------------------------------------
