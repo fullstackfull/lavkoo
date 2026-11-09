@@ -71,6 +71,18 @@
             "path": "app/Services/SalesChannels/Noon/NoonOperations.php",
             "line": 96,
             "reason": "The same as the line above, for noon's OAuth exchange operation: a registry key whose value was the constant request path for it under the identity service, in an early commit of the noon pull request. Never a credential, and removed by a later commit of the same pull request because noon's OAuth page was never read and a plausible path is still a wrong one."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "scripts/ci/leak-guard-allow.json",
+            "line": 67,
+            "reason": "A sentence of English prose in this very file, in an early commit of the noon pull request. I was writing the reason for the two noon OAuth entries above and pasted the offending lines in verbatim instead of describing them, so the allow file itself then matched the same rule -- a key naming an authorisation step beside a quoted path. The guard was right both times. A later commit of the same pull request rewords both reasons to describe the lines rather than reproduce them, so no current line matches; this entry covers the wording that is still in the history, because the branch is not rewritten over a false alarm. No credential was involved at any point: the values were constant request paths."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "scripts/ci/leak-guard-allow.json",
+            "line": 73,
+            "reason": "A sentence of English prose in this very file, in an early commit of the noon pull request. I was writing the reason for the two noon OAuth entries above and pasted the offending lines in verbatim instead of describing them, so the allow file itself then matched the same rule -- a key naming an authorisation step beside a quoted path. The guard was right both times. A later commit of the same pull request rewords both reasons to describe the lines rather than reproduce them, so no current line matches; this entry covers the wording that is still in the history, because the branch is not rewritten over a false alarm. No credential was involved at any point: the values were constant request paths."
         }
     ]
 }
