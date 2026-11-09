@@ -198,7 +198,7 @@ class SalesChannelsCommandsTest extends TestCase
         ScheduleDefinition::define($schedule);
         $commands = array_map(static fn ($event): string => (string) $event->command, $schedule->events());
 
-        foreach (['channels:sync --due', 'channels:publish --only=stock,price,shipments', 'channels:publish --only=settle', 'channels:stock-events', 'costs:refresh --days=3', 'costs:accrue-storage', 'channels:prune'] as $expected) {
+        foreach (['channels:sync --due', 'channels:publish --only=stock,price,shipments', 'channels:publish --only=settle', 'channels:stock-events', 'channels:decisions', 'costs:refresh --days=3', 'costs:accrue-storage', 'channels:prune'] as $expected) {
             $this->assertNotEmpty(array_filter($commands, static fn (string $command): bool => str_contains($command, $expected)), "{$expected} is not scheduled.");
         }
         $this->assertEmpty(array_filter($commands, static fn (string $command): bool => str_contains($command, 'channels:sync') && str_contains($command, 'publish')), 'Reading and writing are separate commands.');

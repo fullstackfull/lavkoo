@@ -93,18 +93,25 @@ final class ReturnDecisionOperations
         return ['saw' => count($saw), 'sent' => $stats['sent'], 'done' => $stats['done'], 'needs_review' => $stats['needs_review'], 'failed' => $stats['failed']];
     }
 
-    /** Trendyol, played by a table with no unique key: a second request is a second row. */
+    /**
+     * Trendyol, played by a table with no unique key: a second request is a second row.
+     *
+     * **No return type on these closures.** `Http::fake()` hands a stub's answer to Guzzle's promise machinery, which may give
+     * back a `FulfilledPromise` rather than a `Response` -- so declaring `: Response` makes every worker die with a TypeError
+     * before a single request is recorded, and the test then fails on the worker's error instead of on what it was testing.
+     * The tests skip on SQLite, so this was invisible until a real MySQL ran them.
+     */
     private static function fakeTrendyol(): void
     {
         Http::preventStrayRequests();
         Http::fake([
             '*/order/claim-issue-reasons' => Http::response([['id' => 51, 'name' => 'Ürün kullanılmış']]),
-            '*/claims/*/items/approve' => static function (Request $request): \Illuminate\Http\Client\Response {
+            '*/claims/*/items/approve' => static function (Request $request) {
                 DB::table('test_trendyol_decisions')->insert(['kind' => 'approve', 'body' => mb_substr($request->body(), 0, 500), 'created_by' => getmypid()]);
 
                 return Http::response('', 200);
             },
-            '*/claims/*/issue' => static function (Request $request): \Illuminate\Http\Client\Response {
+            '*/claims/*/issue' => static function (Request $request) {
                 DB::table('test_trendyol_decisions')->insert(['kind' => 'reject', 'body' => mb_substr($request->body(), 0, 500), 'created_by' => getmypid()]);
 
                 return Http::response('', 200);
