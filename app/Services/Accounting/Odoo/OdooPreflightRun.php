@@ -31,6 +31,9 @@ class OdooPreflightRun
     /** Odoo's own introspection model, which is the documented way to ask what a database holds. */
     private const MODEL_LIST = 'ir.model';
 
+    /** How many currency rows are read. Odoo ships well under this; a list longer than it is not a currency list. */
+    private const CURRENCY_CEILING = 300;
+
     public function __construct(private readonly OdooClient $client)
     {
     }
@@ -65,6 +68,7 @@ class OdooPreflightRun
         }
 
         [$company, $problems] = $this->company($connection);
+        [$currencies, $currencyNotes] = $this->currencies($connection, $company);
 
         return new OdooPreflight(
             instance: $instance,
@@ -77,6 +81,8 @@ class OdooPreflightRun
             taxesRead: $this->countOf($connection, 'account.tax'),
             journalsRead: $this->countOf($connection, 'account.journal'),
             currenciesRead: $this->countOf($connection, 'res.currency'),
+            currencies: $currencies,
+            currencyNotes: $currencyNotes,
         );
     }
 
@@ -186,6 +192,60 @@ class OdooPreflightRun
             'currency_id' => is_array($currency) ? (int) ($currency[0] ?? 0) : (int) $currency,
             'currency_name' => is_array($currency) ? (string) ($currency[1] ?? '') : '',
         ];
+    }
+
+    /**
+     * Odoo's own currency ids, by the code the instance calls each one — **read, and then CHECKED against something already
+     * known.**
+     *
+     * A foreign-currency cost has to carry its original figure, that figure's currency and the rate, or the entry cannot be
+     * checked against the invoice it came from. Carrying it needs Odoo's `res.currency` id, and an id is not something to
+     * invent. Odoo's reference has no `res.currency` page, so which field holds the ISO code is not documented — and a map built
+     * on the wrong field would post every foreign figure against the wrong currency, which is worse than refusing it.
+     *
+     * So the list is proved against a fact read separately: the company's own `currency_id` and the label Odoo returned with it.
+     * A many-to-one comes back as `[id, label]`, so the company read already knows BOTH the id of the currency the books are
+     * kept in and what Odoo displays for it. If the row with that id does not carry that same text, the field read here is not
+     * the one the label comes from, and the whole list is dropped — the builder then refuses foreign figures by name, exactly as
+     * it did before any list was read.
+     *
+     * @param array<string, mixed> $company
+     * @return array{0: array<string, int>, 1: list<string>}
+     */
+    private function currencies(SalesChannelAccount $connection, array $company): array
+    {
+        $answer = $this->client->searchRead($connection, 'res.currency', [], ['id', 'name'], limit: self::CURRENCY_CEILING);
+        if (!$answer->ok()) {
+            return [[], ['odoo_currencies_could_not_be_read']];
+        }
+
+        $map = [];
+        foreach ($answer->records() as $record) {
+            $code = mb_strtoupper(trim((string) ($record['name'] ?? '')));
+            $id = (int) ($record['id'] ?? 0);
+            if ($code === '' || $id < 1) {
+                continue;
+            }
+            // First row wins for a repeated code, and a repeat is itself a reason not to trust the list: two ids for one code
+            // means this field is not the identifier it looks like.
+            if (isset($map[$code]) && $map[$code] !== $id) {
+                return [[], ['odoo_currency_codes_are_not_unique']];
+            }
+            $map[$code] = $id;
+        }
+
+        $companyCurrencyId = (int) ($company['currency_id'] ?? 0);
+        $companyCurrencyCode = mb_strtoupper(trim((string) ($company['currency_name'] ?? '')));
+        if ($companyCurrencyId < 1 || $companyCurrencyCode === '') {
+            // Nothing to prove the list against. It may be perfectly good; it is simply unverified, and this integration does
+            // not post money on an unverified identifier.
+            return [[], ['odoo_currency_list_could_not_be_checked']];
+        }
+        if (($map[$companyCurrencyCode] ?? null) !== $companyCurrencyId) {
+            return [[], ['odoo_currency_list_does_not_match_the_company_currency']];
+        }
+
+        return [$map, []];
     }
 
     /** How many of something the instance holds, for a person deciding whether they are looking at the right database. */

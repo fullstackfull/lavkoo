@@ -70,6 +70,8 @@ final readonly class OdooPreflight
      * @param list<string> $missingRequired "model.field" for each requirement the instance does not have
      * @param list<string> $problems stable codes for what a person must fix
      * @param array<string, mixed> $company what was read of the company, where it could be read
+     * @param array<string, int> $currencies Odoo's own `res.currency` ids, by the code the instance calls each one
+     * @param list<string> $currencyNotes why the currency list is not usable, where it is not
      */
     public function __construct(
         public OdooInstance $instance,
@@ -82,7 +84,25 @@ final readonly class OdooPreflight
         public int $taxesRead = 0,
         public int $journalsRead = 0,
         public int $currenciesRead = 0,
+        public array $currencies = [],
+        public array $currencyNotes = [],
     ) {
+    }
+
+    /**
+     * Odoo's own id for one currency code, or null when this instance does not offer it.
+     *
+     * **The id is READ from the instance, never derived from the code.** Odoo's reference has no `res.currency` page either, so
+     * what it calls the code is taken from the instance and CHECKED rather than assumed: the company's own currency has to turn
+     * up in the list under the code the company read reported, or the list is not used at all (`OdooPreflightRun`). A code this
+     * returns null for is a named refusal in the builder, not a figure posted in the company currency with the original
+     * silently dropped.
+     */
+    public function currencyIdFor(string $code): ?int
+    {
+        $wanted = mb_strtoupper(trim($code));
+
+        return $wanted === '' ? null : ($this->currencies[$wanted] ?? null);
     }
 
     /**
@@ -118,6 +138,12 @@ final readonly class OdooPreflight
         $codes = $this->problems;
         foreach ($this->missingRequired as $missing) {
             $codes[] = 'odoo_field_missing:' . $missing;
+        }
+        foreach ($this->currencyNotes as $note) {
+            // Not a problem either: an instance whose currency list could not be read or did not line up can still post every
+            // cost in the company's own currency. What it cannot do is carry a foreign figure, and the builder refuses those by
+            // name rather than converting them away.
+            $codes[] = $note;
         }
         if ($this->analyticField() === null) {
             // Not a problem: an instance without analytic accounting records no cost centre, and the mapping simply will not

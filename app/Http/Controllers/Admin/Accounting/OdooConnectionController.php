@@ -179,6 +179,11 @@ class OdooConnectionController extends Controller
             translate('odoo_accounts_read') . ': ' . $preflight->accountsRead,
             translate('odoo_taxes_read') . ': ' . $preflight->taxesRead,
             translate('odoo_journals_read') . ': ' . $preflight->journalsRead,
+            // The codes rather than only the count: a person can see at a glance whether the currency a supplier bills in is
+            // one this instance offers, which is the difference between a foreign-currency cost posting and being refused.
+            translate('odoo_currencies_read') . ': ' . ($preflight->currencies === []
+                ? (string) $preflight->currenciesRead
+                : implode(', ', array_keys($preflight->currencies))),
         ]);
     }
 }

@@ -315,19 +315,55 @@ class OdooDraftBuilderTest extends TestCase
         $this->assertContains('odoo_field_missing:account.move.ref', $result->refusals);
     }
 
-    public function test_a_foreign_currency_cost_is_refused_rather_than_posted_without_its_original_figure(): void
+    public function test_a_foreign_currency_cost_carries_its_original_figure_and_odoos_own_currency_id(): void
     {
-        // A DECLARED GAP. The line can carry `currency_id` and `amount_currency`, but Odoo's own id for that currency comes from
-        // a currency map that is not built yet -- and posting the converted figure alone would leave an entry nobody can check
-        // against the invoice it came from.
+        // The entry is BOOKED at the base-currency figure, because that is the currency the company's books are kept in; the
+        // original figure, its currency and the rate ride along, or nobody can check the entry against the invoice it came from.
         $this->mapOdooComponent(CostComponent::Shipping->value);
         $entry = $this->settledCost('10');
         $entry->forceFill(['currency' => 'USD', 'base_currency' => 'SAR', 'base_amount' => '37.500000', 'fx_rate' => '3.7500000000'])->saveQuietly();
 
         $result = $this->build($entry->fresh());
 
+        $this->assertTrue($result->isReady(), implode(', ', $result->refusals));
+        $expense = $result->draft->lines[0];
+        $this->assertSame(37.5, $expense->debit, 'booked in the currency the books are kept in');
+        $this->assertSame(self::ODOO_FOREIGN_CURRENCY_ID, $expense->currencyId, 'and Odoo\'s own id for the currency it was incurred in');
+        $this->assertSame(10.0, $expense->amountCurrency);
+        $this->assertSame(-10.0, $result->draft->lines[1]->amountCurrency, 'the counterpart carries the other direction');
+        $this->assertStringContainsString('USD 10.000000 at 3.7500000000', (string) $result->draft->narration);
+    }
+
+    public function test_a_foreign_currency_this_instance_does_not_offer_is_refused_by_name(): void
+    {
+        // Odoo's id for a currency is READ from the instance, never derived from the code. An instance whose list does not hold
+        // the code -- or whose list did not check out at all, which `OdooPreflight` reports separately -- gets a named refusal
+        // rather than an entry posted at its converted value with the original dropped.
+        $this->mapOdooComponent(CostComponent::Shipping->value);
+        $entry = $this->settledCost('10');
+        $entry->forceFill(['currency' => 'USD', 'base_currency' => 'SAR', 'base_amount' => '37.500000'])->saveQuietly();
+        $noList = $this->odooPreflight(currencies: []);
+
+        $result = $this->build($entry->fresh(), $noList);
+
         $this->assertFalse($result->isReady());
-        $this->assertSame('odoo_currency_map_not_built:USD', $result->firstRefusal());
+        $this->assertSame('odoo_currency_not_in_this_instance:USD', $result->firstRefusal());
+    }
+
+    public function test_a_reversal_in_a_foreign_currency_carries_the_original_figure_as_a_credit(): void
+    {
+        // `amount_currency` is signed, so a reversal's original figure is negative on the expense line and positive on the
+        // counterpart -- the same direction as the debit and credit columns, which is the only way the two can agree.
+        $this->mapOdooComponent(CostComponent::Shipping->value);
+        $entry = $this->settledCost('-10');
+        $entry->forceFill(['currency' => 'USD', 'base_currency' => 'SAR', 'base_amount' => '-37.500000'])->saveQuietly();
+
+        $result = $this->build($entry->fresh());
+
+        $this->assertTrue($result->isReady(), implode(', ', $result->refusals));
+        $this->assertSame(37.5, $result->draft->lines[0]->credit);
+        $this->assertSame(-10.0, $result->draft->lines[0]->amountCurrency);
+        $this->assertSame(10.0, $result->draft->lines[1]->amountCurrency);
     }
 
     public function test_an_instance_with_no_currency_field_on_a_line_says_that_instead(): void

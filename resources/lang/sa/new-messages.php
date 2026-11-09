@@ -4610,6 +4610,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'odoo_accounts_read' => 'الحسابات',
 	'odoo_taxes_read' => 'الضرائب',
 	'odoo_journals_read' => 'اليوميات',
+	'odoo_currencies_read' => 'العملات',
 	'odoo_the_chart_as_read' => 'الدليل كما قُرئ من أودو',
 	'odoo_the_chart_as_read_help' => 'كل معرّف أدناه جاء من النسخة؛ ولا يُختلق شيء هنا. وقراءته ضغطةٌ لا شيء يفعله تحميل الصفحة، لأنها عدّة نداءات لخادم غيرنا.',
 	'odoo_read_the_chart' => 'اقرأ الدليل',

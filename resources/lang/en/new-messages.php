@@ -11026,6 +11026,7 @@ return [
 	'odoo_accounts_read' => 'Accounts',
 	'odoo_taxes_read' => 'Taxes',
 	'odoo_journals_read' => 'Journals',
+	'odoo_currencies_read' => 'currencies',
 	'odoo_the_chart_as_read' => 'The chart, as read from Odoo',
 	'odoo_the_chart_as_read_help' => 'Every id below came back from the instance; none is invented here. Reading it is a press rather than something a page load does, because it is several calls to somebody else\'s server.',
 	'odoo_read_the_chart' => 'Read the chart',

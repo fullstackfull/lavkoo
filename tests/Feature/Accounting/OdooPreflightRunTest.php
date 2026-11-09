@@ -197,12 +197,65 @@ class OdooPreflightRunTest extends TestCase
      * @param list<string>|null $lineFields
      * @param list<array<string, mixed>>|null $companies
      */
-    private function fakeInstance(?array $models = null, ?array $moveFields = null, ?array $lineFields = null, ?array $companies = null): void
+    // ---- the currency list, read and then proved ----------------------------------------------------------------
+
+    public function test_the_currency_list_is_read_and_proved_against_the_companys_own_currency(): void
+    {
+        // Odoo's reference has no `res.currency` page either, so which field holds the code is not documented. The list is
+        // therefore proved against something read separately: the company's many-to-one came back as `[3, 'SAR']`, so if the
+        // row with id 3 is not the one called SAR, the field read here is not the one that label comes from.
+        $this->fakeInstance();
+
+        $preflight = app(OdooPreflightRun::class)->run($this->connection);
+
+        $this->assertSame(['SAR' => 3, 'USD' => 2], $preflight->currencies);
+        $this->assertSame(2, $preflight->currencyIdFor('usd'), 'the code is matched without regard to case');
+        $this->assertNull($preflight->currencyIdFor('EUR'));
+        $this->assertSame([], $preflight->currencyNotes);
+    }
+
+    public function test_a_currency_list_that_does_not_match_the_company_currency_is_dropped_whole(): void
+    {
+        // Half a trusted list is no better than none: if the id of the currency the books are kept in does not line up, no
+        // other id in the list can be relied on either.
+        $this->fakeInstance(currencies: [['id' => 9, 'name' => 'SAR'], ['id' => 2, 'name' => 'USD']]);
+
+        $preflight = app(OdooPreflightRun::class)->run($this->connection);
+
+        $this->assertSame([], $preflight->currencies);
+        $this->assertContains('odoo_currency_list_does_not_match_the_company_currency', $preflight->readinessCodes());
+        $this->assertTrue($preflight->couldBuildAnEntry(), 'and a cost in the company currency is still postable');
+    }
+
+    public function test_two_ids_for_one_code_means_the_field_is_not_the_identifier_it_looks_like(): void
+    {
+        $this->fakeInstance(currencies: [['id' => 3, 'name' => 'SAR'], ['id' => 4, 'name' => 'SAR']]);
+
+        $preflight = app(OdooPreflightRun::class)->run($this->connection);
+
+        $this->assertSame([], $preflight->currencies);
+        $this->assertContains('odoo_currency_codes_are_not_unique', $preflight->readinessCodes());
+    }
+
+    public function test_a_currency_list_that_could_not_be_read_is_said_and_stops_nothing_else(): void
+    {
+        $this->fakeInstance(currencies: false);
+
+        $preflight = app(OdooPreflightRun::class)->run($this->connection);
+
+        $this->assertSame([], $preflight->currencies);
+        $this->assertContains('odoo_currencies_could_not_be_read', $preflight->readinessCodes());
+        $this->assertTrue($preflight->couldBuildAnEntry());
+    }
+
+    private function fakeInstance(?array $models = null, ?array $moveFields = null, ?array $lineFields = null, ?array $companies = null, mixed $currencies = null): void
     {
         $models ??= OdooPreflight::MODELS;
         $moveFields ??= [...OdooPreflight::REQUIRED_FIELDS['account.move'], ...OdooPreflight::OPTIONAL_FIELDS['account.move']];
         $lineFields ??= [...OdooPreflight::REQUIRED_FIELDS['account.move.line'], 'tax_ids', 'analytic_distribution'];
         $companies ??= [['id' => 1, 'name' => 'Pharmacy KSA', 'currency_id' => [3, 'SAR']]];
+        // The currency rows as the instance answers them. `false` is an instance whose list could not be read at all.
+        $currencies ??= [['id' => 3, 'name' => 'SAR'], ['id' => 2, 'name' => 'USD']];
 
         $describe = static fn (array $names): array => array_combine(
             $names,
@@ -213,7 +266,7 @@ class OdooPreflightRunTest extends TestCase
             self::ODOO_COMMON => Http::sequence()
                 ->push($this->odooXml(['server_version' => '18.0', 'server_version_info' => [18, 0, 0, 'final', 0]]))
                 ->push($this->odooXml(7)),
-            self::ODOO_OBJECT => function (\Illuminate\Http\Client\Request $request) use ($models, $moveFields, $lineFields, $companies, $describe) {
+            self::ODOO_OBJECT => function (\Illuminate\Http\Client\Request $request) use ($models, $moveFields, $lineFields, $companies, $currencies, $describe) {
                 $body = $request->body();
 
                 return match (true) {
@@ -222,6 +275,9 @@ class OdooPreflightRunTest extends TestCase
                     str_contains($body, '<string>account.move</string>') => Http::response($this->odooXml($describe($moveFields))),
                     str_contains($body, '<string>res.company</string>') => Http::response($this->odooXml($companies)),
                     str_contains($body, '<string>search_count</string>') => Http::response($this->odooXml(120)),
+                    str_contains($body, '<string>res.currency</string>') => $currencies === false
+                        ? Http::response('', 500)
+                        : Http::response($this->odooXml($currencies)),
                     default => Http::response('', 500),
                 };
             },

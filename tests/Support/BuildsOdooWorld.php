@@ -33,6 +33,11 @@ trait BuildsOdooWorld
 
     protected const ODOO_CURRENCY_ID = 3;
 
+    /** What the company's own currency is called, which is also what proves the currency list is the list it looks like. */
+    protected const ODOO_CURRENCY_CODE = 'SAR';
+
+    protected const ODOO_FOREIGN_CURRENCY_ID = 2;
+
     protected const ODOO_EXPENSE_ACCOUNT = 41;
 
     protected const ODOO_COUNTERPART_ACCOUNT = 52;
@@ -124,8 +129,9 @@ trait BuildsOdooWorld
      * @param list<string>|null $moveFields
      * @param list<string>|null $lineFields
      * @param array<string, mixed>|null $company
+     * @param array<string, int>|null $currencies Odoo's own currency ids by code; `[]` is an instance whose list was not usable
      */
-    protected function odooPreflight(?array $moveFields = null, ?array $lineFields = null, ?array $company = null): OdooPreflight
+    protected function odooPreflight(?array $moveFields = null, ?array $lineFields = null, ?array $company = null, ?array $currencies = null): OdooPreflight
     {
         $move = $moveFields ?? [...OdooPreflight::REQUIRED_FIELDS['account.move'], ...OdooPreflight::OPTIONAL_FIELDS['account.move']];
         $line = $lineFields ?? [...OdooPreflight::REQUIRED_FIELDS['account.move.line'], 'tax_ids', 'currency_id', 'amount_currency', 'analytic_distribution'];
@@ -137,7 +143,8 @@ trait BuildsOdooWorld
                 'account.move' => array_fill_keys($move, ['type' => 'char', 'label' => null]),
                 'account.move.line' => array_fill_keys($line, ['type' => 'char', 'label' => null]),
             ],
-            company: $company ?? ['id' => self::ODOO_COMPANY, 'currency_id' => self::ODOO_CURRENCY_ID],
+            company: $company ?? ['id' => self::ODOO_COMPANY, 'currency_id' => self::ODOO_CURRENCY_ID, 'currency_name' => self::ODOO_CURRENCY_CODE],
+            currencies: $currencies ?? [self::ODOO_CURRENCY_CODE => self::ODOO_CURRENCY_ID, 'USD' => self::ODOO_FOREIGN_CURRENCY_ID],
         );
     }
 

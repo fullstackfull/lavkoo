@@ -24,8 +24,9 @@ use App\Services\OperationalCosts\Support\Money;
  *  - **A cost with no amount.** `missing` means nobody could determine it. That is not a zero, and a zero in a ledger is a claim.
  *  - **An unmapped component.** There is no fallback account and no suspense account: an entry posted to an account nobody chose
  *    is wrong in a way that looks right until somebody reconciles the quarter.
- *  - **A foreign-currency amount on an instance that cannot record one.** Posting it in the company currency and dropping the
- *    original would misstate the books silently.
+ *  - **A foreign-currency amount this instance cannot record, or whose currency its own list does not offer.** Posting it in the
+ *    company currency and dropping the original would misstate the books silently, and Odoo's id for a currency is read from the
+ *    instance rather than derived from the code.
  *  - **An entry that does not balance.** Odoo refuses it anyway; a named refusal beats a fault nobody can read.
  *  - **An undo whose original is not in the books yet.** A reversal or a return takes back a figure, and posting the credit
  *    before the debit leaves the expense account short by the amount -- which on a trial balance is indistinguishable from a cost
@@ -176,14 +177,22 @@ class OdooDraftBuilder
     /**
      * Is there a figure in another currency that this entry would have to carry?
      *
-     * **A DECLARED GAP, and it refuses rather than rounds it away.** When a cost was incurred in one currency and the books are
-     * kept in another, the line has to say so -- the original figure, its currency and the rate -- or the entry cannot be checked
-     * against the invoice it came from. Carrying it needs Odoo's own `res.currency` id for that currency, and the currency part
-     * of the mapping is not built yet (it belongs with the chart-of-accounts screen). So a foreign-currency cost is refused by
-     * name here instead of being posted at its converted value with the original silently dropped.
+     * When a cost was incurred in one currency and the books are kept in another, the line has to say so -- the original figure,
+     * its currency and the rate -- or the entry cannot be checked against the invoice it came from. Posting only the converted
+     * value and dropping the original misstates the books silently, so there are exactly three outcomes and two of them are
+     * refusals:
      *
-     * The line and the draft already know how to carry `currency_id` and `amount_currency`; what is missing is the id, and an id
-     * is not something to invent.
+     *  - the instance has no `currency_id`/`amount_currency` on a journal line: it could not carry the original figure even with
+     *    an id, which is a different thing to tell a person;
+     *  - the instance's currency list does not offer this code, or the list was not usable at all (`OdooPreflight` explains
+     *    which, and the connection screen shows it): **refused by name**, because Odoo's id for a currency is read from the
+     *    instance and an id is not something to invent;
+     *  - it does offer it: the figure rides along, **signed**.
+     *
+     * The sign is the direction, as everywhere else here: `amount_currency` is positive on a debit line and negative on a
+     * credit, which is why the SIGNED ledger amount is passed through rather than its absolute value -- a reversal's original
+     * figure is negative and its counterpart line negates it again. Odoo documents no `account.move.line` page, so that
+     * convention is **UNVERIFIED** and recorded as such in docs/sales-channels/odoo-accounting.md.
      *
      * @return array{currency_id: int|null, amount: float|null}|string the refusal code when there is one
      */
@@ -196,12 +205,15 @@ class OdooDraftBuilder
         }
 
         $lineFields = $preflight->fields['account.move.line'] ?? [];
+        if (!isset($lineFields['currency_id'], $lineFields['amount_currency'])) {
+            return 'odoo_cannot_record_a_foreign_currency_amount';
+        }
 
-        return isset($lineFields['currency_id'], $lineFields['amount_currency'])
-            ? 'odoo_currency_map_not_built:' . $own
-            // An instance with no field for it could not carry the original figure even with a map, which is a different thing
-            // to tell a person.
-            : 'odoo_cannot_record_a_foreign_currency_amount';
+        $currencyId = $preflight->currencyIdFor($own);
+
+        return $currencyId === null
+            ? 'odoo_currency_not_in_this_instance:' . $own
+            : ['currency_id' => $currencyId, 'amount' => OdooMoney::forMonetaryField(Money::of((string) $entry->amount))];
     }
 
     /** The date the entry is booked on: the ledger's own period date, which is what every cost report groups by. */
