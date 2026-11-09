@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\Accounting\OdooConnectionController;
 use App\Http\Controllers\Admin\Accounting\OdooMappingController;
 use App\Http\Controllers\Admin\Accounting\OdooOutboxController;
+use App\Http\Controllers\Admin\Accounting\OdooReconciliationController;
 use App\Http\Middleware\EnsureSalesChannelsMigrated;
 use Illuminate\Support\Facades\Route;
 
@@ -48,4 +49,10 @@ Route::group([
     // The two ways a person may end a `needs_review` row, and the only two: Odoo has it (with its id), or it is not there.
     Route::post('outbox/{row}/found', [OdooOutboxController::class, 'found'])->whereNumber('row')->name('outbox.found');
     Route::post('outbox/{row}/closed', [OdooOutboxController::class, 'closed'])->whereNumber('row')->name('outbox.closed');
+
+    // ---- three books for one period, and the differences left showing --------------------------------------------
+    Route::get('reconciliation', [OdooReconciliationController::class, 'index'])->name('reconciliation.index');
+    // Reads all three and writes only its own report rows. No difference is ever closed from here, and there is no button that
+    // would: a row that agreed with one figure would be agreeing with whichever this code happened to trust.
+    Route::post('reconciliation', [OdooReconciliationController::class, 'build'])->middleware('throttle:4,1')->name('reconciliation.build');
 });

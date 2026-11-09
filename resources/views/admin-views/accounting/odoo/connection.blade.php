@@ -8,6 +8,7 @@
             <x-slot:actions>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.accounting.odoo.mapping.index') }}">{{ translate('Odoo_Account_Mapping') }}</a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.accounting.odoo.outbox.index') }}">{{ translate('Odoo_Posting_Outbox') }}</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ route('admin.accounting.odoo.reconciliation.index') }}">{{ translate('Odoo_Three_Way_Reconciliation') }}</a>
             </x-slot:actions>
         </x-k.page-header>
 

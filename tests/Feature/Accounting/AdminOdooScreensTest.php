@@ -314,6 +314,51 @@ class AdminOdooScreensTest extends AdminPagesTestCase
         $this->assertToastContains(translate('odoo_only_a_row_awaiting_review_is_settled_by_hand'));
     }
 
+    // ---- the three-way reconciliation ----------------------------------------------------------------------------
+
+    public function test_the_reconciliation_screen_shows_a_missing_leg_as_missing_and_not_as_zero(): void
+    {
+        // The whole point of the screen. "The channel publishes no statement" and "the channel charged nothing" are different
+        // statements, and a `0.00` in that column would be the second one.
+        $this->odooConnection();
+        \App\Models\OdooReconciliation::create([
+            'seller_id' => 0,
+            'odoo_company_id' => self::ODOO_COMPANY,
+            'sales_channel' => '',
+            'period_start' => '2026-11-01',
+            'period_end' => '2026-11-30',
+            'currency' => 'SAR',
+            'fact_kind' => CostComponent::Shipping->value,
+            'source_amount' => null,
+            'ledger_amount' => '100.000000',
+            'odoo_amount' => null,
+            'entries_counted' => 0,
+            'entries_not_posted' => 1,
+        ]);
+        Http::fake();
+
+        $html = $this->get(route('admin.accounting.odoo.reconciliation.index', ['from' => '2026-11-01', 'to' => '2026-11-30']))->assertOk()->getContent();
+
+        $this->assertStringContainsString(e(translate('odoo_no_figure_published')), $html);
+        $this->assertStringContainsString(e(translate('odoo_not_read')), $html);
+        $this->assertStringContainsString(e(translate('odoo_reconciliation_closes_nothing')), $html);
+        Http::assertNothingSent();
+    }
+
+    public function test_there_is_no_control_that_closes_a_difference(): void
+    {
+        $this->odooConnection();
+        Http::fake();
+
+        $html = $this->get(route('admin.accounting.odoo.reconciliation.index'))->assertOk()->getContent();
+
+        // The only POST this screen offers is the one that BUILDS the period.
+        $posts = preg_match_all('#<form[^>]*action="([^"]+)"#', $html, $matches) ? $matches[1] : [];
+        foreach ($posts as $action) {
+            $this->assertStringContainsString('reconciliation', $action, 'the only form here builds the report');
+        }
+    }
+
     // ---- the migration -------------------------------------------------------------------------------------------
 
     public function test_without_the_migration_every_screen_explains_instead_of_failing(): void
@@ -321,7 +366,7 @@ class AdminOdooScreensTest extends AdminPagesTestCase
         Schema::dropIfExists('odoo_posting_queue');
         Http::fake();
 
-        foreach (['index', 'mapping.index', 'outbox.index'] as $screen) {
+        foreach (['index', 'mapping.index', 'outbox.index', 'reconciliation.index'] as $screen) {
             $html = $this->get(route('admin.accounting.odoo.' . $screen))->assertOk()->getContent();
             $this->assertStringContainsString(e(translate('odoo_migration_not_run')), $html);
             $this->assertStringContainsString('2026_11_15_100000_create_odoo_accounting_tables', $html);
