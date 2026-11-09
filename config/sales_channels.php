@@ -271,7 +271,9 @@ return [
         'offer_attributes' => [
             'amazon' => ['purchasable_offer', 'list_price', 'fulfillment_availability', 'offer', 'price', 'quantity', 'main_offer_image_locator'],
             'trendyol' => ['listPrice', 'salePrice', 'quantity', 'stockCode'],
-            'noon' => ['price', 'sale_price', 'stock', 'quantity'],
+            // noon keeps price and quantity in services of their own, so its content call has no field for either. These names are listed because `attributes{}` is a
+            // free-form map of a category's attributes: a noon category that happened to carry one of them must not deliver it through the one call no price switch guards.
+            'noon' => ['price', 'sale_price', 'msrp', 'stock', 'quantity', 'qty', 'is_active', 'processing_time'],
         ],
         /*
         | What the shop wants of its OWN product before it is offered anywhere (ProductListingReadiness): nothing here fetches an image or judges its pixels — it checks that the

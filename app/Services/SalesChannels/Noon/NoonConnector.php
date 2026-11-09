@@ -5,16 +5,21 @@ namespace App\Services\SalesChannels\Noon;
 use App\Enums\SalesChannels\ConnectionStatus;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
+use App\Models\ChannelListingDraft;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
-use App\Services\SalesChannels\Data\PublishUpdate;
-use App\Services\SalesChannels\Data\PublishResult;
-use App\Services\SalesChannels\Data\ListingRequirements;
-use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
+use App\Services\SalesChannels\Contracts\CreatesListings;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
+use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
+use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
+use App\Services\SalesChannels\Data\ListingRequirements;
+use App\Services\SalesChannels\Data\ListingSubmission;
+use App\Services\SalesChannels\Data\PublishResult;
+use App\Services\SalesChannels\Data\PublishUpdate;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
+use App\Services\SalesChannels\Support\ChannelOperations;
 use RuntimeException;
 
 /**
@@ -46,9 +51,9 @@ use RuntimeException;
  *
  * FBN stock is noon's own, held in a noon fulfilment centre, fulfilled and returned by noon. It must never enter the shared pool, exactly as Amazon FBA does not.
  */
-class NoonConnector implements ChannelConnector, DescribesListingRequirements, PublishesStockAndPrices
+class NoonConnector implements ChannelConnector, CreatesListings, DescribesListingRequirements, PublishesStockAndPrices
 {
-    public function __construct(private readonly NoonClient $client)
+    public function __construct(private readonly NoonClient $client, private readonly NoonParentSku $parents)
     {
     }
 
@@ -105,10 +110,10 @@ class NoonConnector implements ChannelConnector, DescribesListingRequirements, P
      */
     private function whatIsNotBuiltYetFor(SalesChannelAccount $account): array
     {
-        // Only what this module still cannot serve. Stock and price publishing ARE built now, so naming them here would tell a person their account is less capable than it
-        // is. Product sync is partly built -- the categories and their attributes are read -- so it is named for what is missing rather than wholesale.
+        // Only what this module still cannot serve. Stock, prices and the catalogue ARE built now, so naming them here would tell a person their account is less capable than
+        // it is. What remains is one gap of ours and one of noon's, and they are not the same kind of thing: order import is code nobody has written yet, while the
+        // settlement entry is noon publishing no endpoint at all -- which no amount of work here can close.
         $unservable = [
-            IntegrationCapability::ProductSync->value => 'noon_product_upsert_not_built',
             IntegrationCapability::OrderImport->value => 'noon_order_import_not_built',
             IntegrationCapability::FulfillmentDispatch->value => 'noon_shipments_not_built',
             IntegrationCapability::FinancialReconciliation->value => 'noon_publishes_no_settlement_endpoint',
@@ -257,6 +262,191 @@ class NoonConnector implements ChannelConnector, DescribesListingRequirements, P
             static fn ($code): string => trim((string) (is_array($code) ? ($code['category_code'] ?? $code['code'] ?? '') : $code)),
             (array) $response->get('categories', []),
         ), static fn (string $code): bool => $code !== ''));
+    }
+
+
+    // ---- the catalogue: putting a product on noon ---------------------------------------------------------------
+
+    /**
+     * The attribute names that would give a noon listing an offer. Withheld from every content call by the publisher.
+     *
+     * noon keeps price and quantity in services of their own — `pricing/v1/pricing/upsert` and `stock/v1/stock-update`, each separately switched and separately approved —
+     * so the content upsert has no field for either. These names are listed all the same because `attributes{}` is a free-form map of a CATEGORY's attributes: if a noon
+     * category ever carries one called `price`, it must not reach noon through the content call, where no price switch guards it.
+     *
+     * @return list<string>
+     */
+    public function offerAttributes(): array
+    {
+        return array_values(array_filter(array_map('strval', (array) config('sales_channels.listing.offer_attributes.noon', []))));
+    }
+
+    /**
+     * Creates the catalogue item: `POST /content/v1/product/upsert`.
+     *
+     * noon decides create from amend BY OUR OWN `partner_sku` — one endpoint for both — so there is no call that can only create. The publisher still calls this one only
+     * when the channel holds nothing, and that protection matters more here than at Amazon, not less: see `updateListing()`.
+     *
+     * `skus`, `brand`, `category`, `images` and `attributes` are each required by noon's schema, so a draft missing any of them is refused HERE rather than sent to be
+     * refused there — the message a person then reads is ours and says what to fill in.
+     *
+     * TWO ANSWERS HAVE TO AGREE. The 200 carries noon's `status` object, the same shape as every per-item status in this module, so an upsert can be taken and refused in one
+     * breath; and it carries `sku_parent`, which is the ONLY place noon ever tells us its own code for our product (`NoonParentSku` says why that matters). An upsert whose
+     * status is good but which named no `sku_parent` is therefore not a success we can act on: nothing could follow it up.
+     */
+    public function createListing(SalesChannelAccount $account, ChannelListingDraft $draft, array $attributes): ListingSubmission
+    {
+        return $this->upsertProduct($account, $draft, $attributes);
+    }
+
+    /**
+     * Amends the catalogue item — the SAME call as a create, because noon publishes no other.
+     *
+     * WHETHER AN AMEND MERGES OR REPLACES IS NOT STATED. noon's page says only "Creates or updates a product in the catalog", and no sentence anywhere says what becomes of
+     * an attribute the amend does not mention. This module does not build on an unstated behaviour, so it sends the WHOLE attribute set the draft holds rather than the
+     * changed fields alone. If noon replaces, the product is left complete; if noon merges, re-sending a field its existing value is harmless. The opposite choice — sending
+     * only what changed — is the one that cannot be made safe: against a replace it would empty every attribute a person had not touched.
+     *
+     * `$changedAttributes` is therefore read as the QUESTION "is there anything to send?" and not as the payload. Nothing changed means nothing is sent.
+     */
+    public function updateListing(SalesChannelAccount $account, ChannelListingDraft $draft, array $changedAttributes): ListingSubmission
+    {
+        if ($changedAttributes === []) {
+            return ListingSubmission::working(null, 'nothing_changed');
+        }
+
+        return $this->upsertProduct($account, $draft, $this->attributesOf($draft));
+    }
+
+    /**
+     * What noon HOLDS for our SKU: `POST /content/v1/product/content/get`, which reads and changes nothing.
+     *
+     * It takes noon's `sku_parent` and nothing else — our `partner_sku` is not a key it accepts — so a product we were never given a `sku_parent` for cannot be asked about
+     * at all. That answer is UNKNOWN, never ABSENT: "we have no way to ask" read as "noon holds nothing" is precisely what would have the publisher create a second
+     * catalogue item for a product noon already lists.
+     *
+     * What comes back is read as noon's own three judgements, in the order that decides the outcome:
+     *
+     *   1. `statuses[].errors` or `statuses[].qc.status == QC_STATUS_REJECTED` — refused, with noon's own codes and rejection reasons;
+     *   2. `qc.status` PENDING or NOT_ELIGIBLE, or an incomplete `content` — still WORKING. noon's guide says an item cannot enter quality review below 100% completeness,
+     *      so an incomplete item is not waiting for noon, it is waiting for us, and the missing attributes come back as the problems;
+     *   3. `overall_status == OVERALL_STATUS_ACTIVE` with QC approved — LIVE, with noon's own words carried through.
+     *
+     * `statuses[]` is one entry PER LANGUAGE (EN, AR). A product is only as live as its worst language, so every entry is read and the first refusal wins; an English
+     * listing whose Arabic content noon rejected is not a listing this store can leave alone.
+     */
+    public function listingFor(SalesChannelAccount $account, string $sku): ListingSubmission
+    {
+        $partnerSku = trim($sku);
+        if ($partnerSku === '') {
+            return ListingSubmission::rejected(['A noon listing needs our own partner_sku.']);
+        }
+
+        $parent = $this->parents->forPartnerSku($account, $partnerSku);
+        if ($parent === null) {
+            // noon has no partner_sku -> sku_parent lookup, so there is genuinely nothing to ask. Saying so is the whole point.
+            return ListingSubmission::unknown('no_sku_parent_known_for_this_partner_sku');
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.product_content_get',
+            'POST',
+            NoonOperations::paths()['noon.product_content_get'],
+            json: ['sku_parent' => $parent],
+            capability: IntegrationCapability::ProductSync,
+        );
+        if ($response->isDryRun()) {
+            return ListingSubmission::unknown('dry_run');
+        }
+        if (!$response->ok()) {
+            return ListingSubmission::unknown((string) $response->status);
+        }
+
+        return $this->contentState($response, $parent);
+    }
+
+    /**
+     * Ties our own `partner_sku` values to their barcodes: `POST /catplat/v1/barcode/map`.
+     *
+     * noon's own words: "This API connects an existing partner_sku and a barcode ... The barcode is created if it doesn't exist in the system already." So this is what makes
+     * a warehouse scan mean something at noon, and it is the one call that needs the barcode a product already carries in this store rather than anything a person types.
+     *
+     * Per-item status in a 200, read the way every batch call here is read: an item noon did not answer about is a failure, and an answer is matched back by the
+     * `partner_sku` it echoes rather than by its position.
+     *
+     * `force_map` is NOT sent. Its own page documents the field as nullable and says nothing whatever about what it does; the Batch SKU map page describes a field of the
+     * same name as overriding an existing mapping, but that is a different endpoint and borrowing its meaning would be a guess with a seller's barcodes at stake.
+     *
+     * @param array<string, string> $barcodesBySku our `partner_sku` => the barcode it carries
+     * @return array{mapped: list<string>, failed: array<string, string>, sent: bool}
+     */
+    public function mapBarcodes(SalesChannelAccount $account, array $barcodesBySku): array
+    {
+        $items = [];
+        $failed = [];
+        foreach ($barcodesBySku as $sku => $barcode) {
+            $partnerSku = trim((string) $sku);
+            $code = trim((string) $barcode);
+            if ($partnerSku === '') {
+                continue;
+            }
+            if ($code === '') {
+                // A product with no barcode is not an error at noon; it is simply nothing to map, and inventing one would tie a scan to the wrong goods.
+                $failed[$partnerSku] = 'this product carries no barcode, so there is nothing to map at noon';
+                continue;
+            }
+            $items[] = ['barcode' => $code, 'partner_sku' => $partnerSku];
+        }
+
+        if ($items === []) {
+            return ['mapped' => [], 'failed' => $failed, 'sent' => false];
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.barcode_map',
+            'POST',
+            NoonOperations::paths()['noon.barcode_map'],
+            json: ['items' => $items],
+            capability: IntegrationCapability::ProductSync,
+            scope: ChannelOperations::SCOPE_PRODUCT_WRITES,
+        );
+        if ($response->isDryRun()) {
+            return ['mapped' => [], 'failed' => $failed, 'sent' => false];
+        }
+        if (!$response->ok()) {
+            $reason = 'noon refused the whole barcode request (HTTP ' . $response->status . ': ' . $response->message() . '), so no barcode was mapped.';
+            foreach ($items as $item) {
+                $failed[(string) $item['partner_sku']] = $reason;
+            }
+
+            return ['mapped' => [], 'failed' => $failed, 'sent' => true];
+        }
+
+        $mapped = [];
+        $answered = [];
+        foreach ((array) $response->get('items', []) as $item) {
+            $partnerSku = trim((string) ((array) $item)['partner_sku'] ?? '');
+            if ($partnerSku === '') {
+                continue;
+            }
+            $answered[$partnerSku] = true;
+            $status = NoonItemStatus::of((array) $item, $partnerSku);
+            if ($status->ok) {
+                $mapped[] = $partnerSku;
+            } else {
+                $failed[$partnerSku] = $status->reason();
+            }
+        }
+        foreach ($items as $item) {
+            $partnerSku = (string) $item['partner_sku'];
+            if (!isset($answered[$partnerSku])) {
+                $failed[$partnerSku] = 'noon did not answer about this barcode, so nothing about it is confirmed.';
+            }
+        }
+
+        return ['mapped' => $mapped, 'failed' => $failed, 'sent' => true];
     }
 
     // ---- stock and price -------------------------------------------------------------------------------------------
@@ -490,6 +680,196 @@ class NoonConnector implements ChannelConnector, DescribesListingRequirements, P
         return new PublishResult($accepted, $failed, null, false, []);
     }
 
+    /**
+     * The one call behind both create and amend.
+     *
+     * @param array<string, mixed> $attributes the category's attributes, already without any offer attribute
+     */
+    private function upsertProduct(SalesChannelAccount $account, ChannelListingDraft $draft, array $attributes): ListingSubmission
+    {
+        $payload = (array) ($draft->payload ?? []);
+        $partnerSku = trim((string) ($payload['sku'] ?? ''));
+        $category = trim((string) ($draft->product_type ?? ''));
+        $brand = trim((string) ($payload['brand'] ?? ''));
+        $images = $this->images($payload);
+
+        // Each of these is required by noon's own schema. Refusing here rather than there means the person reads our sentence about what to fill in, not a gateway's.
+        $missing = array_keys(array_filter([
+            'partner_sku' => $partnerSku === '',
+            'category' => $category === '',
+            'brand' => $brand === '',
+            'images' => $images === [],
+            'attributes' => $attributes === [],
+        ]));
+        if ($missing !== []) {
+            return ListingSubmission::rejected(['noon requires ' . implode(', ', $missing) . ' on every catalogue item, and this draft has none.']);
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.product_upsert',
+            'POST',
+            NoonOperations::paths()['noon.product_upsert'],
+            json: [
+                // One entry per variation. `size` is noon's only variation axis on this call and is omitted rather than sent empty, because its own schema calls it nullable
+                // and a blank size is not the same as no size.
+                'skus' => [array_filter(['partner_sku' => $partnerSku, 'size' => trim((string) ($payload['size'] ?? ''))], static fn (string $value): bool => $value !== '')],
+                'brand' => $brand,
+                'category' => $category,
+                'images' => $images,
+                'attributes' => $attributes,
+            ],
+            capability: IntegrationCapability::ProductSync,
+            scope: ChannelOperations::SCOPE_PRODUCT_WRITES,
+        );
+        if ($response->isDryRun()) {
+            return ListingSubmission::unknown('dry_run');
+        }
+        if (!$response->ok()) {
+            return ListingSubmission::rejected(['noon refused the catalogue item (HTTP ' . $response->status . ': ' . $response->message() . ').'], channelStatus: (string) $response->status);
+        }
+
+        // The 200's own `status` is the same object as every per-item status in this module, so a request that was processed can still have refused the product.
+        $status = NoonItemStatus::of(['status' => (array) $response->get('status', [])], $partnerSku);
+        if (!$status->ok && $response->get('status') !== null) {
+            return ListingSubmission::rejected([$status->reason()], channelStatus: $status->code);
+        }
+
+        $parent = trim((string) $response->get('sku_parent', ''));
+        if ($parent === '') {
+            // Taken, perhaps, but unfollowable: `sku_parent` is the only key `content/get` accepts and noon offers no way to look one up later. Reporting this as accepted
+            // would leave a product nobody can ever ask about again.
+            return ListingSubmission::rejected(['noon accepted the catalogue item but named no sku_parent, so nothing could ever be asked about it again.'], channelStatus: 'no_sku_parent');
+        }
+
+        return ListingSubmission::acceptedForProcessing($parent, 'upserted');
+    }
+
+    /**
+     * noon's `images[]`: a url and a `sort` position, both required by its schema.
+     *
+     * The draft's own images are used in the order a person put them in; `sort` is that position and is not read from the draft, because two images sharing a sort value is
+     * noon's problem to refuse and ours to avoid.
+     *
+     * @param array<string, mixed> $payload
+     * @return list<array{url: string, sort: int}>
+     */
+    private function images(array $payload): array
+    {
+        $images = [];
+        foreach ((array) ($payload['images'] ?? []) as $image) {
+            $url = trim((string) (is_array($image) ? ($image['url'] ?? '') : $image));
+            if ($url !== '') {
+                $images[] = ['url' => $url, 'sort' => count($images) + 1];
+            }
+        }
+
+        return $images;
+    }
+
+    /**
+     * The whole attribute set a draft holds, with every offer attribute taken out.
+     *
+     * The publisher does this filtering for the attributes it passes in; an amend sends the complete set instead (see `updateListing()`), so it has to do the same filtering
+     * itself or an offer field would reach noon through the one call no price switch guards.
+     *
+     * @return array<string, mixed>
+     */
+    private function attributesOf(ChannelListingDraft $draft): array
+    {
+        $payload = (array) ($draft->payload ?? []);
+        $attributes = (array) ($payload['attributes'] ?? []);
+        if ($attributes === []) {
+            $attributes = array_diff_key($payload, array_flip(['sku', 'product_type', 'attributes', 'brand', 'images', 'size']));
+        }
+
+        return array_diff_key($attributes, array_flip($this->offerAttributes()));
+    }
+
+    /**
+     * What noon's content state means for the listing, read language by language.
+     *
+     * The order of the three judgements is the whole of it: a refusal outranks an unfinished item, and an unfinished item outranks an active one. Taking `overall_status`
+     * first would report a listing live while noon's quality review was still rejecting its Arabic content.
+     */
+    private function contentState(ChannelResponse $response, string $parent): ListingSubmission
+    {
+        $statuses = array_values(array_filter((array) $response->get('statuses', []), 'is_array'));
+        if ($statuses === []) {
+            // A 200 with no `statuses[]` settles nothing: noon holds the sku_parent, so this is not an absence, and we have no judgement to act on either.
+            return ListingSubmission::working(null, 'no_statuses_from_noon');
+        }
+
+        $problems = [];
+        $rejected = false;
+        $incomplete = false;
+        $words = [];
+
+        foreach ($statuses as $entry) {
+            $language = $this->shortEnum((string) ($entry['language'] ?? ''), 'LANGUAGE_');
+            $content = (array) ($entry['content'] ?? []);
+            $qc = (array) ($entry['qc'] ?? []);
+            $qcStatus = $this->shortEnum((string) ($qc['status'] ?? ''), 'QC_STATUS_');
+            $overall = $this->shortEnum((string) ($entry['overall_status'] ?? ''), 'OVERALL_STATUS_');
+
+            foreach ((array) ($entry['errors'] ?? []) as $error) {
+                $problems[] = $language . ': ' . $this->codeAndMessage((array) $error);
+                $rejected = true;
+            }
+            if ($qcStatus === 'REJECTED') {
+                $rejected = true;
+                foreach ((array) ($qc['rejection_reasons'] ?? []) as $reason) {
+                    $problems[] = $language . ': ' . (string) $reason;
+                }
+                $comment = trim((string) ($qc['comment'] ?? ''));
+                if ($comment !== '') {
+                    $problems[] = $language . ': ' . $comment;
+                }
+            }
+
+            // noon's guide: an item cannot enter quality review below 100% completeness. So a missing attribute is not noon being slow, it is us not having sent something.
+            foreach (['missing_attributes' => 'missing', 'invalid_attributes' => 'invalid'] as $field => $what) {
+                foreach ((array) ($content[$field] ?? []) as $attribute) {
+                    $problems[] = $language . ': ' . $what . ' ' . (string) $attribute;
+                    $incomplete = true;
+                }
+            }
+            if (in_array($qcStatus, ['PENDING', 'NOT_ELIGIBLE', 'UNSPECIFIED', ''], true) || $overall !== 'ACTIVE') {
+                $incomplete = true;
+            }
+
+            $words = array_merge($words, array_filter([
+                $language === '' ? null : $language . '_qc_' . ($qcStatus === '' ? 'unspecified' : mb_strtolower($qcStatus)),
+                $language === '' ? null : $language . '_' . ($overall === '' ? 'unspecified' : mb_strtolower($overall)),
+                trim((string) ($content['completeness'] ?? '')) === '' ? null : $language . '_complete_' . trim((string) $content['completeness']),
+            ]));
+        }
+
+        $problems = array_values(array_unique($problems));
+
+        return match (true) {
+            $rejected => ListingSubmission::rejected($problems !== [] ? $problems : ['noon rejected this product and gave no reason we could read.'], $parent, 'qc_rejected'),
+            // Waiting on noon, or waiting on us: either way nothing is sent again on the strength of it. The problems say which.
+            $incomplete => new ListingSubmission(ListingSubmission::WORKING, $parent, $problems, implode(',', $words) ?: null, null, $words),
+            default => ListingSubmission::live($parent, $words, $parent),
+        };
+    }
+
+    /** noon writes its enums in full (`QC_STATUS_APPROVED`); the part that carries the meaning is what a person reads. */
+    private function shortEnum(string $value, string $prefix): string
+    {
+        return str_starts_with($value, $prefix) ? substr($value, strlen($prefix)) : $value;
+    }
+
+    /** @param array<string, mixed> $issue */
+    private function codeAndMessage(array $issue): string
+    {
+        $code = trim((string) ($issue['code'] ?? ''));
+        $message = trim((string) ($issue['message'] ?? ''));
+
+        return trim($code . ($message === '' ? '' : ': ' . $message)) ?: 'unreadable_issue_from_noon';
+    }
+
     /** @return array<string, array{documented: bool, built: bool, note: string}> */
     public function capabilityMatrix(): array
     {
@@ -501,15 +881,21 @@ class NoonConnector implements ChannelConnector, DescribesListingRequirements, P
             'stock' => ['documented' => true, 'built' => true, 'note' => 'POST /stock/v1/stock-list reads and POST /stock/v1/stock-update writes, both by (warehouse_code, partner_sku). `qty` is ABSOLUTE: it becomes the new available quantity and is never added to what noon holds. A 200 carries a per-item status that must be read. FBN stock stays noon\'s own and never joins the shared pool.'],
             'pricing' => ['documented' => true, 'built' => true, 'note' => 'POST /pricing/v1/pricing/get and POST /pricing/v1/pricing/upsert, per (partner_sku, country_code) with price, msrp and is_active. Omitting a field or sending null leaves the stored value unchanged and does NOT clear it. A 200 carries a per-item status: "a 200 response does not mean every price was set".'],
             'category_discovery' => ['documented' => true, 'built' => true, 'note' => 'POST /content/v1/categories/list gives the category codes, each a complete family-product_type-product_subtype path; POST /content/v1/categories/attributes/list gives one category\'s attributes with attribute_code, attribute_type, is_mandatory, is_multivalued and the permitted options. A code that is not in the list is refused by both endpoints.'],
-            'catalog_product_upsert' => ['documented' => true, 'built' => false, 'note' => 'POST /content/v1/product/upsert takes skus[] (partner_sku, size), brand, category, images[] (url, sort) and an attributes map, and answers sku_parent with a variant per size. noon decides create from amend by our own partner_sku. UNRESOLVED: what-is-fbpi says an item must be listed in Seller Lab and cannot be created via API, while the Content API overview names no fulfilment model and neither page states a role model -- so whether an FBPI seller may call this is not settled, and a real account\'s roles are what would settle it. NOT BUILT YET: the path and the body are known, nothing calls it.'],
-            'catalog_content_state' => ['documented' => true, 'built' => false, 'note' => 'POST /content/v1/product/content/get answers what noon holds for a sku_parent: its completeness, the attributes it is missing or rejects, its quality-review status and its errors. This is how acceptance and refusal are followed, rather than assuming an upsert that was taken became a listing. NOT BUILT YET: the path and the body are known, nothing calls it.'],
-            'barcode_map' => ['documented' => true, 'built' => false, 'note' => 'POST /catplat/v1/barcode/map ties our partner_sku to a barcode, creating the barcode if noon does not hold it. Per-item status in a 200. NOT BUILT YET: the path and the body are known, nothing calls it.'],
+            'catalog_product_upsert' => ['documented' => true, 'built' => true, 'note' => 'POST /content/v1/product/upsert. skus[] (partner_sku required, size nullable), brand, category, images[] (url, sort) and an attributes map are EVERY ONE required by noon\'s schema; it answers sku_parent, variants[] (sku, partner_sku, psku_code, size) and a status object of the same shape as a per-item status -- so a 200 can still be a refusal. noon decides create from amend by our own partner_sku and offers no create-only call. WHETHER AN AMEND MERGES OR REPLACES ITS ATTRIBUTES IS NOT STATED on its page, so an amend sends the WHOLE attribute set rather than the changed fields: against a replace, sending only what changed would empty every attribute nobody touched. UNRESOLVED: what-is-fbpi says an item must be listed in Seller Lab and cannot be created via API, while the Content API page names no fulfilment model and no page states a role model -- so whether an FBPI seller may call this is settled only by a real account\'s roles.'],
+            'catalog_content_state' => ['documented' => true, 'built' => true, 'note' => 'POST /content/v1/product/content/get, and it takes sku_parent ONLY -- our partner_sku is not a key it accepts, and noon publishes NO operation that looks a sku_parent up from a partner_sku. So the pair is remembered from the upsert that answered it (see NoonParentSku), and a product we hold no sku_parent for is UNKNOWN rather than absent. The answer carries statuses[] once PER LANGUAGE (EN, AR) with content.completeness, content.missing_attributes, content.invalid_attributes, qc.status (APPROVED/REJECTED/PENDING/NOT_ELIGIBLE), qc.rejection_reasons, qc.comment, overall_status and errors[]; plus images[] with visibility, review_status and issues[]. A product is only as live as its worst language, so every entry is read and a refusal in any of them wins.'],
+            'barcode_map' => ['documented' => true, 'built' => true, 'note' => 'POST /catplat/v1/barcode/map, body items[] (barcode, partner_sku, force_map nullable), answering items[] (barcode, partner_sku, status) with per-item status in a 200. noon\'s own words: the barcode is created if it does not exist already. force_map is NOT sent: its page documents the field and says nothing whatever about what it does, and the identically named field on the Batch SKU map page is a different endpoint whose meaning would be a guess with a seller\'s barcodes at stake.'],
             'product_groups' => ['documented' => true, 'built' => false, 'note' => 'POST /content/v1/product/group/upsert groups sku_parents under shared attribute_codes, and its lists are full replacements whenever it is amended. NOT BUILT YET: nothing here groups catalogue items.'],
-            'fbpi_orders' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/fbpi-orders/list for one warehouse, pages of at most 50, continued with next_token as a QUERY parameter and filtered by created_after / created_before in UTC. The single-order read, the buyer\'s details and the order update are separate operations whose pages have not been read, so no path is registered for them. NOT BUILT YET: the path and the body are known, and an order mapper is what it still needs.'],
-            'shipments' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/create with warehouse_code, a unique integration_shipment_nr, the fbpi_order_nr, awbs[] (courier, awb_nr) and items[] (mp_item_nr). The reference gives no 200 body, so success is judged by the absence of an error rather than by a field that may not exist. Cancelling and reading a shipment are unread operations. NOT BUILT YET: the path and the body are known, nothing calls it.'],
+            'fbpi_orders' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/fbpi-orders/list for ONE warehouse, pages of at most 50, continued with next_token as a QUERY parameter and filtered by created_after / created_before in UTC. Each order carries fbpi_order_nr, mp_code (noon or namshi_v2), mp_order_nr, mp_country_code, customer_country_code, merchant_code, currency_code, warehouse_code, order_created_at and items[] of mp_item_nr, partner_sku, mp_status (CONFIRMED/CANCELLED), integration_status (ACKNOWLEDGED/OUT_OF_STOCK/SHIPPED), delivered_invoice_price, cancellation_reason_code and estimated_shipping_date. TWO THINGS ARE NOT DOCUMENTED AND MATTER: there is no quantity field at all, and whether delivered_invoice_price is a unit or a line figure is not stated. NOT BUILT YET: the path and the body are verified, and an order mapper that does not invent a quantity is what it still needs.'],
+            'fbpi_order_read' => ['documented' => true, 'built' => false, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/get answers the same order object as the list, unwrapped. Its page says noon sends a webhook with the order details whenever the marketplace creates one, so this is what such a webhook is followed up with rather than a sweep. NOT BUILT YET.'],
+            'fbpi_buyer_data' => ['documented' => true, 'built' => false, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/customer-details/get, and the ONLY noon call that reads a person: first_name, last_name, city, administrative_division. NO street address, NO phone, NO e-mail -- none are documented and none come back, so noon cannot supply a deliverable address and a courier cannot be handed one from here. That is a gap in what noon publishes, not in this module. Registered behind the buyer-data switch AND a master admin\'s approval, which no other noon read needs. NOT BUILT YET.'],
+            'fbpi_order_item_refusal' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/fbpi-order/update marks items OUT_OF_STOCK before a shipment is made; noon then CANCELS those items and lets the rest proceed. It is the only documented way to refuse part of an order, it is irreversible from here, and its 200 carries no body. NOT BUILT YET: it must never be reachable except from a deliberate decision, never from a failed stock read.'],
+            'shipments' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/create with warehouse_code, a unique integration_shipment_nr, the fbpi_order_nr, awbs[] (courier, awb_nr) and items[] (mp_item_nr) -- every field required. THE 200 CARRIES NO BODY AT ALL, and what noon does with a REPEATED integration_shipment_nr is not stated: no idempotency rule is published. So a repeat is not assumed safe, and a create is verified by reading the shipment back rather than by a field that does not exist. NOT BUILT YET.'],
+            'shipment_lifecycle' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/get (warehouse_code, integration_shipment_nr) answers fbpi_order_nr, awbs[] and items[] (mp_item_nr, partner_sku) -- this is how a create whose 200 is empty gets confirmed. POST /fbpi/v1/shipment/cancel cancels the shipment AND EVERY ITEM IN IT, so it is a decision and never a retry. POST /fbpi/v1/shipment/courier-awbs/add adds a courier and AWB where the warehouse could not scan one. Listing couriers is not documented anywhere; the only described courier value is noon or our own provider. NOT BUILT YET.'],
+            'noon_logistics_awbs' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/noon-logistics-awbs/get takes country_code and a qty of at most 1 000 and answers awb_nrs[]. It MINTS numbers, so it is never retried blindly and never called to find out whether it works. There is no documented way to list AWBs already issued. NOT BUILT YET.'],
+            'sku_batch_map' => ['documented' => true, 'built' => false, 'note' => 'POST /catplat/v1/sku/batch-map ties our partner_sku values to nsku_children. Registered because its page was read, and deliberately uncalled: whether an nsku_child is the same thing as the sku_parent the content calls use is NOT STATED, so using it to resolve a sku_parent would be a guess. NOT BUILT YET.'],
             'event_destinations' => ['documented' => true, 'built' => false, 'note' => 'GET /event-notifications/v1/destination/list shows where noon sends events, with credentials redacted on read. CREATING a destination is a separate operation whose page has not been read, so it is not registered: a webhook is configured in noon\'s own portal until it is. NOT BUILT YET: the path and the body are known, nothing calls it.'],
             'oauth_for_integrators' => ['documented' => true, 'built' => false, 'note' => 'An OAuth flow exists for integrators acting on many sellers\' behalf. Its endpoint paths were not read, so nothing is registered for it, and this application holds one seller\'s own key file in any case.'],
-            'returns' => ['documented' => true, 'built' => false, 'note' => 'A Returns service exists with one operation (listing return references). Its method and path were not readable, so nothing is registered. Who handles an FBPI return is itself unsettled in noon\'s own documentation: its comparison table says the seller, its prose on the same page says noon after pickup.'],
+            'returns' => ['documented' => true, 'built' => false, 'note' => 'ONE operation exists and it is a LOOKUP, not a sweep: POST /returns/v1/return-references/list (note the path carries no /fbpi segment) takes a barcode and merchant_codes[] and answers items[] of mp_code, purchase_item_nr, partner_sku, merchant_code, order_nr and references[] (barcode, barcode_type: awb_nr or rms_barcode). There is NO list-the-returns-since-a-date call, so a return is recognised when a parcel is scanned and can never be polled for. Its own page marks merchant_codes both required and optional, which is a contradiction on one page. WHO HANDLES AN FBPI RETURN is still unsettled: the FBPI overview\'s comparison table says the seller while its prose says noon after pickup, and the Returns reference does not mention FBPI at all. NOT BUILT YET.'],
             'settlements_and_fees' => ['documented' => false, 'built' => false, 'note' => 'NO settlement, payout, fee or commission endpoint appears anywhere in noon\'s index. So noon\'s commissions cannot be read automatically, OperationalCosts has nothing to ingest for this channel, and no financial figure for noon is invented to fill the gap. A Reports/export service exists whose pages were not read and which may or may not cover financial data.'],
             'fbp' => ['documented' => false, 'built' => false, 'note' => 'FBP is not defined on any reference or guide page read here, and nothing is concluded from that silence: noon\'s help centre describes FBP, and that is where it has to be read before anything is built for it. What the pages read do describe: FBPI (our warehouse, we fulfil, we create shipments), FBN (a noon fulfilment centre, noon fulfils and handles returns, inbound by ASN) and FBPO (purchase-order driven, for B2B2C).'],
         ];
