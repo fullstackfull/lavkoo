@@ -12,8 +12,14 @@ use Illuminate\Support\Facades\Schema;
  * both send — one shipment of goods, two vans — unless something outside both of them says who owns the attempt. That is this table: the unique key is the mutual exclusion,
  * and the state is this system's own memory of whether a send ever left, which survives a cache flush and does not depend on the channel being reachable.
  *
- * States: claimed (an attempt is running) | not_sent (it ended with PROOF nothing left, so it may be tried again) | sent (a send may have reached the channel: never repeated
- * automatically) | confirmed (the channel reported the shipment) | needs_review (a send may have left and the channel does not show it: a person decides).
+ * **THE STATE SAYS WHAT HAPPENED TO THE GOODS; `claim_token` AND `claimed_at` SAY WHO IS WORKING ON IT.** They were one column
+ * until a review found the hole that made: ownership as a state meant a row being worked read as a row nothing had been sent for,
+ * so a worker dying between the request leaving this host and PHP recording that it had left would, once its lease expired, let
+ * the next worker ask the channel, read a 404 and send a second shipment.
+ *
+ * States: not_sent (PROOF nothing left, so it may be tried again) | may_have_sent (**written before the request goes**, so a
+ * crash at any instant afterwards still forbids a second send) | confirmed (the channel reported the shipment) | needs_review (a
+ * send may have left and the channel does not show it: a person decides).
  *
  * It holds no buyer detail and no tracking number: a reference, an order number, a state and a reason code. Additive and guarded; no foreign keys to system tables.
  */
@@ -32,9 +38,12 @@ return new class extends Migration
             // The channel's own identifier for this exact shipment, derived from the order and its units: noon's `integration_shipment_nr`.
             $table->string('reference', 191);
             $table->string('external_order_id', 191)->index();
-            // claimed | not_sent | sent | confirmed | needs_review
+            // not_sent | may_have_sent | confirmed | needs_review. NOT a claim: ownership is the two columns below, on purpose.
             $table->string('state', 16)->index();
-            // Set while an attempt is running; an attempt that never finished (a crash) is given up after sales_channels.shipment_sends.claim_minutes.
+            // Ownership, and ownership only. An attempt that never finished (a crash) is given up after
+            // sales_channels.shipment_sends.claim_minutes -- and giving it up never changes the state above, which is the fix
+            // this comment exists to record. Every settle is keyed on the token, so a worker that was overtaken cannot write
+            // over the row its successor holds.
             $table->string('claim_token', 40)->nullable();
             $table->timestamp('claimed_at')->nullable();
             $table->unsignedSmallInteger('attempts')->default(0);

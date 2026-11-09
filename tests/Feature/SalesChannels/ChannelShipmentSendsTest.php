@@ -52,7 +52,8 @@ class ChannelShipmentSendsTest extends TestCase
         $this->assertTrue($permission->maySend(), 'nothing has left yet');
         $this->assertNotNull($permission->token);
         $this->assertSame(1, $this->row()->attempts);
-        $this->assertSame(ChannelShipmentSend::CLAIMED, $this->row()->state);
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->row()->state, 'taking ownership is not news about the goods');
+        $this->assertTrue($this->row()->claimIsLive(), 'ownership is the token and the clock, nothing else');
     }
 
     public function test_a_second_claim_while_the_first_is_live_is_told_somebody_else_has_it(): void
@@ -86,7 +87,7 @@ class ChannelShipmentSendsTest extends TestCase
         // The crash that matters: a process sent, and died before it could read the shipment back. Whoever picks the reference
         // up next inherits the doubt, not a clean slate.
         $first = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
-        $this->sends->sent((string) $first->token);
+        $this->sends->aboutToSend((string) $first->token);
         $this->travel((int) config('sales_channels.shipment_sends.claim_minutes') + 1)->minutes();
 
         $second = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
@@ -96,19 +97,85 @@ class ChannelShipmentSendsTest extends TestCase
         $this->assertFalse($second->maySend(), 'and it may not send');
     }
 
-    public function test_a_sent_row_keeps_its_claim_because_the_attempt_is_not_over(): void
+    public function test_the_fence_keeps_the_claim_because_the_attempt_is_not_over(): void
     {
         // The read-back still has to happen, and it settles the row with the same token.
         $permission = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
-        $this->sends->sent((string) $permission->token);
+        $this->sends->aboutToSend((string) $permission->token);
 
         $this->assertSame($permission->token, $this->row()->claim_token);
-        $this->assertFalse($this->row()->claimIsLive(), 'but a sent row is not a live claim: a dead process does not hold the reference');
+        $this->assertSame(ChannelShipmentSend::MAY_HAVE_SENT, $this->row()->state);
+        $this->assertTrue($this->row()->claimIsLive(), 'the attempt is still running');
 
         $this->sends->confirmed((string) $permission->token);
 
         $this->assertSame(ChannelShipmentSend::CONFIRMED, $this->row()->state);
         $this->assertNull($this->row()->claim_token);
+    }
+
+    public function test_an_expired_fence_still_forbids_a_send_after_a_takeover(): void
+    {
+        // **THE CRASH WINDOW.** A worker fenced the attempt, the request went, and the process died before it could record
+        // anything else. Its lease runs out. Whoever picks the reference up next must inherit the doubt -- and before the fence
+        // moved ahead of the request, this row would have read `claimed`, which said nothing about the goods at all.
+        $first = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+        $this->sends->aboutToSend((string) $first->token, 'noon_create_in_flight');
+        $this->travel((int) config('sales_channels.shipment_sends.claim_minutes') + 1)->minutes();
+
+        $second = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+
+        $this->assertTrue($second->mayGoOn(), 'it may ask noon');
+        $this->assertTrue($second->sendMayHaveLeft);
+        $this->assertFalse($second->maySend(), 'and it may NOT send');
+        $this->assertSame('noon_create_in_flight', $second->reason);
+        $this->assertSame(ChannelShipmentSend::MAY_HAVE_SENT, $this->row()->state, 'the takeover did not clear what is known');
+    }
+
+    public function test_a_slow_attempt_that_was_overtaken_cannot_clear_the_fence_afterwards(): void
+    {
+        // The other half of the same window: the first worker is alive, its request is still in flight, and its lease expires.
+        // When it finally returns and reports "nothing was sent", it is speaking about a world it stopped observing -- and the
+        // write is keyed on its token, which the new owner has replaced, so it changes nothing.
+        $slow = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+        $this->sends->aboutToSend((string) $slow->token, 'noon_create_in_flight');
+        $this->travel((int) config('sales_channels.shipment_sends.claim_minutes') + 1)->minutes();
+        $live = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+
+        $this->sends->nothingWasSent((string) $slow->token, 'noon_refused:400');
+
+        $this->assertSame(ChannelShipmentSend::MAY_HAVE_SENT, $this->row()->state, 'its late word changed nothing');
+        $this->assertSame($live->token, $this->row()->claim_token);
+        $this->assertTrue($this->sends->claim($this->account, self::REFERENCE, 'NO-1')->isBusy(), 'and the live owner still holds it');
+    }
+
+    public function test_only_proof_clears_the_fence(): void
+    {
+        // The one road back from `may_have_sent`, and it takes proof: a definitive refusal, a rate limit, a credential refusal,
+        // a request that never left, a rehearsal, a gate. An absence of bad news is not proof.
+        $first = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+        $this->sends->aboutToSend((string) $first->token);
+        $this->sends->nothingWasSent((string) $first->token, 'noon_refused:400');
+
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->row()->state);
+        $this->assertNull($this->row()->sent_at, 'and the row stops claiming a send ever went');
+        $this->assertTrue($this->sends->claim($this->account, self::REFERENCE, 'NO-1')->maySend());
+    }
+
+    public function test_an_uncertain_send_gives_the_claim_back_without_giving_up_what_it_knows(): void
+    {
+        // Releasing ownership and clearing the send state are two different acts. A 5xx ends the attempt; it does not end the
+        // doubt.
+        $first = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+        $this->sends->aboutToSend((string) $first->token);
+        $this->sends->releaseAfterUncertainSend((string) $first->token, 'noon_create_outcome_unknown:503');
+
+        $this->assertNull($this->row()->claim_token, 'the attempt is over');
+        $this->assertFalse($this->row()->claimIsLive());
+
+        $second = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+
+        $this->assertTrue($second->mayGoOn());
+        $this->assertFalse($second->maySend(), 'but nothing is sent again');
     }
 
     public function test_a_confirmed_shipment_is_terminal_and_is_never_claimed_again(): void
@@ -141,7 +208,7 @@ class ChannelShipmentSendsTest extends TestCase
     {
         // Reads are allowed to heal it -- the channel may finally show the shipment -- and only reads.
         $first = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
-        $this->sends->sent((string) $first->token);
+        $this->sends->aboutToSend((string) $first->token);
         $this->sends->needsReview((string) $first->token, 'sent_and_noon_could_not_be_asked');
 
         $second = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
@@ -160,7 +227,7 @@ class ChannelShipmentSendsTest extends TestCase
 
         $this->sends->confirmed((string) $stale->token);
 
-        $this->assertSame(ChannelShipmentSend::CLAIMED, $this->row()->state, 'the live attempt still owns it');
+        $this->assertSame($live->token, $this->row()->claim_token, 'the live attempt still owns it');
         $this->assertSame($live->token, $this->row()->claim_token);
     }
 
@@ -192,10 +259,10 @@ class ChannelShipmentSendsTest extends TestCase
         $this->assertNull($this->sends->of($this->account, self::REFERENCE));
 
         $permission = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
-        $this->sends->sent((string) $permission->token);
+        $this->sends->aboutToSend((string) $permission->token);
 
         $row = $this->sends->of($this->account, self::REFERENCE);
-        $this->assertSame(ChannelShipmentSend::SENT, $row->state);
+        $this->assertSame(ChannelShipmentSend::MAY_HAVE_SENT, $row->state);
         $this->assertSame('NO-1', $row->external_order_id);
         $this->assertSame('noon', $row->channel);
         $this->assertTrue($row->mayHaveReachedTheChannel());

@@ -59,11 +59,12 @@ class ChannelShipmentSends
             }
 
             // A claim taken over from a dead process keeps whatever that process had established: if its send may have left,
-            // this attempt may not send either.
+            // this attempt may not send either. **THE STATE IS NOT TOUCHED HERE.** Taking ownership is not news about the goods,
+            // and a claim that overwrote the state is exactly how a crashed worker's send came to be forgotten.
             $sendMayHaveLeft = $row->mayHaveReachedTheChannel();
             $token = (string) Str::uuid();
             $row->forceFill([
-                'state' => ChannelShipmentSend::CLAIMED, 'claim_token' => $token, 'claimed_at' => now(), 'attempts' => $row->attempts + 1,
+                'claim_token' => $token, 'claimed_at' => now(), 'attempts' => $row->attempts + 1,
             ])->save();
 
             return ShipmentSendPermission::go($token, $sendMayHaveLeft, $sendMayHaveLeft ? $row->reason_code : null);
@@ -71,15 +72,32 @@ class ChannelShipmentSends
     }
 
     /**
-     * A send has gone out, or may have: from here the reference is never sent again without a person.
+     * **CALLED BEFORE THE REQUEST LEAVES, never after it returns.**
      *
-     * The claim is KEPT, because the attempt is not over -- it still has to read the shipment back, and that read needs the
-     * token to settle the row afterwards. A `sent` row is not a live claim, so a process that dies here does not hold the
-     * reference: the next attempt takes it over and finds that a send may already have left.
+     * This is the fence. From the instant it commits, the row says a create may be at the channel — so a process that dies at
+     * ANY later point, including between the socket write and the next PHP statement, leaves a row that forbids a second send.
+     * Marking it afterwards left a window of exactly that shape: the goods were on their way and the database did not know.
+     *
+     * It is deliberately pessimistic. A request that turns out to have been refused before processing is corrected by
+     * `nothingWasSent()` on PROOF; being wrong in this direction costs a person a look, and being wrong in the other costs a
+     * second van.
+     *
+     * The claim is KEPT: the attempt is not over, and the read-back needs the token to settle the row.
      */
-    public function sent(string $token): void
+    public function aboutToSend(string $token, ?string $reason = null): void
     {
-        $this->settle($token, ChannelShipmentSend::SENT, null, ['sent_at' => now()], release: false);
+        $this->settle($token, ChannelShipmentSend::MAY_HAVE_SENT, $reason, ['sent_at' => now()], release: false);
+    }
+
+    /**
+     * The attempt is over and the outcome is still unknown: the claim goes back, and the row keeps saying a send may have left.
+     *
+     * Releasing ownership and clearing the send state are two different acts, and only the first belongs here. The next attempt
+     * may ASK the channel; it may not send.
+     */
+    public function releaseAfterUncertainSend(string $token, string $reason): void
+    {
+        $this->settle($token, ChannelShipmentSend::MAY_HAVE_SENT, $reason);
     }
 
     /** The channel reported the shipment. Terminal. */
@@ -89,12 +107,16 @@ class ChannelShipmentSends
     }
 
     /**
-     * Nothing left, and that is PROVEN: a definitive refusal from the channel, a missing field, a switch that stopped it. The
-     * reference may be claimed and sent again.
+     * Nothing left, and that is PROVEN: a definitive refusal, a rate limit, a credential refusal, a request that never left the
+     * host, a rehearsal, or a gate that stopped the call before it was made. The reference may be claimed and sent again.
+     *
+     * **It is the only road back from `may_have_sent`**, and it takes proof rather than an absence of bad news. `ChannelResponse`
+     * is what supplies that proof: it documents a 401, a 403, a 429 and any other 4xx as refused BEFORE processing, and a 5xx or
+     * a lost answer as cases where the channel may have acted. Only the first group comes here.
      */
     public function nothingWasSent(string $token, ?string $reason = null): void
     {
-        $this->settle($token, ChannelShipmentSend::NOT_SENT, $reason);
+        $this->settle($token, ChannelShipmentSend::NOT_SENT, $reason, ['sent_at' => null]);
     }
 
     /** A send may have left and the channel does not show the shipment. Automation stops here; reads may still resolve it. */
@@ -112,8 +134,9 @@ class ChannelShipmentSends
     /** @param array<string, mixed> $extra */
     private function settle(string $token, string $state, ?string $reason, array $extra = [], bool $release = true): void
     {
-        // Keyed on the token, so an attempt whose lease expired and whose reference another process has since claimed cannot
-        // write over that process's work on its way out.
+        // **KEYED ON THE TOKEN**, so a worker whose lease expired -- a slow request that was overtaken, a process that came back
+        // from the dead -- cannot write over the row the new owner holds. Its late "nothing was sent" is a no-op, which is the
+        // only safe outcome: it does not know what happened after it stopped looking.
         ChannelShipmentSend::where('claim_token', $token)->update(array_merge([
             'state' => $state, 'reason_code' => $reason === null ? null : mb_substr($reason, 0, 80), 'updated_at' => now(),
         ], $release ? ['claim_token' => null, 'claimed_at' => null] : [], $extra));

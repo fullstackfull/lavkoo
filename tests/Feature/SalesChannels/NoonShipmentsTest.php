@@ -512,6 +512,122 @@ class NoonShipmentsTest extends TestCase
         $this->assertCount(2, $this->sentTo(self::GET), 'the two of the first attempt, and none after it was settled');
     }
 
+    // ---- the crash window: between the request leaving and the marker being written ------------------------------
+    //
+    // THE SECOND BLOCKING FINDING ON THIS WORK, and it was a real window rather than a theoretical one. The row was marked
+    // "a send may have left" AFTER the create returned, so a worker that died in between left it looking like a row nothing had
+    // been sent for -- ownership was a state (`claimed`), and a state that says who is working says nothing about the goods.
+    // Once the lease expired, the next worker read that, asked noon, got a 404, and shipped the same units again.
+    //
+    // The fence is now written BEFORE the request, and ownership lives in the claim columns alone.
+
+    public function test_a_worker_that_dies_after_noon_receives_the_create_leaves_no_room_for_a_second_one(): void
+    {
+        $creates = 0;
+        $this->fake([
+            self::GET => Http::response([], 404),
+            self::CREATE => function () use (&$creates) {
+                $creates++;
+                // noon has the request. This process stops existing right here, before PHP records anything at all.
+                throw new RuntimeException('the worker was killed after the request went out');
+            },
+        ]);
+        $connector = app(NoonConnector::class);
+
+        try {
+            $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+            $this->fail('the simulated crash should have propagated');
+        } catch (RuntimeException $died) {
+            $this->assertStringContainsString('killed after the request', $died->getMessage());
+        }
+
+        $this->assertSame(1, $creates, 'noon got one create');
+        $this->assertSame(ChannelShipmentSend::MAY_HAVE_SENT, $this->sendRow()->state, 'and the row knew it before the request went');
+
+        // The lease runs out and another worker takes the reference over. noon answers 404 -- which it may do because the create
+        // never landed, or because its own read is behind its own write; noon documents neither, and nobody here can tell.
+        $this->travel((int) config('sales_channels.shipment_sends.claim_minutes') + 1)->minutes();
+        $second = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertSame(1, $creates, 'ONE create, across a crash and a takeover');
+        $this->assertFalse($second['sent']);
+        $this->assertTrue($second['needs_review'] ?? false, 'a person settles it');
+        $this->assertStringContainsString('already left and noon does not confirm it', (string) $second['reason']);
+    }
+
+    public function test_a_crash_before_the_request_leaves_nothing_fenced(): void
+    {
+        // The other side, so the fence is not simply always on: the pre-check could not be made, so no create was attempted and
+        // the row is still clear for a later try.
+        $this->fake([self::GET => Http::response([], 503), self::CREATE => Http::response([])]);
+
+        app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->sendRow()->state);
+        $this->assertTrue(app(ChannelShipmentSends::class)->claim($this->account, app(NoonConnector::class)->shipmentNumberFor('NO-1', ['I-1']), 'NO-1')->maySend());
+    }
+
+    public function test_a_create_still_in_flight_when_its_lease_expires_is_not_overtaken_into_a_second_shipment(): void
+    {
+        // The slow-request case. Worker one is alive and its create is somewhere on the wire; its claim runs out. Worker two
+        // inherits the fence, so it asks and stops -- it does not race its colleague.
+        $reference = app(NoonConnector::class)->shipmentNumberFor('NO-1', ['I-1']);
+        $inFlight = app(ChannelShipmentSends::class)->claim($this->account, $reference, 'NO-1');
+        app(ChannelShipmentSends::class)->aboutToSend((string) $inFlight->token, 'noon_create_in_flight');
+        $this->travel((int) config('sales_channels.shipment_sends.claim_minutes') + 1)->minutes();
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response([])]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent']);
+        $this->assertTrue($result['needs_review'] ?? false);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_gate_that_stops_the_call_lifts_the_fence_rather_than_parking_the_shipment(): void
+    {
+        // The fence is pessimistic, so the cases that PROVE nothing was sent have to clear it. A switch is one: it refuses
+        // before anything leaves this host. Without this, turning writes off would hand every pending shipment to a person.
+        config(['sales_channels.external_writes_enabled' => false]);
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response([])]);
+
+        try {
+            app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+            $this->fail('the write switch should have refused it');
+        } catch (ChannelUnavailableException $refused) {
+            $this->assertSame(ChannelUnavailableException::WRITES_OFF_ENVIRONMENT, $refused->reason);
+        }
+
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->sendRow()->state, 'proof nothing was sent');
+        $this->assertNull($this->sendRow()->sent_at);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_rehearsal_lifts_the_fence_too(): void
+    {
+        $this->account->forceFill(['dry_run' => true])->save();
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response([])]);
+
+        app(NoonConnector::class)->createShipment($this->account->fresh(), 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->sendRow()->state);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_five_hundred_leaves_the_fence_standing_and_gives_the_claim_back(): void
+    {
+        // A 5xx ends the attempt; it does not end the doubt. So the claim goes back -- another run may ASK -- and the row keeps
+        // saying a create may be at noon.
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response(['message' => 'oops'], 500)]);
+
+        app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $row = $this->sendRow();
+        $this->assertSame(ChannelShipmentSend::MAY_HAVE_SENT, $row->state);
+        $this->assertNull($row->claim_token, 'the attempt is over');
+        $this->assertSame('noon_create_outcome_unknown:500', $row->reason_code);
+    }
+
     public function test_the_shared_contract_reports_an_unresolved_shipment_as_not_taken(): void
     {
         $this->fake([self::GET => Http::response([], 503), self::CREATE => Http::response([])]);

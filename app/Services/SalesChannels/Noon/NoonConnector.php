@@ -1048,33 +1048,52 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             ];
         }
 
-        $response = $this->client->call(
-            $account,
-            'noon.shipment_create',
-            'POST',
-            NoonOperations::paths()['noon.shipment_create'],
-            json: [
-                'warehouse_code' => $warehouse,
-                'integration_shipment_nr' => $shipmentNumber,
-                'fbpi_order_nr' => $order,
-                'awbs' => $waybills,
-                'items' => array_map(static fn (string $unit): array => ['mp_item_nr' => $unit], $units),
-            ],
-            capability: IntegrationCapability::FulfillmentDispatch,
-            scope: 'fulfillment_dispatch',
-        );
+        // THE FENCE, AND IT GOES BEFORE THE REQUEST.
+        //
+        // From here the row durably says a create may be at noon, so a process that dies at ANY later instant -- including
+        // between the socket write and the next statement -- leaves a row that forbids a second send. Marking it after the call
+        // returned left a window of exactly that shape: the goods on their way, and the database still saying nothing had been
+        // sent. Its lease would then expire and the next worker would ask noon, read a 404 and ship the same units again.
+        //
+        // It is pessimistic on purpose. Everything below that can PROVE noon did not process the request resets it.
+        $this->sends->aboutToSend($token, 'noon_create_in_flight');
+
+        try {
+            $response = $this->client->call(
+                $account,
+                'noon.shipment_create',
+                'POST',
+                NoonOperations::paths()['noon.shipment_create'],
+                json: [
+                    'warehouse_code' => $warehouse,
+                    'integration_shipment_nr' => $shipmentNumber,
+                    'fbpi_order_nr' => $order,
+                    'awbs' => $waybills,
+                    'items' => array_map(static fn (string $unit): array => ['mp_item_nr' => $unit], $units),
+                ],
+                capability: IntegrationCapability::FulfillmentDispatch,
+                scope: 'fulfillment_dispatch',
+            );
+        } catch (ChannelUnavailableException $gate) {
+            // A gate refuses BEFORE anything leaves this host -- a switch, a capability, a missing approval -- so nothing was
+            // sent and the fence is lifted. Without this, turning a switch off would park a shipment for a person.
+            $this->sends->nothingWasSent($token, $gate->reason);
+
+            throw $gate;
+        }
+
         if ($response->isDryRun()) {
             $this->sends->nothingWasSent($token, 'dry_run');
 
             return ['sent' => false, 'confirmed' => false, 'shipment' => null, 'reason' => null];
         }
         if (!$response->ok()) {
-            // THE ONE PLACE A REPEAT IS ALLOWED AT ALL: a definitive refusal is proof noon did not process it, so the reference
-            // may be sent again once whatever it refused is fixed. A 5xx or a lost answer proves nothing, so the row says a
-            // send may have left and no later attempt will send.
+            // THE ONE ROAD BACK FROM THE FENCE, and it takes proof rather than an absence of bad news. `ChannelResponse`
+            // documents a 401, a 403, a 429 and every other 4xx as refused BEFORE processing, and a 5xx or a lost answer as
+            // cases where the channel may have acted. Only the first group clears the row for another send.
             $mayHaveLanded = in_array($response->kind, [ChannelResponse::SERVER_ERROR, ChannelResponse::AMBIGUOUS], true);
             $mayHaveLanded
-                ? $this->sends->sent($token)
+                ? $this->sends->releaseAfterUncertainSend($token, 'noon_create_outcome_unknown:' . ($response->status ?? 0))
                 : $this->sends->nothingWasSent($token, 'noon_refused:' . ($response->status ?? 0));
 
             return [
@@ -1093,8 +1112,7 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             ];
         }
 
-        // It certainly left, whatever noon says next.
-        $this->sends->sent($token);
+        // It certainly left -- which the fence above already recorded, before it did.
 
         // The 200 said nothing, so noon is asked what it holds. Only its own answer confirms a shipment.
         $after = $this->checkShipment($account, $shipmentNumber);
@@ -1103,9 +1121,12 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
 
             return ['sent' => true, 'confirmed' => true, 'shipment' => $shipmentNumber, 'reason' => null];
         }
-        if ($after->isUnknown()) {
-            $this->sends->needsReview($token, (string) $after->reason);
-        }
+        $after->isUnknown()
+            ? $this->sends->needsReview($token, (string) $after->reason)
+            // noon ANSWERED, and says it does not hold the shipment yet. That is a lag, not a doubt, so no person is called for
+            // -- but the attempt is over, so the claim goes back while the row keeps saying a send has left. Leaving the claim
+            // held here would park the reference until its lease ran out, for nothing.
+            : $this->sends->releaseAfterUncertainSend($token, 'noon_does_not_report_the_shipment_yet');
 
         return [
             'sent' => true,

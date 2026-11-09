@@ -10,6 +10,7 @@ use Illuminate\Database\DeadlockException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 
 /** The operations of the noon concurrency tests (tests/Feature/Concurrency/NoonOrderConcurrencyTest.php), run in worker processes against a real engine. */
 final class NoonOperations
@@ -43,24 +44,32 @@ final class NoonOperations
      * `integration_shipment_nr`, documented or otherwise -- so it is closed by one claimed row per shipment reference, and this
      * is what proves it.
      *
-     * @param array{account: int, order_id: string, units: list<string>} $args
-     * @return array{sent: bool, confirmed: bool, shipment: string|null, reason: string|null, needs_review?: bool}
+     * @param array{account: int, order_id: string, units: list<string>, die_after_send?: bool, read_lag?: bool} $args
+     * @return array<string, mixed>
      */
     public static function shipSameUnits(array $args): array
     {
         $account = SalesChannelAccount::findOrFail($args['account']);
         config(['sales_channels.enabled' => true, 'sales_channels.external_writes_enabled' => true]);
+        $dieAfterSend = (bool) ($args['die_after_send'] ?? false);
+        $readLag = (bool) ($args['read_lag'] ?? false);
+
         Http::preventStrayRequests();
         Http::fake([
             '*/identity/public/v1/api/login*' => Http::response('', 200, ['Set-Cookie' => 'noon_session=abc123; Path=/']),
-            '*/fbpi/v1/shipment/get*' => static function (Request $request) {
+            '*/fbpi/v1/shipment/get*' => static function (Request $request) use ($readLag) {
+                if ($readLag) {
+                    // noon's read is behind its own write. It documents nothing either way, so this is a shape the code has to
+                    // survive rather than one it may rule out.
+                    return Http::response([], 404);
+                }
                 $held = DB::table('test_noon_shipments')->where('reference', (string) ((array) $request->data())['integration_shipment_nr'])->first();
 
                 return $held === null
                     ? Http::response([], 404)
                     : Http::response(['fbpi_order_nr' => $held->order_id, 'awbs' => [], 'items' => []]);
             },
-            '*/fbpi/v1/shipment/create*' => static function (Request $request) {
+            '*/fbpi/v1/shipment/create*' => static function (Request $request) use ($dieAfterSend) {
                 $body = (array) $request->data();
                 // Recorded unconditionally, with no unique key: a duplicate must be VISIBLE, not refused by the fixture.
                 DB::table('test_noon_shipments')->insert([
@@ -68,12 +77,23 @@ final class NoonOperations
                     'order_id' => (string) $body['fbpi_order_nr'],
                     'created_by' => getmypid(),
                 ]);
+                if ($dieAfterSend) {
+                    // noon has the goods and this process ends here. Whatever the database already says is all anybody will ever
+                    // know about it -- which is why the fence has to be written before this point and not after.
+                    throw new RuntimeException('the worker was killed after the request went out');
+                }
 
                 return Http::response([]);
             },
         ]);
 
-        return app(NoonConnector::class)->createShipment($account, $args['order_id'], $args['units'], [['courier' => 'noon', 'awb_nr' => 'AWB-1']]);
+        try {
+            return app(NoonConnector::class)->createShipment($account, $args['order_id'], $args['units'], [['courier' => 'noon', 'awb_nr' => 'AWB-1']]);
+        } catch (RuntimeException $died) {
+            // Reported rather than swallowed: the harness needs a line from every worker, and the test needs to know which of
+            // them got as far as sending.
+            return ['sent' => false, 'confirmed' => false, 'shipment' => null, 'reason' => null, 'died_after_send' => true];
+        }
     }
 
     /**

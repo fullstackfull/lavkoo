@@ -182,6 +182,42 @@ class NoonOrderConcurrencyTest extends TestCase
         $this->assertSame(6, ChannelShipmentSend::where('external_order_id', 'NO-SHIP-2')->count());
     }
 
+    public function test_a_worker_killed_between_the_request_and_the_marker_does_not_become_two_shipments(): void
+    {
+        // **THE CRASH WINDOW, with real processes.** A worker fences the attempt, noon receives the create, and the process ends
+        // before it can record anything else. Its lease then expires and another worker picks the reference up -- and noon
+        // answers 404, which it may do because its read is behind its write. noon documents nothing about that, so the code may
+        // not assume it cannot happen.
+        //
+        // Before the fence moved ahead of the request, that row read `claimed`: a state about a process, which said nothing
+        // about the goods. The second worker would have shipped the same units again.
+        $account = $this->noonAccount();
+        $units = ['NO-SHIP-3-I1', 'NO-SHIP-3-I2'];
+
+        // Wave one: four workers, and whichever of them wins the claim dies with noon holding the shipment.
+        $first = ConcurrentRunner::run('noon.ship_same_units', array_fill(0, 4, [
+            'account' => $account->id, 'order_id' => 'NO-SHIP-3', 'units' => $units, 'die_after_send' => true,
+        ]));
+
+        $this->assertSame([], $this->problemsOf($first), 'a killed worker is reported, not a harness failure');
+        $this->assertSame(1, DB::table('test_noon_shipments')->count(), 'one worker sent, the others were told somebody else held it');
+        $this->assertSame(1, $this->workersWhere($first, static fn (array $r): bool => ($r['died_after_send'] ?? false) === true));
+        $this->assertSame(ChannelShipmentSend::MAY_HAVE_SENT, ChannelShipmentSend::firstOrFail()->state, 'and the row knew before the request went');
+
+        // The dead worker's lease runs out.
+        ChannelShipmentSend::query()->update(['claimed_at' => now()->subMinutes((int) config('sales_channels.shipment_sends.claim_minutes') + 1)]);
+
+        // Wave two, with noon answering 404 for a shipment it is actually holding.
+        $second = ConcurrentRunner::run('noon.ship_same_units', array_fill(0, 4, [
+            'account' => $account->id, 'order_id' => 'NO-SHIP-3', 'units' => $units, 'read_lag' => true,
+        ]));
+
+        $this->assertSame([], $this->problemsOf($second));
+        $this->assertSame(1, DB::table('test_noon_shipments')->count(), 'STILL ONE. A 404 is not permission to ship what may already be on a van.');
+        $this->assertSame(0, $this->workersWhere($second, static fn (array $r): bool => ($r['sent'] ?? false) === true), 'nobody sent anything');
+        $this->assertSame(ChannelShipmentSend::NEEDS_REVIEW, ChannelShipmentSend::firstOrFail()->state, 'it waits for a person');
+    }
+
     /**
      * @param list<array{ok: bool, result?: mixed}> $reports
      * @param callable(array<string, mixed>): bool $matches
