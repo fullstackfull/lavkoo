@@ -25,17 +25,25 @@ class ChannelCredentialStore
     public const SECRET_KEYS = [
         'amazon' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token', 'aws_access_key_id', 'aws_secret_access_key'],
         'trendyol' => ['api_key', 'api_secret', 'webhook_api_key', 'webhook_password'],
+        // The accounting connection. ONE secret: Odoo's API key, which its documentation says replaces the password -- there is
+        // no password here to store. The host, the database and the login are settings, not secrets: they identify the instance
+        // rather than authorise anything, and a person has to be able to read them back on the connection page.
+        'odoo' => ['api_key'],
     ];
 
     /** What a complete set of typed credentials is, for the one case where it replaces a blob nobody can read. */
     private const COMPLETE_SET = [
         'amazon' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token'],
         'trendyol' => ['api_key', 'api_secret'],
+        'odoo' => ['api_key'],
     ];
 
     public const RUNTIME_KEYS = [
         'amazon' => ['access_token', 'access_token_expires_at', 'grantless_token', 'grantless_token_expires_at'],
         'trendyol' => [],
+        // Written by the system, never typed in: the user id XML-RPC's sign-in answers, and what was LEARNED about the instance
+        // so that a later call does not have to discover it again. The transport is kept because it is discovered, not configured.
+        'odoo' => ['uid', 'transport', 'server_version'],
     ];
 
     public function get(SalesChannelAccount $account): ChannelCredentials

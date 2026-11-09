@@ -5,6 +5,7 @@ namespace App\Services\Accounting\Odoo;
 use DOMDocument;
 use DOMElement;
 use RuntimeException;
+use stdClass;
 
 /**
  * XML-RPC, written here because PHP has not shipped it since 7.x.
@@ -113,13 +114,17 @@ final class OdooXmlRpc
             // exponent notation that some parsers refuse outright.
             is_float($value) => $element->appendChild($document->createElement('double', rtrim(rtrim(sprintf('%.10F', $value), '0'), '.') ?: '0')),
             is_array($value) => $element->appendChild(self::arrayOrStruct($document, $value)),
+            // AN OBJECT IS HOW AN EMPTY STRUCT IS SAID. `[]` is a list in PHP and becomes `<array>`, so a caller that needs an
+            // empty DICTIONARY -- `authenticate`'s fourth argument is one -- has no way to say so with an array. `(object) []`
+            // does, exactly as it does for `json_encode`, and its public properties become the members.
+            $value instanceof stdClass => $element->appendChild(self::struct($document, get_object_vars($value))),
             default => $element->appendChild(self::text($document, (string) $value)),
         };
 
         return $element;
     }
 
-    /** A list becomes an `<array>`, anything with string keys a `<struct>`. A null member is dropped rather than sent as nil. */
+    /** A list becomes an `<array>`, anything with string keys a `<struct>`. A null member is refused in a list and dropped in a struct; see each branch. */
     private static function arrayOrStruct(DOMDocument $document, array $value): DOMElement
     {
         if (array_is_list($value)) {
@@ -139,6 +144,16 @@ final class OdooXmlRpc
             return $array;
         }
 
+        return self::struct($document, $value);
+    }
+
+    /**
+     * A `<struct>` of named members.
+     *
+     * @param array<string, mixed> $value
+     */
+    private static function struct(DOMDocument $document, array $value): DOMElement
+    {
         $struct = $document->createElement('struct');
         foreach ($value as $name => $item) {
             // A struct is the opposite case and keeps its own policy: members are named, so leaving one out shifts nothing. That

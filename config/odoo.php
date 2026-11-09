@@ -56,6 +56,11 @@ return [
     'connect_timeout' => (int) env('ODOO_CONNECT_TIMEOUT', 5),
     'timeout' => (int) env('ODOO_TIMEOUT', 30),
 
+    // How many times a call that is SAFE to repeat is retried. A write is never retried by the transport whatever this says --
+    // `ChannelOperations` marks it unsafe -- because repeating a journal entry is a question only the posting queue can answer,
+    // after asking Odoo what it already holds.
+    'retries' => (int) env('ODOO_RETRIES', 3),
+
     // Per-operation ceiling, in the shape the shared limiter reads.
     'rate_limits' => [
         'default' => ['max' => (int) env('ODOO_RATE_LIMIT_MAX', 60), 'per_seconds' => (int) env('ODOO_RATE_LIMIT_SECONDS', 60)],

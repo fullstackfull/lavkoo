@@ -45,6 +45,8 @@ class ChannelHttp
      * @param array<string, string>|null $form an application/x-www-form-urlencoded body
      * @param IntegrationCapability|null $capability the capability the caller is acting under (defaults to the first one the account holds)
      * @param string|null $scope for a write: which approval it relies on
+     * @param string|null $rawBody a body that is already encoded, for a protocol that is not JSON or a form -- Odoo's XML-RPC is the one caller.
+     *                             With it the caller's own `Content-Type` and `Accept` headers stand: nothing here adds `Accept: application/json` over them.
      * @throws ChannelUnavailableException
      */
     public function send(
@@ -58,6 +60,7 @@ class ChannelHttp
         ?array $form = null,
         ?IntegrationCapability $capability = null,
         ?string $scope = null,
+        ?string $rawBody = null,
     ): ChannelResponse {
         $method = strtoupper($method);
         $correlationId = (string) Str::uuid();
@@ -65,19 +68,25 @@ class ChannelHttp
 
         if ($dryRun) {
             $response = ChannelResponse::dryRun($correlationId);
-            $this->log($account, $operation, $method, $url, $headers, $json ?? $form, $query, $response);
+            $this->log($account, $operation, $method, $url, $headers, $this->loggableBody($json, $form, $rawBody), $query, $response);
 
             return $response;
         }
 
+        // THE TRANSPORT'S OWN SETTINGS COME FROM THE SAME FAMILY AS ITS SWITCHES. A channel call reads `sales_channels.http.*`
+        // exactly as before; an accounting call reads Odoo's, because a thirty-second ceiling that suits a marketplace is not
+        // somebody else's to set for a ledger. One mechanism, each family's own numbers.
+        $http = $this->httpSettingsFor($operation);
         [$max, $perSeconds, $bucket] = $this->rateLimitFor($account, $operation);
-        $retries = ChannelOperations::isRetrySafe($operation) ? (int) config('sales_channels.http.retries', 3) : 0;
+        // A write is never retried by the transport, whatever the family allows: that decision belongs to the caller that knows
+        // whether a repeat is safe. For a journal entry it never is without asking Odoo first.
+        $retries = ChannelOperations::isRetrySafe($operation) ? $http['retries'] : 0;
 
         $attempt = 0;
         while (true) {
             $attempt++;
             $this->limiter->acquire($account->id . ':' . $bucket, $max, $perSeconds);
-            $response = $this->attempt($method, $url, $headers, $json, $query, $form, $correlationId);
+            $response = $this->attempt($method, $url, $headers, $json, $query, $form, $correlationId, $rawBody, $http);
 
             $retryable = in_array($response->kind, [ChannelResponse::RATE_LIMITED, ChannelResponse::SERVER_ERROR, ChannelResponse::NOT_SENT, ChannelResponse::AMBIGUOUS], true);
             if (!$retryable || $attempt > $retries) {
@@ -89,9 +98,25 @@ class ChannelHttp
         $response = new ChannelResponse(
             $response->kind, $response->status, $response->json, $response->body, $response->error, $response->durationMs, $correlationId, $response->headers, $attempt,
         );
-        $this->log($account, $operation, $method, $url, $headers, $json ?? $form, $query, $response);
+        $this->log($account, $operation, $method, $url, $headers, $this->loggableBody($json, $form, $rawBody), $query, $response);
 
         return $response;
+    }
+
+    /**
+     * What goes in the log for this body.
+     *
+     * A raw body is already-encoded text, and the logger takes an array, so it is wrapped under one key rather than left out:
+     * a call whose body never appears in the log is a call nobody can reconstruct afterwards. The existing redaction still runs
+     * over it.
+     *
+     * @param array<string, mixed>|null $json
+     * @param array<string, string>|null $form
+     * @return array<string, mixed>|null
+     */
+    private function loggableBody(?array $json, ?array $form, ?string $rawBody): ?array
+    {
+        return $rawBody === null ? $json ?? $form : ['raw' => $rawBody];
     }
 
     /**
@@ -184,18 +209,25 @@ class ChannelHttp
      * @param array<string, mixed> $query
      * @param array<string, string>|null $form
      */
-    private function attempt(string $method, string $url, array $headers, ?array $json, array $query, ?array $form, string $correlationId): ChannelResponse
+    private function attempt(string $method, string $url, array $headers, ?array $json, array $query, ?array $form, string $correlationId, ?string $rawBody = null, ?array $http = null): ChannelResponse
     {
         $started = hrtime(true);
+        $http ??= ['connect' => (int) config('sales_channels.http.connect_timeout', 5), 'timeout' => (int) config('sales_channels.http.timeout', 30), 'retries' => 3];
 
         try {
             $pending = Http::withHeaders($headers)
-                ->acceptJson()
-                ->connectTimeout((int) config('sales_channels.http.connect_timeout', 5))
-                ->timeout((int) config('sales_channels.http.timeout', 30))
+                ->connectTimeout($http['connect'])
+                ->timeout($http['timeout'])
                 ->withoutRedirecting();
+            // Every channel here speaks JSON, so that header stays the default. A caller with an already-encoded body has said
+            // what it is sending in its own headers, and overwriting its `Accept` would ask an XML-RPC endpoint for JSON.
+            if ($rawBody === null) {
+                $pending = $pending->acceptJson();
+            }
             $options = [];
-            if ($form !== null) {
+            if ($rawBody !== null) {
+                $options['body'] = $rawBody;
+            } elseif ($form !== null) {
                 $pending = $pending->asForm();
                 $options['form_params'] = $form;
             } elseif ($json !== null) {
@@ -257,9 +289,32 @@ class ChannelHttp
     }
 
     /** @return array{0: int, 1: int, 2: string} calls allowed, per this many seconds, and the allowance they draw on */
+    /**
+     * The timeouts and retry ceiling of the family this operation belongs to.
+     *
+     * @return array{connect: int, timeout: int, retries: int}
+     */
+    private function httpSettingsFor(string $operation): array
+    {
+        $family = ChannelOperations::switchesOf($operation);
+        $key = $family === ChannelOperations::SWITCHES_SALES_CHANNELS ? 'sales_channels.http' : $family;
+
+        return [
+            'connect' => (int) config($key . '.connect_timeout', 5),
+            'timeout' => (int) config($key . '.timeout', 30),
+            'retries' => (int) config($key . '.retries', 3),
+        ];
+    }
+
+    /** @return array{0: int, 1: int, 2: string} */
     private function rateLimitFor(SalesChannelAccount $account, string $operation): array
     {
-        $limits = (array) config('sales_channels.rate_limits.' . $account->channel, []);
+        $family = ChannelOperations::switchesOf($operation);
+        // A channel's limits are per channel, because they are the channel's own published quota. A family that is not the sales
+        // channels keeps its limits in its own file, under its own name.
+        $limits = $family === ChannelOperations::SWITCHES_SALES_CHANNELS
+            ? (array) config('sales_channels.rate_limits.' . $account->channel, [])
+            : (array) config($family . '.rate_limits', []);
         $own = (array) ($limits['operations'][$operation] ?? $limits['default'] ?? ['max' => 30, 'per_seconds' => 10]);
 
         return [(int) ($own['max'] ?? 30), (int) ($own['per_seconds'] ?? 10), (string) ($own['bucket'] ?? $operation)];
