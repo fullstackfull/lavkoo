@@ -270,10 +270,7 @@ class NoonConnectionTest extends TestCase
         $result = app(NoonConnector::class)->testConnection($this->account->fresh());
 
         $this->assertTrue($result->ok(), 'the key file works; what is missing is our own code');
-        $this->assertSame([
-            'noon_shipments_not_built',
-            'noon_publishes_no_settlement_endpoint',
-        ], $result->missing);
+        $this->assertSame(['noon_publishes_no_settlement_endpoint'], $result->missing);
     }
 
     public function test_the_gap_list_names_every_capability_the_matrix_calls_unbuilt_and_no_other(): void
@@ -303,8 +300,8 @@ class NoonConnectionTest extends TestCase
             $this->assertStringNotContainsString('upsert', $gap, 'the catalogue upsert is built');
         }
         // A gap is a promise THIS MODULE would otherwise make. It is not a permission noon withheld and not a setting left blank.
-        $this->assertContains('noon_shipments_not_built', $result->missing);
-        $this->assertContains('noon_publishes_no_settlement_endpoint', $result->missing);
+        // What is left is noon's own silence and not our backlog: it publishes no settlement, payout or fee endpoint anywhere, so no work here can close this one.
+        $this->assertSame(['noon_publishes_no_settlement_endpoint'], $result->missing);
     }
 
     public function test_a_missing_setting_is_not_reported_as_an_unbuilt_capability(): void
@@ -350,13 +347,13 @@ class NoonConnectionTest extends TestCase
             'service_account_login', 'identity_whoami', 'static_sandbox', 'warehouses', 'stock', 'pricing',
             'category_discovery', 'catalog_product_upsert', 'catalog_content_state', 'barcode_map',
             'fbpi_orders', 'fbpi_order_read', 'fbpi_buyer_data', 'fbpi_order_item_refusal',
+            'shipments', 'shipment_lifecycle', 'noon_logistics_awbs',
         ] as $built) {
             $this->assertTrue($matrix[$built]['built'], "{$built} is built and its path and body are documented");
         }
         // Documented by noon, and deliberately not built: either its reference page was never read (so no path is known) or nothing here calls it yet.
         foreach ([
             'product_groups', 'oauth_for_integrators', 'returns', 'sku_batch_map', 'event_destinations',
-            'shipments', 'shipment_lifecycle', 'noon_logistics_awbs',
         ] as $notBuilt) {
             $this->assertTrue($matrix[$notBuilt]['documented']);
             $this->assertFalse($matrix[$notBuilt]['built']);
@@ -387,13 +384,10 @@ class NoonConnectionTest extends TestCase
         // be unused; it may NOT be claimed as built.
         $this->assertSame([
             'noon.product_group_upsert', 'noon.sku_batch_map',
-            'noon.shipment_create', 'noon.shipment_cancel', 'noon.shipment_get', 'noon.shipment_awbs_add', 'noon.noon_logistics_awbs_get',
             'noon.return_references_list', 'noon.webhook_destinations_list',
         ], $uncalled, 'a registered operation nothing calls must be a row the matrix marks unbuilt');
         $matrix = app(NoonConnector::class)->capabilityMatrix();
-        foreach ([
-            'product_groups', 'sku_batch_map', 'shipments', 'shipment_lifecycle', 'noon_logistics_awbs', 'returns', 'event_destinations',
-        ] as $row) {
+        foreach (['product_groups', 'sku_batch_map', 'returns', 'event_destinations'] as $row) {
             $this->assertFalse($matrix[$row]['built'], "{$row} is registered and uncalled, so the matrix may not claim it");
             $this->assertStringContainsString('NOT BUILT YET', $matrix[$row]['note']);
         }

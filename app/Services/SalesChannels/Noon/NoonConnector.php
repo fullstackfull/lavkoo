@@ -9,6 +9,7 @@ use App\Models\ChannelListingDraft;
 use App\Models\SalesChannelAccount;
 use App\Models\ExternalOrderMapping;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
+use App\Services\SalesChannels\Contracts\ConfirmsShipments;
 use App\Services\SalesChannels\Contracts\CreatesListings;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
 use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
@@ -22,6 +23,7 @@ use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
 use App\Services\SalesChannels\Data\RemoteOrder;
+use App\Services\SalesChannels\Data\ShipmentConfirmation;
 use App\Services\SalesChannels\Dispatch\ChannelRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
@@ -60,7 +62,7 @@ use RuntimeException;
  *
  * FBN stock is noon's own, held in a noon fulfilment centre, fulfilled and returned by noon. It must never enter the shared pool, exactly as Amazon FBA does not.
  */
-class NoonConnector implements ChannelConnector, CreatesListings, DescribesListingRequirements, PublishesStockAndPrices, ReadsOrders, ReadsRecipient
+class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListings, DescribesListingRequirements, PublishesStockAndPrices, ReadsOrders, ReadsRecipient
 {
     public function __construct(
         private readonly NoonClient $client,
@@ -123,11 +125,10 @@ class NoonConnector implements ChannelConnector, CreatesListings, DescribesListi
      */
     private function whatIsNotBuiltYetFor(SalesChannelAccount $account): array
     {
-        // Only what this module still cannot serve. Stock, prices, the catalogue and order import ARE built now, so naming them here would tell a person their account is
-        // less capable than it is. What remains is one gap of ours and one of noon's, and they are not the same kind of thing: creating shipments is code nobody has
-        // written yet, while the settlement entry is noon publishing no endpoint at all -- which no amount of work here can close.
+        // Only what this module still cannot serve. Stock, prices, the catalogue, order import and shipments ARE built now, so naming any of them here would tell a person
+        // their account is less capable than it is. What is left is not a backlog of ours at all: noon publishes no settlement, payout or fee endpoint ANYWHERE in its
+        // index, so no amount of work here can close it, and that is why it reads as noon publishing nothing rather than as something unbuilt.
         $unservable = [
-            IntegrationCapability::FulfillmentDispatch->value => 'noon_shipments_not_built',
             IntegrationCapability::FinancialReconciliation->value => 'noon_publishes_no_settlement_endpoint',
         ];
 
@@ -897,6 +898,314 @@ class NoonConnector implements ChannelConnector, CreatesListings, DescribesListi
             : ['sent' => false, 'refused' => 'noon refused the out-of-stock notice (HTTP ' . $response->status . ': ' . $response->message() . '), so nothing was cancelled.'];
     }
 
+    // ---- shipments of an FBPI order ------------------------------------------------------------------------------
+
+    /**
+     * Tells noon an order has shipped, through the shared `ConfirmsShipments` contract.
+     *
+     * The contract speaks in QUANTITIES per line; noon speaks in `mp_item_nr` values, one per unit. The line ids this module produced are the comma-joined unit numbers of
+     * the line (see `NoonOrderMapper`), so the units are recovered from them and the first `quantity` of each line's units are the ones named. Within one line every unit is
+     * the same SKU of the same order, so which of them is named cannot change what physically ships; it is still a choice this code makes rather than one noon documents,
+     * and `createShipment()` is there for a caller that knows the exact unit numbers.
+     */
+    public function confirmShipment(SalesChannelAccount $account, ShipmentConfirmation $confirmation): bool
+    {
+        $units = [];
+        foreach ($confirmation->lineQuantities as $lineId => $quantity) {
+            $ofTheLine = array_values(array_filter(array_map('trim', explode(',', (string) $lineId))));
+            foreach (array_slice($ofTheLine, 0, max(0, (int) $quantity)) as $unit) {
+                $units[] = $unit;
+            }
+        }
+
+        $result = $this->createShipment(
+            $account,
+            $confirmation->orderId,
+            $units,
+            [['courier' => $confirmation->carrierName ?? $confirmation->carrierCode, 'awb_nr' => $confirmation->trackingNumber]],
+        );
+
+        return $result['confirmed'];
+    }
+
+    /**
+     * Creates the shipment of some units of an FBPI order: `POST /fbpi/v1/shipment/create`.
+     *
+     * TWO THINGS NOON DOES NOT PUBLISH SHAPE THIS WHOLE METHOD.
+     *
+     * **Its 200 carries no body at all.** Not a shipment number, not a status, nothing. So "noon answered 2xx" is the only thing a create ever tells us, and that is not
+     * enough to record a shipment against an order. The shipment is therefore READ BACK afterwards (`shipment/get`), and `confirmed` is true only when noon itself reports
+     * the shipment. A create that was taken but cannot be read back comes back as `sent` without `confirmed`, which is the truth and is what a person has to see.
+     *
+     * **Nothing is documented about a REPEATED `integration_shipment_nr`.** No idempotency rule, no error, nothing. So a repeat is never assumed safe, and two defences sit
+     * around it. First the number is DERIVED from the order and the exact units, so a retry of the same work sends the same number rather than minting a second shipment
+     * for goods already on their way. Then noon is asked whether that number already exists, and an existing one is reported as already shipped and NOT sent again -- which
+     * is what turns an ambiguous failure (a timeout, a reset) from a risk of shipping twice into a question with an answer.
+     *
+     * @param list<string> $unitNumbers noon's own `mp_item_nr` values
+     * @param list<array{courier: string, awb_nr: string}> $awbs
+     * @return array{sent: bool, confirmed: bool, shipment: string|null, reason: string|null}
+     */
+    public function createShipment(SalesChannelAccount $account, string $orderNumber, array $unitNumbers, array $awbs): array
+    {
+        $warehouse = trim((string) $account->setting('warehouse_code', ''));
+        $order = trim($orderNumber);
+        $units = array_values(array_unique(array_filter(array_map('trim', $unitNumbers), static fn (string $unit): bool => $unit !== '')));
+        $waybills = [];
+        foreach ($awbs as $awb) {
+            $courier = trim((string) ($awb['courier'] ?? ''));
+            $number = trim((string) ($awb['awb_nr'] ?? ''));
+            if ($courier !== '' && $number !== '') {
+                $waybills[] = ['courier' => $courier, 'awb_nr' => $number];
+            }
+        }
+
+        // Every one of these is required by noon's schema, and a shipment is the one write here that puts goods on a van: it is refused on anything missing rather than
+        // sent half-formed.
+        $missing = array_keys(array_filter([
+            'warehouse_code' => $warehouse === '',
+            'fbpi_order_nr' => $order === '',
+            'items' => $units === [],
+            'awbs' => $waybills === [],
+        ]));
+        if ($missing !== []) {
+            return ['sent' => false, 'confirmed' => false, 'shipment' => null, 'reason' => 'noon requires ' . implode(', ', $missing) . ' on a shipment, and this one has none.'];
+        }
+
+        $shipmentNumber = $this->shipmentNumberFor($order, $units);
+
+        // A shipment noon already holds under this number is the same work, already done. Sending it again is the one mistake that cannot be taken back.
+        $existing = $this->shipment($account, $shipmentNumber);
+        if ($existing !== null) {
+            return ['sent' => false, 'confirmed' => true, 'shipment' => $shipmentNumber, 'reason' => 'noon already holds this shipment, so nothing was sent again.'];
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.shipment_create',
+            'POST',
+            NoonOperations::paths()['noon.shipment_create'],
+            json: [
+                'warehouse_code' => $warehouse,
+                'integration_shipment_nr' => $shipmentNumber,
+                'fbpi_order_nr' => $order,
+                'awbs' => $waybills,
+                'items' => array_map(static fn (string $unit): array => ['mp_item_nr' => $unit], $units),
+            ],
+            capability: IntegrationCapability::FulfillmentDispatch,
+            scope: 'fulfillment_dispatch',
+        );
+        if ($response->isDryRun()) {
+            return ['sent' => false, 'confirmed' => false, 'shipment' => null, 'reason' => null];
+        }
+        if (!$response->ok()) {
+            return [
+                'sent' => false,
+                'confirmed' => false,
+                'shipment' => $shipmentNumber,
+                // An ambiguous failure may have reached noon. It is NOT reported as nothing-happened: the same number is derived again next time and the read above finds
+                // the shipment if noon did take it.
+                // Only the two kinds that genuinely leave doubt, named rather than inferred: ChannelResponse documents a 5xx as "the channel may have acted" for a write
+                // and an ambiguous result as a timeout or reset AFTER the request went. A 4xx is a definitive no and must not be dressed up as a maybe --
+                // `certainlyNotProcessed()` does not cover it, so negating that helper would warn about every refusal.
+                'reason' => 'noon refused the shipment (HTTP ' . $response->status . ': ' . $response->message() . ').'
+                    . (in_array($response->kind, [ChannelResponse::SERVER_ERROR, ChannelResponse::AMBIGUOUS], true)
+                        ? ' The request may still have reached noon; the next attempt uses the same shipment number and will find it if it did.'
+                        : ''),
+            ];
+        }
+
+        // The 200 said nothing, so noon is asked what it holds. Only its own answer confirms a shipment.
+        $confirmed = $this->shipment($account, $shipmentNumber) !== null;
+
+        return [
+            'sent' => true,
+            'confirmed' => $confirmed,
+            'shipment' => $shipmentNumber,
+            'reason' => $confirmed ? null : 'noon took the shipment but does not report it yet, so nothing is recorded as shipped.',
+        ];
+    }
+
+    /**
+     * What noon holds for one of our shipment numbers: `POST /fbpi/v1/shipment/get`, or null when it holds none.
+     *
+     * This is the only way a create is ever verified, because a create answers no body. It reads and changes nothing.
+     *
+     * @return array{fbpi_order_nr: string, awbs: list<array<string, mixed>>, items: list<array<string, mixed>>}|null
+     */
+    public function shipment(SalesChannelAccount $account, string $shipmentNumber): ?array
+    {
+        $number = trim($shipmentNumber);
+        $warehouse = trim((string) $account->setting('warehouse_code', ''));
+        if ($number === '' || $warehouse === '') {
+            return null;
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.shipment_get',
+            'POST',
+            NoonOperations::paths()['noon.shipment_get'],
+            json: ['warehouse_code' => $warehouse, 'integration_shipment_nr' => $number],
+            capability: IntegrationCapability::OrderImport,
+        );
+        // A read that failed is NOT an absence. Treating it as one is what would have a shipment created twice, which is the whole thing this method exists to prevent.
+        if (!$response->ok() || trim((string) $response->get('fbpi_order_nr', '')) === '') {
+            return null;
+        }
+
+        return [
+            'fbpi_order_nr' => trim((string) $response->get('fbpi_order_nr', '')),
+            'awbs' => array_values(array_filter((array) $response->get('awbs', []), 'is_array')),
+            'items' => array_values(array_filter((array) $response->get('items', []), 'is_array')),
+        ];
+    }
+
+    /**
+     * Cancels a shipment at noon: `POST /fbpi/v1/shipment/cancel`.
+     *
+     * **IT CANCELS EVERY ITEM IN THE SHIPMENT**, in noon's own words, not merely the shipment record. So it is a decision somebody makes and never a way of retrying a
+     * create: a failed create is retried by creating again with the same derived number, which the read above makes safe.
+     *
+     * @return array{sent: bool, reason: string|null}
+     */
+    public function cancelShipment(SalesChannelAccount $account, string $shipmentNumber): array
+    {
+        $number = trim($shipmentNumber);
+        $warehouse = trim((string) $account->setting('warehouse_code', ''));
+        if ($number === '' || $warehouse === '') {
+            return ['sent' => false, 'reason' => 'A shipment number and the account\'s warehouse are both needed, and cancelling takes every item of the shipment with it.'];
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.shipment_cancel',
+            'POST',
+            NoonOperations::paths()['noon.shipment_cancel'],
+            json: ['warehouse_code' => $warehouse, 'integration_shipment_nr' => $number],
+            capability: IntegrationCapability::FulfillmentDispatch,
+            scope: 'fulfillment_dispatch',
+        );
+        if ($response->isDryRun()) {
+            return ['sent' => false, 'reason' => null];
+        }
+
+        return $response->ok()
+            ? ['sent' => true, 'reason' => null]
+            : ['sent' => false, 'reason' => 'noon refused the cancellation (HTTP ' . $response->status . ': ' . $response->message() . '), so the shipment stands.'];
+    }
+
+    /**
+     * Adds a courier and waybill to a shipment noon already holds: `POST /fbpi/v1/shipment/courier-awbs/add`.
+     *
+     * Its page gives the reason it exists: the warehouse could not scan one at the time. Its 200 carries no body, so the shipment is read back and the waybill looked for by
+     * number -- the same rule as a create, for the same reason.
+     *
+     * @param list<array{courier: string, awb_nr: string}> $awbs
+     * @return array{sent: bool, confirmed: bool, reason: string|null}
+     */
+    public function addWaybills(SalesChannelAccount $account, string $shipmentNumber, array $awbs): array
+    {
+        $number = trim($shipmentNumber);
+        $warehouse = trim((string) $account->setting('warehouse_code', ''));
+        $waybills = [];
+        foreach ($awbs as $awb) {
+            $courier = trim((string) ($awb['courier'] ?? ''));
+            $awbNumber = trim((string) ($awb['awb_nr'] ?? ''));
+            if ($courier !== '' && $awbNumber !== '') {
+                $waybills[] = ['courier' => $courier, 'awb_nr' => $awbNumber];
+            }
+        }
+        if ($number === '' || $warehouse === '' || $waybills === []) {
+            return ['sent' => false, 'confirmed' => false, 'reason' => 'A shipment number, the account\'s warehouse and at least one courier with a waybill are needed.'];
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.shipment_awbs_add',
+            'POST',
+            NoonOperations::paths()['noon.shipment_awbs_add'],
+            json: ['warehouse_code' => $warehouse, 'integration_shipment_nr' => $number, 'awbs' => $waybills],
+            capability: IntegrationCapability::FulfillmentDispatch,
+            scope: 'fulfillment_dispatch',
+        );
+        if ($response->isDryRun()) {
+            return ['sent' => false, 'confirmed' => false, 'reason' => null];
+        }
+        if (!$response->ok()) {
+            return ['sent' => false, 'confirmed' => false, 'reason' => 'noon refused the waybill (HTTP ' . $response->status . ': ' . $response->message() . ').'];
+        }
+
+        $held = $this->shipment($account, $number);
+        $wanted = array_column($waybills, 'awb_nr');
+        $there = array_values(array_filter(array_map(static fn (array $awb): string => trim((string) ($awb['awb_nr'] ?? '')), $held['awbs'] ?? [])));
+
+        return [
+            'sent' => true,
+            'confirmed' => array_diff($wanted, $there) === [],
+            'reason' => array_diff($wanted, $there) === [] ? null : 'noon took the waybill but does not report it on the shipment yet.',
+        ];
+    }
+
+    /**
+     * Asks noon's own logistics for waybill numbers: `POST /fbpi/v1/shipment/noon-logistics-awbs/get`.
+     *
+     * **IT MINTS NUMBERS.** Each call hands out new ones and there is no documented way to list the numbers already issued, so a repeat does not return what the last call
+     * returned -- it burns more. That is why it is never retried blindly, never called to find out whether the connection works, and why it refuses a quantity above the
+     * documented ceiling of 1 000 here rather than finding out what noon does with one.
+     *
+     * @return list<string>
+     */
+    public function noonWaybills(SalesChannelAccount $account, int $quantity, ?string $countryCode = null): array
+    {
+        $wanted = $quantity;
+        $country = mb_strtolower(trim($countryCode ?? (string) $account->setting('country_code', '')));
+        if ($wanted < 1 || $wanted > 1000 || $country === '') {
+            throw new RuntimeException('noon issues between 1 and 1 000 waybills for one named country, and this call would have asked for ' . $wanted . ($country === '' ? ' with no country' : ' for ' . $country) . '.');
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.noon_logistics_awbs_get',
+            'POST',
+            NoonOperations::paths()['noon.noon_logistics_awbs_get'],
+            json: ['country_code' => $country, 'qty' => $wanted],
+            capability: IntegrationCapability::FulfillmentDispatch,
+            scope: 'fulfillment_dispatch',
+        );
+        if ($response->isDryRun()) {
+            return [];
+        }
+        if (!$response->ok()) {
+            // Nothing is retried here by this method: numbers may have been issued and lost, and only a person can decide to ask again.
+            throw new RuntimeException('noon would not issue waybills (HTTP ' . $response->status . ': ' . $response->message() . ').');
+        }
+
+        return array_values(array_filter(array_map(
+            static fn ($number): string => trim((string) $number),
+            (array) $response->get('awb_nrs', []),
+        ), static fn (string $number): bool => $number !== ''));
+    }
+
+    /**
+     * Our own shipment number, derived so that the SAME work always produces the SAME number.
+     *
+     * This is the whole defence against shipping twice. noon requires `integration_shipment_nr` to be unique and documents nothing about a repeat, so a number minted
+     * afresh on a retry would create a second shipment for goods already on their way. A hash of the order and its exact units cannot do that: a retry of the same work
+     * derives the same number and the existence check finds the shipment noon already holds. Shipping DIFFERENT units of the same order gives a different number, which is
+     * right -- that really is a second shipment.
+     *
+     * @param list<string> $units
+     */
+    private function shipmentNumberFor(string $orderNumber, array $units): string
+    {
+        $sorted = $units;
+        // Sorted, so that the same units named in another order are still the same shipment.
+        sort($sorted);
+
+        return 'PK-' . mb_substr(hash('sha256', $orderNumber . '|' . implode('|', $sorted)), 0, 24);
+    }
+
     /**
      * The one call behind both create and amend.
      *
@@ -1113,9 +1422,9 @@ class NoonConnector implements ChannelConnector, CreatesListings, DescribesListi
             'fbpi_order_read' => ['documented' => true, 'built' => true, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/get, the number in the PATH, answering the same order object as the list and unwrapped. Its page says noon sends a webhook whenever the marketplace creates an order but does not document that webhook\'s payload, so nothing is read out of a webhook body: its order number is used to ask noon, and noon\'s own answer is what is believed. This is also the only way to see an order that changed long after it was created, which the creation-time filters cannot find again.'],
             'fbpi_buyer_data' => ['documented' => true, 'built' => true, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/customer-details/get, the ONLY noon call that reads a person, behind the buyer-data switch AND a master admin\'s approval that no other noon read needs. NOON PUBLISHES LESS THAN A COURIER NEEDS: the documented answer is first_name, last_name, city and administrative_division, with NO street address, NO phone and NO e-mail. So this cannot produce a deliverable recipient and does not pretend to -- what comes back is assembled honestly and ChannelRecipient::problems() then reports the address and phone as missing, which stops the dispatch instead of sending a courier half an address. Closing that needs something outside this code: an endpoint that carries an address, or noon\'s own logistics carrying the parcel.'],
             'fbpi_order_item_refusal' => ['documented' => true, 'built' => true, 'note' => 'POST /fbpi/v1/fbpi-order/update marks items OUT_OF_STOCK, which is the only status it accepts; noon then CANCELS those units and lets the rest proceed to fulfilment. There is no documented undo, so it is never reached from a failed stock read, a timeout or a retry -- only from a decision somebody made -- and an empty item list is refused rather than sent. Its 200 carries no body, so success is the absence of a refusal and the method returns what it actually knows rather than a bare true.'],
-            'shipments' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/create with warehouse_code, a unique integration_shipment_nr, the fbpi_order_nr, awbs[] (courier, awb_nr) and items[] (mp_item_nr) -- every field required. THE 200 CARRIES NO BODY AT ALL, and what noon does with a REPEATED integration_shipment_nr is not stated: no idempotency rule is published. So a repeat is not assumed safe, and a create is verified by reading the shipment back rather than by a field that does not exist. NOT BUILT YET.'],
-            'shipment_lifecycle' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/get (warehouse_code, integration_shipment_nr) answers fbpi_order_nr, awbs[] and items[] (mp_item_nr, partner_sku) -- this is how a create whose 200 is empty gets confirmed. POST /fbpi/v1/shipment/cancel cancels the shipment AND EVERY ITEM IN IT, so it is a decision and never a retry. POST /fbpi/v1/shipment/courier-awbs/add adds a courier and AWB where the warehouse could not scan one. Listing couriers is not documented anywhere; the only described courier value is noon or our own provider. NOT BUILT YET.'],
-            'noon_logistics_awbs' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/noon-logistics-awbs/get takes country_code and a qty of at most 1 000 and answers awb_nrs[]. It MINTS numbers, so it is never retried blindly and never called to find out whether it works. There is no documented way to list AWBs already issued. NOT BUILT YET.'],
+            'shipments' => ['documented' => true, 'built' => true, 'note' => 'POST /fbpi/v1/shipment/create with warehouse_code, a unique integration_shipment_nr, the fbpi_order_nr, awbs[] (courier, awb_nr) and items[] (mp_item_nr) -- every field required. TWO SILENCES SHAPE THE WHOLE IMPLEMENTATION. Its 200 CARRIES NO BODY AT ALL, so a 2xx is the only thing a create ever says and it is not enough to record a shipment: the shipment is read back with shipment/get and confirmed only by noon\'s own answer. And NOTHING is documented about a repeated integration_shipment_nr -- no idempotency rule, no error -- so the number is DERIVED from the order and its exact units (a retry of the same work sends the same number, different units a different one), and noon is asked whether it already holds that number before anything is sent. Together those turn an ambiguous failure from a risk of shipping twice into a question with an answer.'],
+            'shipment_lifecycle' => ['documented' => true, 'built' => true, 'note' => 'POST /fbpi/v1/shipment/get (warehouse_code, integration_shipment_nr) answers fbpi_order_nr, awbs[] and items[] (mp_item_nr, partner_sku): the only way a create is verified, and a FAILED read is never read as an absence -- that would be what creates a shipment twice. POST /fbpi/v1/shipment/cancel cancels the shipment AND EVERY ITEM IN IT in noon\'s own words, so it is a decision somebody makes and never a way of retrying a create. POST /fbpi/v1/shipment/courier-awbs/add adds a courier and waybill where the warehouse could not scan one; its 200 is empty too, so the shipment is read back and the waybill looked for by number. Listing couriers is not documented anywhere; the only described value is noon or our own provider.'],
+            'noon_logistics_awbs' => ['documented' => true, 'built' => true, 'note' => 'POST /fbpi/v1/shipment/noon-logistics-awbs/get takes country_code and a qty of at most 1 000 and answers awb_nrs[]. IT MINTS NUMBERS: each call hands out new ones, no operation lists the numbers already issued, and a repeat does not return the last call\'s -- it burns more. So it is never retried by this code, never called to see whether the connection works, and a quantity outside 1..1 000 is refused here rather than finding out what noon does with it.'],
             'sku_batch_map' => ['documented' => true, 'built' => false, 'note' => 'POST /catplat/v1/sku/batch-map ties our partner_sku values to nsku_children. Registered because its page was read, and deliberately uncalled: whether an nsku_child is the same thing as the sku_parent the content calls use is NOT STATED, so using it to resolve a sku_parent would be a guess. NOT BUILT YET.'],
             'event_destinations' => ['documented' => true, 'built' => false, 'note' => 'GET /event-notifications/v1/destination/list shows where noon sends events, with credentials redacted on read. CREATING a destination is a separate operation whose page has not been read, so it is not registered: a webhook is configured in noon\'s own portal until it is. NOT BUILT YET: the path and the body are known, nothing calls it.'],
             'oauth_for_integrators' => ['documented' => true, 'built' => false, 'note' => 'An OAuth flow exists for integrators acting on many sellers\' behalf. Its endpoint paths were not read, so nothing is registered for it, and this application holds one seller\'s own key file in any case.'],
