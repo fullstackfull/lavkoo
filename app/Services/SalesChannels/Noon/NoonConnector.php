@@ -1081,14 +1081,14 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
                 'sent' => false,
                 'confirmed' => false,
                 'shipment' => $shipmentNumber,
-                // An ambiguous failure may have reached noon. It is NOT reported as nothing-happened: the same number is derived again next time and the read above finds
-                // the shipment if noon did take it.
+                // An ambiguous failure may have reached noon. It is NOT reported as nothing-happened, and it is NOT retried: the claim above now says a send may have
+                // left, so the next attempt derives the same number, ASKS, and hands it to a person if noon does not show the shipment.
                 // Only the two kinds that genuinely leave doubt, named rather than inferred: ChannelResponse documents a 5xx as "the channel may have acted" for a write
                 // and an ambiguous result as a timeout or reset AFTER the request went. A 4xx is a definitive no and must not be dressed up as a maybe --
                 // `certainlyNotProcessed()` does not cover it, so negating that helper would warn about every refusal.
                 'reason' => 'noon refused the shipment (HTTP ' . $response->status . ': ' . $response->message() . ').'
-                    . (in_array($response->kind, [ChannelResponse::SERVER_ERROR, ChannelResponse::AMBIGUOUS], true)
-                        ? ' The request may still have reached noon; the next attempt uses the same shipment number and will find it if it did.'
+                    . ($mayHaveLanded
+                        ? ' The request may still have reached noon; the next attempt asks about the same shipment number instead of sending, and a person settles it if noon does not show it.'
                         : ''),
             ];
         }
@@ -1238,14 +1238,21 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             return ['sent' => false, 'confirmed' => false, 'reason' => 'noon refused the waybill (HTTP ' . $response->status . ': ' . $response->message() . ').'];
         }
 
-        $held = $this->shipment($account, $number);
+        // The same distinction as the create, for the same reason: a read that failed says nothing, and reporting it as "noon
+        // does not show the waybill yet" would be reporting an outage as noon's answer.
+        $held = $this->checkShipment($account, $number);
         $wanted = array_column($waybills, 'awb_nr');
-        $there = array_values(array_filter(array_map(static fn (array $awb): string => trim((string) ($awb['awb_nr'] ?? '')), $held['awbs'] ?? [])));
+        $there = array_values(array_filter(array_map(static fn (array $awb): string => trim((string) ($awb['awb_nr'] ?? '')), $held->shipment['awbs'] ?? [])));
+        $missing = array_diff($wanted, $there);
 
         return [
             'sent' => true,
-            'confirmed' => array_diff($wanted, $there) === [],
-            'reason' => array_diff($wanted, $there) === [] ? null : 'noon took the waybill but does not report it on the shipment yet.',
+            'confirmed' => $held->isPresent() && $missing === [],
+            'reason' => match (true) {
+                $held->isPresent() && $missing === [] => null,
+                $held->isUnknown() => 'noon took the waybill and then could not be asked about the shipment (' . $held->reason . '), so it is not recorded as carried.',
+                default => 'noon took the waybill but does not report it on the shipment yet.',
+            },
         ];
     }
 

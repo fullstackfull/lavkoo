@@ -695,6 +695,21 @@ class NoonShipmentsTest extends TestCase
 
     // ---- noon's own waybills, which are minted and not listed ---------------------------------------------------
 
+    public function test_a_waybill_whose_shipment_could_not_be_read_is_not_reported_as_a_lag(): void
+    {
+        // The same conflation as the create, in the adjacent method: a read that FAILED is not noon telling us it does not show
+        // the waybill yet. It carries no risk of a second shipment -- a waybill list is not a van -- but reporting an outage as
+        // noon's answer sends somebody looking in the wrong place.
+        $this->fake([self::ADD_AWB => Http::response([]), self::GET => Http::response([], 503)]);
+
+        $result = app(NoonConnector::class)->addWaybills($this->account, 'PK-ABC', [['courier' => 'smsa', 'awb_nr' => 'AWB-7']]);
+
+        $this->assertTrue($result['sent']);
+        $this->assertFalse($result['confirmed']);
+        $this->assertStringContainsString('could not be asked about the shipment', (string) $result['reason']);
+        $this->assertStringNotContainsString('does not report it on the shipment yet', (string) $result['reason']);
+    }
+
     public function test_noons_own_waybills_are_asked_for_by_country_and_quantity(): void
     {
         $this->fake([self::NOON_AWBS => Http::response(['awb_nrs' => ['A1', 'A2']])]);
