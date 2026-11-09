@@ -74,10 +74,14 @@ class OdooPostingConcurrencyTest extends TestCase
         $this->assertSame(1, $this->workersWhere($reports, static fn (array $stats): bool => ($stats['claimed'] ?? 0) > 0), 'exactly one run held the row');
     }
 
-    public function test_a_create_whose_answer_is_lost_in_every_process_still_posts_only_once(): void
+    public function test_a_create_whose_answer_is_lost_in_every_process_posts_once_and_recovers_by_the_reference(): void
     {
-        // THE WORST CASE, and the one the whole design exists for: the entry IS created and no process can see that it was.
-        // One row must still reach Odoo, and the posting row must end up waiting for a person rather than being tried again.
+        // A lost answer ALONE is recoverable, and this is what the reference exists for: the create landed, nobody saw the
+        // reply, and asking Odoo by our own reference finds the entry. The row closes on ODOO'S word rather than on ours.
+        //
+        // This test used to expect `needs_review`, which was wrong and had never run: these tests skip unless the database is
+        // a real MySQL or MariaDB, so the expectation was written and never checked. Losing the create's answer does not blind
+        // the search that follows it -- only a read that lags its own write does, which is the test below.
         $connection = $this->odooConnection();
         $this->mapOdooComponent(CostComponent::Shipping->value);
         app(OdooOutbox::class)->enqueue($this->settledCost('24.50'), self::ODOO_COMPANY);
@@ -85,9 +89,33 @@ class OdooPostingConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run('odoo.post_same_fact', array_fill(0, 4, ['account' => $connection->id, 'lose_the_answer' => true]));
 
         $this->assertSame([], $this->problemsOf($reports));
+        $this->assertSame(1, DB::table('test_odoo_moves')->count(), 'ONE entry, however many processes lost their answer');
+        $row = OdooPosting::firstOrFail();
+        $this->assertSame(OdooPosting::POSTED, $row->state, 'found by its reference, so no person is needed');
+        $this->assertNotNull($row->verified_at, 'and the row says it was ASKED about rather than answered directly');
+        $this->assertNull($row->available_at, 'nothing makes it due again');
+    }
+
+    public function test_a_lost_answer_and_a_lagging_read_together_wait_for_a_person(): void
+    {
+        // **THE WORST CASE, and the one the whole design exists for:** the entry IS created and nothing can see that it was.
+        // The create's answer is lost AND Odoo's read is behind its own write, so the reference finds nothing.
+        //
+        // The strict policy the owner adopted decides it: "Odoo holds no entry with this reference" is NOT proof that the
+        // create was never executed, so the row waits for a person. The cost is real -- somebody has to look -- and the
+        // alternative is a second cost in a customer's books, corrected only by a reversal they have to explain.
+        $connection = $this->odooConnection();
+        $this->mapOdooComponent(CostComponent::Shipping->value);
+        app(OdooOutbox::class)->enqueue($this->settledCost('24.50'), self::ODOO_COMPANY);
+
+        $reports = ConcurrentRunner::run('odoo.post_same_fact', array_fill(0, 4, [
+            'account' => $connection->id, 'lose_the_answer' => true, 'read_lag' => true,
+        ]));
+
+        $this->assertSame([], $this->problemsOf($reports));
         $this->assertSame(1, DB::table('test_odoo_moves')->count(), 'one entry, even though nobody could confirm it');
         $row = OdooPosting::firstOrFail();
-        $this->assertSame(OdooPosting::NEEDS_REVIEW, $row->state, 'and it waits for a person rather than for another attempt');
+        $this->assertSame(OdooPosting::NEEDS_REVIEW, $row->state, 'it waits for a person rather than for another attempt');
         $this->assertNull($row->available_at, 'nothing makes it due again');
     }
 
