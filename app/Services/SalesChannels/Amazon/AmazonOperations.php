@@ -74,7 +74,13 @@ final class AmazonOperations
             // ---- reports (a report request reads; it changes nothing the seller owns) ----
             'amazon.reports_create' => Ops::read(methods: ['POST'], capabilities: $read, retrySafe: false),
             'amazon.reports_get' => Ops::read(capabilities: $read),
+            // getReports. **The only way a settlement report is ever found**: Amazon's own page says settlement reports "cannot
+            // be requested or scheduled" and are searched for with this operation, so a reader without it has no settlement at
+            // all. It is also how a report whose id was lost is found again.
+            'amazon.reports_list' => Ops::read(capabilities: $read),
             'amazon.reports_document' => Ops::read(capabilities: $read),
+            // The presigned S3 download. Not an SP-API path and it carries NO Amazon credential: the URL is already signed, and
+            // adding the access token would send a credential somewhere it was not asked for.
             'amazon.report_download' => Ops::read(capabilities: $read),
 
             // ---- notifications (delivered to the seller's own AWS queue, never to a URL here) ----

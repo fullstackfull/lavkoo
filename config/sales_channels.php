@@ -95,8 +95,19 @@ return [
                 'amazon.finances_groups' => ['max' => 10, 'per_seconds' => 20],
                 // getMarketplaceParticipations: 0.016 requests/second, burst 15.
                 'amazon.probe_participations' => ['max' => 10, 'per_seconds' => 900],
+                // createReport: 0.0167 requests/second, burst 15 -- one a minute, so a retry loop against it would spend the
+                // whole account's budget. Ours is deliberately under it.
                 'amazon.reports_create' => ['max' => 10, 'per_seconds' => 900],
+                // getReport: 2 requests/second, burst 15. The one report call that may be made freely, which is why polling is
+                // how a run waits and every other step is recorded rather than repeated.
+                'amazon.reports_get' => ['max' => 2, 'per_seconds' => 1],
+                // getReports: 0.0222 requests/second, burst 10.
+                'amazon.reports_list' => ['max' => 10, 'per_seconds' => 900],
+                // getReportDocument: 0.0167 requests/second, burst 15.
                 'amazon.reports_document' => ['max' => 10, 'per_seconds' => 900],
+                // The presigned download is S3, not SP-API, and Amazon publishes no limit for it. Paced anyway: a document is
+                // fetched once per report and the URL is good for five minutes.
+                'amazon.report_download' => ['max' => 10, 'per_seconds' => 60],
                 'amazon.feeds_create' => ['max' => 2, 'per_seconds' => 300],
                 'amazon.feeds_create_document' => ['max' => 10, 'per_seconds' => 20],
             ],
@@ -111,6 +122,10 @@ return [
         ],
         // The User-Agent Amazon requires on every call: application, version, language.
         'user_agent' => ['application' => 'PharmacyChannelHub', 'version' => '1.0'],
+        // The largest report document this version will read. The HTTP client buffers a whole body, so this bounds what gets
+        // PARSED and names the refusal; it does not bound what gets received. A catalogue that outgrows it needs the streaming
+        // download, which is a declared gap rather than something half-done (docs/sales-channels/api-reference.md).
+        'report_max_bytes' => 33554432,
         // A fresh access token is fetched when the one held has less than this many seconds left (tokens last 3600).
         'token_refresh_margin_seconds' => 300,
         // Everything searchOrders is asked to include. BUYER is requested only when the account asks for buyer data; names, addresses and phones are never stored on the channel order record.

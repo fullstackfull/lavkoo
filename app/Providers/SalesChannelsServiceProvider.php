@@ -7,6 +7,9 @@ use App\Services\SalesChannels\Contracts\ListsOrderParcels;
 use App\Services\Fulfillment\ProviderParcels;
 use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\SalesChannels\Accounting\AccountingDestination;
+use App\Services\SalesChannels\Amazon\AmazonReportRunner;
+use App\Services\SalesChannels\Amazon\AmazonReports;
+use App\Services\SalesChannels\Amazon\AmazonSettlementReader;
 use App\Services\SalesChannels\Accounting\NullAccountingDestination;
 use App\Services\SalesChannels\Inventory\ChannelHoldsOnProviderStock;
 use App\Services\SalesChannels\Inventory\Outbox\ProviderFigureNotes;
@@ -42,6 +45,14 @@ class SalesChannelsServiceProvider extends ServiceProvider
         $this->app->bind(ListsOrderParcels::class, ProviderParcels::class);
         // Odoo is deferred: the books have an extension point (AccountingDestination) and, until one is built, a destination that posts nothing.
         $this->app->bind(AccountingDestination::class, NullAccountingDestination::class);
+
+        // Who understands which Amazon report document. Listed HERE rather than discovered, so the set is one short list a
+        // person can read, and a report type with nobody to read it is named by the runner instead of being quietly counted as
+        // imported.
+        $this->app->bind(AmazonReportRunner::class, static fn ($app): AmazonReportRunner => new AmazonReportRunner(
+            $app->make(AmazonReports::class),
+            [$app->make(AmazonSettlementReader::class)],
+        ));
     }
 
     public function boot(): void
