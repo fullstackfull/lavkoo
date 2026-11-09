@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -56,5 +57,21 @@ class ChannelAttentionReview extends Model
     public function closesTheAlert(): bool
     {
         return $this->alert_state === self::CLOSED;
+    }
+
+    /**
+     * The ids of one source's rows whose alert a person has already closed — as a subquery, so a caller excludes them
+     * without loading them.
+     *
+     * It lives here because both halves of the feature have to agree on it: the collector uses it to keep a dealt-with row
+     * off the screen, and the actions use it to refuse a second action on that row. Two copies of this predicate would
+     * eventually disagree, and the shape of that disagreement is a row a person has dealt with that still accepts an
+     * action — which for the one retryable source means queueing real work from a click that was already stale.
+     *
+     * @return Builder<self>
+     */
+    public static function closedRowIdsFor(string $source): Builder
+    {
+        return self::query()->select('source_row_id')->where('source', $source)->where('alert_state', self::CLOSED);
     }
 }

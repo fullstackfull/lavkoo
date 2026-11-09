@@ -123,7 +123,11 @@ class AttentionRegistry
                 model: ChannelStockEvent::class,
                 states: [ChannelStockEvent::DEAD],
                 columns: ['reference' => 'reason', 'reason' => 'failure_code', 'detail' => 'publish_detail', 'since' => 'updated_at'],
-                actions: [AttentionSource::OPEN, AttentionSource::PUT_BACK],
+                // REVIEW as well as PUT_BACK, and it is the only source that offers both. Without it the one way a dead
+                // stock event could leave this screen was to queue the work again -- so a person who looked, found the
+                // provider's number already right and concluded there was nothing to send was pushed into sending it
+                // anyway. Dismissing an alert and re-doing the work are different findings and now have different buttons.
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW, AttentionSource::PUT_BACK],
                 retryable: true,
                 pendingState: ChannelStockEvent::PENDING,
             ),

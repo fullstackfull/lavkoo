@@ -132,12 +132,7 @@ class AttentionCollector
         $query = $model->newQuery()->whereIn($source->stateColumn, $source->states);
 
         if (Schema::hasTable('channel_attention_reviews')) {
-            $closed = ChannelAttentionReview::query()
-                ->select('source_row_id')
-                ->where('source', $source->key)
-                ->where('alert_state', ChannelAttentionReview::CLOSED);
-
-            $query->whereNotIn($model->getQualifiedKeyName(), $closed);
+            $query->whereNotIn($model->getQualifiedKeyName(), ChannelAttentionReview::closedRowIdsFor($source->key));
         }
 
         return $query->orderBy($model->getQualifiedKeyName());

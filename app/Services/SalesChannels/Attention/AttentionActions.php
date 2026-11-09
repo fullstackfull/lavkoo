@@ -42,6 +42,12 @@ use Throwable;
  * refund: the second is refused by the database and told who got there first. The one state change that does exist --
  * putting idempotent work back -- is a conditional update whose affected-row count is checked, so it cannot be applied twice
  * or applied to a row somebody else moved.
+ *
+ * The two actions therefore look the row up differently, and the difference is the point. A REVIEW asks only whether the
+ * operation is still in an alert state: it changes nothing, so a second one can safely run as far as the unique key, and the
+ * refusal is then able to name the finding the first person recorded. A PUT-BACK also asks whether anybody has already
+ * closed the alert, because it moves `dead -> pending` before it writes its own review -- allowed as far as that write, it
+ * would queue real work and then need a constraint violation to undo it.
  */
 class AttentionActions
 {
@@ -95,7 +101,7 @@ class AttentionActions
             return ['ok' => false, 'refusal' => 'attention_review_needs_a_named_person'];
         }
 
-        $row = $this->row($source, $id);
+        $row = $this->rowInAnAlertState($source, $id);
         if ($row === null) {
             return ['ok' => false, 'refusal' => 'attention_row_is_no_longer_waiting'];
         }
@@ -176,7 +182,7 @@ class AttentionActions
             return ['ok' => false, 'refusal' => 'attention_reviews_table_not_migrated'];
         }
 
-        $row = $this->row($source, $id);
+        $row = $this->rowStillWaitingForSomebody($source, $id);
         if ($row === null) {
             return ['ok' => false, 'refusal' => 'attention_row_is_no_longer_waiting'];
         }
@@ -244,22 +250,47 @@ class AttentionActions
     }
 
     /**
-     * The row, if it is still in one of the states that put it on the screen.
+     * The row, if the operation is still in one of the states that put it on the screen.
      *
-     * Locked for update, so two reviews of one row serialise rather than racing. The unique key on the review table is the
-     * guarantee; this only makes the common case give a clear answer instead of a constraint violation.
+     * This is what a REVIEW needs, and deliberately no more. A review changes no state, so letting one through on a row
+     * somebody has already dealt with costs nothing -- and it buys the better refusal: the unique key stops the second
+     * review and the message can then name the outcome the first person recorded. "Somebody already looked and found the
+     * refund was made" is worth more to a pharmacist than "this row is no longer waiting".
+     *
+     * Locked for update, so two reviews of one row serialise rather than racing. The unique key on the review table is still
+     * the guarantee; this only makes the common case give a clear answer instead of a constraint violation.
      *
      * No engine check: on SQLite `lockForUpdate()` compiles to nothing at all -- the lock clause simply does not appear in
      * the SQL -- so asking for it unconditionally is correct everywhere. The first version checked the driver name through
      * `DB::connection()`, which this module's own guard reads as opening a connection of its own, and it was right to: a
      * module that reaches for the connection is a module that can reach for somebody else's table.
      */
-    private function row(AttentionSource $source, int $id): ?Model
+    private function rowInAnAlertState(AttentionSource $source, int $id): ?Model
     {
         /** @var Model $model */
         $model = new $source->model();
 
         return $model->newQuery()->whereKey($id)->whereIn($source->stateColumn, $source->states)->lockForUpdate()->first();
+    }
+
+    /**
+     * The row, if it is still waiting for somebody: in an alert state AND with no review that closed its alert.
+     *
+     * **What a PUT-BACK needs**, because a put-back is the one action here that changes an operation's state. It moves
+     * `dead -> pending` BEFORE it writes its own review, so a put-back allowed as far as that write would queue real work
+     * and then rely on a constraint violation to roll it back. Both halves are asked first instead, before anything moves.
+     *
+     * The closed-alert half lives on the review model, because the collector decides what is on the screen with exactly the
+     * same question and the two must not drift into disagreeing.
+     */
+    private function rowStillWaitingForSomebody(AttentionSource $source, int $id): ?Model
+    {
+        /** @var Model $model */
+        $model = new $source->model();
+        $query = $model->newQuery()->whereKey($id)->whereIn($source->stateColumn, $source->states);
+        $query->whereNotIn($model->getQualifiedKeyName(), ChannelAttentionReview::closedRowIdsFor($source->key));
+
+        return $query->lockForUpdate()->first();
     }
 
     private function reference(AttentionSource $source, Model $row): ?string

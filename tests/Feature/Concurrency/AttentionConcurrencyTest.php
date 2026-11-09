@@ -91,23 +91,57 @@ class AttentionConcurrencyTest extends TestCase
         $this->assertSame(0, (int) ChannelStockEvent::firstOrFail()->attempts);
     }
 
-    public function test_a_review_and_a_put_back_of_one_row_do_not_both_land(): void
+    public function test_a_review_and_a_put_back_racing_for_one_row_do_not_both_land(): void
     {
-        // The two actions this screen offers, on one row, at once. They write different things and must still agree that one
-        // person dealt with it.
+        // **THE TWO ACTIONS THIS SCREEN OFFERS, ON ONE ROW, AT THE SAME INSTANT.** The stock outbox is the only source that
+        // offers both -- dismiss the alert, or queue the work again -- so it is the only place this question can be asked.
+        // They write different things and must still agree that ONE person dealt with it: either the alert was dismissed
+        // and nothing was queued, or the work was queued and that is the record. Never both.
         $id = $this->aDeadStockEvent();
 
         $reports = ConcurrentRunner::run('attention.review', [
             ['source' => 'stock_events', 'row' => $id, 'admin' => 1, 'outcome' => ChannelAttentionReview::NO_LONGER_RELEVANT],
+            ['op' => 'attention.put_back_after_reading', 'row' => $id, 'admin' => 2],
         ]);
+
         $this->assertSame([], $this->problemsOf($reports));
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertSame(1, $this->workersWhere($reports, static fn (array $r): bool => ($r['ok'] ?? false) === true), 'both actions landed on one row');
+        $this->assertSame(1, ChannelAttentionReview::count(), 'one row carried two records of being dealt with');
+
+        // And the operation's state agrees with whichever one won -- it was never left half moved by the loser.
+        $review = ChannelAttentionReview::firstOrFail();
+        $event = ChannelStockEvent::firstOrFail();
+        if ($review->outcome === ChannelAttentionReview::NO_LONGER_RELEVANT) {
+            $this->assertSame(ChannelStockEvent::DEAD, $event->state, 'the dismissal queued work it said was unnecessary');
+            $this->assertSame(5, (int) $event->attempts, 'the dismissal reset a counter it does not own');
+        } else {
+            $this->assertSame(ChannelStockEvent::PENDING, $event->state);
+            $this->assertSame(0, (int) $event->attempts);
+        }
+    }
+
+    public function test_a_put_back_is_refused_once_somebody_has_dismissed_the_alert(): void
+    {
+        // The sequential half of the same rule, and the one that says WHY. A row whose alert a person closed is not waiting
+        // for anybody, so the refusal is `row_is_no_longer_waiting` -- decided before anything moves -- and not a
+        // uniqueness collision discovered after `dead -> pending` had already been written and had to be rolled back.
+        $id = $this->aDeadStockEvent();
+
+        $first = ConcurrentRunner::run('attention.review', [
+            ['source' => 'stock_events', 'row' => $id, 'admin' => 1, 'outcome' => ChannelAttentionReview::NO_LONGER_RELEVANT],
+        ]);
+        $this->assertSame([], $this->problemsOf($first));
+        $this->assertTrue((bool) ($first[0]['result']['ok'] ?? false), 'the dismissal itself was refused, so this test proves nothing');
 
         $later = ConcurrentRunner::run('attention.put_back_after_reading', [['row' => $id, 'admin' => 2]]);
 
         $this->assertSame([], $this->problemsOf($later));
         $this->assertFalse((bool) ($later[0]['result']['ok'] ?? true), 'the put-back landed on a row somebody had already dealt with');
+        $this->assertSame('attention_row_is_no_longer_waiting', $later[0]['result']['refusal'] ?? null);
         $this->assertSame(1, ChannelAttentionReview::count());
         $this->assertSame(ChannelStockEvent::DEAD, ChannelStockEvent::firstOrFail()->state, 'the review closed the alert and left the operation alone');
+        $this->assertSame(5, (int) ChannelStockEvent::firstOrFail()->attempts, 'the refused put-back still reset the counter');
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------

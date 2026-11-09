@@ -31,7 +31,7 @@ use Tests\TestCase;
  *
  * ## And the rule it exists to enforce
  *
- * **Nothing on this screen sends anything.** Eight of the nine sources are not retryable and the tests below are mostly about
+ * **Nothing on this screen sends anything.** Nine of the ten sources are not retryable and the tests below are mostly about
  * that: the only sanctioned actions are to look and to record what was found at the channel. The ninth, the stock outbox, may
  * be put back because its publisher recomputes a quantity and compares it with what it last wrote — idempotent by
  * construction, which is a property that can be stated, not a hope.
@@ -346,6 +346,89 @@ class AttentionCollectorTest extends TestCase
         // The trail says out loud that the operation was NOT settled by this.
         $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, $line->context['operation_state_unchanged']);
         $this->assertSame('TY-1', $line->context['evidence']);
+    }
+
+    public function test_a_dead_stock_event_can_be_dismissed_without_queueing_the_work_again(): void
+    {
+        // **THE GAP THIS CLOSES.** The stock outbox was the one source with a retry and no review, so the only way a dead
+        // event could leave this screen was to queue the work again. A person who looked, found the provider's number
+        // already right and concluded there was nothing to send had no button but the one that sends. Dismissing an alert
+        // and re-doing the work are different findings; they are now different buttons.
+        $this->aDeadStockEvent();
+        $id = (int) ChannelStockEvent::firstOrFail()->id;
+
+        $result = app(AttentionActions::class)->review(
+            sourceKey: 'stock_events',
+            id: $id,
+            adminId: 4,
+            outcome: ChannelAttentionReview::NO_LONGER_RELEVANT,
+            note: 'The provider already holds the right figure; there is nothing to publish.',
+            closeTheAlert: true,
+        );
+
+        $this->assertTrue($result['ok'], (string) $result['refusal']);
+        $row = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::DEAD, $row->state, 'dismissing an alert queued the work it said was unnecessary');
+        $this->assertSame(5, (int) $row->attempts, 'dismissing an alert reset a counter it does not own');
+        $this->assertSame([], app(AttentionCollector::class)->items(), 'and it is no longer waiting for anybody');
+    }
+
+    public function test_putting_back_is_refused_once_somebody_has_dismissed_the_alert(): void
+    {
+        // A row whose alert a person closed is not waiting for anybody, so the put-back is refused BEFORE anything moves --
+        // and not by a uniqueness collision discovered after `dead -> pending` had already been written and rolled back.
+        // The two halves of the feature decide "still waiting" with one predicate, so they cannot drift into disagreeing.
+        $this->aDeadStockEvent();
+        $id = (int) ChannelStockEvent::firstOrFail()->id;
+        $actions = app(AttentionActions::class);
+        $actions->review('stock_events', $id, 1, ChannelAttentionReview::NO_LONGER_RELEVANT, 'Nothing to publish.', closeTheAlert: true);
+
+        $result = $actions->putBack('stock_events', $id, 2, 'the provider is answering again');
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('attention_row_is_no_longer_waiting', $result['refusal']);
+        $row = ChannelStockEvent::firstOrFail();
+        $this->assertSame(ChannelStockEvent::DEAD, $row->state);
+        $this->assertSame(5, (int) $row->attempts);
+        $this->assertSame(1, ChannelAttentionReview::count(), 'the refused put-back still wrote a record of itself');
+    }
+
+    public function test_a_second_review_of_a_dismissed_row_is_told_what_the_first_person_found(): void
+    {
+        // Why the two actions look the row up differently. A review changes no state, so a second one costs nothing to let
+        // as far as the unique key -- and the refusal can then name the finding the first person recorded. Refusing it
+        // earlier with a flat "no longer waiting" would be safe and useless: the person is standing in front of the screen
+        // asking what happened to this refund, and the answer is on the row.
+        $this->aFencedReturn();
+        $id = (int) ChannelReturnDecision::firstOrFail()->id;
+        $actions = app(AttentionActions::class);
+        $actions->review('return_decisions', $id, 1, ChannelAttentionReview::CONFIRMED_AT_CHANNEL, 'Trendyol shows the refund made.', closeTheAlert: true);
+
+        $result = $actions->review('return_decisions', $id, 2, ChannelAttentionReview::STILL_UNKNOWN, 'I cannot tell.', closeTheAlert: true);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('attention_somebody_already_reviewed_this_confirmed_at_channel', $result['refusal'], 'the second reviewer was not told what the first one found');
+        $this->assertSame(1, ChannelAttentionReview::count());
+        $this->assertSame(ChannelAttentionReview::CONFIRMED_AT_CHANNEL, ChannelAttentionReview::firstOrFail()->outcome, 'the second review overwrote the first');
+    }
+
+    public function test_a_review_that_leaves_the_alert_open_does_not_block_the_other_action(): void
+    {
+        // The other side of the same rule: `reviewed` means somebody is working on it, not that it is dealt with. The row
+        // stays on the screen, so the actions it offers must still work -- otherwise noting "I am looking at this" would
+        // quietly disable the button a person is about to need.
+        $this->aDeadStockEvent();
+        $id = (int) ChannelStockEvent::firstOrFail()->id;
+        $actions = app(AttentionActions::class);
+        $actions->review('stock_events', $id, 1, ChannelAttentionReview::STILL_UNKNOWN, 'Asking the provider.', closeTheAlert: false);
+
+        $this->assertNotSame([], app(AttentionCollector::class)->items(), 'an open review took the row off the screen');
+
+        // The row is still reachable; the put-back is refused only because one row carries only one review.
+        $result = $actions->putBack('stock_events', $id, 2, 'the provider answered');
+        $this->assertFalse($result['ok']);
+        $this->assertSame('attention_somebody_already_reviewed_this_row', $result['refusal'], 'refused for the wrong reason');
+        $this->assertSame(ChannelStockEvent::DEAD, ChannelStockEvent::firstOrFail()->state, 'the rolled-back put-back left the row moved');
     }
 
     public function test_putting_back_is_refused_when_the_row_moved_under_us(): void
