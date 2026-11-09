@@ -207,7 +207,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8.0', 'MariaDB 11.4.2']
-        group: ['sales channels', 'costs']
+        group: ['sales channels', 'concurrency', 'myfatoorah', 'costs']
         include:
           - engine: MySQL 8.0
             image: mysql:8.0
@@ -218,10 +218,26 @@ jobs:
             version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: sales channels
-            # tests/Feature/Concurrency and the dispatch/stock concurrency tests start several PHP processes at the same instant against this database; they skip on SQLite.
-            # tests/Feature/MyFatoorah runs here as well as on SQLite: three of its failures were visible only on a real server — an `orders` table that
-            # outlives the test, a currency left switched off by an earlier test, and REPEATABLE READ hiding a sibling's just-committed row from a plain SELECT.
-            paths: tests/Feature/SalesChannels tests/Feature/Concurrency tests/Feature/MyFatoorah tests/Unit/MyFatoorah
+            paths: tests/Feature/SalesChannels
+          - group: concurrency
+            # Split out of the sales-channel group, with MyFatoorah below, because that group could no longer FINISH on MySQL.
+            #
+            # Measured across the other branches: MariaDB did the whole group in about 40 minutes, while the MySQL 8.0 job
+            # reached 105 minutes against a 110-minute ceiling and reported NOTHING. It is not a hang -- the costs group shows
+            # the same ratio on the same two engines (11 minutes on MariaDB, 34 on MySQL) -- so this engine is several times
+            # slower at this workload and three suites in one job had outgrown it.
+            #
+            # A job killed by its own timeout reports NO RESULT, which is worse than a failure: a slow suite then looks exactly
+            # like a broken one, and the head never shows a complete answer however often CI is re-run.
+            #
+            # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this job
+            # is the only place they run at all.
+            paths: tests/Feature/Concurrency
+          - group: myfatoorah
+            # On a real server as well as on SQLite: three of its failures were visible only here — an `orders` table that
+            # outlived the test, a currency left switched off by an earlier test, and REPEATABLE READ hiding a sibling's
+            # just-committed row from a plain SELECT.
+            paths: tests/Feature/MyFatoorah tests/Unit/MyFatoorah
           - group: costs
             paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Feature/CiDatabaseTest.php
     services:
