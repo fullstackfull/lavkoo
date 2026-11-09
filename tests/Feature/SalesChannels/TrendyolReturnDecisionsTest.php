@@ -267,6 +267,115 @@ class TrendyolReturnDecisionsTest extends TestCase
         $this->assertSame(ChannelReturnDecision::PENDING, $row->state, 'the decision survives; only the sending stopped');
     }
 
+    // ---- the race the review found, on every engine -------------------------------------------------------------
+
+    public function test_a_decision_another_worker_finished_is_never_claimed_again(): void
+    {
+        // The state another worker leaves behind: `done`, and `claimed_by` CLEARED -- which is exactly what settling does. The
+        // claim used to test only whether the claim was free, so this row matched and was sent a second time.
+        Http::fake([self::APPROVE => Http::response('', 200)]);
+        $decisions = app(ChannelReturnDecisions::class);
+        $decisions->decide($this->account, 'CLAIM-DONE', ['ITEM-A'], ChannelReturnDecision::APPROVE, adminId: 1);
+        ChannelReturnDecision::query()->update(['state' => ChannelReturnDecision::DONE, 'claimed_by' => null, 'claimed_at' => null, 'settled_at' => now()]);
+
+        $stats = app(ChannelReturnDecisions::class)->send($this->account);
+
+        $this->assertSame(0, $stats['sent']);
+        $this->assertSame([], $this->sent(self::APPROVE), 'a finished decision is never sent again');
+        $this->assertSame(ChannelReturnDecision::DONE, ChannelReturnDecision::firstOrFail()->state);
+    }
+
+    /**
+     * @param string $state a state a decision has already reached
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('settledStates')]
+    public function test_the_fence_refuses_to_reopen_a_decision_that_already_reached_an_outcome(string $state): void
+    {
+        // **A DIRECT TEST OF THE GUARD THAT WAS MISSING.** `aboutToSend()` checked the owner and the lease and not the STATE,
+        // so a worker still holding a live claim could move a DONE, FAILED or NEEDS_REVIEW row back to `may_have_sent` and
+        // send a second refund. It is private because nothing outside may fence a decision; it is reached by reflection here
+        // because a guard whose whole purpose is to refuse deserves a test that asks it to.
+        $decisions = app(ChannelReturnDecisions::class);
+        $decisions->decide($this->account, 'CLAIM-SETTLED', ['ITEM-A'], ChannelReturnDecision::APPROVE, adminId: 1);
+        $row = ChannelReturnDecision::firstOrFail();
+        // The row is still OWNED by this run and its lease is live: only the state says it is finished.
+        $row->forceFill(['state' => $state, 'claimed_by' => $decisions->runId(), 'claimed_at' => now()])->save();
+
+        // `fenced()` is how the flow asks -- it wraps the conditional update and turns an all-or-nothing rollback into a
+        // plain "no".
+        $fence = new \ReflectionMethod($decisions, 'fenced');
+
+        $this->assertFalse($fence->invoke($decisions, [$row->fresh()]), 'a settled decision may not be fenced');
+        $this->assertSame($state, ChannelReturnDecision::firstOrFail()->state, 'and its state was not touched');
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function settledStates(): array
+    {
+        return [
+            'already taken' => [ChannelReturnDecision::DONE],
+            'refused by Trendyol' => [ChannelReturnDecision::FAILED],
+            'waiting for a person' => [ChannelReturnDecision::NEEDS_REVIEW],
+        ];
+    }
+
+    public function test_a_group_that_cannot_be_fenced_whole_is_not_fenced_at_all(): void
+    {
+        // All or nothing. Without the transaction, the rows that COULD be fenced were, and then the send was abandoned -- and
+        // `may_have_sent` is not a state anything picks up again, so those rows sat for ever while the customer's return stayed
+        // undecided.
+        $decisions = app(ChannelReturnDecisions::class);
+        $decisions->decide($this->account, 'CLAIM-PARTIAL', ['ITEM-A', 'ITEM-B'], ChannelReturnDecision::APPROVE, adminId: 1);
+        $rows = ChannelReturnDecision::orderBy('id')->get();
+        ChannelReturnDecision::query()->update(['claimed_by' => $decisions->runId(), 'claimed_at' => now()]);
+        // One of the two has already reached an outcome; the other is untouched.
+        $rows[1]->forceFill(['state' => ChannelReturnDecision::DONE])->save();
+
+        $fence = new \ReflectionMethod($decisions, 'fenced');
+
+        $this->assertFalse($fence->invoke($decisions, [$rows[0]->fresh(), $rows[1]->fresh()]));
+        $this->assertSame(ChannelReturnDecision::PENDING, ChannelReturnDecision::whereKey($rows[0]->id)->value('state'), 'the other row was NOT left fenced');
+        $this->assertNull(ChannelReturnDecision::whereKey($rows[0]->id)->value('sent_at'));
+    }
+
+    public function test_two_items_refused_in_different_words_each_carry_their_own_words(): void
+    {
+        // Grouping by claim, decision and reason alone sent the FIRST row's text for the whole group, so a person's reason for
+        // refusing one customer was put on another item. A differing description is a different call.
+        $this->fakeReasons();
+        Http::fake([self::REJECT => Http::response('', 200)]);
+        $decisions = app(ChannelReturnDecisions::class);
+        $decisions->decide($this->account, 'CLAIM-WORDS', ['ITEM-A'], ChannelReturnDecision::REJECT, adminId: 1, reasonId: 51, description: 'the seal is broken');
+        $decisions->decide($this->account, 'CLAIM-WORDS', ['ITEM-B'], ChannelReturnDecision::REJECT, adminId: 1, reasonId: 51, description: 'the blister is empty');
+
+        $decisions->send($this->account);
+
+        $sent = $this->sent(self::REJECT);
+        $this->assertCount(2, $sent, 'two calls, because the words differ');
+        $bodies = implode("\n", array_map(static fn ($request): string => $request->body(), $sent));
+        $this->assertStringContainsString('the seal is broken', $bodies);
+        $this->assertStringContainsString('the blister is empty', $bodies);
+        // And each body carries exactly ONE item, so neither description travelled with the other item.
+        foreach ($sent as $request) {
+            $this->assertStringNotContainsString('ITEM-A,ITEM-B', $request->body());
+        }
+    }
+
+    public function test_two_items_refused_in_the_same_words_are_still_one_call(): void
+    {
+        // The common case must not get slower: five calls a minute is the limit.
+        $this->fakeReasons();
+        Http::fake([self::REJECT => Http::response('', 200)]);
+        $decisions = app(ChannelReturnDecisions::class);
+        $decisions->decide($this->account, 'CLAIM-SAME', ['ITEM-A', 'ITEM-B'], ChannelReturnDecision::REJECT, adminId: 1, reasonId: 51, description: 'the seal is broken');
+
+        $decisions->send($this->account);
+
+        $sent = $this->sent(self::REJECT);
+        $this->assertCount(1, $sent);
+        $this->assertStringContainsString('ITEM-A,ITEM-B', $sent[0]->body());
+    }
+
     // ---- fixtures ------------------------------------------------------------------------------------------------
 
     private function fakeReasons(): void

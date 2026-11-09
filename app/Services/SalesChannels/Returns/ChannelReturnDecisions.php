@@ -11,6 +11,7 @@ use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Trendyol\TrendyolConnector;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use App\Services\SalesChannels\Returns\PartialFence;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -194,7 +195,13 @@ class ChannelReturnDecisions
         // **THE FENCE, AND IT GOES BEFORE THE REQUEST.** From here every row in this group durably says a customer may already
         // have been refunded or refused. It is a compare-and-set on the claim: a run that no longer owns these rows must not
         // send, because its request would leave this host with nothing recording that it had.
-        if (!$this->aboutToSend($group)) {
+        if (!$this->fenced($group)) {
+            // Either another worker holds these rows or it has already decided them. Nothing was sent and nothing is left
+            // fenced; the claim goes back so the rows are not parked until the lease runs out.
+            foreach ($group as $row) {
+                $this->release($row, 'another_worker_holds_or_already_decided_this_item', liftTheFence: true);
+            }
+
             return;
         }
         $stats['sent']++;
@@ -258,14 +265,25 @@ class ChannelReturnDecisions
             return [];
         }
 
+        // **THE STATE IS PART OF THE CONDITION, and leaving it out was a double-refund.**
+        //
+        // The ids above come from a SELECT that filtered on `state = pending`; this UPDATE is a second statement, and between
+        // the two another worker can claim the same row, send it, settle it to `done` and clear `claimed_by` -- which `settle`
+        // does. The claim condition then matched a FINISHED row (its claim is free), the fence accepted it, and a customer was
+        // refunded twice. The unique key never stopped that: it prevents two decision ROWS, not two sends over time.
         $cutoff = now()->subMinutes(max(1, (int) config('sales_channels.returns.claim_minutes', 10)));
         ChannelReturnDecision::whereIn('id', $ids)
+            ->where('state', ChannelReturnDecision::PENDING)
             ->where(fn ($query) => $query->whereNull('claimed_by')->orWhere('claimed_at', '<', $cutoff))
             ->update(['claimed_at' => now(), 'claimed_by' => $this->runId, 'updated_at' => now()]);
 
         $groups = [];
-        foreach (ChannelReturnDecision::whereIn('id', $ids)->where('claimed_by', $this->runId)->orderBy('id')->get() as $row) {
-            $groups[$row->claim_id . '|' . $row->decision . '|' . (string) $row->reason_id][] = $row;
+        // **THE DESCRIPTION IS PART OF THE KEY.** Grouping by claim, decision and reason alone sent the FIRST row's text for
+        // every item in the group, so two items of one claim refused for the same reason with different words each got the
+        // other's. A person's reason for refusing a customer is not interchangeable, so a differing description is a
+        // different call -- which costs a call against a limit of five a minute and is worth it.
+        foreach (ChannelReturnDecision::whereIn('id', $ids)->where('claimed_by', $this->runId)->where('state', ChannelReturnDecision::PENDING)->orderBy('id')->get() as $row) {
+            $groups[implode('|', [$row->claim_id, $row->decision, (string) $row->reason_id, (string) $row->description])][] = $row;
         }
 
         return array_values($groups);
@@ -280,20 +298,52 @@ class ChannelReturnDecisions
      *
      * @param list<ChannelReturnDecision> $group
      */
+    private function fenced(array $group): bool
+    {
+        try {
+            return $this->aboutToSend($group);
+        } catch (PartialFence) {
+            // The transaction rolled back, so not one row of the group is fenced.
+            return false;
+        }
+    }
+
+    /**
+     * @param list<ChannelReturnDecision> $group
+     * @throws PartialFence when only some of the group could be fenced, so that the transaction undoes the rest
+     */
     private function aboutToSend(array $group): bool
     {
         $lease = now()->subMinutes(max(1, (int) config('sales_channels.returns.claim_minutes', 10)));
         $ids = array_map(static fn (ChannelReturnDecision $row): int => (int) $row->id, $group);
-        $landed = ChannelReturnDecision::whereIn('id', $ids)
-            ->where('claimed_by', $this->runId)
-            ->where('claimed_at', '>', $lease)
-            ->update([
-                'state' => ChannelReturnDecision::MAY_HAVE_SENT,
-                'attempts' => DB::raw('attempts + 1'),
-                'sent_at' => now(),
-                'claimed_at' => now(),
-                'updated_at' => now(),
-            ]);
+
+        // **ALL OR NOTHING, inside a transaction.** Without one, a group whose rows were partly still claimable had those rows
+        // fenced and then the send abandoned -- and `may_have_sent` is not a state anything picks up again, so those rows were
+        // stuck for ever while the customer's return sat undecided. Fencing and deciding not to send cannot be two outcomes of
+        // one attempt.
+        $landed = DB::transaction(function () use ($ids, $lease): int {
+            $affected = ChannelReturnDecision::whereIn('id', $ids)
+                ->where('claimed_by', $this->runId)
+                ->where('claimed_at', '>', $lease)
+                // The state again, for the same reason as the claim: a row another worker already settled must not be moved
+                // back to `may_have_sent` and sent a second time. Two independent guards, because one of them was missing.
+                ->where('state', ChannelReturnDecision::PENDING)
+                ->update([
+                    'state' => ChannelReturnDecision::MAY_HAVE_SENT,
+                    'attempts' => DB::raw('attempts + 1'),
+                    'sent_at' => now(),
+                    'claimed_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            if ($affected !== count($ids)) {
+                // Nothing is left fenced: the rows this run no longer owns belong to somebody else, and the ones it does own
+                // go back exactly as they were.
+                throw new PartialFence();
+            }
+
+            return $affected;
+        });
+
         if ($landed !== count($ids)) {
             return false;
         }

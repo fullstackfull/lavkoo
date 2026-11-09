@@ -1,0 +1,95 @@
+# خطة دمج الفروع الأربعة: أين تتعارض، وكيف تُحلّ
+
+محسوبة من `git diff --name-only origin/main origin/claude/<branch>` بتاريخ 2026-11-09، لا من التوقّع.
+
+**١٧ ملفًا من ١٦٤ ملفًا متمايزًا يلمسها أكثر من فرع.** خمسة عشر منها قوائم تُضاف إليها، وتعارضها ميكانيكي.
+واثنان يحتاجان قرارًا، وأحدهما **النقل المشترك** الذي تمرّ منه كل قناة.
+
+> **١٩/١٩ على كل فرع ليس إثباتًا لسلامة الشجرة المجمَّعة.** كل فرع يُختبَر على شجرته هو؛ والتعارضات أدناه لا
+> توجد على أي فرع منها، بل في الشجرة التي لا تُوجَد إلا بعد الدمج. ولهذا يُبنى فرع تكامل تجريبي ويُشغَّل عليه
+> المصفوف الكامل (SQLite وMySQL 8.0 وMariaDB 11.4.2 وحرّاس الأمان والترجمات) **قبل** أي دمج في `main`.
+
+## ترتيب الدمج: C ثم D ثم E ثم F
+
+| # | الفرع | السبب في هذا الموضع |
+|---|---|---|
+| ١ | **PR-C (Amazon)** | الأكبر، و`main` أبعد ما يكون عنه. فيُدمج أولًا ليصير الأساس الذي تُحلّ عليه البقية. |
+| ٢ | **PR-D (Trendyol)** | يُحلّ `ChannelHttp` هنا مرة واحدة ومعامل D وحده في الساحة. |
+| ٣ | **PR-E (Noon)** | توسيعه لنوع `$json` ينطبق على توقيع يحمل معامل D سلفًا. |
+| ٤ | **PR-F (Odoo)** | آخرًا: الفرع الوحيد الذي لا يلمس قناة أحد، وmigrations‑ه تُسلَّم خامدة، فتعارضاته أوضح في عزلة. |
+
+## تعارضات ميكانيكية: تُحفظ الجهتان
+
+| الملف | الفروع |
+|---|---|
+| `.github/workflows/ci.yml` | C, D, E, F |
+| `config/sales_channels.php` | C, D, E, F |
+| `docs/sales-channels/gap-matrix.md` | C, D, E, F |
+| `resources/lang/{en,sa,ae}/new-messages.php` | C, D, E, F |
+| `app/Http/Controllers/Admin/SalesChannels/ChannelLabels.php` | D, E, F |
+| `app/Http/Middleware/EnsureSalesChannelsMigrated.php` | C, D, E |
+| `tests/Support/BuildsSalesChannelSchema.php` | C, D, E |
+| `docs/sales-channels/api-reference.md` | C, D, E |
+| `app/Http/Controllers/Admin/SalesChannels/Support/ListingLabels.php` | C, E |
+| `app/Providers/SalesChannelsServiceProvider.php` | C, F |
+| `app/Services/SalesChannels/Support/ChannelCredentialStore.php` | E, F |
+| `tests/Feature/SalesChannels/ChannelHttpTest.php` | E, F |
+| `tests/Feature/SalesChannels/AdminChannelListingScreenTest.php` | C, D |
+
+وكل ملفات CI الأربعة تحمل الآن **نفس** القسمة الرباعية (`sales channels` / `concurrency` / `myfatoorah` /
+`costs`)، فتعارضاتها الأربعة تُحلّ إلى كتلة واحدة متطابقة.
+
+**وملفّا `EnsureSalesChannelsMigrated` و`BuildsSalesChannelSchema` قائمتان لـmigrations تُضاف إليهما**، فيجب أن
+تحملا بعد الدمج **كل** migrations الفروع الأربعة. وmigration ناقص من القائمة لا يُسقط بناءً: يجعل الشاشة تقول
+«غير مُهاجَر» أو يُسقط اختبارًا لجدول غير موجود — وكلاهما مُربك أكثر من كونه مُعطِّلًا، فيُفحَص صراحةً.
+
+## قرار ١: `ChannelHttp::send()` — ثلاثة فروع على توقيع واحد
+
+- **main**: `?array $json`
+- **PR-D** يضيف معاملًا حادي عشر: `?array $multipart = null` — رفض مرتجع Trendyol، وهو **الترميز الوحيد الذي
+  توثّقه** لتلك النقطة.
+- **PR-F** يضيف معاملًا حادي عشر: `?string $rawBody = null` — XML-RPC لـOdoo، وليس JSON ولا form.
+- **PR-E** يوسّع المعامل القائم إلى `array|object|null $json`.
+
+**الحلّ: تُحفظ الثلاثة.** مستقلّة، وكل نداءات هذه الوحدة تمرّرها **بالاسم**، فلا ينكسر أي موضع نداء أيًّا كان
+ترتيب المعاملات:
+
+```php
+?IntegrationCapability $capability = null,
+?string $scope = null,
+?string $rawBody = null,   // PR-F
+?array $multipart = null,  // PR-D
+```
+
+مع `array|object|null $json` من PR-E.
+
+و`attempt()` فيه التعارض المقابل: D و F يُدخل كلٌّ منهما **فرعًا أول** في سلسلة `if/elseif` واحدة. تُحفظ
+الاثنتان، والترتيب بينهما لا يهمّ لأنهما **لا يُعيَّنان معًا أبدًا**:
+
+```php
+if ($rawBody !== null)       { $options['body'] = $rawBody; }
+elseif ($multipart !== null) { $pending = $pending->asMultipart(); $options['multipart'] = /* ... */; }
+elseif ($form !== null)      { $pending = $pending->asForm(); $options['form_params'] = $form; }
+elseif ($json !== null)      { $options['json'] = $json; }
+```
+
+## قرار ٢: `ChannelOperations` — نطاق D وعائلة مفاتيح F
+
+PR-D يضيف `SCOPE_RETURN_DECISIONS` (البتّ في مرتجع عميل: الكتابة الوحيدة التي تُحرّك مال عميل بلا طلب وراءها).
+وPR-F يضيف عائلة مفاتيح Odoo **المستقلة** (تشغيل Amazon أو noon لا يجوز أن يسمح بسطر واحد في دفاتر أحد).
+**تُحفظ الاثنتان، وتبقى عائلة Odoo مستقلة لا تُدمج في عائلة القنوات.**
+
+**وما يُنتبَه له بعد هذا الدمج بالذات:** `ChannelLabels` يجب أن ينال مفاتيح **النطاقين** في اللغات الثلاث،
+وإلا سقط حارس الترجمة. وسقوطه هنا هو الحارس يفعل عمله: المفتاح الناقص يكتب نفسه في `new-messages.php` وقت
+العرض، وهو بالضبط ما يُفحَص.
+
+## ما يُشغَّل على فرع التكامل، وبهذا الترتيب
+
+1. **حارس الترجمة وحارس النظافة أولًا** — ثوانٍ، ويُمسكان بالضبط صنف الخطأ الذي يصنعه هذا الدمج.
+2. المجموعة الكاملة على SQLite.
+3. المصفوف على **MySQL 8.0** و**MariaDB 11.4.2**: `sales channels` و`concurrency` و`myfatoorah` و`costs`.
+   واختبارات التزامن **لا تعمل إلا هنا** (تُتخطّى على SQLite لأن قاعدة في الذاكرة خاصة بعملية واحدة)، فهي
+   المكان الوحيد الذي تُختبَر فيه سباقات المخزون والشحنات وقرارات المرتجعات وقيود Odoo.
+4. اختبارات الأمان ووضع SQL الصارم.
+
+**ولا يُدمج شيء في `main` دون موافقة صريحة من المالك.**
