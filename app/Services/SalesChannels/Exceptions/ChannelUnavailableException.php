@@ -19,6 +19,8 @@ class ChannelUnavailableException extends RuntimeException
     public const UNREGISTERED_OPERATION = 'unregistered_operation';
     public const AUTH_NEEDED = 'auth_needed';
     public const BUYER_DATA_OFF = 'buyer_data_off';
+    /** The account is missing a setting the call cannot be made without — a different problem from a capability nobody switched on, and reported as a different one. */
+    public const SETTING_MISSING = 'setting_missing';
 
     public function __construct(public readonly string $reason, string $message)
     {

@@ -10966,7 +10966,7 @@ return [
 	'the_payment_was_applied' => 'The payment was applied.',
 	'myfatoorah_switched_off_on_this_page' => 'Myfatoorah switched off on this page',
 	'sales_channel_noon' => 'Sales channel noon',
-	'noon_order_import_not_built' => 'reading noon orders is not built yet, so no noon order reaches this panel',
+	'channel_reason_setting_missing' => 'A setting this call cannot be made without is empty on the account: fill it in on the account\'s settings',
 	'noon_shipments_not_built' => 'creating noon shipments is not built yet, so a noon order cannot be dispatched from here',
 	'noon_publishes_no_settlement_endpoint' => 'noon publishes no settlement, payout or fee endpoint, so its commissions cannot be read automatically and no figure for noon is estimated',
 ];

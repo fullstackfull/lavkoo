@@ -7,19 +7,28 @@ use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Models\ChannelListingDraft;
 use App\Models\SalesChannelAccount;
+use App\Models\ExternalOrderMapping;
 use App\Services\SalesChannels\Contracts\ChannelConnector;
 use App\Services\SalesChannels\Contracts\CreatesListings;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
 use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
+use App\Services\SalesChannels\Contracts\ReadsOrders;
+use App\Services\SalesChannels\Contracts\ReadsRecipient;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Data\ListingRequirements;
 use App\Services\SalesChannels\Data\ListingSubmission;
+use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
+use App\Services\SalesChannels\Data\RemoteOrder;
+use App\Services\SalesChannels\Dispatch\ChannelRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
+use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
 use App\Services\SalesChannels\Support\ChannelOperations;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use RuntimeException;
 
 /**
@@ -51,9 +60,13 @@ use RuntimeException;
  *
  * FBN stock is noon's own, held in a noon fulfilment centre, fulfilled and returned by noon. It must never enter the shared pool, exactly as Amazon FBA does not.
  */
-class NoonConnector implements ChannelConnector, CreatesListings, DescribesListingRequirements, PublishesStockAndPrices
+class NoonConnector implements ChannelConnector, CreatesListings, DescribesListingRequirements, PublishesStockAndPrices, ReadsOrders, ReadsRecipient
 {
-    public function __construct(private readonly NoonClient $client, private readonly NoonParentSku $parents)
+    public function __construct(
+        private readonly NoonClient $client,
+        private readonly NoonParentSku $parents,
+        private readonly NoonOrderMapper $orders,
+    )
     {
     }
 
@@ -110,11 +123,10 @@ class NoonConnector implements ChannelConnector, CreatesListings, DescribesListi
      */
     private function whatIsNotBuiltYetFor(SalesChannelAccount $account): array
     {
-        // Only what this module still cannot serve. Stock, prices and the catalogue ARE built now, so naming them here would tell a person their account is less capable than
-        // it is. What remains is one gap of ours and one of noon's, and they are not the same kind of thing: order import is code nobody has written yet, while the
-        // settlement entry is noon publishing no endpoint at all -- which no amount of work here can close.
+        // Only what this module still cannot serve. Stock, prices, the catalogue and order import ARE built now, so naming them here would tell a person their account is
+        // less capable than it is. What remains is one gap of ours and one of noon's, and they are not the same kind of thing: creating shipments is code nobody has
+        // written yet, while the settlement entry is noon publishing no endpoint at all -- which no amount of work here can close.
         $unservable = [
-            IntegrationCapability::OrderImport->value => 'noon_order_import_not_built',
             IntegrationCapability::FulfillmentDispatch->value => 'noon_shipments_not_built',
             IntegrationCapability::FinancialReconciliation->value => 'noon_publishes_no_settlement_endpoint',
         ];
@@ -680,6 +692,211 @@ class NoonConnector implements ChannelConnector, CreatesListings, DescribesListi
         return new PublishResult($accepted, $failed, null, false, []);
     }
 
+    // ---- orders fulfilled from OUR warehouse (FBPI) --------------------------------------------------------------
+
+    /**
+     * FBPI orders, page by page: `POST /fbpi/v1/fbpi-orders/list`.
+     *
+     * Three documented properties shape this, and each is a thing to get wrong:
+     *
+     *  - **ONE WAREHOUSE PER CALL.** `warehouse_code` is required and there is no "all warehouses", so the sweep reads the warehouse the account is set to. An account with
+     *    none cannot read orders at all, and says so rather than sending a call noon would refuse.
+     *  - **`next_token` IS A QUERY PARAMETER**, not a body field, and its page marks it required while its description says it is only needed after the first page — so an
+     *    empty one is sent first, exactly as noon's own samples do.
+     *  - **THE FILTERS ARE ON CREATION TIME**, `created_after` / `created_before` in UTC, because noon documents no "last modified" on an FBPI order. So `$since` narrows by
+     *    when an order was CREATED. An order that changes long after it was placed is not found again by a narrowed sweep: the webhook and `order()` are what catch that,
+     *    and this is written here because it is the limit of what noon's filters can do, not an oversight.
+     *
+     * WHERE A PAGE RUN ENDS IS NOT DOCUMENTED. noon does not say whether the last page's `next_token` is empty, absent or repeated. So all three end the run, and a token
+     * identical to the one just sent ends it too — otherwise an unchanged token would have the sweep ask for the same page for ever.
+     *
+     * @param array<string, mixed>|null $cursor
+     * @return Pages<RemoteOrder>
+     */
+    public function orders(SalesChannelAccount $account, CarbonInterface $since, ?array $cursor): Pages
+    {
+        $warehouse = trim((string) $account->setting('warehouse_code', ''));
+        if ($warehouse === '') {
+            throw new ChannelUnavailableException(
+                ChannelUnavailableException::SETTING_MISSING,
+                'No noon warehouse is chosen for this account, and noon lists FBPI orders for one named warehouse at a time. Choose the warehouse in the account\'s settings.',
+            );
+        }
+
+        $sent = (string) ($cursor['next_token'] ?? '');
+        $until = $this->instantOf($cursor['until'] ?? null) ?? CarbonImmutable::instance(now());
+        $response = $this->client->call(
+            $account,
+            'noon.fbpi_orders_list',
+            'POST',
+            NoonOperations::paths()['noon.fbpi_orders_list'],
+            // The token rides in the query. Sending it in the body would simply be ignored and every page would be the first one.
+            query: ['next_token' => $sent],
+            json: [
+                'warehouse_code' => $warehouse,
+                'created_after' => CarbonImmutable::instance($since)->utc()->format('Y-m-d\TH:i:s\Z'),
+                'created_before' => $until->utc()->format('Y-m-d\TH:i:s\Z'),
+            ],
+            capability: IntegrationCapability::OrderImport,
+        );
+        if ($response->isDryRun()) {
+            return new Pages([], null, null, 0);
+        }
+        if (!$response->ok()) {
+            throw new RuntimeException('noon could not list its FBPI orders (HTTP ' . $response->status . ': ' . $response->message() . ').');
+        }
+
+        $orders = [];
+        $newest = null;
+        $skipped = 0;
+        foreach ((array) $response->get('orders', []) as $order) {
+            if (!is_array($order) || trim((string) ($order['fbpi_order_nr'] ?? '')) === '') {
+                $skipped++;
+                continue;
+            }
+            $mapped = $this->orders->map($order, $account);
+            $orders[] = $mapped;
+            $newest = $mapped->purchasedAt !== null && ($newest === null || $mapped->purchasedAt->gt($newest)) ? $mapped->purchasedAt : $newest;
+        }
+
+        $token = trim((string) $response->get('next_token', ''));
+        // Empty, absent, or the very token we just sent: each ends the run, because noon documents none of them and a repeat would loop for ever.
+        $next = ($token === '' || $token === $sent || $orders === []) ? null : ['next_token' => $token, 'until' => $until->toIso8601String()];
+
+        return new Pages($orders, $next, $newest, $skipped);
+    }
+
+    /**
+     * One FBPI order: `GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/get`, the order number IN THE PATH.
+     *
+     * This is what a webhook is followed up with. noon's page says it sends one whenever the marketplace creates an order, and its payload contents are not documented — so
+     * nothing is read out of a webhook body here; its order number is used to ask noon directly, and noon's own answer is what is believed.
+     *
+     * noon has no package or parcel of its own, so `$packageId` has nothing to address and is ignored.
+     */
+    public function order(SalesChannelAccount $account, string $orderId, ?string $packageId = null): ?RemoteOrder
+    {
+        $number = trim($orderId);
+        if ($number === '') {
+            return null;
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.fbpi_order_get',
+            'GET',
+            str_replace('{fbpi_order_nr}', rawurlencode($number), NoonOperations::paths()['noon.fbpi_order_get']),
+            capability: IntegrationCapability::OrderImport,
+        );
+        if ($response->isDryRun() || $response->status === 404) {
+            return null;
+        }
+        if (!$response->ok()) {
+            throw new RuntimeException('noon could not be asked about FBPI order ' . $number . ' (HTTP ' . $response->status . ').');
+        }
+
+        $body = (array) ($response->json ?? []);
+        if (trim((string) ($body['fbpi_order_nr'] ?? '')) === '') {
+            return null;
+        }
+
+        return $this->orders->map($body, $account);
+    }
+
+    /**
+     * Who the order goes to: `GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/customer-details/get`.
+     *
+     * THE ONLY NOON CALL THAT READS A PERSON, and it is gated like no other read here — the buyer-data switch AND a master admin's approval, which `ChannelOperations`
+     * enforces before anything leaves.
+     *
+     * **noon publishes less than a courier needs.** The documented answer is `first_name`, `last_name`, `city` and `administrative_division`. There is NO street address, NO
+     * phone number and NO e-mail anywhere in it. So this cannot produce a deliverable recipient, and it does not pretend to: what comes back is assembled honestly and
+     * `ChannelRecipient::problems()` then reports the address and phone as missing, which stops the dispatch instead of sending a courier half an address. That is a gap in
+     * what noon publishes, not a bug here, and the only honest fixes are outside this code: a documented endpoint that carries an address, or noon's own logistics carrying
+     * the parcel (its AWB call exists for exactly that).
+     *
+     * Nothing read here is logged, kept or put in a snapshot. It is handed to the caller and forgotten.
+     */
+    public function recipient(SalesChannelAccount $account, ExternalOrderMapping $mapping): ChannelRecipient
+    {
+        $number = trim((string) $mapping->external_order_id);
+        if ($number === '') {
+            throw new RecipientUnavailable(RecipientUnavailable::NOT_FOUND);
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.fbpi_order_customer_data',
+            'GET',
+            str_replace('{fbpi_order_nr}', rawurlencode($number), NoonOperations::paths()['noon.fbpi_order_customer_data']),
+            capability: IntegrationCapability::OrderImport,
+            scope: ChannelOperations::SCOPE_BUYER_DATA_TRANSFER,
+        );
+        if ($response->isDryRun()) {
+            throw new RecipientUnavailable(RecipientUnavailable::NOT_PERMITTED, ['dry_run']);
+        }
+        if ($response->status === 404) {
+            throw new RecipientUnavailable(RecipientUnavailable::NOT_FOUND);
+        }
+        if (!$response->ok()) {
+            throw new RecipientUnavailable(RecipientUnavailable::CHANNEL_ERROR, [(string) $response->status]);
+        }
+
+        return new ChannelRecipient(
+            name: trim(trim((string) $response->get('first_name', '')) . ' ' . trim((string) $response->get('last_name', ''))),
+            // noon documents neither, and an empty string is the truth about them. `problems()` turns that truth into a refusal to dispatch.
+            phone: '',
+            addressLine: '',
+            city: trim((string) $response->get('city', '')),
+            state: trim((string) $response->get('administrative_division', '')) ?: null,
+            country: strtoupper(trim((string) ($mapping->account?->setting('country_code', 'sa') ?? 'sa'))),
+        );
+    }
+
+    /**
+     * Tells noon that units of an order cannot be supplied: `POST /fbpi/v1/fbpi-order/update`.
+     *
+     * **THIS CANCELS THOSE UNITS AT NOON.** Its page: "the unavailable items will be canceled on Noon's side, and the rest will proceed to fulfillment". There is no undo
+     * documented, and `OUT_OF_STOCK` is the only status the call accepts. So it is never reached from a failed stock read, a timeout or a retry — only from a decision
+     * somebody made — and it refuses an empty list rather than sending a call that would mean nothing.
+     *
+     * Its 200 carries no body, so success is the absence of a refusal. That is weak, and it is why this returns what it actually knows rather than a bare true.
+     *
+     * @param list<string> $itemNumbers noon's own `mp_item_nr` values
+     * @return array{sent: bool, refused: string|null}
+     */
+    public function cannotSupply(SalesChannelAccount $account, string $orderNumber, array $itemNumbers): array
+    {
+        $number = trim($orderNumber);
+        $items = array_values(array_unique(array_filter(array_map('trim', $itemNumbers), static fn (string $item): bool => $item !== '')));
+        if ($number === '' || $items === []) {
+            return ['sent' => false, 'refused' => 'An order number and at least one mp_item_nr are needed; noon cancels what this names, so it is never sent on a guess.'];
+        }
+
+        $response = $this->client->call(
+            $account,
+            'noon.fbpi_order_update',
+            'POST',
+            NoonOperations::paths()['noon.fbpi_order_update'],
+            json: [
+                'fbpi_order_nr' => $number,
+                'items' => array_map(static fn (string $item): array => [
+                    'mp_item_nr' => $item,
+                    'status' => 'UPDATE_ORDER_REQUEST_ITEM_STATUS_OUT_OF_STOCK',
+                ], $items),
+            ],
+            capability: IntegrationCapability::FulfillmentDispatch,
+            scope: 'fulfillment_dispatch',
+        );
+        if ($response->isDryRun()) {
+            return ['sent' => false, 'refused' => null];
+        }
+
+        return $response->ok()
+            ? ['sent' => true, 'refused' => null]
+            : ['sent' => false, 'refused' => 'noon refused the out-of-stock notice (HTTP ' . $response->status . ': ' . $response->message() . '), so nothing was cancelled.'];
+    }
+
     /**
      * The one call behind both create and amend.
      *
@@ -855,6 +1072,13 @@ class NoonConnector implements ChannelConnector, CreatesListings, DescribesListi
         };
     }
 
+    private function instantOf(mixed $value): ?CarbonImmutable
+    {
+        $text = trim((string) ($value ?? ''));
+
+        return $text === '' ? null : CarbonImmutable::parse($text);
+    }
+
     /** noon writes its enums in full (`QC_STATUS_APPROVED`); the part that carries the meaning is what a person reads. */
     private function shortEnum(string $value, string $prefix): string
     {
@@ -885,10 +1109,10 @@ class NoonConnector implements ChannelConnector, CreatesListings, DescribesListi
             'catalog_content_state' => ['documented' => true, 'built' => true, 'note' => 'POST /content/v1/product/content/get, and it takes sku_parent ONLY -- our partner_sku is not a key it accepts, and noon publishes NO operation that looks a sku_parent up from a partner_sku. So the pair is remembered from the upsert that answered it (see NoonParentSku), and a product we hold no sku_parent for is UNKNOWN rather than absent. The answer carries statuses[] once PER LANGUAGE (EN, AR) with content.completeness, content.missing_attributes, content.invalid_attributes, qc.status (APPROVED/REJECTED/PENDING/NOT_ELIGIBLE), qc.rejection_reasons, qc.comment, overall_status and errors[]; plus images[] with visibility, review_status and issues[]. A product is only as live as its worst language, so every entry is read and a refusal in any of them wins.'],
             'barcode_map' => ['documented' => true, 'built' => true, 'note' => 'POST /catplat/v1/barcode/map, body items[] (barcode, partner_sku, force_map nullable), answering items[] (barcode, partner_sku, status) with per-item status in a 200. noon\'s own words: the barcode is created if it does not exist already. force_map is NOT sent: its page documents the field and says nothing whatever about what it does, and the identically named field on the Batch SKU map page is a different endpoint whose meaning would be a guess with a seller\'s barcodes at stake.'],
             'product_groups' => ['documented' => true, 'built' => false, 'note' => 'POST /content/v1/product/group/upsert groups sku_parents under shared attribute_codes, and its lists are full replacements whenever it is amended. NOT BUILT YET: nothing here groups catalogue items.'],
-            'fbpi_orders' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/fbpi-orders/list for ONE warehouse, pages of at most 50, continued with next_token as a QUERY parameter and filtered by created_after / created_before in UTC. Each order carries fbpi_order_nr, mp_code (noon or namshi_v2), mp_order_nr, mp_country_code, customer_country_code, merchant_code, currency_code, warehouse_code, order_created_at and items[] of mp_item_nr, partner_sku, mp_status (CONFIRMED/CANCELLED), integration_status (ACKNOWLEDGED/OUT_OF_STOCK/SHIPPED), delivered_invoice_price, cancellation_reason_code and estimated_shipping_date. TWO THINGS ARE NOT DOCUMENTED AND MATTER: there is no quantity field at all, and whether delivered_invoice_price is a unit or a line figure is not stated. NOT BUILT YET: the path and the body are verified, and an order mapper that does not invent a quantity is what it still needs.'],
-            'fbpi_order_read' => ['documented' => true, 'built' => false, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/get answers the same order object as the list, unwrapped. Its page says noon sends a webhook with the order details whenever the marketplace creates one, so this is what such a webhook is followed up with rather than a sweep. NOT BUILT YET.'],
-            'fbpi_buyer_data' => ['documented' => true, 'built' => false, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/customer-details/get, and the ONLY noon call that reads a person: first_name, last_name, city, administrative_division. NO street address, NO phone, NO e-mail -- none are documented and none come back, so noon cannot supply a deliverable address and a courier cannot be handed one from here. That is a gap in what noon publishes, not in this module. Registered behind the buyer-data switch AND a master admin\'s approval, which no other noon read needs. NOT BUILT YET.'],
-            'fbpi_order_item_refusal' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/fbpi-order/update marks items OUT_OF_STOCK before a shipment is made; noon then CANCELS those items and lets the rest proceed. It is the only documented way to refuse part of an order, it is irreversible from here, and its 200 carries no body. NOT BUILT YET: it must never be reachable except from a deliberate decision, never from a failed stock read.'],
+            'fbpi_orders' => ['documented' => true, 'built' => true, 'note' => 'POST /fbpi/v1/fbpi-orders/list for ONE named warehouse (there is no all-warehouses call), pages of up to 50, continued with next_token as a QUERY parameter, and filtered by created_after / created_before in UTC. Each order carries fbpi_order_nr, mp_code (noon or namshi_v2), mp_order_nr, mp_country_code, customer_country_code, merchant_code, currency_code, warehouse_code, order_created_at and items[] of mp_item_nr, partner_sku, mp_status, integration_status, delivered_invoice_price, cancellation_reason_code and estimated_shipping_date. THREE GAPS IN WHAT NOON PUBLISHES, all of them handled rather than papered over: an item has NO quantity field, so one items[] entry is read as one unit and entries sharing a partner_sku become one line (recorded as UNVERIFIED); an order has NO status, so the order\'s state is derived from its items and externalStatus carries the real values it came from; and there is NO order total, shipping, tax, discount, payment method or cash-on-delivery flag -- the only money field is delivered_invoice_price, which is a DELIVERED figure a fresh order does not have. Nothing is estimated from any of that. There is also no last-modified on an order, so a sweep can only narrow by creation time.'],
+            'fbpi_order_read' => ['documented' => true, 'built' => true, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/get, the number in the PATH, answering the same order object as the list and unwrapped. Its page says noon sends a webhook whenever the marketplace creates an order but does not document that webhook\'s payload, so nothing is read out of a webhook body: its order number is used to ask noon, and noon\'s own answer is what is believed. This is also the only way to see an order that changed long after it was created, which the creation-time filters cannot find again.'],
+            'fbpi_buyer_data' => ['documented' => true, 'built' => true, 'note' => 'GET /fbpi/v1/fbpi-order/{fbpi_order_nr}/customer-details/get, the ONLY noon call that reads a person, behind the buyer-data switch AND a master admin\'s approval that no other noon read needs. NOON PUBLISHES LESS THAN A COURIER NEEDS: the documented answer is first_name, last_name, city and administrative_division, with NO street address, NO phone and NO e-mail. So this cannot produce a deliverable recipient and does not pretend to -- what comes back is assembled honestly and ChannelRecipient::problems() then reports the address and phone as missing, which stops the dispatch instead of sending a courier half an address. Closing that needs something outside this code: an endpoint that carries an address, or noon\'s own logistics carrying the parcel.'],
+            'fbpi_order_item_refusal' => ['documented' => true, 'built' => true, 'note' => 'POST /fbpi/v1/fbpi-order/update marks items OUT_OF_STOCK, which is the only status it accepts; noon then CANCELS those units and lets the rest proceed to fulfilment. There is no documented undo, so it is never reached from a failed stock read, a timeout or a retry -- only from a decision somebody made -- and an empty item list is refused rather than sent. Its 200 carries no body, so success is the absence of a refusal and the method returns what it actually knows rather than a bare true.'],
             'shipments' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/create with warehouse_code, a unique integration_shipment_nr, the fbpi_order_nr, awbs[] (courier, awb_nr) and items[] (mp_item_nr) -- every field required. THE 200 CARRIES NO BODY AT ALL, and what noon does with a REPEATED integration_shipment_nr is not stated: no idempotency rule is published. So a repeat is not assumed safe, and a create is verified by reading the shipment back rather than by a field that does not exist. NOT BUILT YET.'],
             'shipment_lifecycle' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/get (warehouse_code, integration_shipment_nr) answers fbpi_order_nr, awbs[] and items[] (mp_item_nr, partner_sku) -- this is how a create whose 200 is empty gets confirmed. POST /fbpi/v1/shipment/cancel cancels the shipment AND EVERY ITEM IN IT, so it is a decision and never a retry. POST /fbpi/v1/shipment/courier-awbs/add adds a courier and AWB where the warehouse could not scan one. Listing couriers is not documented anywhere; the only described courier value is noon or our own provider. NOT BUILT YET.'],
             'noon_logistics_awbs' => ['documented' => true, 'built' => false, 'note' => 'POST /fbpi/v1/shipment/noon-logistics-awbs/get takes country_code and a qty of at most 1 000 and answers awb_nrs[]. It MINTS numbers, so it is never retried blindly and never called to find out whether it works. There is no documented way to list AWBs already issued. NOT BUILT YET.'],

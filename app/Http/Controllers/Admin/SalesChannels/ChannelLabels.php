@@ -35,7 +35,7 @@ final class ChannelLabels
             'global_off', 'account_off', 'capability_off', 'setting_off', 'not_supported_by_channel', 'writes_off_environment', 'writes_off_account', 'not_approved', 'unregistered_operation', 'auth_needed',
             'no_linked_shipment_with_tracking', 'already_notified', 'fulfillment_dispatch_off', 'dry_run', 'channel_did_not_confirm', 'channel_refused_repeatedly', 'channel_notify_error',
             'order_pending', 'order_awaiting_review', 'order_delivered', 'order_cancelled', 'order_returned', 'order_failed',
-            'rate_limited', 'buyer_data_off',
+            'rate_limited', 'buyer_data_off', 'setting_missing',
         ],
         'sync_resource_' => ['orders', 'returns', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'],
         'run_stat_' => [
@@ -102,7 +102,7 @@ final class ChannelLabels
         'channel_reason_no_linked_shipment_with_tracking', 'channel_reason_already_notified', 'channel_reason_fulfillment_dispatch_off', 'channel_reason_dry_run',
         'channel_reason_channel_did_not_confirm', 'channel_reason_channel_refused_repeatedly', 'channel_reason_channel_notify_error', 'channel_reason_order_pending', 'channel_reason_order_awaiting_review',
         'channel_reason_order_delivered', 'channel_reason_order_cancelled', 'channel_reason_order_returned', 'channel_reason_order_failed',
-        'channel_reason_rate_limited', 'channel_reason_buyer_data_off',
+        'channel_reason_rate_limited', 'channel_reason_buyer_data_off', 'channel_reason_setting_missing',
         'sync_resource_orders', 'sync_resource_returns', 'sync_resource_listings', 'sync_resource_inventory', 'sync_resource_finances', 'sync_resource_publish_stock', 'sync_resource_publish_price',
         'run_stat_pages', 'run_stat_created', 'run_stat_updated', 'run_stat_unchanged', 'run_stat_stale', 'run_stat_needs_review', 'run_stat_skipped', 'run_stat_decisions',
         'run_stat_linked', 'run_stat_suggested', 'run_stat_conflicts', 'run_stat_unseen', 'run_stat_stored', 'run_stat_unlinked', 'run_stat_new', 'run_stat_duplicates',
