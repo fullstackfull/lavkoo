@@ -4476,7 +4476,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'what_the_channels_catalogue_says' => 'ما يقوله كتالوج القناة',
 	'this_one' => 'المختار',
 	'it_is_this_one' => 'هو هذا',
-'MyFatoorah' => 'ماي فاتورة',
+	'MyFatoorah' => 'ماي فاتورة',
 	'MyFatoorah_Saudi_Arabia' => 'ماي فاتورة — السعودية',
 	'MyFatoorah_settings' => 'إعدادات ماي فاتورة',
 	'account_and_credentials' => 'الحساب وبيانات الاعتماد',

@@ -10896,7 +10896,7 @@ return [
 	'what_the_channels_catalogue_says' => 'What the channel\'s catalogue says',
 	'this_one' => 'chosen',
 	'it_is_this_one' => 'It is this one',
-'MyFatoorah' => 'MyFatoorah',
+	'MyFatoorah' => 'MyFatoorah',
 	'MyFatoorah_Saudi_Arabia' => 'MyFatoorah — Saudi Arabia',
 	'MyFatoorah_settings' => 'MyFatoorah settings',
 	'account_and_credentials' => 'Account and credentials',
