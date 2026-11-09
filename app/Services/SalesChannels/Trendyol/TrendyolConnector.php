@@ -32,6 +32,7 @@ use App\Services\SalesChannels\Data\PublishUpdate;
 use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\ShipmentConfirmation;
 use App\Services\SalesChannels\Dispatch\ChannelRecipient;
+use App\Services\SalesChannels\Shipments\PackageSplitPlan;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
@@ -89,8 +90,8 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             'shipment_packages' => ['documented' => true, 'built' => true, 'note' => 'A package is the unit (shipmentPackageId); a split or partial cancellation yields new package ids and the replaced package is terminal.'],
             'picking_and_tracking' => ['documented' => true, 'built' => true, 'note' => 'Picking, then the tracking number for packages on the seller-pays agreement only. Trendyol-pays packages use the carrier label Trendyol issues; the app never sets Shipped or Delivered (the carrier feed does).'],
             'cancel_unsupplied' => ['documented' => true, 'built' => false, 'note' => 'Cancelling lines cancels a customer order and locks the product at Trendyol: registered but deliberately not built.'],
-            'split_packages' => ['documented' => true, 'built' => false, 'note' => 'Four split endpoints exist; none is built.'],
-            'invoice_upload' => ['documented' => true, 'built' => false, 'note' => 'Invoice link/file upload is registered; invoice generation is outside this module.'],
+            'split_packages' => ['documented' => true, 'built' => true, 'note' => 'All four international split endpoints are built, through `ChannelPackageSplits`: `/split` (whole lines), `/multi-split` (several groups, and Trendyol forbids naming every line), `/quantity-split` (a line\'s units across packages, `quantities` an ARRAY) and `/split-packages` (named packages of named quantities, `quantities` a single INTEGER -- the two schemas really do differ in that one field). All four take `shouldKeepPreviousStatus`, which is forced true for a package already in Picking because Trendyol requires it there. **No split endpoint documents a response body** in the international set (200, no content schema), so nothing is read from the answer and a 200 is not a confirmation: the packages are created asynchronously, the original turns UnPacked and its id becomes invalid, and the new ones are learned by reading the order back, where `createdBy: "split"` and `originPackageIds` identify them. No idempotency and nothing about a repeated request is documented anywhere, so the intent is fenced before it is sent and a fenced row is never sent again -- but it IS asked about, which is where this differs from a return decision: the package\'s own status is the answer. A row whose proof never arrives is needs_review, never failed.'],
+            'invoice_upload' => ['documented' => true, 'built' => false, 'note' => 'DECIDED, NOT MISSING. The contract is verified: `POST /integration/sellers/{sellerId}/seller-invoice-links` takes only `invoiceLink` and `shipmentPackageId` for the Gulf markets (no invoice number or date, unlike Turkey), answers 201, and answers 409 for either of two reasons it does not distinguish -- this package already has an invoice, OR this link was already fed for a different package. `POST .../seller-invoice-links/delete` takes serviceSourceId, channelId and customerId and answers 202; `POST .../seller-invoice-file` is multipart with a `file` part, at most 10 MB, pdf/jpeg/png. What is missing is not the integration but the LINK: Trendyol requires a URL that stays reachable without a login for ten years in Saudi Arabia, and this application has no such URL. `generate-invoice/{id}` is scoped to the order\'s own customer by session, so Trendyol fetching it would get a 404, and publishing an unguessable long-lived URL instead would put a customer\'s name, address, telephone and medicines behind a link anybody holding it could read. That is the owner\'s decision to take, not a default to pick, so nothing is sent until it is taken. See docs/sales-channels/gap-matrix.md.'],
             'webhooks' => ['documented' => true, 'built' => true, 'note' => 'Order-package webhooks (API-key authentication); polling stays the source of truth because Trendyol says delivery is not always possible. No webhook exists for claims, products or finance.'],
             'claims_returns' => ['documented' => true, 'built' => true, 'note' => 'Claims are read (read-only) and the units the channel ACCEPTED back are recorded on the order lines. Approving and rejecting ARE built, through `ChannelReturnDecisions`. They are the only writes in this module that move money belonging to a customer with no order behind them, so they carry their own approval scope (`return_decisions`) and their own record: one decision per claim item EVER, written before it is sent. Trendyol documents no idempotency for either, and -- unlike every other outbox here -- publishes no way to ask what became of one claim-item decision, so an unknown outcome waits for a person and is never sent again. A rejection carries a reason id read from `GET /order/claim-issue-reasons`, whose example list Trendyol does not describe as complete, so an id is never typed from memory. Attachments on a rejection are a declared gap: the schema does not mark `files` required while the operation description says they must be added, and nothing is attached to satisfy a rule nobody can state. The Gulf documentation prints the endpoint both with and without a -gulf suffix: UNVERIFIED which the gateway serves.'],
             'current_account_statement' => ['documented' => true, 'built' => true, 'note' => 'settlements (Sale, Return) and otherfinancials, windows of at most 15 days. Rows carry no currency and their ids changed in Aug 2026, so identity is built from the row\'s content.'],
@@ -282,6 +283,33 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         }
 
         return null;
+    }
+
+    /**
+     * Every package of one order, as the channel describes them now.
+     *
+     * `order()` answers about one package; this answers about the order, which is what a split needs: the packages a cut
+     * produced are new rows of the same `orderNumber`, carrying `createdBy: "split"` and `originPackageIds` pointing back at
+     * the package they came from (which the mapper turns into `replacesPackageId`). Reading the order is how Trendyol's own
+     * pages say to learn them -- "you have to fetch the new generated packages from the Get Shipment Packages again".
+     *
+     * @return list<RemoteOrder>
+     * @throws ChannelUnavailableException|ChannelPermissionDenied
+     */
+    public function orderPackages(SalesChannelAccount $account, string $orderId): array
+    {
+        $seller = $this->client->sellerId($account);
+        $response = $this->client->call($account, 'trendyol.orders_list', 'GET', "/order/sellers/{$seller}/v2/orders", ['orderNumber' => $orderId, 'size' => 50], capability: IntegrationCapability::OrderImport);
+        $this->assertOk($response, 'Trendyol order lookup');
+
+        $packages = [];
+        foreach ((array) $response->get('content', []) as $package) {
+            if (is_array($package) && (string) ($package['orderNumber'] ?? '') === $orderId && isset($package['shipmentPackageId'])) {
+                $packages[] = $this->orders->map($package, $account);
+            }
+        }
+
+        return $packages;
     }
 
     public function recipient(SalesChannelAccount $account, ExternalOrderMapping $mapping): ChannelRecipient
@@ -917,6 +945,42 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         $tracking = $this->client->call($account, 'trendyol.orders_tracking', 'PUT', "/order/sellers/{$seller}/shipment-packages/{$confirmation->packageId}/tracking-details", json: ['cargoSenderNumber' => $confirmation->trackingNumber, 'providerCode' => $providerCode], capability: IntegrationCapability::FulfillmentDispatch);
 
         return $tracking->ok();
+    }
+
+    /**
+     * Asks Trendyol to cut one package into several, in whichever of its four shapes the plan is written in.
+     *
+     * **Nothing is read out of the answer.** All four endpoints document 200 "Package split successfully" with no content
+     * schema in the international set, so the new `shipmentPackageId`s exist only in Trendyol and are learned by reading the
+     * order again -- which is what Trendyol's own pages instruct ("you have to fetch the new generated packages from the Get
+     * Shipment Packages again"). A caller that trusted a body here would be trusting a field no page promises.
+     *
+     * The caller decides whether sending is safe at all; this method only sends. See `ChannelPackageSplits`.
+     *
+     * @throws ChannelUnavailableException|ChannelPermissionDenied
+     */
+    public function splitShipmentPackage(SalesChannelAccount $account, string $packageId, PackageSplitPlan $plan): ChannelResponse
+    {
+        $seller = $this->client->sellerId($account);
+
+        return $this->client->call(
+            $account,
+            $plan->operation(),
+            'POST',
+            "/order/sellers/{$seller}/shipment-packages/" . rawurlencode($packageId) . $plan->path(),
+            json: $plan->body(),
+            capability: IntegrationCapability::FulfillmentDispatch,
+        );
+    }
+
+    /**
+     * Whether `shouldKeepPreviousStatus` has to be true for this package, which is Trendyol's own rule and not a preference:
+     * "If the old package status was picking, You should send "shouldKeepPreviousStatus" as true". Left false, the new packages
+     * come back as `Created` and the preparation already recorded against the old package is lost.
+     */
+    public function splitKeepsPreviousStatus(?RemoteOrder $package): bool
+    {
+        return $package !== null && $package->externalStatus === 'Picking';
     }
 
     private function providerCode(SalesChannelAccount $account, ShipmentConfirmation $confirmation): string

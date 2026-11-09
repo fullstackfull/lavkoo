@@ -49,6 +49,20 @@ return [
         'claim_minutes' => 10,
     ],
 
+    // Cutting a shipment package into several (`channel_package_splits`). Trendyol documents no idempotency for any of its
+    // four split endpoints, says nothing about a repeated identical request, and creates the new packages ASYNCHRONOUSLY -- so
+    // the intent is recorded before the request leaves and the outcome is then read off the order rather than assumed.
+    'splits' => [
+        // How long a run that claimed a split and never finished holds it before another may take it.
+        'claim_minutes' => 10,
+        // How long to wait before reading the order again, looking for the proof that the cut landed. The split is
+        // asynchronous: a package that has not changed yet is not a package that was never cut.
+        'check_seconds' => 60,
+        // How many such reads before the row is handed to a person. Nothing is ever sent again either way: what runs out here
+        // is the patience to keep asking, not the willingness to retry.
+        'max_checks' => 8,
+    ],
+
     'logs' => [
         // `channels:prune` (daily) deletes call logs older than this and clears the stored text of old webhook deliveries.
         'retention_days' => 60,

@@ -124,6 +124,10 @@ class ScheduleDefinition
         $schedule->command('channels:dispatch-sync')->everyFiveMinutes()->withoutOverlapping(30);
         $schedule->command('channels:purge-buyer-data')->hourlyAt(23)->withoutOverlapping(30);
         $schedule->command('channels:find-shipments')->everyTenMinutes()->withoutOverlapping(30)->runInBackground();
+        // What a person decided: the customer returns they answered and the packages they asked to be cut. Both tables are
+        // written by a screen and carried by this run, so without it an approved return is never refunded. Every five minutes
+        // because a refused return is somebody waiting, and both pipelines refuse to send twice whatever the pacing.
+        $schedule->command('channels:decisions')->everyFiveMinutes()->withoutOverlapping(30)->runInBackground();
 
         // Heartbeat: record the last scheduler run in the DB (not cache, which optimize:clear wipes) so
         // the admin dashboard can warn when the server cron `schedule:run` has stopped firing — the

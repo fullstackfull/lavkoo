@@ -52,6 +52,17 @@ final class TrendyolOperations
             'trendyol.orders_invoice_link' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
             'trendyol.orders_unsupplied' => Ops::write(['PUT'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
 
+            // ---- splitting a package ----
+            // Four endpoints, four bodies, one meaning: this package becomes several. Trendyol documents **no response body**
+            // for any of them in the international set (200 "Package split successfully", no content schema), and **no
+            // idempotency and nothing about what a repeated identical request does**. So not one of them is retry-safe: the
+            // honest reading of silence is that a second call could cut the package again, and the new package ids are learned
+            // by reading the order back, never from the answer. `ChannelPackageSplits` is what decides whether one may be sent.
+            'trendyol.package_split' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
+            'trendyol.package_multi_split' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
+            'trendyol.package_quantity_split' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
+            'trendyol.package_split_packages' => Ops::write(['POST'], [Capability::FulfillmentDispatch], ['fulfillment_dispatch']),
+
             // ---- returns ----
             'trendyol.claims_list' => Ops::read(capabilities: $orders, people: true),
             // The reason codes a rejection must carry. `GET /order/claim-issue-reasons` -- note it has NO seller in its path,
