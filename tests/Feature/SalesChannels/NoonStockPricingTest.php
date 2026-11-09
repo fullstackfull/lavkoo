@@ -141,6 +141,73 @@ class NoonStockPricingTest extends TestCase
         $this->assertArrayHasKey(11, $result->failed);
     }
 
+    public function test_an_ok_whose_status_id_is_missing_is_not_success(): void
+    {
+        // The exact false success this guards: `(int) null` is 0, which is noon's own success value, so a cast would have let `status_code: "OK"` alone confirm a write.
+        $this->fake([self::STOCK_UPDATE => Http::response(['items' => [[
+            'warehouse_code' => self::WAREHOUSE, 'partner_sku' => 'SKU-1', 'status' => ['status_code' => 'OK'],
+        ]]])]);
+
+        $result = app(NoonConnector::class)->publishStock($this->account, [$this->update(11, 'SKU-1', quantity: 25)]);
+
+        $this->assertSame([], $result->accepted);
+        $this->assertStringContainsString('ok_without_a_usable_status_id', $result->failed[11], 'a bare OK is the most misleading thing this could print');
+    }
+
+    public function test_an_ok_whose_status_id_is_null_is_not_success(): void
+    {
+        $this->fake([self::STOCK_UPDATE => Http::response(['items' => [[
+            'warehouse_code' => self::WAREHOUSE, 'partner_sku' => 'SKU-1', 'status' => ['status_code' => 'OK', 'status_id' => null],
+        ]]])]);
+
+        $result = app(NoonConnector::class)->publishStock($this->account, [$this->update(11, 'SKU-1', quantity: 25)]);
+
+        $this->assertSame([], $result->accepted);
+        $this->assertStringContainsString('ok_without_a_usable_status_id', $result->failed[11]);
+    }
+
+    public function test_an_ok_whose_status_id_cannot_be_read_as_a_whole_number_is_not_success(): void
+    {
+        foreach ([['OK', 'the id repeats the code'], ['', 'the id is blank'], [0.5, 'the id is a fraction'], [true, 'the id is a boolean'], [[], 'the id is an array']] as [$id, $why]) {
+            $this->fake([self::STOCK_UPDATE => Http::response(['items' => [[
+                'warehouse_code' => self::WAREHOUSE, 'partner_sku' => 'SKU-1', 'status' => ['status_code' => 'OK', 'status_id' => $id],
+            ]]])]);
+
+            $result = app(NoonConnector::class)->publishStock($this->account, [$this->update(11, 'SKU-1', quantity: 25)]);
+
+            $this->assertSame([], $result->accepted, $why . ': an answer we cannot read is not a confirmed write');
+            $this->assertStringContainsString('ok_without_a_usable_status_id', $result->failed[11], $why);
+        }
+    }
+
+    public function test_a_zero_noon_rendered_as_a_string_or_a_whole_float_is_still_success(): void
+    {
+        // Strictness has a limit: a gateway that renders 0 as "0" or 0.0 has still said zero, and refusing those would invent failures out of JSON typing.
+        foreach (['0', 0.0] as $id) {
+            $this->fake([self::STOCK_UPDATE => Http::response(['items' => [[
+                'warehouse_code' => self::WAREHOUSE, 'partner_sku' => 'SKU-1', 'status' => ['status_code' => 'OK', 'status_id' => $id],
+            ]]])]);
+
+            $result = app(NoonConnector::class)->publishStock($this->account, [$this->update(11, 'SKU-1', quantity: 25)]);
+
+            $this->assertSame([11 => ''], $result->accepted, 'noon said zero, whatever JSON type it used to say it');
+            $this->assertSame([], $result->failed);
+        }
+    }
+
+    public function test_a_price_noon_answered_ok_about_without_a_usable_id_is_not_set_either(): void
+    {
+        // The same rule on the pricing path, which is where noon's own guide warns that "a 200 response does not mean every price was set".
+        $this->fake([self::PRICING_UPSERT => Http::response(['items' => [[
+            'partner_sku' => 'SKU-1', 'country_code' => 'sa', 'status' => ['status_code' => 'OK'],
+        ]]])]);
+
+        $result = app(NoonConnector::class)->publishPrices($this->account, [$this->update(11, 'SKU-1', price: Money::of('49.00', 'SAR'))]);
+
+        $this->assertSame([], $result->accepted, 'a price reported as set that nobody set is the worst outcome of the lot');
+        $this->assertStringContainsString('ok_without_a_usable_status_id', $result->failed[11]);
+    }
+
     public function test_an_item_with_no_status_at_all_is_not_success(): void
     {
         $this->fake([self::STOCK_UPDATE => Http::response(['items' => [['warehouse_code' => self::WAREHOUSE, 'partner_sku' => 'SKU-1']]])]);

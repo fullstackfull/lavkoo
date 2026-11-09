@@ -3,6 +3,7 @@
 namespace Tests\Feature\SalesChannels;
 
 use App\Enums\SalesChannels\ConnectionStatus;
+use App\Enums\SalesChannels\IntegrationCapability;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\ChannelAccountService;
@@ -19,14 +20,15 @@ use Tests\Support\BuildsSalesChannelSchema;
 use Tests\TestCase;
 
 /**
- * noon as a channel: it exists, it signs in, and it says who it is.
+ * noon as a channel: it exists, it signs in, it says who it is, and it tells the truth about what is built.
  *
- * That is the whole of what noon's documentation makes buildable. Of everything it publishes, the SIGN-IN is the only call whose request body is given: a JWT signed RS256
- * with the service account's private key, exchanged at `/identity/public/v1/api/login` for a session cookie. Every other reference page states its method and its exact path
- * — those are recorded in `NoonOperations` — but renders its Request and Responses sections in a browser, so no field name can be read from it.
+ * The sign-in is the call everything else rests on: a JWT signed RS256 with the service account's private key, exchanged at `/identity/public/v1/api/login` — on the
+ * PRODUCTION host even for a sandbox account — for a session cookie noon never names. These tests pin its shape, prove the sandbox never receives a sign-in, and prove an
+ * account that only rehearses can still check its key file.
  *
- * These tests therefore prove the foundation and the honesty of the rest: the sign-in's shape, that the sandbox never receives a sign-in, that an account which only
- * rehearses proves nothing, and that the capability matrix does not claim a call this version cannot make.
+ * The rest is about honesty, and it cuts both ways. The capability matrix may not claim a call this version cannot make; the account page's gap list may not report a
+ * capability that IS built, because telling a person their account is less capable than it is sends them looking for a problem that is not there. The gap list is also not a
+ * list of permissions noon withheld and not a list of settings left blank: those are three different problems and the screen is no use if it runs them together.
  *
  * Every response here is a fixture. No test reaches noon, and nothing here proves a real seller account works.
  */
@@ -244,6 +246,97 @@ class NoonConnectionTest extends TestCase
     }
 
     // ---- the matrix and the allow-list tell the truth -------------------------------------------------------------
+
+    // ---- the account page separates three different problems ------------------------------------------------------
+
+    public function test_a_capability_this_module_now_serves_is_no_longer_reported_as_unbuilt(): void
+    {
+        // Stock and price publishing ARE built. Naming them as gaps told a person their account was less capable than it is, which is the same class of lie as claiming a
+        // capability that does not work -- it just errs the other way.
+        $this->account->forceFill(['capabilities' => ['connection_test', 'read_only_sync', 'inventory_publishing', 'price_publishing']])->save();
+        $this->fakeSignInAndWhoami();
+
+        $result = app(NoonConnector::class)->testConnection($this->account->fresh());
+
+        $this->assertTrue($result->ok());
+        $this->assertSame([], $result->missing, 'everything this account switched on is built');
+    }
+
+    public function test_a_capability_this_module_has_not_built_is_still_reported_as_a_gap(): void
+    {
+        $this->account->forceFill(['capabilities' => ['connection_test', 'product_sync', 'order_import', 'fulfillment_dispatch', 'financial_reconciliation']])->save();
+        $this->fakeSignInAndWhoami();
+
+        $result = app(NoonConnector::class)->testConnection($this->account->fresh());
+
+        $this->assertTrue($result->ok(), 'the key file works; what is missing is our own code');
+        $this->assertSame([
+            'noon_product_upsert_not_built',
+            'noon_order_import_not_built',
+            'noon_shipments_not_built',
+            'noon_publishes_no_settlement_endpoint',
+        ], $result->missing);
+    }
+
+    public function test_the_gap_list_names_every_capability_the_matrix_calls_unbuilt_and_no_other(): void
+    {
+        // The list on the account page and the matrix have to say the same thing, or a person reads one of them and is wrong. Every capability noon's connector can be
+        // granted is switched on here, so the answer is the complete list rather than a sample.
+        $this->account->forceFill(['capabilities' => array_map(
+            static fn (IntegrationCapability $capability): string => $capability->value,
+            IntegrationCapability::cases(),
+        )])->save();
+        $this->fakeSignInAndWhoami();
+
+        $result = app(NoonConnector::class)->testConnection($this->account->fresh());
+        $matrix = app(NoonConnector::class)->capabilityMatrix();
+
+        foreach (['stock', 'pricing', 'category_discovery', 'warehouses'] as $built) {
+            $this->assertTrue($matrix[$built]['built'], "{$built} is built, so no gap may be reported for it");
+        }
+        foreach ($result->missing as $gap) {
+            $this->assertStringNotContainsString('inventory', $gap, 'publishing stock is built');
+            $this->assertStringNotContainsString('price', $gap, 'publishing prices is built');
+        }
+        // A gap is a promise THIS MODULE would otherwise make. It is not a permission noon withheld and not a setting left blank.
+        $this->assertContains('noon_product_upsert_not_built', $result->missing);
+        $this->assertContains('noon_shipments_not_built', $result->missing);
+    }
+
+    public function test_a_missing_setting_is_not_reported_as_an_unbuilt_capability(): void
+    {
+        // Three different problems: our code is not written, noon refused a permission, or nobody chose a warehouse. The screen is no use if it runs them together, so a
+        // blank setting shows up on the publish that needs it and never as a gap in what was built.
+        $this->account->forceFill([
+            'capabilities' => ['connection_test', 'inventory_publishing', 'price_publishing'],
+            'settings' => ['warehouse_code' => '', 'country_code' => ''],
+        ])->save();
+        $this->fakeSignInAndWhoami();
+
+        $result = app(NoonConnector::class)->testConnection($this->account->fresh());
+
+        $this->assertTrue($result->ok());
+        $this->assertSame([], $result->missing, 'a blank warehouse is a setting to fill in, not code that was never written');
+    }
+
+    public function test_every_gap_code_is_a_key_an_administrator_can_read_in_every_locale(): void
+    {
+        $this->account->forceFill(['capabilities' => array_map(
+            static fn (IntegrationCapability $capability): string => $capability->value,
+            IntegrationCapability::cases(),
+        )])->save();
+        $this->fakeSignInAndWhoami();
+
+        $missing = app(NoonConnector::class)->testConnection($this->account->fresh())->missing;
+
+        $this->assertNotSame([], $missing);
+        foreach (['en', 'sa', 'ae'] as $locale) {
+            $catalogue = include base_path("resources/lang/{$locale}/new-messages.php");
+            foreach ($missing as $gap) {
+                $this->assertArrayHasKey($gap, $catalogue, "{$locale} has no words for the gap {$gap}");
+            }
+        }
+    }
 
     public function test_the_capability_matrix_claims_only_what_is_built(): void
     {

@@ -97,19 +97,21 @@ class NoonConnector implements ChannelConnector, DescribesListingRequirements, P
     /**
      * The capabilities an account has switched on that this version cannot actually serve, so the account page says so instead of looking ready.
      *
-     * It is not a list of missing permissions at noon: it is a list of promises this module would otherwise be making.
+     * It is not a list of missing permissions at noon, and not a list of settings left blank: it is a list of promises THIS MODULE would otherwise be making. A capability
+     * noon has not granted shows up as a refusal from noon; a warehouse or country nobody chose shows up on the publish itself. Those are three different problems and the
+     * screen is no use if it runs them together.
      *
      * @return list<string>
      */
     private function whatIsNotBuiltYetFor(SalesChannelAccount $account): array
     {
+        // Only what this module still cannot serve. Stock and price publishing ARE built now, so naming them here would tell a person their account is less capable than it
+        // is. Product sync is partly built -- the categories and their attributes are read -- so it is named for what is missing rather than wholesale.
         $unservable = [
-            IntegrationCapability::ProductSync->value => 'product_sync_not_built_for_noon',
-            IntegrationCapability::InventoryPublishing->value => 'inventory_publishing_not_built_for_noon',
-            IntegrationCapability::PricePublishing->value => 'price_publishing_not_built_for_noon',
-            IntegrationCapability::OrderImport->value => 'order_import_not_built_for_noon',
-            IntegrationCapability::FulfillmentDispatch->value => 'fulfillment_dispatch_not_built_for_noon',
-            IntegrationCapability::FinancialReconciliation->value => 'financial_reconciliation_not_built_for_noon',
+            IntegrationCapability::ProductSync->value => 'noon_product_upsert_not_built',
+            IntegrationCapability::OrderImport->value => 'noon_order_import_not_built',
+            IntegrationCapability::FulfillmentDispatch->value => 'noon_shipments_not_built',
+            IntegrationCapability::FinancialReconciliation->value => 'noon_publishes_no_settlement_endpoint',
         ];
 
         $missing = [];

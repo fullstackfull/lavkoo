@@ -33,11 +33,14 @@ final readonly class NoonItemStatus
     {
         $status = (array) ($item['status'] ?? []);
         $code = isset($status['status_code']) ? (string) $status['status_code'] : null;
-        $id = $status['status_id'] ?? null;
 
-        // Both have to agree. An answer with neither field is NOT taken as success: a missing status is an answer we do not understand, and reading it as "fine" is the
-        // whole mistake this class is here to prevent.
-        $ok = $code === NoonOperations::ITEM_OK_CODE && (int) $id === NoonOperations::ITEM_OK_ID;
+        // BOTH fields must be THERE and both must say yes. `status_id` is required explicitly rather than cast, because `(int) null` is 0 and `(int) "OK"` is 0 too: a cast
+        // would have turned a missing or unreadable id into noon's success value and let `status_code: "OK"` alone stand for a confirmed write. That is the exact false
+        // success this class exists to prevent, so an id that is absent, null, or not a whole number is not success — it is an answer we do not understand.
+        $id = $status['status_id'] ?? null;
+        $idSaysOk = (is_int($id) || (is_string($id) && $id !== '' && ctype_digit(ltrim($id, '-'))) || (is_float($id) && $id === floor($id)))
+            && (int) $id === NoonOperations::ITEM_OK_ID;
+        $ok = $code === NoonOperations::ITEM_OK_CODE && $idSaysOk;
 
         return new self(
             key: $key,
@@ -47,9 +50,18 @@ final readonly class NoonItemStatus
         );
     }
 
-    /** What to show a person: noon's own code, and its own words where it gave any. */
+    /**
+     * What to show a person: noon's own code, and its own words where it gave any.
+     *
+     * A code that arrived without a usable `status_id` is named as such rather than shown bare, because "OK" on its own is the most misleading thing this could print.
+     */
     public function reason(): string
     {
-        return trim(($this->code ?? 'no_status_from_noon') . ($this->message === null ? '' : ': ' . $this->message));
+        $code = $this->code ?? 'no_status_from_noon';
+        if ($this->code === NoonOperations::ITEM_OK_CODE && !$this->ok) {
+            $code = 'ok_without_a_usable_status_id';
+        }
+
+        return trim($code . ($this->message === null ? '' : ': ' . $this->message));
     }
 }
