@@ -376,6 +376,38 @@ class TrendyolReturnDecisionsTest extends TestCase
         $this->assertStringContainsString('ITEM-A,ITEM-B', $sent[0]->body());
     }
 
+    // ---- the approval has to be grantable, not merely demanded ---------------------------------------------------
+
+    public function test_a_person_can_actually_grant_the_return_decisions_approval(): void
+    {
+        // **THE GAP MY OTHER TESTS HID.** Every test above writes `capability_approvals` straight onto the account, which
+        // proves the gate CLOSES and proves nothing about whether it can be opened. The scope was demanded by two operations
+        // and was missing from `ChannelAccountService::EXTRA_SCOPES`, so `approveScope()` -- the only path a person has --
+        // threw "is not a kind of write that is approved on its own". The approval could never be granted, so the decisions
+        // could never be sent at all, and not one test noticed.
+        //
+        // It took merging this branch with PR-F, whose hygiene guard compares every scope an operation DEMANDS against the
+        // scopes a person can be OFFERED, to make it visible. So this test goes through the real path.
+        $account = $this->account->fresh();
+        $account->forceFill(['capability_approvals' => [], 'connection_status' => 'ok', 'connection_checked_at' => now()])->save();
+
+        app(ChannelAccountService::class)->approveScope($account->fresh(), ChannelOperations::SCOPE_RETURN_DECISIONS, adminId: 1, reason: 'the pharmacist decides returns');
+
+        $this->assertArrayHasKey(ChannelOperations::SCOPE_RETURN_DECISIONS, (array) $account->fresh()->capability_approvals);
+        $this->assertContains(ChannelOperations::SCOPE_RETURN_DECISIONS, ChannelAccountService::EXTRA_SCOPES, 'and it is offered, not only demanded');
+    }
+
+    public function test_every_scope_the_return_operations_demand_is_one_a_person_can_be_asked_for(): void
+    {
+        // The general form of the same thing, kept here as well as in the hygiene guard on another branch: an operation that
+        // demands an approval nobody can grant is an operation that can never be made.
+        foreach (['trendyol.claims_approve', 'trendyol.claims_reject'] as $operation) {
+            foreach (ChannelOperations::scopes($operation) as $scope) {
+                $this->assertContains($scope, ChannelAccountService::EXTRA_SCOPES, "{$operation} demands '{$scope}', which nobody can be asked to approve");
+            }
+        }
+    }
+
     // ---- fixtures ------------------------------------------------------------------------------------------------
 
     private function fakeReasons(): void
