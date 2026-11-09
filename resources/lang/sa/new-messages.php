@@ -3335,6 +3335,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'torod_reference_field' => 'مرجع Torod Point',
 	'attention_authorisation_lost' => 'حسابات فقدت تفويضها',
 	'attention_finance_needs_review' => 'أحداث مالية تحتاج إلى مراجعة',
+	'attention_amazon_reports_need_a_person' => 'تقارير Amazon تحتاج شخصًا',
+	'amazon_report_reply_was_lost' => 'ضاع الجواب: قد يوجد تقرير عند Amazon برقم لم نعرفه',
 	'attention_orders_need_review' => 'طلبات تحتاج إلى مراجعة',
 	'attention_publishes_failed' => 'قوائم منتجات فشل آخر نشر لها',
 	'attention_sync_backing_off' => 'عمليات مزامنة تنتظر قبل إعادة المحاولة',

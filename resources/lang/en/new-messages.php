@@ -9759,6 +9759,8 @@ return [
 	'torod_reference_field' => 'Torod Point reference',
 	'attention_authorisation_lost' => 'Accounts whose authorisation was lost',
 	'attention_finance_needs_review' => 'Finance events that need review',
+	'attention_amazon_reports_need_a_person' => 'Amazon reports that need a person',
+	'amazon_report_reply_was_lost' => 'the reply was lost: a report may exist at Amazon under a number we never saw',
 	'attention_orders_need_review' => 'Orders that need review',
 	'attention_publishes_failed' => 'Listings whose last publish failed',
 	'attention_sync_backing_off' => 'Syncs waiting before they retry',

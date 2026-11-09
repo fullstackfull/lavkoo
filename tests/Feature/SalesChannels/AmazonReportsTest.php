@@ -4,6 +4,7 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Models\AmazonReportRun;
 use App\Models\OperationalCostInvoice;
+use App\Http\Controllers\Admin\SalesChannels\Support\HubSummary;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Amazon\AmazonFlatFile;
 use App\Services\SalesChannels\Amazon\AmazonReportRunner;
@@ -393,6 +394,75 @@ class AmazonReportsTest extends TestCase
 
         $this->assertSame(1, $stats['failed']);
         $this->assertSame('amazon_report_has_no_reader:' . AmazonReportTypes::FBA_INVENTORY, $run->fresh()->failure_code);
+    }
+
+    // ---- the command and the hub: a reader nothing invokes is dead code ------------------------------------------
+
+    public function test_the_command_with_nothing_due_calls_nothing(): void
+    {
+        // Safe on a schedule: with no due row and no discovery asked for it must not touch an operation rated at one call a
+        // minute just because the clock struck.
+        $this->artisan('channels:amazon-reports')->assertSuccessful();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_the_command_refuses_to_ask_for_a_settlement_report(): void
+    {
+        $this->fakeLwa();
+
+        $this->artisan('channels:amazon-reports', ['--ask' => AmazonReportTypes::SETTLEMENT])
+            ->expectsOutputToContain('amazon_report_type_is_not_requestable')
+            ->assertSuccessful();
+
+        $this->assertSame([], $this->sentTo(self::REPORTS), 'nothing was requested');
+    }
+
+    public function test_the_command_finds_a_settlement_amazon_scheduled_by_itself(): void
+    {
+        $this->fakeLwa();
+        Http::fake([self::REPORTS . '*' => Http::response(['payload' => ['reports' => [[
+            'reportId' => 'REPORT-SETTLE-9',
+            'reportType' => AmazonReportTypes::SETTLEMENT,
+            'processingStatus' => 'DONE',
+            'createdTime' => '2026-11-16T08:00:00Z',
+        ]]]])]);
+
+        $this->artisan('channels:amazon-reports', ['--discover' => true, '--limit' => 0])
+            ->expectsOutputToContain('1 new report')
+            ->assertSuccessful();
+
+        $row = AmazonReportRun::where('amazon_report_id', 'REPORT-SETTLE-9')->firstOrFail();
+        $this->assertSame(AmazonReportTypes::SETTLEMENT, $row->report_type);
+        $this->assertFalse($row->requested, 'Amazon scheduled it; we did not ask');
+    }
+
+    public function test_the_command_says_which_requests_may_have_landed_with_the_reply_lost(): void
+    {
+        // The one state no machine will resolve: only --discover can find such a report, so the command has to say so rather
+        // than let the row sit quietly in a table.
+        $this->fakeLwa();
+        Http::fake([self::REPORTS => Http::response('', 503)]);
+        app(AmazonReportRunner::class)->ask($this->account, AmazonReportTypes::ALL_LISTINGS, CarbonImmutable::parse('2026-10-01'), CarbonImmutable::parse('2026-10-31'));
+
+        $this->artisan('channels:amazon-reports')
+            ->expectsOutputToContain('may have reached Amazon with the reply lost')
+            ->assertSuccessful();
+    }
+
+    public function test_the_hub_shows_the_reports_that_need_a_person(): void
+    {
+        $this->fakeLwa();
+        Http::fake([self::REPORTS => Http::response('', 503)]);
+        app(AmazonReportRunner::class)->ask($this->account, AmazonReportTypes::ALL_LISTINGS, CarbonImmutable::parse('2026-10-01'), CarbonImmutable::parse('2026-10-31'));
+
+        $sections = app(HubSummary::class)->attention(SalesChannelAccount::orderBy('id')->get());
+
+        $titles = array_column($sections, 'title');
+        $this->assertContains(translate('attention_amazon_reports_need_a_person'), $titles);
+        $section = $sections[array_search(translate('attention_amazon_reports_need_a_person'), $titles, true)];
+        $this->assertSame(1, $section['total']);
+        $this->assertSame(translate('amazon_report_reply_was_lost'), $section['items'][0]['detail']);
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------

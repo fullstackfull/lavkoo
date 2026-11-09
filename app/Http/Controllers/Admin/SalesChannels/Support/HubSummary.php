@@ -8,12 +8,15 @@ use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Enums\SalesChannels\IntegrationCapability;
 use App\Http\Controllers\Admin\SalesChannels\ChannelLabels;
+use App\Models\AmazonReportRun;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelEvent;
 use App\Models\SalesChannelProductMapping;
 use App\Models\SalesChannelSyncState;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * What the hub shows: one card of facts per account, and the things that need a person, each with the link that resolves it.
@@ -73,6 +76,7 @@ final class HubSummary
             ...$this->stock->sections($accounts),
             $this->financeToReview(),
             $this->statementRowsThatMayRepeatTheApi(),
+            $this->reportsNeedingAPerson(),
         ], static fn (array $section): bool => $section['total'] > 0));
     }
 
@@ -177,6 +181,42 @@ final class HubSummary
                 'url' => route('admin.sales-channels.logs.index', ['tab' => 'events', 'outcome' => 'needs_review']),
             ])->all(),
             moreUrl: route('admin.sales-channels.logs.index', ['tab' => 'events', 'outcome' => 'needs_review']),
+        );
+    }
+
+    /**
+     * Amazon report runs nobody can resolve without a person.
+     *
+     * Two kinds, and the first is the one that needs saying out loud: a request whose reply was lost left a row that may have
+     * made a report at Amazon under a number nobody saw. **No run will ever request it again** -- that is the fence -- so it sits
+     * here until somebody runs `channels:amazon-reports --discover`, which is the only operation that can find it. The second
+     * kind is a document that was fetched and could not be read: a header in another locale, an unknown compression, a type
+     * with no reader.
+     *
+     * The table is checked for rather than assumed: this code ships before its migration has to have run, and a hub that threw
+     * on a missing table would take every other section with it.
+     */
+    private function reportsNeedingAPerson(): array
+    {
+        if (!Schema::hasTable('amazon_report_runs')) {
+            return $this->section(title: translate('attention_amazon_reports_need_a_person'), total: 0, items: []);
+        }
+
+        $rows = AmazonReportRun::query()->where(static fn (Builder $query): Builder => $query
+            ->where(static fn (Builder $lost): Builder => $lost->where('state', AmazonReportRun::UNKNOWN)->whereNull('amazon_report_id'))
+            ->orWhere('state', AmazonReportRun::FAILED));
+
+        return $this->section(
+            title: translate('attention_amazon_reports_need_a_person'),
+            total: (clone $rows)->count(),
+            items: $rows->latest('id')->limit(self::ATTENTION_LIMIT)->get()->map(static fn (AmazonReportRun $run): array => [
+                'title' => $run->report_type,
+                'detail' => $run->amazon_report_id === null
+                    ? translate('amazon_report_reply_was_lost')
+                    : (string) ($run->failure_code ?? $run->state),
+                'url' => route('admin.sales-channels.logs.index', ['tab' => 'calls', 'operation' => 'amazon.reports_create']),
+            ])->all(),
+            moreUrl: route('admin.sales-channels.logs.index', ['tab' => 'calls', 'operation' => 'amazon.reports_create']),
         );
     }
 

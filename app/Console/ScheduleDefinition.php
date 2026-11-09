@@ -124,6 +124,13 @@ class ScheduleDefinition
         $schedule->command('channels:dispatch-sync')->everyFiveMinutes()->withoutOverlapping(30);
         $schedule->command('channels:purge-buyer-data')->hourlyAt(23)->withoutOverlapping(30);
         $schedule->command('channels:find-shipments')->everyTenMinutes()->withoutOverlapping(30)->runInBackground();
+        // Amazon's reports, and the two cadences are what Amazon's own limits allow rather than a preference. `--discover` asks
+        // getReports what Amazon holds: it is the ONLY way a settlement report is reached (Amazon schedules those and refuses to
+        // let them be requested) and the only way a request whose reply was lost finds its report instead of making a second
+        // one -- so it runs daily, after a settlement would have been deposited. The plain run only polls and reads what is
+        // ready, which is cheap: getReport is rated at 2 requests a second while createReport allows one a minute.
+        $schedule->command('channels:amazon-reports --discover')->dailyAt('04:40')->withoutOverlapping(60)->runInBackground();
+        $schedule->command('channels:amazon-reports')->everyThirtyMinutes()->withoutOverlapping(30)->runInBackground();
 
         // Heartbeat: record the last scheduler run in the DB (not cache, which optimize:clear wipes) so
         // the admin dashboard can warn when the server cron `schedule:run` has stopped firing — the
