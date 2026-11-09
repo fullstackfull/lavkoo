@@ -91,7 +91,10 @@ class PackageSplitConcurrencyTest extends TestCase
         // makes the count below a 1, and the other three processes come back refused.
         $this->assertSame(1, ChannelPackageSplit::count(), 'and one split was recorded');
         $this->assertSame(3, $this->workersWhere($reports, static fn (array $r): bool => str_starts_with((string) ($r['refusal'] ?? ''), 'package_already_has_a_split')), 'the three that lost were told why');
-        $this->assertSame(1, $this->workersWhere($reports, static fn (array $r): bool => ($r['requested'] ?? 0) === 1), 'exactly one process recorded it');
+        // Counted by the REFUSAL, not by whether a row came back. On the unique-violation path `request()` returns the row
+        // that WON together with the reason this caller lost -- so every worker gets a row, and the one that recorded the
+        // split is the one with no refusal. Asserting on the row was my own mistake and it failed while the code was right.
+        $this->assertSame(1, $this->workersWhere($reports, static fn (array $r): bool => ($r['refusal'] ?? null) === null), 'exactly one process recorded it');
         $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
     }
 
