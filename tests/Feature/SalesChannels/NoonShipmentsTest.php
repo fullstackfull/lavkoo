@@ -555,6 +555,55 @@ class NoonShipmentsTest extends TestCase
         $this->assertStringContainsString('already left and noon does not confirm it', (string) $second['reason']);
     }
 
+    public function test_a_worker_paused_past_its_claim_sends_nothing_at_all(): void
+    {
+        // **THE SHARPER VERSION OF THE SAME WINDOW, and the fence had it too.** The fence is a compare-and-set, and it used to
+        // ignore its own result. A worker paused between claiming and fencing -- garbage collection, a starved CPU, or simply a
+        // slow existence check, which is a network call -- can have its lease lapse and the row taken over. Its fence then
+        // affects ZERO rows, and if it sent anyway the create would leave this host with nothing recording that it had.
+        //
+        // The pause is injected where it really happens: inside the existence check, which is the one slow thing between the
+        // claim and the fence.
+        $reference = app(NoonConnector::class)->shipmentNumberFor('NO-1', ['I-1']);
+        $this->fake([
+            self::GET => function () use ($reference) {
+                // While this worker waits on noon, its claim runs out and another worker takes the reference.
+                ChannelShipmentSend::query()->update(['claimed_at' => now()->subMinutes((int) config('sales_channels.shipment_sends.claim_minutes') + 1)]);
+                app(ChannelShipmentSends::class)->claim($this->account, $reference, 'NO-1');
+
+                return Http::response([], 404);
+            },
+            self::CREATE => Http::response([]),
+        ]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent'], 'a worker that cannot fence cannot send');
+        $this->assertTrue($result['busy'] ?? false, 'and it reports that somebody else holds it');
+        $this->assertStringContainsString('no longer owns the shipment', (string) $result['reason']);
+        $this->assertSame([], $this->sentTo(self::CREATE), 'NOTHING left this host');
+    }
+
+    public function test_a_worker_whose_lease_lapsed_without_a_takeover_still_sends_nothing(): void
+    {
+        // The lease is part of the fence's condition, not just the token. A worker whose claim has run out cannot promise
+        // exclusivity for the length of a network call even when nobody has taken the row yet, so it steps back rather than
+        // racing whoever claims it next.
+        $this->fake([
+            self::GET => function () {
+                ChannelShipmentSend::query()->update(['claimed_at' => now()->subMinutes((int) config('sales_channels.shipment_sends.claim_minutes') + 1)]);
+
+                return Http::response([], 404);
+            },
+            self::CREATE => Http::response([]),
+        ]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent']);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
     public function test_a_crash_before_the_request_leaves_nothing_fenced(): void
     {
         // The other side, so the fence is not simply always on: the pre-check could not be made, so no create was attempted and

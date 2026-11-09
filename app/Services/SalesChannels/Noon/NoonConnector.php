@@ -1056,7 +1056,20 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
         // sent. Its lease would then expire and the next worker would ask noon, read a 404 and ship the same units again.
         //
         // It is pessimistic on purpose. Everything below that can PROVE noon did not process the request resets it.
-        $this->sends->aboutToSend($token, 'noon_create_in_flight');
+        //
+        // **AND THE FENCE CAN FAIL, WHICH ABORTS THE SEND.** It is a compare-and-set: it affects nothing when this attempt no
+        // longer owns the reference, because another worker took it over or because this worker's own lease lapsed while it was
+        // paused -- the existence check above is a network call, and a worker can lose minutes in one. A worker that cannot
+        // fence cannot send: its create would leave this host with no durable record that it had, which is exactly the hole the
+        // fence closes. So nothing is sent, and whoever holds the row now is the one shipment.
+        if (!$this->sends->aboutToSend($token, 'noon_create_in_flight')) {
+            return [
+                'sent' => false, 'confirmed' => false, 'shipment' => $shipmentNumber,
+                'reason' => 'this attempt no longer owns the shipment -- another one holds it, or this one was paused past its'
+                    . ' claim -- so nothing was sent. Whatever the holder does will be the one shipment.',
+                'busy' => true,
+            ];
+        }
 
         try {
             $response = $this->client->call(

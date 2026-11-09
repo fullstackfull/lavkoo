@@ -84,9 +84,31 @@ class ChannelShipmentSends
      *
      * The claim is KEPT: the attempt is not over, and the read-back needs the token to settle the row.
      */
-    public function aboutToSend(string $token, ?string $reason = null): void
+    public function aboutToSend(string $token, ?string $reason = null): bool
     {
-        $this->settle($token, ChannelShipmentSend::MAY_HAVE_SENT, $reason, ['sent_at' => now()], release: false);
+        // **A COMPARE-AND-SET THAT FAILS CLOSED, and the return value is not optional to check.**
+        //
+        // It affects zero rows when this attempt no longer owns the reference: either another worker has taken it over and the
+        // token has moved on, or this worker's own lease has lapsed while it was paused -- garbage collection, a starved CPU, a
+        // slow existence check. A worker in that position cannot fence anything, so it must not send anything: its create would
+        // leave the host with NO durable record that it had, which is the whole failure this class exists to prevent.
+        //
+        // The lease is part of the condition, not just the token. A worker whose lease has run out cannot promise exclusivity
+        // for the length of a network call even if nobody has taken the row yet, so it steps back rather than racing.
+        //
+        // And the lease is RENEWED here, so the fence covers the call that follows it rather than expiring halfway through.
+        $lease = now()->subMinutes(max(1, (int) config('sales_channels.shipment_sends.claim_minutes', 10)));
+        $affected = ChannelShipmentSend::where('claim_token', $token)
+            ->where('claimed_at', '>', $lease)
+            ->update([
+                'state' => ChannelShipmentSend::MAY_HAVE_SENT,
+                'reason_code' => $reason === null ? null : mb_substr($reason, 0, 80),
+                'sent_at' => now(),
+                'claimed_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        return $affected === 1;
     }
 
     /**
@@ -95,15 +117,15 @@ class ChannelShipmentSends
      * Releasing ownership and clearing the send state are two different acts, and only the first belongs here. The next attempt
      * may ASK the channel; it may not send.
      */
-    public function releaseAfterUncertainSend(string $token, string $reason): void
+    public function releaseAfterUncertainSend(string $token, string $reason): bool
     {
-        $this->settle($token, ChannelShipmentSend::MAY_HAVE_SENT, $reason);
+        return $this->settle($token, ChannelShipmentSend::MAY_HAVE_SENT, $reason);
     }
 
     /** The channel reported the shipment. Terminal. */
-    public function confirmed(string $token): void
+    public function confirmed(string $token): bool
     {
-        $this->settle($token, ChannelShipmentSend::CONFIRMED, null, ['confirmed_at' => now()]);
+        return $this->settle($token, ChannelShipmentSend::CONFIRMED, null, ['confirmed_at' => now()]);
     }
 
     /**
@@ -114,15 +136,15 @@ class ChannelShipmentSends
      * is what supplies that proof: it documents a 401, a 403, a 429 and any other 4xx as refused BEFORE processing, and a 5xx or
      * a lost answer as cases where the channel may have acted. Only the first group comes here.
      */
-    public function nothingWasSent(string $token, ?string $reason = null): void
+    public function nothingWasSent(string $token, ?string $reason = null): bool
     {
-        $this->settle($token, ChannelShipmentSend::NOT_SENT, $reason, ['sent_at' => null]);
+        return $this->settle($token, ChannelShipmentSend::NOT_SENT, $reason, ['sent_at' => null]);
     }
 
     /** A send may have left and the channel does not show the shipment. Automation stops here; reads may still resolve it. */
-    public function needsReview(string $token, string $reason): void
+    public function needsReview(string $token, string $reason): bool
     {
-        $this->settle($token, ChannelShipmentSend::NEEDS_REVIEW, $reason);
+        return $this->settle($token, ChannelShipmentSend::NEEDS_REVIEW, $reason);
     }
 
     /** What this system knows about one shipment reference, for a screen or a report. */
@@ -131,14 +153,17 @@ class ChannelShipmentSends
         return ChannelShipmentSend::where('account_id', $account->id)->where('reference', $reference)->first();
     }
 
-    /** @param array<string, mixed> $extra */
-    private function settle(string $token, string $state, ?string $reason, array $extra = [], bool $release = true): void
+    /**
+     * @param array<string, mixed> $extra
+     * @return bool whether it landed: false means this attempt no longer owns the row, and the caller has not changed anything
+     */
+    private function settle(string $token, string $state, ?string $reason, array $extra = [], bool $release = true): bool
     {
         // **KEYED ON THE TOKEN**, so a worker whose lease expired -- a slow request that was overtaken, a process that came back
         // from the dead -- cannot write over the row the new owner holds. Its late "nothing was sent" is a no-op, which is the
         // only safe outcome: it does not know what happened after it stopped looking.
-        ChannelShipmentSend::where('claim_token', $token)->update(array_merge([
+        return ChannelShipmentSend::where('claim_token', $token)->update(array_merge([
             'state' => $state, 'reason_code' => $reason === null ? null : mb_substr($reason, 0, 80), 'updated_at' => now(),
-        ], $release ? ['claim_token' => null, 'claimed_at' => null] : [], $extra));
+        ], $release ? ['claim_token' => null, 'claimed_at' => null] : [], $extra)) === 1;
     }
 }

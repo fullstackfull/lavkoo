@@ -148,6 +148,45 @@ class ChannelShipmentSendsTest extends TestCase
         $this->assertTrue($this->sends->claim($this->account, self::REFERENCE, 'NO-1')->isBusy(), 'and the live owner still holds it');
     }
 
+    public function test_the_fence_is_refused_to_a_worker_that_has_lost_the_row(): void
+    {
+        // **THE FENCE IS A COMPARE-AND-SET, and its result is not optional to check.** A worker paused between claiming and
+        // fencing can have its lease lapse and the row taken over; its fence then affects nothing. A worker in that position
+        // must send nothing at all, because its create would leave the host with no durable record that it had.
+        $stale = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+        $this->travel((int) config('sales_channels.shipment_sends.claim_minutes') + 1)->minutes();
+        $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+
+        $this->assertFalse($this->sends->aboutToSend((string) $stale->token), 'it no longer owns the reference');
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->row()->state, 'and it changed nothing');
+    }
+
+    public function test_the_fence_is_refused_to_a_worker_whose_lease_lapsed_even_with_no_takeover(): void
+    {
+        // The lease is part of the condition, not just the token. A worker whose claim has run out cannot promise exclusivity
+        // for the length of a network call even when nobody else has taken the row.
+        $lapsed = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+        $this->travel((int) config('sales_channels.shipment_sends.claim_minutes') + 1)->minutes();
+
+        $this->assertFalse($this->sends->aboutToSend((string) $lapsed->token));
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->row()->state);
+    }
+
+    public function test_the_fence_renews_the_lease_so_it_covers_the_call_it_fences(): void
+    {
+        // A fence that expired halfway through the create would leave the row open to a takeover while the request was still on
+        // the wire -- the same window again, one step later.
+        $permission = $this->sends->claim($this->account, self::REFERENCE, 'NO-1');
+        $minutes = (int) config('sales_channels.shipment_sends.claim_minutes');
+        $this->travel($minutes - 1)->minutes();
+
+        $this->assertTrue($this->sends->aboutToSend((string) $permission->token), 'still inside the lease');
+
+        // Almost a whole lease later the fence is still the owner's, because fencing renewed it.
+        $this->travel($minutes - 1)->minutes();
+        $this->assertTrue($this->row()->claimIsLive(), 'the lease was renewed when the fence went up');
+    }
+
     public function test_only_proof_clears_the_fence(): void
     {
         // The one road back from `may_have_sent`, and it takes proof: a definitive refusal, a rate limit, a credential refusal,
