@@ -324,7 +324,20 @@ class ChannelHttpTest extends TestCase
 
     public function test_a_request_that_is_not_a_get_is_a_gated_write_except_exactly_the_sign_in_and_the_request_for_a_report(): void
     {
-        $exceptions = ['amazon.lwa_token', 'amazon.reports_create'];
+        // The two sign-ins exchange a credential for a session and nothing else -- Amazon's for a token, noon's for a cookie -- and a report request asks Amazon to prepare
+        // data (nothing calls it).
+        //
+        // THEN NOON, WHICH IS A DIFFERENT CASE ENTIRELY. noon's gateway is POST-for-everything: it publishes NO GET for reading a stock figure, a price, a category, a
+        // product's content state, the warehouses, a page of orders, a shipment or a return reference. Each of those reads data and changes nothing, so each is a READ --
+        // registering them as writes would make reading a quantity need a write approval and would break the capability ladder for an account that only syncs.
+        //
+        // They are named one by one rather than allowed by prefix, so the guard keeps its teeth: any OTHER non-GET registered as a read still fails here, and a noon WRITE
+        // mistakenly registered as a read would have to be added to this list by hand, which is a visible line in a diff.
+        $exceptions = [
+            'amazon.lwa_token', 'amazon.reports_create', 'noon.login',
+            'noon.warehouses_list', 'noon.stock_list', 'noon.pricing_get', 'noon.categories_list', 'noon.category_attributes_list',
+            'noon.product_content_get', 'noon.fbpi_orders_list', 'noon.shipment_get', 'noon.return_references_list',
+        ];
         $notGatedAsWrites = [];
         foreach (ChannelOperations::registered() as $operation) {
             foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
@@ -334,7 +347,7 @@ class ChannelHttpTest extends TestCase
             }
         }
 
-        $this->assertSame($exceptions, array_keys($notGatedAsWrites), 'Sign-in only returns a token, and a report request asks Amazon to prepare data (nothing calls it); every other call that is not a GET goes through every write gate.');
+        $this->assertEqualsCanonicalizing($exceptions, array_keys($notGatedAsWrites), 'Every call that is not a GET goes through every write gate, except exactly the ones named above and for the reasons given there.');
     }
 
     public function test_every_registered_operation_is_classified_and_every_write_names_its_approval(): void

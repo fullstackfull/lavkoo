@@ -28,6 +28,7 @@ return [
     'operation_providers' => [
         \App\Services\SalesChannels\Trendyol\TrendyolOperations::class,
         \App\Services\SalesChannels\Amazon\AmazonOperations::class,
+        \App\Services\SalesChannels\Noon\NoonOperations::class,
     ],
 
     'http' => [
@@ -191,6 +192,26 @@ return [
         'webhook_max_bytes' => 262144,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | noon (partners.noon.com)
+    |--------------------------------------------------------------------------
+    | Paths and hosts follow the official partner documentation as read on 2026-11-08. The request and response SHAPES of every call but the sign-in are not published in a
+    | readable form, so this version signs in and asks who it is, and nothing else: see NoonOperations.
+    */
+    'noon' => [
+        'bases' => ['production' => 'https://noon-api-gateway.noon.partners', 'sandbox' => 'https://noon-sandbox-api-gateway.noon.partners'],
+        // The sign-in ALWAYS goes to production, even for a sandbox account: the documentation says to keep the login call on the production host and point only the other
+        // calls at the sandbox. A sandbox that answered a sign-in would hand out a session that production does not know.
+        'login_always_production' => true,
+        // noon requires a User-Agent on every request.
+        'user_agent' => ['application' => 'PharmacyChannelHub', 'version' => '1.0'],
+        // A session lasts 30 days; it is renewed once less than this is left of it, so a run never starts with a session about to lapse.
+        'session_refresh_margin_hours' => 24,
+        // The JWT noon is sent is rejected if it is more than five minutes away from its clock, so it is made per sign-in and never cached.
+        'jwt_lifetime_seconds' => 120,
+    ],
+
     'stock' => [
         // A quantity the source has not confirmed for this long is stale and is not published.
         'stale_after_minutes' => 180,
@@ -279,7 +300,9 @@ return [
         'offer_attributes' => [
             'amazon' => ['purchasable_offer', 'list_price', 'fulfillment_availability', 'offer', 'price', 'quantity', 'main_offer_image_locator'],
             'trendyol' => ['listPrice', 'salePrice', 'quantity', 'stockCode'],
-            'noon' => ['price', 'sale_price', 'stock', 'quantity'],
+            // noon keeps price and quantity in services of their own, so its content call has no field for either. These names are listed because `attributes{}` is a
+            // free-form map of a category's attributes: a noon category that happened to carry one of them must not deliver it through the one call no price switch guards.
+            'noon' => ['price', 'sale_price', 'msrp', 'stock', 'quantity', 'qty', 'is_active', 'processing_time'],
         ],
         /*
         | What the shop wants of its OWN product before it is offered anywhere (ProductListingReadiness): nothing here fetches an image or judges its pixels — it checks that the
@@ -381,10 +404,21 @@ return [
         'max_buyer_data_days' => 30,
     ],
 
+    /*
+    | Telling a channel that goods shipped. One claimed row per shipment reference (`channel_shipment_sends`) decides which process owns the attempt, because asking the channel
+    | first does not stop two processes both being told "no such shipment" and both sending. A send that may have reached the channel is never repeated automatically.
+    */
+    'shipment_sends' => [
+        // An attempt that claimed a shipment reference and never finished (a crash) is given up after this long, and the reference may be claimed again. Taking it over does
+        // NOT grant permission to send: the row still says whether a send may already have left.
+        'claim_minutes' => 10,
+    ],
+
     // The class that speaks to each channel. A new channel is a connector class added here.
     'connectors' => [
         'amazon' => \App\Services\SalesChannels\Amazon\AmazonConnector::class,
         'trendyol' => \App\Services\SalesChannels\Trendyol\TrendyolConnector::class,
+        'noon' => \App\Services\SalesChannels\Noon\NoonConnector::class,
     ],
 
     'sync' => [

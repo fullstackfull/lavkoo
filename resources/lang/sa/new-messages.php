@@ -4573,4 +4573,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'only_an_attempt_whose_payment_page_never_arrived_can_be_released_this_way' => 'لا يمكن تحرير إلا محاولة لم تصل صفحة الدفع الخاصة بها.',
 	'attempt_released_the_customer_can_start_a_new_payment' => 'تم التحرير. يمكن للعميل بدء عملية دفع جديدة.',
 	'the_payment_was_applied' => 'تم تطبيق الدفعة.',
+	'sales_channel_noon' => 'نون',
+	'channel_reason_setting_missing' => 'إعداد لا يمكن إجراء هذا الطلب بدونه فارغ في الحساب: أكمله في إعدادات الحساب',
+	'channel_reason_another_attempt_running' => 'عملية أخرى تُجري هذه الكتابة نفسها وتملكها؛ فلم يُرسل شيء مرتين',
+	'noon_publishes_no_settlement_endpoint' => 'لا تنشر نون أي نقطة تسويات أو مدفوعات أو رسوم، فلا يمكن قراءة عمولاتها تلقائيًا ولا يُقدَّر أي رقم مالي لنون',
 ];

@@ -40,7 +40,7 @@ class ChannelHttp
 
     /**
      * @param array<string, string> $headers
-     * @param array<string, mixed>|null $json
+     * @param array<string, mixed>|object|null $json an object where the service insists on a JSON object: an empty PHP array would encode to `[]`, which a gRPC gateway refuses
      * @param array<string, mixed> $query
      * @param array<string, string>|null $form an application/x-www-form-urlencoded body
      * @param array<string, string>|null $multipart a multipart/form-data body of PLAIN FIELDS ONLY. Some channels document
@@ -57,7 +57,7 @@ class ChannelHttp
         string $method,
         string $url,
         array $headers = [],
-        ?array $json = null,
+        array|object|null $json = null,
         array $query = [],
         ?array $form = null,
         ?IntegrationCapability $capability = null,
@@ -180,7 +180,7 @@ class ChannelHttp
      * @param array<string, string>|null $form
      * @param array<string, string>|null $multipart plain fields only; see `send()`
      */
-    private function attempt(string $method, string $url, array $headers, ?array $json, array $query, ?array $form, string $correlationId, ?array $multipart = null): ChannelResponse
+    private function attempt(string $method, string $url, array $headers, array|object|null $json, array $query, ?array $form, string $correlationId, ?array $multipart = null): ChannelResponse
     {
         $started = hrtime(true);
 
@@ -232,7 +232,12 @@ class ChannelHttp
         $decoded = $response->json();
         $headers = [];
         foreach ($response->headers() as $name => $values) {
-            $headers[strtolower((string) $name)] = is_array($values) ? (string) ($values[0] ?? '') : (string) $values;
+            $name = strtolower((string) $name);
+            // One value per header is enough for everything this module reads EXCEPT `Set-Cookie`, which HTTP allows a server to repeat and which a session is built out of:
+            // a channel that sets a session cookie and a CSRF cookie sends two, and keeping only the first would hand back half a session. So that one keeps every value.
+            $headers[$name] = $name === 'set-cookie'
+                ? array_values(array_map('strval', is_array($values) ? $values : [$values]))
+                : (is_array($values) ? (string) ($values[0] ?? '') : (string) $values);
         }
 
         return new ChannelResponse($kind, $status, is_array($decoded) ? $decoded : null, (string) $response->body(), null, $durationMs, $correlationId, $headers);
@@ -286,9 +291,11 @@ class ChannelHttp
         return SecretRedactor::truncate($text, $limit - 16);
     }
 
-    private function log(SalesChannelAccount $account, string $operation, string $method, string $url, array $headers, ?array $body, array $query, ChannelResponse $response): void
+    private function log(SalesChannelAccount $account, string $operation, string $method, string $url, array $headers, array|object|null $body, array $query, ChannelResponse $response): void
     {
         try {
+            // An object body (a service that insists on `{}`) is logged as the array it stands for; an empty one logs as nothing, which is what it is.
+            $body = is_object($body) ? (array) $body : $body;
             $maxBytes = (int) config('sales_channels.logs.max_body_bytes', 8192);
             $strict = ChannelOperations::describesPeople($operation);
             $request = PiiRedactor::redact(SecretRedactor::redact(array_filter(['headers' => $headers, 'query' => $query, 'body' => $body], static fn ($value): bool => $value !== [] && $value !== null)), $strict);

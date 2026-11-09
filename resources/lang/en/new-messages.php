@@ -10989,4 +10989,8 @@ return [
 	'attempt_released_the_customer_can_start_a_new_payment' => 'Released. The customer can start a new payment.',
 	'the_payment_was_applied' => 'The payment was applied.',
 	'myfatoorah_switched_off_on_this_page' => 'Myfatoorah switched off on this page',
+	'sales_channel_noon' => 'Sales channel noon',
+	'channel_reason_setting_missing' => 'A setting this call cannot be made without is empty on the account: fill it in on the account\'s settings',
+	'channel_reason_another_attempt_running' => 'Another process is already making this exact write and owns it; nothing was sent twice',
+	'noon_publishes_no_settlement_endpoint' => 'noon publishes no settlement, payout or fee endpoint, so its commissions cannot be read automatically and no figure for noon is estimated',
 ];
