@@ -61,14 +61,18 @@ class OdooXmlRpcTest extends TestCase
         $this->assertStringContainsString('<array><data><value><int>1</int></value>', $xml);
     }
 
-    public function test_nothing_is_ever_sent_as_nil_and_a_null_member_is_dropped(): void
+    public function test_nothing_is_ever_sent_as_nil(): void
     {
-        // `<nil/>` is an extension, not XML-RPC 1.0, and whether an Odoo accepts it depends on how its server was started.
-        $xml = OdooXmlRpc::request('execute_kw', [['ref' => 'R-1', 'partner_id' => null], [null, 'kept']]);
+        // `<nil/>` is an extension, not XML-RPC 1.0, and whether an Odoo accepts it depends on how its server was started. A
+        // named field with nothing to say is left out of the struct instead, which is what `create` wants.
+        //
+        // An earlier version of this test also passed a null inside a LIST and asserted it was dropped. That assertion encoded
+        // a defect: dropping it shifts every later position. The list case is now a refusal, covered by its own tests above.
+        $xml = OdooXmlRpc::request('execute_kw', [['ref' => 'R-1', 'partner_id' => null]]);
 
         $this->assertStringNotContainsString('nil', $xml);
         $this->assertStringNotContainsString('partner_id', $xml);
-        $this->assertStringContainsString('kept', $xml);
+        $this->assertStringContainsString('<name>ref</name>', $xml);
     }
 
     public function test_text_that_would_break_the_document_is_escaped(): void
@@ -170,6 +174,130 @@ class OdooXmlRpcTest extends TestCase
     public function test_a_value_with_no_type_element_is_the_string_the_spec_says_it_is(): void
     {
         $this->assertSame('plain', OdooXmlRpc::response($this->responseOf('plain')));
+    }
+
+    // ---- a malformed document is never a meaningful answer -------------------------------------------------------
+
+    public function test_an_array_with_no_data_element_is_refused_and_not_read_as_empty(): void
+    {
+        // THE distinction this codec exists to keep. `<array><data></data></array>` means Odoo holds no entry under this
+        // reference, which is a green light to create one. `<array></array>` is a broken document. Reading the second as the
+        // first is how the same cost gets posted twice.
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/no data element/');
+        OdooXmlRpc::response($this->responseOf('<array></array>'));
+    }
+
+    public function test_a_real_empty_result_still_comes_back_as_an_empty_array(): void
+    {
+        $this->assertSame([], OdooXmlRpc::response($this->responseOf('<array><data></data></array>')));
+    }
+
+    public function test_a_broken_array_and_an_empty_result_do_not_read_alike(): void
+    {
+        // Stated as one test, because the two being distinguishable is the property that matters rather than either alone.
+        $empty = OdooXmlRpc::response($this->responseOf('<array><data></data></array>'));
+        $broken = null;
+        try {
+            $broken = OdooXmlRpc::response($this->responseOf('<array></array>'));
+        } catch (RuntimeException) {
+            $broken = 'refused';
+        }
+
+        $this->assertNotSame($empty, $broken);
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function numbersThatCannotBeRead(): array
+    {
+        return [
+            // Every one of these is 0 or false under PHP's own coercion, and 0 is a meaningful value here: a record id, a
+            // debit, a fault code. A cast would turn an unreadable answer into a plausible one.
+            'a word where an int belongs' => ['<int>invalid</int>'],
+            'an empty int' => ['<int></int>'],
+            // The nastiest of the set: PHP would truncate this to 12 without a word.
+            'digits with a tail' => ['<int>12abc</int>'],
+            'an int that is a float' => ['<int>1.5</int>'],
+            'a word where a double belongs' => ['<double>abc</double>'],
+            'an empty double' => ['<double></double>'],
+            'a boolean that is a word' => ['<boolean>yes</boolean>'],
+            'a boolean that is a number' => ['<boolean>2</boolean>'],
+            'an empty boolean' => ['<boolean></boolean>'],
+        ];
+    }
+
+    #[DataProvider('numbersThatCannotBeRead')]
+    public function test_a_number_that_cannot_be_read_is_refused_rather_than_coerced(string $value): void
+    {
+        $this->expectException(RuntimeException::class);
+        OdooXmlRpc::response($this->responseOf($value));
+    }
+
+    /** @return array<string, array{0: string, 1: mixed}> */
+    public static function numbersThatCanBeRead(): array
+    {
+        return [
+            'a record id' => ['<int>412</int>', 412],
+            'zero, which is real' => ['<int>0</int>', 0],
+            'a negative' => ['<int>-5</int>', -5],
+            'a signed positive' => ['<int>+5</int>', 5],
+            'an i4' => ['<i4>7</i4>', 7],
+            'an amount' => ['<double>1234.5</double>', 1234.5],
+            'a negative amount' => ['<double>-0.01</double>', -0.01],
+            'zero as a double' => ['<double>0</double>', 0.0],
+            'exponent notation' => ['<double>1e3</double>', 1000.0],
+            'true' => ['<boolean>1</boolean>', true],
+            'false, which is real' => ['<boolean>0</boolean>', false],
+        ];
+    }
+
+    #[DataProvider('numbersThatCanBeRead')]
+    public function test_a_number_that_can_be_read_still_is(string $value, mixed $expected): void
+    {
+        // The strictness must not have made the decoder useless: zero and false are real answers and have to survive.
+        $this->assertSame($expected, OdooXmlRpc::response($this->responseOf($value)));
+    }
+
+    // ---- a null shifts a position, so it is refused rather than dropped -------------------------------------------
+
+    public function test_a_null_in_a_positional_list_is_refused_rather_than_dropped(): void
+    {
+        // `execute_kw` is positional: database, uid, key, model, method, args, kwargs. Dropping the null in
+        // ['db', null, 'key'] puts the key where the user id belongs, and the request is well formed while saying the wrong
+        // thing -- the hardest kind of bug to see.
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/shift position 1/');
+        OdooXmlRpc::request('execute_kw', [['db', null, 'key']]);
+    }
+
+    public function test_the_refusal_names_the_position_so_a_caller_can_find_it(): void
+    {
+        try {
+            OdooXmlRpc::request('execute_kw', [[1, 2, 3, null]]);
+            $this->fail('a null in a list must be refused');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('position 3', $exception->getMessage());
+        }
+    }
+
+    public function test_a_null_member_of_a_struct_is_still_dropped_because_a_name_shifts_nothing(): void
+    {
+        // The opposite case keeps its own policy on purpose: struct members are named, so leaving one out moves nothing, and
+        // that is exactly what Odoo's `create` wants for a field with nothing to say.
+        $xml = OdooXmlRpc::request('execute_kw', [['ref' => 'R-1', 'partner_id' => null]]);
+
+        $this->assertStringNotContainsString('partner_id', $xml);
+        $this->assertStringContainsString('<name>ref</name>', $xml);
+        $this->assertStringNotContainsString('nil', $xml);
+    }
+
+    public function test_a_list_of_real_values_is_unaffected_by_the_rule(): void
+    {
+        $xml = OdooXmlRpc::request('execute_kw', [['db', 2, 'key']]);
+
+        $this->assertStringContainsString('<value><string>db</string></value>', $xml);
+        $this->assertStringContainsString('<value><int>2</int></value>', $xml);
+        $this->assertStringContainsString('<value><string>key</string></value>', $xml);
     }
 
     // ---- the parser refuses a document type, whatever is in it ---------------------------------------------------

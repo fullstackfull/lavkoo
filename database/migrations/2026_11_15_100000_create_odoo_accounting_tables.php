@@ -29,8 +29,18 @@ return new class extends Migration
                 $table->string('fact_kind', 32);
                 $table->string('fact_code', 64);
                 // Null means "any": a mapping may be general or narrowed to one channel, and the narrowest match wins.
-                $table->string('sales_channel', 24)->nullable();
-                $table->string('currency', 8)->nullable();
+                // AN EMPTY STRING MEANS "ANY", AND THESE ARE NOT NULLABLE ON PURPOSE.
+                //
+                // A unique index does not constrain NULLs: in MySQL, MariaDB, SQLite and Postgres alike, NULL is not equal to
+                // NULL, so every row carrying one passes. Had these stayed nullable, the general mapping -- the one that applies
+                // to every channel and every currency, and so the one most worth protecting -- could have been inserted any
+                // number of times, each copy claiming a different Odoo account for the same fact, and which one won would depend
+                // on row order.
+                //
+                // So "any" is spelled with a value the index can compare: `''` here, and `0` for a company id, since Odoo
+                // numbers its own companies from 1.
+                $table->string('sales_channel', 24)->default('')->comment('empty means every channel');
+                $table->string('currency', 8)->default('')->comment('empty means every currency');
                 // Odoo's ids, READ from Odoo and never invented here. The human-readable code is kept beside each so a
                 // person can see what was chosen without opening Odoo, and so a changed chart is visible.
                 $table->unsignedBigInteger('odoo_account_id');
@@ -57,6 +67,8 @@ return new class extends Migration
             Schema::create('odoo_posting_queue', function (Blueprint $table): void {
                 $table->id();
                 $table->unsignedBigInteger('seller_id')->default(0)->index();
+                // Not part of this table's unique key -- `(source_type, source_id, source_version)` is, and all three are NOT
+                // NULL -- so a null here constrains nothing and costs nothing. It is simply unknown until a company is read.
                 $table->unsignedBigInteger('odoo_company_id')->nullable();
                 // WHAT IS BEING POSTED, and which version of it. A value that changes after posting is a NEW version and
                 // a new row -- never a second posting of the same one, and never an edit of a final entry in Odoo.
@@ -114,8 +126,11 @@ return new class extends Migration
             Schema::create('odoo_reconciliations', function (Blueprint $table): void {
                 $table->id();
                 $table->unsignedBigInteger('seller_id')->default(0)->index();
-                $table->unsignedBigInteger('odoo_company_id')->nullable();
-                $table->string('sales_channel', 24)->nullable();
+                // Not nullable, for the reason given on the mapping table above: a unique index does not constrain NULLs, so a
+                // reconciliation row for "every company, every channel" could otherwise be written once per run, and the report
+                // would show the same period several times over with different figures.
+                $table->unsignedBigInteger('odoo_company_id')->default(0)->comment('0 means every company; Odoo numbers its own from 1');
+                $table->string('sales_channel', 24)->default('')->comment('empty means every channel');
                 $table->date('period_start');
                 $table->date('period_end');
                 $table->string('currency', 8);

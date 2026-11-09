@@ -125,10 +125,15 @@ final class OdooXmlRpc
         if (array_is_list($value)) {
             $array = $document->createElement('array');
             $data = $array->appendChild($document->createElement('data'));
-            foreach ($value as $item) {
-                if ($item !== null) {
-                    $data->appendChild(self::value($document, $item));
+            foreach ($value as $position => $item) {
+                // A NULL IN A POSITIONAL LIST IS REFUSED, never dropped. `execute_kw` is positional -- database, uid, key,
+                // model, method, args, kwargs -- so silently omitting one shifts every later member down: pass
+                // ['db', null, 'key'] and the key lands where the user id belongs. The caller meant something by that null and
+                // only the caller knows what; guessing here would send a well-formed request that says the wrong thing.
+                if ($item === null) {
+                    throw new RuntimeException('A null cannot be sent in an XML-RPC array: dropping it would shift position ' . $position . ' and every one after it. Send a value, or leave the field out of a struct.');
                 }
+                $data->appendChild(self::value($document, $item));
             }
 
             return $array;
@@ -136,6 +141,8 @@ final class OdooXmlRpc
 
         $struct = $document->createElement('struct');
         foreach ($value as $name => $item) {
+            // A struct is the opposite case and keeps its own policy: members are named, so leaving one out shifts nothing. That
+            // is exactly what Odoo's `create` wants for a field with nothing to say, and it is why nothing here sends `<nil/>`.
             if ($item === null) {
                 continue;
             }
@@ -165,9 +172,9 @@ final class OdooXmlRpc
         }
 
         return match ($typed->nodeName) {
-            'int', 'i4', 'i8' => (int) trim($typed->textContent),
-            'boolean' => trim($typed->textContent) === '1',
-            'double' => (float) trim($typed->textContent),
+            'int', 'i4', 'i8' => self::integer($typed),
+            'boolean' => self::boolean($typed),
+            'double' => self::double($typed),
             // Kept as text: an Odoo date is a string to us, and parsing it here would guess at a timezone nobody stated.
             'string', 'dateTime.iso8601', 'base64' => $typed->textContent,
             'array' => self::decodeArray($typed),
@@ -177,18 +184,68 @@ final class OdooXmlRpc
         };
     }
 
-    /** @return list<mixed> */
+    /**
+     * @return list<mixed>
+     * @throws RuntimeException when the array has no `<data>`, which is a BROKEN document and not an empty result
+     */
     private static function decodeArray(DOMElement $array): array
     {
+        // `<array>` without `<data>` is malformed per the spec. Returning [] for it would make a corrupt response
+        // indistinguishable from `<array><data></data></array>` -- a real, meaningful answer that says Odoo holds no entry under
+        // this reference. Those two must never read alike: one is "ask again", the other is "go ahead and create", and confusing
+        // them is how the same cost gets posted twice.
         $data = self::firstElement($array, 'data');
+        if ($data === null) {
+            throw new RuntimeException('Odoo sent an XML-RPC array with no data element, which is a malformed response and not an empty result.');
+        }
+
         $items = [];
-        foreach ($data === null ? [] : $data->childNodes as $child) {
+        foreach ($data->childNodes as $child) {
             if ($child instanceof DOMElement && $child->nodeName === 'value') {
                 $items[] = self::decode($child);
             }
         }
 
         return $items;
+    }
+
+    /**
+     * An integer, or a refusal.
+     *
+     * `(int)` is not used because PHP's coercion lies quietly: `(int) 'invalid'` is 0, `(int) ''` is 0 and `(int) '12abc'` is 12.
+     * Zero is a meaningful value here -- a record id, a debit, a fault code -- so a cast would turn an unreadable answer into a
+     * plausible one, which is the single worst thing a decoder can do.
+     */
+    private static function integer(DOMElement $element): int
+    {
+        $text = trim($element->textContent);
+        if (preg_match('/^[+-]?\d+$/', $text) !== 1) {
+            throw new RuntimeException('Odoo sent an XML-RPC integer this client will not guess at.');
+        }
+
+        return (int) $text;
+    }
+
+    /** A float, or a refusal. Same reasoning: `(float) 'abc'` is 0.0, and 0.0 is a real amount. */
+    private static function double(DOMElement $element): float
+    {
+        $text = trim($element->textContent);
+        if ($text === '' || !is_numeric($text)) {
+            throw new RuntimeException('Odoo sent an XML-RPC double this client will not guess at.');
+        }
+
+        return (float) $text;
+    }
+
+    /** `1` or `0`, and nothing else: anything-but-1 silently becoming false would read a broken answer as a definite no. */
+    private static function boolean(DOMElement $element): bool
+    {
+        $text = trim($element->textContent);
+        if ($text !== '0' && $text !== '1') {
+            throw new RuntimeException('Odoo sent an XML-RPC boolean that is neither 0 nor 1.');
+        }
+
+        return $text === '1';
     }
 
     /** @return array<string, mixed> */
