@@ -4549,4 +4549,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'only_an_attempt_whose_payment_page_never_arrived_can_be_released_this_way' => 'لا يمكن تحرير إلا محاولة لم تصل صفحة الدفع الخاصة بها.',
 	'attempt_released_the_customer_can_start_a_new_payment' => 'تم التحرير. يمكن للعميل بدء عملية دفع جديدة.',
 	'the_payment_was_applied' => 'تم تطبيق الدفعة.',
+	'approval_scope_accounting_posting' => 'كتابة القيود المحاسبية',
+	'approval_scope_help_accounting_posting' => 'يسمح لهذا الحساب بكتابة قيود اليومية في النظام المحاسبي. وتُنشأ القيود مسوّدات فقط؛ والترحيل النهائي قرار منفصل ومسجَّل.',
 ];

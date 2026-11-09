@@ -28,6 +28,9 @@ return [
     'operation_providers' => [
         \App\Services\SalesChannels\Trendyol\TrendyolOperations::class,
         \App\Services\SalesChannels\Amazon\AmazonOperations::class,
+        // Odoo is not a sales channel. It is registered here so that writing into somebody's books goes through the same host
+        // switch, account switch, rehearsal mode, recorded approval and redacted audit log as every other outbound call.
+        \App\Services\Accounting\Odoo\OdooOperations::class,
     ],
 
     'http' => [

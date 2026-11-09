@@ -34,6 +34,8 @@ final class ChannelOperations
     public const SCOPE_NOTIFICATION_MANAGEMENT = 'notification_management';
     /** A master admin's approval to read a buyer's name, phone and address from the channel so that a provider can ship the order. */
     public const SCOPE_BUYER_DATA_TRANSFER = 'buyer_data_transfer';
+    /** A master admin's approval to write a journal entry into the accounting system. The only scope that touches somebody's books. */
+    public const SCOPE_ACCOUNTING_POSTING = 'accounting_posting';
 
     private const READ_CAPABILITIES = [Capability::ReadOnlySync, Capability::ProductSync, Capability::OrderImport, Capability::FinancialReconciliation];
 

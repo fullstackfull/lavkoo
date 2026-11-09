@@ -10965,4 +10965,6 @@ return [
 	'attempt_released_the_customer_can_start_a_new_payment' => 'Released. The customer can start a new payment.',
 	'the_payment_was_applied' => 'The payment was applied.',
 	'myfatoorah_switched_off_on_this_page' => 'Myfatoorah switched off on this page',
+	'approval_scope_accounting_posting' => 'Writing accounting entries',
+	'approval_scope_help_accounting_posting' => 'Lets this account write journal entries into the accounting system. Entries are created as DRAFTS only; the final posting is a separate, recorded decision.',
 ];

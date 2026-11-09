@@ -324,7 +324,21 @@ class ChannelHttpTest extends TestCase
 
     public function test_a_request_that_is_not_a_get_is_a_gated_write_except_exactly_the_sign_in_and_the_request_for_a_report(): void
     {
-        $exceptions = ['amazon.lwa_token', 'amazon.reports_create'];
+        // Amazon's sign-in only returns a token, and a report request asks Amazon to prepare data (nothing calls it).
+        //
+        // THEN ODOO, WHICH IS A DIFFERENT CASE. Odoo has no GET for reading anything: `execute_kw` is a POST whether it searches
+        // or creates, and JSON-2 posts to a method path. Each of these reads data and changes nothing, so each is a READ --
+        // registering them as writes would mean a person could not look at the chart of accounts without being approved to post
+        // into it, which is the opposite of what the approval is for.
+        //
+        // They are named one by one rather than allowed by a prefix, so the guard keeps its teeth: `odoo.create_draft_entry` is
+        // absent from this list and IS a gated write, and any new Odoo call registered as a read would have to be added here by
+        // hand -- a visible line in a diff on the one integration that writes into somebody's books.
+        $exceptions = [
+            'amazon.lwa_token', 'amazon.reports_create',
+            'odoo.version', 'odoo.authenticate', 'odoo.fields_get', 'odoo.model_list',
+            'odoo.search_read', 'odoo.search_count', 'odoo.search_entry_by_reference',
+        ];
         $notGatedAsWrites = [];
         foreach (ChannelOperations::registered() as $operation) {
             foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
@@ -334,7 +348,27 @@ class ChannelHttpTest extends TestCase
             }
         }
 
-        $this->assertSame($exceptions, array_keys($notGatedAsWrites), 'Sign-in only returns a token, and a report request asks Amazon to prepare data (nothing calls it); every other call that is not a GET goes through every write gate.');
+        $this->assertEqualsCanonicalizing($exceptions, array_keys($notGatedAsWrites), 'Every call that is not a GET goes through every write gate, except exactly the ones named above and for the reasons given there.');
+    }
+
+    public function test_writing_a_journal_entry_into_odoo_is_a_gated_write(): void
+    {
+        // The other half of the list above. Every Odoo READ is exempt from the non-GET rule; the one Odoo WRITE is not, and it
+        // names the approval a master admin has to record before anything reaches somebody's books.
+        $this->assertSame(ChannelOperations::WRITE, ChannelOperations::kindOf('odoo.create_draft_entry', 'POST'));
+        $this->assertContains(ChannelOperations::SCOPE_ACCOUNTING_POSTING, ChannelOperations::scopes('odoo.create_draft_entry'));
+    }
+
+    public function test_odoo_registers_no_call_that_posts_or_edits_a_finished_entry(): void
+    {
+        // Posting an entry is the irreversible step, and Odoo documents neither a method for it nor writing `state` directly.
+        // Editing or deleting one would destroy the trace that it was ever different -- a posted figure is corrected by a
+        // reversal. None of those is registered, and `deliberatelyNotRegistered()` says so by name.
+        $registered = array_keys(ChannelOperations::registered() === [] ? [] : array_flip(ChannelOperations::registered()));
+        foreach (array_keys(\App\Services\Accounting\Odoo\OdooOperations::deliberatelyNotRegistered()) as $absent) {
+            $this->assertNotContains($absent, $registered, "{$absent} must not be registered");
+        }
+        $this->assertArrayHasKey('odoo.post_entry', \App\Services\Accounting\Odoo\OdooOperations::deliberatelyNotRegistered());
     }
 
     public function test_every_registered_operation_is_classified_and_every_write_names_its_approval(): void
