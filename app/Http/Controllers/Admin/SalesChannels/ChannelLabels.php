@@ -37,6 +37,21 @@ final class ChannelLabels
             'order_pending', 'order_awaiting_review', 'order_delivered', 'order_cancelled', 'order_returned', 'order_failed',
             'rate_limited', 'buyer_data_off',
         ],
+        /*
+        | The Odoo accounting screens' own codes.
+        |
+        | They live here rather than in a class of their own because this is where the translation guard and the hygiene guard
+        | already look, and a second home for label families is a second place to forget. Odoo is not a sales channel; its words
+        | are simply kept with the others.
+        */
+        // What the outbox says about one fact. `may_have_posted` is the one that matters: a create may be in the customer's
+        // books, so nothing creates from that row again.
+        'odoo_posting_state_' => ['pending', 'may_have_posted', 'posted', 'failed', 'needs_review', 'dead'],
+        // Which of Odoo's two external APIs an instance was DISCOVERED to speak. `OdooTransport::labelKey()` builds these.
+        'odoo_transport_' => ['json2', 'xmlrpc', 'unknown'],
+        // What a mapping row maps: one of our cost components, or the account that balances it.
+        'odoo_fact_kind_' => ['cost_component', 'counterpart'],
+
         'sync_resource_' => ['orders', 'returns', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'],
         'run_stat_' => [
             'pages', 'created', 'updated', 'unchanged', 'stale', 'needs_review', 'skipped', 'decisions', 'linked', 'suggested', 'conflicts', 'unseen', 'stored', 'unlinked',
@@ -103,6 +118,10 @@ final class ChannelLabels
         'channel_reason_channel_did_not_confirm', 'channel_reason_channel_refused_repeatedly', 'channel_reason_channel_notify_error', 'channel_reason_order_pending', 'channel_reason_order_awaiting_review',
         'channel_reason_order_delivered', 'channel_reason_order_cancelled', 'channel_reason_order_returned', 'channel_reason_order_failed',
         'channel_reason_rate_limited', 'channel_reason_buyer_data_off',
+        'odoo_posting_state_pending', 'odoo_posting_state_may_have_posted', 'odoo_posting_state_posted', 'odoo_posting_state_failed',
+        'odoo_posting_state_needs_review', 'odoo_posting_state_dead',
+        'odoo_transport_json2', 'odoo_transport_xmlrpc', 'odoo_transport_unknown',
+        'odoo_fact_kind_cost_component', 'odoo_fact_kind_counterpart',
         'sync_resource_orders', 'sync_resource_returns', 'sync_resource_listings', 'sync_resource_inventory', 'sync_resource_finances', 'sync_resource_publish_stock', 'sync_resource_publish_price',
         'run_stat_pages', 'run_stat_created', 'run_stat_updated', 'run_stat_unchanged', 'run_stat_stale', 'run_stat_needs_review', 'run_stat_skipped', 'run_stat_decisions',
         'run_stat_linked', 'run_stat_suggested', 'run_stat_conflicts', 'run_stat_unseen', 'run_stat_stored', 'run_stat_unlinked', 'run_stat_new', 'run_stat_duplicates',
