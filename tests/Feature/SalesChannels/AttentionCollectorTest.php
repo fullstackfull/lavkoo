@@ -3,6 +3,7 @@
 namespace Tests\Feature\SalesChannels;
 
 use App\Models\AmazonReportRun;
+use App\Models\ChannelAttentionReview;
 use App\Models\ChannelPackageSplit;
 use App\Models\ChannelReturnDecision;
 use App\Models\ChannelStockEvent;
@@ -13,6 +14,7 @@ use App\Services\SalesChannels\Attention\AttentionRegistry;
 use App\Services\SalesChannels\Attention\AttentionSource;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\BuildsAuditLogTable;
 use Tests\Support\BuildsOdooWorld;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\TestCase;
@@ -36,6 +38,7 @@ use Tests\TestCase;
  */
 class AttentionCollectorTest extends TestCase
 {
+    use BuildsAuditLogTable;
     use BuildsOdooWorld;
     use BuildsSalesChannelSchema;
 
@@ -133,6 +136,45 @@ class AttentionCollectorTest extends TestCase
         }
     }
 
+    public function test_the_late_count_is_the_real_number_and_not_a_page_of_it(): void
+    {
+        // **THE MONITORING DEFECT.** `late` was computed from `items()`, which is capped -- so past the cap a late refund
+        // was invisible, and the one number that says "nobody has looked at this for a day" under-reported exactly when it
+        // mattered most. 250 rows, all late, against a default page of 200.
+        config(['sales_channels.attention.late_after_hours' => 24]);
+        $rows = [];
+        for ($n = 0; $n < 250; $n++) {
+            $rows[] = [
+                'account_id' => 1, 'channel' => 'trendyol', 'claim_id' => 'CLAIM-' . $n, 'claim_item_id' => 'ITEM-' . $n,
+                'decision' => ChannelReturnDecision::APPROVE, 'state' => ChannelReturnDecision::MAY_HAVE_SENT,
+                'sent_at' => now()->subHours(48), 'created_at' => now(), 'updated_at' => now(),
+            ];
+        }
+        ChannelReturnDecision::insert($rows);
+
+        $summary = app(AttentionCollector::class)->summary();
+
+        $this->assertSame(250, $summary['total']);
+        $this->assertSame(250, $summary['late'], 'the late count is a page of the list, not the list');
+        $this->assertCount(200, app(AttentionCollector::class)->items(), 'and the LIST is still a page, which is right');
+    }
+
+    public function test_a_fresh_row_is_not_counted_late_however_many_old_ones_there_are(): void
+    {
+        config(['sales_channels.attention.late_after_hours' => 24]);
+        $this->aFencedReturn(sentAt: now()->subHours(48));
+        $this->aSplitNobodyCouldProve(sentAt: now()->subMinutes(5));
+
+        $this->assertSame(1, app(AttentionCollector::class)->summary()['late']);
+    }
+
+    public function test_the_registry_declares_exactly_the_number_the_documents_claim(): void
+    {
+        // I wrote "nine sources" in six places and `declared()` has ten. A count in prose that nobody checks is a count that
+        // drifts, so it is asserted here against the registry itself.
+        $this->assertCount(10, app(AttentionRegistry::class)->declared());
+    }
+
     // ---- what it refuses -----------------------------------------------------------------------------------------
 
     public function test_not_one_money_or_shipment_source_may_be_sent_again(): void
@@ -175,47 +217,157 @@ class AttentionCollectorTest extends TestCase
         $this->assertSame([], app(AttentionCollector::class)->items(), 'and it is no longer waiting for anybody');
     }
 
-    public function test_acknowledging_settles_the_row_as_a_persons_judgement_and_sends_nothing(): void
+    public function test_a_review_records_what_a_person_saw_and_changes_no_operation(): void
     {
+        // **THE DEFECT THIS REPLACES.** `acknowledge()` used to move this row to `done` on the strength of a typed note. A
+        // sentence is not proof that a customer was refunded. The review is recorded; the operation stays exactly as true as
+        // it was.
         $this->aFencedReturn();
         $id = (int) ChannelReturnDecision::firstOrFail()->id;
 
-        $result = app(AttentionActions::class)->acknowledge('return_decisions', $id, adminId: 9, note: 'Checked in the Trendyol panel: the refund went through on the 18th.');
+        $result = app(AttentionActions::class)->review(
+            sourceKey: 'return_decisions',
+            id: $id,
+            adminId: 9,
+            outcome: ChannelAttentionReview::CONFIRMED_AT_CHANNEL,
+            note: 'Checked the Trendyol panel: the refund shows as made on the 18th.',
+            evidence: 'TY-REFUND-55120',
+            closeTheAlert: true,
+        );
 
         $this->assertTrue($result['ok'], (string) $result['refusal']);
-        $this->assertSame(ChannelReturnDecision::DONE, ChannelReturnDecision::firstOrFail()->state);
+        // The operation: UNCHANGED.
+        $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state, 'a note settled an ambiguous refund');
+        // The review: kept, in full, where nine of the ten source tables have nowhere to put it.
+        $review = ChannelAttentionReview::firstOrFail();
+        $this->assertSame(['return_decisions', $id, 9, ChannelAttentionReview::CONFIRMED_AT_CHANNEL, 'TY-REFUND-55120', ChannelAttentionReview::CLOSED], [
+            $review->source, (int) $review->source_row_id, (int) $review->reviewed_by, $review->outcome, $review->evidence, $review->alert_state,
+        ]);
+        $this->assertSame('CLAIM-77', $review->reference, 'copied at review time, because the source row may change or go');
+        $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, $review->observed_state);
+        // And the alert is off the screen while the operation is still what it is.
         $this->assertSame([], app(AttentionCollector::class)->items());
     }
 
-    public function test_an_acknowledgement_with_no_words_is_refused(): void
+    public function test_a_review_that_does_not_close_the_alert_leaves_it_on_the_screen_with_its_reviewer(): void
     {
-        // The note IS the record. A state change nobody can account for is worse than a row still waiting.
+        // "I looked" and "stop showing me this" are different things, and somebody still working on a refund must be able to
+        // say the first without the second -- while the next person sees that it is in hand.
         $this->aFencedReturn();
+        $id = (int) ChannelReturnDecision::firstOrFail()->id;
 
-        $result = app(AttentionActions::class)->acknowledge('return_decisions', (int) ChannelReturnDecision::firstOrFail()->id, adminId: 9, note: '   ');
+        app(AttentionActions::class)->review('return_decisions', $id, 9, ChannelAttentionReview::STILL_UNKNOWN, 'Asked Trendyol support, waiting.');
 
-        $this->assertFalse($result['ok']);
-        $this->assertSame('attention_acknowledgement_needs_words', $result['refusal']);
-        $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state);
+        $items = app(AttentionCollector::class)->items();
+        $this->assertCount(1, $items);
+        $this->assertSame(9, $items[0]->reviewedBy);
+        $this->assertSame(ChannelAttentionReview::STILL_UNKNOWN, $items[0]->reviewOutcome);
     }
 
-    public function test_a_row_somebody_else_settled_first_is_not_overwritten(): void
+    public function test_two_people_cannot_record_two_conflicting_outcomes_for_one_row(): void
+    {
+        // Two pharmacists with the screen open is the ordinary case. The unique key on the review table is what stops one
+        // refund carrying both "the channel shows it happened" and "the channel shows it did not".
+        $this->aFencedReturn();
+        $id = (int) ChannelReturnDecision::firstOrFail()->id;
+
+        $first = app(AttentionActions::class)->review('return_decisions', $id, 9, ChannelAttentionReview::CONFIRMED_AT_CHANNEL, 'It was refunded.');
+        $second = app(AttentionActions::class)->review('return_decisions', $id, 11, ChannelAttentionReview::NOT_DONE_AT_CHANNEL, 'It was not refunded.');
+
+        $this->assertTrue($first['ok']);
+        $this->assertFalse($second['ok']);
+        $this->assertSame('attention_somebody_already_reviewed_this_confirmed_at_channel', $second['refusal']);
+        $this->assertSame(1, ChannelAttentionReview::count(), 'one review, not two contradicting each other');
+    }
+
+    public function test_an_outcome_the_screen_does_not_know_is_refused(): void
+    {
+        // The outcome is a fixed vocabulary on purpose: a word nobody can group is not a record, and free text here would
+        // make "was it done?" unanswerable across a hundred rows.
+        $this->aFencedReturn();
+
+        $result = app(AttentionActions::class)->review('return_decisions', (int) ChannelReturnDecision::firstOrFail()->id, 9, 'sorted_it_out', 'trust me');
+
+        $this->assertSame('attention_outcome_is_not_one_we_recognise', $result['refusal']);
+        $this->assertSame(0, ChannelAttentionReview::count());
+    }
+
+    public function test_a_review_with_no_words_or_no_person_is_refused(): void
     {
         $this->aFencedReturn();
         $id = (int) ChannelReturnDecision::firstOrFail()->id;
-        ChannelReturnDecision::whereKey($id)->update(['state' => ChannelReturnDecision::DONE]);
 
-        $result = app(AttentionActions::class)->acknowledge('return_decisions', $id, adminId: 9, note: 'I looked too');
+        $this->assertSame('attention_acknowledgement_needs_words', app(AttentionActions::class)->review('return_decisions', $id, 9, ChannelAttentionReview::STILL_UNKNOWN, '   ')['refusal']);
+        $this->assertSame('attention_review_needs_a_named_person', app(AttentionActions::class)->review('return_decisions', $id, 0, ChannelAttentionReview::STILL_UNKNOWN, 'looked')['refusal']);
+        $this->assertSame(0, ChannelAttentionReview::count());
+    }
 
-        // Two pharmacists with the screen open is the ordinary case, and the second must not write over the first's judgement.
+    public function test_nothing_is_recorded_when_the_review_table_has_not_been_migrated(): void
+    {
+        // **No durable record, no reported success.** The review row IS the record this feature promises, so a host without
+        // it is told rather than shown a green toast over nothing.
+        $this->aFencedReturn();
+        Schema::drop('channel_attention_reviews');
+
+        $result = app(AttentionActions::class)->review('return_decisions', (int) ChannelReturnDecision::firstOrFail()->id, 9, ChannelAttentionReview::STILL_UNKNOWN, 'looked');
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('attention_reviews_table_not_migrated', $result['refusal']);
+        $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state);
+    }
+
+    public function test_a_review_whose_audit_line_cannot_be_written_records_nothing_at_all(): void
+    {
+        // The audit trail exists here, and a line that FAILS takes the review row with it: a trail that silently lost a line
+        // is worse than one that never had it, because the first is believed.
+        $this->aFencedReturn();
+        $this->buildAuditLogTable();
+        // A column the writer must use, made impossible: the insert fails inside the transaction.
+        Schema::table('audit_logs', static function (\Illuminate\Database\Schema\Blueprint $table): void {
+            $table->dropColumn('action');
+        });
+
+        $result = app(AttentionActions::class)->review('return_decisions', (int) ChannelReturnDecision::firstOrFail()->id, 9, ChannelAttentionReview::STILL_UNKNOWN, 'looked');
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('attention_review_could_not_be_recorded', $result['refusal']);
+        $this->assertSame(0, ChannelAttentionReview::count(), 'the review row went with the audit line');
+    }
+
+    public function test_a_review_keeps_its_audit_line_when_the_trail_exists(): void
+    {
+        $this->aFencedReturn();
+        $this->buildAuditLogTable();
+
+        $result = app(AttentionActions::class)->review('return_decisions', (int) ChannelReturnDecision::firstOrFail()->id, 9, ChannelAttentionReview::CONFIRMED_AT_CHANNEL, 'refunded', 'TY-1');
+
+        $this->assertTrue($result['ok'], (string) $result['refusal']);
+        $line = \App\Models\AuditLog::where('action', 'sales_channel.attention_reviewed')->firstOrFail();
+        // The trail says out loud that the operation was NOT settled by this.
+        $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, $line->context['operation_state_unchanged']);
+        $this->assertSame('TY-1', $line->context['evidence']);
+    }
+
+    public function test_putting_back_is_refused_when_the_row_moved_under_us(): void
+    {
+        // The read-then-write race: `whereKey` alone would have applied this to whatever state the row had reached by now.
+        $this->aDeadStockEvent();
+        $id = (int) ChannelStockEvent::firstOrFail()->id;
+        $actions = app(AttentionActions::class);
+
+        // Somebody else works it between the read and the write.
+        ChannelStockEvent::whereKey($id)->update(['state' => ChannelStockEvent::WORKED]);
+        $result = $actions->putBack('stock_events', $id, 1, 'the provider is answering again');
+
         $this->assertFalse($result['ok']);
         $this->assertSame('attention_row_is_no_longer_waiting', $result['refusal']);
+        $this->assertSame(ChannelStockEvent::WORKED, ChannelStockEvent::firstOrFail()->state, 'the other write was overwritten');
     }
 
     public function test_an_unknown_source_is_refused_rather_than_guessed_at(): void
     {
         foreach ([
-            fn (): array => app(AttentionActions::class)->acknowledge('not_a_source', 1, 1, 'x'),
+            fn (): array => app(AttentionActions::class)->review('not_a_source', 1, 1, ChannelAttentionReview::STILL_UNKNOWN, 'x'),
             fn (): array => app(AttentionActions::class)->putBack('not_a_source', 1, 1, 'x'),
         ] as $call) {
             $this->assertSame('attention_action_not_allowed_for_this_source', $call()['refusal']);

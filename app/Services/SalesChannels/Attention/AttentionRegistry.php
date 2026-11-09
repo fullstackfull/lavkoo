@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * ## Read the `retryable` column before anything else
  *
- * **Eight of the nine sources are not retryable, and that is the point.** For each of them the channel either publishes no
+ * **Nine of the ten sources are not retryable, and that is the point.** For each of them the channel either publishes no
  * way to ask what became of the request, or the price of assuming wrong is somebody's money: a customer refunded twice, a
  * parcel shipped twice, a payment taken twice, an entry posted twice into a real ledger. So the only actions are to look and
  * to record what was found.
@@ -65,7 +65,7 @@ class AttentionRegistry
     {
         return [
             // ---- returns ------------------------------------------------------------------------------------------
-            // The worst of the nine. Approving refunds a customer and rejecting refuses them, Trendyol documents no
+            // The worst of the ten. Approving refunds a customer and rejecting refuses them, Trendyol documents no
             // idempotency for either, and -- alone among everything here -- publishes NO WAY TO ASK what became of one
             // claim-item decision. So a fenced row has nothing a machine can do with it, ever.
             new AttentionSource(
@@ -74,9 +74,8 @@ class AttentionRegistry
                 model: ChannelReturnDecision::class,
                 states: [ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::NEEDS_REVIEW],
                 columns: ['reference' => 'claim_id', 'account' => 'account_id', 'reason' => 'failure_code', 'detail' => 'failure_detail', 'since' => 'sent_at', 'order' => 'external_order_id'],
-                actions: [AttentionSource::OPEN, AttentionSource::ACKNOWLEDGE],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
-                settledState: ChannelReturnDecision::DONE,
             ),
 
             // ---- shipments ----------------------------------------------------------------------------------------
@@ -88,9 +87,8 @@ class AttentionRegistry
                 model: ChannelPackageSplit::class,
                 states: [ChannelPackageSplit::NEEDS_REVIEW],
                 columns: ['reference' => 'package_id', 'account' => 'account_id', 'reason' => 'failure_code', 'detail' => 'failure_detail', 'since' => 'sent_at', 'order' => 'external_order_id'],
-                actions: [AttentionSource::OPEN, AttentionSource::ACKNOWLEDGE],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
-                settledState: ChannelPackageSplit::CONFIRMED,
             ),
             // A waybill or a status that may already have reached the provider or the channel.
             new AttentionSource(
@@ -99,9 +97,8 @@ class AttentionRegistry
                 model: ChannelShipmentSend::class,
                 states: [ChannelShipmentSend::MAY_HAVE_SENT, ChannelShipmentSend::NEEDS_REVIEW],
                 columns: ['reference' => 'reference', 'account' => 'account_id', 'reason' => 'reason_code', 'since' => 'sent_at', 'order' => 'external_order_id'],
-                actions: [AttentionSource::OPEN, AttentionSource::ACKNOWLEDGE],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
-                settledState: ChannelShipmentSend::CONFIRMED,
             ),
             // An order the dispatcher refused to carry, or stopped carrying. Nothing was sent, but the reason is a person's to
             // resolve (a missing address, a provider with no mapping, a changed order). No action here sends anything: the
@@ -141,9 +138,8 @@ class AttentionRegistry
                 model: OdooPosting::class,
                 states: [OdooPosting::MAY_HAVE_POSTED, OdooPosting::NEEDS_REVIEW],
                 columns: ['reference' => 'odoo_ref', 'reason' => 'failure_code', 'detail' => 'failure_detail', 'since' => 'needs_review_since', 'order' => 'source_id'],
-                actions: [AttentionSource::OPEN, AttentionSource::ACKNOWLEDGE],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
-                settledState: OdooPosting::POSTED,
             ),
 
             // ---- finance reading ----------------------------------------------------------------------------------
@@ -155,9 +151,8 @@ class AttentionRegistry
                 model: AmazonReportRun::class,
                 states: [AmazonReportRun::UNKNOWN],
                 columns: ['reference' => 'report_type', 'account' => 'account_id', 'reason' => 'failure_code', 'detail' => 'failure_detail', 'since' => 'requested_at'],
-                actions: [AttentionSource::OPEN, AttentionSource::ACKNOWLEDGE],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
-                settledState: AmazonReportRun::FAILED,
             ),
 
             // ---- payments -----------------------------------------------------------------------------------------
@@ -169,7 +164,7 @@ class AttentionRegistry
                 model: MyFatoorahPaymentAttempt::class,
                 states: ['mismatch'],
                 columns: ['reference' => 'invoice_id', 'reason' => 'status', 'detail' => 'last_error_message', 'since' => 'last_verified_at'],
-                actions: [AttentionSource::OPEN, AttentionSource::ACKNOWLEDGE],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
             ),
             // A refund the gateway refused or failed to make. A customer is owed money and no machine tries again.
@@ -179,7 +174,7 @@ class AttentionRegistry
                 model: MyFatoorahRefund::class,
                 states: [MyFatoorahRefund::STATUS_FAILED, MyFatoorahRefund::STATUS_REJECTED],
                 columns: ['reference' => 'myfatoorah_reference', 'reason' => 'status', 'detail' => 'last_error_message', 'since' => 'requested_at'],
-                actions: [AttentionSource::OPEN, AttentionSource::ACKNOWLEDGE],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
             ),
 

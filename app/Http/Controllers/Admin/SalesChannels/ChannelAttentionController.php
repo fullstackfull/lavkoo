@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\SalesChannels;
 
 use App\Http\Controllers\Controller;
+use App\Models\ChannelAttentionReview;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Attention\AttentionActions;
 use App\Services\SalesChannels\Attention\AttentionCollector;
@@ -38,7 +39,7 @@ use Illuminate\View\View;
  */
 class ChannelAttentionController extends Controller
 {
-    public const ACTIONS = [AttentionSource::ACKNOWLEDGE, AttentionSource::PUT_BACK];
+    public const ACTIONS = [AttentionSource::REVIEW, AttentionSource::PUT_BACK];
 
     public function __construct(
         private readonly AttentionCollector $collector,
@@ -61,6 +62,8 @@ class ChannelAttentionController extends Controller
             'sources' => $this->registry->all(),
             'chosen' => $source,
             'accounts' => SalesChannelAccount::orderBy('name')->pluck('name', 'id'),
+            'outcomes' => ChannelAttentionReview::OUTCOMES,
+            'reviewsReady' => AttentionActions::ready(),
         ]);
     }
 
@@ -69,6 +72,10 @@ class ChannelAttentionController extends Controller
      *
      * The action comes from the route and is one of two; anything else never reaches here. The service checks that THIS
      * source sanctions it, so a mistake in the registry is a refusal rather than a second refund.
+     *
+     * **Neither action settles an operation.** A review records who looked, what they saw and what they can show for it, and
+     * may take the alert off the screen; the operation's own state is left as true as it was. That separation is the whole
+     * point of the rewrite: a typed note used to move a return decision to `done`.
      */
     public function act(Request $request, string $source, int $id, string $action): RedirectResponse
     {
@@ -77,7 +84,17 @@ class ChannelAttentionController extends Controller
 
         $result = $action === AttentionSource::PUT_BACK
             ? $this->actions->putBack($source, $id, $adminId, $note)
-            : $this->actions->acknowledge($source, $id, $adminId, $note);
+            : $this->actions->review(
+                sourceKey: $source,
+                id: $id,
+                adminId: $adminId,
+                outcome: (string) requestString('outcome'),
+                note: $note,
+                evidence: requestString('evidence'),
+                // Closing is a separate tick, because "I looked" and "stop showing me this" are different things and a
+                // person who is still working on a refund should be able to say the first without the second.
+                closeTheAlert: $request->boolean('close'),
+            );
 
         // The module's own toast, like every other screen here, so a refusal is read in the same place as a success. Through
         // `SafeToast` because a refusal code is dynamic text: an unknown code would otherwise print whatever it contained.

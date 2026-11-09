@@ -4,6 +4,7 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Http\Middleware\ModulePermissionMiddleware;
 use App\Models\Admin;
+use App\Models\ChannelAttentionReview;
 use App\Models\ChannelReturnDecision;
 use App\Models\ChannelStockEvent;
 use Carbon\CarbonImmutable;
@@ -61,8 +62,9 @@ class AdminAttentionScreenTest extends AdminSalesChannelsTestCase
         $this->actingAs(Admin::findOrFail(5), 'admin');
 
         $this->get(route('admin.sales-channels.attention'))->assertRedirect();
-        $this->post(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => 1, 'action' => 'acknowledge']), ['note' => 'x'])
+        $this->post(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => 1, 'action' => 'review']), ['note' => 'x', 'outcome' => ChannelAttentionReview::STILL_UNKNOWN])
             ->assertRedirect();
+        $this->assertSame(0, ChannelAttentionReview::count());
         $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state);
     }
 
@@ -74,22 +76,46 @@ class AdminAttentionScreenTest extends AdminSalesChannelsTestCase
 
         // The put-back form exists for one source in the whole system, and this is not it.
         $response->assertDontSee(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => ChannelReturnDecision::firstOrFail()->id, 'action' => 'put_back']), false);
-        $response->assertSee(translate('i_checked'), false);
+        $response->assertSee(translate('record_what_i_saw'), false);
+        // And the page says plainly that recording a finding settles nothing, which is the thing a person most needs to know
+        // before typing into it.
+        // A fragment with no apostrophe: Blade escapes `'` to `&#039;`, so asserting the whole sentence unescaped would fail
+        // on the punctuation rather than on the page.
+        $response->assertSee('does not change the operation', false);
     }
 
-    public function test_recording_what_a_person_found_settles_the_row_and_calls_nothing(): void
+    public function test_recording_what_a_person_found_changes_no_operation_and_calls_nothing(): void
     {
         $this->aFencedReturn();
         $id = (int) ChannelReturnDecision::firstOrFail()->id;
 
-        $response = $this->post(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => $id, 'action' => 'acknowledge']), [
+        $response = $this->post(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => $id, 'action' => 'review']), [
+            'outcome' => ChannelAttentionReview::CONFIRMED_AT_CHANNEL,
             'note' => 'Checked in the Trendyol panel: the refund was made on the 18th.',
+            'evidence' => 'TY-REFUND-9001',
+            'close' => '1',
         ]);
 
         $response->assertRedirect();
-        $this->assertSame(ChannelReturnDecision::DONE, ChannelReturnDecision::firstOrFail()->state);
-        // `preventStrayRequests` would have raised on any call; this says it in the test's own words as well.
+        // **The operation is untouched.** The screen used to write `done` here on the strength of that sentence.
+        $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state);
+        $review = ChannelAttentionReview::firstOrFail();
+        $this->assertSame([ChannelAttentionReview::CONFIRMED_AT_CHANNEL, 'TY-REFUND-9001', ChannelAttentionReview::CLOSED], [$review->outcome, $review->evidence, $review->alert_state]);
+        $this->assertSame(1, (int) $review->reviewed_by, 'recorded against the signed-in admin');
         $this->assertSame([], Http::recorded()->all(), 'the screen called a channel');
+    }
+
+    public function test_a_finding_the_screen_does_not_know_is_refused(): void
+    {
+        $this->aFencedReturn();
+        $id = (int) ChannelReturnDecision::firstOrFail()->id;
+
+        $this->post(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => $id, 'action' => 'review']), [
+            'outcome' => 'i_sorted_it', 'note' => 'trust me',
+        ]);
+
+        $this->assertToastContains(translate('attention_outcome_is_not_one_we_recognise'));
+        $this->assertSame(0, ChannelAttentionReview::count());
     }
 
     public function test_the_one_idempotent_source_can_be_put_back_from_the_screen(): void
@@ -121,7 +147,9 @@ class AdminAttentionScreenTest extends AdminSalesChannelsTestCase
         $this->aFencedReturn();
         $id = (int) ChannelReturnDecision::firstOrFail()->id;
 
-        $this->post(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => $id, 'action' => 'acknowledge']), ['note' => '  ']);
+        $this->post(route('admin.sales-channels.attention.act', ['source' => 'return_decisions', 'id' => $id, 'action' => 'review']), [
+            'note' => '  ', 'outcome' => ChannelAttentionReview::STILL_UNKNOWN,
+        ]);
 
         $this->assertToastContains(translate('attention_acknowledgement_needs_words'));
         $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state);

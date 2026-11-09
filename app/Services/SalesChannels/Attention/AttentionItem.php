@@ -30,6 +30,10 @@ final readonly class AttentionItem
         public bool $retryable,
         public ?string $whyNotRetryable,
         public ?string $orderReference = null,
+        // Who has already looked at it, and what they said they saw. A row with a review that did NOT close the alert is
+        // still waiting -- somebody is working on it -- and the screen says so instead of two people starting over.
+        public ?int $reviewedBy = null,
+        public ?string $reviewOutcome = null,
     ) {
     }
 

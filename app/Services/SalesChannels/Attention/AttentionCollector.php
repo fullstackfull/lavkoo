@@ -2,7 +2,10 @@
 
 namespace App\Services\SalesChannels\Attention;
 
+use App\Models\ChannelAttentionReview;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Everything waiting for a person, across every integration, in one list.
@@ -13,10 +16,17 @@ use Illuminate\Database\Eloquent\Model;
  * deliberately because the outcome was not knowable, and the whole value of those states is that no machine touches them
  * again — a collector that "helpfully" retried would undo the one guarantee they exist to give.
  *
- * ## Ordering
+ * ## An alert is not an operation
  *
- * Oldest first, within domain order. A refund nobody has looked at for three days matters more than a stock event from this
- * morning, and the screen should not need a person to sort it to see that.
+ * A row leaves this list when its ALERT is closed, which a person does by reviewing it. **The operation's own state is
+ * untouched**: a return decision closed off the screen still reads `may_have_sent` in its own table, because that is what
+ * happened. So this class filters by the review table, never by the operation's state.
+ *
+ * ## And `late` is counted, not sampled
+ *
+ * `late` used to be computed from `items()`, which is capped — so a hundredth late refund past the cap was invisible, and
+ * the one number on the dashboard that says "somebody has not looked at this for a day" under-reported exactly when it
+ * mattered most. It is a `COUNT` per source now, over the whole table.
  */
 class AttentionCollector
 {
@@ -25,7 +35,7 @@ class AttentionCollector
     }
 
     /**
-     * How many rows are waiting, per source, plus a total — cheap enough for a dashboard badge.
+     * How many rows are waiting, per source, plus the totals — all by COUNT, loading no row.
      *
      * @return array{total: int, late: int, by_source: array<string, int>, by_domain: array<string, int>}
      */
@@ -34,16 +44,19 @@ class AttentionCollector
         $bySource = [];
         $byDomain = [];
         $total = 0;
+        $late = 0;
+
         foreach ($this->registry->all() as $source) {
             $count = $this->query($source)->count();
             $bySource[$source->key] = $count;
             $byDomain[$source->domain] = ($byDomain[$source->domain] ?? 0) + $count;
             $total += $count;
+            $late += $this->lateCount($source);
         }
 
         return [
             'total' => $total,
-            'late' => count(array_filter($this->items(), static fn (AttentionItem $item): bool => $item->isLate())),
+            'late' => $late,
             'by_source' => $bySource,
             'by_domain' => array_filter($byDomain),
         ];
@@ -86,13 +99,48 @@ class AttentionCollector
         return $row === null ? null : $this->itemOf($source, $row);
     }
 
-    /** @return \Illuminate\Database\Eloquent\Builder<Model> */
-    private function query(AttentionSource $source): \Illuminate\Database\Eloquent\Builder
+    /**
+     * How many of this source's rows nobody has looked at for too long.
+     *
+     * A `COUNT` against the source's own "since" column, so it is the real number whatever the page size. A source that
+     * records no time contributes nothing rather than everything: an unknown age is not a late one.
+     */
+    private function lateCount(AttentionSource $source): int
+    {
+        $column = $source->column('since');
+        if ($column === null) {
+            return 0;
+        }
+        $cutoff = now()->subHours(max(1, (int) config('sales_channels.attention.late_after_hours', 24)));
+
+        return $this->query($source)->whereNotNull($column)->where($column, '<=', $cutoff)->count();
+    }
+
+    /**
+     * This source's rows that are still waiting for somebody.
+     *
+     * The operation's state puts a row on the list; a CLOSED review takes it off. Both halves matter: filtering on the
+     * operation's state alone would show a row for ever after a person dealt with it, and filtering on the review alone
+     * would show rows the pipeline has since settled by itself.
+     *
+     * @return Builder<Model>
+     */
+    private function query(AttentionSource $source): Builder
     {
         /** @var Model $model */
         $model = new $source->model();
+        $query = $model->newQuery()->whereIn($source->stateColumn, $source->states);
 
-        return $model->newQuery()->whereIn($source->stateColumn, $source->states)->orderBy('id');
+        if (Schema::hasTable('channel_attention_reviews')) {
+            $closed = ChannelAttentionReview::query()
+                ->select('source_row_id')
+                ->where('source', $source->key)
+                ->where('alert_state', ChannelAttentionReview::CLOSED);
+
+            $query->whereNotIn($model->getQualifiedKeyName(), $closed);
+        }
+
+        return $query->orderBy($model->getQualifiedKeyName());
     }
 
     private function itemOf(AttentionSource $source, Model $row): AttentionItem
@@ -101,6 +149,9 @@ class AttentionCollector
             return $column === null ? null : ($row->{$column} ?? null);
         };
         $since = $read($source->column('since'));
+        $review = Schema::hasTable('channel_attention_reviews')
+            ? ChannelAttentionReview::where('source', $source->key)->where('source_row_id', (int) $row->getKey())->first()
+            : null;
 
         return new AttentionItem(
             source: $source->key,
@@ -116,6 +167,8 @@ class AttentionCollector
             retryable: $source->retryable,
             whyNotRetryable: $source->whyNotRetryable(),
             orderReference: ($order = $read($source->column('order'))) === null ? null : (string) $order,
+            reviewedBy: $review === null ? null : (int) $review->reviewed_by,
+            reviewOutcome: $review?->outcome,
         );
     }
 }

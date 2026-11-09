@@ -15,6 +15,7 @@
 
         {{-- The one thing a person has to understand before touching this page. --}}
         <div class="alert alert-warning fs-12" role="note">{{ translate('attention_nothing_here_is_sent_again_note') }}</div>
+        <div class="alert alert-info fs-12" role="note">{{ translate('attention_a_review_changes_no_operation_note') }}</div>
 
         <div class="row g-2 mb-3">
             <div class="col-md-3">
@@ -99,13 +100,31 @@
                                         <div class="fs-12 text-muted mb-1">{{ translate($item->whyNotRetryable) }}</div>
                                     @endif
 
-                                    @if ($item->allows('acknowledge'))
-                                        <form method="POST" action="{{ route('admin.sales-channels.attention.act', ['source' => $item->source, 'id' => $item->id, 'action' => 'acknowledge']) }}" class="d-flex gap-1">
+                                    @if ($item->reviewedBy)
+                                        {{-- Somebody is already on it. Said here so two people do not start over, and the operation's own state is still whatever it was. --}}
+                                        <div class="fs-12 text-info mb-1">{{ translate('somebody_is_already_looking') }}: {{ translate('attention_outcome_' . $item->reviewOutcome) }}</div>
+                                    @endif
+
+                                    @if ($item->allows('review') && $reviewsReady)
+                                        <form method="POST" action="{{ route('admin.sales-channels.attention.act', ['source' => $item->source, 'id' => $item->id, 'action' => 'review']) }}" class="d-grid gap-1">
                                             @csrf
-                                            <input class="form-control form-control-sm" type="text" name="note" required maxlength="1000"
+                                            {{-- WHAT THEY SAW, from a fixed list. Free text is the note; the outcome is not free text, because a word nobody can group is not a record. --}}
+                                            <select class="form-select form-select-sm" name="outcome" required aria-label="{{ translate('what_did_you_see_at_the_channel') }}">
+                                                <option value="">{{ translate('what_did_you_see_at_the_channel') }}</option>
+                                                @foreach ($outcomes as $outcome)<option value="{{ $outcome }}">{{ translate('attention_outcome_' . $outcome) }}</option>@endforeach
+                                            </select>
+                                            <input class="form-control form-control-sm" type="text" name="note" required maxlength="2000"
                                                    placeholder="{{ translate('what_did_you_find_at_the_channel') }}" aria-label="{{ translate('what_did_you_find_at_the_channel') }}">
-                                            <button class="btn btn-outline-primary btn-sm text-nowrap" type="submit">{{ translate('i_checked') }}</button>
+                                            <input class="form-control form-control-sm" type="text" name="evidence" maxlength="191"
+                                                   placeholder="{{ translate('the_channels_own_reference_if_any') }}" aria-label="{{ translate('the_channels_own_reference_if_any') }}">
+                                            <div class="form-check fs-12">
+                                                <input class="form-check-input" type="checkbox" name="close" value="1" id="close-{{ $item->source }}-{{ $item->id }}">
+                                                <label class="form-check-label" for="close-{{ $item->source }}-{{ $item->id }}">{{ translate('close_this_alert_the_operation_is_unchanged') }}</label>
+                                            </div>
+                                            <button class="btn btn-outline-primary btn-sm text-nowrap" type="submit">{{ translate('record_what_i_saw') }}</button>
                                         </form>
+                                    @elseif ($item->allows('review'))
+                                        <div class="fs-12 text-muted">{{ translate('attention_reviews_table_not_migrated') }}</div>
                                     @endif
 
                                     @if ($item->allows('put_back'))

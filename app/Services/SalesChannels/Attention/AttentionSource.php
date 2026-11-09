@@ -28,10 +28,15 @@ final readonly class AttentionSource
     public const OPEN = 'open';
 
     /**
-     * A person went to the channel, found out what really happened, and writes it down here. Settles the row as a human
-     * judgement, with who and when and why. It sends NOTHING.
+     * A person went to the channel, found out what they could, and writes it down: who, when, what they saw, and what they
+     * can show for it.
+     *
+     * **It sends nothing AND it settles nothing.** It records a review and may take the alert off the screen; the
+     * operation's own state is left exactly as true as it was. The old name for this was `acknowledge`, and the old
+     * behaviour was to write `done`, `confirmed` or `posted` on the strength of a typed note -- which is why it was renamed
+     * as well as rewritten: a caller asking to "acknowledge" was being sold a settlement.
      */
-    public const ACKNOWLEDGE = 'acknowledge';
+    public const REVIEW = 'review';
 
     /**
      * Put the work back in the queue. **Only for a source that is idempotent by construction**, and `AttentionActions`
@@ -47,7 +52,6 @@ final readonly class AttentionSource
      * @param array<string, string> $columns where to find each of: reference, account, reason, detail, since
      * @param list<string> $actions what a person may do, from the constants above
      * @param bool $retryable whether the underlying operation is idempotent by construction
-     * @param string $settledState the state ACKNOWLEDGE moves a row to, where the source has one
      * @param string $stateColumn which column holds the state -- not every table calls it `state`
      */
     public function __construct(
@@ -58,7 +62,9 @@ final readonly class AttentionSource
         public array $columns,
         public array $actions,
         public bool $retryable,
-        public ?string $settledState = null,
+        // **There is deliberately no `settledState`.** A review does not settle an operation: it records what a person saw.
+        // Writing `done` on the strength of a note was the defect this class was rewritten to remove, and a field for it
+        // would be an invitation to put it back.
         public ?string $pendingState = null,
         public string $stateColumn = 'state',
     ) {

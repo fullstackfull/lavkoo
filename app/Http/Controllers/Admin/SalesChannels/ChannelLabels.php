@@ -62,6 +62,8 @@ final class ChannelLabels
             'odoo_postings', 'amazon_reports', 'payment_mismatches', 'refunds', 'order_links',
         ],
         'attention_domain_' => ['returns', 'shipments', 'stock', 'accounting', 'finance', 'payments', 'orders'],
+        // What a person SAW at the channel. A fixed vocabulary, never free text: a word nobody can group is not a record.
+        'attention_outcome_' => ['confirmed_at_channel', 'not_done_at_channel', 'still_unknown', 'no_longer_relevant'],
         'attention_state_' => [
             'may_have_sent', 'needs_review', 'may_have_posted', 'dead', 'blocked', 'failed', 'unknown', 'mismatch', 'rejected',
         ],
@@ -150,6 +152,8 @@ final class ChannelLabels
         'attention_source_return_decisions', 'attention_source_package_splits', 'attention_source_shipment_sends', 'attention_source_dispatches',
         'attention_source_stock_events', 'attention_source_odoo_postings', 'attention_source_amazon_reports', 'attention_source_payment_mismatches',
         'attention_source_refunds', 'attention_source_order_links',
+        'attention_outcome_confirmed_at_channel', 'attention_outcome_not_done_at_channel', 'attention_outcome_still_unknown',
+        'attention_outcome_no_longer_relevant',
         'attention_domain_returns', 'attention_domain_shipments', 'attention_domain_stock', 'attention_domain_accounting',
         'attention_domain_finance', 'attention_domain_payments', 'attention_domain_orders',
         'attention_state_may_have_sent', 'attention_state_needs_review', 'attention_state_may_have_posted', 'attention_state_dead',
