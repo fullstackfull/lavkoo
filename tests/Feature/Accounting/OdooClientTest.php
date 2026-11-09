@@ -3,6 +3,7 @@
 namespace Tests\Feature\Accounting;
 
 use App\Models\SalesChannelAccount;
+use App\Models\SalesChannelApiLog;
 use App\Services\Accounting\Odoo\OdooAnswer;
 use App\Services\Accounting\Odoo\OdooClient;
 use App\Services\Accounting\Odoo\OdooNotConfigured;
@@ -15,6 +16,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use App\Services\Fulfillment\Support\SecretRedactor;
 use Tests\Support\BuildsOdooWorld;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\TestCase;
@@ -56,6 +58,66 @@ class OdooClientTest extends TestCase
         ChannelOperations::flush();
         config(['odoo.enabled' => true, 'odoo.external_writes_enabled' => true, 'odoo.draft_creation_enabled' => true]);
         $this->account = $this->odooConnection(signedIn: false);
+    }
+
+    // ---- the credential never reaches the audit log ---------------------------------------------------------------
+
+    public function test_the_api_key_is_never_written_into_the_call_log(): void
+    {
+        // **THIS WAS A REAL LEAK, and the shape of it is worth keeping written down.** Odoo's XML-RPC is POSITIONAL:
+        // `authenticate(db, login, key, {})` and `execute_kw(db, uid, key, model, method, args, kwargs)` carry the API key as
+        // an unnamed `<string>`. The transport logged a raw body as itself, and the redactors work by KEY -- `password`,
+        // `authorization`, `api_key` -- so there was no key to match and nothing downstream could tell the credential from the
+        // database name. Every single Odoo call wrote the key in clear text into `sales_channel_api_logs`.
+        // **An object call, not the sign-in.** The sign-in's body happens to carry a login e-mail, and the PII redactor masks a
+        // whole string value when it finds personal data inside one -- so `authenticate` was covered by accident. `execute_kw`
+        // has no e-mail in it to hide behind, and it is the call every read and every write makes.
+        $this->signedIn();
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml([['id' => 4, 'name' => 'Sales']]))]);
+
+        app(OdooClient::class)->searchRead($this->account, 'account.account', [['code', '=', '4000']], ['id', 'name']);
+
+        $logged = SalesChannelApiLog::all();
+        $this->assertNotEmpty($logged, 'the calls really were logged, so the assertion below means something');
+        foreach ($logged as $row) {
+            $written = (string) json_encode([$row->request_summary, $row->response_summary, $row->url, $row->error_message]);
+            $this->assertStringNotContainsString('key-abc', $written, "the API key reached the log of '{$row->operation}'");
+        }
+    }
+
+    public function test_the_masked_body_is_still_useful_to_a_person_reading_the_log(): void
+    {
+        // Masking must not turn the log into nothing: an operator reading it has to be able to see WHICH call was made and
+        // with what, or the audit trail stops being one. So the method name and the arguments that are not secret stay.
+        $this->signedIn();
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml([['id' => 4, 'name' => 'Sales']]))]);
+
+        app(OdooClient::class)->searchRead($this->account, 'account.account', [['code', '=', '4000']], ['id', 'name']);
+
+        // Found by its CONTENT, not by an operation name: what matters is that the row carrying the object call stays
+        // readable, whichever of the read operations made it.
+        $body = (string) collect(SalesChannelApiLog::all())
+            ->map(static fn (SalesChannelApiLog $row): string => (string) json_encode($row->request_summary))
+            ->first(static fn (string $written): bool => str_contains($written, 'execute_kw'));
+        $this->assertStringContainsString('execute_kw', $body, 'the method name is still there');
+        $this->assertStringContainsString('account.account', $body, 'and so is the model, so the trail is still a trail');
+        $this->assertStringContainsString(SecretRedactor::MASK, $body, 'and the key stands masked where it was');
+    }
+
+    public function test_a_raw_body_whose_layout_nobody_declared_is_logged_only_as_a_size(): void
+    {
+        // The safe default, and the reason the fix is not just "mask the Odoo key": a future caller passing some other
+        // protocol's raw body gets no body in its log rather than a leak. `version` is that case already -- it carries no
+        // credential, so no masked copy is built for it, and its log records the size and nothing else.
+        Http::fake([self::ODOO_COMMON => Http::sequence()
+            ->push($this->odooXml(['server_version' => '18.0', 'server_version_info' => [18, 0, 0, 'final', 0]]))
+            ->push($this->odooXml(7))]);
+
+        app(OdooClient::class)->discover($this->account);
+
+        $version = SalesChannelApiLog::where('operation', 'odoo.version')->firstOrFail();
+        $this->assertArrayHasKey('raw_bytes', (array) ($version->request_summary['body'] ?? []), 'a body with no declared layout is a byte count');
+        $this->assertArrayNotHasKey('raw', (array) ($version->request_summary['body'] ?? []));
     }
 
     // ---- the transport is read, never assumed --------------------------------------------------------------------

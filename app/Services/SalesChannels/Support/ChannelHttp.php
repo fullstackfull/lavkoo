@@ -49,6 +49,9 @@ class ChannelHttp
      *                                              in a field a logger would then have to be trusted to leave out.
      * @param IntegrationCapability|null $capability the capability the caller is acting under (defaults to the first one the account holds)
      * @param string|null $scope for a write: which approval it relies on
+     * @param string|null $rawBodyForLog a copy of $rawBody with its secrets masked by the caller that built it, for the audit log.
+     *                                    Without it the log records only the body's SIZE: this layer cannot parse a raw body, so it
+     *                                    cannot find a positional credential inside one, and guessing would write it down.
      * @param string|null $rawBody a body that is already encoded, for a protocol that is not JSON or a form -- Odoo's XML-RPC is the one caller.
      *                             With it the caller's own `Content-Type` and `Accept` headers stand: nothing here adds `Accept: application/json` over them.
      * @throws ChannelUnavailableException
@@ -66,6 +69,7 @@ class ChannelHttp
         ?string $scope = null,
         ?string $rawBody = null,
         ?array $multipart = null,
+        ?string $rawBodyForLog = null,
     ): ChannelResponse {
         $method = strtoupper($method);
         $correlationId = (string) Str::uuid();
@@ -73,7 +77,7 @@ class ChannelHttp
 
         if ($dryRun) {
             $response = ChannelResponse::dryRun($correlationId);
-            $this->log($account, $operation, $method, $url, $headers, $this->loggableBody($json, $form, $rawBody, $multipart), $query, $response);
+            $this->log($account, $operation, $method, $url, $headers, $this->loggableBody($json, $form, $rawBody, $multipart, $rawBodyForLog), $query, $response);
 
             return $response;
         }
@@ -103,7 +107,7 @@ class ChannelHttp
         $response = new ChannelResponse(
             $response->kind, $response->status, $response->json, $response->body, $response->error, $response->durationMs, $correlationId, $response->headers, $attempt,
         );
-        $this->log($account, $operation, $method, $url, $headers, $this->loggableBody($json, $form, $rawBody, $multipart), $query, $response);
+        $this->log($account, $operation, $method, $url, $headers, $this->loggableBody($json, $form, $rawBody, $multipart, $rawBodyForLog), $query, $response);
 
         return $response;
     }
@@ -119,14 +123,26 @@ class ChannelHttp
      * @param array<string, string>|null $form
      * @return array<string, mixed>|null
      */
-    private function loggableBody(array|object|null $json, ?array $form, ?string $rawBody, ?array $multipart = null): ?array
+    private function loggableBody(array|object|null $json, ?array $form, ?string $rawBody, ?array $multipart = null, ?string $rawBodyForLog = null): ?array
     {
-        if ($rawBody !== null) {
-            return ['raw' => $rawBody];
+        if ($rawBody === null) {
+            // A multipart body here is plain fields only -- no document's bytes ever travel through it -- so it is logged as
+            // itself, redacted by the same rules as any other body.
+            return $multipart ?? (is_object($json) ? ['json' => (array) $json] : $json) ?? $form;
         }
-        // A multipart body here is plain fields only -- no document's bytes ever travel through it -- so it is logged as
-        // itself, redacted by the same rules as any other body.
-        return $multipart ?? (is_object($json) ? ['json' => (array) $json] : $json) ?? $form;
+
+        // **A RAW BODY IS NEVER LOGGED AS ITSELF, and logging it was a plain-text credential in the audit trail.**
+        //
+        // The redactors work by KEY: `password`, `authorization`, `api_key`. A raw body has no keys this layer can see -- it is
+        // a payload in a protocol `ChannelHttp` does not parse -- so `['raw' => $body]` handed the whole document to a
+        // redactor that could only scan it as free text. That catches a LABELLED secret (`password=hunter2`) and cannot catch
+        // a POSITIONAL one. Odoo's XML-RPC is positional: `execute_kw(db, uid, key, ...)` carries the API key as its third
+        // unnamed `<string>`, so every single Odoo call wrote that key in clear text into `sales_channel_api_logs`.
+        //
+        // So the default is the byte count and nothing else. A caller that knows the layout may hand over a copy it has masked
+        // itself -- the knowledge of which field is a secret belongs where the body is built, not here -- and a caller that
+        // forgets gets no body in its log rather than a leak.
+        return $rawBodyForLog !== null ? ['raw' => $rawBodyForLog] : ['raw_bytes' => strlen($rawBody)];
     }
 
     /**

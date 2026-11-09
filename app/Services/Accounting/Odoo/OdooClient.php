@@ -7,6 +7,7 @@ use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
+use App\Services\Fulfillment\Support\SecretRedactor;
 use App\Services\SalesChannels\Support\ChannelHttp;
 use App\Services\SalesChannels\Support\ChannelOperations as Ops;
 use RuntimeException;
@@ -269,8 +270,12 @@ class OdooClient
         // `execute_kw(db, uid, key, model, method, args, kwargs)`, which is the signature Odoo's 17.0 and 18.0 pages document.
         // The key stands where the password would: Odoo's own wording is that an API key replaces it.
         $body = OdooXmlRpc::request('execute_kw', [$database, $userId, $this->apiKey($account), $model, $method, $args, $kwargs]);
+        // The same document with the key masked, for the audit log. The transport cannot find this credential by itself: it is
+        // the third UNNAMED argument of a positional call, so nothing downstream can tell it from the database name. The
+        // knowledge of where it sits lives here, where the body is built, which is why the masked copy is built here too.
+        $forLog = OdooXmlRpc::request('execute_kw', [$database, $userId, SecretRedactor::MASK, $model, $method, $args, $kwargs]);
 
-        return $this->readXmlRpc($this->send($account, $operation, 'POST', $base . OdooOperations::PATH_OBJECT, $body, $capability, $scope));
+        return $this->readXmlRpc($this->send($account, $operation, 'POST', $base . OdooOperations::PATH_OBJECT, $body, $capability, $scope, $forLog));
     }
 
     /** The version, with no authentication at all, which is what lets the transport be chosen before any credential is used. */
@@ -306,7 +311,8 @@ class OdooClient
         // The fourth argument is an empty DICTIONARY, and `(object) []` is the only way to say that: `[]` is a list in PHP and
         // would be encoded as an empty `<array>`, which is a different type.
         $body = OdooXmlRpc::request('authenticate', [$database, $this->setting($account, 'login'), $this->apiKey($account), (object) []]);
-        $answer = $this->readXmlRpc($this->send($account, 'odoo.authenticate', 'POST', $base . OdooOperations::PATH_COMMON, $body, IntegrationCapability::ConnectionTest));
+        $forLog = OdooXmlRpc::request('authenticate', [$database, $this->setting($account, 'login'), SecretRedactor::MASK, (object) []]);
+        $answer = $this->readXmlRpc($this->send($account, 'odoo.authenticate', 'POST', $base . OdooOperations::PATH_COMMON, $body, IntegrationCapability::ConnectionTest, rawBodyForLog: $forLog));
 
         // Odoo answers `false` for a refused sign-in rather than a fault, so a boolean is not a user id and must not be cast to
         // one: `(int) false` is 0, and 0 is a valid-looking argument to every later call.
@@ -343,9 +349,23 @@ class OdooClient
         string $body,
         ?IntegrationCapability $capability = null,
         ?string $scope = null,
+        ?string $rawBodyForLog = null,
     ): ChannelResponse {
         // `text/xml` on both sides: an XML-RPC endpoint asked for JSON answers something nobody can decode.
-        return $this->http->send($account, $operation, $method, $url, ['Content-Type' => 'text/xml', 'Accept' => 'text/xml'], null, [], null, $capability, $scope, $body);
+        //
+        // `rawBodyForLog` is what keeps the API key out of `sales_channel_api_logs`. Without it the transport logs only this
+        // body's SIZE -- which is the safe default and is right for `version`, the one call here that carries no credential.
+        return $this->http->send(
+            account: $account,
+            operation: $operation,
+            method: $method,
+            url: $url,
+            headers: ['Content-Type' => 'text/xml', 'Accept' => 'text/xml'],
+            capability: $capability,
+            scope: $scope,
+            rawBody: $body,
+            rawBodyForLog: $rawBodyForLog,
+        );
     }
 
     // ---- JSON-2 -------------------------------------------------------------------------------------------------
