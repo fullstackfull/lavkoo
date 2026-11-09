@@ -15,6 +15,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Tests\Support\BuildsOdooWorld;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\TestCase;
 
@@ -38,15 +39,10 @@ use Tests\TestCase;
  */
 class OdooClientTest extends TestCase
 {
+    use BuildsOdooWorld;
     use BuildsSalesChannelSchema;
 
-    private const HOST = 'https://books.example.test';
-
-    private const COMMON = self::HOST . '/xmlrpc/2/common';
-
-    private const OBJECT = self::HOST . '/xmlrpc/2/object';
-
-    private const WEB_VERSION = self::HOST . '/web/version';
+    private const WEB_VERSION = self::ODOO_HOST . '/web/version';
 
     private SalesChannelAccount $account;
 
@@ -59,16 +55,16 @@ class OdooClientTest extends TestCase
         Cache::flush();
         ChannelOperations::flush();
         config(['odoo.enabled' => true, 'odoo.external_writes_enabled' => true, 'odoo.draft_creation_enabled' => true]);
-        $this->account = $this->connection();
+        $this->account = $this->odooConnection(signedIn: false);
     }
 
     // ---- the transport is read, never assumed --------------------------------------------------------------------
 
     public function test_an_eighteen_point_zero_instance_is_spoken_to_over_xml_rpc_and_signed_in(): void
     {
-        Http::fake([self::COMMON => Http::sequence()
-            ->push($this->xml($this->structOf(['server_version' => '18.0', 'server_version_info' => [18, 0, 0, 'final', 0]])))
-            ->push($this->xml('<int>7</int>'))]);
+        Http::fake([self::ODOO_COMMON => Http::sequence()
+            ->push($this->odooXml((['server_version' => '18.0', 'server_version_info' => [18, 0, 0, 'final', 0]])))
+            ->push($this->odooXml(7))]);
 
         $instance = app(OdooClient::class)->discover($this->account);
 
@@ -84,9 +80,9 @@ class OdooClientTest extends TestCase
     {
         // A hosted instance says `saas~17.4+e` where a self-hosted one says `18.0`. Reading only the structured list would be
         // enough here, but the string form is what a gateway sometimes leaves, and 17 is not a missing version.
-        Http::fake([self::COMMON => Http::sequence()
-            ->push($this->xml($this->structOf(['server_version' => 'saas~17.4+e'])))
-            ->push($this->xml('<int>3</int>'))]);
+        Http::fake([self::ODOO_COMMON => Http::sequence()
+            ->push($this->odooXml((['server_version' => 'saas~17.4+e'])))
+            ->push($this->odooXml(3))]);
 
         $instance = app(OdooClient::class)->discover($this->account);
 
@@ -97,8 +93,8 @@ class OdooClientTest extends TestCase
     public function test_a_nineteen_point_zero_instance_is_spoken_to_over_json_two(): void
     {
         Http::fake([
-            self::COMMON => Http::response($this->xml($this->structOf(['server_version' => '19.0', 'server_version_info' => [19, 0, 0, 'final', 0]]))),
-            self::HOST . '/json/2/res.company/search_count' => Http::response(2),
+            self::ODOO_COMMON => Http::response($this->odooXml((['server_version' => '19.0', 'server_version_info' => [19, 0, 0, 'final', 0]]))),
+            self::ODOO_HOST . '/json/2/res.company/search_count' => Http::response(2),
         ]);
 
         $instance = app(OdooClient::class)->discover($this->account);
@@ -115,9 +111,9 @@ class OdooClientTest extends TestCase
         // whose keys are spelled WITHOUT the `server_` prefix -- reading only the prefixed ones would make every such instance
         // look like one whose version cannot be read.
         Http::fake([
-            self::COMMON => Http::response('', 404),
+            self::ODOO_COMMON => Http::response('', 404),
             self::WEB_VERSION => Http::response(['version' => '19.0', 'version_info' => [19, 0, 0, 'final', 0, '']]),
-            self::HOST . '/json/2/res.company/search_count' => Http::response(1),
+            self::ODOO_HOST . '/json/2/res.company/search_count' => Http::response(1),
         ]);
 
         $instance = app(OdooClient::class)->discover($this->account);
@@ -128,7 +124,7 @@ class OdooClientTest extends TestCase
 
     public function test_a_version_nobody_can_read_picks_no_transport_and_signs_in_to_nothing(): void
     {
-        Http::fake([self::COMMON => Http::response($this->xml($this->structOf(['server_serie' => 'unknown']))), self::WEB_VERSION => Http::response([], 500)]);
+        Http::fake([self::ODOO_COMMON => Http::response($this->odooXml((['server_serie' => 'unknown']))), self::WEB_VERSION => Http::response([], 500)]);
 
         $instance = app(OdooClient::class)->discover($this->account);
 
@@ -140,7 +136,7 @@ class OdooClientTest extends TestCase
 
     public function test_an_instance_nobody_can_reach_is_not_an_instance_with_a_bad_password(): void
     {
-        Http::fake([self::COMMON => fn () => throw new ConnectionException('cURL error 6: Could not resolve host: books.example.test'), self::WEB_VERSION => Http::response([], 503)]);
+        Http::fake([self::ODOO_COMMON => fn () => throw new ConnectionException('cURL error 6: Could not resolve host: books.example.test'), self::WEB_VERSION => Http::response([], 503)]);
 
         $instance = app(OdooClient::class)->discover($this->account);
 
@@ -164,9 +160,9 @@ class OdooClientTest extends TestCase
     {
         // THE TRAP. Odoo answers a BOOLEAN FALSE for a refused sign-in rather than a fault, and `(int) false` is 0 -- a
         // perfectly valid-looking argument to hand `execute_kw` for the rest of the run.
-        Http::fake([self::COMMON => Http::sequence()
-            ->push($this->xml($this->structOf(['server_version' => '18.0'])))
-            ->push($this->xml('<boolean>0</boolean>'))]);
+        Http::fake([self::ODOO_COMMON => Http::sequence()
+            ->push($this->odooXml((['server_version' => '18.0'])))
+            ->push($this->odooXml(false))]);
 
         $instance = app(OdooClient::class)->discover($this->account);
 
@@ -180,7 +176,7 @@ class OdooClientTest extends TestCase
     public function test_a_connection_missing_its_key_says_so_instead_of_signing_in_with_nothing(): void
     {
         app(ChannelCredentialStore::class)->save($this->account, [], ['api_key']);
-        Http::fake([self::COMMON => Http::response($this->xml($this->structOf(['server_version' => '18.0'])))]);
+        Http::fake([self::ODOO_COMMON => Http::response($this->odooXml((['server_version' => '18.0'])))]);
 
         $instance = app(OdooClient::class)->discover($this->account->fresh());
 
@@ -193,7 +189,7 @@ class OdooClientTest extends TestCase
     public function test_a_read_is_execute_kw_with_the_database_the_user_and_the_key(): void
     {
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response($this->xml($this->arrayOf([['id' => 4, 'name' => 'Sales']])))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml(([['id' => 4, 'name' => 'Sales']])))]);
 
         $answer = app(OdooClient::class)->searchRead($this->account, 'account.account', [['code', '=', '4000']], ['id', 'name']);
 
@@ -213,7 +209,7 @@ class OdooClientTest extends TestCase
         // The read that stands in for the idempotency Odoo does not offer: `create` creates every time it is called, there is no
         // external-reference field and no unique key, so our reference goes in `ref` and this is how a retry finds it.
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response($this->xml($this->arrayOf([])))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml(([])))]);
 
         $answer = app(OdooClient::class)->entriesByReference($this->account, 'PKSA-COST-12-9ab3');
 
@@ -230,7 +226,7 @@ class OdooClientTest extends TestCase
         // Odoo's developer reference has NO page for `account.move`, so the field names are not in any documentation to copy
         // from: they are asked of the customer's own instance, which is also what survives a rename between versions.
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response($this->xml($this->structOf(['ref' => ['type' => 'char', 'string' => 'Reference']])))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml((['ref' => ['type' => 'char', 'string' => 'Reference']])))]);
 
         $answer = app(OdooClient::class)->fieldsGet($this->account, 'account.move');
 
@@ -245,7 +241,7 @@ class OdooClientTest extends TestCase
     {
         // XML-RPC answers a fault with HTTP 200, so a client that looks only at the status reads this as a success.
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response($this->fault(2, "Odoo Server Error\nTraceback (most recent call last): ..."))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooFault(2, "Odoo Server Error\nTraceback (most recent call last): ..."))]);
 
         $answer = app(OdooClient::class)->searchRead($this->account, 'account.move', []);
 
@@ -261,7 +257,7 @@ class OdooClientTest extends TestCase
         // Odoo's documentation does not state that a failed call rolls its transaction back, and this code does not rely on
         // behaviour nobody published when the cost of being wrong is a duplicate entry in somebody's books.
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response($this->fault(1, 'ValidationError'))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooFault(1, 'ValidationError'))]);
 
         $answer = app(OdooClient::class)->searchRead($this->account, 'account.move', []);
 
@@ -272,7 +268,7 @@ class OdooClientTest extends TestCase
     public function test_an_answer_lost_after_the_request_went_is_the_case_that_must_never_retry_itself(): void
     {
         $this->signedIn();
-        Http::fake([self::OBJECT => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 30001 milliseconds')]);
+        Http::fake([self::ODOO_OBJECT => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 30001 milliseconds')]);
 
         $answer = app(OdooClient::class)->searchRead($this->account, 'account.move', []);
 
@@ -286,7 +282,7 @@ class OdooClientTest extends TestCase
         // The only failure a posting queue may act on without asking Odoo first, and it is narrow on purpose: the request did
         // not go.
         $this->signedIn();
-        Http::fake([self::OBJECT => fn () => throw new ConnectionException('cURL error 6: Could not resolve host: books.example.test')]);
+        Http::fake([self::ODOO_OBJECT => fn () => throw new ConnectionException('cURL error 6: Could not resolve host: books.example.test')]);
 
         $answer = app(OdooClient::class)->searchRead($this->account, 'account.move', []);
 
@@ -299,7 +295,7 @@ class OdooClientTest extends TestCase
         // THE most dangerous confusion in this file. An empty list from a search means "Odoo holds no such entry", and that is
         // exactly the answer on which a second journal entry would be created.
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response('<html><body>502 Bad Gateway</body></html>')]);
+        Http::fake([self::ODOO_OBJECT => Http::response('<html><body>502 Bad Gateway</body></html>')]);
 
         $answer = app(OdooClient::class)->entriesByReference($this->account, 'PKSA-COST-12-9ab3');
 
@@ -313,7 +309,7 @@ class OdooClientTest extends TestCase
     {
         // The pair, side by side, because the whole protection against a duplicate entry rests on telling them apart.
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::sequence()->push($this->xml($this->arrayOf([])))->push('not xml at all')]);
+        Http::fake([self::ODOO_OBJECT => Http::sequence()->push($this->odooXml(([])))->push('not xml at all')]);
         $client = app(OdooClient::class);
 
         $none = $client->entriesByReference($this->account, 'PKSA-COST-1-aaaa');
@@ -328,7 +324,7 @@ class OdooClientTest extends TestCase
     public function test_a_five_hundred_is_not_an_answer_about_what_odoo_holds(): void
     {
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response('', 503)]);
+        Http::fake([self::ODOO_OBJECT => Http::response('', 503)]);
 
         $answer = app(OdooClient::class)->entriesByReference($this->account, 'PKSA-COST-12-9ab3');
 
@@ -340,7 +336,7 @@ class OdooClientTest extends TestCase
     {
         // Two transports, one shape for "Odoo arrived at an answer and the answer was no".
         $this->signedIn(OdooTransport::Json2);
-        Http::fake([self::HOST . '/json/2/account.move/search_read' => Http::response([
+        Http::fake([self::ODOO_HOST . '/json/2/account.move/search_read' => Http::response([
             'name' => 'werkzeug.exceptions.Unauthorized', 'message' => 'Invalid apikey', 'arguments' => ['Invalid apikey', 401], 'context' => [], 'debug' => 'Traceback ...',
         ], 401)]);
 
@@ -354,7 +350,7 @@ class OdooClientTest extends TestCase
     public function test_a_json_two_failure_with_no_error_object_is_an_outage(): void
     {
         $this->signedIn(OdooTransport::Json2);
-        Http::fake([self::HOST . '/json/2/account.move/search_read' => Http::response('<html>gateway</html>', 502)]);
+        Http::fake([self::ODOO_HOST . '/json/2/account.move/search_read' => Http::response('<html>gateway</html>', 502)]);
 
         $answer = app(OdooClient::class)->entriesByReference($this->account, 'PKSA-COST-12-9ab3');
 
@@ -365,7 +361,7 @@ class OdooClientTest extends TestCase
     public function test_a_json_two_read_carries_the_database_header_and_named_arguments(): void
     {
         $this->signedIn(OdooTransport::Json2);
-        Http::fake([self::HOST . '/json/2/account.move/search_read' => Http::response([])]);
+        Http::fake([self::ODOO_HOST . '/json/2/account.move/search_read' => Http::response([])]);
 
         app(OdooClient::class)->entriesByReference($this->account, 'PKSA-COST-12-9ab3');
 
@@ -380,7 +376,7 @@ class OdooClientTest extends TestCase
     public function test_a_draft_entry_is_created_with_every_switch_and_the_approval_in_place(): void
     {
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response($this->xml('<int>91</int>'))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml(91))]);
 
         $answer = app(OdooClient::class)->createDraft($this->account, 'account.move', ['ref' => 'PKSA-COST-12-9ab3', 'move_type' => 'entry']);
 
@@ -395,7 +391,7 @@ class OdooClientTest extends TestCase
         // sees.
         config(['odoo.draft_creation_enabled' => false]);
         $this->signedIn();
-        Http::fake([self::OBJECT => Http::response($this->xml('<int>91</int>'))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml(91))]);
 
         try {
             app(OdooClient::class)->createDraft($this->account, 'account.move', ['ref' => 'X']);
@@ -411,7 +407,7 @@ class OdooClientTest extends TestCase
     {
         $this->signedIn();
         $this->account->forceFill(['dry_run' => true])->save();
-        Http::fake([self::OBJECT => Http::response($this->xml('<int>91</int>'))]);
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml(91))]);
 
         $answer = app(OdooClient::class)->createDraft($this->account->fresh(), 'account.move', ['ref' => 'X']);
 
@@ -426,7 +422,7 @@ class OdooClientTest extends TestCase
         // that called this must verify by reference, and if that cannot answer either, a person decides -- which is why this
         // never answers "did not act".
         $this->signedIn();
-        Http::fake([self::OBJECT => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 30001 milliseconds')]);
+        Http::fake([self::ODOO_OBJECT => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 30001 milliseconds')]);
 
         $answer = app(OdooClient::class)->createDraft($this->account, 'account.move', ['ref' => 'PKSA-COST-12-9ab3']);
 
@@ -486,24 +482,6 @@ class OdooClientTest extends TestCase
 
     // ---- fixtures -----------------------------------------------------------------------------------------------
 
-    private function connection(): SalesChannelAccount
-    {
-        $account = SalesChannelAccount::create([
-            'channel' => 'odoo',
-            'name' => 'Odoo accounting',
-            'enabled' => true,
-            'write_enabled' => true,
-            'dry_run' => false,
-            'accounting_destination' => 'odoo',
-            'settings' => ['base_url' => self::HOST, 'database' => 'books', 'login' => 'bot@example.test'],
-            'capabilities' => ['connection_test', 'financial_reconciliation'],
-            'capability_approvals' => [ChannelOperations::SCOPE_ACCOUNTING_POSTING => ['by' => 1, 'at' => '2026-11-09T00:00:00Z']],
-        ]);
-        app(ChannelCredentialStore::class)->save($account, ['api_key' => 'key-abc']);
-
-        return $account->fresh();
-    }
-
     /** A connection that has already been discovered and signed in, which is the state every call but the first is made in. */
     private function signedIn(OdooTransport $transport = OdooTransport::XmlRpc): void
     {
@@ -518,51 +496,6 @@ class OdooClientTest extends TestCase
     private function secret(string $key): ?string
     {
         return app(ChannelCredentialStore::class)->get($this->account->fresh())->secret($key);
-    }
-
-    private function xml(string $value): string
-    {
-        return '<?xml version="1.0"?><methodResponse><params><param><value>' . $value . '</value></param></params></methodResponse>';
-    }
-
-    private function fault(int $code, string $message): string
-    {
-        return '<?xml version="1.0"?><methodResponse><fault><value>'
-            . $this->structOf(['faultCode' => $code, 'faultString' => $message])
-            . '</value></fault></methodResponse>';
-    }
-
-    /** @param array<string, mixed> $members */
-    private function structOf(array $members): string
-    {
-        $xml = '<struct>';
-        foreach ($members as $name => $value) {
-            $xml .= '<member><name>' . $name . '</name><value>' . $this->valueOf($value) . '</value></member>';
-        }
-
-        return $xml . '</struct>';
-    }
-
-    /** @param list<mixed> $items */
-    private function arrayOf(array $items): string
-    {
-        $xml = '<array><data>';
-        foreach ($items as $item) {
-            $xml .= '<value>' . $this->valueOf($item) . '</value>';
-        }
-
-        return $xml . '</data></array>';
-    }
-
-    private function valueOf(mixed $value): string
-    {
-        return match (true) {
-            is_int($value) => '<int>' . $value . '</int>',
-            is_bool($value) => '<boolean>' . ($value ? '1' : '0') . '</boolean>',
-            is_array($value) && array_is_list($value) => $this->arrayOf($value),
-            is_array($value) => $this->structOf($value),
-            default => '<string>' . htmlspecialchars((string) $value, ENT_XML1) . '</string>',
-        };
     }
 
     /** @return list<Request> */

@@ -61,6 +61,27 @@ return [
     // after asking Odoo what it already holds.
     'retries' => (int) env('ODOO_RETRIES', 3),
 
+    /*
+    |--------------------------------------------------------------------------
+    | The outbox
+    |--------------------------------------------------------------------------
+    |
+    | One row per fact per version, claimed before it is worked. These numbers
+    | govern how long a dead run holds a row and how often a refusing instance
+    | is asked again. They do NOT govern the one case that matters most: a
+    | create whose outcome nobody knows waits for a person, however many
+    | attempts are left.
+    |
+    */
+    'outbox' => [
+        // A run that claimed a row and never finished (a crash) gives it up after this long.
+        'claim_minutes' => 15,
+        // How many times a row that failed for a reason worth retrying is tried before it is laid to rest.
+        'attempts' => 5,
+        // The first wait after a failure; each later try waits a multiple of it.
+        'retry_seconds' => 300,
+    ],
+
     // Per-operation ceiling, in the shape the shared limiter reads.
     'rate_limits' => [
         'default' => ['max' => (int) env('ODOO_RATE_LIMIT_MAX', 60), 'per_seconds' => (int) env('ODOO_RATE_LIMIT_SECONDS', 60)],
