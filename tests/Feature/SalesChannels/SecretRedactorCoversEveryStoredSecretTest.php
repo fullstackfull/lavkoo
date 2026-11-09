@@ -72,6 +72,40 @@ class SecretRedactorCoversEveryStoredSecretTest extends TestCase
         }
     }
 
+    public function test_a_presigned_url_carries_no_credential_into_the_log(): void
+    {
+        // **A real leak, found by reading what the streaming download logs.** Every report and feed document arrives through
+        // a presigned URL, and the transport logs the URL. `X-Amz-Signature` and `X-Amz-Security-Token` were masked by the
+        // name list; `X-Amz-Credential` was not — so an AWS access key id went into `sales_channel_api_logs.url` in full,
+        // on a path that has been running since the report reader was built.
+        $url = 'https://tortuga-prod.s3.amazonaws.com/doc.tsv?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+            . '&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20261122%2Feu-west-1%2Fs3%2Faws4_request'
+            . '&X-Amz-Date=20261122T120000Z&X-Amz-Expires=300'
+            . '&X-Amz-Security-Token=FwoGZXIvYXdzEXAMPLETOKEN'
+            . '&X-Amz-Signature=5d672d79f1d8108fd5ecee8030d74e1cb4b20e3a1b1b1b1b';
+
+        $redacted = SecretRedactor::redactString($url);
+
+        $this->assertStringNotContainsString('AKIAIOSFODNN7EXAMPLE', $redacted, 'an AWS access key id reached the log');
+        $this->assertStringNotContainsString('FwoGZXIvYXdzEXAMPLETOKEN', $redacted);
+        $this->assertStringNotContainsString('5d672d79f1d8108fd5ecee8030d74e1cb4b20e3a1b1b1b1b', $redacted);
+        // And it is still a URL a person can recognise: the host, the object and the expiry survive, which is the whole
+        // point of masking values rather than dropping the line.
+        $this->assertStringContainsString('tortuga-prod.s3.amazonaws.com/doc.tsv', $redacted);
+        $this->assertStringContainsString('X-Amz-Expires=300', $redacted);
+    }
+
+    public function test_an_aws_access_key_id_is_masked_whatever_it_is_called(): void
+    {
+        // The name list only works for names somebody thought of. The id's own shape is unambiguous — AWS documents these as
+        // 20 characters beginning AKIA or ASIA — so a path that logs one under another name, or under none, is covered too.
+        foreach (['AKIAIOSFODNN7EXAMPLE', 'ASIAY34FZKBOKMUTVV7A'] as $keyId) {
+            $this->assertStringNotContainsString($keyId, SecretRedactor::redactString('upstream said: ' . $keyId . ' is not authorized'));
+        }
+        // A word of the same shape that is not a key id keeps its place: the pattern needs the prefix AND the length.
+        $this->assertStringContainsString('AKIASHORT', SecretRedactor::redactString('AKIASHORT'));
+    }
+
     public function test_an_ordinary_field_is_still_readable(): void
     {
         // A redactor that masked everything would be useless: a log nobody can read is not an audit trail. The names below

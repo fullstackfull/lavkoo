@@ -73,7 +73,14 @@ final class SecretRedactor
             '/\b(Basic|Token|Digest)\s+(?=(?-i:[A-Za-z0-9\-._~+\/]*[0-9=+\/]|[A-Za-z0-9\-._~+\/]+[A-Z])|[A-Za-z0-9\-._~+\/]{16})[A-Za-z0-9\-._~+\/]{12,}=*/i' => '$1 ' . self::MASK,
             // `password=hunter2`, `api_token: abc`, `DB_PASSWORD=…`, `"secret":"…"` inside a message or a query string. A name may be joined to
             // what it is a password or token OF with underscores or hyphens; the prefix is bounded so no input can make the scan slow.
-            '/\b((?:[a-z0-9]{1,20}[_-]){0,4}(?:password|passwd|pwd|secret|api[_-]?key|app[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|signature|phpsessid))\b(["\']?\s*[=:]\s*["\']?)[^\s,;&"\'<>]+/i' => '$1$2' . self::MASK,
+            '/\b((?:[a-z0-9]{1,20}[_-]){0,4}(?:password|passwd|pwd|secret|api[_-]?key|app[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|signature|credentials?|phpsessid))\b(["\']?\s*[=:]\s*["\']?)[^\s,;&"\'<>]+/i' => '$1$2' . self::MASK,
+            // **An AWS access key id, wherever it appears and whatever it is called.** Found in a presigned download URL:
+            // `X-Amz-Signature` and `X-Amz-Security-Token` were already masked by the names above and `X-Amz-Credential`
+            // was not, so `AKIAIOSFODNN7EXAMPLE/...` went into `sales_channel_api_logs.url` in full. `credential` is in the
+            // name list now, and this catches the id itself -- so a path that logs one under some other name, or with no
+            // name at all, is covered without anybody having to think of the name first. The shape is unambiguous: AWS
+            // documents these as 20 characters beginning AKIA (long-lived) or ASIA (temporary).
+            '/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/' => self::MASK,
             '/([?&]key=)[^&\s"\'<>]+/i' => '$1' . self::MASK,
             // The user and password in front of the host of a URL: https://user:secret@host/
             '/(\b[a-z][a-z0-9+.\-]{1,10}:\/\/)[^\/\s:@]{1,100}:[^\/\s@]{1,100}@/i' => '$1' . self::MASK . '@',
