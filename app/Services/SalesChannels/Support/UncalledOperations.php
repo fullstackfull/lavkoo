@@ -65,10 +65,6 @@ final class UncalledOperations
             'amazon.notifications_read' => ['kind' => self::NEEDS_AN_ACCOUNT, 'why' => 'amazon_notifications_need_the_sellers_own_aws_queue'],
             'amazon.notifications_write' => ['kind' => self::NEEDS_AN_ACCOUNT, 'why' => 'amazon_notifications_need_the_sellers_own_aws_queue'],
 
-            // Financial event GROUPS. The statements themselves are read and reconciled through `finances_v2024_06_19`;
-            // the group listing would let a settlement period be found by its own identity rather than by a date window.
-            // Ordinary unfinished work, and the only thing it would improve is how a period is located.
-            'amazon.finances_groups' => ['kind' => self::NOT_BUILT, 'why' => 'amazon_finance_groups_would_only_change_how_a_period_is_found'],
 
             // ---- Trendyol: lookups nothing asks for yet ----------------------------------------------------------
             // Category attributes ARE read (that is `category_attributes`); the category TREE is not, because a listing is

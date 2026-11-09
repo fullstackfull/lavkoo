@@ -41,6 +41,7 @@ class AmazonReports
     public function __construct(
         private readonly AmazonClient $client,
         private readonly ChannelHttp $http,
+        private readonly AmazonReportStream $stream,
     ) {
     }
 
@@ -195,6 +196,54 @@ class AmazonReports
         }
 
         return $this->download($account, $url, $compression === self::GZIP);
+    }
+
+    /**
+     * The same document, read in batches and never held whole.
+     *
+     * `contents()` above buffers: the HTTP client hands over the entire body, so its ceiling bounds what gets PARSED and not
+     * what gets RECEIVED. This one is the other way round — `ChannelHttp::stream()` enforces its ceiling mid-flight — so a
+     * report larger than memory becomes a long read rather than a refusal after the download has already been paid for.
+     *
+     * Nothing is written to disk on this path either. Amazon's own page states that "Unencrypted report content must never be
+     * stored on disk, even temporarily", which rules out the usual `sink` to a temporary file.
+     *
+     * **What this does not do is change how a settlement is read.** `AmazonSettlementReader` is the only consumer of a report
+     * document, and it assumes it has the WHOLE document: it finds the settlement's own identifying row by scanning for the
+     * first row carrying a `settlement-id`, and only the first row of the file carries the period and the deposit total. Hand
+     * it a later batch and it finds an ordinary transaction row instead — same settlement id, no period, no total — and would
+     * record a settlement with neither. So batching that reader is a change to how money is recorded and is not made here on
+     * the way past. This method exists for consumers that are per-row, and for reading a document that the buffering path
+     * refuses outright.
+     *
+     * @param callable(AmazonFlatFile): void $onBatch
+     * @param list<string> $required
+     * @return array{rows_read: int, batches: int, bytes: int, header: list<string>, refusal: string|null}
+     */
+    public function readInBatches(SalesChannelAccount $account, string $documentId, callable $onBatch, array $required = []): array
+    {
+        $response = $this->client->call($account, 'amazon.reports_document', 'GET', '/reports/2021-06-30/documents/' . rawurlencode($documentId));
+        if (!$response->ok()) {
+            return ['rows_read' => 0, 'batches' => 0, 'bytes' => 0, 'header' => [], 'refusal' => $this->problemOf($response, 'amazon_report_document_could_not_be_read')];
+        }
+
+        $payload = is_array($response->json['payload'] ?? null) ? $response->json['payload'] : ($response->json ?? []);
+        $url = trim((string) ($payload['url'] ?? ''));
+        if ($url === '') {
+            return ['rows_read' => 0, 'batches' => 0, 'bytes' => 0, 'header' => [], 'refusal' => 'amazon_report_document_has_no_url'];
+        }
+        $compression = trim((string) ($payload['compressionAlgorithm'] ?? ''));
+        if ($compression !== '' && $compression !== self::GZIP) {
+            return ['rows_read' => 0, 'batches' => 0, 'bytes' => 0, 'header' => [], 'refusal' => 'amazon_report_compression_not_understood:' . $compression];
+        }
+
+        return $this->stream->read(
+            account: $account,
+            url: $url,
+            onBatch: $onBatch,
+            required: $required,
+            gzipped: $compression === self::GZIP,
+        );
     }
 
     /**

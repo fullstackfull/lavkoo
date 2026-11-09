@@ -175,6 +175,11 @@ return [
         // PARSED and names the refusal; it does not bound what gets received. A catalogue that outgrows it needs the streaming
         // download, which is a declared gap rather than something half-done (docs/sales-channels/api-reference.md).
         'report_max_bytes' => 33554432,
+        // The STREAMING ceiling, and it is a different kind of number from the one above. `report_max_bytes` bounds what the
+        // buffering reader will PARSE after the whole body has already arrived; this one is enforced mid-flight by
+        // `ChannelHttp::stream()`, so it bounds what is RECEIVED. Zero means no ceiling, which is the right default for a
+        // reader that holds one batch at a time: a catalogue is as big as it is, and refusing it is what the old reader did.
+        'report_stream_max_bytes' => 0,
         // A fresh access token is fetched when the one held has less than this many seconds left (tokens last 3600).
         'token_refresh_margin_seconds' => 300,
         // **The bulk feed path, and it ships OFF.** Its own switch, on top of `enabled` and `external_writes_enabled`, because

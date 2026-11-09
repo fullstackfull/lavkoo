@@ -717,7 +717,7 @@ class AmazonConnectorTest extends TestCase
             }
         }
         $notBuilt = [
-            'amazon.finances_groups', 'amazon.notifications_read', 'amazon.notifications_write',
+            'amazon.notifications_read', 'amazon.notifications_write',
         ];
 
         foreach ($notBuilt as $operation) {
@@ -733,6 +733,9 @@ class AmazonConnectorTest extends TestCase
             // And the two the cycle needed that were not registered at all: listing Amazon's feeds is the only honest way
             // back from the fence, and the report's presigned download reaches a bucket rather than the API.
             'amazon.feeds_list', 'amazon.feed_report_download',
+            // The settlement periods by their own identity. Built with the four published traps guarded, the sharpest of
+            // which is that a window over 180 days returns NO groups and a clean 200.
+            'amazon.finances_groups',
             // The report reader: every one of the five, including getReports, which is the ONLY way a settlement report is
             // reached and therefore the one whose absence would be silent.
             'amazon.reports_create', 'amazon.reports_get', 'amazon.reports_list', 'amazon.reports_document', 'amazon.report_download',

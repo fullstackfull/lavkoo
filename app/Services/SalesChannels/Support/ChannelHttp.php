@@ -113,6 +113,112 @@ class ChannelHttp
     }
 
     /**
+     * A GET whose body is read in pieces and never held whole.
+     *
+     * **Why the transport grew a second door rather than the caller opening its own.** Everything that makes this class worth
+     * having happens before the request: the environment and account switches, the capability and approval gates, the rate
+     * limiter, and the log line afterwards. A caller that reached for `Http::` directly to stream would be a call that
+     * answers to none of them -- which is the shape of the defect this module's own guards exist to catch. So streaming is
+     * here, behind the same gates, and the only thing that differs is what comes back.
+     *
+     * The body is handed to `$consume` in chunks, in order, and this method never keeps more than one chunk. **Nothing is
+     * written to disk**: Amazon's own Reports page states that "Unencrypted report content must never be stored on disk, even
+     * temporarily", so a `sink` to a temporary file is not an option here however convenient it would be.
+     *
+     * Retries are NOT attempted. A stream half-consumed cannot be replayed -- the consumer has already been handed the first
+     * part of a body that would arrive again from the beginning -- so a failure mid-stream is reported as itself and the
+     * caller asks for a fresh document. That is also why this is GET-only: there is no safe way to stream a write.
+     *
+     * @param callable(string): void $consume called with each chunk, in order
+     * @param int $ceiling the most bytes this will read before refusing; 0 for no ceiling
+     * @return array{ok: bool, status: int|null, bytes: int, refusal: string|null}
+     */
+    public function stream(
+        SalesChannelAccount $account,
+        string $operation,
+        string $url,
+        callable $consume,
+        array $headers = [],
+        array $query = [],
+        ?IntegrationCapability $capability = null,
+        ?string $scope = null,
+        int $ceiling = 0,
+        int $chunkBytes = 65536,
+    ): array {
+        $correlationId = (string) Str::uuid();
+        $dryRun = $this->assertAllowed($account, $operation, 'GET', $capability, $scope, $query);
+        if ($dryRun) {
+            $response = ChannelResponse::dryRun($correlationId);
+            $this->log($account, $operation, 'GET', $url, $headers, null, $query, $response);
+
+            return ['ok' => false, 'status' => null, 'bytes' => 0, 'refusal' => 'rehearsal_streamed_nothing'];
+        }
+
+        $http = $this->httpSettingsFor($operation);
+        [$max, $perSeconds, $bucket] = $this->rateLimitFor($account, $operation);
+        $this->limiter->acquire($account->id . ':' . $bucket, $max, $perSeconds);
+
+        $started = hrtime(true);
+        $bytes = 0;
+        $status = null;
+        $refusal = null;
+
+        try {
+            $response = Http::withHeaders($headers)
+                ->connectTimeout($http['connect'])
+                ->timeout($http['timeout'])
+                ->withoutRedirecting()
+                ->withOptions(['stream' => true])
+                ->send('GET', $url, $query === [] ? [] : ['query' => $query]);
+            $status = $response->status();
+
+            if ($response->successful()) {
+                $body = $response->toPsrResponse()->getBody();
+                while (!$body->eof()) {
+                    $chunk = $body->read(max(1024, $chunkBytes));
+                    if ($chunk === '') {
+                        // A stream that returns nothing without reporting eof would spin here. Treated as the end, because
+                        // the alternative is a worker that never stops reading.
+                        break;
+                    }
+                    $bytes += strlen($chunk);
+                    if ($ceiling > 0 && $bytes > $ceiling) {
+                        // Refused mid-flight, which is the whole point: the old reader could only refuse a document AFTER it
+                        // had been held whole in memory, so the ceiling bounded what was parsed and not what was received.
+                        $refusal = 'stream_is_larger_than_we_will_read:' . $bytes;
+                        break;
+                    }
+                    $consume($chunk);
+                }
+                $body->close();
+            } else {
+                $refusal = 'stream_refused:' . $status;
+            }
+        } catch (ConnectionException $exception) {
+            $refusal = 'stream_failed:' . SecretRedactor::redactString($exception->getMessage());
+        } catch (Throwable $exception) {
+            // A consumer that threw, or a decoder that could not go on. The bytes read so far are reported, because a caller
+            // that was handed part of a document must know it was part.
+            $refusal = 'stream_could_not_be_read:' . SecretRedactor::redactString($exception->getMessage());
+        }
+
+        // Logged like any other call, with the SIZE of what came back and never its content: a report body is a seller's own
+        // catalogue or settlement data, and this one is too big to belong in a log whatever it held.
+        $outcome = new ChannelResponse(
+            $refusal === null ? ChannelResponse::SUCCESS : ($status !== null && $status >= 400 ? ChannelResponse::REJECTED : ChannelResponse::AMBIGUOUS),
+            $status,
+            null,
+            'streamed ' . $bytes . ' bytes',
+            $refusal,
+            $this->elapsedMs($started),
+            $correlationId,
+        );
+        $this->log($account, $operation, 'GET', $url, $headers, null, $query, $outcome);
+
+        return ['ok' => $refusal === null, 'status' => $status, 'bytes' => $bytes, 'refusal' => $refusal];
+    }
+
+    /**
      * What goes in the log for this body.
      *
      * A raw body is already-encoded text, and the logger takes an array, so it is wrapped under one key rather than left out:
