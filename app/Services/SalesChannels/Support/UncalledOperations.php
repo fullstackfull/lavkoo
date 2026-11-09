@@ -84,6 +84,17 @@ final class UncalledOperations
             // ---- Odoo -------------------------------------------------------------------------------------------
             // Listing the instance's models. The preflight asks about the models it needs BY NAME and reports what is
             // missing, which is the narrower and safer question.
+            // ---- noon: the one the closed guard hole left behind ---------------------------------------------------
+            // The hygiene guard counted an operation as called at two mentions, and `NoonOperations` names each of its
+            // operations twice -- once in `operations()`, once in the path map -- so every noon operation passed whether
+            // anything called it or not. Three were genuinely uncalled. Two are built now; this is the third.
+            //
+            // The path and the body are known and the capability matrix already said `built => false`: it shows where noon
+            // sends events, with credentials redacted on read. CREATING a destination is a separate operation whose page has
+            // not been read, so a webhook is configured in noon's own portal for now, and a list with nothing to compare it
+            // against would be a screen with no decision on it.
+            'noon.webhook_destinations_list' => ['kind' => self::NOT_BUILT, 'why' => 'noon_event_destinations_are_configured_in_noons_own_portal'],
+
             'odoo.model_list' => ['kind' => self::NOT_BUILT, 'why' => 'odoo_preflight_asks_about_named_models_instead'],
         ];
     }

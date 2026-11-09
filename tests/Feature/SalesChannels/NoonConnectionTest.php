@@ -346,6 +346,9 @@ class NoonConnectionTest extends TestCase
         foreach ([
             'service_account_login', 'identity_whoami', 'static_sandbox', 'warehouses', 'stock', 'pricing',
             'category_discovery', 'catalog_product_upsert', 'catalog_content_state', 'barcode_map',
+            // Built after the hygiene guard's hole was closed and showed they never had been. The group calls carry noon's
+            // replace-not-merge semantics, and the bulk map carries a per-item status and the `#del#` sentinel guard.
+            'product_groups', 'sku_batch_map',
             'fbpi_orders', 'fbpi_order_read', 'fbpi_buyer_data', 'fbpi_order_item_refusal',
             'shipments', 'shipment_lifecycle', 'noon_logistics_awbs', 'returns',
         ] as $built) {
@@ -353,7 +356,7 @@ class NoonConnectionTest extends TestCase
         }
         // Documented by noon, and deliberately not built: either its reference page was never read (so no path is known) or nothing here calls it yet.
         foreach ([
-            'product_groups', 'oauth_for_integrators', 'sku_batch_map', 'event_destinations',
+            'oauth_for_integrators', 'event_destinations',
         ] as $notBuilt) {
             $this->assertTrue($matrix[$notBuilt]['documented']);
             $this->assertFalse($matrix[$notBuilt]['built']);
@@ -369,7 +372,16 @@ class NoonConnectionTest extends TestCase
 
     public function test_the_matrix_and_the_allow_list_agree_about_every_operation(): void
     {
-        $sources = file_get_contents(app_path('Services/SalesChannels/Noon/NoonConnector.php')) . file_get_contents(app_path('Services/SalesChannels/Noon/NoonClient.php'));
+        // THE WHOLE MODULE, minus its own registry. The scan used to read the connector and the client only, so a call from
+        // any other class in the directory read as no call at all -- and `NoonOperations` is excluded because naming an
+        // operation in the registry is not calling it. (That same confusion, in the shared hygiene guard, is what let three
+        // noon operations sit uncalled and unremarked: it counted two mentions as a call, and the registry contributes two.)
+        $sources = '';
+        foreach (glob(app_path('Services/SalesChannels/Noon/*.php')) as $file) {
+            if (!str_ends_with($file, 'NoonOperations.php')) {
+                $sources .= file_get_contents($file);
+            }
+        }
 
         // Each registered operation is either called by this module or named in the matrix as something it does not do. Nothing may be registered and silently unused, and
         // nothing may be called that the matrix calls unbuilt.
@@ -380,15 +392,20 @@ class NoonConnectionTest extends TestCase
             }
         }
 
-        // Every one of these is registered with a verified path and a documented body, and the matrix says plainly that nothing calls it yet. A registered operation may
-        // be unused; it may NOT be claimed as built.
-        $this->assertSame([
-            'noon.product_group_upsert', 'noon.sku_batch_map', 'noon.webhook_destinations_list',
-        ], $uncalled, 'a registered operation nothing calls must be a row the matrix marks unbuilt');
+        // One left, and the matrix says plainly that nothing calls it. The product groups and the bulk SKU map used to be
+        // here too; they are built now, and the rule is unchanged -- a registered operation may be unused, and it may NOT
+        // be claimed as built.
+        $this->assertSame(['noon.webhook_destinations_list'], $uncalled, 'a registered operation nothing calls must be a row the matrix marks unbuilt');
         $matrix = app(NoonConnector::class)->capabilityMatrix();
-        foreach (['product_groups', 'sku_batch_map', 'event_destinations'] as $row) {
-            $this->assertFalse($matrix[$row]['built'], "{$row} is registered and uncalled, so the matrix may not claim it");
-            $this->assertStringContainsString('NOT BUILT YET', $matrix[$row]['note']);
+        $this->assertFalse($matrix['event_destinations']['built'], 'event_destinations is registered and uncalled, so the matrix may not claim it');
+        $this->assertStringContainsString('NOT BUILT YET', $matrix['event_destinations']['note']);
+
+        // And the other direction, which is the half that rots quietly: a row the matrix now calls built must really be
+        // called by something here.
+        foreach (['product_groups' => 'noon.product_group_upsert', 'sku_batch_map' => 'noon.sku_batch_map'] as $row => $operation) {
+            $this->assertTrue($matrix[$row]['built'], "{$row} is called and the matrix still says it is not built");
+            $this->assertStringNotContainsString('NOT BUILT YET', $matrix[$row]['note']);
+            $this->assertStringContainsString("'{$operation}'", $sources, "the matrix calls {$row} built and nothing calls {$operation}");
         }
     }
 

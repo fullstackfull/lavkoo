@@ -65,10 +65,21 @@ final class NoonOperations
             'noon.product_upsert' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
             // What noon holds for a `sku_parent`: its completeness, the attributes it is still missing or rejects, and its quality-review state.
             'noon.product_content_get' => Ops::read(['POST'], capabilities: $read),
+            // A group is the variants of one product shown together. **`attribute_codes` and `sku_parents` REPLACE rather
+            // than merge** -- noon says "the list you send replaces the current one" of each -- so an upsert built from
+            // today's products removes every other product from the group. `NoonProductGroups` will not send a partial list.
             'noon.product_group_upsert' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
+            // Reading a group is how a member is added safely: the current membership plus the new one is the only way noon
+            // offers, and `next_token` is opaque -- "a token you build yourself is not rejected, it simply returns the wrong page".
+            'noon.product_group_get' => Ops::read(['POST'], capabilities: $read),
+            // Deleting a group does NOT delete its products, and noon documents no undo.
+            'noon.product_group_delete' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
             // Ties one of our `partner_sku` values to a barcode, creating the barcode if noon does not hold it yet.
             'noon.barcode_map' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
 
+            // Our `partner_sku` values tied to noon's `nsku_child` values, in bulk, with a status per item. It does NOT
+            // resolve a `sku_parent`: whether an `nsku_child` is the same identifier is stated nowhere noon publishes. And
+            // `#del#` in `nsku_child` DELETES a mapping, which is why it is refused unless a caller asks for a deletion.
             'noon.sku_batch_map' => Ops::write(['POST'], [Capability::ProductSync], [Ops::SCOPE_PRODUCT_WRITES], retrySafe: true),
 
             // ---- orders fulfilled from OUR warehouse (FBPI) -----------------------------------------------------
@@ -124,6 +135,8 @@ final class NoonOperations
             'noon.product_upsert' => '/content/v1/product/upsert',
             'noon.product_content_get' => '/content/v1/product/content/get',
             'noon.product_group_upsert' => '/content/v1/product/group/upsert',
+            'noon.product_group_get' => '/content/v1/product/group/get',
+            'noon.product_group_delete' => '/content/v1/product/group/delete',
             'noon.barcode_map' => '/catplat/v1/barcode/map',
             'noon.sku_batch_map' => '/catplat/v1/sku/batch-map',
             'noon.fbpi_orders_list' => '/fbpi/v1/fbpi-orders/list',

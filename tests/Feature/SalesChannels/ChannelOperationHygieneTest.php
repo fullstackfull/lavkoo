@@ -143,20 +143,28 @@ class ChannelOperationHygieneTest extends TestCase
      */
     private function operationsNothingCalls(): array
     {
-        // `UncalledOperations` names every one of these operations, so counting it would make all twenty look called and the
-        // guard would pass over anything. The declaration of a gap is not a call -- and nor is the registry entry itself.
-        $ignore = ['UncalledOperations.php'];
+        // **The declaration of a gap is not a call, and nor is the registry entry itself.** The second half of that was the
+        // comment's claim and not the code's behaviour, and the gap between them hid real work.
+        //
+        // The old scan read every file except `UncalledOperations.php` and called an operation "called" at two or more
+        // mentions -- two because the registry entry was expected to contribute one. But `NoonOperations` names each of its
+        // operations TWICE, once in `operations()` and once in the path map beside it, so **every noon operation passed this
+        // guard whether anything called it or not.** `noon.sku_batch_map` sat there with `built => false` in its own
+        // capability matrix and the guard had nothing to say.
+        //
+        // So the registry files are excluded outright and one real mention is enough. That is what the comment always said.
+        $registries = ['UncalledOperations.php', 'AmazonOperations.php', 'TrendyolOperations.php', 'NoonOperations.php', 'OdooOperations.php'];
 
         $haystack = '';
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app'))) as $file) {
-            if ($file->isFile() && $file->getExtension() === 'php' && !in_array($file->getFilename(), $ignore, true)) {
+            if ($file->isFile() && $file->getExtension() === 'php' && !in_array($file->getFilename(), $registries, true)) {
                 $haystack .= file_get_contents($file->getPathname());
             }
         }
 
         $uncalled = [];
         foreach (ChannelOperations::registered() as $operation) {
-            if (substr_count($haystack, "'" . $operation . "'") < 2) {
+            if (!str_contains($haystack, "'" . $operation . "'")) {
                 $uncalled[] = $operation;
             }
         }
