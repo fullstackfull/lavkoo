@@ -694,6 +694,13 @@ class AmazonConnectorTest extends TestCase
         $this->assertTrue($matrix['reports']['built']);
         // Built in PR-C: searchCatalogItems brings back the ASIN and Amazon's own productType, without which the requirements call has nothing to ask about.
         $this->assertTrue($matrix['catalog_items']['built']);
+        // Still false, and the reason is now a better one than the reason first recorded here. The first said the result
+        // document had no documented field names; it has -- Amazon publishes the processing-report schema in its own
+        // `selling-partner-api-models` repository, and `AmazonFeedResult` reads it by field name. What keeps the SUBMISSION
+        // unbuilt is Amazon's own timings: feeds "can take up to eight hours to process" and are "processed sequentially",
+        // against 25,000 Listings Items PATCHes at a documented 5 a second, which is 83 minutes. The feed is not the fast
+        // path. Building the document and reading the report is not the same as calling the operations, and this guard is
+        // about the operations: nothing calls them.
         $this->assertFalse($matrix['feeds_json_listings']['built'], 'The feed operations are on the allowed list but nothing calls them: price and stock go one SKU at a time.');
         $this->assertTrue($matrix['product_type_definitions']['built']);
     }
