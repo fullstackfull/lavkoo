@@ -2,12 +2,16 @@
 
 namespace Tests\Feature\Concurrency;
 
-use App\Models\ExternalOrderMapping;
+use App\Models\ChannelShipmentSend;
 use App\Models\ExternalOrderLine;
+use App\Models\ExternalOrderMapping;
 use App\Models\InventoryReservation;
 use App\Services\SalesChannels\Inventory\PoolNet;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\BuildsStockPools;
 use Tests\Support\Concurrency\ConcurrentRunner;
@@ -46,6 +50,32 @@ class NoonOrderConcurrencyTest extends TestCase
         config(['sales_channels.enabled' => true, 'sales_channels.external_writes_enabled' => true]);
         Http::preventStrayRequests();
         Cache::flush();
+        $this->buildTheFakeNoonWarehouse();
+    }
+
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('test_noon_shipments');
+        parent::tearDown();
+    }
+
+    /**
+     * noon's own side of a shipment, as a table the worker processes share.
+     *
+     * The workers are separate processes, so a `Http::fake` in the test process means nothing to them and there is no server to
+     * point them at. What they do share is this database -- so `shipment/create` inserts here and `shipment/get` reads here, and
+     * a SECOND shipment of one set of goods becomes a second ROW. No unique key: the fixture must show the duplicate, not
+     * prevent it, or the test would be proving MySQL works rather than that this code does.
+     */
+    private function buildTheFakeNoonWarehouse(): void
+    {
+        Schema::dropIfExists('test_noon_shipments');
+        Schema::create('test_noon_shipments', function (Blueprint $table) {
+            $table->id();
+            $table->string('reference', 191)->index();
+            $table->string('order_id', 191);
+            $table->unsignedInteger('created_by');
+        });
     }
 
     public function test_one_noon_order_read_by_several_processes_at_once_is_one_order_holding_one_set_of_units(): void
@@ -109,6 +139,56 @@ class NoonOrderConcurrencyTest extends TestCase
         $this->assertSame(8, ExternalOrderMapping::count(), 'eight orders, each ingested twice');
         $this->assertSame(8, InventoryReservation::count(), 'eight holds');
         $this->assertSame(400 - 8, app(PoolNet::class)->for($this->torodLocation(), self::PRODUCT)->net());
+    }
+
+    // ---- shipping the same goods, from several processes at once -------------------------------------------------
+
+    public function test_the_same_units_shipped_by_several_processes_at_once_reach_noon_as_one_shipment(): void
+    {
+        // THE DEFECT THIS WHOLE PIECE EXISTS FOR, under real processes. Each worker derives the same shipment reference, asks
+        // noon, and is told noon holds no such shipment -- and if that answer were the whole defence, every one of them would
+        // then create one. Cancelling a noon shipment cancels every item in it, so the second van is not undoable.
+        $account = $this->noonAccount();
+
+        $reports = ConcurrentRunner::run('noon.ship_same_units', array_fill(0, 5, [
+            'account' => $account->id, 'order_id' => 'NO-SHIP-1', 'units' => ['NO-SHIP-1-I1', 'NO-SHIP-1-I2'],
+        ]));
+
+        $this->assertSame([], $this->problemsOf($reports), 'no process may fail');
+        $this->assertSame(1, DB::table('test_noon_shipments')->count(), 'ONE shipment reached noon, whatever five processes tried');
+        $this->assertSame(1, $this->workersWhere($reports, static fn (array $result): bool => ($result['sent'] ?? false) === true), 'exactly one process sent it');
+        $this->assertSame(0, $this->workersWhere($reports, static fn (array $result): bool => ($result['needs_review'] ?? false) === true), 'and none of the others needs a person: they were simply not the one');
+        $this->assertSame(1, ChannelShipmentSend::where('external_order_id', 'NO-SHIP-1')->count(), 'one claimed row, which is what decided it');
+    }
+
+    public function test_different_units_of_one_order_shipped_at_once_are_still_separate_shipments(): void
+    {
+        // The claim must not over-serialise: shipping other units of the same order really IS another shipment, and noon has to
+        // be told about each. Two processes both inserting a reference nothing holds yet must also not deadlock on the gap.
+        $account = $this->noonAccount();
+
+        $writers = [];
+        foreach (range(1, 6) as $unit) {
+            // Each unit shipped by two processes at once: six shipments, twelve attempts.
+            $writers[] = ['operation' => 'noon.ship_same_units', 'arguments' => ['account' => $account->id, 'order_id' => 'NO-SHIP-2', 'units' => ['NO-SHIP-2-I' . $unit]]];
+            $writers[] = ['operation' => 'noon.ship_same_units', 'arguments' => ['account' => $account->id, 'order_id' => 'NO-SHIP-2', 'units' => ['NO-SHIP-2-I' . $unit]]];
+        }
+
+        $reports = ConcurrentRunner::run('noon.page', $writers);
+
+        $this->assertSame([], $this->problemsOf($reports), 'no process may fail and none may deadlock');
+        $this->assertSame(6, DB::table('test_noon_shipments')->count(), 'six shipments, one per set of units');
+        $this->assertSame(6, DB::table('test_noon_shipments')->distinct()->count('reference'), 'and six distinct references');
+        $this->assertSame(6, ChannelShipmentSend::where('external_order_id', 'NO-SHIP-2')->count());
+    }
+
+    /**
+     * @param list<array{ok: bool, result?: mixed}> $reports
+     * @param callable(array<string, mixed>): bool $matches
+     */
+    private function workersWhere(array $reports, callable $matches): int
+    {
+        return count(array_filter($reports, static fn (array $report): bool => is_array($report['result'] ?? null) && $matches($report['result'])));
     }
 
     /**

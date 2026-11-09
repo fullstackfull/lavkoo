@@ -367,6 +367,16 @@ return [
         'max_buyer_data_days' => 30,
     ],
 
+    /*
+    | Telling a channel that goods shipped. One claimed row per shipment reference (`channel_shipment_sends`) decides which process owns the attempt, because asking the channel
+    | first does not stop two processes both being told "no such shipment" and both sending. A send that may have reached the channel is never repeated automatically.
+    */
+    'shipment_sends' => [
+        // An attempt that claimed a shipment reference and never finished (a crash) is given up after this long, and the reference may be claimed again. Taking it over does
+        // NOT grant permission to send: the row still says whether a send may already have left.
+        'claim_minutes' => 10,
+    ],
+
     // The class that speaks to each channel. A new channel is a connector class added here.
     'connectors' => [
         'amazon' => \App\Services\SalesChannels\Amazon\AmazonConnector::class,

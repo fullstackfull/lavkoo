@@ -24,6 +24,7 @@ use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
 use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Data\ShipmentConfirmation;
+use App\Services\SalesChannels\Shipments\ChannelShipmentSends;
 use App\Services\SalesChannels\Dispatch\ChannelRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
@@ -68,6 +69,7 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
         private readonly NoonClient $client,
         private readonly NoonParentSku $parents,
         private readonly NoonOrderMapper $orders,
+        private readonly ChannelShipmentSends $sends,
     )
     {
     }
@@ -924,6 +926,11 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             $units,
             [['courier' => $confirmation->carrierName ?? $confirmation->carrierCode, 'awb_nr' => $confirmation->trackingNumber]],
         );
+        if ($result['busy'] ?? false) {
+            // Not a refusal: another process owns this shipment and is finishing it. Raised rather than answered `false`, so
+            // that a caller counting the channel's refusals does not count this one and park work that is already in hand.
+            throw new ChannelUnavailableException(ChannelUnavailableException::ANOTHER_ATTEMPT_RUNNING, (string) $result['reason']);
+        }
 
         return $result['confirmed'];
     }
@@ -938,13 +945,16 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
      * the shipment. A create that was taken but cannot be read back comes back as `sent` without `confirmed`, which is the truth and is what a person has to see.
      *
      * **Nothing is documented about a REPEATED `integration_shipment_nr`.** No idempotency rule, no error, nothing. So a repeat is never assumed safe, and two defences sit
-     * around it. First the number is DERIVED from the order and the exact units, so a retry of the same work sends the same number rather than minting a second shipment
-     * for goods already on their way. Then noon is asked whether that number already exists, and an existing one is reported as already shipped and NOT sent again -- which
-     * is what turns an ambiguous failure (a timeout, a reset) from a risk of shipping twice into a question with an answer.
+     * around it. First the number is DERIVED from the order and the exact units, so a retry of the same work asks about the same shipment rather than minting a second one
+     * for goods already on their way. Then noon is asked whether that number already exists -- and the answer is read as THREE: held (reported as already shipped, nothing
+     * sent), held-by-noons-own-word-not-at-all (the only answer a create is made on), or unanswerable. The derived number alone is not a defence, because without a
+     * documented idempotency rule re-sending it is not harmless; it is what makes the QUESTION the same question. So when noon cannot be asked -- a 503, a timeout, a reset,
+     * a 401, a 2xx nobody could read -- nothing is sent and the attempt comes back `needs_review` for a person, since creating might ship the same goods twice and
+     * cancelling a noon shipment cancels every item in it.
      *
      * @param list<string> $unitNumbers noon's own `mp_item_nr` values
      * @param list<array{courier: string, awb_nr: string}> $awbs
-     * @return array{sent: bool, confirmed: bool, shipment: string|null, reason: string|null}
+     * @return array{sent: bool, confirmed: bool, shipment: string|null, reason: string|null, needs_review?: bool, busy?: bool}
      */
     public function createShipment(SalesChannelAccount $account, string $orderNumber, array $unitNumbers, array $awbs): array
     {
@@ -974,10 +984,68 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
 
         $shipmentNumber = $this->shipmentNumberFor($order, $units);
 
-        // A shipment noon already holds under this number is the same work, already done. Sending it again is the one mistake that cannot be taken back.
-        $existing = $this->shipment($account, $shipmentNumber);
-        if ($existing !== null) {
+        // FIRST, OWNERSHIP. Two processes asking noon at the same instant are both told "no such shipment" and both send, and
+        // the derived number does not stop that: noon documents no idempotency for `integration_shipment_nr`, so deriving the
+        // same value means the second attempt ASKS about the same shipment, not that re-sending it is harmless. One unique row
+        // per shipment reference decides who owns the attempt, and remembers whether a send ever left -- which is the one thing
+        // noon cannot be asked about.
+        $permission = $this->sends->claim($account, $shipmentNumber, $order);
+        if ($permission->isConfirmed()) {
+            return ['sent' => false, 'confirmed' => true, 'shipment' => $shipmentNumber, 'reason' => 'noon has already confirmed this shipment, so nothing was sent again.'];
+        }
+        if ($permission->isBusy()) {
+            return [
+                'sent' => false, 'confirmed' => false, 'shipment' => $shipmentNumber,
+                'reason' => 'another attempt at this very shipment is already running, so nothing was sent. Whatever it does will be the one shipment.',
+                'busy' => true,
+            ];
+        }
+        $token = (string) $permission->token;
+
+        // THEN THE THREE ANSWERS, AND ONLY ONE OF THEM PERMITS A CREATE.
+        //
+        // A shipment noon already holds under this number is the same work, already done. An answer nobody could read is NOT an
+        // absence: a 503, a timeout, an auth error or a 2xx we could not parse all leave open the possibility that an earlier
+        // attempt reached noon and its answer was lost. Creating on that would ship the same goods twice, and cancelling a noon
+        // shipment cancels every item in it.
+        //
+        // The single exception is a rehearsal, which asked nobody anything and sends nothing either way: it walks on and the
+        // write below answers `isDryRun()`.
+        $check = $this->checkShipment($account, $shipmentNumber);
+        if ($check->isPresent()) {
+            $this->sends->confirmed($token);
+
             return ['sent' => false, 'confirmed' => true, 'shipment' => $shipmentNumber, 'reason' => 'noon already holds this shipment, so nothing was sent again.'];
+        }
+
+        // An earlier attempt's send is unaccounted for and noon does not show the shipment. A machine never resolves that by
+        // sending again -- not even when noon says, in so many words, that it holds no such shipment: `shipment/get` is not
+        // documented to be read-after-write consistent, and the cost of being wrong is a second van.
+        if ($permission->sendMayHaveLeft) {
+            $this->sends->needsReview($token, $check->mayCreate() ? 'sent_but_noon_shows_no_shipment' : 'sent_and_noon_could_not_be_asked');
+
+            return [
+                'sent' => false, 'confirmed' => false, 'shipment' => $shipmentNumber,
+                'reason' => 'a send for this shipment already left and noon does not confirm it ('
+                    . ($check->mayCreate() ? 'noon says it holds no such shipment' : (string) $check->reason)
+                    . '), so nothing was sent again. A person has to settle it: sending now might ship the same goods twice.',
+                'needs_review' => true,
+            ];
+        }
+
+        if (!$check->mayCreate() && !$check->isRehearsal()) {
+            // Nothing left, so the reference stays claimable: the next cycle asks noon again rather than needing a person to
+            // release it. The attempt itself is still reported for review, because goods are waiting and nobody shipped them.
+            $this->sends->nothingWasSent($token, (string) $check->reason);
+
+            return [
+                'sent' => false,
+                'confirmed' => false,
+                'shipment' => $shipmentNumber,
+                'reason' => 'noon could not say whether it already holds this shipment (' . $check->reason . '), so nothing was sent. A person has to resolve it:'
+                    . ' creating it now might ship the same goods twice, and noon publishes no way to make that safe.',
+                'needs_review' => true,
+            ];
         }
 
         $response = $this->client->call(
@@ -996,9 +1064,19 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             scope: 'fulfillment_dispatch',
         );
         if ($response->isDryRun()) {
+            $this->sends->nothingWasSent($token, 'dry_run');
+
             return ['sent' => false, 'confirmed' => false, 'shipment' => null, 'reason' => null];
         }
         if (!$response->ok()) {
+            // THE ONE PLACE A REPEAT IS ALLOWED AT ALL: a definitive refusal is proof noon did not process it, so the reference
+            // may be sent again once whatever it refused is fixed. A 5xx or a lost answer proves nothing, so the row says a
+            // send may have left and no later attempt will send.
+            $mayHaveLanded = in_array($response->kind, [ChannelResponse::SERVER_ERROR, ChannelResponse::AMBIGUOUS], true);
+            $mayHaveLanded
+                ? $this->sends->sent($token)
+                : $this->sends->nothingWasSent($token, 'noon_refused:' . ($response->status ?? 0));
+
             return [
                 'sent' => false,
                 'confirmed' => false,
@@ -1015,30 +1093,48 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             ];
         }
 
+        // It certainly left, whatever noon says next.
+        $this->sends->sent($token);
+
         // The 200 said nothing, so noon is asked what it holds. Only its own answer confirms a shipment.
-        $confirmed = $this->shipment($account, $shipmentNumber) !== null;
+        $after = $this->checkShipment($account, $shipmentNumber);
+        if ($after->isPresent()) {
+            $this->sends->confirmed($token);
+
+            return ['sent' => true, 'confirmed' => true, 'shipment' => $shipmentNumber, 'reason' => null];
+        }
+        if ($after->isUnknown()) {
+            $this->sends->needsReview($token, (string) $after->reason);
+        }
 
         return [
             'sent' => true,
-            'confirmed' => $confirmed,
+            'confirmed' => false,
             'shipment' => $shipmentNumber,
-            'reason' => $confirmed ? null : 'noon took the shipment but does not report it yet, so nothing is recorded as shipped.',
+            // Two different situations, and the second one is not for a machine to retry: noon took the create and then could
+            // not be asked about it, so whether the shipment exists is open. The next attempt asks again rather than sending.
+            'reason' => $after->mayCreate()
+                ? 'noon took the shipment but does not report it yet, so nothing is recorded as shipped.'
+                : 'noon took the shipment and then could not be asked about it (' . $after->reason . '), so whether it exists is unresolved. A person has to check before anything is sent again.',
+            'needs_review' => $after->isUnknown(),
         ];
     }
 
     /**
-     * What noon holds for one of our shipment numbers: `POST /fbpi/v1/shipment/get`, or null when it holds none.
+     * Whether noon holds a shipment under one of our numbers: `POST /fbpi/v1/shipment/get`, as one of three answers.
      *
-     * This is the only way a create is ever verified, because a create answers no body. It reads and changes nothing.
-     *
-     * @return array{fbpi_order_nr: string, awbs: list<array<string, mixed>>, items: list<array<string, mixed>>}|null
+     * This is the only way a create is ever verified, because a create answers no body; and it is the only thing that may permit
+     * one, because `NoonShipmentCheck` keeps "noon says it holds none" apart from "noon could not be asked". It reads and
+     * changes nothing.
      */
-    public function shipment(SalesChannelAccount $account, string $shipmentNumber): ?array
+    public function checkShipment(SalesChannelAccount $account, string $shipmentNumber): NoonShipmentCheck
     {
         $number = trim($shipmentNumber);
         $warehouse = trim((string) $account->setting('warehouse_code', ''));
         if ($number === '' || $warehouse === '') {
-            return null;
+            // We cannot even ask, so we know nothing. This used to answer the same null as a successful "not there", which made
+            // a blank warehouse look like permission to ship.
+            return NoonShipmentCheck::unknown('noon_cannot_be_asked_without_a_shipment_number_and_a_warehouse');
         }
 
         $response = $this->client->call(
@@ -1049,23 +1145,29 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             json: ['warehouse_code' => $warehouse, 'integration_shipment_nr' => $number],
             capability: IntegrationCapability::OrderImport,
         );
-        // A read that failed is NOT an absence. Treating it as one is what would have a shipment created twice, which is the whole thing this method exists to prevent.
-        if (!$response->ok() || trim((string) $response->get('fbpi_order_nr', '')) === '') {
-            return null;
-        }
 
-        return [
-            'fbpi_order_nr' => trim((string) $response->get('fbpi_order_nr', '')),
-            'awbs' => array_values(array_filter((array) $response->get('awbs', []), 'is_array')),
-            'items' => array_values(array_filter((array) $response->get('items', []), 'is_array')),
-        ];
+        return NoonShipmentCheck::of($response);
+    }
+
+    /**
+     * What noon holds for one of our shipment numbers, or null when it holds none AND SAID SO.
+     *
+     * Kept for callers that only want the shipment itself. It answers null for a confirmed absence and for an unknown alike, so
+     * **it must not be used to decide whether to create**: `checkShipment()` is what distinguishes those, and `createShipment()`
+     * uses that. A null here means "no shipment to show you", never "go ahead".
+     *
+     * @return array{fbpi_order_nr: string, awbs: list<array<string, mixed>>, items: list<array<string, mixed>>}|null
+     */
+    public function shipment(SalesChannelAccount $account, string $shipmentNumber): ?array
+    {
+        return $this->checkShipment($account, $shipmentNumber)->shipment;
     }
 
     /**
      * Cancels a shipment at noon: `POST /fbpi/v1/shipment/cancel`.
      *
      * **IT CANCELS EVERY ITEM IN THE SHIPMENT**, in noon's own words, not merely the shipment record. So it is a decision somebody makes and never a way of retrying a
-     * create: a failed create is retried by creating again with the same derived number, which the read above makes safe.
+     * create: a failed create is retried by asking noon about the same derived number first, and sending again only if noon itself says it holds no such shipment.
      *
      * @return array{sent: bool, reason: string|null}
      */
@@ -1190,14 +1292,20 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
     /**
      * Our own shipment number, derived so that the SAME work always produces the SAME number.
      *
-     * This is the whole defence against shipping twice. noon requires `integration_shipment_nr` to be unique and documents nothing about a repeat, so a number minted
-     * afresh on a retry would create a second shipment for goods already on their way. A hash of the order and its exact units cannot do that: a retry of the same work
-     * derives the same number and the existence check finds the shipment noon already holds. Shipping DIFFERENT units of the same order gives a different number, which is
-     * right -- that really is a second shipment.
+     * noon requires `integration_shipment_nr` to be unique and documents nothing about a repeat, so a number minted afresh on a retry would create a second shipment for
+     * goods already on their way. A hash of the order and its exact units cannot do that: a retry of the same work derives the same number, so the existence check and the
+     * claim are about the SAME shipment. Shipping DIFFERENT units of the same order gives a different number, which is right -- that really is a second shipment.
+     *
+     * **It is not a defence on its own**, which is what made this method's own comment wrong until 2026-11: without a documented idempotency rule, an identical number makes
+     * the question the same question and nothing more. What the number is sent WITH -- noon's own word that it holds no such shipment, and one claimed row saying no send has
+     * left -- is the defence.
+     *
+     * Public because it is the reference this system records a shipment against (`channel_shipment_sends.reference`), so an admin screen and a caller holding a claim both
+     * need to be able to name it.
      *
      * @param list<string> $units
      */
-    private function shipmentNumberFor(string $orderNumber, array $units): string
+    public function shipmentNumberFor(string $orderNumber, array $units): string
     {
         $sorted = $units;
         // Sorted, so that the same units named in another order are still the same shipment.

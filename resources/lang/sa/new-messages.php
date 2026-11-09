@@ -4551,5 +4551,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'the_payment_was_applied' => 'تم تطبيق الدفعة.',
 	'sales_channel_noon' => 'نون',
 	'channel_reason_setting_missing' => 'إعداد لا يمكن إجراء هذا الطلب بدونه فارغ في الحساب: أكمله في إعدادات الحساب',
+	'channel_reason_another_attempt_running' => 'عملية أخرى تُجري هذه الكتابة نفسها وتملكها؛ فلم يُرسل شيء مرتين',
 	'noon_publishes_no_settlement_endpoint' => 'لا تنشر نون أي نقطة تسويات أو مدفوعات أو رسوم، فلا يمكن قراءة عمولاتها تلقائيًا ولا يُقدَّر أي رقم مالي لنون',
 ];

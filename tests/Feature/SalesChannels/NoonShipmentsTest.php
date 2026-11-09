@@ -2,13 +2,17 @@
 
 namespace Tests\Feature\SalesChannels;
 
+use App\Models\ChannelShipmentSend;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\Data\ShipmentConfirmation;
+use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Noon\NoonConnector;
+use App\Services\SalesChannels\Shipments\ChannelShipmentSends;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -180,17 +184,382 @@ class NoonShipmentsTest extends TestCase
         $this->assertSame([], $this->sentTo(self::CREATE));
     }
 
+    // ---- a read that failed is not an absence --------------------------------------------------------------------
+    //
+    // THIS SECTION EXISTS BECAUSE IT ONCE ASSERTED THE OPPOSITE. `test_a_failed_existence_check_is_not_read_as_an_absence()`
+    // used to expect a 503 on the read to be followed by a create, justified in its own comment by the derived number being
+    // "safe" to re-send. noon documents no idempotency rule for `integration_shipment_nr`, so that justification was wrong, and
+    // a green suite was covering a second shipment of goods already on a van. Every case below is one of the ways the read can
+    // fail to answer, and every one of them must send nothing.
+
     public function test_a_failed_existence_check_is_not_read_as_an_absence(): void
     {
-        // A read that failed tells us nothing. Treating it as "noon holds no such shipment" is exactly what would ship the same goods twice, so the create goes ahead with
-        // the SAME derived number -- which is safe -- rather than with a fresh one.
         $this->fake([self::GET => Http::response([], 503), self::CREATE => Http::response([])]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent'], 'a 503 says nothing about what noon holds');
+        $this->assertFalse($result['confirmed']);
+        $this->assertTrue($result['needs_review'] ?? false, 'a person has to resolve it');
+        $this->assertSame([], $this->sentTo(self::CREATE));
+        $this->assertStringContainsString('could not say whether it already holds', (string) $result['reason']);
+        $this->assertStringContainsString('503', (string) $result['reason'], 'and what actually happened is named');
+    }
+
+    public function test_a_connection_that_drops_during_the_check_sends_nothing(): void
+    {
+        // The exact scenario the derived number was supposed to make safe, and the one it cannot: a read whose answer never
+        // arrived may have been about a shipment noon already holds.
+        $this->fake([
+            self::GET => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 30001 milliseconds'),
+            self::CREATE => Http::response([]),
+        ]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent']);
+        $this->assertTrue($result['needs_review'] ?? false);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_check_that_never_left_the_host_sends_nothing(): void
+    {
+        $this->fake([
+            self::GET => fn () => throw new ConnectionException('cURL error 6: Could not resolve host: noon-api-gateway.noon.partners'),
+            self::CREATE => Http::response([]),
+        ]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent']);
+        $this->assertTrue($result['needs_review'] ?? false);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_rate_limited_check_is_not_an_absence(): void
+    {
+        $this->fake([self::GET => Http::response(['message' => 'too many requests'], 429), self::CREATE => Http::response([])]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent'], 'being told to slow down is not being told the shipment does not exist');
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_refused_check_stops_the_shipment_rather_than_creating_on_it(): void
+    {
+        // noon refuses the read on credentials or role. The client signs in afresh and asks once more, and a second refusal is
+        // a permission problem, not an answer -- so it raises rather than letting a create through.
+        $this->fake([self::GET => Http::response(['message' => 'forbidden'], 403), self::CREATE => Http::response([])]);
+
+        try {
+            app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+            $this->fail('a refused read must not end in a shipment');
+        } catch (ChannelPermissionDenied $e) {
+            $this->assertStringContainsString('noon refused this call', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_two_hundred_the_check_cannot_read_is_not_an_absence(): void
+    {
+        // A 200 with no `fbpi_order_nr` might be noon's way of saying "not found" -- its reference page does not say -- or a
+        // truncated body from something in between. Both look identical here, and only one of them makes creating safe.
+        $this->fake([self::GET => Http::response(['awbs' => [], 'items' => []]), self::CREATE => Http::response([])]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent']);
+        $this->assertTrue($result['needs_review'] ?? false);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+        $this->assertStringContainsString('noon_answered_without_a_shipment_we_could_read', (string) $result['reason']);
+    }
+
+    public function test_an_empty_two_hundred_body_on_the_check_is_not_an_absence(): void
+    {
+        $this->fake([self::GET => Http::response(''), self::CREATE => Http::response([])]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent']);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_noons_own_word_that_it_holds_no_such_shipment_is_the_one_answer_a_create_is_made_on(): void
+    {
+        // The positive side of the same rule, so the refusals above cannot be satisfied by refusing everything.
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response([])]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertTrue($result['sent']);
+        $this->assertFalse($result['needs_review'] ?? false);
+        $this->assertCount(1, $this->sentTo(self::CREATE));
+    }
+
+    public function test_the_shipment_number_alone_is_not_treated_as_a_guarantee_against_a_duplicate(): void
+    {
+        // Deriving the same `integration_shipment_nr` makes the retry ask about the same shipment; it does not make re-sending
+        // it harmless, because noon publishes no idempotency rule for that field. So the number being identical is never
+        // allowed to stand in for an answer: a read that did not answer sends nothing even though the number is the same one.
+        $this->fake([
+            // asked before the create, asked again after it, and from then on noon cannot be asked at all
+            self::GET => Http::sequence()->push([], 404)->push([], 404)->whenEmpty(Http::response([], 503)),
+            self::CREATE => Http::response([]),
+        ]);
+        $connector = app(NoonConnector::class);
+
+        $first = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+        $again = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertSame($first['shipment'], $again['shipment'], 'the same work, so the same number');
+        $this->assertTrue($first['sent']);
+        $this->assertFalse($again['sent'], 'and the same number is still not a reason to send it again');
+        $this->assertCount(1, $this->sentTo(self::CREATE), 'one create for one shipment');
+    }
+
+    // ---- the read after the create can fail too ------------------------------------------------------------------
+
+    public function test_a_check_that_fails_after_the_create_is_left_for_a_person(): void
+    {
+        // noon took the create and then could not be asked about it. Whether the shipment exists is open, and a machine must
+        // not settle it: the next attempt asks again, and if that read fails too it stops here again rather than sending.
+        $this->fake([self::GET => Http::sequence()->push([], 404)->whenEmpty(Http::response([], 503)), self::CREATE => Http::response([])]);
 
         $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
 
         $this->assertTrue($result['sent']);
         $this->assertFalse($result['confirmed']);
-        $this->assertSame($this->bodyOf(self::CREATE)['integration_shipment_nr'], $result['shipment'], 'the derived number, not a new one');
+        $this->assertTrue($result['needs_review'] ?? false);
+        $this->assertStringContainsString('could not be asked about it', (string) $result['reason']);
+        $this->assertCount(1, $this->sentTo(self::CREATE), 'the failed read after the create never causes a second create');
+    }
+
+    public function test_a_create_noon_does_not_report_yet_is_not_handed_to_a_person(): void
+    {
+        // The difference worth keeping: noon ANSWERED, and said it holds nothing yet. That is a lag, not a doubt, so it is
+        // reported as unconfirmed without calling for a person.
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response([])]);
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertTrue($result['sent']);
+        $this->assertFalse($result['confirmed']);
+        $this->assertFalse($result['needs_review'] ?? false);
+        $this->assertStringContainsString('does not report it yet', (string) $result['reason']);
+    }
+
+    public function test_an_unresolved_shipment_is_resolved_by_asking_again_and_never_by_sending_again(): void
+    {
+        // The whole recovery path, end to end. First attempt: noon takes it and then the read fails, so it is unresolved.
+        // Second attempt: the read succeeds and finds the shipment noon has held all along -- and nothing is sent.
+        // noon's gateway is down for the read that follows the create, and back up by the time anybody asks again. A sequence
+        // cannot say that, because a read is retry-safe and one 503 is several requests; a closure says it exactly.
+        $reads = 0;
+        $backUp = false;
+        $this->fake([
+            self::GET => function () use (&$reads, &$backUp) {
+                $reads++;
+
+                return $reads === 1 ? Http::response([], 404) : ($backUp ? Http::response($this->heldShipment()) : Http::response([], 503));
+            },
+            self::CREATE => Http::response([]),
+        ]);
+        $connector = app(NoonConnector::class);
+
+        $first = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+        $this->assertTrue($first['needs_review'] ?? false, 'noon took it and then could not be asked');
+
+        $backUp = true;
+        $second = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($second['sent'], 'nothing is sent the second time');
+        $this->assertTrue($second['confirmed'], 'because noon holds the first attempt');
+        $this->assertSame($first['shipment'], $second['shipment']);
+        $this->assertCount(1, $this->sentTo(self::CREATE), 'one create for one shipment, across both attempts');
+    }
+
+    // ---- two workers on the same shipment ------------------------------------------------------------------------
+
+    public function test_a_second_worker_finds_the_first_workers_shipment_and_sends_nothing(): void
+    {
+        // Two workers pick up the same fulfilment. The first creates; by the time the second asks, noon holds it. Both derive
+        // the same number, which is what makes the second one's question the right question.
+        $this->fake([
+            self::GET => Http::sequence()->push([], 404)->push($this->heldShipment())->push($this->heldShipment()),
+            self::CREATE => Http::response([]),
+        ]);
+        $connector = app(NoonConnector::class);
+
+        $first = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'AWB-9']]);
+        $second = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'AWB-9']]);
+
+        $this->assertTrue($first['confirmed']);
+        $this->assertFalse($second['sent']);
+        $this->assertTrue($second['confirmed']);
+        $this->assertCount(1, $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_second_worker_that_cannot_read_stops_instead_of_racing_the_first(): void
+    {
+        // The dangerous half of the race: the first worker's create has gone out and noon does not report it yet, and the
+        // second worker cannot get an answer at all. The temptation is to send -- the number is the same, after all -- and that
+        // is exactly the duplicate this refuses.
+        $this->fake([
+            self::GET => Http::sequence()->push([], 404)->push([], 404)->whenEmpty(Http::response([], 503)),
+            self::CREATE => Http::response([]),
+        ]);
+        $connector = app(NoonConnector::class);
+
+        $first = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'AWB-9']]);
+        $second = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'AWB-9']]);
+
+        $this->assertTrue($first['sent']);
+        $this->assertFalse($second['sent']);
+        $this->assertTrue($second['needs_review'] ?? false);
+        $this->assertCount(1, $this->sentTo(self::CREATE), 'the one create the first worker made');
+    }
+
+    public function test_a_five_hundred_on_the_create_is_never_followed_by_a_second_send(): void
+    {
+        // THE CASE THE DERIVED NUMBER CANNOT COVER. noon answers 500, so the create may have landed; the next attempt asks and
+        // noon says it holds no such shipment. That is not permission to send: `shipment/get` is not documented to be
+        // read-after-write consistent, and a wrong guess here is a second van. A person settles it.
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response(['message' => 'oops'], 500)]);
+        $connector = app(NoonConnector::class);
+
+        $first = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+        $second = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertStringContainsString('may still have reached noon', (string) $first['reason']);
+        $this->assertFalse($second['sent']);
+        $this->assertTrue($second['needs_review'] ?? false);
+        $this->assertStringContainsString('already left and noon does not confirm it', (string) $second['reason']);
+        $this->assertCount(1, $this->sentTo(self::CREATE), 'the 500 was the only create');
+        $this->assertSame(ChannelShipmentSend::NEEDS_REVIEW, $this->sendRow()->state);
+    }
+
+    public function test_a_refusal_noon_certainly_did_not_process_leaves_the_shipment_sendable(): void
+    {
+        // The other side of the same rule, and the only road back to sending: a 400 is proof noon did not take it, so once
+        // whatever it refused is fixed the same reference goes out normally.
+        $this->fake([
+            self::GET => Http::response([], 404),
+            self::CREATE => Http::sequence()->push(['message' => 'bad awb'], 400)->push([]),
+        ]);
+        $connector = app(NoonConnector::class);
+
+        $refused = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+        $this->assertSame(ChannelShipmentSend::NOT_SENT, $this->sendRow()->state);
+
+        $again = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'AWB-FIXED']]);
+
+        $this->assertFalse($refused['sent']);
+        $this->assertTrue($again['sent'], 'nothing had left, so this is not a repeat');
+        $this->assertCount(2, $this->sentTo(self::CREATE));
+    }
+
+    public function test_an_attempt_another_process_is_already_making_sends_nothing(): void
+    {
+        // The claim another worker holds, from this worker's side: it does not ask noon, it does not send, and it does not call
+        // for a person -- the other attempt is the one shipment.
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response([])]);
+        app(ChannelShipmentSends::class)->claim($this->account, app(NoonConnector::class)->shipmentNumberFor('NO-1', ['I-1']), 'NO-1');
+
+        $result = app(NoonConnector::class)->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'A']]);
+
+        $this->assertFalse($result['sent']);
+        $this->assertFalse($result['confirmed']);
+        $this->assertFalse($result['needs_review'] ?? false, 'the other attempt is handling it');
+        $this->assertStringContainsString('already running', (string) $result['reason']);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+        $this->assertSame([], $this->sentTo(self::GET), 'noon is not even asked');
+    }
+
+    public function test_the_shared_contract_treats_another_running_attempt_as_a_skip_and_not_a_refusal(): void
+    {
+        // It matters which one it is. `ChannelShipmentNotifier` counts a channel's refusals and stops asking after three, so
+        // reporting a colleague's work as a refusal would park shipments nobody refused.
+        $this->fake([self::GET => Http::response([], 404), self::CREATE => Http::response([])]);
+        app(ChannelShipmentSends::class)->claim($this->account, app(NoonConnector::class)->shipmentNumberFor('NO-1', ['I-1']), 'NO-1');
+
+        try {
+            app(NoonConnector::class)->confirmShipment($this->account, new ShipmentConfirmation(
+                orderId: 'NO-1', packageId: '', carrierCode: 'noon', carrierName: null, trackingNumber: 'AWB-1',
+                shippedAt: CarbonImmutable::parse('2026-11-14 10:00:00'), lineQuantities: ['I-1' => 1],
+            ));
+            $this->fail('a busy claim must not be answered as "the channel did not confirm"');
+        } catch (ChannelUnavailableException $exception) {
+            $this->assertSame(ChannelUnavailableException::ANOTHER_ATTEMPT_RUNNING, $exception->reason);
+        }
+
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    public function test_a_confirmed_shipment_is_not_asked_about_again(): void
+    {
+        $this->fake([self::GET => $this->noShipmentThenOne(), self::CREATE => Http::response([])]);
+        $connector = app(NoonConnector::class);
+
+        $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'AWB-9']]);
+        $this->assertSame(ChannelShipmentSend::CONFIRMED, $this->sendRow()->state);
+
+        $again = $connector->createShipment($this->account, 'NO-1', ['I-1'], [['courier' => 'noon', 'awb_nr' => 'AWB-9']]);
+
+        $this->assertTrue($again['confirmed']);
+        $this->assertFalse($again['sent']);
+        $this->assertCount(2, $this->sentTo(self::GET), 'the two of the first attempt, and none after it was settled');
+    }
+
+    public function test_the_shared_contract_reports_an_unresolved_shipment_as_not_taken(): void
+    {
+        $this->fake([self::GET => Http::response([], 503), self::CREATE => Http::response([])]);
+
+        $taken = app(NoonConnector::class)->confirmShipment($this->account, new ShipmentConfirmation(
+            orderId: 'NO-1', packageId: '', carrierCode: 'noon', carrierName: null, trackingNumber: 'AWB-1',
+            shippedAt: CarbonImmutable::parse('2026-11-14 10:00:00'), lineQuantities: ['I-1' => 1],
+        ));
+
+        $this->assertFalse($taken);
+        $this->assertSame([], $this->sentTo(self::CREATE));
+    }
+
+    // ---- the three answers, through the connector ----------------------------------------------------------------
+
+    public function test_the_check_separates_held_from_not_held_from_unanswerable(): void
+    {
+        $this->fake([self::GET => Http::sequence()->push($this->heldShipment())->push([], 404)->whenEmpty(Http::response([], 503))]);
+        $connector = app(NoonConnector::class);
+
+        $this->assertTrue($connector->checkShipment($this->account, 'PK-ABC')->isPresent());
+        $this->assertTrue($connector->checkShipment($this->account, 'PK-ABC')->mayCreate(), 'the only answer a create is made on');
+
+        $unknown = $connector->checkShipment($this->account, 'PK-ABC');
+        $this->assertTrue($unknown->isUnknown());
+        $this->assertFalse($unknown->mayCreate());
+    }
+
+    public function test_reading_a_shipment_answers_nothing_for_an_absence_and_for_a_failure_alike(): void
+    {
+        // Which is why `shipment()` must never decide a create: its null is two different things. The test is here so that a
+        // future caller reaching for it finds this written down.
+        $this->fake([self::GET => Http::sequence()->push([], 404)->whenEmpty(Http::response([], 503))]);
+        $connector = app(NoonConnector::class);
+
+        $this->assertNull($connector->shipment($this->account, 'PK-ABC'), 'noon holds none');
+        $this->assertNull($connector->shipment($this->account, 'PK-ABC'), 'and noon could not be asked -- the same null');
+    }
+
+    public function test_a_shipment_cannot_even_be_asked_about_without_a_warehouse(): void
+    {
+        $this->account->forceFill(['settings' => ['country_code' => 'sa']])->save();
+        $this->fake([self::GET => Http::response([], 404)]);
+
+        $check = app(NoonConnector::class)->checkShipment($this->account->fresh(), 'PK-ABC');
+
+        $this->assertTrue($check->isUnknown(), 'not asking is not an absence either');
+        $this->assertSame([], $this->sentTo(self::GET));
     }
 
     public function test_an_ambiguous_failure_says_the_request_may_still_have_arrived(): void
@@ -442,6 +811,11 @@ class NoonShipmentsTest extends TestCase
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------
+
+    private function sendRow(): ChannelShipmentSend
+    {
+        return ChannelShipmentSend::where('account_id', $this->account->id)->firstOrFail();
+    }
 
     private function noonAccount(): SalesChannelAccount
     {

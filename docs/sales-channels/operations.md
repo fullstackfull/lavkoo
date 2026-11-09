@@ -17,6 +17,7 @@ Nothing here is deployed to production by this work, and no production data is r
    php artisan migrate --path=database/migrations/2026_11_09_100200_create_operational_cost_return_decisions_table.php
    php artisan migrate --path=database/migrations/2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php
    php artisan migrate --path=database/migrations/2026_11_09_200000_create_channel_order_dispatches_table.php   # the claim table of dispatch.md: like the others, the module says "not migrated" until it has run (dispatching itself stays off)
+   php artisan migrate --path=database/migrations/2026_11_16_100000_create_channel_shipment_sends_table.php   # the shipment claim: one unique row per shipment reference, so two processes can never both tell a channel that the same goods shipped
    php artisan migrate --path=database/migrations/2026_11_10_100000_add_stock_allocation.php
    php artisan migrate --path=database/migrations/2026_11_11_100000_add_purchase_order_sources_to_cost_tables.php   # nullable columns on the module's own layer, invoice and invoice-line tables and one unique key on the layers; writes no data, touches no platform table; nothing uses it until OPERATIONAL_COSTS_SOURCE_PURCHASE_ORDERS is shadow or on
    ```
