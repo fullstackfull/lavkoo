@@ -1206,6 +1206,75 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
         return 'PK-' . mb_substr(hash('sha256', $orderNumber . '|' . implode('|', $sorted)), 0, 24);
     }
 
+    // ---- returns -------------------------------------------------------------------------------------------------
+
+    /**
+     * What a returned parcel's barcode belongs to: `POST /returns/v1/return-references/list`.
+     *
+     * **THIS IS NOON'S ONLY DOCUMENTED RETURNS OPERATION, AND IT IS A LOOKUP, NOT A SWEEP.** There is no "list the returns since Tuesday" anywhere in noon's index, so a
+     * noon return CANNOT be polled for and is never discovered by a scheduled run. It is recognised at the moment a parcel is scanned: a barcode goes in, and the purchase
+     * items it belongs to come out. Anything in this application that wants to know about noon returns has to be driven by that scan.
+     *
+     * Note the path carries NO `/fbpi` segment: returns are their own service at noon, not part of the FBPI family.
+     *
+     * `merchant_codes` is marked both required and optional on the same page — a contradiction in noon's own documentation. It is sent when the account names merchants and
+     * omitted otherwise, which is what the description says happens by default (the results are scoped to the project code). noon's ceiling of 200 is applied here.
+     *
+     * **WHAT THIS CANNOT TELL YOU, and nothing here pretends otherwise:** whether the return was accepted or refused, what it is worth, what noon charged for it, and who
+     * bore the cost. None of that is in the answer and noon publishes no endpoint that carries it. `OperationalCosts` is therefore given NO figure for a noon return, and
+     * the decision to accept or refuse one is not made here either — noon's own documentation does not even settle who makes it: the FBPI overview's comparison table says
+     * the seller while its prose on the same page says noon after pickup, and the Returns reference does not mention FBPI at all.
+     *
+     * @param list<string> $merchantCodes
+     * @return list<array{mp_code: string, purchase_item_nr: string, partner_sku: string, merchant_code: string, order_nr: string, references: list<array{barcode: string, barcode_type: string}>}>
+     */
+    public function returnReferencesFor(SalesChannelAccount $account, string $barcode, array $merchantCodes = []): array
+    {
+        $code = trim($barcode);
+        if ($code === '') {
+            return [];
+        }
+
+        $merchants = array_slice(array_values(array_unique(array_filter(array_map('trim', $merchantCodes), static fn (string $merchant): bool => $merchant !== ''))), 0, 200);
+        $response = $this->client->call(
+            $account,
+            'noon.return_references_list',
+            'POST',
+            NoonOperations::paths()['noon.return_references_list'],
+            json: $merchants === [] ? ['barcode' => $code] : ['barcode' => $code, 'merchant_codes' => $merchants],
+            capability: IntegrationCapability::OrderImport,
+        );
+        if (!$response->ok()) {
+            // A lookup that failed is NOT "this barcode belongs to no return". A warehouse that read it that way would put returned goods back on the shelf as unsold.
+            throw new RuntimeException('noon could not be asked about the barcode on this return (HTTP ' . $response->status . ': ' . $response->message() . ').');
+        }
+
+        $found = [];
+        foreach ((array) $response->get('items', []) as $item) {
+            if (!is_array($item) || trim((string) ($item['purchase_item_nr'] ?? '')) === '') {
+                continue;
+            }
+            $references = [];
+            foreach ((array) ($item['references'] ?? []) as $reference) {
+                $referenceBarcode = trim((string) ((array) $reference)['barcode'] ?? '');
+                if ($referenceBarcode !== '') {
+                    $references[] = ['barcode' => $referenceBarcode, 'barcode_type' => trim((string) (((array) $reference)['barcode_type'] ?? ''))];
+                }
+            }
+
+            $found[] = [
+                'mp_code' => trim((string) ($item['mp_code'] ?? '')),
+                'purchase_item_nr' => trim((string) $item['purchase_item_nr']),
+                'partner_sku' => trim((string) ($item['partner_sku'] ?? '')),
+                'merchant_code' => trim((string) ($item['merchant_code'] ?? '')),
+                'order_nr' => trim((string) ($item['order_nr'] ?? '')),
+                'references' => $references,
+            ];
+        }
+
+        return $found;
+    }
+
     /**
      * The one call behind both create and amend.
      *
@@ -1428,7 +1497,7 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             'sku_batch_map' => ['documented' => true, 'built' => false, 'note' => 'POST /catplat/v1/sku/batch-map ties our partner_sku values to nsku_children. Registered because its page was read, and deliberately uncalled: whether an nsku_child is the same thing as the sku_parent the content calls use is NOT STATED, so using it to resolve a sku_parent would be a guess. NOT BUILT YET.'],
             'event_destinations' => ['documented' => true, 'built' => false, 'note' => 'GET /event-notifications/v1/destination/list shows where noon sends events, with credentials redacted on read. CREATING a destination is a separate operation whose page has not been read, so it is not registered: a webhook is configured in noon\'s own portal until it is. NOT BUILT YET: the path and the body are known, nothing calls it.'],
             'oauth_for_integrators' => ['documented' => true, 'built' => false, 'note' => 'An OAuth flow exists for integrators acting on many sellers\' behalf. Its endpoint paths were not read, so nothing is registered for it, and this application holds one seller\'s own key file in any case.'],
-            'returns' => ['documented' => true, 'built' => false, 'note' => 'ONE operation exists and it is a LOOKUP, not a sweep: POST /returns/v1/return-references/list (note the path carries no /fbpi segment) takes a barcode and merchant_codes[] and answers items[] of mp_code, purchase_item_nr, partner_sku, merchant_code, order_nr and references[] (barcode, barcode_type: awb_nr or rms_barcode). There is NO list-the-returns-since-a-date call, so a return is recognised when a parcel is scanned and can never be polled for. Its own page marks merchant_codes both required and optional, which is a contradiction on one page. WHO HANDLES AN FBPI RETURN is still unsettled: the FBPI overview\'s comparison table says the seller while its prose says noon after pickup, and the Returns reference does not mention FBPI at all. NOT BUILT YET.'],
+            'returns' => ['documented' => true, 'built' => true, 'note' => 'ONE operation exists and it is a LOOKUP, not a sweep: POST /returns/v1/return-references/list (the path carries no /fbpi segment -- returns are their own service) takes a barcode and merchant_codes[] and answers items[] of mp_code, purchase_item_nr, partner_sku, merchant_code, order_nr and references[] (barcode, barcode_type: awb_nr or rms_barcode). There is NO list-the-returns-since-a-date call anywhere, so a noon return cannot be polled for and is recognised when a parcel is scanned. A failed lookup is never read as \'this barcode belongs to no return\', which would put returned goods back on the shelf as unsold. WHAT IT CANNOT SAY: whether the return was accepted or refused, what it is worth, what noon charged, or who bore the cost -- none of it is in the answer and noon publishes no endpoint carrying it, so OperationalCosts is given no figure for a noon return. merchant_codes is marked both required and optional on the same page. WHO HANDLES AN FBPI RETURN is unsettled in noon\'s own documentation: the FBPI overview\'s comparison table says the seller, its prose says noon after pickup, and the Returns reference does not mention FBPI.'],
             'settlements_and_fees' => ['documented' => false, 'built' => false, 'note' => 'NO settlement, payout, fee or commission endpoint appears anywhere in noon\'s index. So noon\'s commissions cannot be read automatically, OperationalCosts has nothing to ingest for this channel, and no financial figure for noon is invented to fill the gap. A Reports/export service exists whose pages were not read and which may or may not cover financial data.'],
             'fbp' => ['documented' => false, 'built' => false, 'note' => 'FBP is not defined on any reference or guide page read here, and nothing is concluded from that silence: noon\'s help centre describes FBP, and that is where it has to be read before anything is built for it. What the pages read do describe: FBPI (our warehouse, we fulfil, we create shipments), FBN (a noon fulfilment centre, noon fulfils and handles returns, inbound by ASN) and FBPO (purchase-order driven, for B2B2C).'],
         ];

@@ -3,10 +3,13 @@
 namespace Tests\Feature\SalesChannels;
 
 use App\Enums\SalesChannels\ChannelOrderStatus;
+use App\Models\ExternalOrderLine;
 use App\Models\ExternalOrderMapping;
+use App\Models\InventoryReservation;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
+use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
 use App\Services\SalesChannels\Noon\NoonConnector;
 use App\Services\SalesChannels\Support\ChannelOperations;
@@ -15,7 +18,10 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use RuntimeException;
 use Tests\Support\BuildsSalesChannelSchema;
+use Tests\Support\BuildsStockPools;
+use Tests\Support\Concurrency\NoonOperations;
 use Tests\TestCase;
 
 /**
@@ -38,6 +44,7 @@ use Tests\TestCase;
 class NoonOrdersTest extends TestCase
 {
     use BuildsSalesChannelSchema;
+    use BuildsStockPools;
 
     private const PRODUCTION = 'https://noon-api-gateway.noon.partners';
     private const LOGIN = self::PRODUCTION . '/identity/public/v1/api/login';
@@ -45,7 +52,9 @@ class NoonOrdersTest extends TestCase
     private const ORDER = self::PRODUCTION . '/fbpi/v1/fbpi-order/NO-1/get';
     private const CUSTOMER = self::PRODUCTION . '/fbpi/v1/fbpi-order/NO-1/customer-details/get';
     private const ORDER_UPDATE = self::PRODUCTION . '/fbpi/v1/fbpi-order/update';
+    private const RETURNS = self::PRODUCTION . '/returns/v1/return-references/list';
     private const WAREHOUSE = 'WH-RUH-01';
+    private const PRODUCT_ID = 71;
 
     private SalesChannelAccount $account;
 
@@ -508,6 +517,117 @@ class NoonOrdersTest extends TestCase
 
         $this->assertCount(1, $pages->items);
         $this->assertCount(1, $this->sentTo(self::ORDERS));
+    }
+
+    // ---- returns: a barcode lookup, and never a sweep -----------------------------------------------------------
+
+    public function test_a_returned_parcels_barcode_says_which_purchase_items_it_belongs_to(): void
+    {
+        $this->fake([self::RETURNS => Http::response(['items' => [[
+            'mp_code' => 'noon',
+            'purchase_item_nr' => 'PI-500',
+            'partner_sku' => 'SKU-1',
+            'merchant_code' => 'STR-ACME',
+            'order_nr' => 'MP-777',
+            'references' => [['barcode' => 'AWB-9', 'barcode_type' => 'awb_nr'], ['barcode' => 'RMS-3', 'barcode_type' => 'rms_barcode']],
+        ]]])]);
+
+        $found = app(NoonConnector::class)->returnReferencesFor($this->account, 'AWB-9');
+
+        $this->assertCount(1, $found);
+        $this->assertSame('PI-500', $found[0]['purchase_item_nr']);
+        $this->assertSame('SKU-1', $found[0]['partner_sku']);
+        $this->assertSame([['barcode' => 'AWB-9', 'barcode_type' => 'awb_nr'], ['barcode' => 'RMS-3', 'barcode_type' => 'rms_barcode']], $found[0]['references']);
+        $this->assertSame(['barcode' => 'AWB-9'], $this->bodyOf(self::RETURNS), 'merchant codes are omitted when none are named, which scopes it to the project code');
+    }
+
+    public function test_merchant_codes_are_sent_when_named_and_capped_at_noons_ceiling(): void
+    {
+        $this->fake([self::RETURNS => Http::response(['items' => []])]);
+
+        app(NoonConnector::class)->returnReferencesFor($this->account, 'AWB-9', array_map(static fn (int $n): string => 'STR-' . $n, range(1, 250)));
+
+        $body = $this->bodyOf(self::RETURNS);
+        $this->assertCount(200, $body['merchant_codes'], 'noon documents a ceiling of 200');
+        $this->assertSame('STR-1', $body['merchant_codes'][0]);
+    }
+
+    public function test_a_barcode_noon_knows_nothing_about_is_an_empty_answer(): void
+    {
+        $this->fake([self::RETURNS => Http::response(['items' => []])]);
+
+        $this->assertSame([], app(NoonConnector::class)->returnReferencesFor($this->account, 'AWB-NOBODY'));
+    }
+
+    public function test_an_item_with_no_purchase_item_number_is_not_a_return_reference(): void
+    {
+        $this->fake([self::RETURNS => Http::response(['items' => [['partner_sku' => 'SKU-1'], ['purchase_item_nr' => 'PI-1', 'partner_sku' => 'SKU-1']]])]);
+
+        $found = app(NoonConnector::class)->returnReferencesFor($this->account, 'AWB-9');
+
+        $this->assertCount(1, $found);
+        $this->assertSame('PI-1', $found[0]['purchase_item_nr']);
+    }
+
+    public function test_a_failed_lookup_is_reported_and_never_read_as_no_such_return(): void
+    {
+        // A warehouse that read a failed lookup as "this barcode belongs to no return" would put returned goods back on the shelf as unsold.
+        $this->fake([self::RETURNS => Http::response([], 503)]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/could not be asked about the barcode/');
+        app(NoonConnector::class)->returnReferencesFor($this->account, 'AWB-9');
+    }
+
+    public function test_an_empty_barcode_asks_noon_nothing(): void
+    {
+        $this->fake([self::RETURNS => Http::response(['items' => []])]);
+
+        $this->assertSame([], app(NoonConnector::class)->returnReferencesFor($this->account, '  '));
+        $this->assertSame([], $this->sentTo(self::RETURNS));
+    }
+
+    public function test_the_returns_path_carries_no_fbpi_segment(): void
+    {
+        // Returns are their own service at noon. A path under /fbpi would 404, and it would be an easy thing to assume.
+        $this->assertSame('/returns/v1/return-references/list', \App\Services\SalesChannels\Noon\NoonOperations::paths()['noon.return_references_list']);
+    }
+
+    // ---- the mapped order through the shared ingestion ----------------------------------------------------------
+
+    public function test_a_noon_order_becomes_one_internal_order_holding_its_units_once(): void
+    {
+        // The whole path, not just the mapper: noon's payload through NoonOrderMapper into the shared ChannelOrderIngestor. The concurrent version of this lives in
+        // tests/Feature/Concurrency/NoonOrderConcurrencyTest.php and needs a real engine; this one proves the path itself works at all.
+        $this->storeProduct(self::PRODUCT_ID, 'torod_point', 500);
+        $this->providerFigure(self::PRODUCT_ID, 400, now()->subMinutes(30));
+        $this->stockListing($this->account, self::PRODUCT_ID, $this->torodLocation(), 'SKU-1');
+
+        $outcome = app(NoonOperations::class)::ingestSameOrder(['account' => $this->account->id, 'order_id' => 'NO-9', 'sku' => 'SKU-1', 'units' => 3]);
+
+        $this->assertSame('created', $outcome['outcome']);
+        $mapping = ExternalOrderMapping::where('external_order_id', 'NO-9')->firstOrFail();
+        $lines = ExternalOrderLine::where('mapping_id', $mapping->id)->get();
+        $this->assertCount(1, $lines, 'three units of one SKU are one line');
+        $this->assertSame(3, (int) $lines->first()->quantity);
+        $this->assertSame(1, InventoryReservation::count());
+        $this->assertSame(400 - 3, app(PoolNet::class)->for($this->torodLocation(), self::PRODUCT_ID)->net());
+    }
+
+    public function test_reading_the_same_noon_order_again_holds_nothing_more(): void
+    {
+        $this->storeProduct(self::PRODUCT_ID, 'torod_point', 500);
+        $this->providerFigure(self::PRODUCT_ID, 400, now()->subMinutes(30));
+        $this->stockListing($this->account, self::PRODUCT_ID, $this->torodLocation(), 'SKU-1');
+        $arguments = ['account' => $this->account->id, 'order_id' => 'NO-9', 'sku' => 'SKU-1', 'units' => 3];
+
+        app(NoonOperations::class)::ingestSameOrder($arguments);
+        $second = app(NoonOperations::class)::ingestSameOrder($arguments);
+
+        $this->assertNotSame('created', $second['outcome'], 'the second read is not a new order');
+        $this->assertSame(1, ExternalOrderMapping::count());
+        $this->assertSame(1, InventoryReservation::count(), 'and above all not a second hold');
+        $this->assertSame(400 - 3, app(PoolNet::class)->for($this->torodLocation(), self::PRODUCT_ID)->net());
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------

@@ -33,6 +33,26 @@ trait CreatesChannelAccounts
         return $this->switchOn($account, $capabilities, $writes);
     }
 
+    protected function noonAccount(array $capabilities = self::ALL_CAPABILITIES, bool $writes = true, string $partnerCode = 'partner-1'): SalesChannelAccount
+    {
+        $account = app(ChannelAccountService::class)->create(
+            ['channel' => 'noon', 'name' => 'noon KSA', 'external_account_id' => $partnerCode, 'currency' => 'SAR', 'settings' => ['warehouse_code' => 'WH-RUH-01', 'country_code' => 'sa']],
+            ['key_id' => 'key-abc', 'private_key' => self::aTestPrivateKey(), 'project_code' => 'proj_x', 'channel_identifier' => 'noon'],
+            adminId: 1,
+        );
+
+        return $this->switchOn($account, $capabilities, $writes);
+    }
+
+    /** A real RSA key, generated here: noon's sign-in is signed with it, so a placeholder would fail before a test proved anything. */
+    private static function aTestPrivateKey(): string
+    {
+        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($key, $pem);
+
+        return (string) $pem;
+    }
+
     /** The order import of these accounts has just started and finished a complete sweep: the proof a quantity of their listings needs before it may be raised. */
     protected function completeOrderSweep(SalesChannelAccount ...$accounts): void
     {

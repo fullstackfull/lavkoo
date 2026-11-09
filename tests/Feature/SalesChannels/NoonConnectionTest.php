@@ -347,13 +347,13 @@ class NoonConnectionTest extends TestCase
             'service_account_login', 'identity_whoami', 'static_sandbox', 'warehouses', 'stock', 'pricing',
             'category_discovery', 'catalog_product_upsert', 'catalog_content_state', 'barcode_map',
             'fbpi_orders', 'fbpi_order_read', 'fbpi_buyer_data', 'fbpi_order_item_refusal',
-            'shipments', 'shipment_lifecycle', 'noon_logistics_awbs',
+            'shipments', 'shipment_lifecycle', 'noon_logistics_awbs', 'returns',
         ] as $built) {
             $this->assertTrue($matrix[$built]['built'], "{$built} is built and its path and body are documented");
         }
         // Documented by noon, and deliberately not built: either its reference page was never read (so no path is known) or nothing here calls it yet.
         foreach ([
-            'product_groups', 'oauth_for_integrators', 'returns', 'sku_batch_map', 'event_destinations',
+            'product_groups', 'oauth_for_integrators', 'sku_batch_map', 'event_destinations',
         ] as $notBuilt) {
             $this->assertTrue($matrix[$notBuilt]['documented']);
             $this->assertFalse($matrix[$notBuilt]['built']);
@@ -383,11 +383,10 @@ class NoonConnectionTest extends TestCase
         // Every one of these is registered with a verified path and a documented body, and the matrix says plainly that nothing calls it yet. A registered operation may
         // be unused; it may NOT be claimed as built.
         $this->assertSame([
-            'noon.product_group_upsert', 'noon.sku_batch_map',
-            'noon.return_references_list', 'noon.webhook_destinations_list',
+            'noon.product_group_upsert', 'noon.sku_batch_map', 'noon.webhook_destinations_list',
         ], $uncalled, 'a registered operation nothing calls must be a row the matrix marks unbuilt');
         $matrix = app(NoonConnector::class)->capabilityMatrix();
-        foreach (['product_groups', 'sku_batch_map', 'returns', 'event_destinations'] as $row) {
+        foreach (['product_groups', 'sku_batch_map', 'event_destinations'] as $row) {
             $this->assertFalse($matrix[$row]['built'], "{$row} is registered and uncalled, so the matrix may not claim it");
             $this->assertStringContainsString('NOT BUILT YET', $matrix[$row]['note']);
         }
