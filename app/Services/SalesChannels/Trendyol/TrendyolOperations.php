@@ -54,6 +54,15 @@ final class TrendyolOperations
 
             // ---- returns ----
             'trendyol.claims_list' => Ops::read(capabilities: $orders, people: true),
+            // The reason codes a rejection must carry. `GET /order/claim-issue-reasons` -- note it has NO seller in its path,
+            // which is why it is its own operation rather than a variant of the others.
+            'trendyol.claim_issue_reasons' => Ops::read(capabilities: $orders),
+            // Deciding a customer's return. Both are writes that move somebody's money, so both need the return-decisions
+            // approval on top of the capability -- and NEITHER is retry-safe: Trendyol documents no idempotency for them, so
+            // whether a request may be sent again is for `ChannelReturnDecisions` to answer from what it recorded, never for
+            // the transport to assume.
+            'trendyol.claims_approve' => Ops::write(['PUT'], [Capability::OrderImport], [Ops::SCOPE_RETURN_DECISIONS], people: true),
+            'trendyol.claims_reject' => Ops::write(['POST'], [Capability::OrderImport], [Ops::SCOPE_RETURN_DECISIONS], people: true),
 
             // ---- finance (current account statement) ----
             'trendyol.probe_finance' => Ops::read(capabilities: [Capability::ConnectionTest]),

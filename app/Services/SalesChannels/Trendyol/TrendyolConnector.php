@@ -92,7 +92,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             'split_packages' => ['documented' => true, 'built' => false, 'note' => 'Four split endpoints exist; none is built.'],
             'invoice_upload' => ['documented' => true, 'built' => false, 'note' => 'Invoice link/file upload is registered; invoice generation is outside this module.'],
             'webhooks' => ['documented' => true, 'built' => true, 'note' => 'Order-package webhooks (API-key authentication); polling stays the source of truth because Trendyol says delivery is not always possible. No webhook exists for claims, products or finance.'],
-            'claims_returns' => ['documented' => true, 'built' => true, 'note' => 'Claims are read (read-only) and the units the channel ACCEPTED back are recorded on the order lines. Approving or rejecting a return is not built. The Gulf documentation prints the endpoint both with and without a -gulf suffix: UNVERIFIED which the gateway serves.'],
+            'claims_returns' => ['documented' => true, 'built' => true, 'note' => 'Claims are read (read-only) and the units the channel ACCEPTED back are recorded on the order lines. Approving and rejecting ARE built, through `ChannelReturnDecisions`. They are the only writes in this module that move money belonging to a customer with no order behind them, so they carry their own approval scope (`return_decisions`) and their own record: one decision per claim item EVER, written before it is sent. Trendyol documents no idempotency for either, and -- unlike every other outbox here -- publishes no way to ask what became of one claim-item decision, so an unknown outcome waits for a person and is never sent again. A rejection carries a reason id read from `GET /order/claim-issue-reasons`, whose example list Trendyol does not describe as complete, so an id is never typed from memory. Attachments on a rejection are a declared gap: the schema does not mark `files` required while the operation description says they must be added, and nothing is attached to satisfy a rule nobody can state. The Gulf documentation prints the endpoint both with and without a -gulf suffix: UNVERIFIED which the gateway serves.'],
             'current_account_statement' => ['documented' => true, 'built' => true, 'note' => 'settlements (Sale, Return) and otherfinancials, windows of at most 15 days. Rows carry no currency and their ids changed in Aug 2026, so identity is built from the row\'s content.'],
             'fulfilment_by_trendyol' => ['documented' => false, 'built' => false, 'note' => 'The Gulf documentation describes no fulfilment-by-marketplace stock; every package is prepared by the seller.'],
         ];
@@ -339,6 +339,107 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         $more = $page + 1 < (int) $response->get('totalPages', 1);
 
         return new Pages($items, $more ? ['page' => $page + 1, 'start' => $start, 'end' => $end] : null, $newest);
+    }
+
+    // ---- deciding a customer's return ---------------------------------------------------------------------------
+
+    /**
+     * The reasons Trendyol accepts for REFUSING a return. `GET /order/claim-issue-reasons`.
+     *
+     * Three things about this call are worth knowing before anything is built on it, and all three are from Trendyol's own
+     * pages:
+     *
+     *  - it has **no seller in its path**, unlike every other order call here, which is why it is its own operation;
+     *  - its answer is a bare array of `{id, name}` with the names in Turkish;
+     *  - **the example list is not described as complete.** So the list is read from the instance and a rejection carries an id
+     *    that came back from it -- an id typed from memory would be refused by Trendyol, or worse, accepted as a different
+     *    reason than the person meant.
+     *
+     * @return array<int, string> the reason id => its name, as Trendyol spells it
+     * @throws RuntimeException when Trendyol could not be asked, so "we do not know the reasons" is never read as "there are none"
+     */
+    public function returnRejectReasons(SalesChannelAccount $account): array
+    {
+        $response = $this->client->call($account, 'trendyol.claim_issue_reasons', 'GET', '/order/claim-issue-reasons', capability: IntegrationCapability::OrderImport);
+        $this->assertOk($response, 'Trendyol return rejection reasons');
+
+        $reasons = [];
+        foreach ((array) ($response->json ?? []) as $entry) {
+            $id = is_array($entry) ? (int) ($entry['id'] ?? 0) : 0;
+            $name = is_array($entry) ? trim((string) ($entry['name'] ?? '')) : '';
+            if ($id > 0 && $name !== '') {
+                $reasons[$id] = $name;
+            }
+        }
+
+        return $reasons;
+    }
+
+    /**
+     * Accepts the units of a return back. `PUT /order/sellers/{id}/claims/{claimId}/items/approve`.
+     *
+     * **This refunds a customer**, which is why the operation carries the return-decisions approval and is not retry-safe:
+     * Trendyol documents no idempotency for it, and what a second approval does to a refund is not in its pages. Whether this
+     * may be sent again is `ChannelReturnDecisions`' to answer from what it recorded before sending, never the transport's to
+     * assume.
+     *
+     * The body names claim ITEM ids, each of which is one unit of one order line. `claimId` is a string, not a number.
+     *
+     * @param list<string> $claimItemIds
+     */
+    public function approveReturnItems(SalesChannelAccount $account, string $claimId, array $claimItemIds): ChannelResponse
+    {
+        $seller = $this->client->sellerId($account);
+
+        return $this->client->call(
+            $account,
+            'trendyol.claims_approve',
+            'PUT',
+            "/order/sellers/{$seller}/claims/" . rawurlencode($claimId) . '/items/approve',
+            json: ['claimLineItemIdList' => array_values($claimItemIds)],
+            capability: IntegrationCapability::OrderImport,
+            scope: ChannelOperations::SCOPE_RETURN_DECISIONS,
+        );
+    }
+
+    /**
+     * Refuses a return. `POST /order/sellers/{id}/claims/{claimId}/issue`, and it is **multipart/form-data**, not JSON.
+     *
+     * Two shapes here are Trendyol's and would be easy to get wrong:
+     *
+     *  - `claimItemIdList` is **one comma-separated string**, not an array, even though the approval above takes an array;
+     *  - `description` is capped at 500 characters, so it is cut here rather than having the whole request refused for a field
+     *    a person typed too much into.
+     *
+     * Attachments are a declared gap and not a refusal to build: the schema does not mark `files` required while the operation
+     * description says they must be added, so Trendyol contradicts itself and this sends none. A rejection that Trendyol
+     * refuses for a missing file comes back as a refusal with its own message, which is the honest outcome of an ambiguity --
+     * better than attaching an empty file to satisfy a rule nobody can state.
+     *
+     * @param list<string> $claimItemIds
+     */
+    public function rejectReturnItems(
+        SalesChannelAccount $account,
+        string $claimId,
+        array $claimItemIds,
+        int $reasonId,
+        string $description,
+    ): ChannelResponse {
+        $seller = $this->client->sellerId($account);
+
+        return $this->client->call(
+            $account,
+            'trendyol.claims_reject',
+            'POST',
+            "/order/sellers/{$seller}/claims/" . rawurlencode($claimId) . '/issue',
+            capability: IntegrationCapability::OrderImport,
+            scope: ChannelOperations::SCOPE_RETURN_DECISIONS,
+            multipart: [
+                'claimIssueReasonId' => (string) $reasonId,
+                'claimItemIdList' => implode(',', array_values($claimItemIds)),
+                'description' => mb_substr(trim($description), 0, 500),
+            ],
+        );
     }
 
     // ---- finances -----------------------------------------------------------------------------------------------
