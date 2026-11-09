@@ -71,10 +71,17 @@ return new class extends Migration
             $table->text('failure_detail')->nullable();
             $table->timestamps();
 
-            // One live split per package. A package already being cut, or already cut, is not cut again -- and a package whose
-            // earlier attempt FAILED before anything left may be cut, which is why the key covers the open states only
-            // through the index below rather than the column itself.
-            $table->index(['account_id', 'package_id', 'state'], 'cps_package_idx');
+            // **ONE ROW PER PACKAGE, ENFORCED HERE AND NOT BY A READ.**
+            //
+            // This was an index and nothing more, with `request()` looking for an open row before inserting. Four processes
+            // asked to cut one package at the same instant, all four found nothing, all four inserted, all four fenced their
+            // own row and all four sent -- the package cut four times, which is four labels and four courier charges the
+            // pharmacy pays. A check followed by an insert is not a guard; only the database is. Caught by this module's own
+            // concurrency tests on a real MySQL, where they are the only place such a race can happen at all.
+            //
+            // A clean failure may still be asked for again: `request()` REVIVES this row rather than inserting a second one,
+            // through a conditional update only one process can win. The history stays on one row as well.
+            $table->unique(['account_id', 'package_id'], 'cps_package_unique');
             $table->index(['state', 'available_at', 'id'], 'cps_due_idx');
             $table->index(['account_id', 'external_order_id'], 'cps_order_idx');
         });

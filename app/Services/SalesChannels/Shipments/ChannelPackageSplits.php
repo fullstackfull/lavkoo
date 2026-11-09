@@ -10,6 +10,7 @@ use App\Services\SalesChannels\Data\RemoteOrder;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Trendyol\TrendyolConnector;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -75,12 +76,11 @@ class ChannelPackageSplits
             return ['row' => null, 'refusal' => 'package_split_names_no_package'];
         }
 
-        // **A package with a live split row is not split again.** This is the cheap guard; the fence is the one that holds when
-        // two runs pass this check at the same moment.
-        $open = ChannelPackageSplit::where('account_id', $account->id)->where('package_id', $packageId)->get()
-            ->first(static fn (ChannelPackageSplit $row): bool => $row->blocksAnotherSplit());
-        if ($open !== null) {
-            return ['row' => $open, 'refusal' => 'package_already_has_a_split_' . $open->state];
+        // A package that already has a split row is not split again. **This read is the courtesy, not the guard** -- the guard
+        // is the unique key on `(account_id, package_id)`, because four processes asking at the same instant all pass a read.
+        $existing = ChannelPackageSplit::where('account_id', $account->id)->where('package_id', $packageId)->first();
+        if ($existing !== null && $existing->blocksAnotherSplit()) {
+            return ['row' => $existing, 'refusal' => 'package_already_has_a_split_' . $existing->state];
         }
 
         $package = $this->readPackage($account, $externalOrderId, $packageId);
@@ -104,7 +104,7 @@ class ChannelPackageSplits
         $keep = $this->trendyol->splitKeepsPreviousStatus($package);
         $effective = $keep === $plan->keepPreviousStatus ? $plan : $this->withKeep($plan, $keep);
 
-        $row = ChannelPackageSplit::create([
+        $values = [
             'seller_id' => (int) ($account->seller_id ?? 0),
             'account_id' => (int) $account->id,
             'channel' => (string) $account->channel,
@@ -117,7 +117,33 @@ class ChannelPackageSplits
             'state' => ChannelPackageSplit::PENDING,
             'requested_by' => $adminId,
             'observed_status' => $package->externalStatus,
-        ]);
+        ];
+
+        if ($existing !== null) {
+            // The row exists and FAILED, which is the one state that proves the package untouched. It is revived rather than
+            // replaced, by a conditional update only one process can win -- so two people pressing at once produce one
+            // pending split, and the row keeps the attempts it already carries.
+            $revived = ChannelPackageSplit::whereKey($existing->id)->where('state', ChannelPackageSplit::FAILED)->update($values + [
+                'failure_code' => null, 'failure_detail' => null, 'settled_at' => null, 'available_at' => null,
+                'claimed_at' => null, 'claimed_by' => null, 'checks' => 0, 'new_package_ids' => null, 'updated_at' => now(),
+            ]);
+            if ($revived !== 1) {
+                $now = $existing->fresh();
+
+                return ['row' => $now, 'refusal' => 'package_already_has_a_split_' . ($now?->state ?? 'gone')];
+            }
+            $row = $existing->fresh();
+        } else {
+            try {
+                $row = ChannelPackageSplit::create($values);
+            } catch (UniqueConstraintViolationException) {
+                // **THE GUARD DOING ITS WORK.** Another process inserted between this one's read and its insert. The row that
+                // exists is the split; this request was never made, and nothing is sent twice.
+                $won = ChannelPackageSplit::where('account_id', $account->id)->where('package_id', $packageId)->first();
+
+                return ['row' => $won, 'refusal' => 'package_already_has_a_split_' . ($won?->state ?? 'gone')];
+            }
+        }
 
         $this->audit->record(action: 'sales_channel.package_split_requested', subject: $account, context: [
             'order' => $externalOrderId, 'package' => $packageId, 'kind' => $effective->kind,
@@ -257,7 +283,10 @@ class ChannelPackageSplits
             return;
         }
 
-        ChannelPackageSplit::whereKey($row->id)->update([
+        // The claim is part of the condition here too. A run whose lease lapsed, and whose row a person has since revived to
+        // `pending`, must not come back and stamp it `confirmed` from a reading of a cut that was somebody else's -- that
+        // would record a split as done in a round where nothing was sent.
+        $confirmed = ChannelPackageSplit::whereKey($row->id)->where('claimed_by', $this->runId)->update([
             'state' => ChannelPackageSplit::CONFIRMED,
             'observed_status' => $package?->externalStatus ?? 'gone',
             'new_package_ids' => $successors,
@@ -269,6 +298,10 @@ class ChannelPackageSplits
             'claimed_by' => null,
             'updated_at' => now(),
         ]);
+        if ($confirmed !== 1) {
+            // Somebody else owns this row now. Nothing was sent and nothing is claimed here, so there is nothing to put back.
+            return;
+        }
         $stats['confirmed']++;
 
         $this->audit->record(action: 'sales_channel.package_split_confirmed', subject: $account, context: [
