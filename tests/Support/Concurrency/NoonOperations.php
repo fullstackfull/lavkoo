@@ -11,6 +11,21 @@ use Illuminate\Database\DeadlockException;
 final class NoonOperations
 {
     /**
+     * Runs one worker's own operation, so a single run can mix several.
+     *
+     * `ConcurrentRunner::run()` takes ONE operation name for the whole run; a mixed run therefore needs a dispatcher registered
+     * under its own name, which each worker calls with its own `operation` and `arguments`. `StockOperations::mixed` is the same
+     * three lines for the stock tests -- it is named for its suite rather than for being generic, which is why this exists
+     * instead of reaching across to it.
+     *
+     * @param array{operation: string, arguments: array<string, mixed>} $args
+     */
+    public static function page(array $args): mixed
+    {
+        return Operations::run($args['operation'], $args['arguments'], 0);
+    }
+
+    /**
      * Ingests ONE noon FBPI order, mapped by the real `NoonOrderMapper` from a noon-shaped payload, so that the mapping itself is under the same test as the ingestion.
      *
      * A noon order arrives from two places at once in practice: the webhook noon sends when the marketplace creates it, and the next sweep of `fbpi-orders/list`. Both end
