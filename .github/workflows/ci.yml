@@ -207,7 +207,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8.0', 'MariaDB 11.4.2']
-        group: ['sales channels', 'costs']
+        group: ['sales channels', 'concurrency', 'myfatoorah', 'costs']
         include:
           - engine: MySQL 8.0
             image: mysql:8.0
@@ -218,10 +218,28 @@ jobs:
             version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: sales channels
-            # tests/Feature/Concurrency and the dispatch/stock concurrency tests start several PHP processes at the same instant against this database; they skip on SQLite.
-            # tests/Feature/MyFatoorah runs here as well as on SQLite: three of its failures were visible only on a real server — an `orders` table that
-            # outlives the test, a currency left switched off by an earlier test, and REPEATABLE READ hiding a sibling's just-committed row from a plain SELECT.
-            paths: tests/Feature/SalesChannels tests/Feature/Concurrency tests/Feature/MyFatoorah tests/Unit/MyFatoorah
+            paths: tests/Feature/SalesChannels
+          - group: concurrency
+            # Split out of the sales-channel group, with MyFatoorah below, because that group could no longer FINISH on MySQL.
+            #
+            # Measured on this branch's own run: MariaDB did the whole group in 40 minutes, while MySQL 8.0 was still running at
+            # 46 and climbing against a 110-minute ceiling — and on the Noon branch's head the same group reached 105 minutes
+            # and never reported. It is not a hang; the costs group tells the same story on the same two engines (11 minutes on
+            # MariaDB, 34 on MySQL), so this engine is several times slower at this workload and three suites in one job had
+            # outgrown it.
+            #
+            # A job killed by its own timeout reports NO RESULT, which is worse than a failure: the head never shows a complete
+            # answer, and a slow suite is indistinguishable from a broken one.
+            #
+            # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this job
+            # is the only place they run at all — which is also how an undefined variable in one of their fixtures reached a
+            # branch under review: the local suite reported them as skipped.
+            paths: tests/Feature/Concurrency
+          - group: myfatoorah
+            # On a real server as well as on SQLite: three of its failures were visible only here — an `orders` table that
+            # outlived the test, a currency left switched off by an earlier test, and REPEATABLE READ hiding a sibling's
+            # just-committed row from a plain SELECT.
+            paths: tests/Feature/MyFatoorah tests/Unit/MyFatoorah
           - group: costs
             # tests/*/Accounting is the Odoo posting, which belongs with the cost ledger it reads from. It runs on a real engine
             # because its whole job is uniqueness: a NULL is never equal to another NULL in a unique index, so a mapping or a

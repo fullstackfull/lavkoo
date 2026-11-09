@@ -42,7 +42,10 @@ final class OdooOperations
         $readLag = (bool) ($args['read_lag'] ?? false);
 
         Http::preventStrayRequests();
-        Http::fake(['*/xmlrpc/2/object' => static function (Request $request) use ($loseTheAnswer) {
+        // **Every flag the closure reads has to be captured.** It read `$readLag` and `$dieAfterSend` without them, which PHP
+        // 8.3 raises as an undefined variable -- and the only place that showed was a real MariaDB, because these tests skip on
+        // SQLite (one in-memory database per process is nothing to race). So the local suite could never have caught it.
+        Http::fake(['*/xmlrpc/2/object' => static function (Request $request) use ($loseTheAnswer, $dieAfterSend, $readLag) {
             $body = $request->body();
             $reference = preg_match('/<string>(PKSA-COST-[^<]+)<\/string>/', $body, $matches) === 1 ? $matches[1] : '';
 
@@ -83,7 +86,7 @@ final class OdooOperations
         } catch (RuntimeException $died) {
             // Reported rather than swallowed: the harness needs a line from every worker, and the test needs to know which of
             // them got as far as sending.
-            return ['claimed' => 1, 'posted' => 0, 'found' => 0, 'failed' => 0, 'needs_review' => 0, 'not_postable' => 0, 'stopped' => null, 'died_after_send' => true];
+            return ['claimed' => 1, 'posted' => 0, 'found' => 0, 'failed' => 0, 'needs_review' => 0, 'not_postable' => 0, 'lost_the_row' => 0, 'waiting' => 0, 'stopped' => null, 'died_after_send' => true];
         }
     }
 
