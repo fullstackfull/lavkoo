@@ -17,6 +17,11 @@ final class SecretRedactor
     private const SECRET_FRAGMENTS = [
         'password', 'passwd', 'secret', 'authorization', 'accesstoken', 'refreshtoken', 'apikey', 'bearer',
         'privatekey', 'credential', 'signature',
+        // noon's project code. It is one of the four fields of the service-account key file and this application stores it
+        // encrypted as a secret, so it does not belong in a log that is kept for weeks and read by staff -- and it travelled
+        // there in the sign-in body as `default_project_code`, which matched none of the rules above. Added as a fragment so
+        // the normalised `defaultprojectcode` is caught too.
+        'projectcode',
     ];
 
     private const SECRET_EXACT = ['token', 'key', 'pass', 'pwd', 'jwt', 'username'];
