@@ -3,10 +3,12 @@
 namespace App\Services\Accounting\Odoo;
 
 use App\Enums\OperationalCosts\CostState;
+use App\Models\OdooAccountMapping;
 use App\Models\OdooPosting;
 use App\Models\OdooReconciliation;
 use App\Models\OperationalCostEntry;
 use App\Models\SalesChannelAccount;
+use App\Services\OperationalCosts\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -17,7 +19,7 @@ use Illuminate\Support\Facades\DB;
  * |---|---|
  * | **source** | the channel's or provider's OWN document: `operational_cost_invoice_items` through approved invoices. **Null where the channel publishes nothing at all** — noon has no settlement, payout or fee endpoint anywhere in its reference |
  * | **ledger** | `operational_cost_entries`, settled and effective. **Read, never recomputed:** `OperationalCosts` is the only engine for costs, FIFO, commissions and profitability |
- * | **Odoo** | the debits of the journal lines of the entries this module posted. **Null when Odoo could not be read**, which is not the same as Odoo holding nothing |
+ * | **Odoo** | the journal lines of the entries this module posted, on the accounts this fact is mapped to, as **debits less credits** -- so a reversal subtracts. **Null when Odoo could not be read or nothing is mapped**, which is not the same as Odoo holding nothing |
  *
  * **Nothing here closes a difference.** A row that resolved one by itself would be agreeing with whichever figure this code
  * happened to trust, and the whole reason for three books is that no one of them is automatically right.
@@ -27,8 +29,10 @@ use Illuminate\Support\Facades\DB;
  */
 class OdooThreeWayReconciliation
 {
-    public function __construct(private readonly OdooClient $client)
-    {
+    public function __construct(
+        private readonly OdooClient $client,
+        private readonly OdooAccountMap $map,
+    ) {
     }
 
     /**
@@ -80,7 +84,7 @@ class OdooThreeWayReconciliation
 
         // The Odoo leg is a read of somebody else's server, and it is allowed to fail. When it does the figure stays NULL and
         // `odoo_read_at` stays as it was, so the screen can say "not read" rather than imply "nothing there".
-        $odoo = $this->odooAmount($connection, $posted);
+        $odoo = $this->odooAmount($connection, $posted, $companyId, $factKind, $channel, $currency, $sellerId);
         if ($odoo !== null) {
             $row->forceFill(['odoo_amount' => $odoo, 'odoo_read_at' => now()])->save();
         }
@@ -189,36 +193,64 @@ class OdooThreeWayReconciliation
     }
 
     /**
-     * What Odoo holds for those entries: the debits of their journal lines.
+     * What Odoo holds for those entries, **on the accounts this fact is mapped to, as debits less credits**.
      *
-     * Null when Odoo could not be read, or when it answered something unreadable. `debit` and `credit` are the two non-negative
-     * columns of a line, so the figure is the debit side — the same side the builder puts a cost on.
+     * Both halves of that sentence are the fix for one bug, and it is worth naming because the old version looked right:
+     *
+     *  - it summed the `debit` column of EVERY line of the entries. The two lines of a cost entry are a debit on the expense
+     *    account and a credit on its counterpart, so one debit came through and the figure was right by accident. A REVERSAL
+     *    has the same two lines the other way round -- a credit on the expense account, a debit on the counterpart -- so its
+     *    debit came through too, and a reversed cost ADDED its amount to the Odoo column instead of taking it off. The ledger
+     *    column dropped (the ledger carries the reversal as a negative) and the two books disagreed by twice the amount, which
+     *    is exactly the kind of difference a reconciliation exists to catch and this one was creating.
+     *  - summing `debit - credit` over every line of a balanced entry is always zero, so the lines have to be narrowed to the
+     *    accounts the fact is mapped to. That is the expense side, the side the ledger figure is about.
+     *
+     * Null when Odoo could not be read, when it answered something unreadable, or when nothing is mapped -- because then there
+     * is no account to add up and a zero would claim Odoo holds nothing. `odoo_read_at` is left as it was, so the screen says
+     * "not read" rather than implying "nothing there".
      *
      * @param list<int> $moveIds
      */
-    private function odooAmount(SalesChannelAccount $connection, array $moveIds): ?string
-    {
+    private function odooAmount(
+        SalesChannelAccount $connection,
+        array $moveIds,
+        int $companyId,
+        string $factKind,
+        ?string $channel,
+        string $currency,
+        int $sellerId,
+    ): ?string {
         if ($moveIds === []) {
             // Nothing was posted, so there is nothing of ours in Odoo to add up. That IS a figure: zero of our entries.
             return '0.000000';
         }
 
+        $accounts = $this->map->accountsFor($companyId, OdooAccountMapping::KIND_COST_COMPONENT, $factKind, $channel, $currency, $sellerId);
+        if ($accounts === []) {
+            return null;
+        }
+
         $answer = $this->client->searchRead(
             $connection,
             'account.move.line',
-            [['move_id', 'in', array_values($moveIds)]],
-            ['debit', 'credit', 'move_id'],
+            [['move_id', 'in', array_values($moveIds)], ['account_id', 'in', $accounts]],
+            ['debit', 'credit', 'move_id', 'account_id'],
             limit: 2000,
         );
         if (!$answer->ok()) {
             return null;
         }
 
-        $total = 0.0;
+        $total = Money::zero();
         foreach ($answer->records() as $line) {
-            $total += (float) ($line['debit'] ?? 0);
+            // `debit` and `credit` are Odoo's two non-negative columns; the signed figure is their difference, which is what
+            // makes a reversal subtract. Added as exact decimals rather than floats: these are somebody's books.
+            $total = $total->plus(Money::of((string) ($line['debit'] ?? 0)))->minus(Money::of((string) ($line['credit'] ?? 0)));
         }
 
-        return number_format($total, 6, '.', '');
+        // The exact decimal string the column takes, not a float put back through `number_format`: a figure that travelled
+        // through a float to be formatted would have been approximated on the way.
+        return $total->toStorage();
     }
 }

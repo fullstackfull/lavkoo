@@ -193,6 +193,29 @@ class OdooOutbox
     }
 
     /**
+     * **WAITING ON SOMETHING ELSE, which is not a failed attempt.**
+     *
+     * One row waits for another: a reversal or a return whose original entry is queued and not yet in the books. Nothing about
+     * this row is wrong, so it spends none of its attempts -- the same reasoning as `release()`, where a person throwing a
+     * switch must not use up a row's tries. Counting these as failures would lay a perfectly good reversal to rest after five
+     * passes while its original was still being worked.
+     *
+     * The fence is kept if one is up. It cannot be, at the only point this is reached, and the invariant holds anyway: nothing
+     * in this class may quietly turn "try later" into "create again".
+     */
+    public function waiting(OdooPosting $row, string $code): void
+    {
+        $this->write($row, [
+            'state' => $row->mayHavePosted() ? OdooPosting::MAY_HAVE_POSTED : OdooPosting::PENDING,
+            'available_at' => now()->addSeconds(max(1, (int) config('odoo.outbox.wait_seconds', 600))),
+            'claimed_at' => null,
+            'claimed_by' => null,
+            'worked_at' => now(),
+            'failure_code' => mb_substr($code, 0, 64),
+        ]);
+    }
+
+    /**
      * The fact itself cannot be posted and no waiting will change that — an estimate with no policy behind it, a superseded row,
      * a figure nobody could determine. Kept and counted rather than dropped: a cost nobody posted belongs on a screen.
      */

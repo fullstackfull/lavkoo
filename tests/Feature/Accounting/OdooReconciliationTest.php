@@ -4,6 +4,7 @@ namespace Tests\Feature\Accounting;
 
 use App\Enums\OperationalCosts\CostComponent;
 use App\Enums\OperationalCosts\CostState;
+use App\Models\OdooAccountMapping;
 use App\Models\OdooPosting;
 use App\Models\OdooReconciliation;
 use App\Models\SalesChannelAccount;
@@ -52,6 +53,9 @@ class OdooReconciliationTest extends TestCase
         Cache::flush();
         $this->travelTo(CarbonImmutable::parse('2026-12-01 09:00:00 UTC'));
         config(['odoo.enabled' => true, 'odoo.external_writes_enabled' => true, 'odoo.draft_creation_enabled' => true]);
+        // The Odoo leg is read from the accounts this fact is mapped to, so a reconciliation needs the mapping that put the
+        // entries there in the first place.
+        $this->mapOdooComponent(CostComponent::Shipping->value);
         $this->connection = $this->odooConnection();
         $this->connection->forceFill(['settings' => array_merge((array) $this->connection->settings, ['company_id' => self::ODOO_COMPANY])])->save();
         $this->connection = $this->connection->fresh();
@@ -194,20 +198,56 @@ class OdooReconciliationTest extends TestCase
         $this->assertSame(1, OdooReconciliation::count());
     }
 
-    public function test_the_odoo_leg_reads_the_debit_column_and_not_a_signed_amount(): void
+    public function test_the_odoo_leg_reads_only_the_lines_on_the_mapped_account(): void
     {
-        // `account.move.line` carries two non-negative columns, and a cost sits in the debit one. Reading a signed total would
-        // silently net a refund against a charge.
+        // Every entry this module posts has two lines whose debits and credits are equal, so `debit - credit` over ALL the lines
+        // of an entry is always zero. The figure is the COST side, which is the side the fact is mapped to; the counterpart is
+        // the other half of the same statement and counting it would cancel the entry out.
         $entry = $this->settledCost('100');
         $this->postedTo($entry, 71);
+        $this->fakeOdooLines([['debit' => 100.0, 'credit' => 0.0, 'move_id' => [71, 'MISC/0001']]]);
+
+        $row = $this->reconcile();
+
+        $this->assertSame('100.000000', $row->odoo_amount, 'the cost side of the entry is 100');
+    }
+
+    public function test_a_reversed_cost_comes_off_the_odoo_leg_as_well_as_the_ledger_one(): void
+    {
+        // **THE BUG THIS TEST EXISTS FOR.** The Odoo leg used to sum the `debit` column of every line of every posted entry. A
+        // cost is a debit on the expense account and a credit on its counterpart, so one debit came through and the figure was
+        // right by accident. A REVERSAL is those two lines the other way round -- a credit on the expense account, a debit on
+        // the counterpart -- so ITS debit came through too, and a reversed cost ADDED its amount instead of taking it off.
+        // The ledger leg drops, because the ledger carries the reversal as a negative; the two books then disagreed by twice
+        // the amount, which is the exact kind of difference this report exists to catch and it was manufacturing it.
+        $charge = $this->settledCost('100');
+        $reversal = $this->recordCost(CostState::Actual, '-100', CostComponent::Shipping, '2026-11-12');
+        $this->postedTo($charge, 71);
+        $this->postedTo($reversal, 72);
         $this->fakeOdooLines([
             ['debit' => 100.0, 'credit' => 0.0, 'move_id' => [71, 'MISC/0001']],
-            ['debit' => 0.0, 'credit' => 100.0, 'move_id' => [71, 'MISC/0001']],
+            ['debit' => 0.0, 'credit' => 100.0, 'move_id' => [72, 'MISC/0002']],
         ]);
 
         $row = $this->reconcile();
 
-        $this->assertSame('100.000000', $row->odoo_amount, 'the entry balances, and its cost side is 100');
+        $this->assertSame('0.000000', $row->ledger_amount, 'our own books net the charge against its reversal');
+        $this->assertSame('0.000000', $row->odoo_amount, 'and so must Odoo, or two books disagree by twice the amount');
+        $this->assertTrue($row->agrees());
+    }
+
+    public function test_the_odoo_leg_is_null_when_nothing_is_mapped_rather_than_zero(): void
+    {
+        // Without a mapping there is no account to add up, and a zero would be a claim that Odoo holds nothing of ours.
+        OdooAccountMapping::query()->delete();
+        $entry = $this->settledCost('100');
+        $this->postedTo($entry, 71);
+        $this->fakeOdooLines([['debit' => 100.0, 'credit' => 0.0, 'move_id' => [71, 'MISC/0001']]]);
+
+        $row = $this->reconcile();
+
+        $this->assertNull($row->odoo_amount);
+        $this->assertContains('odoo', $row->missingLegs());
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------
@@ -268,9 +308,17 @@ class OdooReconciliationTest extends TestCase
         $row->forceFill(['state' => OdooPosting::POSTED, 'odoo_move_id' => $moveId, 'posted_at' => now()])->save();
     }
 
-    /** @param list<array<string, mixed>> $lines */
+    /**
+     * The journal lines Odoo answers with, each carrying the account it sits on — which is what the read narrows by.
+     *
+     * @param list<array<string, mixed>> $lines
+     */
     private function fakeOdooLines(array $lines): void
     {
-        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml($lines))]);
+        $withAccounts = array_map(
+            static fn (array $line): array => $line + ['account_id' => [self::ODOO_EXPENSE_ACCOUNT, 'Shipping expense']],
+            $lines,
+        );
+        Http::fake([self::ODOO_OBJECT => Http::response($this->odooXml($withAccounts))]);
     }
 }

@@ -17600,6 +17600,7 @@ return [
 	'odoo_run_stat_failed' => 'لم يُرحَّل',
 	'odoo_run_stat_not_postable' => 'لا يُرحَّل',
 	'odoo_run_stat_lost_the_row' => 'أخذه تشغيل آخر',
+	'odoo_run_stat_waiting' => 'ينتظر قيدًا سابقًا',
 	'Odoo_Three_Way_Reconciliation' => 'المطابقة الثلاثية',
 	'odoo_reconciliation_subtitle' => 'ثلاثة دفاتر لفترة واحدة: ما قالته القناة، وما يحمله دفترنا، وما في أودو.',
 	'odoo_build_a_period' => 'ابنِ فترة',

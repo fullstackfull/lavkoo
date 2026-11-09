@@ -74,11 +74,22 @@ trait BuildsOdooWorld
         return $account->fresh();
     }
 
-    /** A component mapped to an expense account, with the counterpart that balances it. Both, because one alone is unpostable. */
+    /**
+     * A component mapped to an expense account, with the counterpart that balances it. Both, because one alone is unpostable.
+     *
+     * The counterpart is the general one, which a customer maps ONCE for everything, so mapping a second component must not try
+     * to write it again -- the table's unique key is there precisely to stop two rows claiming different accounts for one fact.
+     */
     protected function mapOdooComponent(string $component, ?int $taxId = null, ?int $analyticId = null): void
     {
         $this->odooMapping(OdooAccountMapping::KIND_COST_COMPONENT, $component, self::ODOO_EXPENSE_ACCOUNT, taxId: $taxId, analyticId: $analyticId);
-        $this->odooMapping(OdooAccountMapping::KIND_COUNTERPART, OdooAccountMapping::CODE_DEFAULT, self::ODOO_COUNTERPART_ACCOUNT);
+        $counterpartExists = OdooAccountMapping::where('odoo_company_id', self::ODOO_COMPANY)
+            ->where('fact_kind', OdooAccountMapping::KIND_COUNTERPART)
+            ->where('fact_code', OdooAccountMapping::CODE_DEFAULT)
+            ->exists();
+        if (!$counterpartExists) {
+            $this->odooMapping(OdooAccountMapping::KIND_COUNTERPART, OdooAccountMapping::CODE_DEFAULT, self::ODOO_COUNTERPART_ACCOUNT);
+        }
     }
 
     protected function odooMapping(

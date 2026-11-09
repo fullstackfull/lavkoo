@@ -28,6 +28,16 @@ final readonly class OdooEntryDraft
         public string $salesChannel,
         public array $lines,
         public ?string $narration = null,
+        /**
+         * The Odoo entry this one takes back, where there is one and it is already in the books.
+         *
+         * It fills `reversed_entry_id`, which is the ONE field written here whose meaning comes from how Odoo's own reversal
+         * behaves rather than from a reference page -- Odoo documents no `account.move` page at all, so like every other field
+         * on this model it is written only when the instance reports having it. An instance without it loses the link in Odoo's
+         * interface and nothing else: the pair is also named in `ref` and spelled out in the narration, which every instance
+         * takes.
+         */
+        public ?int $reversedEntryId = null,
     ) {
     }
 
@@ -56,6 +66,9 @@ final readonly class OdooEntryDraft
         ];
         if ($this->narration !== null && isset($moveFields['narration'])) {
             $values['narration'] = $this->narration;
+        }
+        if ($this->reversedEntryId !== null && isset($moveFields['reversed_entry_id'])) {
+            $values['reversed_entry_id'] = $this->reversedEntryId;
         }
 
         return $values;

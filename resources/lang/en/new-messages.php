@@ -11093,6 +11093,7 @@ return [
 	'odoo_run_stat_failed' => 'not posted',
 	'odoo_run_stat_not_postable' => 'cannot be posted',
 	'odoo_run_stat_lost_the_row' => 'taken by another run',
+	'odoo_run_stat_waiting' => 'waiting on an earlier entry',
 	'Odoo_Three_Way_Reconciliation' => 'Three-way reconciliation',
 	'odoo_reconciliation_subtitle' => 'Three books for one period: what the channel said, what our ledger holds, and what is in Odoo.',
 	'odoo_build_a_period' => 'Build a period',

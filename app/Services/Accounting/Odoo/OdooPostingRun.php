@@ -48,13 +48,15 @@ class OdooPostingRun
     /**
      * Works one batch.
      *
-     * @return array{claimed: int, posted: int, found: int, failed: int, needs_review: int, not_postable: int, lost_the_row: int, stopped: string|null}
+     * @return array{claimed: int, posted: int, found: int, failed: int, needs_review: int, not_postable: int, lost_the_row: int, waiting: int, stopped: string|null}
      */
     public function drain(SalesChannelAccount $connection, OdooPreflight $preflight, int $limit = 50): array
     {
         // `lost_the_row` is a run that found the row taken from under it between claiming and fencing: nothing was sent and
         // nothing was written, which is a different outcome from a failure and is counted as its own.
-        $stats = ['claimed' => 0, 'posted' => 0, 'found' => 0, 'failed' => 0, 'needs_review' => 0, 'not_postable' => 0, 'lost_the_row' => 0, 'stopped' => null];
+        // `waiting` is a row that is not postable YET because another row is not: a reversal or a return whose original entry
+        // is queued and not in Odoo. It spends no attempt, so it is counted apart from a failure.
+        $stats = ['claimed' => 0, 'posted' => 0, 'found' => 0, 'failed' => 0, 'needs_review' => 0, 'not_postable' => 0, 'lost_the_row' => 0, 'waiting' => 0, 'stopped' => null];
         $this->outbox->reclaimAbandoned();
 
         $rows = $this->outbox->claim($limit);
@@ -117,6 +119,23 @@ class OdooPostingRun
             // The fact changed after this row was queued. Posting it now would put the old figure in the books under a reference
             // that no longer describes it; the new version has its own row.
             $this->outbox->notPostable($row, 'source_version_superseded');
+            $stats['not_postable']++;
+
+            return;
+        }
+
+        // **THE REFERENCE THE ROW WILL BE SEARCHED BY AND THE ONE THE ENTRY WOULD CARRY MUST BE THE SAME STRING.**
+        //
+        // AFTER the version check, and that order is the whole of its meaning. The reference carries the version, so a row whose
+        // fact has moved on fails this comparison too -- and that is a superseded row, which has its own name and its own
+        // outcome. What is left once the versions agree is the case this guards: the two strings are built by the same function
+        // from the same entry, so they agree today, and if they ever stopped agreeing every protection in this class would still
+        // be in place and would all be looking at the wrong value. The search before the create would ask for the row's
+        // reference, the create would write the draft's, and a retry would search for the first, not find it, and post a second
+        // entry -- a duplicate in somebody's books arrived at by code that reads as careful. So the two are compared rather than
+        // assumed.
+        if ($result->draft->reference !== $row->odoo_ref) {
+            $this->outbox->notPostable($row, 'odoo_reference_no_longer_matches_the_row');
             $stats['not_postable']++;
 
             return;
@@ -242,11 +261,30 @@ class OdooPostingRun
      * — a person can fix those, so the row waits. A refusal about the FACT itself — an estimate with no policy behind it, a
      * superseded row, a figure nobody could determine — will never change by waiting, so the row is laid to rest and counted.
      *
+     * Two refusals are about ANOTHER row rather than this one, and they are routed on their own:
+     *
+     *  - the entry this one takes back is not in Odoo yet → wait, and spend no attempt. Nothing about this row is wrong, and
+     *    counting it as a failure would lay a good reversal to rest after five passes while its original was still being worked.
+     *  - the entry this one takes back will never be in Odoo → there is nothing to take back, and no waiting changes that.
+     *
      * @param list<string> $all
      * @param array<string, mixed> $stats
      */
     private function settleRefusal(OdooPosting $row, string $first, array $all, array &$stats): void
     {
+        if (str_starts_with($first, 'odoo_original_entry_is_not_posted_yet')) {
+            $this->outbox->waiting($row, $first);
+            $stats['waiting']++;
+
+            return;
+        }
+        if ($first === 'odoo_original_entry_will_never_be_posted') {
+            $this->outbox->notPostable($row, $first);
+            $stats['not_postable']++;
+
+            return;
+        }
+
         if (str_starts_with($first, 'cost_')) {
             $this->outbox->notPostable($row, $first);
             $stats['not_postable']++;

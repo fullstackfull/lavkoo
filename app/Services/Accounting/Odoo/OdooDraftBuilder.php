@@ -27,6 +27,19 @@ use App\Services\OperationalCosts\Support\Money;
  *  - **A foreign-currency amount on an instance that cannot record one.** Posting it in the company currency and dropping the
  *    original would misstate the books silently.
  *  - **An entry that does not balance.** Odoo refuses it anyway; a named refusal beats a fault nobody can read.
+ *  - **An undo whose original is not in the books yet.** A reversal or a return takes back a figure, and posting the credit
+ *    before the debit leaves the expense account short by the amount -- which on a trial balance is indistinguishable from a cost
+ *    nobody ever recorded. It waits, and it stops waiting by itself the moment the original lands. An original that was never
+ *    queued for Odoo at all is NOT this case: see `OdooUndoLink`.
+ *
+ * ## A figure already in the books is never edited here
+ *
+ * The policy is the owner's and it is absolute: a posted figure is corrected by a reversing or adjusting entry, never by
+ * changing or deleting a final one, and a return is its own entry linked to the sale's. So this builder has exactly one shape of
+ * output -- a new draft entry -- for a cost, for its reversal and for a return alike. The difference between them is which
+ * column the figure sits in and which entry the new one NAMES, both of which are data; none of them is a write to an entry that
+ * already exists. `OdooOperations::deliberatelyNotRegistered()` keeps `write` and `unlink` off the allow-list so that stays true
+ * however this file changes.
  *
  * ## And the field names are the instance's, not ours
  *
@@ -36,8 +49,10 @@ use App\Services\OperationalCosts\Support\Money;
  */
 class OdooDraftBuilder
 {
-    public function __construct(private readonly OdooAccountMap $map)
-    {
+    public function __construct(
+        private readonly OdooAccountMap $map,
+        private readonly OdooUndoLinks $undoLinks,
+    ) {
     }
 
     /** The cost states that may be posted at all. An estimate is not among them, and that is a policy decision, not a bug. */
@@ -83,7 +98,10 @@ class OdooDraftBuilder
         $amount = Money::of((string) ($entry->base_amount ?? $entry->amount));
         $side = OdooMoney::debitAndCredit($amount);
         $counterSide = OdooMoney::counterOf($amount);
-        $name = $this->lineNameFor($entry, $component);
+        // What this entry takes back, if anything. A negative amount already puts the figure in the other column by itself
+        // (`OdooMoney`); what the link adds is WHICH entry it takes back, which is the part an accountant cannot infer.
+        $undo = $this->undoLinks->for($entry);
+        $name = $this->lineNameFor($entry, $component, $undo);
 
         $key = OdooPostingKey::forCostEntry($entry);
         $draft = new OdooEntryDraft(
@@ -113,12 +131,23 @@ class OdooDraftBuilder
                     amountCurrency: $foreign['amount'] === null ? null : -$foreign['amount'],
                 ),
             ],
-            narration: $this->narrationFor($entry),
+            narration: $this->narrationFor($entry, $undo),
+            reversedEntryId: $undo->odooMoveId(),
         );
 
-        return $draft->balances()
+        if (!$draft->balances()) {
+            return OdooDraftResult::refused(['odoo_entry_does_not_balance']);
+        }
+
+        // **THE ORDER OF THE PAIR, CHECKED LAST ON PURPOSE.** An undo whose original is not yet in the books is otherwise a
+        // perfectly good entry, so every refusal a person can act on -- an unmapped account, a currency with no map, a company
+        // nobody read -- is reported before this one. Reporting this first would send somebody to look at another row while
+        // their own mapping was still missing.
+        $outOfOrder = $undo->refusal();
+
+        return $outOfOrder === null
             ? OdooDraftResult::ready($draft, $key)
-            : OdooDraftResult::refused(['odoo_entry_does_not_balance']);
+            : OdooDraftResult::refused([$outOfOrder]);
     }
 
     /** @return list<string> */
@@ -187,9 +216,11 @@ class OdooDraftBuilder
      * A component, a channel and the ledger row's id — enough for an accountant to find it, and NO buyer detail: a journal entry
      * is not a place to put somebody's name or address, and this integration never has a reason to.
      */
-    private function lineNameFor(OperationalCostEntry $entry, string $component): string
+    private function lineNameFor(OperationalCostEntry $entry, string $component, OdooUndoLink $undo): string
     {
-        $parts = array_filter([$component, (string) ($entry->sales_channel ?? ''), 'ledger #' . (int) $entry->id]);
+        // The undo label goes FIRST, because a credit on an expense account is read as a mistake until something says it is a
+        // reversal, and the first words of the line are what a trial balance shows.
+        $parts = array_filter([$undo->lineLabel(), $component, (string) ($entry->sales_channel ?? ''), 'ledger #' . (int) $entry->id]);
 
         return mb_substr(implode(' · ', $parts), 0, 120);
     }
@@ -199,9 +230,15 @@ class OdooDraftBuilder
      *
      * The exchange rate is recorded because a converted figure that does not say what it was converted at cannot be checked.
      */
-    private function narrationFor(OperationalCostEntry $entry): ?string
+    private function narrationFor(OperationalCostEntry $entry, OdooUndoLink $undo): ?string
     {
         $lines = ['PharmacyKSA ledger entry #' . (int) $entry->id . ' (' . $entry->state->value . ')'];
+        // Which entry this one takes back, INCLUDING when it could not be told: an accountant who reads that the original was
+        // not identified knows to look, and one who reads nothing assumes there was nothing to say.
+        $undoes = $undo->describe();
+        if ($undoes !== null) {
+            $lines[] = $undoes;
+        }
         if ($entry->source !== null) {
             $lines[] = 'source: ' . (string) $entry->source;
         }

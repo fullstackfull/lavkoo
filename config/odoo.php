@@ -80,6 +80,9 @@ return [
         'attempts' => 5,
         // The first wait after a failure; each later try waits a multiple of it.
         'retry_seconds' => 300,
+        // How long a row that is waiting on ANOTHER row waits before looking again -- a reversal whose original entry is not in
+        // Odoo yet. It spends no attempt, so this is the whole of its pacing.
+        'wait_seconds' => 600,
     ],
 
     // Per-operation ceiling, in the shape the shared limiter reads.

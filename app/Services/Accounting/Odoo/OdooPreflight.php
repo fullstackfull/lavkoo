@@ -60,7 +60,7 @@ final readonly class OdooPreflight
      * an error.
      */
     public const OPTIONAL_FIELDS = [
-        'account.move' => ['partner_id', 'invoice_date', 'narration'],
+        'account.move' => ['partner_id', 'invoice_date', 'narration', 'reversed_entry_id'],
         'account.move.line' => ['partner_id', 'tax_ids', 'currency_id', 'amount_currency', 'analytic_distribution', 'analytic_account_id'],
     ];
 

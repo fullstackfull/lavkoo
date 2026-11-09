@@ -41,6 +41,37 @@ class OdooAccountMap
     }
 
     /**
+     * EVERY account an approved mapping sends one kind of fact to — the set a figure already posted could be sitting on.
+     *
+     * Deliberately not `for()`. That one answers "where should this entry go", so the narrowest mapping wins and the answer is
+     * one account. This answers "where could the entries we already posted have landed", which over a whole period is every
+     * account any matching mapping named: a channel that was given its own account last month has its entries on that account
+     * and the earlier ones on the general one, and a reconciliation that read only the winner would silently leave half the
+     * period out of the Odoo column.
+     *
+     * A null channel or currency means "do not narrow by it at all" — every channel, every currency — which is not the same as
+     * the empty string, the value that means "the mapping that applies to all of them".
+     *
+     * @return list<int>
+     */
+    public function accountsFor(int $companyId, string $factKind, string $factCode, ?string $channel = null, ?string $currency = null, int $sellerId = 0): array
+    {
+        return OdooAccountMapping::query()
+            ->where('seller_id', $sellerId)
+            ->where('odoo_company_id', $companyId)
+            ->where('fact_kind', $factKind)
+            ->where('fact_code', $factCode)
+            ->when($channel !== null, fn ($query) => $query->whereIn('sales_channel', [$channel, OdooAccountMapping::ANY]))
+            ->when($currency !== null, fn ($query) => $query->whereIn('currency', [$currency, OdooAccountMapping::ANY]))
+            ->get()
+            ->filter(static fn (OdooAccountMapping $row): bool => $row->isApproved())
+            ->map(static fn (OdooAccountMapping $row): int => (int) $row->odoo_account_id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * The expense (or income) account for a cost component, and the account that balances it.
      *
      * Both or neither: an entry with one side mapped is not half-postable, it is unpostable, and saying which side is missing is

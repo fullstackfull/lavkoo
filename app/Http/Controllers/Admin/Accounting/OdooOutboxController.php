@@ -167,7 +167,7 @@ class OdooOutboxController extends Controller
     private function runLine(array $stats): string
     {
         $parts = [];
-        foreach (['posted', 'found', 'needs_review', 'failed', 'not_postable', 'lost_the_row'] as $key) {
+        foreach (['posted', 'found', 'needs_review', 'failed', 'not_postable', 'lost_the_row', 'waiting'] as $key) {
             if ((int) ($stats[$key] ?? 0) > 0) {
                 $parts[] = translate('odoo_run_stat_' . $key) . ': ' . (int) $stats[$key];
             }
