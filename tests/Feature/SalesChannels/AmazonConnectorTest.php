@@ -694,14 +694,17 @@ class AmazonConnectorTest extends TestCase
         $this->assertTrue($matrix['reports']['built']);
         // Built in PR-C: searchCatalogItems brings back the ASIN and Amazon's own productType, without which the requirements call has nothing to ask about.
         $this->assertTrue($matrix['catalog_items']['built']);
-        // Still false, and the reason is now a better one than the reason first recorded here. The first said the result
-        // document had no documented field names; it has -- Amazon publishes the processing-report schema in its own
-        // `selling-partner-api-models` repository, and `AmazonFeedResult` reads it by field name. What keeps the SUBMISSION
-        // unbuilt is Amazon's own timings: feeds "can take up to eight hours to process" and are "processed sequentially",
-        // against 25,000 Listings Items PATCHes at a documented 5 a second, which is 83 minutes. The feed is not the fast
-        // path. Building the document and reading the report is not the same as calling the operations, and this guard is
-        // about the operations: nothing calls them.
-        $this->assertFalse($matrix['feeds_json_listings']['built'], 'The feed operations are on the allowed list but nothing calls them: price and stock go one SKU at a time.');
+        // **This was false and is now true, and the two reasons it was false are worth keeping apart.** The first recorded
+        // reason was wrong: it said the result document had no documented field names, and it has -- Amazon publishes the
+        // processing-report schema in its own `selling-partner-api-models` repository. The second was right at the time:
+        // building the document and reading the report is not the same as CALLING the operations, and nothing called them.
+        // `AmazonFeedSubmitter` calls all of them now, with the write-ahead fence Amazon's missing idempotency requires.
+        //
+        // What has NOT changed is the judgement about when to use it. Amazon states feeds "can take up to eight hours to
+        // process" and are "processed sequentially", against 25,000 Listings Items PATCHes at a documented 5 a second, which
+        // is 83 minutes: the feed is the cheaper path, not the faster one. So per-SKU publishing stays the default and the
+        // feed has its own switch, which `AmazonFeedSubmissionTest` asserts ships off. Built is not the same as on.
+        $this->assertTrue($matrix['feeds_json_listings']['built'], 'The feed cycle is built and called; the matrix still says it is not.');
         $this->assertTrue($matrix['product_type_definitions']['built']);
     }
 
@@ -714,7 +717,6 @@ class AmazonConnectorTest extends TestCase
             }
         }
         $notBuilt = [
-            'amazon.feeds_create_document', 'amazon.feeds_upload', 'amazon.feeds_create', 'amazon.feeds_get', 'amazon.feeds_document',
             'amazon.finances_groups', 'amazon.notifications_read', 'amazon.notifications_write',
         ];
 
@@ -726,6 +728,11 @@ class AmazonConnectorTest extends TestCase
             'amazon.listings_patch_content', 'amazon.listing_get',
             'amazon.product_type_definition', 'amazon.orders_search', 'amazon.order_get', 'amazon.order_confirm_shipment', 'amazon.fba_inventory', 'amazon.finances_transactions',
             'amazon.catalog_search',
+            // The feed cycle, every call of it. They moved from the list above: the guard is unchanged, the facts are.
+            'amazon.feeds_create_document', 'amazon.feeds_upload', 'amazon.feeds_create', 'amazon.feeds_get', 'amazon.feeds_document',
+            // And the two the cycle needed that were not registered at all: listing Amazon's feeds is the only honest way
+            // back from the fence, and the report's presigned download reaches a bucket rather than the API.
+            'amazon.feeds_list', 'amazon.feed_report_download',
             // The report reader: every one of the five, including getReports, which is the ONLY way a settlement report is
             // reached and therefore the one whose absence would be silent.
             'amazon.reports_create', 'amazon.reports_get', 'amazon.reports_list', 'amazon.reports_document', 'amazon.report_download',

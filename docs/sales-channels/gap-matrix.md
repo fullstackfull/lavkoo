@@ -59,6 +59,7 @@ SQLite وMySQL 8 وMariaDB 11.4.2 في CI.
 | Odoo | بناء المسوّدة والطابور | علامة «قد أُرسل» تُكتب **قبل** الطلب، وتصفير مطابقة ثلاثية |
 | Odoo | الانعكاس والمرتجعات | التصحيح بانعكاس لا بتعديل |
 | **Amazon** | **دفعة `JSON_LISTINGS_FEED` كاملةً** | النداءات الخمسة بترتيب أمازون المنشور، و`amazon_feed_submissions` تحفظ `feedId` وخريطة `messageId→SKU` بينها، و**تسوير قبل الإرسال** لأن أمازون **لا توثّق أي تعادلية لـ`createFeed`**. `CANCELLED` = لم يبدأ فلا شيء طُبِّق (الحالة الوحيدة التي تُعاد)، و`FATAL` = «some, none, or all» فهو UNKNOWN يذهب لإنسان، و`messagesAccepted` بنصّ أمازون «are being applied» فالقبول ليس تطبيقًا. **يُسلَّم مُعطَّلًا** بمفتاحه الخاص `AMAZON_BULK_FEEDS_ENABLED`، والنشر لكل SKU يبقى المسار الافتراضي |
+| **Trendyol** | **رموز الناقلين وقيم السمات الطويلة وعناوين البائع وقراءة السعر/المخزون** | أربع قراءات كانت مسجَّلة ولا تُنادى. رموز الناقلين `GET /product/lookup/cargo-providers` — وTrendyol تنصّ أنها لـ`SA` و`AE` فقط، فحساب على واجهة أخرى **يُرفَض هنا** بدل أن يُعطى قائمة تركيا كأنها قائمته. وقيم السمات `GET /product/categories/{id}/attributes/{id}/values` مُصفَّحة (`size` و`page` حدّهما ١٠٠٠)، وصفحةٌ لم تُقرأ **تُسقط القائمة كلها** لأن قيمة ناقصة تبدو كقيمة ترفضها Trendyol. وعناوين البائع `GET /sellers/{id}/addresses` — ومثال Trendyol نفسه يعطي `defaultReturningAddress` بشكل `{present:true}` لا كعنوان، و`defaultShipmentAddress.id` صفرًا، فلا يُرسَل صفر كمُعرّف عنوان. وقراءة السعر/المخزون `GET /product/sellers/{id}/products/approved/inventory-and-price` — **للمعتمدة فقط بنصّ Trendyol**، فغياب باركود ليس غيابًا عندها بل احتمال كونه غير معتمد، وإنشاؤه ازدواج وقفل للباركود؛ لذلك تُعاد الموجودات فقط ولا تُسلَّم قائمة «مفقودات» لأحد |
 | الكل | **لا بيانات اعتماد تصل السجل** | حارس يُجري النداءات ويقرأ السجل، مربوط في ٥٢ مجموعة اختبار |
 | الكل | **ما ينتظر إنسانًا** | جامع واحد من ١١ جدولًا + شاشة إدارة، ولا يُرسل شيئًا. والعدد يُثبته اختبار على `AttentionRegistry::declared()` لا هذه الجملة |
 
@@ -79,7 +80,6 @@ SQLite وMySQL 8 وMariaDB 11.4.2 في CI.
 | Trendyol | قراءة السعر والمخزون للمطابقة | الناشر يقابل ما كتبه هو؛ وهذه تقابل الطرفين | `trendyol.products_inventory_price` |
 | Trendyol | بحث بباركود واحد | — | `trendyol.product_by_barcode` |
 | Trendyol | أرشفة المنتج وفكّ قفله | كلٌّ منهما يغيّر حياة القائمة، ولا شاشة تصل إليهما | `trendyol.products_archive`، `trendyol.products_unlock` |
-| Trendyol | تواريخ التحويل البنكي | الكشوف تُقرأ؛ وهذا الطرف البنكي منها | `trendyol.finance_payment_orders` |
 | noon | مجموعات المنتجات | `product_groups`: مبني=لا | — |
 | noon | خريطة دفعات SKU | `sku_batch_map`: مبني=لا | — |
 | Odoo | سَرد موديلات النسخة | الفحص القبلي يسأل عن الموديلات **بالاسم** ويُبلّغ ما ينقص، وهو السؤال الأضيق والأسلم | `odoo.model_list` |
@@ -133,6 +133,7 @@ SQLite وMySQL 8 وMariaDB 11.4.2 في CI.
 | noon | حقل كمية في صنف طلب FBPI | لا وجود له؛ الكمية تُستنتج من البنود لا تُقرأ |
 | noon | حالة للطلب | الحالة لأصنافه لا للطلب |
 | Amazon | أسماء حقول نتيجة `JSON_LISTINGS_FEED` و`contentType` الدفعة | **صُحِّحت ملاحظتان، وكلتاهما كانت تُغلق بابًا مفتوحًا.** (١) النتيجة موثَّقة: أمازون تنشر `listings-feed-processing-report-schema-v2.json` في مستودعها `amzn/selling-partner-api-models` ودليل Listings يربط إليه بوصفه مخطَّط هذه الدفعة؛ اعتبار «ليس على موقع الوثائق» = «غير موثَّق» كان خطأً. (٢) و`contentType` ليس غير موثَّق: دليل «Submit a feed» ينصّ على القاعدة — «The contentType must match the input provided to the createFeedDocument operation» — ومثاله لدفعة JSON يستخدم `application/json; charset=UTF-8`، وهي ثابتة واحدة مُسمّاة في الكود. (٣) وتناقض أمازون الظاهر حول تسجيل النجاحات **محلول**: `header.report.includedData` يجعل التقرير يحمل بيانات كل قائمة من Listings Items API، فكلام الدليل يصف التقرير **مع** هذا الحقل وصمت المخطَّط يصفه بدونه |
+| Trendyol | «تواريخ التحويل البنكي غير مقروءة» | **كان الخطأ عندنا لا عند Trendyol.** لا نقطة نهاية اسمها payment-orders في وثائق Trendyol أصلًا: صفحة كشف الحساب الجاري هي كلّ تكامل المحاسبة الدولي وتنشر نقطتين فقط، `settlements` و`otherfinancials`، و`PaymentOrder` **نوع معاملة** في الثانية — «the progress payment made to the supplier» — وهو مُسجَّل في `finance_other_types` ويُقرأ فعلًا ويُخزَّن `payment_order_id` و`payment_date` منه. فأُزيلت العملية الوهمية `trendyol.finance_payment_orders` من السجل: اسمٌ بلا نقطة نهاية هو الوجه المقابل لنفس الخطأ |
 
 ---
 

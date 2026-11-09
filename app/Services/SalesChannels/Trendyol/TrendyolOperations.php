@@ -79,7 +79,18 @@ final class TrendyolOperations
             'trendyol.probe_finance' => Ops::read(capabilities: [Capability::ConnectionTest]),
             'trendyol.finance_settlements' => Ops::read(capabilities: $finance),
             'trendyol.finance_other' => Ops::read(capabilities: $finance),
-            'trendyol.finance_payment_orders' => Ops::read(capabilities: $finance),
+            // NO `trendyol.finance_payment_orders`, and that is a correction rather than an omission. It was registered as
+            // though Trendyol published a payment-orders endpoint. **It does not.** The Current Account Statement page is the
+            // whole of Trendyol's accounting integration for the international marketplace, and it publishes exactly two
+            // endpoints: `settlements` and `otherfinancials`. `PaymentOrder` is a `transactionType` OF `otherfinancials` --
+            // "the progress payment made to the supplier by calculating from the due transactions" -- and it is already in
+            // `sales_channels.trendyol.finance_other_types`, already fetched by `trendyol.finance_other`, and already mapped
+            // to a payout by `TrendyolFinanceMapper`. `paymentOrderId` and `paymentDate` likewise come back on the
+            // settlements rows and are already recorded.
+            //
+            // So the payout data is read. What was wrong was a registered name with no endpoint behind it, which is the
+            // mirror image of the mistake this module guards against: an operation is not built because its name is on a
+            // list, and an operation is not MISSING because its name is on a list either.
 
             // ---- webhooks ----
             'trendyol.webhooks_list' => Ops::read(capabilities: [Capability::ReadOnlySync, Capability::OrderImport]),

@@ -74,18 +74,6 @@ final class UncalledOperations
             // Category attributes ARE read (that is `category_attributes`); the category TREE is not, because a listing is
             // created against a category a person chose on the product screen rather than browsed here.
             'trendyol.categories' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_category_tree_is_not_browsed_here'],
-            // The long value lists behind an attribute. The attribute call already returns the values Trendyol embeds, and
-            // this is the endpoint for the ones too long to embed -- so a category whose values are paged is a real gap.
-            'trendyol.category_attribute_values' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_long_attribute_value_lists_are_not_paged'],
-            // Trendyol's own carrier codes. Today the mapping is configured per account by hand, which is why a wrong code
-            // is a refusal with a sentence rather than a list a person can pick from.
-            'trendyol.cargo_providers' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_carrier_codes_are_configured_by_hand'],
-            // The seller's own warehouse and return addresses. Needed to create a listing with a shipment address, which
-            // this version does not set.
-            'trendyol.addresses' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_seller_addresses_are_not_read'],
-            // Reading back price and stock as Trendyol holds them. The publisher compares with what IT last wrote, so this
-            // would be a reconciliation of the two -- worth having and not built.
-            'trendyol.products_inventory_price' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_price_and_stock_are_not_read_back_for_reconciliation'],
             'trendyol.product_by_barcode' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_single_barcode_lookup_is_not_used'],
             // Archiving and unlocking a product. Both change a listing's life and neither is reachable from a screen yet.
             'trendyol.products_archive' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_archiving_has_no_screen'],
@@ -96,8 +84,6 @@ final class UncalledOperations
             'trendyol.orders_invoice_link' => ['kind' => self::DECIDED, 'why' => 'trendyol_invoices_stay_with_the_seller_panel'],
             // **A DECISION.** Cancelling lines cancels a customer's order and locks the product at Trendyol.
             'trendyol.orders_unsupplied' => ['kind' => self::DECIDED, 'why' => 'trendyol_cancelling_lines_locks_the_product'],
-            // Payment orders: when Trendyol actually paid out. The statements are read; this is the bank side of them.
-            'trendyol.finance_payment_orders' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_payout_dates_are_not_read'],
 
             // ---- Odoo -------------------------------------------------------------------------------------------
             // Listing the instance's models. The preflight asks about the models it needs BY NAME and reports what is
