@@ -172,6 +172,74 @@ class OdooXmlRpcTest extends TestCase
         $this->assertSame('plain', OdooXmlRpc::response($this->responseOf('plain')));
     }
 
+    // ---- the parser refuses a document type, whatever is in it ---------------------------------------------------
+
+    /** @return array<string, array{0: string}> */
+    public static function documentsCarryingADoctype(): array
+    {
+        return [
+            // Classic XXE: make this process read a local file and hand its contents back as a value.
+            'an external entity reading a file' => [
+                '<!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]>'
+                . '<methodResponse><params><param><value><string>&x;</string></value></param></params></methodResponse>',
+            ],
+            // XXE as an outbound request: a cloud metadata endpoint is the usual target.
+            'an external entity calling a host' => [
+                '<!DOCTYPE r SYSTEM "http://169.254.169.254/latest/meta-data/">'
+                . '<methodResponse><params><param><value><int>1</int></value></param></params></methodResponse>',
+            ],
+            // A nest of internal entities needs no network at all: it expands until the machine runs out of memory.
+            'internal entities that expand' => [
+                '<!DOCTYPE r [<!ENTITY a "AAAAAAAAAA"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+                . '<methodResponse><params><param><value><string>&b;</string></value></param></params></methodResponse>',
+            ],
+            // Refused too, and on purpose: a valid XML-RPC response has no use for a document type, so there is no reason to
+            // inspect one and decide. One check closes every case above.
+            'a harmless doctype with nothing in it' => [
+                '<!DOCTYPE methodResponse>'
+                . '<methodResponse><params><param><value><int>7</int></value></param></params></methodResponse>',
+            ],
+        ];
+    }
+
+    #[DataProvider('documentsCarryingADoctype')]
+    public function test_a_document_type_declaration_is_refused_unread(string $body): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/document type declaration/');
+        OdooXmlRpc::response('<?xml version="1.0"?>' . $body);
+    }
+
+    public function test_nothing_from_the_file_system_can_reach_a_decoded_value(): void
+    {
+        // The assertion that matters is not merely that it threw: it is that no file content came back as a value. Written
+        // against a file this test creates, so it proves the read was refused rather than that the path happened not to exist.
+        $path = tempnam(sys_get_temp_dir(), 'odoo-xxe-');
+        file_put_contents($path, 'SECRET-FILE-CONTENTS');
+
+        try {
+            $decoded = null;
+            try {
+                $decoded = OdooXmlRpc::response(
+                    '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file://' . $path . '">]>'
+                    . '<methodResponse><params><param><value><string>&x;</string></value></param></params></methodResponse>',
+                );
+            } catch (RuntimeException) {
+                // Refused, which is the point.
+            }
+
+            $this->assertStringNotContainsString('SECRET-FILE-CONTENTS', (string) json_encode($decoded));
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function test_a_response_without_a_doctype_is_still_read_normally(): void
+    {
+        // The guard must not have made the parser useless: an ordinary answer still decodes.
+        $this->assertSame(412, OdooXmlRpc::response($this->responseOf('<int>412</int>')));
+    }
+
     /**
      * The `<value>` of each `<param>`, in order, exactly as the document carries it.
      *

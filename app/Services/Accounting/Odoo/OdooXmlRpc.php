@@ -64,13 +64,23 @@ final class OdooXmlRpc
 
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument();
-        // No entity loading: the body comes from a network and an XML parser is a file reader if you let it be one.
-        $loaded = $document->loadXML($body, LIBXML_NONET | LIBXML_NOENT);
+        // `LIBXML_NONET` only, and deliberately NOT `LIBXML_NOENT`: despite the name, that flag SUBSTITUTES entities -- it turns
+        // expansion on rather than off. An earlier version of this method passed it under a comment claiming the opposite.
+        $loaded = $document->loadXML($body, LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
 
         if (!$loaded || $document->documentElement === null || $document->documentElement->nodeName !== 'methodResponse') {
             throw new RuntimeException('Odoo did not answer with a readable XML-RPC response.');
+        }
+
+        // A DOCTYPE IS REFUSED OUTRIGHT, whatever is in it. A legitimate XML-RPC response has no use for one, and a document type
+        // is the doorway to both attacks worth caring about here: an external entity that makes this process read a local file or
+        // call out to a host, and a nest of internal entities that expands until the machine runs out of memory. Refusing the
+        // declaration is one check that closes both, and it does not depend on a libxml version or a php.ini setting being what
+        // we hoped.
+        if ($document->doctype !== null) {
+            throw new RuntimeException('Odoo\'s answer carried a document type declaration, which a valid XML-RPC response has no use for; it was refused unread.');
         }
 
         $fault = $document->getElementsByTagName('fault')->item(0);
