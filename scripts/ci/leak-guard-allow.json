@@ -64,13 +64,13 @@
             "rule": "credential-literal",
             "path": "app/Services/SalesChannels/Noon/NoonOperations.php",
             "line": 95,
-            "reason": "A URL PATH, not a credential: `'noon.oauth_token_create' => '/identity/oauth/v1/token/create'` in an early commit of the noon pull request. The scanner matched the shape -- a key naming a token paired with a quoted string -- which is the right instinct in a file full of API wiring. The value is a constant path with no secret in it, and nothing was ever rotated because nothing was ever real. A later commit of the same pull request REMOVES the entry outright, for an unrelated and stronger reason: noon's OAuth reference page was never read, so that path was guessed from the pattern of its neighbours, and this repository does not register a path it has not read. `NoonOperations::documentedButUnread()` now names the operation as a gap instead."
+            "reason": "A URL PATH, not a credential, in an early commit of the noon pull request: a registry key for noon's OAuth create operation whose value was the constant request path for it under the identity service. The scanner matched the shape -- a key naming an authorisation step beside a quoted string -- which is the right instinct in a file full of API wiring. The value was a fixed path with no secret in it, so nothing was real and nothing needed rotating. A later commit of the same pull request REMOVES the line outright, for an unrelated and stronger reason: noon's OAuth reference page was never read, so the path was guessed from the pattern of its neighbours, and this repository does not register a path it has not read. NoonOperations::documentedButUnread() now names the operation as a gap instead. This reason deliberately describes the line rather than reproducing it: an earlier wording pasted the key and value in, and the allow file itself then tripped the same rule."
         },
         {
             "rule": "credential-literal",
             "path": "app/Services/SalesChannels/Noon/NoonOperations.php",
             "line": 96,
-            "reason": "The same as the line above, for `'noon.oauth_token_exchange' => '/identity/oauth/v1/token/exchange'`: a constant URL path in an early commit of the noon pull request, never a credential, and removed by a later commit of the same pull request because noon's OAuth page was never read and a plausible path is still a wrong one."
+            "reason": "The same as the line above, for noon's OAuth exchange operation: a registry key whose value was the constant request path for it under the identity service, in an early commit of the noon pull request. Never a credential, and removed by a later commit of the same pull request because noon's OAuth page was never read and a plausible path is still a wrong one."
         }
     ]
 }
