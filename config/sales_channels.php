@@ -149,8 +149,16 @@ return [
                 // The presigned download is S3, not SP-API, and Amazon publishes no limit for it. Paced anyway: a document is
                 // fetched once per report and the URL is good for five minutes.
                 'amazon.report_download' => ['max' => 10, 'per_seconds' => 60],
+                // JSON_LISTINGS_FEED is documented at "five feeds submission per five minutes" -- which Amazon states is NOT
+                // the generic createFeed rate of 0.0083 requests a second. Two is deliberately under it.
                 'amazon.feeds_create' => ['max' => 2, 'per_seconds' => 300],
                 'amazon.feeds_create_document' => ['max' => 10, 'per_seconds' => 20],
+                // getFeed: 2 requests/second, burst 15.
+                'amazon.feeds_get' => ['max' => 2, 'per_seconds' => 1],
+                // getFeedDocument and getFeeds: 0.0222 requests/second, burst 10 -- one call per 45 seconds.
+                'amazon.feeds_document' => ['max' => 10, 'per_seconds' => 450],
+                'amazon.feeds_list' => ['max' => 10, 'per_seconds' => 450],
+                'amazon.feed_report_download' => ['max' => 10, 'per_seconds' => 60],
             ],
         ],
     ],
@@ -169,6 +177,20 @@ return [
         'report_max_bytes' => 33554432,
         // A fresh access token is fetched when the one held has less than this many seconds left (tokens last 3600).
         'token_refresh_margin_seconds' => 300,
+        // **The bulk feed path, and it ships OFF.** Its own switch, on top of `enabled` and `external_writes_enabled`, because
+        // one JSON_LISTINGS_FEED carries up to 25,000 price and quantity changes in a single accepted submission that cannot
+        // be recalled once it leaves IN_QUEUE -- a different kind of exposure from a per-SKU PATCH, and so a different
+        // decision. Per-SKU publishing stays the default path whatever this says.
+        'bulk_feeds_enabled' => env('AMAZON_BULK_FEEDS_ENABLED', false),
+        // Amazon's own suggested minimum feed size. Under it, the per-SKU Listings Items API is "faster with less than 1,500
+        // items during a five-minute period" by Amazon's own comparison, so a feed is refused rather than wasting one of five
+        // submissions per five minutes.
+        'feed_minimum_messages' => 1500,
+        // When the first poll of a new feed is due, and how often after that. Amazon says feeds "can take up to eight hours
+        // to process", so polling hard buys nothing.
+        'feed_first_poll_seconds' => 60,
+        'feed_poll_seconds' => 300,
+        'feed_retry_seconds' => 300,
         // Everything searchOrders is asked to include. BUYER is requested only when the account asks for buyer data; names, addresses and phones are never stored on the channel order record.
         'orders_included_data' => ['FULFILLMENT', 'PROCEEDS', 'PACKAGES', 'CANCELLATION', 'TAX', 'RECIPIENT', 'PAYMENT'],
         // Amazon's financial breakdown types are an open set. These patterns decide what a type means for our books; anything that matches none is kept as an event for a person, never as a cost or as revenue.

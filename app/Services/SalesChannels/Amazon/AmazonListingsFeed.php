@@ -18,10 +18,19 @@ namespace App\Services\SalesChannels\Amazon;
  *     here rather than sent, because the loser's values would be whatever Amazon happened to apply last.
  *  3. **25,000 messages is the schema's `maxItems`**, and Amazon suggests a minimum of 1,500: below that the per-SKU calls
  *     are the better tool, and the caller is told so instead of being given a feed that wastes one of five submissions per
- *     five minutes.
+ *     five minutes. (That rate is Amazon's published figure for this feed type — "five feeds submission per five minutes"
+ *     — and Amazon states explicitly that it is NOT the generic `createFeed` rate of 0.0083 requests a second.)
  *
- * What this class does NOT do is decide that a listing is live. A feed's acceptance is an acceptance of the submission; the
- * same rule holds here as everywhere in this module — only a read of the listing says what Amazon is showing.
+ *  4. **`includedData` is how a report says anything about successes.** The schema's `header.report` object takes
+ *     `includedData` and `apiVersion`, both required together, and Amazon states that with them the report "includes the
+ *     listings items output from the Selling Partner Listings Items API". That resolves what looked like a contradiction
+ *     between Amazon's own sources: the tutorial's claim that the report "indicates which records … were successful"
+ *     describes the report WITH `includedData`, and the schema's silence on per-message success describes it without.
+ *
+ * What this class does NOT do is decide that a listing is live. A feed's acceptance is an acceptance of the submission —
+ * Amazon's own count is of messages "accepted, the associated updates **are being applied**", in its words — and the same
+ * rule holds here as everywhere in this module: only a read of the listing says what Amazon is showing. `includedData` is how
+ * that read is asked for alongside the report rather than as a separate call per SKU.
  */
 final readonly class AmazonListingsFeed
 {
@@ -33,6 +42,20 @@ final readonly class AmazonListingsFeed
 
     /** The `header.version` const in the schema. Not a number we chose. */
     private const SCHEMA_VERSION = '2.0';
+
+    /**
+     * The `header.report.includedData` enum, verbatim from the schema.
+     *
+     * **This is how the report is made to say something about successes.** Asked for, "the processing report that generates
+     * for the feed submission includes the listings items output from the Selling Partner Listings Items API with the
+     * `includedData` elements from the request" — so the report's `items` array carries each listing's own data, read from
+     * Amazon's catalogue rather than inferred from a count. It does not turn acceptance into application; it means the
+     * listing read that proves application can arrive WITH the report instead of as one call per SKU afterwards.
+     */
+    public const INCLUDABLE_DATA = ['summaries', 'attributes', 'issues', 'offers', 'fulfillmentAvailability', 'procurement', 'relationships', 'productTypes'];
+
+    /** The only value in the schema's `header.report.apiVersion` enum. */
+    private const LISTINGS_API_VERSION = '2021-08-01';
 
     /**
      * @param array<string, mixed> $document the body, exactly as it will be uploaded
@@ -58,7 +81,7 @@ final readonly class AmazonListingsFeed
      *
      * @param array<string, array{product_type: string, patches: list<array<string, mixed>>}> $changes keyed by SKU
      */
-    public static function ofPatches(string $sellerId, array $changes, string $issueLocale = 'en_US'): self
+    public static function ofPatches(string $sellerId, array $changes, string $issueLocale = 'en_US', array $includedData = []): self
     {
         if (trim($sellerId) === '') {
             return self::refused('amazon_feed_has_no_seller_id');
@@ -104,8 +127,19 @@ final readonly class AmazonListingsFeed
             ];
         }
 
+        $header = ['sellerId' => $sellerId, 'version' => self::SCHEMA_VERSION, 'issueLocale' => $issueLocale];
+        if ($includedData !== []) {
+            $unknown = array_values(array_diff($includedData, self::INCLUDABLE_DATA));
+            if ($unknown !== []) {
+                return self::refused('amazon_feed_asks_for_data_amazon_does_not_publish:' . implode(',', $unknown));
+            }
+            // BOTH fields are required by the schema's `report` object. Sending `includedData` without `apiVersion` is a
+            // document Amazon's own validator rejects, which would lose the whole feed rather than one message.
+            $header['report'] = ['includedData' => array_values($includedData), 'apiVersion' => self::LISTINGS_API_VERSION];
+        }
+
         return new self([
-            'header' => ['sellerId' => $sellerId, 'version' => self::SCHEMA_VERSION, 'issueLocale' => $issueLocale],
+            'header' => $header,
             'messages' => $messages,
         ], $skuByMessage);
     }

@@ -196,6 +196,17 @@ final readonly class AmazonFeedResult
             return ['accepted' => [], 'refusal' => 'amazon_counted_more_invalid_messages_than_it_named:' . $invalid . '_vs_' . count($failed)];
         }
 
+        // **And the third, which the first two do not catch.** Amazon states `messagesAccepted` as a number of its own, so
+        // the set derived by subtraction has something to be checked against — and it must not exceed it. The case that
+        // slipped through: a report that processes one message, accepts none, and blames a `messageId` this submission never
+        // carried. Both checks above pass (one processed of one sent; one invalid, one named), the unknown id subtracts
+        // nothing, and the SKU comes out accepted while Amazon's own count says nothing was. A report whose issues cannot be
+        // reconciled with its own totals is not a report this submission may act on.
+        $acceptedByAmazon = (int) ($this->summary['messages_accepted'] ?? 0);
+        if (count($accepted) > $acceptedByAmazon) {
+            return ['accepted' => [], 'refusal' => 'amazon_accepted_fewer_messages_than_its_issues_account_for:' . $acceptedByAmazon . '_vs_' . count($accepted)];
+        }
+
         return ['accepted' => $accepted, 'refusal' => null];
     }
 }

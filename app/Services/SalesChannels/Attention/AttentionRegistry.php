@@ -2,6 +2,7 @@
 
 namespace App\Services\SalesChannels\Attention;
 
+use App\Models\AmazonFeedSubmission;
 use App\Models\AmazonReportRun;
 use App\Models\ChannelOrderDispatch;
 use App\Models\ChannelPackageSplit;
@@ -26,7 +27,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * ## Read the `retryable` column before anything else
  *
- * **Nine of the ten sources are not retryable, and that is the point.** For each of them the channel either publishes no
+ * **Ten of the eleven sources are not retryable, and that is the point.** For each of them the channel either publishes no
  * way to ask what became of the request, or the price of assuming wrong is somebody's money: a customer refunded twice, a
  * parcel shipped twice, a payment taken twice, an entry posted twice into a real ledger. So the only actions are to look and
  * to record what was found.
@@ -65,7 +66,7 @@ class AttentionRegistry
     {
         return [
             // ---- returns ------------------------------------------------------------------------------------------
-            // The worst of the ten. Approving refunds a customer and rejecting refuses them, Trendyol documents no
+            // The worst of the eleven. Approving refunds a customer and rejecting refuses them, Trendyol documents no
             // idempotency for either, and -- alone among everything here -- publishes NO WAY TO ASK what became of one
             // claim-item decision. So a fenced row has nothing a machine can do with it, ever.
             new AttentionSource(
@@ -155,6 +156,21 @@ class AttentionRegistry
                 model: AmazonReportRun::class,
                 states: [AmazonReportRun::UNKNOWN],
                 columns: ['reference' => 'report_type', 'account' => 'account_id', 'reason' => 'failure_code', 'detail' => 'failure_detail', 'since' => 'requested_at'],
+                actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
+                retryable: false,
+            ),
+
+            // A bulk listings feed whose outcome nobody knows. **Two different unknowns, one state.** Either Amazon stopped
+            // the feed with FATAL -- its own words: "some, none, or all of the operations within the feed might have
+            // completed successfully" -- or the reply to `createFeed` was lost and a feed carrying up to 25,000 price and
+            // quantity changes may be queued under a number we never saw. Amazon documents no idempotency for `createFeed`,
+            // so nothing here sends it again: a person reads Seller Central and records what they found.
+            new AttentionSource(
+                key: 'amazon_feeds',
+                domain: 'stock',
+                model: AmazonFeedSubmission::class,
+                states: [AmazonFeedSubmission::NEEDS_REVIEW, AmazonFeedSubmission::MAY_HAVE_SUBMITTED],
+                columns: ['reference' => 'amazon_feed_id', 'account' => 'account_id', 'reason' => 'failure_code', 'detail' => 'failure_detail', 'since' => 'submitted_at', 'order' => 'submission_key'],
                 actions: [AttentionSource::OPEN, AttentionSource::REVIEW],
                 retryable: false,
             ),

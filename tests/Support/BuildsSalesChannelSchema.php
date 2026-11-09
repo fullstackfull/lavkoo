@@ -59,6 +59,7 @@ trait BuildsSalesChannelSchema
             '2026_11_17_200000_create_channel_return_decisions_table.php',
             '2026_11_18_100000_create_channel_package_splits_table.php',
             '2026_11_20_100000_create_channel_attention_reviews_table.php',
+            '2026_11_22_100000_create_amazon_feed_submissions_table.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

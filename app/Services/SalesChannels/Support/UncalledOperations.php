@@ -20,8 +20,9 @@ namespace App\Services\SalesChannels\Support;
  *    and the one the matrix used to blur.
  *  - `NEEDS_AN_ACCOUNT` — the code could be written but could not be verified without a real seller account or credentials
  *    nobody here holds, so writing it would be writing against a guess.
- *  - `PARTLY_BUILT` — some of the pieces exist and the operation itself is still not made. Amazon's feeds are the case:
- *    the submission document and the result reader are built and tested, and not one of the five calls is wired.
+ *  - `PARTLY_BUILT` — some of the pieces exist and the operation itself is still not made. Amazon's feeds WERE the case and
+ *    are no longer: the document and the result reader were built with nothing to send them, and `AmazonFeedSubmitter` is
+ *    now that cycle. The kind is kept because it is the honest label the next such case will need.
  *
  * `ChannelOperationHygieneTest` compares this list against a scan of the code. An operation that stops being called without
  * being listed here fails; one listed here that something starts calling fails too. So the list cannot rot in either
@@ -43,18 +44,18 @@ final class UncalledOperations
     public static function all(): array
     {
         return [
-            // ---- Amazon feeds: the pieces exist, the calls do not -------------------------------------------------
-            // The submission document (`AmazonListingsFeed`) and the processing-report reader (`AmazonFeedResult`) are built
-            // and tested against Amazon's published schemas. **Nothing sends one.** What is missing is the four-call flow
-            // (createFeedDocument, the PUT upload, createFeed, poll getFeed, getFeedDocument), somewhere to keep the
-            // `feedId` and the messageId-to-SKU map between those calls, and the fence that stops one feed being submitted
-            // twice. Amazon also states feeds "can take up to eight hours to process" and are "processed sequentially",
-            // against 25,000 Listings Items PATCHes at 5 a second -- so the feed is the cheaper path, not the faster one.
-            'amazon.feeds_create_document' => ['kind' => self::PARTLY_BUILT, 'why' => 'amazon_feed_submission_is_not_wired'],
-            'amazon.feeds_upload' => ['kind' => self::PARTLY_BUILT, 'why' => 'amazon_feed_submission_is_not_wired'],
-            'amazon.feeds_create' => ['kind' => self::PARTLY_BUILT, 'why' => 'amazon_feed_submission_is_not_wired'],
-            'amazon.feeds_get' => ['kind' => self::PARTLY_BUILT, 'why' => 'amazon_feed_submission_is_not_wired'],
-            'amazon.feeds_document' => ['kind' => self::PARTLY_BUILT, 'why' => 'amazon_feed_submission_is_not_wired'],
+            // ---- Amazon feeds: now wired, and so no longer listed here --------------------------------------------
+            //
+            // `amazon.feeds_create_document`, `feeds_upload`, `feeds_create`, `feeds_get`, `feeds_document`, `feeds_list` and
+            // `feed_report_download` were all PARTLY_BUILT: the submission document and the report reader existed and
+            // nothing sent one. `AmazonFeedSubmitter` is that missing cycle -- the five calls in Amazon's published order,
+            // the `amazon_feed_submissions` row that keeps the `feedId` and the messageId-to-SKU map across them, and the
+            // write-ahead fence that stops one batch being queued twice where Amazon documents no idempotency at all.
+            //
+            // They are deliberately NOT replaced with another entry. The path has its own switch
+            // (`sales_channels.amazon.bulk_feeds_enabled`) which ships off, and per-SKU publishing stays the default --
+            // but that is a configuration decision, not an unbuilt operation, and recording a built thing as unbuilt is the
+            // blurring this class exists to stop.
 
             // ---- Amazon notifications: no documentation problem, an infrastructure one ----------------------------
             // There is NO `ORDER_CREATED` notification type at all; `ORDER_CHANGE` is "order status changes and buyer

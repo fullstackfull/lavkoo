@@ -63,6 +63,13 @@ final class AmazonOperations
             'amazon.feeds_create' => Ops::write(['POST'], $publishing, ['price_publishing', 'inventory_publishing']),
             'amazon.feeds_get' => Ops::read(capabilities: $publishing),
             'amazon.feeds_document' => Ops::read(capabilities: $publishing),
+            // Listing Amazon's own feeds: the ONLY honest way back from the fence. A submission whose `createFeed` reply was
+            // lost is identified by looking at what Amazon has, never by submitting again -- so this read is part of the
+            // write path's safety, not a convenience.
+            'amazon.feeds_list' => Ops::read(capabilities: $publishing),
+            // The presigned download of a processing report. A GET of a URL Amazon just handed us; it reaches a bucket rather
+            // than the API, which is why it is registered apart from `feeds_document`.
+            'amazon.feed_report_download' => Ops::read(capabilities: $publishing),
 
             // ---- FBA stock ----
             'amazon.fba_inventory' => Ops::read(capabilities: $read),

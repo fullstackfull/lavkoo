@@ -4,6 +4,7 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\Support\ChannelOperations;
+use App\Services\SalesChannels\Amazon\AmazonFeedSubmitter;
 use App\Services\SalesChannels\Support\UncalledOperations;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -72,15 +73,33 @@ class ChannelOperationHygieneTest extends TestCase
         }
     }
 
-    public function test_amazon_feeds_are_not_claimed_as_built_merely_because_their_pieces_exist(): void
+    public function test_the_amazon_feed_is_claimed_as_built_only_because_every_call_is_actually_made(): void
     {
-        // The submission document and the result reader are built and tested. **That is not the feature.** Five calls carry a
-        // feed and none of them is made, so all five stay declared as partly built -- and the capability matrix keeps saying
-        // `built => false`, which its own guard enforces.
-        foreach (['amazon.feeds_create_document', 'amazon.feeds_upload', 'amazon.feeds_create', 'amazon.feeds_get', 'amazon.feeds_document'] as $operation) {
-            $this->assertSame(UncalledOperations::PARTLY_BUILT, UncalledOperations::kindOf($operation), "'{$operation}' no longer says the feed is unfinished.");
+        // **This test used to assert the opposite**, and that was right at the time: the submission document and the result
+        // reader existed, nothing sent one, and calling that "built" was the blurring these guards exist to stop. The cycle
+        // is built now -- so the guard inverts rather than disappearing, and it checks the thing that was missing: that every
+        // call is really made by code, and not merely registered.
+        //
+        // `test_every_registered_operation_is_called_or_declared_a_gap` is what proves "made by code": an operation nothing
+        // calls must appear in UncalledOperations, so a feed operation absent from both lists would fail there. What is
+        // asserted here is that none of them is declared a gap any more, which is the claim this test's name makes.
+        foreach ([
+            'amazon.feeds_create_document', 'amazon.feeds_upload', 'amazon.feeds_create',
+            'amazon.feeds_get', 'amazon.feeds_document', 'amazon.feeds_list', 'amazon.feed_report_download',
+        ] as $operation) {
+            $this->assertTrue(ChannelOperations::isRegistered($operation), "'{$operation}' is not registered at all.");
+            $this->assertNull(UncalledOperations::kindOf($operation), "'{$operation}' is still declared an unfinished gap.");
         }
-        $this->assertCount(5, UncalledOperations::ofKind(UncalledOperations::PARTLY_BUILT), 'the only partly-built thing here is the Amazon feed');
+
+        // And being built is NOT being on: the path carries its own switch and it ships off. A built operation behind a
+        // switch is a configuration decision, which is why it is asserted here and not recorded as an unbuilt one.
+        $shipped = require base_path('config/sales_channels.php');
+        $this->assertFalse((bool) $shipped['amazon']['bulk_feeds_enabled'], 'the feed path is built AND shipped switched on');
+        $this->assertFalse(AmazonFeedSubmitter::enabled(), 'the live config has the feed path on while nothing asked for it');
+
+        // Nothing else in the registry is left in the state the feed was in. If something is, it is new work that needs its
+        // own reason, not this one.
+        $this->assertSame([], array_keys(UncalledOperations::ofKind(UncalledOperations::PARTLY_BUILT)), 'something is partly built and borrowing the feed\'s old explanation');
     }
 
     public function test_every_write_names_a_capability_and_an_approval_a_person_can_be_asked_for(): void

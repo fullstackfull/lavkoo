@@ -31,7 +31,7 @@ use Tests\TestCase;
  *
  * ## And the rule it exists to enforce
  *
- * **Nothing on this screen sends anything.** Nine of the ten sources are not retryable and the tests below are mostly about
+ * **Nothing on this screen sends anything.** Ten of the eleven sources are not retryable and the tests below are mostly about
  * that: the only sanctioned actions are to look and to record what was found at the channel. The ninth, the stock outbox, may
  * be put back because its publisher recomputes a quantity and compares it with what it last wrote — idempotent by
  * construction, which is a property that can be stated, not a hope.
@@ -172,7 +172,7 @@ class AttentionCollectorTest extends TestCase
     {
         // I wrote "nine sources" in six places and `declared()` has ten. A count in prose that nobody checks is a count that
         // drifts, so it is asserted here against the registry itself.
-        $this->assertCount(10, app(AttentionRegistry::class)->declared());
+        $this->assertCount(11, app(AttentionRegistry::class)->declared());
     }
 
     // ---- what it refuses -----------------------------------------------------------------------------------------
@@ -238,7 +238,7 @@ class AttentionCollectorTest extends TestCase
         $this->assertTrue($result['ok'], (string) $result['refusal']);
         // The operation: UNCHANGED.
         $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state, 'a note settled an ambiguous refund');
-        // The review: kept, in full, where nine of the ten source tables have nowhere to put it.
+        // The review: kept, in full, where ten of the eleven source tables have nowhere to put it.
         $review = ChannelAttentionReview::firstOrFail();
         $this->assertSame(['return_decisions', $id, 9, ChannelAttentionReview::CONFIRMED_AT_CHANNEL, 'TY-REFUND-55120', ChannelAttentionReview::CLOSED], [
             $review->source, (int) $review->source_row_id, (int) $review->reviewed_by, $review->outcome, $review->evidence, $review->alert_state,

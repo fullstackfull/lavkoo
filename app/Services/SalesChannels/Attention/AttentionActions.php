@@ -20,7 +20,7 @@ use Throwable;
  * `acknowledge()` moved a return decision to `done`, a package split to `confirmed` and an Odoo posting to `posted`, on the
  * strength of a typed note. **A sentence is not proof that a customer was refunded, that a parcel was cut, or that a line is
  * in somebody's real ledger.** It was worse than optimistic: the writer silently dropped any column a table did not have,
- * and nine of the ten source tables have no review columns — so the note the screen calls "the record" was thrown away
+ * and ten of the eleven source tables have no review columns — so the note the screen calls "the record" was thrown away
  * together with the reviewer's name, leaving only an audit line whose writer swallows its own failures. The screen could
  * report a settled refund and keep nothing whatever about it.
  *
