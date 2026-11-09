@@ -29,6 +29,12 @@ final class ChannelOperations
     public const AUTH = 'auth';
     public const WRITE = 'write';
 
+    /** The config file whose `enabled` and `external_writes_enabled` govern an operation. One family per integration that has its own policy. */
+    public const SWITCHES_SALES_CHANNELS = 'sales_channels';
+
+    /** Odoo's own, because it is not a sales channel and must not be switched on by one. */
+    public const SWITCHES_ODOO = 'odoo';
+
     public const SCOPE_PRODUCT_WRITES = 'product_writes';
     public const SCOPE_WEBHOOK_MANAGEMENT = 'webhook_management';
     public const SCOPE_NOTIFICATION_MANAGEMENT = 'notification_management';
@@ -50,7 +56,10 @@ final class ChannelOperations
     public static function register(array $operations): void
     {
         foreach ($operations as $name => $entry) {
-            self::$registry[$name] = $entry + ['scopes' => [], 'retrySafe' => $entry['kind'] !== self::WRITE, 'people' => false, 'buyerData' => false];
+            // `switches` names the config file whose master and write switches govern this operation. It defaults to
+            // `sales_channels` so every existing operation keeps the policy it had, and Odoo's accounting operations name their
+            // own -- which is the whole point: turning the channels on must not, by itself, permit a line into somebody's books.
+            self::$registry[$name] = $entry + ['scopes' => [], 'retrySafe' => $entry['kind'] !== self::WRITE, 'people' => false, 'buyerData' => false, 'switches' => self::SWITCHES_SALES_CHANNELS];
         }
     }
 
@@ -71,14 +80,14 @@ final class ChannelOperations
      * @param list<Capability> $capabilities
      * @param array<string, string> $requiredQuery query values that MUST be present, or the call is refused before anything is sent
      */
-    public static function read(array $methods = ['GET'], array $capabilities = self::READ_CAPABILITIES, bool $people = false, array $requiredQuery = [], bool $retrySafe = true, bool $buyerData = false): array
+    public static function read(array $methods = ['GET'], array $capabilities = self::READ_CAPABILITIES, bool $people = false, array $requiredQuery = [], bool $retrySafe = true, bool $buyerData = false, string $switches = self::SWITCHES_SALES_CHANNELS): array
     {
-        return ['kind' => self::READ, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => [], 'retrySafe' => $retrySafe, 'people' => $people || $buyerData, 'requiredQuery' => $requiredQuery, 'buyerData' => $buyerData];
+        return ['kind' => self::READ, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => [], 'retrySafe' => $retrySafe, 'people' => $people || $buyerData, 'requiredQuery' => $requiredQuery, 'buyerData' => $buyerData, 'switches' => $switches];
     }
 
-    public static function auth(array $methods = ['POST']): array
+    public static function auth(array $methods = ['POST'], string $switches = self::SWITCHES_SALES_CHANNELS): array
     {
-        return ['kind' => self::AUTH, 'methods' => $methods, 'capabilities' => [], 'scopes' => [], 'retrySafe' => true, 'people' => true];
+        return ['kind' => self::AUTH, 'methods' => $methods, 'capabilities' => [], 'scopes' => [], 'retrySafe' => true, 'people' => true, 'switches' => $switches];
     }
 
     /**
@@ -86,9 +95,9 @@ final class ChannelOperations
      * @param list<string> $scopes
      * @param array<string, string> $requiredQuery query values that MUST be present (what keeps a validation preview from being sent as a real change)
      */
-    public static function write(array $methods, array $capabilities, array $scopes, bool $retrySafe = false, bool $people = false, array $requiredQuery = []): array
+    public static function write(array $methods, array $capabilities, array $scopes, bool $retrySafe = false, bool $people = false, array $requiredQuery = [], string $switches = self::SWITCHES_SALES_CHANNELS): array
     {
-        return ['kind' => self::WRITE, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => $scopes, 'retrySafe' => $retrySafe, 'people' => $people, 'requiredQuery' => $requiredQuery];
+        return ['kind' => self::WRITE, 'methods' => $methods, 'capabilities' => $capabilities, 'scopes' => $scopes, 'retrySafe' => $retrySafe, 'people' => $people, 'requiredQuery' => $requiredQuery, 'switches' => $switches];
     }
 
     public static function isRegistered(string $operation): bool
@@ -137,6 +146,17 @@ final class ChannelOperations
     public static function describesPeople(string $operation): bool
     {
         return !self::isRegistered($operation) || self::entry($operation)['people'];
+    }
+
+    /**
+     * The config prefix whose switches govern this operation.
+     *
+     * An unregistered operation answers the sales-channel family, which is the strictest reading available: it means the caller
+     * is refused for being unregistered rather than slipping through on a switch nobody checked.
+     */
+    public static function switchesOf(string $operation): string
+    {
+        return self::isRegistered($operation) ? (string) self::entry($operation)['switches'] : self::SWITCHES_SALES_CHANNELS;
     }
 
     public static function readsBuyerData(string $operation): bool

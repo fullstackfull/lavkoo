@@ -55,25 +55,25 @@ final class OdooOperations
             // `version()` on XML-RPC needs no authentication at all, which is what lets the transport be chosen before a
             // credential is used. JSON-2's `GET /web/version` replaces it; whether THAT needs authentication is not stated in
             // Odoo's documentation, so the client is written to cope either way.
-            'odoo.version' => Ops::read(['GET', 'POST'], capabilities: $probe),
-            'odoo.authenticate' => Ops::auth(['POST']),
+            'odoo.version' => Ops::read(['GET', 'POST'], capabilities: $probe, switches: Ops::SWITCHES_ODOO),
+            'odoo.authenticate' => Ops::auth(['POST'], switches: Ops::SWITCHES_ODOO),
 
             // ---- reading what the instance holds ----------------------------------------------------------------
             // `fields_get` and `ir.model` are the documented introspection, and the only way the journal-entry field names are
             // known at all: Odoo's reference documents no page for `account.move`.
-            'odoo.fields_get' => Ops::read(['POST'], capabilities: $read),
-            'odoo.model_list' => Ops::read(['POST'], capabilities: $read),
+            'odoo.fields_get' => Ops::read(['POST'], capabilities: $read, switches: Ops::SWITCHES_ODOO),
+            'odoo.model_list' => Ops::read(['POST'], capabilities: $read, switches: Ops::SWITCHES_ODOO),
             // The chart of accounts, the taxes, the journals, the companies and the currencies a mapping is built from.
-            'odoo.search_read' => Ops::read(['POST'], capabilities: $read),
-            'odoo.search_count' => Ops::read(['POST'], capabilities: $read),
+            'odoo.search_read' => Ops::read(['POST'], capabilities: $read, switches: Ops::SWITCHES_ODOO),
+            'odoo.search_count' => Ops::read(['POST'], capabilities: $read, switches: Ops::SWITCHES_ODOO),
             // THE call that asks whether a posting already landed. It is a read, and it is the one read this integration cannot
             // do without: it is how a retry after an unreadable answer avoids posting the same cost twice.
-            'odoo.search_entry_by_reference' => Ops::read(['POST'], capabilities: $read),
+            'odoo.search_entry_by_reference' => Ops::read(['POST'], capabilities: $read, switches: Ops::SWITCHES_ODOO),
 
             // ---- writing ----------------------------------------------------------------------------------------
             // Creating the DRAFT journal entry. Behind `accounting_posting`, which a master admin records, because this is the
             // one operation in this application that writes into somebody else's ledger.
-            'odoo.create_draft_entry' => Ops::write(['POST'], $read, [Ops::SCOPE_ACCOUNTING_POSTING]),
+            'odoo.create_draft_entry' => Ops::write(['POST'], $read, [Ops::SCOPE_ACCOUNTING_POSTING], switches: Ops::SWITCHES_ODOO),
         ];
     }
 

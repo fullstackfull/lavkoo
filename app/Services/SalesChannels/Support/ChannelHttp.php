@@ -110,8 +110,18 @@ class ChannelHttp
                 throw new ChannelUnavailableException(ChannelUnavailableException::UNREGISTERED_OPERATION, "'{$operation}' is only allowed with {$name}={$value}; nothing was sent.");
             }
         }
-        if (!config('sales_channels.enabled', false)) {
-            throw new ChannelUnavailableException(ChannelUnavailableException::GLOBAL_OFF, 'Sales channel integrations are switched off (SALES_CHANNELS_ENABLED); nothing was sent.');
+        // WHICH MASTER SWITCH GOVERNS THIS CALL IS THE OPERATION'S OWN BUSINESS. Nearly every operation here belongs to the
+        // sales-channel family and reads `sales_channels.enabled`, exactly as before. Odoo's accounting operations name their own
+        // family, so switching the channels on does not, by itself, permit a line to be written into somebody's books -- and
+        // Odoo being on does not switch any channel on either. One mechanism, two policies.
+        $switches = ChannelOperations::switchesOf($operation);
+        if (!config($switches . '.enabled', false)) {
+            throw new ChannelUnavailableException(
+                ChannelUnavailableException::GLOBAL_OFF,
+                $switches === ChannelOperations::SWITCHES_SALES_CHANNELS
+                    ? 'Sales channel integrations are switched off (SALES_CHANNELS_ENABLED); nothing was sent.'
+                    : 'The ' . $switches . ' integration is switched off (' . strtoupper($switches) . '_ENABLED); nothing was sent.',
+            );
         }
         // The caller may have been holding this object for a whole run: what a person switched off since then must stop the very next call.
         if (!$account->refreshGates()) {
@@ -142,7 +152,7 @@ class ChannelHttp
         if ($account->dry_run) {
             return true;
         }
-        if (!config('sales_channels.external_writes_enabled', false)) {
+        if (!config($switches . '.external_writes_enabled', false)) {
             throw new ChannelUnavailableException(ChannelUnavailableException::WRITES_OFF_ENVIRONMENT, 'External writes are off on this host (SALES_CHANNELS_EXTERNAL_WRITES_ENABLED); this integration is read-only and nothing was sent.');
         }
         if (!$account->write_enabled) {

@@ -8,7 +8,9 @@ use App\Http\Controllers\Admin\SalesChannels\Support\ListingLabels;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
+use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
+use App\Services\SalesChannels\Support\ChannelOperations;
 use FilesystemIterator;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
@@ -240,6 +242,141 @@ class AdminSalesChannelsHygieneTest extends AdminSalesChannelsTestCase
 
         $this->assertEqualsCanonicalizing($expanded, ChannelLabels::TRANSLATION_KEYS, 'a family and TRANSLATION_KEYS have drifted apart');
         $this->assertSame(count(ChannelLabels::TRANSLATION_KEYS), count(array_unique(ChannelLabels::TRANSLATION_KEYS)), 'a key is listed twice');
+    }
+
+    /**
+     * Every approval scope that EXISTS has words, a help line and a translation in all three locales.
+     *
+     * The test above compares two lists this repository keeps by hand, so a scope missing from BOTH of them passed it happily --
+     * and the account screen would then write a humanised English placeholder into `resources/lang/{locale}/new-messages.php`
+     * the first time it rendered, which shows English in an Arabic store and dirties the repository.
+     *
+     * This one does not ask the lists. It derives the scopes from where they actually come from: the ones a person can be asked
+     * to approve (`ChannelAccountService::EXTRA_SCOPES`) and the ones any registered operation demands
+     * (`ChannelOperations::scopes()`). A scope that exists in either place and has no words fails here, whether or not anybody
+     * remembered to list it.
+     */
+    public function test_every_approval_scope_that_exists_has_words_and_a_translation_everywhere(): void
+    {
+        $scopes = $this->scopesThatExist();
+        $this->assertNotEmpty($scopes, 'the derivation found no scopes, so it is not checking anything');
+
+        $catalogues = [];
+        foreach (['en', 'sa', 'ae'] as $locale) {
+            $catalogues[$locale] = array_merge(
+                include base_path("resources/lang/{$locale}/messages.php"),
+                include base_path("resources/lang/{$locale}/new-messages.php"),
+            );
+        }
+
+        $missing = [];
+        foreach ($scopes as $scope) {
+            $isCapability = \App\Enums\SalesChannels\IntegrationCapability::tryFrom($scope) !== null;
+            foreach ($this->keysThatGiveAScopeItsWords($scope) as $key) {
+                // `TRANSLATION_KEYS` is the list behind `ChannelLabels::label()`, so only the families it serves belong in it. A
+                // capability's own label and help are listed under their own families and checked by the enum guard, so
+                // demanding them here would demand a duplicate entry.
+                if (!$isCapability && !in_array($key, ChannelLabels::TRANSLATION_KEYS, true)) {
+                    $missing[] = "{$key}: not in ChannelLabels::TRANSLATION_KEYS";
+                }
+                // The translation itself is required either way: this is the check that stops the screen inventing English.
+                foreach ($catalogues as $locale => $catalogue) {
+                    if (!array_key_exists($key, $catalogue)) {
+                        $missing[] = "{$key}: no translation in {$locale}";
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], $missing, 'an approval scope exists with no words for it; the screen would invent English ones at run time');
+    }
+
+    public function test_an_undefined_scope_fails_this_guard_even_when_it_is_absent_from_both_lists(): void
+    {
+        // The negative case, which is the whole reason this test exists. The check above compares two hand-kept lists, so a
+        // scope missing from both satisfied it. Here a scope that exists but is named nowhere is reported -- proved by running
+        // the same derivation against an invented one rather than by trusting the reading above.
+        $invented = 'a_scope_nobody_defined';
+        $this->assertNotContains($invented, $this->scopesThatExist(), 'the invented name must not really exist');
+
+        $complaints = [];
+        foreach ($this->keysThatGiveAScopeItsWords($invented) as $key) {
+            if (!in_array($key, ChannelLabels::TRANSLATION_KEYS, true)) {
+                $complaints[] = "{$key}: not in ChannelLabels::TRANSLATION_KEYS";
+            }
+        }
+
+        // Both the label and the help line, so a scope defined half way is caught as readily as one defined not at all.
+        $this->assertSame(
+            ['approval_scope_' . $invented . ': not in ChannelLabels::TRANSLATION_KEYS', 'approval_scope_help_' . $invented . ': not in ChannelLabels::TRANSLATION_KEYS'],
+            $complaints,
+        );
+    }
+
+    public function test_no_scope_any_operation_demands_is_left_unclassified(): void
+    {
+        // A write names the approval it needs. If an operation demands a scope that a person is never offered, that write can
+        // never be approved and the operation is unreachable -- which is a worse failure than a missing label, because nothing
+        // reports it.
+        // What a person can actually be asked to approve is BOTH lists: the extra scopes, approved on their own through
+        // `approveScope()`, and the write capabilities, whose approval is recorded when the capability is switched on
+        // (`needsApproval()` in `enableCapability()`). A guard that knew only the first would call every existing write
+        // unclassified.
+        $offered = ChannelAccountService::EXTRA_SCOPES;
+        foreach (\App\Enums\SalesChannels\IntegrationCapability::cases() as $capability) {
+            if ($capability->needsApproval()) {
+                $offered[] = $capability->value;
+            }
+        }
+
+        $demanded = [];
+        foreach (ChannelOperations::registered() as $operation) {
+            foreach (ChannelOperations::scopes($operation) as $scope) {
+                $demanded[] = $scope;
+            }
+        }
+
+        $this->assertSame(
+            [],
+            array_values(array_diff(array_unique($demanded), $offered)),
+            'an operation demands an approval nobody can be asked for, so that call can never be made',
+        );
+    }
+
+    /**
+     * The translation keys one scope's words come from — WHICH DEPEND ON THE SCOPE, exactly as `ChannelLabels` decides it.
+     *
+     * A scope whose name is also an `IntegrationCapability` takes the capability's own label and help rather than an
+     * `approval_scope_` pair: `approvalScope()` returns `translate($capability->labelKey())` for those. So demanding an
+     * `approval_scope_inventory_publishing` key would demand one the screen never reads, and a guard that insists on unused keys
+     * teaches people to add noise.
+     *
+     * @return list<string>
+     */
+    private function keysThatGiveAScopeItsWords(string $scope): array
+    {
+        $capability = \App\Enums\SalesChannels\IntegrationCapability::tryFrom($scope);
+
+        return $capability === null
+            ? ['approval_scope_' . $scope, 'approval_scope_help_' . $scope]
+            : [$capability->labelKey(), 'integration_capability_help_' . $capability->value];
+    }
+
+    /**
+     * Where approval scopes really come from, rather than from a list kept by hand.
+     *
+     * @return list<string>
+     */
+    private function scopesThatExist(): array
+    {
+        $scopes = ChannelAccountService::EXTRA_SCOPES;
+        foreach (ChannelOperations::registered() as $operation) {
+            foreach (ChannelOperations::scopes($operation) as $scope) {
+                $scopes[] = $scope;
+            }
+        }
+
+        return array_values(array_unique($scopes));
     }
 
     public function test_a_code_this_version_does_not_know_is_shown_as_it_came_and_never_becomes_a_translation_key(): void
