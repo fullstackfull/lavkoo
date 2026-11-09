@@ -10637,6 +10637,8 @@ return [
 	'order_reason_managed_shipment_cancelled' => 'The provider\'s shipment was cancelled while the order is still open',
 	'order_reason_shipment_not_found' => 'No shipment was found for this order within the waiting time',
 	'approval_scope_buyer_data_transfer' => 'Pass buyer details to a delivery provider',
+	'approval_scope_return_decisions' => 'Decide customer returns',
+	'approval_scope_help_return_decisions' => 'Approving a return refunds the customer and rejecting it refuses them. Its own approval, because it is the only write here that moves money belonging to a customer with no order behind it.',
 	'approval_scope_help_buyer_data_transfer' => 'Allows reading the buyer\'s name, mobile, street and city from this channel at dispatch time and passing them to the delivery provider (Torod Point or M5AZN) so it can deliver. Nothing else about the buyer is read; the details are kept only on the internal order, removed after the shipment is accepted, and never copied to a customer record. Only a master administrator can approve this.',
 	'operational_costs_are_switched_off_banner' => 'Operational costs are switched off: nothing is calculated automatically; see OPERATIONAL_COSTS_ENABLED.',
 	'operational_costs_are_switched_off_help' => 'What a person enters here (contracts, purchase invoices, opening stock, product costs, decisions) is still saved. Fee postings read from the channels are stored and are posted once the module is switched on.',

@@ -207,7 +207,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8.0', 'MariaDB 11.4.2']
-        group: ['sales channels', 'concurrency', 'costs', 'myfatoorah']
+        group: ['sales channels', 'concurrency', 'myfatoorah', 'costs']
         include:
           - engine: MySQL 8.0
             image: mysql:8.0
@@ -220,16 +220,18 @@ jobs:
           - group: sales channels
             paths: tests/Feature/SalesChannels
           - group: concurrency
-            # Split out for the same reason MyFatoorah was, and with the measurement this time: on the other branches the
-            # MySQL 8.0 job carrying SalesChannels + Concurrency reached 105 minutes against the 110-minute ceiling and
-            # reported NOTHING, while MariaDB did the same set in 44 minutes. The costs group shows the ratio plainly (11
-            # minutes on MariaDB, 34 on MySQL), so MySQL is several times slower here rather than stuck.
+            # Split out of the sales-channel group, with MyFatoorah below, because that group could no longer FINISH on MySQL.
             #
-            # A job killed by its own timeout reports NO RESULT, which is worse than a failure: a slow suite looks exactly
-            # like a broken one and the head never shows a complete answer.
+            # Measured across the branches: MariaDB did the whole group in about 40 minutes, while the MySQL 8.0 job reached
+            # 105 minutes against a 110-minute ceiling and reported NOTHING. It is not a hang -- the costs group shows the same
+            # ratio on the same two engines (11 minutes on MariaDB, 34 on MySQL) -- so this engine is several times slower at
+            # this workload and three suites in one job had outgrown it.
             #
-            # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this
-            # job is the only place they run at all.
+            # A job killed by its own timeout reports NO RESULT, which is worse than a failure: a slow suite then looks exactly
+            # like a broken one, and the head never shows a complete answer however often CI is re-run.
+            #
+            # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this job
+            # is the only place they run at all -- the stock, shipment, return-decision and Odoo races included.
             paths: tests/Feature/Concurrency
           - group: myfatoorah
             # Its own job since PR #12. It used to ride along with the sales-channel group, and that group then reached the 110-minute ceiling on MySQL 8 and was cancelled:

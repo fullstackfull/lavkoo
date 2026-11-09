@@ -793,7 +793,9 @@ class TrendyolConnectorTest extends TestCase
 
         $this->assertTrue($matrix['order_v2']['built']);
         $this->assertTrue($matrix['product_v2']['built']);
-        $this->assertFalse($matrix['product_create_update']['built']);
+        // Built in PR-D: create and content-update, both as batches, with the barcode as the identity and the unapproved list read as "it exists" rather than "it is absent".
+        $this->assertTrue($matrix['product_create_update']['built']);
+        $this->assertTrue($matrix['category_requirements']['built']);
         $this->assertFalse($matrix['cancel_unsupplied']['built']);
         $this->assertTrue($matrix['claims_returns']['built'], 'Claims are read; approving or rejecting them is not built.');
         $this->assertFalse($matrix['fulfilment_by_trendyol']['documented']);

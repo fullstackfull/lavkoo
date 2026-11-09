@@ -21,6 +21,14 @@ final readonly class ListingRequirements
      * @param list<string> $required
      * @param list<string> $optional
      * @param array<string, list<string>> $allowedValues field name => the values the channel accepts, where it says so
+     * @param list<string> $alwaysRequired fields the channel requires of EVERY product, whatever its category, taken from the channel's own
+     *                                      documentation because the endpoint we ask about a category does not mention them. Kept apart from
+     *                                      `required` on purpose: a reader must be able to see which fields the channel's API answered for and
+     *                                      which were read in its documentation, since only the first changes when the channel changes.
+     * @param array<string, array<string, mixed>> $channelFields what the CHANNEL needs to be told about a field beyond its name, by field name. Amazon needs nothing: its
+     *                                                          attribute names are what a write carries. Trendyol writes attribute IDS and value ids, so the ids it gave
+     *                                                          with the names are kept here -- a create call cannot be built from names alone, and asking a person to type
+     *                                                          an id instead would be asking them to guess.
      */
     public function __construct(
         public string $productType,
@@ -30,7 +38,37 @@ final readonly class ListingRequirements
         public ?CarbonInterface $readAt = null,
         public bool $unknown = false,
         public string $source = self::FROM_THE_CHANNEL,
+        public array $channelFields = [],
+        public array $alwaysRequired = [],
     ) {
+    }
+
+    /**
+     * The same requirements, plus the fields the channel documents as required of every product.
+     *
+     * A separate step rather than a constructor argument at the mapper, because the mapper's job is to read what the CHANNEL
+     * answered and these did not come from that answer. An unknown stays unknown: a channel that could not be asked tells us
+     * nothing, and adding requirements to that would make a draft look checked when nothing checked it.
+     *
+     * @param list<string> $fields
+     */
+    public function withAlwaysRequired(array $fields): self
+    {
+        if ($this->unknown || $fields === []) {
+            return $this;
+        }
+
+        return new self(
+            productType: $this->productType,
+            required: $this->required,
+            optional: $this->optional,
+            allowedValues: $this->allowedValues,
+            readAt: $this->readAt,
+            unknown: false,
+            source: $this->source,
+            channelFields: $this->channelFields,
+            alwaysRequired: array_values(array_unique([...$this->alwaysRequired, ...$fields])),
+        );
     }
 
     public static function unknown(string $productType = ''): self
@@ -57,7 +95,10 @@ final readonly class ListingRequirements
     public function missingFrom(array $payload): array
     {
         $missing = [];
-        foreach ($this->required as $field) {
+        // Both lists, because a field the channel documents as required of every product is as required as one its category
+        // endpoint named -- and it is the one nothing would otherwise check, which is exactly how a documented requirement
+        // comes to be left out of every call.
+        foreach ([...$this->required, ...$this->alwaysRequired] as $field) {
             $value = $payload[$field] ?? null;
             if ($value === null || $value === '' || $value === []) {
                 $missing[] = $field;
@@ -92,6 +133,7 @@ final readonly class ListingRequirements
         return [
             'product_type' => $this->productType, 'required' => $this->required, 'optional' => $this->optional,
             'allowed_values' => $this->allowedValues, 'unknown' => $this->unknown, 'source' => $this->source,
+            'channel_fields' => $this->channelFields, 'always_required' => $this->alwaysRequired,
         ];
     }
 }

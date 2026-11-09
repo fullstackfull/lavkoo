@@ -43,6 +43,10 @@ class ChannelHttp
      * @param array<string, mixed>|null $json
      * @param array<string, mixed> $query
      * @param array<string, string>|null $form an application/x-www-form-urlencoded body
+     * @param array<string, string>|null $multipart a multipart/form-data body of PLAIN FIELDS ONLY. Some channels document
+     *                                              endpoints that take no other encoding (Trendyol's return rejection, its
+     *                                              invoice file). **No file bytes pass through here**: a document is never put
+     *                                              in a field a logger would then have to be trusted to leave out.
      * @param IntegrationCapability|null $capability the capability the caller is acting under (defaults to the first one the account holds)
      * @param string|null $scope for a write: which approval it relies on
      * @throws ChannelUnavailableException
@@ -58,6 +62,7 @@ class ChannelHttp
         ?array $form = null,
         ?IntegrationCapability $capability = null,
         ?string $scope = null,
+        ?array $multipart = null,
     ): ChannelResponse {
         $method = strtoupper($method);
         $correlationId = (string) Str::uuid();
@@ -65,7 +70,7 @@ class ChannelHttp
 
         if ($dryRun) {
             $response = ChannelResponse::dryRun($correlationId);
-            $this->log($account, $operation, $method, $url, $headers, $json ?? $form, $query, $response);
+            $this->log($account, $operation, $method, $url, $headers, $json ?? $form ?? $multipart, $query, $response);
 
             return $response;
         }
@@ -77,7 +82,7 @@ class ChannelHttp
         while (true) {
             $attempt++;
             $this->limiter->acquire($account->id . ':' . $bucket, $max, $perSeconds);
-            $response = $this->attempt($method, $url, $headers, $json, $query, $form, $correlationId);
+            $response = $this->attempt($method, $url, $headers, $json, $query, $form, $correlationId, $multipart);
 
             $retryable = in_array($response->kind, [ChannelResponse::RATE_LIMITED, ChannelResponse::SERVER_ERROR, ChannelResponse::NOT_SENT, ChannelResponse::AMBIGUOUS], true);
             if (!$retryable || $attempt > $retries) {
@@ -89,7 +94,7 @@ class ChannelHttp
         $response = new ChannelResponse(
             $response->kind, $response->status, $response->json, $response->body, $response->error, $response->durationMs, $correlationId, $response->headers, $attempt,
         );
-        $this->log($account, $operation, $method, $url, $headers, $json ?? $form, $query, $response);
+        $this->log($account, $operation, $method, $url, $headers, $json ?? $form ?? $multipart, $query, $response);
 
         return $response;
     }
@@ -173,8 +178,9 @@ class ChannelHttp
      * @param array<string, mixed>|null $json
      * @param array<string, mixed> $query
      * @param array<string, string>|null $form
+     * @param array<string, string>|null $multipart plain fields only; see `send()`
      */
-    private function attempt(string $method, string $url, array $headers, ?array $json, array $query, ?array $form, string $correlationId): ChannelResponse
+    private function attempt(string $method, string $url, array $headers, ?array $json, array $query, ?array $form, string $correlationId, ?array $multipart = null): ChannelResponse
     {
         $started = hrtime(true);
 
@@ -185,7 +191,16 @@ class ChannelHttp
                 ->timeout((int) config('sales_channels.http.timeout', 30))
                 ->withoutRedirecting();
             $options = [];
-            if ($form !== null) {
+            if ($multipart !== null) {
+                // `asMultipart()` and Guzzle's own `multipart` option: the boundary is Guzzle's to choose, and setting
+                // Content-Type by hand here would override it and produce a body no server can parse.
+                $pending = $pending->asMultipart();
+                $options['multipart'] = array_map(
+                    static fn (string $name, string $value): array => ['name' => $name, 'contents' => $value],
+                    array_keys($multipart),
+                    array_values($multipart),
+                );
+            } elseif ($form !== null) {
                 $pending = $pending->asForm();
                 $options['form_params'] = $form;
             } elseif ($json !== null) {

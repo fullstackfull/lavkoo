@@ -35,6 +35,15 @@ final class ChannelOperations
     /** A master admin's approval to read a buyer's name, phone and address from the channel so that a provider can ship the order. */
     public const SCOPE_BUYER_DATA_TRANSFER = 'buyer_data_transfer';
 
+    /**
+     * A master admin's approval to DECIDE a customer's return at the channel.
+     *
+     * Its own scope because it is the only write in this module that moves a customer's money without an order behind it:
+     * approving a return refunds them, rejecting it refuses them, and neither is a price or a quantity. An account allowed to
+     * publish stock has no business deciding returns, and vice versa.
+     */
+    public const SCOPE_RETURN_DECISIONS = 'return_decisions';
+
     private const READ_CAPABILITIES = [Capability::ReadOnlySync, Capability::ProductSync, Capability::OrderImport, Capability::FinancialReconciliation];
 
     /**

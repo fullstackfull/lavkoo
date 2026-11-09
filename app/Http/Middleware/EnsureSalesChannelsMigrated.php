@@ -31,6 +31,7 @@ class EnsureSalesChannelsMigrated
         '2026_11_13_100000_create_channel_stock_events_table',
         '2026_11_14_100000_add_catalog_match_to_channel_listing_drafts',
         '2026_11_17_100000_create_amazon_report_runs_table',
+        '2026_11_17_200000_create_channel_return_decisions_table',
     ];
 
     public function handle(Request $request, Closure $next): Response

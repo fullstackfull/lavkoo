@@ -40,6 +40,15 @@ return [
         'retry_max_seconds' => 30,
     ],
 
+    // Deciding a customer's return at the channel. One decision per claim item ever (`channel_return_decisions`), recorded
+    // before it is sent, because Trendyol documents no idempotency for either decision and publishes no way to ask what became
+    // of one.
+    'returns' => [
+        // How long a run that claimed a decision and never finished holds it before another may take it. Short, because the
+        // decision itself is already recorded: what is being handed over is only the sending.
+        'claim_minutes' => 10,
+    ],
+
     'logs' => [
         // `channels:prune` (daily) deletes call logs older than this and clears the stored text of old webhook deliveries.
         'retention_days' => 60,
@@ -62,6 +71,11 @@ return [
                 'trendyol.claims_list' => ['max' => 100, 'per_seconds' => 60],
                 'trendyol.finance_settlements' => ['max' => 80, 'per_seconds' => 60],
                 'trendyol.finance_other' => ['max' => 80, 'per_seconds' => 60],
+                // İade Servisleri: approve and reject are each 5 requests a minute, which is the tightest limit Trendyol
+                // publishes anywhere. A screen that let somebody click through a page of returns would hit it, so the pacing
+                // is here rather than in a person's hands.
+                'trendyol.claims_approve' => ['max' => 5, 'per_seconds' => 60],
+                'trendyol.claims_reject' => ['max' => 5, 'per_seconds' => 60],
                 'trendyol.price_inventory_update' => ['max' => 300, 'per_seconds' => 60],
                 'trendyol.products_create' => ['max' => 150, 'per_seconds' => 60],
                 'trendyol.products_update' => ['max' => 150, 'per_seconds' => 60],
@@ -274,6 +288,10 @@ return [
         */
         'product_data' => [
             'images_at_least' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_LEAST', 1),
+            // How many photographs a channel is sent. Trendyol documents "Bir barkod için maksimum 8 adet görsel" -- a maximum
+            // of eight per barcode -- and sending a ninth would have the whole batch refused for a reason a person then has to
+            // decipher from a batch result.
+            'images_at_most' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_MOST', 8),
             'brand_required' => filter_var(env('SALES_CHANNELS_LISTING_BRAND_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
         ],
         // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
