@@ -8,6 +8,7 @@ use App\Models\OdooPosting;
 use App\Models\OperationalCostEntry;
 use App\Models\SalesChannelAccount;
 use App\Services\Accounting\Odoo\OdooOutbox;
+use RuntimeException;
 use App\Services\Accounting\Odoo\OdooPostingRun;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
@@ -174,10 +175,14 @@ class OdooOutboxTest extends TestCase
         $this->assertSame(1, $this->createsSent(), 'exactly one create, ever');
     }
 
-    public function test_a_create_whose_answer_was_lost_and_which_odoo_does_not_hold_may_be_tried_again(): void
+    public function test_a_create_whose_answer_was_lost_is_left_for_a_person_even_when_odoo_says_it_holds_none(): void
     {
-        // Odoo ANSWERED, and it holds no entry with this reference: the create did not land. That is a real answer, so another
-        // attempt is safe -- and it is counted, so a persistent problem does not loop for ever.
+        // **THE STRICT LINE, and it is deliberate.** Odoo answered that it holds no entry with this reference, which looks like
+        // proof the create did not land. It is not: a read can be behind its own write, and Odoo documents neither way. The
+        // owner's rule is that only CONCLUSIVE proof lifts the fence, so this waits for a person rather than being retried.
+        //
+        // The cost is real and worth naming: an Odoo outage during a create now parks rows instead of healing itself. The
+        // alternative is a second entry in somebody's ledger, corrected only by a reversal they have to explain.
         $this->enqueued('10');
         $this->fakeSequence([
             $this->odooXml([]),
@@ -187,12 +192,12 @@ class OdooOutboxTest extends TestCase
 
         $stats = $this->drain();
 
-        $this->assertSame(1, $stats['failed']);
+        $this->assertSame(1, $stats['needs_review']);
         $row = OdooPosting::first();
-        $this->assertSame(OdooPosting::PENDING, $row->state);
-        $this->assertSame('odoo_create_did_not_land', $row->failure_code);
-        $this->assertSame(1, $row->attempts);
-        $this->assertNotNull($row->available_at, 'it waits, then tries again');
+        $this->assertSame(OdooPosting::NEEDS_REVIEW, $row->state);
+        $this->assertSame('odoo_create_outcome_unknown', $row->failure_code);
+        $this->assertStringContainsString('lagging read', (string) $row->failure_detail, 'and the row says WHY it is not proof');
+        $this->assertNull($row->available_at, 'nothing makes it due again');
     }
 
     public function test_a_create_nobody_can_confirm_or_deny_waits_for_a_person_and_no_run_touches_it(): void
@@ -304,6 +309,146 @@ class OdooOutboxTest extends TestCase
         $this->assertSame(1, $stats['failed']);
         $this->assertSame(OdooPosting::PENDING, $row->state);
         $this->assertSame('odoo_could_not_be_asked_before_creating', $row->failure_code);
+        $this->assertSame(0, $this->createsSent());
+    }
+
+    // ---- the crash window: between the request leaving and the answer being recorded ------------------------------
+    //
+    // THE SECOND BLOCKING FINDING ON THIS WORK, and the same one the noon shipments had. The row was marked after `create`
+    // returned, so a run that died in between left it reading `claimed` -- ownership as a state, which says nothing about the
+    // books -- and `reclaimAbandoned()` then set it back to `pending`. The row that had a journal entry somewhere in Odoo came
+    // back looking brand new, and the next run posted the cost again.
+    //
+    // The fence is now written BEFORE the request, ownership lives in the claim columns alone, and giving up a lease never
+    // touches the state.
+
+    public function test_a_run_that_dies_after_odoo_receives_the_create_leaves_no_room_for_a_second_one(): void
+    {
+        $this->enqueued('10');
+        $creates = 0;
+        $this->fakeSequence([
+            $this->odooXml([]),
+            function () use (&$creates) {
+                $creates++;
+                // Odoo has the request. This run stops existing right here, before PHP records anything at all.
+                throw new RuntimeException('the run was killed after the request went out');
+            },
+        ]);
+
+        try {
+            $this->drain();
+            $this->fail('the simulated crash should have propagated');
+        } catch (RuntimeException $died) {
+            $this->assertStringContainsString('killed after the request', $died->getMessage());
+        }
+
+        $this->assertSame(1, $creates, 'Odoo got one create');
+        $this->assertSame(OdooPosting::MAY_HAVE_POSTED, OdooPosting::first()->state, 'and the row knew it BEFORE the request went');
+
+        // The dead run's lease expires, and another run takes the row over. Odoo answers that it holds no such entry -- which a
+        // read behind its own write says as readily as a database that never got the create.
+        $this->travel((int) config('odoo.outbox.claim_minutes') + 1)->minutes();
+        $this->fakeSequence([$this->odooXml([])]);
+
+        $stats = $this->drain();
+
+        $this->assertSame(1, $this->createsSent(), 'ONE create in the whole test -- the one the dying run made, and no second one');
+        $this->assertSame(1, $stats['needs_review']);
+        $this->assertSame(OdooPosting::NEEDS_REVIEW, OdooPosting::first()->state);
+    }
+
+    public function test_a_fenced_row_odoo_turns_out_to_hold_is_resolved_without_a_create(): void
+    {
+        // The happy recovery from the same crash: the entry IS there, so Odoo's own word closes the row and nothing is sent.
+        $this->enqueued('10');
+        $this->fakeSequence([
+            $this->odooXml([]),
+            function () { throw new RuntimeException('killed'); },
+        ]);
+        try {
+            $this->drain();
+        } catch (RuntimeException) {
+        }
+        $this->travel((int) config('odoo.outbox.claim_minutes') + 1)->minutes();
+        $this->fakeSequence([$this->odooXml([['id' => 64, 'ref' => 'x', 'state' => 'draft']])]);
+
+        $stats = $this->drain();
+
+        $this->assertSame(1, $stats['found']);
+        $this->assertSame(64, OdooPosting::first()->odoo_move_id);
+        $this->assertSame(OdooPosting::POSTED, OdooPosting::first()->state);
+        $this->assertSame(1, $this->createsSent(), 'the dying run\'s create, and no other');
+    }
+
+    public function test_giving_up_an_expired_lease_never_clears_what_is_known_about_the_books(): void
+    {
+        // `reclaimAbandoned()` used to set the state back to `pending`. That single line is what turned a crashed run into a
+        // duplicate entry, so it now clears the claim and nothing else.
+        $row = $this->enqueued('10');
+        $outbox = new OdooOutbox();
+        $claimed = $outbox->claim()[0];
+        $outbox->aboutToCreate($claimed);
+        $this->travel((int) config('odoo.outbox.claim_minutes') + 1)->minutes();
+
+        $this->assertSame(1, $outbox->reclaimAbandoned());
+
+        $fresh = OdooPosting::firstOrFail();
+        $this->assertSame(OdooPosting::MAY_HAVE_POSTED, $fresh->state);
+        $this->assertNull($fresh->claimed_by, 'the claim went back');
+        $this->assertTrue($fresh->mayHavePosted());
+    }
+
+    public function test_a_late_settle_from_an_overtaken_run_changes_nothing(): void
+    {
+        // A slow run whose lease ran out, coming back to report. It is speaking about a world it stopped observing, and every
+        // settle is guarded by the run that owns the row, so its word is a no-op.
+        $this->enqueued('10');
+        $slow = new OdooOutbox();
+        $live = new OdooOutbox();
+        $heldBySlow = $slow->claim()[0];
+        $slow->aboutToCreate($heldBySlow);
+        $this->travel((int) config('odoo.outbox.claim_minutes') + 1)->minutes();
+        $heldByLive = $live->claim()[0];
+
+        $slow->posted($heldBySlow, 999);
+        $slow->failed($heldBySlow, 'odoo_refused:400', retry: false, keepFence: false);
+
+        $fresh = OdooPosting::firstOrFail();
+        $this->assertNull($fresh->odoo_move_id, 'the overtaken run did not post anything');
+        $this->assertSame(OdooPosting::MAY_HAVE_POSTED, $fresh->state, 'nor did it clear the fence');
+        $this->assertSame($live->runId(), $fresh->claimed_by);
+    }
+
+    public function test_a_gate_before_the_create_lifts_the_fence_rather_than_parking_the_cost(): void
+    {
+        // The fence is pessimistic, so the cases that PROVE nothing was sent have to lift it. A switch is one: it refuses before
+        // anything leaves this host. Without this, turning writes off would hand every queued cost to a person.
+        $this->enqueued('10');
+        config(['odoo.external_writes_enabled' => false]);
+        $this->fakeSequence([$this->odooXml([])]);
+
+        $stats = $this->drain();
+
+        $this->assertSame('writes_off_environment', $stats['stopped']);
+        $this->assertSame(0, $this->createsSent());
+        $row = OdooPosting::firstOrFail();
+        $this->assertSame(OdooPosting::PENDING, $row->state, 'proof nothing was sent');
+        $this->assertSame(0, $row->attempts, 'and the operator\'s decision cost the row nothing');
+    }
+
+    public function test_a_fenced_row_is_never_created_from_however_many_runs_reach_it(): void
+    {
+        // The invariant, stated as a count: once the fence is up, no number of runs produces a second create.
+        $this->enqueued('10');
+        $outbox = new OdooOutbox();
+        $outbox->aboutToCreate($outbox->claim()[0]);
+        $this->travel((int) config('odoo.outbox.claim_minutes') + 1)->minutes();
+        $this->fakeSequence([$this->odooXml([]), $this->odooXml([]), $this->odooXml([])]);
+
+        $this->drain();
+        $this->drain();
+        $this->drain();
+
         $this->assertSame(0, $this->createsSent());
     }
 
@@ -469,14 +614,32 @@ class OdooOutboxTest extends TestCase
     /** @var list<string> every XML-RPC body the run sent, recorded in the stub because a request that raised a connection failure is never recorded by the client. */
     private array $bodies = [];
 
-    /** @param list<mixed> $answers in the order the run will ask */
+    /** @var list<mixed> what Odoo answers next, in order; replaced between drains rather than re-faked. */
+    private array $answers = [];
+
+    private bool $faked = false;
+
+    /**
+     * What Odoo will answer, in the order the run asks.
+     *
+     * **THE STUB IS REGISTERED ONCE.** `Http::fake()` APPENDS stub callbacks and the first match wins, so a second
+     * `Http::fake([$url => ...])` inside one test is silently the first one -- which made a test here pass for the wrong
+     * reason, by falling through to the empty-queue 503. So the queue is a property and later calls only replace it.
+     *
+     * @param list<mixed> $answers
+     */
     private function fakeSequence(array $answers): void
     {
-        $queue = $answers;
+        $this->answers = $answers;
+        if ($this->faked) {
+            return;
+        }
+        $this->faked = true;
         $this->bodies = [];
-        Http::fake([self::ODOO_OBJECT => function (Request $request) use (&$queue) {
+
+        Http::fake([self::ODOO_OBJECT => function (Request $request) {
             $this->bodies[] = $request->body();
-            $next = array_shift($queue);
+            $next = array_shift($this->answers);
             if ($next === null) {
                 // Nothing left to say: a run that asks more than the test expected should fail visibly rather than read a
                 // repeat of the last answer as a fresh one.

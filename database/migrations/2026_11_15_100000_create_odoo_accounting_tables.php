@@ -81,16 +81,30 @@ return new class extends Migration
                 // Odoo documents no idempotency mechanism of its own -- no external-reference field, no constraint, no upsert.
                 $table->string('odoo_ref', 120)->index()->comment('searched in Odoo before any create; never reused for a different fact');
 
-                // pending  -> waiting its turn
-                // claimed  -> a run holds it
-                // posted   -> Odoo reports the entry (a draft; final posting is a separate, approved step)
-                // failed   -> refused for a reason worth retrying
-                // needs_review -> THE STATE THAT NEVER RETRIES ITSELF: the attempt was cut off and Odoo can neither confirm nor
-                //                 deny the entry. Retrying might post it twice; abandoning it might lose it. A person decides.
-                // dead     -> attempts exhausted
+                // **THE STATE SAYS WHAT HAPPENED TO THE BOOKS; `claimed_by` AND `claimed_at` SAY WHO IS WORKING ON IT.**
+                //
+                // They were one column until a review found the hole that made: ownership as a state (`claimed`) meant a row
+                // being worked read as a row nothing had been posted for, and `reclaimAbandoned()` then set it back to
+                // `pending`. A run that died between `account.move.create` leaving this host and PHP recording the answer left
+                // exactly that, so the next run asked Odoo, read "no such entry" -- which a lagging read says as readily as an
+                // absent entry -- and posted the same cost a second time.
+                //
+                // pending         -> waiting its turn, and nothing has been sent for it
+                // may_have_posted -> a create may be in the books. WRITTEN BEFORE THE REQUEST GOES, so a crash at any later
+                //                    instant still forbids a second create. Such a row may be ASKED about for ever; it may
+                //                    never be created from again by a machine. Only proof that Odoo did not process the
+                //                    request lifts it.
+                // posted          -> Odoo reports the entry (a draft; final posting is a separate, approved step)
+                // failed          -> not posted; with `available_at` it is tried again, without one it waits on a person
+                // needs_review    -> THE STATE THAT NEVER BECOMES DUE: Odoo can neither confirm nor deny the entry. Retrying
+                //                    might post it twice; abandoning it might lose it. A person decides.
+                // dead            -> attempts exhausted, or the fact itself is not postable
                 $table->string('state', 16)->default('pending');
                 $table->unsignedSmallInteger('attempts')->default(0);
                 $table->timestamp('available_at')->nullable()->comment('not worked before this: a retry after a failure');
+                // Ownership, and ownership only. Giving up an expired claim never changes the state above -- which is the fix
+                // the comment on that column records -- and every settle is guarded by `claimed_by`, so a run that was
+                // overtaken cannot write over the row its successor holds.
                 $table->timestamp('claimed_at')->nullable();
                 $table->string('claimed_by', 64)->nullable()->comment('which run holds it, so a run that died can be told from one still working');
                 $table->timestamp('worked_at')->nullable();

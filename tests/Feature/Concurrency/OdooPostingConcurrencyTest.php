@@ -109,6 +109,41 @@ class OdooPostingConcurrencyTest extends TestCase
         $this->assertSame(8, OdooPosting::where('state', OdooPosting::POSTED)->count());
     }
 
+    public function test_a_run_killed_between_the_request_and_the_answer_does_not_become_two_entries(): void
+    {
+        // **THE CRASH WINDOW, with real processes.** A run fences the attempt, Odoo receives `account.move.create`, and the
+        // process ends before it can record anything. Its lease expires, another run takes the row over -- and Odoo answers that
+        // it holds no such entry, which a read behind its own write says as readily as a database that never got the create.
+        //
+        // Before the fence moved ahead of the request, that row read `claimed`, and `reclaimAbandoned()` set it back to
+        // `pending`: brand new, as though nothing had ever been sent. The second run would have posted the cost again.
+        $connection = $this->odooConnection();
+        $this->mapOdooComponent(CostComponent::Shipping->value);
+        app(OdooOutbox::class)->enqueue($this->settledCost('24.50'), self::ODOO_COMPANY);
+
+        $first = ConcurrentRunner::run('odoo.post_same_fact', array_fill(0, 4, [
+            'account' => $connection->id, 'die_after_send' => true,
+        ]));
+
+        $this->assertSame([], $this->problemsOf($first), 'a killed run is reported, not a harness failure');
+        $this->assertSame(1, DB::table('test_odoo_moves')->count(), 'one run sent; the others were told somebody else held the row');
+        $this->assertSame(1, $this->workersWhere($first, static fn (array $r): bool => ($r['died_after_send'] ?? false) === true));
+        $this->assertSame(OdooPosting::MAY_HAVE_POSTED, OdooPosting::firstOrFail()->state, 'and the row knew before the request went');
+
+        // The dead run's lease runs out.
+        OdooPosting::query()->update(['claimed_at' => now()->subMinutes((int) config('odoo.outbox.claim_minutes') + 1)]);
+
+        // Wave two, with Odoo answering "no such entry" for one it is actually holding.
+        $second = ConcurrentRunner::run('odoo.post_same_fact', array_fill(0, 4, [
+            'account' => $connection->id, 'read_lag' => true,
+        ]));
+
+        $this->assertSame([], $this->problemsOf($second));
+        $this->assertSame(1, DB::table('test_odoo_moves')->count(), 'STILL ONE. "No such entry" is not permission to post a cost that may already be in the books.');
+        $this->assertSame(0, $this->workersWhere($second, static fn (array $r): bool => ($r['posted'] ?? 0) > 0), 'nobody created anything');
+        $this->assertSame(OdooPosting::NEEDS_REVIEW, OdooPosting::firstOrFail()->state, 'it waits for a person');
+    }
+
     // ---- fixtures -----------------------------------------------------------------------------------------------
 
     /**

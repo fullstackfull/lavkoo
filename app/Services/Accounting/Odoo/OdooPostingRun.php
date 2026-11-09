@@ -104,6 +104,14 @@ class OdooPostingRun
             return;
         }
 
+        // A FENCED ROW MAY ONLY BE ASKED ABOUT. An earlier attempt's create is unaccounted for -- it died, or its lease ran out
+        // while it was still on the wire -- so this run verifies and never creates, whatever Odoo answers.
+        if ($row->mayHavePosted()) {
+            $this->verifyOnly($row, $connection, 'an earlier create for this reference is unaccounted for', $stats);
+
+            return;
+        }
+
         // THE QUESTION THAT MAKES A RETRY SAFE, asked before anything is written.
         $already = $this->client->entriesByReference($connection, $row->odoo_ref);
         if ($already->ok()) {
@@ -122,7 +130,22 @@ class OdooPostingRun
             return;
         }
 
-        $created = $this->client->createDraft($connection, 'account.move', $result->draft->toValues($preflight));
+        // THE FENCE, AND IT GOES BEFORE THE REQUEST. From here the row durably says an entry may be in the customer's books, so
+        // a run that dies at any later instant leaves a row no machine will create from again.
+        $this->outbox->aboutToCreate($row);
+
+        try {
+            $created = $this->client->createDraft($connection, 'account.move', $result->draft->toValues($preflight));
+        } catch (ChannelUnavailableException | OdooNotConfigured $gate) {
+            // A gate refuses BEFORE anything leaves this host -- a switch, a capability, an approval, a connection not set up --
+            // so nothing was sent and the fence comes down. This catch is deliberately narrow, around the create alone: the same
+            // exception raised by a LATER call (the verification, say, after a capability is withdrawn mid-run) must not lift a
+            // fence that is standing for a create that did go out. `drain()` releases those without touching the state.
+            $this->outbox->release($row, $gate->reason, keepFence: false);
+
+            throw $gate;
+        }
+
         if ($created->ok()) {
             $ids = $created->ids();
             if ($ids !== []) {
@@ -133,46 +156,50 @@ class OdooPostingRun
             }
 
             // A success Odoo gave no id for. The entry may well exist, so this is the ambiguous case, not a failure.
-            $this->afterAnAnswerNobodyCouldRead($row, $connection, 'odoo_created_without_an_id', $stats);
+            $this->verifyOnly($row, $connection, 'odoo_created_without_an_id', $stats);
 
             return;
         }
+        // THE ONLY ROAD BACK FROM THE FENCE, and it takes proof rather than an absence of bad news: Odoo arrived at an answer,
+        // or the request never left this host. Either way nothing was written. A refusal is still not retried by itself, because
+        // repeating it unchanged would be refused again.
         if ($created->isRefusal()) {
-            // Odoo arrived at an answer. Repeating it unchanged would be refused again, so it waits for a person or for a
-            // mapping change rather than burning retries.
-            $this->outbox->failed($row, 'odoo_refused:' . (int) $created->fault->faultCode, $created->fault->faultString, retry: false);
+            $this->outbox->failed($row, 'odoo_refused:' . (int) $created->fault->faultCode, $created->fault->faultString, retry: false, keepFence: false);
             $stats['failed']++;
 
             return;
         }
         if ($created->certainlyDidNotAct()) {
-            $this->outbox->failed($row, 'odoo_create_never_left_this_host', $created->problem);
+            $this->outbox->failed($row, 'odoo_create_never_left_this_host', $created->problem, keepFence: false);
             $stats['failed']++;
 
             return;
         }
 
-        $this->afterAnAnswerNobodyCouldRead($row, $connection, (string) $created->problem, $stats);
+        $this->verifyOnly($row, $connection, (string) $created->problem, $stats);
     }
 
     /**
-     * A create may have landed. Ask Odoo, and only a person decides if that question cannot be answered either.
+     * A create may have landed: **ASK, and never create.**
+     *
+     * One method for both ways a row gets here -- this run's own create came back unreadable, or an earlier run's create is
+     * unaccounted for and this run inherited the fence -- because the question and the rules are identical.
+     *
+     * Odoo holding the entry resolves it. **Anything else waits for a person**, including Odoo answering that it holds no such
+     * entry. That last one is the strict reading, and it is deliberate: a read can be behind its own write, Odoo documents
+     * neither way, and "no entry with this reference" is therefore not conclusive proof that the create was never executed.
+     * The owner's instruction is that only conclusive proof lifts the fence.
+     *
+     * The cost is real and worth stating: any 5xx or lost answer on a create now needs somebody to look, rather than being
+     * retried. The alternative is a second entry in a customer's ledger, which is corrected only by a reversal they have to
+     * explain. An unanswerable question is the one case that stays askable, so a passing outage heals itself.
      *
      * @param array<string, mixed> $stats
      */
-    private function afterAnAnswerNobodyCouldRead(OdooPosting $row, SalesChannelAccount $connection, string $problem, array &$stats): void
+    private function verifyOnly(OdooPosting $row, SalesChannelAccount $connection, string $problem, array &$stats): void
     {
         $check = $this->client->entriesByReference($connection, $row->odoo_ref);
-        if (!$check->ok()) {
-            // Neither confirmed nor denied. NO automatic retry, ever: this is the one state in this module that waits for a
-            // human being.
-            $this->outbox->needsReview($row, 'odoo_create_outcome_unknown', $problem . '; verification: ' . (string) $check->problem);
-            $stats['needs_review']++;
-
-            return;
-        }
-
-        $found = $check->records()[0] ?? null;
+        $found = $check->ok() ? ($check->records()[0] ?? null) : null;
         if ($found !== null) {
             $this->outbox->posted($row, (int) ($found['id'] ?? 0), isset($found['name']) ? (string) $found['name'] : null, verified: true);
             $stats['found']++;
@@ -180,10 +207,14 @@ class OdooPostingRun
             return;
         }
 
-        // Odoo answered, and it holds no entry with this reference: the create did not land. Safe to try again, and the attempt
-        // is counted so a persistent problem does not loop for ever.
-        $this->outbox->failed($row, 'odoo_create_did_not_land', $problem);
-        $stats['failed']++;
+        // EVERYTHING ELSE WAITS FOR A PERSON, and the two cases are named separately in the detail so whoever reads the row can
+        // tell them apart: Odoo could not be asked, or Odoo answered that it holds no such entry. Neither is conclusive proof
+        // that the create was never executed -- a read can be behind its own write -- and the rule here is that only conclusive
+        // proof lifts the fence.
+        $this->outbox->needsReview($row, 'odoo_create_outcome_unknown', $problem . '; ' . ($check->ok()
+            ? 'Odoo answered that it holds no entry with this reference, which a lagging read says as readily as an absent entry.'
+            : 'Odoo could not be asked: ' . (string) $check->problem));
+        $stats['needs_review']++;
     }
 
     /**

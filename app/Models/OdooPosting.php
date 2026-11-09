@@ -26,7 +26,19 @@ class OdooPosting extends Model
 {
     public const PENDING = 'pending';
 
-    public const CLAIMED = 'claimed';
+    /**
+     * **A create may be at Odoo — written BEFORE the request leaves, never after it returns.**
+     *
+     * The same hole the noon shipments had, and it was here too: ownership was a state (`claimed`), so a row being worked read
+     * as a row nothing had been posted for. A run that died between `account.move.create` leaving this host and PHP recording
+     * the answer left exactly that; `reclaimAbandoned()` then made it `pending` again, the next run asked Odoo by the reference,
+     * read "no such entry" -- which a lagging read can say as easily as an absent entry -- and posted the cost a second time
+     * into somebody's books, where a duplicate is corrected only by a reversal somebody has to explain.
+     *
+     * So ownership lives in `claimed_by` and `claimed_at` ALONE, and this state is only ever about the entry. A row carrying it
+     * may be ASKED about for ever; it may never be created again by a machine.
+     */
+    public const MAY_HAVE_POSTED = 'may_have_posted';
 
     /** Odoo reports the entry. A DRAFT: the final posting is a separate, approved step this version does not take. */
     public const POSTED = 'posted';
@@ -68,11 +80,23 @@ class OdooPosting extends Model
         'reviewed_at' => 'datetime',
     ];
 
-    /** Rows a run may take: pending, and due. A `needs_review` row is deliberately not among them. */
+    /**
+     * Rows a run may take: due, not owned by a live run, and in a state that still has something to do.
+     *
+     * `may_have_posted` IS among them, because such a row still has a question to put to Odoo -- and it is the state itself,
+     * not the claim, that stops the run from creating anything. `needs_review` is deliberately not: that one waits for a person
+     * and no amount of time makes it due.
+     *
+     * Ownership is checked here rather than inferred from the state, which is the whole of the fix: a lease expiring frees the
+     * row without changing what is known about the entry.
+     */
     public function scopeDue(Builder $query): Builder
     {
-        return $query->where('state', self::PENDING)
-            ->where(fn (Builder $inner): Builder => $inner->whereNull('available_at')->orWhere('available_at', '<=', now()));
+        $cutoff = now()->subMinutes(max(1, (int) config('odoo.outbox.claim_minutes', 15)));
+
+        return $query->whereIn('state', [self::PENDING, self::MAY_HAVE_POSTED])
+            ->where(fn (Builder $inner): Builder => $inner->whereNull('available_at')->orWhere('available_at', '<=', now()))
+            ->where(fn (Builder $inner): Builder => $inner->whereNull('claimed_by')->orWhere('claimed_at', '<', $cutoff));
     }
 
     /** True once Odoo has reported an entry for this row: it is never created again, by anybody. */
@@ -81,12 +105,28 @@ class OdooPosting extends Model
         return $this->state === self::POSTED && $this->odoo_move_id !== null;
     }
 
+    /**
+     * True while a run owns this row.
+     *
+     * It reads the claim and NOTHING ELSE. Tying it to the state is what let a row being worked look like a row with no create
+     * behind it.
+     */
     public function claimIsLive(): bool
     {
-        if ($this->state !== self::CLAIMED || $this->claimed_at === null) {
+        if ($this->claimed_by === null || $this->claimed_at === null) {
             return false;
         }
 
         return $this->claimed_at->gt(now()->subMinutes(max(1, (int) config('odoo.outbox.claim_minutes', 15))));
+    }
+
+    /**
+     * True once a create may have reached Odoo: from here a run may ASK about the entry and may never create it again.
+     *
+     * It survives an expired lease, a crash and a takeover, because it is a fact about the books rather than about a process.
+     */
+    public function mayHavePosted(): bool
+    {
+        return $this->state === self::MAY_HAVE_POSTED;
     }
 }

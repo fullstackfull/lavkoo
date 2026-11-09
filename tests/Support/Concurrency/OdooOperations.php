@@ -11,6 +11,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 
 /** The operations of the Odoo posting concurrency tests (tests/Feature/Concurrency/OdooPostingConcurrencyTest.php). */
 final class OdooOperations
@@ -29,14 +30,16 @@ final class OdooOperations
      * `lose_the_answer` makes the create insert the row and THEN throw, which is the dangerous case: the entry exists and no
      * worker can see that it does. The right outcome is still one row, and a posting row left for a person.
      *
-     * @param array{account: int, lose_the_answer?: bool} $args
-     * @return array{claimed: int, posted: int, found: int, failed: int, needs_review: int, not_postable: int, stopped: string|null}
+     * @param array{account: int, lose_the_answer?: bool, die_after_send?: bool, read_lag?: bool} $args
+     * @return array<string, mixed>
      */
     public static function postSameFact(array $args): array
     {
         $connection = SalesChannelAccount::findOrFail($args['account']);
         config(['odoo.enabled' => true, 'odoo.external_writes_enabled' => true, 'odoo.draft_creation_enabled' => true]);
         $loseTheAnswer = (bool) ($args['lose_the_answer'] ?? false);
+        $dieAfterSend = (bool) ($args['die_after_send'] ?? false);
+        $readLag = (bool) ($args['read_lag'] ?? false);
 
         Http::preventStrayRequests();
         Http::fake(['*/xmlrpc/2/object' => static function (Request $request) use ($loseTheAnswer) {
@@ -44,6 +47,11 @@ final class OdooOperations
             $reference = preg_match('/<string>(PKSA-COST-[^<]+)<\/string>/', $body, $matches) === 1 ? $matches[1] : '';
 
             if (str_contains($body, '<string>search_read</string>')) {
+                if ($readLag) {
+                    // Odoo's read is behind its own write. It documents neither way, so this is a shape the code has to survive
+                    // rather than one it may rule out.
+                    return Http::response(self::response('<array><data/></array>'));
+                }
                 $held = DB::table('test_odoo_moves')->where('reference', $reference)->first();
 
                 return Http::response(self::response($held === null
@@ -58,6 +66,11 @@ final class OdooOperations
             $moveId = DB::table('test_odoo_moves')->insertGetId([
                 'reference' => $reference, 'move_id' => random_int(1000, 99999), 'created_by' => getmypid(),
             ]);
+            if ($dieAfterSend) {
+                // Odoo has the entry and this process ends here, before PHP records anything. Whatever the database already
+                // says is all anybody will ever know -- which is why the fence has to be written before this point.
+                throw new RuntimeException('the run was killed after the request went out');
+            }
             if ($loseTheAnswer) {
                 throw new ConnectionException('cURL error 28: Operation timed out after 30001 milliseconds');
             }
@@ -65,7 +78,13 @@ final class OdooOperations
             return Http::response(self::response('<int>' . $moveId . '</int>'));
         }]);
 
-        return app(OdooPostingRun::class)->drain($connection, self::preflight());
+        try {
+            return app(OdooPostingRun::class)->drain($connection, self::preflight());
+        } catch (RuntimeException $died) {
+            // Reported rather than swallowed: the harness needs a line from every worker, and the test needs to know which of
+            // them got as far as sending.
+            return ['claimed' => 1, 'posted' => 0, 'found' => 0, 'failed' => 0, 'needs_review' => 0, 'not_postable' => 0, 'stopped' => null, 'died_after_send' => true];
+        }
     }
 
     private static function response(string $value): string
