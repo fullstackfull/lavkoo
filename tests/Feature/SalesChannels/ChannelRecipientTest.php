@@ -237,10 +237,17 @@ class ChannelRecipientTest extends TestCase
 
     public function test_the_connection_test_and_every_ordinary_read_still_need_no_buyer_approval(): void
     {
-        $this->assertTrue(ChannelOperations::readsBuyerData('amazon.order_recipient'));
-        $this->assertTrue(ChannelOperations::readsBuyerData('trendyol.order_recipient'));
+        // One per channel that can name a buyer, and NOTHING else. noon's is the newest: its `customer-details/get` returns a person's first and last name, so it belongs
+        // behind the same gate as the other two even though noon publishes no address with it.
+        foreach (['amazon.order_recipient', 'trendyol.order_recipient', 'noon.fbpi_order_customer_data'] as $operation) {
+            $this->assertTrue(ChannelOperations::readsBuyerData($operation), "{$operation} reads a person and must need the buyer-data gate");
+        }
         $others = array_filter(ChannelOperations::registered(), static fn (string $operation): bool => ChannelOperations::readsBuyerData($operation));
-        $this->assertEqualsCanonicalizing(['amazon.order_recipient', 'trendyol.order_recipient'], array_values($others), 'only the two recipient reads need the buyer-data gate');
+        $this->assertEqualsCanonicalizing(
+            ['amazon.order_recipient', 'trendyol.order_recipient', 'noon.fbpi_order_customer_data'],
+            array_values($others),
+            'only the recipient reads need the buyer-data gate: an ordinary read that acquired it would be asking a person\'s permission for nothing, and a buyer read that lost it would send a name out ungated',
+        );
     }
 
     public function test_the_buyer_data_approval_is_one_a_person_can_record_on_the_account(): void
