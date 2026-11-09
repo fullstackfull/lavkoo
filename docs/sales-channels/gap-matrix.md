@@ -12,6 +12,9 @@
 | **Noon** | **مبني في PR-E**: موصّل وحالة في الـenum وإعدادات وعمليات مسجّلة، ومخزون وأسعار وكتالوج وطلبات وشحنات ومرتجعات | انظر القسم 4 |
 | رفع منتج من المتجر إلى قناة | **مبني لـAmazon وNoon** (مسودة ← ما تطلبه القناة ← بوابات ← كتابة ← قبول/رفض)، ومطفأ افتراضيًا؛ وTrendyol يرفض صريحًا `channel_cannot_create_listings` | `Listings/*`، `Amazon/AmazonConnector::putListing()`، [listings.md](listings.md) |
 | محاسبة Odoo | **غير مبنية**: عقد `AccountingDestination` + وجهة لا تُرسل شيئًا | `Accounting/NullAccountingDestination.php`، `Providers/SalesChannelsServiceProvider.php` |
+| **Noon** | **غير مبني بالكامل**: لا موصّل ولا حالة في الـenum ولا إعداد ولا عمليات مسجّلة | — |
+| رفع منتج من المتجر إلى قناة | **مبني لـAmazon في هذه الجولة** (مسودة ← ما تطلبه القناة ← بوابات ← `putListingsItem` ← قبول/رفض)، ومطفأ افتراضيًا؛ وTrendyol وNoon يرفضان صريحًا `channel_cannot_create_listings` | `Listings/*`، `Amazon/AmazonConnector::putListing()`، [listings.md](listings.md) |
+| محاسبة Odoo | **مبنية على هذا الفرع ومطفأة بالكامل**: نقلٌ يُكتشف (XML-RPC و JSON-2)، فحصٌ يقرأ النسخة ولا يفترضها، ربط دليل حسابات بموافقة، بانٍ للمسوّدات بسبع رفضات مُسمّاة، صندوق صادر بسياجٍ يُكتب قبل الطلب، عكسٌ ومرتجعات، مطابقة ثلاثية، وأربع شاشات. **ولا شيء منها يُرسل**: أربعة مفاتيح مطفأة (`config/odoo.php`) وموافقة مسجَّلة، والترحيل النهائي غير مبني أصلًا (Odoo لا توثّق طريقته) | `app/Services/Accounting/Odoo/*`، [odoo-accounting.md](odoo-accounting.md) |
 | مزوّد التنفيذ لكل منتج | مبني (عمود `products.fulfillment_provider` وخدمة واحدة تكتبه) | `Fulfillment/ProductProviderAssignmentService.php` |
 | مزوّد التنفيذ **لكل متغيّر/SKU** | غير مبني: الإسناد لكل منتج؛ و`provider_product_mappings` ربط لا إسناد | نفس الملف + `Models/ProviderProductMapping.php` |
 | سياسات مصدر المخزون لكل حساب/منتج | الجدول موجود ويُقرأ، **ولا شيء يُنشئ صفوفه** (لا شاشة ولا أمر) | `inventory_source_policies`، `Inventory/Allocation/PoolAllocationService.php` |
@@ -127,9 +130,23 @@
 | fail-closed عند تقادم المخزون أو نقص استيراد الطلبات | **مبني** | `Allocation/OrderFreshness.php`، `StockAvailability::isPublishable()` |
 | تحديث محلي فوري (المتجر) | مبني بقدر دورة مزامنة المزوّد (30 دقيقة افتراضيًا، أدناها 5) | `operations.md` → *The storefront's side of a provider's shelf* |
 
-## 6. Odoo (PR-F) — غير مبني، وقيد المالك ملزم
+## 6. Odoo (PR-F) — مبني ومطفأ، وقيد المالك ملزم
 
-انظر [odoo-accounting.md](odoo-accounting.md): وحدة `OperationalCosts` تبقى المحرك الوحيد للتكلفة وFIFO والعمولات والربحية، وOdoo سجلّ محاسبي فقط.
+انظر [odoo-accounting.md](odoo-accounting.md): وحدة `OperationalCosts` تبقى المحرك الوحيد للتكلفة وFIFO والعمولات والربحية، وOdoo سجلّ محاسبي فقط. **ولا سطر واحد يُحسب هنا:** كل مبلغ يُرحَّل **يُقرأ** من `operational_cost_entries`.
+
+| المطلوب | الحالة | الملفات |
+|---|---|---|
+| اتصال ومصادقة | مبني: النقل **يُكتشف** من نسخة الخادم لا يُفترض، و`version` على XML-RPC لا يحتاج مصادقة فيُختار النقل قبل استعمال أي مفتاح | `OdooTransport.php`، `OdooClient::discover()` |
+| فحص الصلاحيات والشركة والعملة | مبني بما **يُمكن** فحصه: `ir.model` و`fields_get` والشركة والعملات والحسابات والضرائب والدفاتر عددًا. **ولا يدّعي صلاحية كتابة**: Odoo لا توثّق سؤالًا عنها، فالفحص يقول ما قرأه لا ما سيُسمح به | `OdooPreflightRun.php` |
+| ربط دليل الحسابات والضرائب | مبني، **وبموافقة**: رِبطٌ لم يُعتمد لا يُرحَّل منه، وغير المربوط **رفضٌ مُسمّى** لا حساب احتياطي | `OdooAccountMap.php`، `odoo_account_mappings` |
+| العملات | مبنية: معرّفات `res.currency` **تُقرأ** من النسخة و**تُثبَت** بعملة الشركة نفسها قبل استعمالها؛ والعملة التي لا تعرضها النسخة **تُرفض باسمها** (`odoo_currency_not_in_this_instance:<ccy>`) ولا تُرحَّل بقيمتها المحوّلة مع إسقاط الأصل | `OdooPreflightRun::currencies()`، `OdooDraftBuilder::foreignCurrencyOf()` |
+| مولّد القيود | مبني: مسوّدة واحدة لواقعة واحدة، سبع رفضات مُسمّاة، وأسماء الحقول من النسخة نفسها | `OdooDraftBuilder.php` |
+| صندوق الصادر | مبني: مفتاح فريد لكل (مصدر، نسخة)، حجزٌ مشروط، سؤالٌ لـOdoo بالمرجع قبل كل إنشاء، **وسياج يُكتب قبل الطلب** | `OdooOutbox.php`، `OdooPostingRun.php` |
+| العكس المحاسبي والمرتجعات | مبني: الرابط **يُقرأ** من الدفتر ولا يُستنتج، ولا يسبق العكسُ ما يعكسه، و`write`/`unlink` خارج قائمة العمليات | `OdooUndoLink.php`، `OdooUndoLinks.php` |
+| المطابقة الثلاثية | مبنية: ثلاثة أرقام لمدّة واحدة، وفرقٌ يُعرض ولا يُغلق، و**null ليس صفرًا** | `OdooThreeWayReconciliation.php`، `odoo:reconcile` |
+| الشاشات | أربع: الاتصال، الربط، الصندوق (بما فيه ما ينتظر شخصًا)، المطابقة | `Admin/Accounting/Odoo*Controller.php` |
+| **الترحيل النهائي (مسوّدة ← مُرحَّل)** | **غير مبني، وفجوة معلنة**: Odoo لا توثّق طريقة ولا كتابة `state`، ومفتاحه موجود مطفأ | `config/odoo.php` → `final_posting_enabled` |
+| جسم طلب `create` على JSON-2 | **فجوة معلنة**: صفحة 19.0 لم تُقرأ نصًّا، فالنقل يرفض الكتابة باسمها بدل أن يخمّن شكل الجسم | `OdooNotConfigured::JSON2_REQUEST_NOT_DOCUMENTED` |
 
 ## 7. اللوحة والمراقبة (PR-G)
 

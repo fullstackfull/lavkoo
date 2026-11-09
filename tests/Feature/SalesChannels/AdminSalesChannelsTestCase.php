@@ -4,7 +4,6 @@ namespace Tests\Feature\SalesChannels;
 
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Support\ChannelOperations;
-use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Support\Facades\URL;
 use Tests\Support\CreatesChannelRecords;
 
@@ -28,25 +27,6 @@ abstract class AdminSalesChannelsTestCase extends AdminPagesTestCase
         URL::forceScheme('https');
     }
 
-    /** @return list<string> the text of the toasts the last request flashed */
-    protected function flashedToasts(): array
-    {
-        return array_map(static fn (array $toast): string => (string) ($toast['message'] ?? ''), array_values((array) session('laravel-toaster-magic::messages', [])));
-    }
-
-    /** Text that came from a service or a channel is escaped by SafeToast, so it is looked for as it was typed and as it is shown. */
-    protected function assertToastContains(string $needle, string $message = ''): void
-    {
-        $toasts = implode(' | ', $this->flashedToasts());
-
-        $this->assertTrue(str_contains($toasts, $needle) || str_contains($toasts, e($needle)), $message ?: "no toast says '{$needle}'; the toasts were: {$toasts}");
-    }
-
-    /** The toast library keeps its queue in a singleton, which lives as long as the test does; a real request starts with an empty one. */
-    protected function forgetToasts(): void
-    {
-        ToastMagic::clear();
-    }
 
     protected function assertNoSecretIn(string $text, string $where): void
     {

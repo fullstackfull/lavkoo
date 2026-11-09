@@ -37,6 +37,21 @@ final class ChannelLabels
             'order_pending', 'order_awaiting_review', 'order_delivered', 'order_cancelled', 'order_returned', 'order_failed',
             'rate_limited', 'buyer_data_off', 'setting_missing', 'another_attempt_running',
         ],
+        /*
+        | The Odoo accounting screens' own codes.
+        |
+        | They live here rather than in a class of their own because this is where the translation guard and the hygiene guard
+        | already look, and a second home for label families is a second place to forget. Odoo is not a sales channel; its words
+        | are simply kept with the others.
+        */
+        // What the outbox says about one fact. `may_have_posted` is the one that matters: a create may be in the customer's
+        // books, so nothing creates from that row again.
+        'odoo_posting_state_' => ['pending', 'may_have_posted', 'posted', 'failed', 'needs_review', 'dead'],
+        // Which of Odoo's two external APIs an instance was DISCOVERED to speak. `OdooTransport::labelKey()` builds these.
+        'odoo_transport_' => ['json2', 'xmlrpc', 'unknown'],
+        // What a mapping row maps: one of our cost components, or the account that balances it.
+        'odoo_fact_kind_' => ['cost_component', 'counterpart'],
+
         'sync_resource_' => ['orders', 'returns', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'],
         'run_stat_' => [
             'pages', 'created', 'updated', 'unchanged', 'stale', 'needs_review', 'skipped', 'decisions', 'linked', 'suggested', 'conflicts', 'unseen', 'stored', 'unlinked',
@@ -61,8 +76,11 @@ final class ChannelLabels
         'price_source_' => ['internal', 'channel', 'manual'],
         'stock_share_mode_' => ['fixed', 'percent', 'priority'],
         'price_source_help_' => ['internal', 'channel', 'manual'],
-        'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer', 'return_decisions'],
-        'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer', 'return_decisions'],
+        // Every approval a master admin can record, from all four integrations. Two of them were added on separate branches
+        // and each is its own decision: `return_decisions` moves a customer's money, `accounting_posting` writes into
+        // somebody's books, and neither belongs inside the other or inside `product_writes`.
+        'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer', 'return_decisions', 'accounting_posting'],
+        'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer', 'return_decisions', 'accounting_posting'],
         'dispatch_state_' => ['claimed', 'blocked', 'materialized', 'accepted', 'failed', 'cancelled'],
         'dispatch_reason_' => ['payment_method_unknown', 'database_error', 'orders_table_not_supported', 'managed_dispatch_off', 'buyer_data_transfer_off', 'account_off', 'dispatch_capability_off', 'buyer_data_approval_missing', 'shipments_are_created_by_the_provider_directly', 'shipment_creation_not_declared', 'already_dispatched', 'shipment_already_known', 'order_not_open', 'fulfilment_not_ours', 'cash_on_delivery_not_supported', 'destination_not_supported', 'currency_not_supported', 'no_routing_decision_to_one_provider', 'no_active_lines', 'line_without_product', 'product_not_physical', 'product_owned_by_other_provider', 'provider_mapping_not_approved', 'claim_lost', 'provider_changed', 'recipient_incomplete', 'audit_not_written', 'order_number_busy', 'attempts_exhausted', 'channel_cannot_give_the_recipient', 'order_not_found_at_channel', 'not_shipped_by_the_seller', 'recipient_not_permitted', 'channel_error', 'channel_buyer_data_off', 'channel_not_approved', 'channel_account_off', 'channel_capability_off', 'channel_global_off', 'channel_auth_needed', 'buyer_data_expired'],
         'dispatch_problem_' => ['name_missing', 'phone_missing', 'phone_not_a_saudi_mobile', 'address_missing', 'city_missing', 'country_not_supported'],
@@ -103,6 +121,10 @@ final class ChannelLabels
         'channel_reason_channel_did_not_confirm', 'channel_reason_channel_refused_repeatedly', 'channel_reason_channel_notify_error', 'channel_reason_order_pending', 'channel_reason_order_awaiting_review',
         'channel_reason_order_delivered', 'channel_reason_order_cancelled', 'channel_reason_order_returned', 'channel_reason_order_failed',
         'channel_reason_rate_limited', 'channel_reason_buyer_data_off', 'channel_reason_setting_missing', 'channel_reason_another_attempt_running',
+        'odoo_posting_state_pending', 'odoo_posting_state_may_have_posted', 'odoo_posting_state_posted', 'odoo_posting_state_failed',
+        'odoo_posting_state_needs_review', 'odoo_posting_state_dead',
+        'odoo_transport_json2', 'odoo_transport_xmlrpc', 'odoo_transport_unknown',
+        'odoo_fact_kind_cost_component', 'odoo_fact_kind_counterpart',
         'sync_resource_orders', 'sync_resource_returns', 'sync_resource_listings', 'sync_resource_inventory', 'sync_resource_finances', 'sync_resource_publish_stock', 'sync_resource_publish_price',
         'run_stat_pages', 'run_stat_created', 'run_stat_updated', 'run_stat_unchanged', 'run_stat_stale', 'run_stat_needs_review', 'run_stat_skipped', 'run_stat_decisions',
         'run_stat_linked', 'run_stat_suggested', 'run_stat_conflicts', 'run_stat_unseen', 'run_stat_stored', 'run_stat_unlinked', 'run_stat_new', 'run_stat_duplicates',
@@ -128,9 +150,9 @@ final class ChannelLabels
         'stock_share_mode_fixed', 'stock_share_mode_percent', 'stock_share_mode_priority',
         'price_source_help_internal', 'price_source_help_channel', 'price_source_help_manual',
         'approval_scope_product_writes', 'approval_scope_webhook_management', 'approval_scope_notification_management', 'approval_scope_buyer_data_transfer',
-        'approval_scope_return_decisions',
+        'approval_scope_return_decisions', 'approval_scope_accounting_posting',
         'approval_scope_help_product_writes', 'approval_scope_help_webhook_management', 'approval_scope_help_notification_management', 'approval_scope_help_buyer_data_transfer',
-        'approval_scope_help_return_decisions',
+        'approval_scope_help_return_decisions', 'approval_scope_help_accounting_posting',
         'dispatch_state_claimed',
         'dispatch_state_blocked',
         'dispatch_state_materialized',

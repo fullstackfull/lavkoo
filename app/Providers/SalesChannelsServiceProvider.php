@@ -64,5 +64,8 @@ class SalesChannelsServiceProvider extends ServiceProvider
 
         Route::middleware('web')->group(base_path('routes/admin/sales-channels.php'));
         Route::middleware('web')->group(base_path('routes/admin/operational-costs.php'));
+        // Odoo is not a sales channel; its screens live behind the operational-costs module, because Odoo is where that
+        // ledger's settled figures go. They are registered here because this is where this module's routes are registered.
+        Route::middleware('web')->group(base_path('routes/admin/odoo-accounting.php'));
     }
 }

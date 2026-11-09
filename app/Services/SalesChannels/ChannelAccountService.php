@@ -37,7 +37,7 @@ class ChannelAccountService
     public const CONNECTION_FRESH_DAYS = 30;
 
     /** Approvals a person can record besides the write capabilities themselves. */
-    public const EXTRA_SCOPES = [ChannelOperations::SCOPE_PRODUCT_WRITES, ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT, ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT, ChannelOperations::SCOPE_BUYER_DATA_TRANSFER];
+    public const EXTRA_SCOPES = [ChannelOperations::SCOPE_PRODUCT_WRITES, ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT, ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT, ChannelOperations::SCOPE_BUYER_DATA_TRANSFER, ChannelOperations::SCOPE_ACCOUNTING_POSTING];
 
     /** The capability each of those approvals belongs to: switching the capability off withdraws the approval with it. */
     private const SCOPE_CAPABILITY = [
@@ -45,6 +45,8 @@ class ChannelAccountService
         ChannelOperations::SCOPE_WEBHOOK_MANAGEMENT => IntegrationCapability::OrderImport,
         ChannelOperations::SCOPE_NOTIFICATION_MANAGEMENT => IntegrationCapability::OrderImport,
         ChannelOperations::SCOPE_BUYER_DATA_TRANSFER => IntegrationCapability::FulfillmentDispatch,
+        // Posting belongs to reconciliation: an account that does not reconcile its finances has no business writing entries.
+        ChannelOperations::SCOPE_ACCOUNTING_POSTING => IntegrationCapability::FinancialReconciliation,
     ];
 
     public function __construct(

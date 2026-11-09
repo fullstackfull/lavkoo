@@ -242,7 +242,11 @@ jobs:
             # switched off by an earlier test, and REPEATABLE READ hiding a sibling's just-committed row from a plain SELECT.
             paths: tests/Feature/MyFatoorah tests/Unit/MyFatoorah
           - group: costs
-            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Feature/CiDatabaseTest.php
+            # tests/*/Accounting is the Odoo posting, which belongs with the cost ledger it reads from. It runs on a real engine
+            # because its whole job is uniqueness: a NULL is never equal to another NULL in a unique index, so a mapping or a
+            # reconciliation row that means "every channel" can only be kept single by a sentinel value the index can compare --
+            # and that is a property of the engine, not of the code, so SQLite agreeing proves nothing about MySQL.
+            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Unit/Accounting tests/Feature/Accounting tests/Feature/CiDatabaseTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
