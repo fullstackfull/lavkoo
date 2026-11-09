@@ -48,11 +48,13 @@ class OdooPostingRun
     /**
      * Works one batch.
      *
-     * @return array{claimed: int, posted: int, found: int, failed: int, needs_review: int, not_postable: int, stopped: string|null}
+     * @return array{claimed: int, posted: int, found: int, failed: int, needs_review: int, not_postable: int, lost_the_row: int, stopped: string|null}
      */
     public function drain(SalesChannelAccount $connection, OdooPreflight $preflight, int $limit = 50): array
     {
-        $stats = ['claimed' => 0, 'posted' => 0, 'found' => 0, 'failed' => 0, 'needs_review' => 0, 'not_postable' => 0, 'stopped' => null];
+        // `lost_the_row` is a run that found the row taken from under it between claiming and fencing: nothing was sent and
+        // nothing was written, which is a different outcome from a failure and is counted as its own.
+        $stats = ['claimed' => 0, 'posted' => 0, 'found' => 0, 'failed' => 0, 'needs_review' => 0, 'not_postable' => 0, 'lost_the_row' => 0, 'stopped' => null];
         $this->outbox->reclaimAbandoned();
 
         $rows = $this->outbox->claim($limit);
@@ -81,6 +83,22 @@ class OdooPostingRun
     /** @param array<string, mixed> $stats */
     private function work(OdooPosting $row, SalesChannelAccount $connection, OdooPreflight $preflight, array &$stats): void
     {
+        // **THE FENCE IS READ FIRST, BEFORE ANY JUDGEMENT ABOUT THE SOURCE.**
+        //
+        // It used to be read after. That meant a fenced row whose ledger entry had since been deleted was marked `dead` with
+        // `source_row_is_gone`, and a fenced row whose figure had been corrected was marked `dead` with
+        // `source_version_superseded` -- in both cases burying an `account.move.create` that may be sitting in the customer's
+        // books. A row in the `dead` pile is a row nobody is looking for, and the entry it hid would be found by an accountant
+        // rather than by us.
+        //
+        // What our own ledger now says about the fact cannot change what Odoo may already hold. So a fenced row is ASKED about,
+        // always, whatever has happened to its source -- and once Odoo's answer settles it, the source can be judged.
+        if ($row->mayHavePosted()) {
+            $this->verifyOnly($row, $connection, 'an earlier create for this reference is unaccounted for', $stats);
+
+            return;
+        }
+
         $entry = OperationalCostEntry::find($row->source_id);
         if ($entry === null || $row->source_type !== OdooPostingKey::SOURCE_COST_ENTRY) {
             $this->outbox->notPostable($row, 'source_row_is_gone');
@@ -100,14 +118,6 @@ class OdooPostingRun
             // that no longer describes it; the new version has its own row.
             $this->outbox->notPostable($row, 'source_version_superseded');
             $stats['not_postable']++;
-
-            return;
-        }
-
-        // A FENCED ROW MAY ONLY BE ASKED ABOUT. An earlier attempt's create is unaccounted for -- it died, or its lease ran out
-        // while it was still on the wire -- so this run verifies and never creates, whatever Odoo answers.
-        if ($row->mayHavePosted()) {
-            $this->verifyOnly($row, $connection, 'an earlier create for this reference is unaccounted for', $stats);
 
             return;
         }
@@ -132,7 +142,15 @@ class OdooPostingRun
 
         // THE FENCE, AND IT GOES BEFORE THE REQUEST. From here the row durably says an entry may be in the customer's books, so
         // a run that dies at any later instant leaves a row no machine will create from again.
-        $this->outbox->aboutToCreate($row);
+        //
+        // **AND IT CAN FAIL, WHICH ABORTS THE CREATE.** It affects nothing when this run no longer owns the row -- taken over,
+        // or its own lease lapsed during the reference search above, which is a network call. A run that cannot fence must not
+        // create: its request would leave this host with nothing recording that it had.
+        if (!$this->outbox->aboutToCreate($row)) {
+            $stats['lost_the_row']++;
+
+            return;
+        }
 
         try {
             $created = $this->client->createDraft($connection, 'account.move', $result->draft->toValues($preflight));

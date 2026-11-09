@@ -110,13 +110,35 @@ class OdooOutbox
      *
      * The claim is KEPT: the attempt is not over, and the verification still has to happen.
      */
-    public function aboutToCreate(OdooPosting $row, string $reason = 'odoo_create_in_flight'): void
+    public function aboutToCreate(OdooPosting $row, string $reason = 'odoo_create_in_flight'): bool
     {
-        $this->write($row, [
-            'state' => OdooPosting::MAY_HAVE_POSTED,
-            'failure_code' => $reason,
-            'worked_at' => now(),
-        ]);
+        // **A COMPARE-AND-SET THAT FAILS CLOSED, and the return value is not optional to check.**
+        //
+        // It affects nothing when this run no longer owns the row: another run took it over, or this run's own lease lapsed
+        // while it was paused -- the reference search before it is a network call, and a run can lose minutes in one. A run in
+        // that position cannot fence anything, so it must not create anything: its `account.move.create` would leave this host
+        // with no durable record that it had, which is the hole the fence closes.
+        //
+        // The lease is part of the condition, not just the owner, because a run whose claim has run out cannot promise
+        // exclusivity for the length of a network call even when nobody has taken the row yet. And the lease is RENEWED here,
+        // so the fence covers the call that follows it rather than expiring halfway through.
+        $lease = now()->subMinutes(max(1, (int) config('odoo.outbox.claim_minutes', 15)));
+        $landed = OdooPosting::whereKey($row->id)
+            ->where('claimed_by', $this->runId)
+            ->where('claimed_at', '>', $lease)
+            ->update([
+                'state' => OdooPosting::MAY_HAVE_POSTED,
+                'failure_code' => $reason,
+                'worked_at' => now(),
+                'claimed_at' => now(),
+                'updated_at' => now(),
+            ]) === 1;
+
+        if ($landed) {
+            $row->forceFill(['state' => OdooPosting::MAY_HAVE_POSTED, 'failure_code' => $reason, 'claimed_at' => now()])->syncOriginal();
+        }
+
+        return $landed;
     }
 
     /** Odoo reports the entry. Terminal, and the move id is what makes it so: a row with one is never created again. */

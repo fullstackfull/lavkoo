@@ -357,6 +357,139 @@ class OdooOutboxTest extends TestCase
         $this->assertSame(OdooPosting::NEEDS_REVIEW, OdooPosting::first()->state);
     }
 
+    public function test_a_run_paused_past_its_claim_creates_nothing_at_all(): void
+    {
+        // **THE FENCE IS A COMPARE-AND-SET, and its result is not optional to check.** A run paused between claiming and
+        // fencing -- garbage collection, a starved CPU, or simply the reference search, which is a network call -- can have its
+        // lease lapse and the row taken over. Its fence then affects ZERO rows, and if it created anyway the request would leave
+        // this host with nothing recording that it had.
+        //
+        // The pause is injected where it really happens: inside the reference search, the one slow thing between the claim and
+        // the fence.
+        $this->enqueued('10');
+        $this->fakeSequence([
+            function () {
+                // While this run waits on Odoo, its claim runs out and another run takes the row.
+                OdooPosting::query()->update(['claimed_at' => now()->subMinutes((int) config('odoo.outbox.claim_minutes') + 1)]);
+                (new OdooOutbox())->claim();
+
+                return Http::response($this->odooXml([]));
+            },
+            $this->odooXml(91),
+        ]);
+
+        $stats = $this->drain();
+
+        $this->assertSame(1, $stats['lost_the_row'], 'it found the row taken from under it');
+        $this->assertSame(0, $this->createsSent(), 'NOTHING left this host');
+        $this->assertNull(OdooPosting::first()->odoo_move_id);
+    }
+
+    public function test_the_fence_is_refused_to_a_run_whose_lease_lapsed_even_with_no_takeover(): void
+    {
+        // The lease is part of the condition, not just the owner: a run whose claim has run out cannot promise exclusivity for
+        // the length of a network call even when nobody else has taken the row.
+        $this->enqueued('10');
+        $this->fakeSequence([
+            function () {
+                OdooPosting::query()->update(['claimed_at' => now()->subMinutes((int) config('odoo.outbox.claim_minutes') + 1)]);
+
+                return Http::response($this->odooXml([]));
+            },
+            $this->odooXml(91),
+        ]);
+
+        $stats = $this->drain();
+
+        $this->assertSame(1, $stats['lost_the_row']);
+        $this->assertSame(0, $this->createsSent());
+    }
+
+    public function test_the_fence_renews_the_lease_so_it_covers_the_call_it_fences(): void
+    {
+        $this->enqueued('10');
+        $outbox = new OdooOutbox();
+        $claimed = $outbox->claim()[0];
+        $minutes = (int) config('odoo.outbox.claim_minutes');
+        $this->travel($minutes - 1)->minutes();
+
+        $this->assertTrue($outbox->aboutToCreate($claimed), 'still inside the lease');
+
+        $this->travel($minutes - 1)->minutes();
+        $this->assertTrue(OdooPosting::firstOrFail()->claimIsLive(), 'the lease was renewed when the fence went up');
+    }
+
+    // ---- a fenced row is read BEFORE anything is judged about its source -----------------------------------------
+    //
+    // The fence used to be read after the source checks, so a fenced row whose ledger entry had been deleted was marked `dead`
+    // with `source_row_is_gone`, and one whose figure had been corrected was marked `dead` with `source_version_superseded`.
+    // Both buried an `account.move.create` that may be sitting in the customer's books -- and a row in the dead pile is a row
+    // nobody is looking for. What our own ledger says about a fact cannot change what Odoo already holds.
+
+    public function test_a_fenced_row_whose_source_was_deleted_is_still_asked_about_and_not_buried(): void
+    {
+        $entry = $this->settledCost('10');
+        $this->fenceAsACrashedRunWould($entry);
+        OperationalCostEntry::whereKey($entry->id)->delete();
+        $this->fakeSequence([$this->odooXml([])]);
+
+        $stats = $this->drain();
+
+        $row = OdooPosting::firstOrFail();
+        $this->assertSame(1, $stats['needs_review']);
+        $this->assertSame(OdooPosting::NEEDS_REVIEW, $row->state, 'a person settles it');
+        $this->assertNotSame(OdooPosting::DEAD, $row->state, 'and it is NOT buried as a vanished source');
+        $this->assertSame(0, $stats['not_postable']);
+    }
+
+    public function test_a_fenced_row_whose_source_was_deleted_is_closed_when_odoo_holds_the_entry(): void
+    {
+        // The resolution: Odoo's own word closes it, whatever happened to our row.
+        $entry = $this->settledCost('10');
+        $this->fenceAsACrashedRunWould($entry);
+        OperationalCostEntry::whereKey($entry->id)->delete();
+        $this->fakeSequence([$this->odooXml([['id' => 70, 'ref' => 'x', 'state' => 'draft']])]);
+
+        $stats = $this->drain();
+
+        $this->assertSame(1, $stats['found']);
+        $this->assertSame(70, OdooPosting::firstOrFail()->odoo_move_id);
+        $this->assertSame(OdooPosting::POSTED, OdooPosting::firstOrFail()->state);
+    }
+
+    public function test_a_fenced_row_whose_figure_changed_is_still_asked_about_and_not_buried(): void
+    {
+        // A corrected figure makes a new version with its own row. It does not make the old version's create disappear from
+        // Odoo, so the old row is asked about rather than written off.
+        $entry = $this->settledCost('10');
+        $this->fenceAsACrashedRunWould($entry);
+        $entry->forceFill(['amount' => '11.000000', 'base_amount' => '11.000000'])->saveQuietly();
+        $this->fakeSequence([$this->odooXml([])]);
+
+        $stats = $this->drain();
+
+        $row = OdooPosting::firstOrFail();
+        $this->assertSame(1, $stats['needs_review']);
+        $this->assertNotSame(OdooPosting::DEAD, $row->state);
+        $this->assertSame('odoo_create_outcome_unknown', $row->failure_code);
+    }
+
+    public function test_an_unfenced_row_whose_source_vanished_is_still_closed_as_before(): void
+    {
+        // The other side, so the reordering has not simply stopped the source checks working: with no fence up, a vanished
+        // source is still laid to rest.
+        $entry = $this->settledCost('10');
+        app(OdooOutbox::class)->enqueue($entry, self::ODOO_COMPANY);
+        OperationalCostEntry::whereKey($entry->id)->delete();
+        $this->fakeSequence([]);
+
+        $stats = $this->drain();
+
+        $this->assertSame(1, $stats['not_postable']);
+        $this->assertSame(OdooPosting::DEAD, OdooPosting::firstOrFail()->state);
+        $this->assertSame('source_row_is_gone', OdooPosting::firstOrFail()->failure_code);
+    }
+
     public function test_a_fenced_row_odoo_turns_out_to_hold_is_resolved_without_a_create(): void
     {
         // The happy recovery from the same crash: the entry IS there, so Odoo's own word closes the row and nothing is sent.
@@ -581,6 +714,15 @@ class OdooOutboxTest extends TestCase
     private function drain(int $limit = 50): array
     {
         return app(OdooPostingRun::class)->drain($this->connection->fresh(), $this->odooPreflight(), $limit);
+    }
+
+    /** Puts the fence up and lets the lease lapse, which is the state a run that died mid-create leaves behind. */
+    private function fenceAsACrashedRunWould(OperationalCostEntry $entry): void
+    {
+        app(OdooOutbox::class)->enqueue($entry, self::ODOO_COMPANY);
+        $outbox = new OdooOutbox();
+        $outbox->aboutToCreate($outbox->claim()[0]);
+        $this->travel((int) config('odoo.outbox.claim_minutes') + 1)->minutes();
     }
 
     private function enqueued(string $amount): OdooPosting
