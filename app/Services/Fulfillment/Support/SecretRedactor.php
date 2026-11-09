@@ -17,11 +17,20 @@ final class SecretRedactor
     private const SECRET_FRAGMENTS = [
         'password', 'passwd', 'secret', 'authorization', 'accesstoken', 'refreshtoken', 'apikey', 'bearer',
         'privatekey', 'credential', 'signature',
-        // noon's project code. It is one of the four fields of the service-account key file and this application stores it
-        // encrypted as a secret, so it does not belong in a log that is kept for weeks and read by staff -- and it travelled
-        // there in the sign-in body as `default_project_code`, which matched none of the rules above. Added as a fragment so
-        // the normalised `defaultprojectcode` is caught too.
-        'projectcode',
+        /*
+        | The field NAMES this application stores as credentials, which the rules above did not all cover.
+        |
+        | Found by arming the leak guard across the whole suite: `client_id` reached the log on every Amazon token call while
+        | `client_secret` and `refresh_token` beside it were masked, because the rules above are about words like "secret" and
+        | "token" and an identifier field is named neither. `ChannelCredentialStore::SECRET_KEYS` is the list of what this
+        | application actually treats as a credential, and `SecretRedactorCoversEveryStoredSecretTest` drives itself from that
+        | list -- so a credential field added tomorrow fails until its name is covered here, instead of quietly appearing in a
+        | table that is kept for weeks and read by staff.
+        |
+        | Each is the NORMALISED name (punctuation stripped, lower case), so `lwa_client_id`, `client_id` and
+        | `default_project_code` are all caught by the fragment they contain.
+        */
+        'clientid', 'accesskeyid', 'keyid', 'projectcode', 'channelidentifier',
     ];
 
     private const SECRET_EXACT = ['token', 'key', 'pass', 'pwd', 'jwt', 'username'];
