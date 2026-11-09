@@ -246,16 +246,20 @@ class AttentionActions
     /**
      * The row, if it is still in one of the states that put it on the screen.
      *
-     * Locked for update where the engine supports it, so two reviews of one row serialise rather than racing. The unique key
-     * on the review table is the guarantee; this only makes the common case give a clear answer instead of a violation.
+     * Locked for update, so two reviews of one row serialise rather than racing. The unique key on the review table is the
+     * guarantee; this only makes the common case give a clear answer instead of a constraint violation.
+     *
+     * No engine check: on SQLite `lockForUpdate()` compiles to nothing at all -- the lock clause simply does not appear in
+     * the SQL -- so asking for it unconditionally is correct everywhere. The first version checked the driver name through
+     * `DB::connection()`, which this module's own guard reads as opening a connection of its own, and it was right to: a
+     * module that reaches for the connection is a module that can reach for somebody else's table.
      */
     private function row(AttentionSource $source, int $id): ?Model
     {
         /** @var Model $model */
         $model = new $source->model();
-        $query = $model->newQuery()->whereKey($id)->whereIn($source->stateColumn, $source->states);
 
-        return DB::connection()->getDriverName() === 'sqlite' ? $query->first() : $query->lockForUpdate()->first();
+        return $model->newQuery()->whereKey($id)->whereIn($source->stateColumn, $source->states)->lockForUpdate()->first();
     }
 
     private function reference(AttentionSource $source, Model $row): ?string
