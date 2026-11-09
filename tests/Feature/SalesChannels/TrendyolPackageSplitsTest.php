@@ -182,6 +182,33 @@ class TrendyolPackageSplitsTest extends TestCase
         $this->assertSame(1, ChannelPackageSplit::count());
     }
 
+    public function test_a_failed_split_is_asked_for_again_on_the_same_row_and_never_a_second_one(): void
+    {
+        // The unique key on `(account_id, package_id)` is what stops four processes cutting one package, and it would also
+        // stop a person legitimately asking again after a clean failure. So a FAILED row -- the one state that proves the
+        // package untouched -- is REVIVED, which keeps both the guarantee and the second chance, and keeps the attempts the
+        // row already carries instead of starting a fresh history beside it.
+        $this->fakeOrder('Created');
+        $splits = app(ChannelPackageSplits::class);
+        $splits->request($this->account, 'ORDER-1', 'PKG-1', PackageSplitPlan::ofLines([11]));
+        Http::fake([self::SPLIT => Http::response(['errors' => [['message' => 'no']]], 400)]);
+        $splits->run($this->account);
+        $failed = ChannelPackageSplit::firstOrFail();
+        $this->assertSame(ChannelPackageSplit::FAILED, $failed->state);
+        $this->assertSame(1, (int) $failed->attempts);
+
+        $again = app(ChannelPackageSplits::class)->request($this->account, 'ORDER-1', 'PKG-1', PackageSplitPlan::ofLines([12]));
+
+        $this->assertNull($again['refusal']);
+        $this->assertSame(1, ChannelPackageSplit::count(), 'the same row, not a second one beside it');
+        $revived = ChannelPackageSplit::firstOrFail();
+        $this->assertSame($failed->id, $revived->id);
+        $this->assertSame(ChannelPackageSplit::PENDING, $revived->state);
+        $this->assertSame([12], $revived->plan['orderLineIds'], 'and it carries the new plan');
+        $this->assertNull($revived->failure_code);
+        $this->assertSame(1, (int) $revived->attempts, 'the history of what was already tried is kept');
+    }
+
     public function test_a_picking_package_is_split_with_the_previous_status_kept(): void
     {
         // Trendyol's rule, not a preference: "If the old package status was picking, You should send

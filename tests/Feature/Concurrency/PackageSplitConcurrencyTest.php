@@ -86,7 +86,11 @@ class PackageSplitConcurrencyTest extends TestCase
 
         $this->assertSame([], $this->problemsOf($reports));
         $this->assertSame(1, DB::table('test_trendyol_splits')->count(), 'ONE request reached Trendyol, whatever four processes tried');
+        // **One ROW, which is the point.** This was an index and a read: all four processes found nothing, all four inserted,
+        // all four fenced their own row and all four cut the package. The unique key on `(account_id, package_id)` is what
+        // makes the count below a 1, and the other three processes come back refused.
         $this->assertSame(1, ChannelPackageSplit::count(), 'and one split was recorded');
+        $this->assertSame(3, $this->workersWhere($reports, static fn (array $r): bool => str_starts_with((string) ($r['refusal'] ?? ''), 'package_already_has_a_split')), 'the three that lost were told why');
         $this->assertSame(1, $this->workersWhere($reports, static fn (array $r): bool => ($r['requested'] ?? 0) === 1), 'exactly one process recorded it');
         $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
     }
@@ -146,6 +150,14 @@ class PackageSplitConcurrencyTest extends TestCase
         // A worker reads the sendable ids; before it reaches its claim another worker claims the same row, sends it and clears
         // the claim. Without the state in the claim condition the late worker's claim matches, its fence accepts, and the
         // package is cut twice.
+        // The PARENT records the split here, so it needs its own fake: `request()` reads the package before recording
+        // anything, and `preventStrayRequests` is on. Without this the read failed, the request was refused with
+        // `package_could_not_be_read_before_splitting`, no row existed, and the test died on its own first assertion rather
+        // than on what it was testing.
+        Http::fake([
+            '*/v2/orders*' => Http::response(['content' => [$this->package('PKG-1', 'Created')]]),
+        ]);
+
         app(ChannelPackageSplits::class)->request($this->account, 'ORDER-1', 'PKG-1', PackageSplitPlan::ofLines([11]), adminId: 1);
         $this->assertSame(ChannelPackageSplit::PENDING, ChannelPackageSplit::firstOrFail()->state);
 
@@ -177,6 +189,32 @@ class PackageSplitConcurrencyTest extends TestCase
             $table->text('body')->nullable();
             $table->unsignedInteger('created_by');
         });
+    }
+
+    /**
+     * One package, as the channel would describe it. The worker processes build their own; this is the parent's copy, for the
+     * one test that records a split itself.
+     *
+     * @return array<string, mixed>
+     */
+    private function package(string $packageId, string $status): array
+    {
+        return [
+            'shipmentPackageId' => $packageId,
+            'orderNumber' => 'ORDER-1',
+            'shipmentPackageStatus' => $status,
+            'status' => $status,
+            'orderDate' => 1_763_000_000_000,
+            'lastModifiedDate' => 1_763_000_000_000,
+            'grossAmount' => 100.0,
+            'totalDiscount' => 0.0,
+            'totalPrice' => 100.0,
+            'currencyCode' => 'SAR',
+            'lines' => [
+                ['lineId' => 11, 'id' => 11, 'barcode' => 'BAR-11', 'quantity' => 3, 'price' => 50.0, 'amount' => 50.0, 'discount' => 0.0],
+                ['lineId' => 12, 'id' => 12, 'barcode' => 'BAR-12', 'quantity' => 1, 'price' => 50.0, 'amount' => 50.0, 'discount' => 0.0],
+            ],
+        ];
     }
 
     /** @param list<array{ok: bool, error?: string, message?: string}> $reports */
