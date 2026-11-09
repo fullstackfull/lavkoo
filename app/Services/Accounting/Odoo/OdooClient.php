@@ -376,9 +376,12 @@ class OdooClient
      * What this repository has verified: the URL shape, `Authorization: bearer <api key>`, and that an error comes back as a
      * 4xx or 5xx carrying `name`, `message`, `arguments`, `context` and `debug`. What it has NOT been able to read verbatim is
      * the page's own request and response examples -- two fetches of the 19.0 page returned only its navigation, and the body
-     * reached this repository as a summary. So the named-field shape is **UNVERIFIED** here, recorded as such in
-     * docs/sales-channels/odoo-accounting.md, and no WRITE uses it: `createDraft()` refuses on this transport rather than send
-     * a body somebody reconstructed. The reads below name their fields after the ORM's own parameters, which is the narrowest
+     * reached this repository as a summary. Tried again on 2026-11-22, this time with a real browser rather than a fetch:
+     * `www.odoo.com/documentation/{19.0,master}/developer/reference/external_api.html` answered **403 to both**, so the page
+     * is closed to automated clients and not merely awkward to parse. The named-field shape is therefore still
+     * **UNVERIFIED** -- for the third time, and for a reason that is about access and not about effort -- recorded as such in
+     * docs/sales-channels/odoo-accounting.md, and no WRITE uses it: `createDraft()` refuses on this transport rather than
+     * send a body somebody reconstructed. The reads below name their fields after the ORM's own parameters, which is the narrowest
      * assumption available, and a wrong field name fails loudly on the first real call rather than writing the wrong thing.
      *
      * @param array<string, mixed> $body
