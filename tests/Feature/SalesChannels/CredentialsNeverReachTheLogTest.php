@@ -104,7 +104,12 @@ class CredentialsNeverReachTheLogTest extends TestCase
 
         app(ChannelConnectorRegistry::class)->for($account)->testConnection($account);
 
-        $this->assertNotEmpty(SalesChannelApiLog::all(), 'calls really were logged, so the assertion below means something');
+        // **A GUARD THAT MADE NO CALL IS NOT A GUARD.** A connector that refused at a gate, or a fixture missing a setting,
+        // would leave an empty log and this test would report success over nothing. So the proof is in two parts: a request
+        // really left this host for THIS channel, and the credentials it carried are nowhere in the log.
+        $this->assertNotEmpty($this->requestsSent(), 'no request left this host, so there was nothing for the guard to look at');
+        $this->assertNotEmpty(SalesChannelApiLog::all(), 'the call was not logged, so the log cannot be the thing under test');
+        $this->assertSecretsTravelled($secrets);
         $this->assertNoCredentialWasLogged();
     }
 
@@ -125,7 +130,11 @@ class CredentialsNeverReachTheLogTest extends TestCase
 
         app(OdooClient::class)->searchRead($account->fresh(), 'account.account', [['code', '=', '4000']], ['id', 'name']);
 
+        $this->assertNotEmpty($this->requestsSent(), 'no request left this host, so there was nothing for the guard to look at');
         $this->assertNotEmpty(SalesChannelApiLog::all());
+        // The key really was in the body that left. Without this the test would pass just as well against a client that had
+        // stopped sending the credential at all -- which is not what is being proved here.
+        $this->assertSecretsTravelled(['api_key' => 'LEAKCANARY-ODOO-APIKEY-klmn']);
         $this->assertNoCredentialWasLogged();
     }
 
@@ -154,6 +163,10 @@ class CredentialsNeverReachTheLogTest extends TestCase
         } catch (\PHPUnit\Framework\AssertionFailedError $caught) {
             $this->assertStringContainsString('trendyol.api_key', $caught->getMessage());
             $this->assertStringContainsString('trendyol.brands', $caught->getMessage());
+            // The row was planted to be caught, and it has been. It goes now, because the SAME guard is armed for teardown
+            // across every suite built on `BuildsSalesChannelSchema` -- leaving the plant behind would have this test fail on
+            // its way out for the very reason it was written to prove.
+            SalesChannelApiLog::query()->delete();
 
             return;
         }
@@ -174,6 +187,69 @@ class CredentialsNeverReachTheLogTest extends TestCase
                 "'{$channel}' can store credentials and no test here makes a call with them, so nothing would notice if it logged one.",
             );
         }
+    }
+
+    /**
+     * The requests that really left this host.
+     *
+     * @return list<\Illuminate\Http\Client\Request>
+     */
+    private function requestsSent(): array
+    {
+        return Http::recorded()->values()->map(static fn (array $pair): \Illuminate\Http\Client\Request => $pair[0])->all();
+    }
+
+    /**
+     * At least one of the credentials this account holds really did travel in a request.
+     *
+     * This is what makes the guard mean something. If a connector sent no credential at all, the log would be clean for an
+     * uninteresting reason and the test would pass while proving nothing about redaction. A credential that only signs and is
+     * never transmitted (noon's private key) is not expected here, so ONE match is enough rather than all of them.
+     *
+     * @param array<string, string> $secrets
+     */
+    private function assertSecretsTravelled(array $secrets): void
+    {
+        $wire = '';
+        foreach ($this->requestsSent() as $request) {
+            $wire .= $request->url() . ' ' . $request->body() . ' ' . json_encode($request->headers());
+        }
+
+        // **A credential does not always travel as itself.** Trendyol sends `Authorization: Basic base64(key:secret)`, which
+        // encodes the two values TOGETHER -- so neither one's own base64 appears either, and guessing at encodings per value
+        // does not find it. The wire is decoded instead: every base64-looking run in it is decoded and appended, so a
+        // credential is found however it was packed, by one rule rather than a list of special cases.
+        $wire .= ' ' . $this->decodedFormsIn($wire);
+
+        $travelled = array_filter(
+            $secrets,
+            static fn (string $value): bool => $value !== '@generate-a-real-rsa-key' && str_contains($wire, $value),
+        );
+        $this->assertNotEmpty(
+            $travelled,
+            'not one of this account\'s credentials appeared in anything that left this host, so a clean log proves nothing: '
+            . 'either the fixture is wrong or the connector is authenticating some other way than this test believes.',
+        );
+    }
+
+    /**
+     * Everything in this text that decodes from base64, decoded.
+     *
+     * `Authorization: Basic …` is the reason: it packs several values into one token, so no per-value encoding guess finds
+     * them. Decoding what is on the wire works whatever the scheme packs together.
+     */
+    private function decodedFormsIn(string $wire): string
+    {
+        preg_match_all('/[A-Za-z0-9+\/]{16,}={0,2}/', $wire, $tokens);
+        $decoded = '';
+        foreach (array_unique($tokens[0]) as $token) {
+            $plain = base64_decode($token, true);
+            if (is_string($plain) && $plain !== '') {
+                $decoded .= ' ' . $plain;
+            }
+        }
+
+        return $decoded;
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------

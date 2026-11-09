@@ -5,6 +5,7 @@ namespace Tests\Support;
 use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelApiLog;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Asserts that no credential a test configured ever reached `sales_channel_api_logs`.
@@ -39,8 +40,33 @@ trait AssertsNoCredentialWasLogged
      */
     private const COLUMNS = ['url', 'request_summary', 'response_summary', 'error_message', 'operation'];
 
+    /**
+     * Arms the guard for the rest of this test, through `beforeApplicationDestroyed` so that no suite has to remember to call
+     * anything at the end.
+     *
+     * It is wired into `BuildsSalesChannelSchema` and `BuildsOdooWorld`, so **every suite that builds a channel or an
+     * accounting world is guarded** -- fifty-odd files and hundreds of real calls against faked endpoints, which is coverage
+     * no purpose-built matrix would match.
+     *
+     * A failure here lands during teardown, which is the honest place for it: the call already happened and the row is already
+     * written, so there is nothing earlier to catch it at.
+     */
+    protected function guardAgainstLoggedCredentials(): void
+    {
+        $this->beforeApplicationDestroyed(function (): void {
+            $this->assertNoCredentialWasLogged();
+        });
+    }
+
     protected function assertNoCredentialWasLogged(): void
     {
+        // **The cheap question first, and it matters.** This runs after every test of fifty-odd suites. Most of them make no
+        // channel call at all, and reading every account's secrets means decrypting each one -- so asking "is there even a log
+        // row?" before any of that is the difference between a guard and a tax on the whole suite.
+        if (!Schema::hasTable('sales_channel_api_logs') || !SalesChannelApiLog::query()->exists()) {
+            return;
+        }
+
         $secrets = $this->storedSecrets();
         if ($secrets === []) {
             return;
@@ -68,6 +94,10 @@ trait AssertsNoCredentialWasLogged
      */
     private function storedSecrets(): array
     {
+        if (!Schema::hasTable('sales_channel_accounts')) {
+            return [];
+        }
+
         $store = app(ChannelCredentialStore::class);
         $found = [];
         foreach (SalesChannelAccount::all() as $account) {
