@@ -44,8 +44,10 @@ class AdminChannelListingScreenTest extends AdminSalesChannelsTestCase
         DB::table('products')->where('id', $productId)->update([
             'details' => '<p>Vitamin C, 500mg, 60 tablets.</p>',
             'category_ids' => json_encode([['id' => '7', 'position' => 1]]),
-            'thumbnail' => 'thumb-' . $productId . '.png',
-            'images' => json_encode([['image_name' => 'front-' . $productId . '.png', 'storage' => 'public']]),
+            // Absolute https URLs, which is what a shop of any size really has: its pictures sit on a CDN. A channel is given
+            // the URL and fetches it, so this is also the only shape that can be checked without writing files to a disk.
+            'thumbnail' => 'https://cdn.pharmacyksa.sa/thumb-' . $productId . '.png',
+            'images' => json_encode([['image_name' => 'https://cdn.pharmacyksa.sa/front-' . $productId . '.png', 'storage' => 'public']]),
             'brand_id' => 3,
         ]);
     }

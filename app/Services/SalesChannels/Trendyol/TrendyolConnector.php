@@ -84,7 +84,7 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             'basic_authentication' => ['documented' => true, 'built' => true, 'note' => 'API key and secret as HTTP Basic, the mandatory "{sellerId} - {integration name}" User-Agent and the storeFrontCode header. Stage and production use different keys and hosts.'],
             'product_v2' => ['documented' => true, 'built' => true, 'note' => 'Approved and unapproved product lists, price-and-inventory with batch results. Product V1 was retired in 2026 and is not used.'],
             'category_requirements' => ['documented' => true, 'built' => true, 'note' => 'Product V2 `/product/categories/{id}/attributes`: which attributes a category requires, the values it accepts where Trendyol embeds them, and whether a value of our own is allowed. The attribute and value IDS are kept beside the names because a write sends ids. A category that cannot be read, or that names no attribute, is UNKNOWN and never "nothing is required". The very long value lists have an endpoint of their own which this version does not page through.'],
-            'product_create_update' => ['documented' => true, 'built' => true, 'note' => 'Product V2, both as BATCHES. Create: `POST .../v2/products`. Content change: `POST .../products/content-bulk-update` (V2 has no PUT at that path -- the PUT belonged to V1, retired). HTTP 200 answers a batchRequestId and means the batch was taken, never that anything is listed, so a submission is ACCEPTED_FOR_PROCESSING and `batchResult()` says what became of each item. The barcode is the identity. A barcode in the UNAPPROVED list is WORKING, never absent: it exists and awaits Trendyol\'s review, and creating it again would leave two of the same item and a locked barcode. Trendyol will not change an approved item\'s barcode, productMainId, brandId or categoryId, so those are refused here by name before anything is sent. Brand lookup and images are not built.'],
+            'product_create_update' => ['documented' => true, 'built' => true, 'note' => 'Product V2, both as BATCHES. Create: `POST .../v2/products`. Content change: `POST .../products/content-bulk-update` (V2 has no PUT at that path -- the PUT belonged to V1, retired). HTTP 200 answers a batchRequestId and means the batch was taken, never that anything is listed, so a submission is ACCEPTED_FOR_PROCESSING and `batchResult()` says what became of each item. The barcode is the identity. A barcode in the UNAPPROVED list is WORKING, never absent: it exists and awaits Trendyol\'s review, and creating it again would leave two of the same item and a locked barcode. Trendyol will not change an approved item\'s barcode, productMainId, brandId or categoryId, so those are refused here by name before anything is sent. Brand lookup is built. Images ARE built, and were a hole rather than a nicety: `images` is REQUIRED on the create, and `GET /product/categories/{id}/attributes` -- the only thing this module asked -- answers with CATEGORY attributes and never mentions a product-level field, so nothing could discover the requirement. Trendyol documents a maximum of 8 per barcode and that the URLs must be https with a valid certificate. The shop\'s own pictures become those URLs through `ChannelProductImages`, which REFUSES rather than falling back: `getStorageImages()` returns a placeholder when a file is missing, and on a channel payload that would publish our grey placeholder PNG as somebody\'s product photograph.'],
             'order_v2' => ['documented' => true, 'built' => true, 'note' => 'The cursor stream (lastModified windows of at most 14 days) for sync and /v2/orders for single-order lookups. Order V1 is not used.'],
             'shipment_packages' => ['documented' => true, 'built' => true, 'note' => 'A package is the unit (shipmentPackageId); a split or partial cancellation yields new package ids and the replaced package is terminal.'],
             'picking_and_tracking' => ['documented' => true, 'built' => true, 'note' => 'Picking, then the tracking number for packages on the seller-pays agreement only. Trendyol-pays packages use the carrier label Trendyol issues; the app never sets Shipped or Delivered (the carrier feed does).'],
@@ -505,6 +505,23 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
      * A category that cannot be read, or that names no attribute at all, is UNKNOWN. It is never "nothing is required": the draft then stays a draft, which is the whole
      * point of `ListingRequirements::unknown()`.
      */
+    /**
+     * Fields Trendyol requires of EVERY product, whatever its category -- and the reason they are declared here rather than
+     * read from the channel.
+     *
+     * `GET /product/categories/{id}/attributes` answers with `categoryAttributes`, which are the attributes of a CATEGORY:
+     * colour, size, whatever that category asks about. It never mentions a product-level field, so nothing that asks it can
+     * discover that `images` is required -- and that is how a documented requirement comes to be missing from every call this
+     * module makes. The create guide's own table marks `images` required.
+     *
+     * **It holds only what was read in the documentation**, not a complete list of Trendyol's product-level requirements: the
+     * other product fields were not verified one by one, so they are not claimed here. `ListingRequirements` keeps these apart
+     * from the channel's own answer precisely so a reader can tell which is which.
+     *
+     * @var list<string>
+     */
+    private const REQUIRED_OF_EVERY_PRODUCT = ['images'];
+
     public function listingRequirements(SalesChannelAccount $account, string $productType): ListingRequirements
     {
         $categoryId = trim($productType);
@@ -525,7 +542,8 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
             return ListingRequirements::unknown($categoryId);
         }
 
-        return $this->categories->map((array) ($response->json ?? []), $categoryId);
+        return $this->categories->map((array) ($response->json ?? []), $categoryId)
+            ->withAlwaysRequired(self::REQUIRED_OF_EVERY_PRODUCT);
     }
 
     /**

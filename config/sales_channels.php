@@ -259,6 +259,10 @@ return [
         */
         'product_data' => [
             'images_at_least' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_LEAST', 1),
+            // How many photographs a channel is sent. Trendyol documents "Bir barkod için maksimum 8 adet görsel" -- a maximum
+            // of eight per barcode -- and sending a ninth would have the whole batch refused for a reason a person then has to
+            // decipher from a batch result.
+            'images_at_most' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_MOST', 8),
             'brand_required' => filter_var(env('SALES_CHANNELS_LISTING_BRAND_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
         ],
         // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
