@@ -9,6 +9,7 @@ use App\Services\Fulfillment\Contracts\ReportsChannelHolds;
 use App\Services\SalesChannels\Accounting\AccountingDestination;
 use App\Services\SalesChannels\Amazon\AmazonReportRunner;
 use App\Services\SalesChannels\Amazon\AmazonReports;
+use App\Services\SalesChannels\Amazon\AmazonListingsReconciliation;
 use App\Services\SalesChannels\Amazon\AmazonSettlementReader;
 use App\Services\SalesChannels\Accounting\NullAccountingDestination;
 use App\Services\SalesChannels\Inventory\ChannelHoldsOnProviderStock;
@@ -51,7 +52,7 @@ class SalesChannelsServiceProvider extends ServiceProvider
         // imported.
         $this->app->bind(AmazonReportRunner::class, static fn ($app): AmazonReportRunner => new AmazonReportRunner(
             $app->make(AmazonReports::class),
-            [$app->make(AmazonSettlementReader::class)],
+            [$app->make(AmazonSettlementReader::class), $app->make(AmazonListingsReconciliation::class)],
         ));
     }
 

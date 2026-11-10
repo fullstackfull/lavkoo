@@ -209,6 +209,15 @@ class AmazonReportRunner
     private function read(SalesChannelAccount $account, AmazonReportRun $row, string $documentId, array &$stats): void
     {
         $row->forceFill(['amazon_document_id' => $documentId])->save();
+        $consumer = $this->consumerFor($row->report_type);
+        if ($consumer instanceof ReadsAmazonReportsInBatches) {
+            // The document is never held whole for a consumer that does not need it whole. Decided by the consumer's TYPE,
+            // so a reader that scans the document (the settlement) cannot end up on this path.
+            $this->stream($account, $row, $documentId, $consumer, $stats);
+
+            return;
+        }
+
         $document = $this->reports->contents($account, $documentId);
         if ($document['contents'] === null) {
             $row->forceFill([
@@ -260,6 +269,72 @@ class AmazonReportRunner
             'outcome' => isset($outcome['outcome']) ? mb_substr((string) $outcome['outcome'], 0, 64) : null,
             'failure_code' => null,
             'failure_detail' => isset($outcome['detail']) ? (string) $outcome['detail'] : null,
+        ])->save();
+        $stats['read']++;
+    }
+
+    /**
+     * The streaming read, for a consumer that is correct on any slice of the document.
+     *
+     * Three things are kept honest rather than convenient. **A half-read document stays half-read:** the rows already handed
+     * over have been counted, so the row records them AND the refusal, and `finish(documentComplete: false)` tells the
+     * consumer its totals are floors — a truncated catalogue must never be written down as a finished comparison. **There is
+     * no `document_hash`**, because hashing needs the whole document in hand, which is the one thing this path refuses to do,
+     * so the column is left null rather than filled with the hash of a fragment. And **the consumer's own summary wins**:
+     * `finish()` is asked once, after the last batch, instead of stitching together whatever each batch happened to say.
+     *
+     * @param array<string, int> $stats
+     */
+    private function stream(
+        SalesChannelAccount $account,
+        AmazonReportRun $row,
+        string $documentId,
+        ReadsAmazonReportsInBatches $consumer,
+        array &$stats,
+    ): void {
+        $read = 0;
+        $refused = 0;
+
+        $result = $this->reports->readInBatches(
+            account: $account,
+            documentId: $documentId,
+            onBatch: static function (AmazonFlatFile $batch) use ($consumer, $row, $account, &$read, &$refused): void {
+                $outcome = $consumer->read($row, $batch, $account);
+                $read += (int) ($outcome['rows_read'] ?? 0);
+                $refused += (int) ($outcome['rows_refused'] ?? 0);
+            },
+            required: AmazonReportTypes::requiredColumns($row->report_type),
+        );
+
+        $complete = $result['refusal'] === null;
+        $summary = $consumer->finish($row, $complete);
+        $detail = isset($summary['detail']) ? mb_substr((string) $summary['detail'], 0, 2000) : null;
+        $outcome = isset($summary['outcome']) ? mb_substr((string) $summary['outcome'], 0, 64) : null;
+
+        if (!$complete) {
+            // NOT `read`: a run whose document stopped part way is a failure with what it managed to see recorded, never a
+            // finished one. The consumer has already been told, so its own summary says the figures are floors.
+            $row->forceFill([
+                'state' => AmazonReportRun::FAILED, 'available_at' => null,
+                'rows_read' => $read, 'rows_refused' => $refused,
+                'outcome' => $outcome,
+                'failure_code' => mb_substr((string) $result['refusal'], 0, 120),
+                'failure_detail' => $detail,
+            ])->save();
+            $stats['failed']++;
+
+            return;
+        }
+
+        $row->forceFill([
+            'state' => AmazonReportRun::READ,
+            'available_at' => null,
+            'read_at' => now(),
+            'rows_read' => $read,
+            'rows_refused' => $refused,
+            'outcome' => $outcome,
+            'failure_code' => null,
+            'failure_detail' => $detail,
         ])->save();
         $stats['read']++;
     }
