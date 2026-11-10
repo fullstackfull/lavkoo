@@ -187,6 +187,12 @@ return [
         // be recalled once it leaves IN_QUEUE -- a different kind of exposure from a per-SKU PATCH, and so a different
         // decision. Per-SKU publishing stays the default path whatever this says.
         'bulk_feeds_enabled' => env('AMAZON_BULK_FEEDS_ENABLED', false),
+        // **The full-catalogue listings report reader, and it ships OFF.** With it off, `GET_MERCHANT_LISTINGS_ALL_DATA` is
+        // named `amazon_report_has_no_reader` exactly as before, so switching it on is the only thing that changes what a
+        // report run does with a document. On, each row's quantity and status are mirrored onto the listing we already hold
+        // for that SKU -- and nothing else is written, so the report can never erase a price or a title the Listings Items
+        // API read. A SKU we hold no listing for is counted and named, never created.
+        'listings_report_enabled' => env('AMAZON_LISTINGS_REPORT_ENABLED', false),
         // Amazon's own suggested minimum feed size. Under it, the per-SKU Listings Items API is "faster with less than 1,500
         // items during a five-minute period" by Amazon's own comparison, so a feed is refused rather than wasting one of five
         // submissions per five minutes.
