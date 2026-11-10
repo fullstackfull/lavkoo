@@ -9,6 +9,7 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\ExternalOrderMapping;
 use App\Models\FulfillmentRoutingRule;
+use App\Models\IntegrationSetting;
 use App\Models\InventoryLocation;
 use App\Models\ProviderProductMapping;
 use App\Models\SalesChannelAccount;
@@ -107,6 +108,34 @@ trait BuildsDispatchWorld
     protected function pinTheWorldClock(): void
     {
         $this->travelTo(CarbonImmutable::parse(self::PURCHASED_AT)->subHour());
+        $this->pullBackAnyGoLiveStampedBeforeThePin();
+    }
+
+    /**
+     * A provider a test case opened BEFORE this world was built keeps a go-live stamped from the real clock, which is after
+     * every order the fixtures buy — so the pin alone does not make the invariant true.
+     *
+     * `M5aznTestCase::setUp()` is the live example: it takes M5AZN live in `parent::setUp()`, before `prepareDispatchWorld()`
+     * runs, so `applyGoLive()` stamps the real `now()`. `DispatchedOrderReachesM5aznTest` only escapes the hold because its
+     * helper sends with `manual: true`, which the cut-off does not apply to — so the moment anyone exercised the scheduled
+     * path there, the same permanent `BEFORE_GO_LIVE` failure would be back for that one provider.
+     *
+     * `applyGoLive()` re-stamps only on a not-live→live transition, so saving a live provider again would keep the old value.
+     * The stamp is therefore pulled back directly, and only when it is later than the pinned clock: a provider deliberately
+     * given a go-live by a test keeps it.
+     */
+    private function pullBackAnyGoLiveStampedBeforeThePin(): void
+    {
+        $pinned = now();
+        foreach (IntegrationSetting::all() as $row) {
+            $settings = is_array($row->settings) ? $row->settings : [];
+            $goLive = $settings['go_live_at'] ?? null;
+            if ($goLive === null || CarbonImmutable::parse((string) $goLive)->lte($pinned)) {
+                continue;
+            }
+            $settings['go_live_at'] = $pinned->toDateTimeString();
+            $row->forceFill(['settings' => $settings])->save();
+        }
     }
 
     /** The test schema is rebuilt from the code and lacks columns the real tables have; the dispatcher writes them when they exist, so the tables are given the ones it names (nullable, as a dump's are not guaranteed to be). */

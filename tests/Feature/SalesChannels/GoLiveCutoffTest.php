@@ -6,6 +6,7 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ChannelOrderDispatch;
+use App\Models\IntegrationSetting;
 use App\Models\ExternalOrderMapping;
 use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Data\SubmissionResult;
@@ -62,6 +63,45 @@ class GoLiveCutoffTest extends DispatchTestCase
             now()->lt(CarbonImmutable::parse(self::PURCHASED_AT)),
             'the dispatch world must open the provider before its orders are bought, or every shipment is held BEFORE_GO_LIVE',
         );
+    }
+
+    public function test_a_provider_opened_before_the_world_was_built_has_its_go_live_pulled_back(): void
+    {
+        // The clock alone is NOT the invariant, and this is the case that proves it. A test case that opens a provider in its
+        // own setUp does so before prepareDispatchWorld() runs, so `applyGoLive()` stamps the REAL clock —
+        // `M5aznTestCase::setUp()` does exactly that. The real clock is permanently after PURCHASED_AT, so every shipment in
+        // that world would be held BEFORE_GO_LIVE for good; today only a `manual: true` helper hides it.
+        //
+        // Asserting over the providers this world happens to hold would not catch it (M5AZN is not in the Torod world), so
+        // the mechanism itself is exercised: a stamp later than the fixtures' purchase instant is pulled back by the pin.
+        $row = IntegrationSetting::where('provider', ProviderCode::TorodPoint->value)->firstOrFail();
+        $row->forceFill(['settings' => ['go_live_at' => '2027-03-01 12:00:00'] + (array) $row->settings])->save();
+
+        $this->pinTheWorldClock();
+
+        $pulled = IntegrationSetting::where('provider', ProviderCode::TorodPoint->value)->firstOrFail()->settings['go_live_at'];
+        $this->assertSame(now()->toDateTimeString(), $pulled, 'a go-live stamped after the orders were bought was left alone');
+        $this->assertTrue(CarbonImmutable::parse($pulled)->lt(CarbonImmutable::parse(self::PURCHASED_AT)));
+
+        // And the consequence that matters: the order dispatches instead of being held.
+        $this->goLive();
+        [, $fulfillment] = $this->orderBoughtAt(CarbonImmutable::parse(self::PURCHASED_AT));
+        $this->send($fulfillment);
+
+        $this->assertSame([FulfillmentStatus::Submitted, null], [$fulfillment->fresh()->status, $fulfillment->fresh()->hold_reason]);
+    }
+
+    public function test_a_go_live_already_before_the_purchase_instant_is_left_alone(): void
+    {
+        // The pull-back must not overwrite a go-live a test set deliberately, or the before-go-live half of the cut-off
+        // could never be tested at all.
+        $deliberate = CarbonImmutable::parse(self::PURCHASED_AT)->subDays(5)->toDateTimeString();
+        $row = IntegrationSetting::where('provider', ProviderCode::TorodPoint->value)->firstOrFail();
+        $row->forceFill(['settings' => ['go_live_at' => $deliberate] + (array) $row->settings])->save();
+
+        $this->pinTheWorldClock();
+
+        $this->assertSame($deliberate, IntegrationSetting::where('provider', ProviderCode::TorodPoint->value)->firstOrFail()->settings['go_live_at']);
     }
 
     public function test_an_order_bought_after_the_provider_went_live_is_sent(): void
