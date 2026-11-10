@@ -29,12 +29,14 @@ use App\Services\SalesChannels\Support\ChannelHttp;
  *
  * ## And who uses it today
  *
- * `AmazonSettlementReader` is the only implementation of `ReadsAmazonReports` and it `handles()` the settlement report alone,
- * so the type that most needs this -- `GET_MERCHANT_LISTINGS_ALL_DATA`, a whole catalogue -- has no reader at all and its row
- * is marked `amazon_report_has_no_reader`. That reader would be per-row (SKU, quantity, status) and so batch-safe from the
- * start; the settlement reader is not, because it finds its settlement's identifying row by scanning the document and only
- * the first row carries the period and the deposit total. Both facts are recorded in docs/sales-channels/gap-matrix.md rather
- * than worked around here.
+ * `AmazonListingsReconciliation` is the one consumer of this path: `GET_MERCHANT_LISTINGS_ALL_DATA`, a whole catalogue, read
+ * per row and so batch-safe, and switched off by default. It COMPARES the report's SKUs against the listings we hold and
+ * writes nothing but its own run row -- not a stock sync, and nothing it does reaches `StockPlanner`, the publisher, or what
+ * the channel is believed to be showing.
+ *
+ * `AmazonSettlementReader` stays off this path by TYPE rather than by configuration, because it finds its settlement's
+ * identifying row by scanning the document and only the first row carries the period and the deposit total, so a later batch
+ * would record a settlement with neither. Both facts are recorded in docs/sales-channels/gap-matrix.md.
  *
  * ## What a half-read document is
  *

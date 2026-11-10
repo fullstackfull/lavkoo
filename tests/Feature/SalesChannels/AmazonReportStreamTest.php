@@ -296,6 +296,61 @@ class AmazonReportStreamTest extends TestCase
     }
 
     /** A listings report shaped like Amazon's: a tab-delimited header row, then one line per SKU. */
+    public function test_a_body_shorter_than_the_response_promised_is_refused_and_not_read_as_the_whole_document(): void
+    {
+        // **A transfer can end short of the document with no error at all:** a peer that closes cleanly part way through a
+        // truncated S3 transfer leaves no exception and no status, and `eof()` simply becomes true. Proven against a real
+        // socket while this was being written -- 7000 bytes delivered of a promised 7118, `refusal` null, and the last row
+        // handed on was the fragment `SKU-394\t`. Measured against what the response promised it is unmistakable.
+        $whole = $this->aListingsReport(40);
+        $cut = substr($whole, 0, (int) (strlen($whole) * 0.6));
+        Http::fake([self::DOWNLOAD => Http::response($cut, 200, ['Content-Length' => (string) strlen($whole)])]);
+        $seen = [];
+
+        $result = app(AmazonReportStream::class)->read($this->account, self::DOWNLOAD, function (AmazonFlatFile $file) use (&$seen): void {
+            foreach ($file->rows as $row) {
+                $seen[] = $file->cell($row, 'seller-sku');
+            }
+        }, ['seller-sku']);
+
+        $this->assertNotNull($result['refusal'], 'a document cut off part way was reported as a whole one');
+        $this->assertStringStartsWith('stream_ended_early:', (string) $result['refusal']);
+        $this->assertStringContainsString((string) strlen($whole), (string) $result['refusal'], 'the refusal names what was promised');
+        $this->assertLessThan(40, count($seen), 'it cannot have seen rows that never arrived');
+    }
+
+    public function test_a_whole_body_that_matches_the_promised_length_is_not_refused(): void
+    {
+        // The converse, and the one that matters more: a check that refuses whole documents would be worse than the defect
+        // it closes, because every report would become unreadable.
+        $whole = $this->aListingsReport(40);
+        Http::fake([self::DOWNLOAD => Http::response($whole, 200, ['Content-Length' => (string) strlen($whole)])]);
+        $seen = 0;
+
+        $result = app(AmazonReportStream::class)->read($this->account, self::DOWNLOAD, function (AmazonFlatFile $file) use (&$seen): void {
+            $seen += count($file->rows);
+        }, ['seller-sku']);
+
+        $this->assertNull($result['refusal']);
+        $this->assertSame(40, $seen);
+    }
+
+    public function test_a_body_that_promises_nothing_is_read_as_before(): void
+    {
+        // A chunked response carries no `Content-Length` to measure against, so it must behave exactly as it always has
+        // rather than being refused for failing to promise anything.
+        $whole = $this->aListingsReport(12);
+        Http::fake([self::DOWNLOAD => Http::response($whole, 200, ['Transfer-Encoding' => 'chunked'])]);
+        $seen = 0;
+
+        $result = app(AmazonReportStream::class)->read($this->account, self::DOWNLOAD, function (AmazonFlatFile $file) use (&$seen): void {
+            $seen += count($file->rows);
+        }, ['seller-sku']);
+
+        $this->assertNull($result['refusal']);
+        $this->assertSame(12, $seen);
+    }
+
     private function aListingsReport(int $rows): string
     {
         $text = "seller-sku\tprice\tquantity\n";

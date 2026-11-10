@@ -318,8 +318,13 @@ class AmazonReportRunner
                 'state' => AmazonReportRun::FAILED, 'available_at' => null,
                 'rows_read' => $read, 'rows_refused' => $refused,
                 'outcome' => $outcome,
-                'failure_code' => mb_substr((string) $result['refusal'], 0, 120),
-                'failure_detail' => $detail,
+                // The SAME classifier the buffered path writes, so one code groups every document that could not be read
+                // whichever path fetched it, and an operator screen does not gain a second vocabulary the day this is
+                // switched on. The specific refusal keeps its place in the detail, in front of the consumer's own sentence:
+                // the raw reason is the half an operator acts on, and dropping it for the summary told them only that a
+                // comparison did not finish, never that the compression was one we refuse to decode.
+                'failure_code' => 'amazon_report_document_unreadable',
+                'failure_detail' => mb_substr(trim((string) $result['refusal'] . ' ' . (string) $detail), 0, 2000),
             ])->save();
             $stats['failed']++;
 

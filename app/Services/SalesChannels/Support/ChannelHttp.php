@@ -162,6 +162,7 @@ class ChannelHttp
         $bytes = 0;
         $status = null;
         $refusal = null;
+        $promised = null;
 
         try {
             $response = Http::withHeaders($headers)
@@ -173,6 +174,7 @@ class ChannelHttp
             $status = $response->status();
 
             if ($response->successful()) {
+                $promised = $this->promisedLength($response);
                 $body = $response->toPsrResponse()->getBody();
                 while (!$body->eof()) {
                     $chunk = $body->read(max(1024, $chunkBytes));
@@ -202,6 +204,15 @@ class ChannelHttp
             $refusal = 'stream_could_not_be_read:' . SecretRedactor::redactString($exception->getMessage());
         }
 
+        if ($refusal === null && $promised !== null && $bytes < $promised) {
+            // **A transfer can end short of the document without any error at all.** The loop above stops on `eof()`, and a
+            // peer that closes the socket cleanly part way through -- a truncated S3 transfer, a proxy that gives up -- is
+            // indistinguishable from a finished body at that level: no exception, no status, `eof()` simply becomes true.
+            // Measured against what the response PROMISED it is unmistakable, so the shortfall is the refusal. Without this
+            // the caller is handed a fragment of the document and told it is the whole of it.
+            $refusal = 'stream_ended_early:' . $bytes . '/' . $promised;
+        }
+
         // Logged like any other call, with the SIZE of what came back and never its content: a report body is a seller's own
         // catalogue or settlement data, and this one is too big to belong in a log whatever it held.
         $outcome = new ChannelResponse(
@@ -216,6 +227,21 @@ class ChannelHttp
         $this->log($account, $operation, 'GET', $url, $headers, null, $query, $outcome);
 
         return ['ok' => $refusal === null, 'status' => $status, 'bytes' => $bytes, 'refusal' => $refusal];
+    }
+
+    /**
+     * How many bytes the response promised, when it promised a number that is about the bytes `stream()` actually counts.
+     *
+     * The units can be trusted because Guzzle keeps them honest: when it inflates a body itself it REMOVES `Content-Length`
+     * and keeps the original under `x-encoded-content-length` (`StreamHandler::checkDecode`), precisely because the decoded
+     * length is unknowable without decoding. So a surviving header always describes the encoded bytes on the socket, which is
+     * what the read loop adds up. A chunked response promises nothing and is left alone.
+     */
+    private function promisedLength(Response $response): ?int
+    {
+        $promised = trim($response->header('Content-Length'));
+
+        return $promised !== '' && ctype_digit($promised) ? (int) $promised : null;
     }
 
     /**

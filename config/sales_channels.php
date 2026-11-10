@@ -186,7 +186,7 @@ return [
         // one JSON_LISTINGS_FEED carries up to 25,000 price and quantity changes in a single accepted submission that cannot
         // be recalled once it leaves IN_QUEUE -- a different kind of exposure from a per-SKU PATCH, and so a different
         // decision. Per-SKU publishing stays the default path whatever this says.
-        'bulk_feeds_enabled' => env('AMAZON_BULK_FEEDS_ENABLED', false),
+        'bulk_feeds_enabled' => filter_var(env('AMAZON_BULK_FEEDS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
         // **The full-catalogue listings COMPARISON, and it ships OFF.** With it off,
         // `GET_MERCHANT_LISTINGS_ALL_DATA` is named `amazon_report_has_no_reader` exactly as before. On, the report is
         // compared against the listings we hold and the result is written to the report run's own row only: how many of its
@@ -196,7 +196,7 @@ return [
         // `last_seen_at`, so nothing it does can reach StockPlanner, the publisher, or what the channel is believed to show.
         // Keeping quantities in step would need Amazon's own report generation time stored on the run row, which is a
         // separate decision; see docs/sales-channels/decisions.md.
-        'listings_reconciliation_enabled' => env('AMAZON_LISTINGS_RECONCILIATION_ENABLED', false),
+        'listings_reconciliation_enabled' => filter_var(env('AMAZON_LISTINGS_RECONCILIATION_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
         // Amazon's own suggested minimum feed size. Under it, the per-SKU Listings Items API is "faster with less than 1,500
         // items during a five-minute period" by Amazon's own comparison, so a feed is refused rather than wasting one of five
         // submissions per five minutes.

@@ -139,6 +139,12 @@ class AmazonListingsReconciliation implements ReadsAmazonReportsInBatches
         unset($this->tally[$runId]);
 
         if ($tally['rows'] === 0 && $tally['unusable'] === 0) {
+            // **Deliberately the same answer however the document ended, and deliberately not `reconciled`.** Zero compared
+            // rows is a refusal to draw any conclusion, whether the catalogue carried no row at all or the reading stopped
+            // before one arrived: in both the catalogue is unexamined, and `reconciled` with zero counts would record a
+            // finished comparison of a document nothing was read from. `state` and `failure_code` on the run row carry the
+            // difference -- a whole document that held nothing is `read`, a document that broke is `failed` and names the
+            // refusal -- so nothing is lost by the two sharing this one word.
             return [
                 'outcome' => 'listings_reconciliation_refused',
                 'detail' => 'No row of this document could be compared, so nothing is claimed about the catalogue.',
