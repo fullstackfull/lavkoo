@@ -169,10 +169,18 @@ class AmazonReportStream
         );
 
         if ($stopped === null) {
-            // The last partial line is a line only if the document did not end with a newline.
-            if (trim($buffer) !== '' && $headerLine !== null) {
+            // **What is left in the buffer is a LINE only if the transport reached the end of the document.** If it refused
+            // -- the byte ceiling, a dropped connection, a body that could not be read -- the bytes stop wherever the last
+            // 64 KiB chunk happened to stop, so the buffer holds a FRAGMENT of a row. Handing that on would make a cell at
+            // the cut a prefix of itself (`300` read as `3`) and every later column vanish, and `AmazonFlatFile` keeps the
+            // columns a short row has, so the fragment arrives looking like an ordinary row. A consumer cannot tell the
+            // difference, which is how a truncated download becomes a wrong number nobody raised.
+            //
+            // The complete lines already buffered ARE real and are still handed over: a half-read document says what it
+            // gave and what never came, and dropping the whole batch would lose rows that did arrive.
+            if ($outcome['refusal'] === null && trim($buffer) !== '' && $headerLine !== null) {
                 $pending[] = rtrim($buffer, "\r");
-            } elseif (trim($buffer) !== '' && $headerLine === null) {
+            } elseif ($outcome['refusal'] === null && trim($buffer) !== '' && $headerLine === null) {
                 $headerLine = rtrim($buffer, "\r");
             }
             $flush();

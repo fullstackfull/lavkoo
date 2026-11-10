@@ -262,6 +262,39 @@ class AmazonReportStreamTest extends TestCase
         $this->assertStringContainsString('streamed', $line, 'the log says nothing about what came back');
     }
 
+    public function test_a_transport_that_stops_mid_row_does_not_hand_the_fragment_on_as_a_row(): void
+    {
+        // **The fragment case.** `ChannelHttp::stream()` reads 64 KiB at a time and, at the byte ceiling or on a dropped
+        // transfer, sets its refusal WITHOUT setting this class's own `$stopped`. The bytes therefore stop wherever that
+        // chunk stopped — inside a row — and the trailing buffer is a FRAGMENT. Handed on it would read as an ordinary
+        // short row: the cell at the cut becomes a prefix of itself (`300` as `3`) and every later column disappears, and
+        // nothing downstream can tell it from a real row. The complete lines already buffered are real and must survive.
+        $rows = 6000;
+        config(['sales_channels.amazon.report_stream_max_bytes' => 100000]);
+        Http::fake([self::DOWNLOAD => Http::response($this->aListingsReport($rows))]);
+        $seen = [];
+
+        $result = app(AmazonReportStream::class)->read($this->account, self::DOWNLOAD, function (AmazonFlatFile $file) use (&$seen): void {
+            foreach ($file->rows as $row) {
+                $seen[] = [$file->cell($row, 'seller-sku'), $file->cell($row, 'price'), $file->cell($row, 'quantity')];
+            }
+        }, ['seller-sku', 'price', 'quantity']);
+
+        $this->assertNotNull($result['refusal'], 'a truncated report was reported as a complete one');
+        $this->assertNotSame([], $seen, 'the rows that did arrive were dropped with the fragment');
+        $this->assertLessThan($rows, count($seen));
+
+        // Every row handed over carries all three columns, and the last one is whole rather than cut.
+        foreach ($seen as $index => $row) {
+            $this->assertNotNull($row[2], 'row ' . $index . ' lost its last column, so a fragment was handed on as a row');
+            $this->assertSame('', '' . preg_replace('/^SKU-\d+$/', '', (string) $row[0]), 'a SKU arrived cut: ' . $row[0]);
+        }
+        $last = $seen[count($seen) - 1];
+        $expected = (int) substr((string) $last[0], 4);
+        $this->assertSame((string) $expected, $last[2], 'the final row handed over was a fragment, not a row');
+        $this->assertSame(number_format(10 + $expected / 100, 2, '.', ''), $last[1]);
+    }
+
     /** A listings report shaped like Amazon's: a tab-delimited header row, then one line per SKU. */
     private function aListingsReport(int $rows): string
     {
