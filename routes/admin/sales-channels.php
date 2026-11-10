@@ -83,6 +83,7 @@ Route::group([
 
     // ---- stock by location (read only) ----------------------------------------------------------------------------
     Route::get('inventory', [ChannelInventoryController::class, 'index'])->name('inventory.index');
+    Route::post('inventory/locations/{location}/channels', [ChannelInventoryController::class, 'channels'])->whereNumber('location')->name('inventory.locations.channels');
 
     // ---- unified orders -------------------------------------------------------------------------------------------
     Route::get('orders', [ChannelOrderController::class, 'index'])->name('orders.index');

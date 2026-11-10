@@ -53,6 +53,22 @@
             </x-k.card>
 
             <x-k.card class="mb-3">
+                <h6 class="fs-14 mb-1">{{ translate('which_channels_this_location_feeds') }}</h6>
+                <p class="fs-12 text-muted mb-2">{{ translate('a_channel_takes_stock_from_this_location_only_when_it_is_ticked_here') }}</p>
+                <form method="POST" action="{{ route('admin.sales-channels.inventory.locations.channels', $selected->id) }}">
+                    @csrf
+                    <input type="hidden" name="channels[]" value="">
+                    @foreach (\App\Http\Controllers\Admin\SalesChannels\ChannelInventoryController::ADMISSIBLE_CHANNELS as $channel)
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="feeds-{{ $channel }}" name="channels[]" value="{{ $channel }}"
+                                   @checked(in_array($channel, (array) ($selected->publishable_channels ?? []), true))>
+                            <label class="form-check-label fs-12" for="feeds-{{ $channel }}">{{ $channel }}</label>
+                        </div>
+                    @endforeach
+                    <button class="btn btn--primary btn-sm mt-2" type="submit">{{ translate('save') }}</button>
+                </form>
+            </x-k.card>
+            <x-k.card class="mb-3">
                 <form method="GET" action="{{ route('admin.sales-channels.inventory.index') }}" class="row g-2 align-items-end">
                     <input type="hidden" name="location" value="{{ $selected->id }}">
                     <div class="col-md-4">
