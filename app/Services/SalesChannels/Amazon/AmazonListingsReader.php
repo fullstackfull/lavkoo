@@ -41,6 +41,13 @@ use Carbon\CarbonInterface;
  * listing is ever flagged unseen from here), and reading a row twice writes the same two values. See
  * {@see ReadsAmazonReportsInBatches}.
  *
+ * ## One statement per row, and why that is left alone
+ *
+ * A row is one conditional `UPDATE` keyed on `(account_id, listing_key)`, so a catalogue of fifty thousand SKUs is fifty
+ * thousand small statements. That is the cost, it is bounded, and it buys the two properties that matter here: reading a row
+ * twice writes the same values, and a row for a SKU we do not hold touches nothing. Folding a batch into one statement would
+ * be faster and would have to reproduce both by hand, which is not a trade worth making for a report read in the background.
+ *
  * ## And it ships off
  *
  * `sales_channels.amazon.listings_report_enabled` is false, and while it is false `handles()` refuses the type, so the runner
@@ -49,12 +56,15 @@ use Carbon\CarbonInterface;
  */
 class AmazonListingsReader implements ReadsAmazonReportsInBatches
 {
+    /** How many unheld SKU names one batch keeps for the operator. A sample, because the alternative grows with the catalogue. */
+    private const NAMES_KEPT = 20;
+
     public function handles(string $reportType): bool
     {
         return $reportType === AmazonReportTypes::ALL_LISTINGS && self::isEnabled();
     }
 
-    public static function isEnabled(): bool
+    private static function isEnabled(): bool
     {
         return (bool) config('sales_channels.amazon.listings_report_enabled', false);
     }
@@ -96,8 +106,12 @@ class AmazonListingsReader implements ReadsAmazonReportsInBatches
                 ]);
 
             if ($updated === 0) {
-                // Amazon lists a SKU we hold no listing for. Named rather than created: see the class note.
-                $unknown[$sku] = true;
+                // Amazon lists a SKU we hold no listing for. Named rather than created: see the class note. Only a sample of
+                // the names is kept: a catalogue none of which is held would otherwise build an array the size of the
+                // catalogue, which is the one thing a streamed read must not do.
+                if (count($unknown) < self::NAMES_KEPT) {
+                    $unknown[$sku] = true;
+                }
 
                 continue;
             }
@@ -106,10 +120,13 @@ class AmazonListingsReader implements ReadsAmazonReportsInBatches
         }
 
         return [
-            'outcome' => $unknown === [] ? null : 'amazon_listings_not_held:' . count($unknown),
+            // A STABLE code, with no count in it. Every batch of a streamed report returns one of these and the runner keeps
+            // the distinct ones, so a code that carried a per-batch number would give a document of 250 batches up to 250
+            // different codes to squeeze into a 64-character column.
+            'outcome' => $unknown === [] ? null : 'amazon_listings_not_held',
             'rows_read' => $read,
             'rows_refused' => $refused,
-            'detail' => $unknown === [] ? null : 'SKUs Amazon lists and we hold no listing for: ' . mb_substr(implode(', ', array_slice(array_keys($unknown), 0, 20)), 0, 500),
+            'detail' => $unknown === [] ? null : 'Amazon lists SKUs we hold no listing for, among them: ' . mb_substr(implode(', ', array_keys($unknown)), 0, 400),
         ];
     }
 

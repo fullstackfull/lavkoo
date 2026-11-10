@@ -155,7 +155,7 @@ class AmazonListingsReportTest extends TestCase
 
         $this->assertSame(1, SalesChannelProductMapping::count(), 'the report invented a listing');
         $this->assertSame(1, $run->fresh()->rows_read);
-        $this->assertStringStartsWith('amazon_listings_not_held:', (string) $run->fresh()->outcome);
+        $this->assertSame('amazon_listings_not_held', $run->fresh()->outcome);
         $this->assertStringContainsString('SKU-UNKNOWN', (string) $run->fresh()->failure_detail);
     }
 

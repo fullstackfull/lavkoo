@@ -306,7 +306,8 @@ class AmazonReportRunner
                 if (isset($outcome['outcome'])) {
                     $outcomes[(string) $outcome['outcome']] = true;
                 }
-                if (isset($outcome['detail'])) {
+                // Bounded: a streamed catalogue is hundreds of batches, and the row these end up in is one text column.
+                if (isset($outcome['detail']) && count($details) < 10) {
                     $details[(string) $outcome['detail']] = true;
                 }
             },
