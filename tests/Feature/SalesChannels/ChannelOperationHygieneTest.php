@@ -143,23 +143,9 @@ class ChannelOperationHygieneTest extends TestCase
      */
     private function operationsNothingCalls(): array
     {
-        // **The declaration of a gap is not a call, and nor is the registry entry itself.** The second half of that was the
-        // comment's claim and not the code's behaviour, and the gap between them hid real work.
-        //
-        // The old scan read every file except `UncalledOperations.php` and called an operation "called" at two or more
-        // mentions -- two because the registry entry was expected to contribute one. But `NoonOperations` names each of its
-        // operations TWICE, once in `operations()` and once in the path map beside it, so **every noon operation passed this
-        // guard whether anything called it or not.** `noon.sku_batch_map` sat there with `built => false` in its own
-        // capability matrix and the guard had nothing to say.
-        //
-        // So the registry files are excluded outright and one real mention is enough. That is what the comment always said.
-        $registries = ['UncalledOperations.php', 'AmazonOperations.php', 'TrendyolOperations.php', 'NoonOperations.php', 'OdooOperations.php'];
-
         $haystack = '';
-        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app'))) as $file) {
-            if ($file->isFile() && $file->getExtension() === 'php' && !in_array($file->getFilename(), $registries, true)) {
-                $haystack .= file_get_contents($file->getPathname());
-            }
+        foreach ($this->filesThatCanActuallyCall() as $source) {
+            $haystack .= $source;
         }
 
         $uncalled = [];
@@ -170,6 +156,81 @@ class ChannelOperationHygieneTest extends TestCase
         }
 
         return $uncalled;
+    }
+
+    /**
+     * Every file of `app/` whose mention of an operation is evidence that the APPLICATION calls it.
+     *
+     * The old scan concatenated every file outside the five registries and asked whether the operation's quoted name
+     * appeared once. That counted two things it should never have counted, and both were found in the closure review:
+     *
+     *  1. **A mention inside a comment.** `NoonOperations` and `NoonConnector` discuss `NoonProductGroups` in prose, and
+     *     prose is not a call. Comments are stripped here with `php_strip_whitespace()`, so only code is read.
+     *  2. **A mention inside a class nothing reaches.** `TrendyolLookups` named all four of its operations from its own
+     *     body while no controller, command, job or service constructed it, and `NoonProductGroups` was the same. The
+     *     operations were written and tested, reachable by nobody, and the guard called them called.
+     *
+     * So a file counts only when something can arrive at it: either the framework enters it (a controller, a command, a
+     * job, a listener, middleware, a provider) or some OTHER file names its class. That is reachability one edge deep,
+     * not a call graph -- a class reached only by another orphan still counts -- and it is deliberately the cheap half:
+     * it catches the orphan, it cannot be fooled by a comment, and it has no false positives to argue about.
+     *
+     * @return array<string, string> path => source with its comments removed
+     */
+    private function filesThatCanActuallyCall(): array
+    {
+        $registries = ['UncalledOperations.php', 'AmazonOperations.php', 'TrendyolOperations.php', 'NoonOperations.php', 'OdooOperations.php'];
+        $entryPoints = ['/Http/Controllers/', '/Console/', '/Jobs/', '/Listeners/', '/Http/Middleware/', '/Providers/'];
+
+        $sources = [];
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app'))) as $file) {
+            if ($file->isFile() && $file->getExtension() === 'php' && !in_array($file->getFilename(), $registries, true)) {
+                $sources[$file->getPathname()] = php_strip_whitespace($file->getPathname());
+            }
+        }
+
+        // How many files name each class. One means only its own file does, so nothing reaches it.
+        //
+        // **`config/` is counted here and deliberately not in the haystack.** A connector is never named by class in
+        // `app/`: `ChannelConnectorRegistry::for()` reads `config('sales_channels.connectors.<channel>')` and resolves
+        // that string through the container, so `AmazonConnector` is named exactly once in the whole of `app/` -- by
+        // itself. Reading only `app/` therefore called every Amazon and noon operation unreachable, which is how this
+        // check first failed: forty-two of them, including `amazon.orders_search`. The config is how the application
+        // wires those classes, so it is part of the answer to "does anything reach this". It calls no operation itself,
+        // so it stays out of the evidence that one is CALLED.
+        $naming = $sources;
+        foreach (glob(base_path('config') . '/*.php') ?: [] as $config) {
+            $naming['config:' . $config] = php_strip_whitespace($config);
+        }
+
+        $filesNaming = [];
+        foreach ($naming as $source) {
+            foreach (array_unique($this->classNamesIn($source)) as $name) {
+                $filesNaming[$name] = ($filesNaming[$name] ?? 0) + 1;
+            }
+        }
+
+        return array_filter($sources, function (string $source, string $path) use ($entryPoints, $filesNaming): bool {
+            foreach ($entryPoints as $entry) {
+                if (str_contains($path, $entry)) {
+                    return true;
+                }
+            }
+
+            return ($filesNaming[basename($path, '.php')] ?? 0) > 1;
+        }, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * The class-shaped words of a source: enough to see whether anything names a given class.
+     *
+     * @return list<string>
+     */
+    private function classNamesIn(string $source): array
+    {
+        preg_match_all('/\b[A-Z][A-Za-z0-9_]{2,}\b/', $source, $matches);
+
+        return $matches[0];
     }
 
     private function isACapabilityScope(string $scope): bool

@@ -58,6 +58,10 @@ Route::group([
         ->whereIn('kind', ChannelAccountOperationsController::PUBLISH_KINDS)->middleware('throttle:6,1')->name('accounts.publish');
     Route::post('accounts/{account}/webhook', [ChannelAccountOperationsController::class, 'webhook'])->whereNumber('account')->middleware('throttle:6,1')->name('accounts.webhook');
     Route::post('accounts/{account}/webhook/list', [ChannelAccountOperationsController::class, 'listWebhooks'])->whereNumber('account')->middleware('throttle:6,1')->name('accounts.webhook.list');
+    Route::post('accounts/{account}/lookup/{kind}', [ChannelAccountOperationsController::class, 'lookup'])->whereNumber('account')
+        ->whereIn('kind', array_keys(ChannelAccountOperationsController::LOOKUPS))->middleware('throttle:10,1')->name('accounts.lookup');
+    Route::post('accounts/{account}/product-group/members', [ChannelAccountOperationsController::class, 'addGroupMembers'])->whereNumber('account')
+        ->middleware('throttle:6,1')->name('accounts.product-group.members');
 
     // ---- products and channels ------------------------------------------------------------------------------------
     Route::get('products', [ChannelProductController::class, 'index'])->name('products.index');
