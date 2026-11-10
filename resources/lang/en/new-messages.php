@@ -10154,6 +10154,8 @@ return [
 	'run_stat_unknown_order' => 'Unknown order',
 	'publish_skip_fba_listing' => 'Fulfilled by Amazon (FBA): Amazon holds the stock',
 	'publish_skip_fbn_listing' => 'Fulfilled by noon (FBN): noon holds the stock',
+	'who_fulfils_this_listing_saved' => 'Saved who fulfils this listing',
+	'confirm_who_fulfils_this_listing' => 'Confirm who fulfils this listing: our stock is only offered when we do',
 	'channel_lookup_failed' => 'The channel could not answer that',
 	'group_members_added' => 'Products added to the group',
 	'group_members_not_added' => 'The products were not added',

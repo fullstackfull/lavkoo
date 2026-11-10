@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\SalesChannels;
 
+use App\Models\ExternalOrderMapping;
 use App\Models\InventoryLocation;
 use App\Models\InventoryLocationBalance;
 use App\Models\SalesChannelAccount;
@@ -170,5 +171,47 @@ class NoonPoolMembershipTest extends TestCase
         $this->own->forceFill(['is_active' => false])->save();
 
         $this->assertSame('no_stock_source', $this->refusal($this->listing(), location: $this->own->fresh()));
+    }
+
+    // ---- who fulfils a noon listing: said by a person, never inferred ------------------------------------------------
+
+    public function test_no_quantity_reaches_an_admitted_location_until_a_person_says_we_fulfil_this_listing(): void
+    {
+        $this->stock(10);
+        $this->admit($this->own, 'noon');
+        $location = $this->own->fresh();
+
+        $undecided = $this->listing(overrides: ['listing_key' => 'NOON-NEW', 'fulfillment_mode' => null]);
+
+        $this->assertSame('fulfillment_mode_unknown', $this->refusal($undecided, location: $location));
+    }
+
+    public function test_the_location_admitting_noon_is_not_enough_on_its_own_and_neither_is_fbpi_on_its_own(): void
+    {
+        $this->stock(10);
+        $fbpi = $this->listing(overrides: ['fulfillment_mode' => 'fbpi']);
+
+        $this->assertSame('location_not_for_this_channel', $this->refusal($fbpi, location: $this->own), 'FBPI alone is not enough');
+
+        $this->admit($this->own, 'noon');
+
+        $this->assertNull($this->refusal($fbpi, location: $this->own->fresh()), 'both together are');
+    }
+
+    public function test_an_order_we_fulfil_does_not_decide_the_listing_s_type(): void
+    {
+        $this->stock(10);
+        $this->admit($this->own, 'noon');
+        $listing = $this->listing(overrides: ['listing_key' => 'NOON-FROM-ORDER', 'fulfillment_mode' => null]);
+
+        // A noon FBPI ORDER is mapped merchant-managed, which is a fact about that order. The same SKU can be held in both
+        // our warehouse and noon's, so nothing about the listing follows from it.
+        ExternalOrderMapping::create([
+            'account_id' => $this->noon->id, 'sales_channel' => 'noon', 'seller_id' => 0, 'external_order_id' => 'N-1',
+            'external_package_id' => '', 'status' => 'delivered', 'currency' => 'SAR', 'fulfillment_mode' => 'merchant_managed',
+        ]);
+
+        $this->assertNull($listing->fresh()->fulfillment_mode, 'the listing is still undecided');
+        $this->assertSame('fulfillment_mode_unknown', $this->refusal($listing->fresh(), location: $this->own->fresh()));
     }
 }

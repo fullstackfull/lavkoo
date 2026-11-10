@@ -16743,6 +16743,8 @@ return [
 	'run_stat_unknown_order' => 'طلب غير معروف',
 	'publish_skip_fba_listing' => 'التجهيز والتنفيذ بواسطة أمازون (FBA): المخزون لدى أمازون',
 	'publish_skip_fbn_listing' => 'التجهيز والتنفيذ بواسطة نون (FBN): المخزون لدى نون',
+	'who_fulfils_this_listing_saved' => 'حُفظ من ينفّذ هذا الإدراج',
+	'confirm_who_fulfils_this_listing' => 'أكّد من ينفّذ هذا الإدراج: مخزوننا لا يُعرَض إلا إذا كنّا نحن',
 	'channel_lookup_failed' => 'لم تستطع القناة الإجابة',
 	'group_members_added' => 'أُضيفت المنتجات إلى المجموعة',
 	'group_members_not_added' => 'لم تُضف المنتجات',

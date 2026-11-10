@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\SalesChannels;
 use App\Http\Controllers\Admin\SalesChannels\Support\ListingLinker;
 use App\Http\Controllers\Admin\SalesChannels\Support\ProductDirectory;
 use App\Http\Controllers\Admin\SalesChannels\Support\ReadsFilters;
+use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Controller;
 use App\Models\ChannelStockEvent;
 use App\Models\InventoryLocation;
@@ -35,6 +36,9 @@ use Illuminate\View\View;
  */
 class ChannelProductController extends Controller
 {
+    /** noon's own vocabulary: FBPI is our warehouse and our fulfilment, FBN is noon's. Nothing else is a value here. */
+    public const NOON_FULFILMENT_MODES = ['fbpi', 'fbn'];
+
     use ReadsFilters;
 
     public const STATUSES = [
@@ -146,6 +150,48 @@ class ChannelProductController extends Controller
     }
 
     /** Where the quantity and the price come from, and what may be published. Saving this publishes nothing. */
+    /**
+     * Who fulfils this noon listing: our warehouse (FBPI) or noon's (FBN). Set by a person, never inferred.
+     *
+     * The owner approved noon joining the shared pool on 2026-11-10 on the condition that only what WE fulfil takes part
+     * (decisions.md §8, decision one). Deciding that needs a trustworthy source, and noon gives us none here: there is no
+     * noon listing reader in this application at all, so nothing the channel says records a listing's fulfilment type.
+     *
+     * **And it is not inferred from orders.** `NoonOrderMapper` maps an FBPI ORDER as merchant-managed, which is a fact
+     * about that order and not about the listing it came from; a seller can hold the same SKU in both. So the listing waits
+     * here for a person to say which it is, and `StockListingGate` refuses it meanwhile -- an unstated mode is
+     * `fulfillment_mode_unknown` and FBN is `fbn_listing`, so no quantity reaches noon until this is answered AND the
+     * location admits noon.
+     *
+     * It is its own action rather than a field on the settings form because it decides whether our stock can be sold by a
+     * channel, and that should take a deliberate act with a tick beside it.
+     */
+    public function fulfilmentMode(Request $request, SalesChannelProductMapping $mapping): RedirectResponse
+    {
+        abort_unless($mapping->account?->channel === SalesChannel::Noon->value, 404);
+
+        $bag = $this->bag($mapping);
+        $validated = $request->validateWithBag($bag, [
+            'mode' => ['required', Rule::in(self::NOON_FULFILMENT_MODES)],
+            'confirm_mode' => ['accepted'],
+        ], ['confirm_mode.accepted' => translate('confirm_who_fulfils_this_listing')]);
+
+        $before = (string) $mapping->fulfillment_mode;
+        $mapping->forceFill(['fulfillment_mode' => $validated['mode']])->save();
+
+        $this->audit->record(
+            action: 'sales_channel.listing_fulfilment_mode_set',
+            subject: $mapping,
+            before: ['fulfillment_mode' => $before === '' ? null : $before],
+            after: ['fulfillment_mode' => $validated['mode']],
+            context: ['by' => auth('admin')->id(), 'decided_by_a_person' => true],
+        );
+
+        SafeToast::success(translate('who_fulfils_this_listing_saved'), $validated['mode']);
+
+        return redirect()->route('admin.sales-channels.products.index', ['account' => $mapping->account_id]);
+    }
+
     public function settings(Request $request, SalesChannelProductMapping $mapping): RedirectResponse
     {
         $bag = $this->bag($mapping);

@@ -162,10 +162,16 @@ class ProfitabilityService
         // estimate. And a settled figure counts only if it can be converted to the base
         // currency: with no trustworthy rate the estimate stays the best figure we have and the result still says the cost
         // is not convertible, so nothing is invented and nothing is presented as final (the fourth condition).
-        $settled = [];
+        $finallySettled = [];
+        $awaitingSettlement = [];
         foreach ($entries as $entry) {
-            if ($entry->state->isSettled() && $this->inBase($entry, $base) !== null) {
-                $settled[$entry->cost_component] = true;
+            $service = $this->serviceOf($entry);
+            if ($entry->state === CostState::Estimated) {
+                $awaitingSettlement[$service] = true;
+                continue;
+            }
+            if ($this->isAProvenSettlement($entry) && $this->inBase($entry, $base) !== null) {
+                $finallySettled[$service] = true;
             }
         }
 
@@ -173,8 +179,9 @@ class ProfitabilityService
             if ($document->isCancelled() && $this->isNotOwedByACancelledSale($entry)) {
                 continue;
             }
-            if ($entry->state === CostState::Estimated && isset($settled[$entry->cost_component])) {
-                // Kept on the record and out of the total: this is the estimate the actual beside it has replaced.
+            if ($entry->state === CostState::Estimated && isset($finallySettled[$this->serviceOf($entry)])) {
+                // The settlement of this service is PROVEN, so the estimate is what it expected and not what it cost. Kept
+                // on the record, out of the total.
                 $bucket = $buckets[$entry->cost_component] ??= new CostBucket($entry->cost_component, $entry->cost_class);
                 $bucket->supersededEstimates++;
                 continue;
@@ -199,6 +206,20 @@ class ProfitabilityService
             if ($entry->state === CostState::Disputed) {
                 $bucket->disputed++;
                 $disputed = $disputed->plus($amount);
+                continue;
+            }
+
+            $service = $this->serviceOf($entry);
+            if ($entry->state->isSettled() && !isset($finallySettled[$service]) && isset($awaitingSettlement[$service])) {
+                // **Fees have arrived; the settlement has not been proven.** So this figure is reported as OBSERVED and the
+                // service's estimate stays the expectation beside it. Adding both to one total would charge the cost twice,
+                // and letting this one stand in for the estimate is the opposite error: a single 1 TRY fee once cut a
+                // 15.652174 SAR commission to 0.093750 and cleared the pending marker, so the order read as fully settled
+                // at 0.6% of what it will cost.
+                $actual = $actual->plus($amount);
+                $bucket->actual = $bucket->actual->plus($amount);
+                $bucket->pendingActual++;
+                $pending[$entry->cost_component] = $entry->cost_component;
                 continue;
             }
 
@@ -235,6 +256,56 @@ class ProfitabilityService
             notes: array_values(array_unique($notes)),
             gaps: $gaps,
         );
+    }
+
+    /**
+     * Whether this entry PROVES the service it belongs to has been settled in full.
+     *
+     * **`Actual` on its own does not, and that was the defect.** `CostState::Actual` says a real amount arrived from the
+     * channel, nothing more: the channel reports fees as they accrue, so one fee is "what we have been charged so far"
+     * and never "what this service cost". Treating it as a settlement let a 1 TRY fee displace a 15.652174 SAR estimate.
+     *
+     * What does prove it is a figure a person or a reconciliation has signed off, and the ledger already says what that
+     * means: `CostLedger::write()` treats an entry as final when `approved_at` is set or its state is `Reconciled`
+     * (CostLedger.php:205), and `markReconciled()` is what sets both. So the evidence is the ledger's own, not a new
+     * invention, and it carries its date in `approved_at`.
+     *
+     * No amount is compared and no `max(estimated, actual)` is taken: a fee that happens to be large is still just a fee.
+     */
+    private function isAProvenSettlement(OperationalCostEntry $entry): bool
+    {
+        return $entry->approved_at !== null || $entry->state === CostState::Reconciled;
+    }
+
+    /**
+     * The SERVICE an entry belongs to, so that settling one never speaks for another.
+     *
+     * One component carries several different services of the same subject -- a reversal (`reversal:<id>`), an invoice line
+     * (`invoice-item:<id>`), a statement difference -- and a proven settlement of one of those says nothing about the
+     * others. Keying on the component alone let a reconciled reversal displace an unrelated commission estimate, which a
+     * test caught.
+     *
+     * **The service reference is not a column.** `CostDraft::$serviceRef` is only an input to `slotKey()`
+     * (CostDraft.php:75), so at read time all that survives is the hash. The family is therefore identified by RECOMPUTING
+     * the two slot keys it could have -- the contract-priced default (`''`) and this entry's own channel net
+     * (`channel-net:<its currency>`) -- with the ledger's own recipe. An entry whose slot is neither is its own service and
+     * keys on its slot, so nothing outside the family can displace anything.
+     *
+     * Those two belong together on purpose: a net whose currency differs from the order's is filed apart so two currencies
+     * never add into one figure, but it settles the very service the estimate expected. That is the owner's rule that the
+     * actual replaces the estimate REGARDLESS OF CURRENCY, and it is the only pair this treats as one.
+     */
+    private function serviceOf(OperationalCostEntry $entry): string
+    {
+        $component = (string) $entry->cost_component;
+        $subject = ['slot', (int) $entry->seller_id, (string) $entry->subject_type, (int) $entry->subject_id, $component];
+
+        $family = [
+            hash('sha256', implode('|', [...$subject, ''])),
+            hash('sha256', implode('|', [...$subject, 'channel-net:' . (string) $entry->currency])),
+        ];
+
+        return $component . '|' . (in_array((string) $entry->slot_key, $family, true) ? 'channel-net' : (string) $entry->slot_key);
     }
 
     private function hasUnitsToCost(SaleDocument $document): bool

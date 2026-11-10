@@ -71,6 +71,7 @@ Route::group([
     Route::post('products/{mapping}/unignore', [ChannelProductController::class, 'unignore'])->whereNumber('mapping')->name('products.unignore');
     Route::post('products/{mapping}/accept-suggestion', [ChannelProductController::class, 'acceptSuggestion'])->whereNumber('mapping')->name('products.accept-suggestion');
     Route::post('products/{mapping}/settings', [ChannelProductController::class, 'settings'])->whereNumber('mapping')->name('products.settings');
+    Route::post('products/{mapping}/fulfilment-mode', [ChannelProductController::class, 'fulfilmentMode'])->whereNumber('mapping')->name('products.fulfilment-mode');
 
     // ---- putting one of OUR products on a channel (reached from the product form's channels card) ------------------
     // Opening the screen calls no channel. `check` and `follow` only READ from one; `publish` is the single action that can change anything there, and the host's listing

@@ -10,6 +10,7 @@ use App\Models\OperationalCostEntry;
 use App\Models\SalesChannelAccount;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use App\Services\OperationalCosts\ContractService;
+use App\Services\OperationalCosts\CostLedger;
 use App\Services\OperationalCosts\Contributors\MarketplaceFeeContributor;
 use App\Services\OperationalCosts\Profit\ProfitabilityService;
 use App\Services\OperationalCosts\Profit\ProfitResult;
@@ -135,70 +136,7 @@ class CommissionCurrencyTest extends TestCase
 
     // ---- the case the owner's rule is about --------------------------------------------------------------------------
 
-    public function test_an_actual_commission_in_another_currency_also_replaces_the_estimate_and_is_not_counted_twice(): void
-    {
-        $this->contract();
-        $mapping = $this->order();
-        $this->estimate($mapping);
-
-        // The same service, settled by Trendyol in lira. A different currency is a different slot in the ledger, and that is
-        // exactly what must not turn one commission into two.
-        $this->actual('200.00', 'TRY');
-
-        $result = $this->profit($mapping);
-
-        $this->assertSame('18.750000', $result->actualCost->toStorage(), '200 TRY at the table\'s rates');
-        $this->assertSame(
-            '18.750000',
-            $result->estimatedCost->toStorage(),
-            'the settled actual is the whole of what this commission costs; anything more is the estimate counted again',
-        );
-    }
-
-    public function test_the_profit_of_that_order_charges_the_commission_once(): void
-    {
-        $this->contract();
-        $mapping = $this->order();
-        $this->estimate($mapping);
-        $this->actual('200.00', 'TRY');
-
-        $result = $this->profit($mapping);
-
-        // 200 TRY at the table's rates (TRY 40 and SAR 3.75 to the USD) is 18.75 SAR. The estimate was 10% of the order. If
-        // both are counted the estimated total is the sum of the two, which is the defect.
-        $this->assertSame(
-            $result->actualCost->toStorage(),
-            $result->estimatedCost->toStorage(),
-            'with the actual settled there is nothing left estimated beside it; a larger estimated total is the estimate counted again',
-        );
-    }
-
     // ---- and the limits the owner set on the same rule ---------------------------------------------------------------
-
-    /**
-     * The owner's third condition: a partial fee is not a final settlement, and the estimate is not CANCELLED by fees that
-     * are not confirmed to cover the service.
-     *
-     * Supersession satisfies it without keeping the estimate in the total, and the distinction matters: the estimate keeps
-     * its row, stops being counted (so it is never added to the actual, which is the second condition), and points at the
-     * actual that replaced it. So nothing is destroyed and the expectation can still be compared with what arrived.
-     *
-     * The channel's fees also ACCUMULATE rather than replace each other -- two fees of 10 and 5 are one net of 15 -- so a
-     * small fee is the running actual, not a partial mistaken for the whole.
-     */
-    public function test_a_small_actual_keeps_the_estimate_on_the_record_rather_than_deleting_it(): void
-    {
-        $this->contract();
-        $mapping = $this->order();
-        $this->estimate($mapping);
-        $this->actual('1.00', 'TRY', 'part-1');
-
-        $estimate = OperationalCostEntry::where('cost_component', 'marketplace_commission')->where('state', CostState::Estimated->value)->firstOrFail();
-        $result = $this->profit($mapping);
-
-        $this->assertTrue((bool) $estimate->is_effective, 'the estimate is NOT retired in the ledger: a partial actual must not cancel it');
-        $this->assertSame(1, $result->buckets['marketplace_commission']->supersededEstimates, 'it is simply not counted beside the actual');
-    }
 
     public function test_two_fees_of_the_same_service_accumulate_into_one_actual(): void
     {
@@ -248,32 +186,6 @@ class CommissionCurrencyTest extends TestCase
     }
     // ---- every ordering, because the choice is made at read time and so cannot depend on one -------------------------
 
-    public function test_the_settlement_arriving_before_the_estimate_is_priced_is_still_counted_once(): void
-    {
-        $this->contract();
-        $mapping = $this->order();
-        $this->actual('200.00', 'TRY');
-        $this->estimate($mapping);
-
-        $result = $this->profit($mapping);
-
-        $this->assertSame('18.750000', $result->actualCost->toStorage());
-        $this->assertSame('18.750000', $result->estimatedCost->toStorage(), 'retiring at write time only looked backwards and this ordering defeated it');
-    }
-
-    public function test_a_tiny_actual_does_not_make_the_order_read_as_fully_settled_at_that_figure(): void
-    {
-        $this->contract();
-        $mapping = $this->order();
-        $this->estimate($mapping);
-        $this->actual('1.00', 'TRY', 'tiny');
-
-        $result = $this->profit($mapping);
-        $commission = $result->buckets['marketplace_commission'];
-
-        $this->assertSame('0.093750', $result->actualCost->toStorage(), 'what the channel has reported so far is what it is');
-        $this->assertSame(1, $commission->supersededEstimates, 'and the estimate it replaced is still on the record, not deleted');
-    }
 
     public function test_an_actual_with_no_trustworthy_rate_does_not_displace_a_convertible_estimate(): void
     {
@@ -312,5 +224,139 @@ class CommissionCurrencyTest extends TestCase
         $this->actual('200.00', 'TRY');
 
         $this->assertCount(2, $this->effectiveCommissions(), 'nothing is destroyed: which one counts is decided when the profit is read');
+    }
+    // ---- estimated, observed, and proven: three different things -----------------------------------------------------
+
+    private function proveTheSettlement(): void
+    {
+        $actual = OperationalCostEntry::where('cost_component', 'marketplace_commission')->where('state', CostState::Actual->value)->firstOrFail();
+        app(CostLedger::class)->markReconciled($actual, adminId: 1);
+    }
+
+    /**
+     * **The number the owner asked to see proved.** A 1 TRY fee against a 15.652174 SAR estimate used to leave
+     * estimatedCost at 0.093750 with nothing pending -- the order read as fully settled at 0.6% of its commission.
+     */
+    public function test_a_partial_fee_leaves_the_estimate_as_the_expectation_and_reports_the_fee_separately(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('1.00', 'TRY', 'tiny');
+
+        $result = $this->profit($mapping);
+        $commission = $result->buckets['marketplace_commission'];
+
+        $this->assertSame('15.652174', $result->estimatedCost->toStorage(), 'the expectation is not cut down by one fee');
+        $this->assertSame('0.093750', $result->actualCost->toStorage(), 'and what has actually arrived is reported on its own');
+        $this->assertContains('marketplace_commission', $result->pendingActualComponents, 'the settlement is not proven, so it is not presented as final');
+        $this->assertSame(0, $commission->supersededEstimates, 'and nothing is hidden');
+    }
+
+    public function test_a_fee_as_large_as_the_estimate_still_proves_nothing_on_its_own(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('200.00', 'TRY');
+
+        $result = $this->profit($mapping);
+
+        $this->assertSame('15.652174', $result->estimatedCost->toStorage(), 'size is not evidence: no amount comparison decides this');
+        $this->assertSame('18.750000', $result->actualCost->toStorage());
+        $this->assertContains('marketplace_commission', $result->pendingActualComponents);
+    }
+
+    public function test_a_proven_settlement_replaces_the_estimate_and_the_commission_is_charged_once(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('200.00', 'TRY');
+        $this->proveTheSettlement();
+
+        $result = $this->profit($mapping);
+
+        $this->assertSame('18.750000', $result->actualCost->toStorage());
+        $this->assertSame('18.750000', $result->estimatedCost->toStorage(), 'one commission, counted once, in another currency');
+        $this->assertNotContains('marketplace_commission', $result->pendingActualComponents, 'and the settlement is proven, so it is final');
+        $this->assertSame(1, $result->buckets['marketplace_commission']->supersededEstimates);
+    }
+
+    public function test_the_proof_carries_its_date(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('200.00', 'TRY');
+        $this->proveTheSettlement();
+
+        $settled = OperationalCostEntry::where('cost_component', 'marketplace_commission')->where('state', CostState::Reconciled->value)->firstOrFail();
+
+        $this->assertNotNull($settled->approved_at, 'a settlement without a date is not evidence of when it settled');
+        $this->assertNotNull($settled->approved_by, 'nor without who signed it off');
+    }
+
+    public function test_the_estimate_priced_after_a_proven_settlement_is_still_not_counted_beside_it(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->actual('200.00', 'TRY');
+        $this->proveTheSettlement();
+        $this->estimate($mapping);
+
+        $result = $this->profit($mapping);
+
+        $this->assertSame('18.750000', $result->estimatedCost->toStorage(), 'the arrival order cannot defeat a decision made at read time');
+    }
+
+    public function test_several_fees_in_two_currencies_are_each_their_own_net_and_none_displaces_the_estimate(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('100.00', 'TRY', 'try-a');
+        $this->actual('100.00', 'TRY', 'try-b');
+        $this->actual('2.00', 'USD', 'usd-a');
+
+        $result = $this->profit($mapping);
+
+        // 200 TRY = 18.75 SAR and 2 USD = 7.50 SAR at the table's rates.
+        $this->assertSame('26.250000', $result->actualCost->toStorage(), 'each currency nets on its own and both are observed');
+        $this->assertSame('15.652174', $result->estimatedCost->toStorage(), 'and the expectation is still the estimate');
+        $this->assertContains('marketplace_commission', $result->pendingActualComponents);
+    }
+
+    public function test_a_credit_on_its_own_does_not_touch_the_estimate(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('-5.00', 'TRY', 'credit-only');
+
+        $result = $this->profit($mapping);
+
+        $this->assertSame('15.652174', $result->estimatedCost->toStorage(), 'a credit is not a settlement');
+        $this->assertSame('-0.468750', $result->actualCost->toStorage(), 'and it is reported as what it is');
+    }
+
+    public function test_a_proven_settlement_of_one_service_does_not_displace_the_estimate_of_another(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+
+        // A reversal is a different service that happens to share the component. Settling it says nothing about the
+        // commission the contract priced.
+        app(CostLedger::class)->record(new \App\Services\OperationalCosts\Data\CostDraft(
+            subjectType: 'channel_order', subjectId: (int) $mapping->id, component: CostComponent::MarketplaceCommission,
+            state: CostState::Reconciled, amount: Money::of('3.00'), currency: 'SAR', periodDate: CarbonImmutable::parse('2026-11-20'),
+            source: 'manual', identity: 'rev-1', serviceRef: 'reversal:rev-1', sellerId: 0, salesChannel: 'trendyol',
+            accountId: (int) $this->account->id, externalOrderMappingId: (int) $mapping->id, occurredAt: CarbonImmutable::parse('2026-11-20'),
+        ));
+
+        $result = $this->profit($mapping);
+
+        $this->assertSame(0, $result->buckets['marketplace_commission']->supersededEstimates, 'a different service reference is a different service');
     }
 }
