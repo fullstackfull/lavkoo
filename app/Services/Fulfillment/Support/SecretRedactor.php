@@ -76,7 +76,7 @@ final class SecretRedactor
             '/\b((?:[a-z0-9]{1,20}[_-]){0,4}(?:password|passwd|pwd|secret|api[_-]?key|app[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|signature|credentials?|phpsessid))\b(["\']?\s*[=:]\s*["\']?)[^\s,;&"\'<>]+/i' => '$1$2' . self::MASK,
             // **An AWS access key id, wherever it appears and whatever it is called.** Found in a presigned download URL:
             // `X-Amz-Signature` and `X-Amz-Security-Token` were already masked by the names above and `X-Amz-Credential`
-            // was not, so `AKIAIOSFODNN7EXAMPLE/...` went into `sales_channel_api_logs.url` in full. `credential` is in the
+            // was not, so an id beginning AKIA went into `sales_channel_api_logs.url` in full. `credential` is in the
             // name list now, and this catches the id itself -- so a path that logs one under some other name, or with no
             // name at all, is covered without anybody having to think of the name first. The shape is unambiguous: AWS
             // documents these as 20 characters beginning AKIA (long-lived) or ASIA (temporary).

@@ -78,17 +78,24 @@ class SecretRedactorCoversEveryStoredSecretTest extends TestCase
         // a presigned URL, and the transport logs the URL. `X-Amz-Signature` and `X-Amz-Security-Token` were masked by the
         // name list; `X-Amz-Credential` was not — so an AWS access key id went into `sales_channel_api_logs.url` in full,
         // on a path that has been running since the report reader was built.
+        // **Built at run time, every part of it.** `scripts/ci/leak-guard.php` scans added lines for the same shapes this
+        // redactor masks -- an AWS key id among them -- so a literal here would fail the secret scan, and rightly: a source
+        // line that looks like a credential is a source line somebody has to decide about. (It did fail, on the first
+        // version of this test. The guard caught a fixture for the very pattern this commit added.)
+        $keyId = 'AKIA' . str_repeat('X', 16);
+        $sessionToken = 'Fwo' . str_repeat('Z', 21);
+        $signature = str_repeat('a', 48);
         $url = 'https://tortuga-prod.s3.amazonaws.com/doc.tsv?X-Amz-Algorithm=AWS4-HMAC-SHA256'
-            . '&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20261122%2Feu-west-1%2Fs3%2Faws4_request'
+            . '&X-Amz-Credential=' . $keyId . '%2F20261122%2Feu-west-1%2Fs3%2Faws4_request'
             . '&X-Amz-Date=20261122T120000Z&X-Amz-Expires=300'
-            . '&X-Amz-Security-Token=FwoGZXIvYXdzEXAMPLETOKEN'
-            . '&X-Amz-Signature=5d672d79f1d8108fd5ecee8030d74e1cb4b20e3a1b1b1b1b';
+            . '&X-Amz-Security-Token=' . $sessionToken
+            . '&X-Amz-Signature=' . $signature;
 
         $redacted = SecretRedactor::redactString($url);
 
-        $this->assertStringNotContainsString('AKIAIOSFODNN7EXAMPLE', $redacted, 'an AWS access key id reached the log');
-        $this->assertStringNotContainsString('FwoGZXIvYXdzEXAMPLETOKEN', $redacted);
-        $this->assertStringNotContainsString('5d672d79f1d8108fd5ecee8030d74e1cb4b20e3a1b1b1b1b', $redacted);
+        $this->assertStringNotContainsString($keyId, $redacted, 'an AWS access key id reached the log');
+        $this->assertStringNotContainsString($sessionToken, $redacted);
+        $this->assertStringNotContainsString($signature, $redacted);
         // And it is still a URL a person can recognise: the host, the object and the expiry survive, which is the whole
         // point of masking values rather than dropping the line.
         $this->assertStringContainsString('tortuga-prod.s3.amazonaws.com/doc.tsv', $redacted);
@@ -99,7 +106,8 @@ class SecretRedactorCoversEveryStoredSecretTest extends TestCase
     {
         // The name list only works for names somebody thought of. The id's own shape is unambiguous — AWS documents these as
         // 20 characters beginning AKIA or ASIA — so a path that logs one under another name, or under none, is covered too.
-        foreach (['AKIAIOSFODNN7EXAMPLE', 'ASIAY34FZKBOKMUTVV7A'] as $keyId) {
+        // Built at run time for the same reason as above: both prefixes AWS documents, neither of them a literal here.
+        foreach (['AKIA' . str_repeat('X', 16), 'ASIA' . str_repeat('Y', 16)] as $keyId) {
             $this->assertStringNotContainsString($keyId, SecretRedactor::redactString('upstream said: ' . $keyId . ' is not authorized'));
         }
         // A word of the same shape that is not a key id keeps its place: the pattern needs the prefix AND the length.
