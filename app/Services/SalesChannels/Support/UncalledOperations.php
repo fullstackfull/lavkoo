@@ -8,7 +8,7 @@ namespace App\Services\SalesChannels\Support;
  * ## Why a registered operation that nothing calls is worth a file of its own
  *
  * Registering an operation is a promise: it names a path, a method, the capabilities it needs and the approval it relies on,
- * and the transport will carry it. Twenty of the hundred and five registered here are never named by any code. Read charitably
+ * and the transport will carry it. Ten of the hundred and eight registered here are never named by any code. Read charitably
  * that is forward planning; read honestly it is the difference between "this integration does that" and "this integration
  * could". The gap matrix kept saying the first about several of the second, and the only cure is a list that the tests check.
  *
@@ -74,11 +74,15 @@ final class UncalledOperations
             // Archiving and unlocking a product. Both change a listing's life and neither is reachable from a screen yet.
             'trendyol.products_archive' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_archiving_has_no_screen'],
             'trendyol.products_unlock' => ['kind' => self::NOT_BUILT, 'why' => 'trendyol_unlocking_has_no_screen'],
-            // **A DECISION, and the owner has taken it.** Invoices stay with the Trendyol seller panel: the contract is
-            // verified, and what is missing is a URL reachable without a login for ten years in Saudi Arabia. Publishing one
-            // would put a customer's name, address, telephone and medicines behind a link anybody holding it could read.
+            // **A DECISION IN SUBSTANCE, RECORDED AND STILL AWAITING THE OWNER'S APPROVAL** -- decisions.md §1 carries it as
+            // `recorded, awaiting approval`, not as approved, and this comment used to claim the owner had taken it. The kind
+            // stays DECIDED because the question is not unfinished work: the contract is verified, and what is missing is a URL
+            // reachable without a login for ten years in Saudi Arabia. Publishing one would put a customer's name, address,
+            // telephone and medicines behind a link anybody holding it could read. Either way nothing is sent, so the absent
+            // code is the conservative side of a question the owner has not yet answered.
             'trendyol.orders_invoice_link' => ['kind' => self::DECIDED, 'why' => 'trendyol_invoices_stay_with_the_seller_panel'],
-            // **A DECISION.** Cancelling lines cancels a customer's order and locks the product at Trendyol.
+            // **A DECISION IN SUBSTANCE, RECORDED AND STILL AWAITING THE OWNER'S APPROVAL** (decisions.md §1, row 2).
+            // Cancelling lines cancels a customer's order and locks the product at Trendyol.
             'trendyol.orders_unsupplied' => ['kind' => self::DECIDED, 'why' => 'trendyol_cancelling_lines_locks_the_product'],
 
             // ---- Odoo -------------------------------------------------------------------------------------------

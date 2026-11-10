@@ -26,8 +26,8 @@ use Tests\TestCase;
  *
  * ## And the honest part
  *
- * A registration is a promise: a path, a method, the capabilities needed, the approval relied on. Twenty of the hundred and
- * five are never called by anything. `UncalledOperations` lists each with its reason and its kind, and this file checks the
+ * A registration is a promise: a path, a method, the capabilities needed, the approval relied on. Ten of the hundred and
+ * eight are never called by anything. `UncalledOperations` lists each with its reason and its kind, and this file checks the
  * list against a scan of the code **in both directions** — an operation that quietly stops being called fails, and one that
  * starts being called while still listed as a gap fails too. That is what keeps the gap matrix from drifting back into
  * saying an integration does something it merely could.

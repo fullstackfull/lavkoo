@@ -30,9 +30,13 @@ class EnsureSalesChannelsMigrated
         '2026_11_12_100000_create_channel_listing_drafts_table',
         '2026_11_13_100000_create_channel_stock_events_table',
         '2026_11_14_100000_add_catalog_match_to_channel_listing_drafts',
+        '2026_11_15_100000_create_odoo_accounting_tables',
         '2026_11_16_100000_create_channel_shipment_sends_table',
         '2026_11_17_100000_create_amazon_report_runs_table',
         '2026_11_17_200000_create_channel_return_decisions_table',
+        '2026_11_18_100000_create_channel_package_splits_table',
+        '2026_11_20_100000_create_channel_attention_reviews_table',
+        '2026_11_22_100000_create_amazon_feed_submissions_table',
     ];
 
     public function handle(Request $request, Closure $next): Response
