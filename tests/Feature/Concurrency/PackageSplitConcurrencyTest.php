@@ -90,7 +90,33 @@ class PackageSplitConcurrencyTest extends TestCase
         // all four fenced their own row and all four cut the package. The unique key on `(account_id, package_id)` is what
         // makes the count below a 1, and the other three processes come back refused.
         $this->assertSame(1, ChannelPackageSplit::count(), 'and one split was recorded');
-        $this->assertSame(3, $this->workersWhere($reports, static fn (array $r): bool => str_starts_with((string) ($r['refusal'] ?? ''), 'package_already_has_a_split')), 'the three that lost were told why');
+        // **Each loser is told why, and not necessarily by the same mechanism** -- which is what this assertion used to
+        // demand and what made it fail on MariaDB while passing on MySQL in the same run.
+        //
+        // There are two honest ways to lose here, and the fake makes both reachable on purpose. A process that reaches the
+        // insert loses at the unique key: `package_already_has_a_split_*`. A process that re-reads the order AFTER the
+        // winner's split has landed is told by Trendyol itself that `PKG-1` is `UnPacked`, and refuses with
+        // `package_is_already_unpacked_and_its_id_is_no_longer_valid` -- which is the better answer of the two, because it
+        // is the channel's own. Which one a given process gets is timing, and timing is what differs between engines.
+        //
+        // So the assertion is on the FACT of being told, against the closed set of reasons that are true of a loser. A
+        // refusal outside that set still fails, and so does a loser that was refused for no stated reason -- including
+        // `package_could_not_be_read_before_splitting`, which would be a read that broke rather than a race that resolved.
+        $loserReasons = ['package_already_has_a_split', 'package_is_already_unpacked_and_its_id_is_no_longer_valid'];
+        $refusals = [];
+        foreach ($reports as $report) {
+            $refusals[] = (string) ($report['result']['refusal'] ?? '');
+        }
+        $told = array_values(array_filter($refusals, static function (string $refusal) use ($loserReasons): bool {
+            foreach ($loserReasons as $reason) {
+                if (str_starts_with($refusal, $reason)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }));
+        $this->assertCount(3, $told, 'the three that lost were each told why, for a reason that is true of a loser. Refusals seen: ' . implode(' | ', $refusals));
         // Counted by the REFUSAL, not by whether a row came back. On the unique-violation path `request()` returns the row
         // that WON together with the reason this caller lost -- so every worker gets a row, and the one that recorded the
         // split is the one with no refusal. Asserting on the row was my own mistake and it failed while the code was right.

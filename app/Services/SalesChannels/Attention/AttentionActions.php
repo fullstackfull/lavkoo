@@ -147,8 +147,28 @@ class AttentionActions
 
             return ['ok' => false, 'refusal' => 'attention_somebody_already_reviewed_this_' . ($first?->outcome ?? 'row')];
         } catch (QueryException | RuntimeException | Throwable) {
-            // The review or its audit line could not be stored, so nothing is claimed. The row stays on the screen, which is
-            // the honest outcome: a review nobody can read later did not happen.
+            // **The message is chosen by the FACT, not by the exception's class.** A second reviewer losing this race ought
+            // to be told what the first one found, and the branch above does that when the engine reports a clean duplicate
+            // key. But a duplicate insert under a row lock can surface as a deadlock or a lock-wait timeout instead, and
+            // those are ordinary `QueryException`s -- so on one engine the pharmacist would read "somebody already looked
+            // and found the refund was made" and on another "it could not be recorded", for the same event.
+            //
+            // So the review table is asked. If a review for this row exists now, this caller lost a race whatever the
+            // driver called it, and gets the useful answer.
+            //
+            // This branch is deliberately defensive and is NOT covered by a test: reaching it needs the driver to misreport
+            // a duplicate insert, which cannot be produced here without mocking the connection, and a test that mocked it
+            // would be asserting the mock. What IS tested is the two paths either side of it -- the clean duplicate key
+            // (`a_second_review_of_a_dismissed_row_is_told_what_the_first_person_found`) and a real storage failure with no
+            // competing review (`a_review_whose_audit_line_cannot_be_written_records_nothing_at_all`), which still answers
+            // `attention_review_could_not_be_recorded` because the lookup below finds nothing.
+            $first = ChannelAttentionReview::where('source', $source->key)->where('source_row_id', $id)->first();
+            if ($first !== null) {
+                return ['ok' => false, 'refusal' => 'attention_somebody_already_reviewed_this_' . $first->outcome];
+            }
+
+            // Nothing was stored and nobody else stored anything either, so nothing is claimed. The row stays on the screen,
+            // which is the honest outcome: a review nobody can read later did not happen.
             return ['ok' => false, 'refusal' => 'attention_review_could_not_be_recorded'];
         }
 
