@@ -207,7 +207,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8.0', 'MariaDB 11.4.2']
-        group: ['sales channels', 'concurrency', 'myfatoorah', 'costs']
+        group: ['sales channels A-M', 'sales channels N-Z', 'concurrency', 'myfatoorah', 'costs']
         include:
           - engine: MySQL 8.0
             image: mysql:8.0
@@ -217,8 +217,22 @@ jobs:
             image: mariadb:11.4.2
             version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
-          - group: sales channels
-            paths: tests/Feature/SalesChannels
+          # SPLIT IN TWO, for the third time this group has outgrown a runner's hour and a half. On the Amazon-feed branch
+          # the MySQL 8.0 job ran from 01:05:27 to 02:55:43 -- **exactly the 110-minute ceiling** -- and was killed with
+          # "Terminate orphan process: pid (php)". GitHub reports a job killed by its own timeout as CANCELLED, which is the
+          # failure mode the comment below the concurrency group warns about: a slow suite looks exactly like a broken one.
+          #
+          # Split by the first letter of the file name rather than by channel, because that partition is PROVABLE and a
+          # by-channel list is not: a new test file that matched neither list would simply never run, and nothing would say
+          # so. `CiMatrixCoversEverySalesChannelTestTest` asserts that these two patterns cover every file in the directory
+          # exactly once, so a file cannot fall between them.
+          #
+          # A-M is about 1,047 tests in 75 files and N-Z about 718 in 34, so the halves are uneven on purpose: the letters
+          # are what make the cover provable, and both halves are far enough under the ceiling that balance is not the point.
+          - group: sales channels A-M
+            paths: tests/Feature/SalesChannels/[A-M]*.php
+          - group: sales channels N-Z
+            paths: tests/Feature/SalesChannels/[N-Z]*.php
           - group: concurrency
             # Split out of the sales-channel group, with MyFatoorah below, because that group could no longer FINISH on MySQL.
             #
