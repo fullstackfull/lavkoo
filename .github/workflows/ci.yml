@@ -222,17 +222,22 @@ jobs:
           # "Terminate orphan process: pid (php)". GitHub reports a job killed by its own timeout as CANCELLED, which is the
           # failure mode the comment below the concurrency group warns about: a slow suite looks exactly like a broken one.
           #
-          # Split by the first letter of the file name rather than by channel, because that partition is PROVABLE and a
-          # by-channel list is not: a new test file that matched neither list would simply never run, and nothing would say
-          # so. `CiMatrixCoversEverySalesChannelTestTest` asserts that these two patterns cover every file in the directory
-          # exactly once, so a file cannot fall between them.
+          # Split by the first letter of the test CLASS, with `--filter`, and the directory still handed to phpunit. Two
+          # earlier attempts at this were wrong and are worth recording:
           #
-          # A-M is about 1,047 tests in 75 files and N-Z about 718 in 34, so the halves are uneven on purpose: the letters
-          # are what make the cover provable, and both halves are far enough under the ceiling that balance is not the point.
+          #  - By channel ("Amazon tests here, the rest there") is quietly unsafe: a new test file matching neither list
+          #    would never run, on either engine, and nothing would say so. A test that never runs beats a test that fails.
+          #  - By file glob (`SalesChannels/[A-M]*.php`) FAILED IMMEDIATELY: this directory holds three abstract base
+          #    classes (`AdminPagesTestCase`, `AdminSalesChannelsTestCase`, `DispatchTestCase`), and phpunit given a file
+          #    list tries to load each as a test and dies on the first abstract one -- "Class ... is abstract", 45 seconds in.
+          #    Handing it the DIRECTORY lets its own discovery skip them, which is why the path stays.
+          #
+          # The partition is exact and measured: 1,169 + 736 = 1,905, which is the whole directory.
+          # `CiSalesChannelSplitCoversEveryTestTest` asserts it from the class names, so a class cannot fall between.
           - group: sales channels A-M
-            paths: tests/Feature/SalesChannels/[A-M]*.php
+            paths: tests/Feature/SalesChannels --filter '/^Tests.Feature.SalesChannels.[A-M]/'
           - group: sales channels N-Z
-            paths: tests/Feature/SalesChannels/[N-Z]*.php
+            paths: tests/Feature/SalesChannels --filter '/^Tests.Feature.SalesChannels.[N-Z]/'
           - group: concurrency
             # Split out of the sales-channel group, with MyFatoorah below, because that group could no longer FINISH on MySQL.
             #
