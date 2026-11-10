@@ -140,8 +140,43 @@ class ProfitabilityService
             $missing[CostComponent::Cogs->value] = CostComponent::Cogs->value;
         }
 
+        // **An estimate is not counted beside the settled actual of the same service.**
+        //
+        // The owner's decision two, approved 2026-11-10 (docs/sales-channels/decisions.md §8): the confirmed actual replaces
+        // the estimate for the same service WHATEVER CURRENCY it arrives in, and the two are never both counted.
+        //
+        // The ledger cannot express that by superseding, and must not try. A slot is keyed on the service reference, and a
+        // channel net whose currency differs from the order's is filed under a reference of its own (`channel-net:<CUR>`) so
+        // that two currencies never add up into one meaningless figure. Retiring across slots at WRITE time was measured and
+        // is wrong four ways: it only looks backwards, so a settlement that arrives before the estimate is priced leaves
+        // both counted again (34.402174 against an actual of 18.750000); a 1 TRY fee retired a 15.652174 SAR estimate and
+        // the order then read as fully settled at 0.6% of its commission; an actual in a currency with no rate retired a
+        // convertible estimate and the figure was lost; and a credit on its own retired the estimate, which
+        // `InvoiceService` has always guarded against with `isPositive()`.
+        //
+        // So the two rows both stay in the ledger -- auditable, nothing destroyed, the expectation still there to compare
+        // against what arrived, which is the third and fifth conditions -- and the choice of WHICH ONE COUNTS is made here,
+        // at read time, where it is order-independent by construction.
+        //
+        // The test is deliberately narrow. `isSettled()` is Actual or Reconciled only, so a DISPUTED figure never displaces an
+        // estimate. And a settled figure counts only if it can be converted to the base
+        // currency: with no trustworthy rate the estimate stays the best figure we have and the result still says the cost
+        // is not convertible, so nothing is invented and nothing is presented as final (the fourth condition).
+        $settled = [];
+        foreach ($entries as $entry) {
+            if ($entry->state->isSettled() && $this->inBase($entry, $base) !== null) {
+                $settled[$entry->cost_component] = true;
+            }
+        }
+
         foreach ($entries as $entry) {
             if ($document->isCancelled() && $this->isNotOwedByACancelledSale($entry)) {
+                continue;
+            }
+            if ($entry->state === CostState::Estimated && isset($settled[$entry->cost_component])) {
+                // Kept on the record and out of the total: this is the estimate the actual beside it has replaced.
+                $bucket = $buckets[$entry->cost_component] ??= new CostBucket($entry->cost_component, $entry->cost_class);
+                $bucket->supersededEstimates++;
                 continue;
             }
             $bucket = $buckets[$entry->cost_component] ??= new CostBucket($entry->cost_component, $entry->cost_class);

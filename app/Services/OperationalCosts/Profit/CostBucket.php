@@ -17,6 +17,8 @@ final class CostBucket
         public int $missing = 0,
         public int $pendingActual = 0,
         public int $disputed = 0,
+        /** Estimates kept on the record but not counted, because the settled actual of the same service stands in their place. */
+        public int $supersededEstimates = 0,
     ) {
         $this->estimated = Money::zero();
         $this->actual = Money::zero();
