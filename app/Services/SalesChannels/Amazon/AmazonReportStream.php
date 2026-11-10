@@ -27,6 +27,15 @@ use App\Services\SalesChannels\Support\ChannelHttp;
  * `AmazonFlatFile` with the document's own header line put back in front, which is a document in its own right as far as that
  * parser is concerned. One parser, one set of hazards, however the bytes arrived.
  *
+ * ## And who uses it today
+ *
+ * `AmazonSettlementReader` is the only implementation of `ReadsAmazonReports` and it `handles()` the settlement report alone,
+ * so the type that most needs this -- `GET_MERCHANT_LISTINGS_ALL_DATA`, a whole catalogue -- has no reader at all and its row
+ * is marked `amazon_report_has_no_reader`. That reader would be per-row (SKU, quantity, status) and so batch-safe from the
+ * start; the settlement reader is not, because it finds its settlement's identifying row by scanning the document and only
+ * the first row carries the period and the deposit total. Both facts are recorded in docs/sales-channels/gap-matrix.md rather
+ * than worked around here.
+ *
  * ## What a half-read document is
  *
  * It is not a short document. If the stream fails or the ceiling is reached part way through, the consumer has already been
