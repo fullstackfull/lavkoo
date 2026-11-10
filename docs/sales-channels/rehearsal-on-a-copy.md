@@ -26,3 +26,42 @@ Run the test suite itself against a **different** empty database, never against 
 ## What to bring back
 
 The output of steps 1 to 7 (including 5b), `SELECT VERSION();`, `SHOW CREATE TABLE orders` and `order_details` (structure only), and anything that failed. Until then the statement in the final report stays true: *nothing was tested against the real schema*.
+
+
+---
+
+## Scrubbing the copy before anybody works on it
+
+The owner asked for the rehearsal to run on an isolated copy of the real schema **and data, with the
+sensitive data scrubbed**. The dump carries patients' names, addresses, telephone numbers and what
+they ordered, so the scrub is part of making the copy, not a step afterwards.
+
+Run these on the COPY, never on production, and before any of steps 1 to 7:
+
+```sql
+-- customers and the orders' own copies of their details
+UPDATE customers SET f_name = CONCAT('Test', id), l_name = 'Customer', email = CONCAT('c', id, '@example.invalid'),
+       phone = CONCAT('+9665', LPAD(id, 8, '0')), street_address = NULL, city = city, zip = NULL;
+UPDATE orders SET shipping_address_data = JSON_OBJECT('city', JSON_UNQUOTE(JSON_EXTRACT(shipping_address_data, '$.city')), 'redacted', true),
+       billing_address_data = NULL;
+UPDATE shipping_addresses SET contact_person_name = CONCAT('Test', id), phone = CONCAT('+9665', LPAD(id, 8, '0')),
+       address = NULL, latitude = NULL, longitude = NULL;
+-- anything the channels stored about a buyer
+UPDATE external_order_mappings SET buyer_name = NULL, buyer_email = NULL, buyer_phone = NULL;
+DELETE FROM sales_channel_api_logs;
+```
+
+Then check the scrub actually bit, because a scrub that silently matched nothing is worse than none:
+
+```sql
+SELECT COUNT(*) FROM customers WHERE email NOT LIKE '%@example.invalid';
+SELECT COUNT(*) FROM external_order_mappings WHERE buyer_phone IS NOT NULL;
+```
+
+Both must be zero. If a column above does not exist on the dump, that is a schema difference worth
+reporting rather than skipping: step 1 (`channels:check-platform-schema`) is the place it shows up.
+
+**And the credentials.** Point `DB_*` at the copy, leave every `SALES_CHANNELS_*`, `ODOO_*` and
+`AMAZON_*` switch unset, and put no real Amazon, Trendyol, noon, Torod, M5AZN or MyFatoorah
+credential anywhere on that machine. The switches ship off and the rehearsal does not need them: no
+step here sends anything to a channel.
