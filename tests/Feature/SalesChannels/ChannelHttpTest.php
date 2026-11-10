@@ -344,6 +344,11 @@ class ChannelHttpTest extends TestCase
             'amazon.lwa_token', 'amazon.reports_create', 'noon.login',
             'noon.warehouses_list', 'noon.stock_list', 'noon.pricing_get', 'noon.categories_list', 'noon.category_attributes_list',
             'noon.product_content_get', 'noon.fbpi_orders_list', 'noon.shipment_get', 'noon.return_references_list',
+            // Reading a product group: which attributes it varies by and which products are in it. A POST like every other
+            // noon read, and it changes nothing -- and it is the read `NoonProductGroups::addMembers()` must make BEFORE it
+            // writes, because noon's upsert replaces the membership rather than adding to it. Registering it as a write
+            // would mean a member could not be added without the approval to replace the whole group.
+            'noon.product_group_get',
             'odoo.version', 'odoo.authenticate', 'odoo.fields_get', 'odoo.model_list',
             'odoo.search_read', 'odoo.search_count', 'odoo.search_entry_by_reference',
         ];
