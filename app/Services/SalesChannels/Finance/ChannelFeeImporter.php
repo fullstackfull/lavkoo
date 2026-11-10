@@ -383,6 +383,21 @@ class ChannelFeeImporter
             source: 'channel_api',
             identity: $identity,
             serviceRef: $serviceRef,
+            // **An actual for a service retires that service's ESTIMATE, in whatever currency it arrives.** A net whose
+            // currency differs from the order's is filed under a service reference of its own (`channel-net:<CUR>`, see
+            // `netOf()`) so that two currencies never add up into one meaningless figure. But the estimate sits in the
+            // default slot, and supersession is otherwise keyed on the slot -- so without this the estimate SURVIVED its own
+            // actual and `ProfitabilityService`, which adds every effective entry, charged the commission twice. Measured on
+            // an invented order: a 200 TRY commission settled at 18.75 SAR while the estimated total read 34.40, the 15.65
+            // estimate still counted beside it.
+            //
+            // `CostLedger::estimatesOfTheSameService()` is deliberately narrow and does the rest: same subject and component,
+            // `Estimated` or `Missing` only -- never another actual -- and other slots only, under `lockForUpdate()`. And it
+            // SUPERSEDES rather than deletes: the estimate keeps its row, turns `is_effective = false` and points at the
+            // actual that replaced it, so the history stays auditable and a partial actual can still be compared against what
+            // was expected. The retirement is also skipped when this row is itself a conflict, so a disputed figure never
+            // retires anything.
+            retiresEstimates: true,
             sellerId: (int) $account->seller_id,
             salesChannel: $account->channel,
             accountId: (int) $account->id,
