@@ -20,6 +20,7 @@ use App\Services\SalesChannels\Inventory\PoolNet;
 use App\Services\SalesChannels\Routing\DynamicFulfillmentRoutingEngine;
 use App\Services\SalesChannels\Support\PlatformSchemaCheck;
 use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
@@ -52,6 +53,7 @@ trait BuildsDispatchWorld
     /** Everything the dispatch tests need once the platform's own test schema and provider setup exist. */
     protected function prepareDispatchWorld(): void
     {
+        $this->pinTheWorldClock();
         $this->runSalesChannelMigrations();
         // The platform's own default for this column is 1: units never taken off the store's stock must not be given back by a cancellation.
         Schema::table('order_details', static fn (Blueprint $table) => $table->boolean('is_stock_decreased')->default(true));
@@ -93,6 +95,19 @@ trait BuildsDispatchWorld
         $this->recipientAnswers();
     }
 
+    /**
+     * The world stands at a fixed instant an hour before its orders are bought, so a provider a test takes live
+     * goes live before them — the order every shipping test needs, and the order of life: an operator opens the
+     * provider, and orders arrive after that.
+     *
+     * Without this the clock was the real one and `go_live_at` was stamped from it, while the orders carried a
+     * calendar date. The two crossed at {@see BuildsRemoteOrders::PURCHASED_AT}, and from that instant on every
+     * shipment was held `BEFORE_GO_LIVE` and every test that expected one failed — not now and then, but for good.
+     */
+    protected function pinTheWorldClock(): void
+    {
+        $this->travelTo(CarbonImmutable::parse(self::PURCHASED_AT)->subHour());
+    }
 
     /** The test schema is rebuilt from the code and lacks columns the real tables have; the dispatcher writes them when they exist, so the tables are given the ones it names (nullable, as a dump's are not guaranteed to be). */
     protected function addTheColumnsTheRealTablesHave(): void
