@@ -61,3 +61,7 @@
 - Legacy Flutter customer PR #1 (MyFatoorah) reported merged there. Verify transfer to `lavkooapp`.
 
 Do not invent numbered GCC-01–06 labels from memory: their agreed *principles* are captured in the foundation section above.
+
+## GCC-20 — Platform Super Admin in Flutter Seller App (approved business intent)
+
+The existing seller app `fullstackfull/lavkooappseller` must also provide a **platform-owner Super Admin mode** with central oversight of all six country storefronts, drill-down per country/legal entity, KPIs/alerts, and access to expressly authorized administrative tasks. **This is a separate platform-admin principal**, not a seller or seller-staff token with expanded access. Preserve ordinary seller workflows and seller/staff data isolation. Authenticate via the backend's admin identity and appropriately secured admin mobile endpoints, with proper authorization and auditable sensitive actions. Begin with read-only monitoring; operational and critical actions require separate implementation and production approvals. Full scope and audit requirements: [GCC-20-SUPER-ADMIN-MOBILE.md](./GCC-20-SUPER-ADMIN-MOBILE.md).
