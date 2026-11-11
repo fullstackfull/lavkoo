@@ -85,7 +85,7 @@
 | E16 | تطبيق العميل: المعمارية والإعداد وانتقال السياق | منشور — [evidence/E16-customer-app-architecture-context.md](./evidence/E16-customer-app-architecture-context.md) — 2026-11-12 02:41 (+03:00) |
 | E17 | تطبيق العميل: الثيم الديناميكي وعقده مع الـ backend | منشور — [evidence/E17-customer-app-dynamic-theme.md](./evidence/E17-customer-app-dynamic-theme.md) — 2026-11-12 02:42 (+03:00) |
 | E18 | تطبيق العميل: السلة والدفع والطلبات والمحفظة والولاء | منشور — [evidence/E18-customer-app-commerce-flows.md](./evidence/E18-customer-app-commerce-flows.md) — 2026-11-12 02:54 (+03:00) |
-| E19 | تطبيق البائع: المعمارية والدخول والصلاحيات وبوابة الإصدار | قيد الإعداد |
+| E19 | تطبيق البائع: المعمارية والدخول والصلاحيات وبوابة الإصدار | منشور — [evidence/E19-seller-app-architecture-auth-gate.md](./evidence/E19-seller-app-architecture-auth-gate.md) — 2026-11-12 02:58 (+03:00) |
 | E20 | تطبيق البائع: المنتجات والمخزون والطلبات والمالية | منشور — [evidence/E20-seller-app-operations-finance.md](./evidence/E20-seller-app-operations-finance.md) — 2026-11-12 02:56 (+03:00) |
 | E21 | نسب Git والـ PRs القديمة وحالة التكاملات | منشور — [evidence/E21-git-lineage-legacy-prs.md](./evidence/E21-git-lineage-legacy-prs.md) — 2026-11-12 02:55 (+03:00) |
 | E22 | عقد الـ API: تطبيق العميل مقابل API v1/v2 | منشور — [evidence/E22-api-contract-customer.md](./evidence/E22-api-contract-customer.md) — 2026-11-12 02:56 (+03:00) |
