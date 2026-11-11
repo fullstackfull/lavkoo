@@ -67,7 +67,7 @@
 
 | الرمز | المجال | الحالة |
 |---|---|---|
-| E01 | خريطة الكود والمعمارية في الـ backend | قيد الإعداد |
+| E01 | خريطة الكود والمعمارية في الـ backend | منشور — [evidence/E01-backend-architecture-map.md](./evidence/E01-backend-architecture-map.md) — 2026-11-12 02:44 (+03:00) |
 | E02 | سياق المتجر: الإعدادات العامة، العملة، اللغة، الجلسة، الـ cache | منشور — [evidence/E02-store-context-settings-currency-cache.md](./evidence/E02-store-context-settings-currency-cache.md) — 2026-11-12 02:44 (+03:00) |
 | E03 | جرد نموذج البيانات ومصفوفة الملكية | منشور — [evidence/E03-data-model-ownership-inventory.md](./evidence/E03-data-model-ownership-inventory.md) — 2026-11-12 02:44 (+03:00) |
 | E04 | هوية العميل، المحفظة، الولاء، العناوين، الموافقات | منشور — [evidence/E04-customer-identity-wallet-loyalty.md](./evidence/E04-customer-identity-wallet-loyalty.md) — 2026-11-12 02:44 (+03:00) |
