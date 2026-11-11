@@ -65,3 +65,28 @@ reporting rather than skipping: step 1 (`channels:check-platform-schema`) is the
 `AMAZON_*` switch unset, and put no real Amazon, Trendyol, noon, Torod, M5AZN or MyFatoorah
 credential anywhere on that machine. The switches ship off and the rehearsal does not need them: no
 step here sends anything to a channel.
+
+
+## One check that decides whether a data migration is needed
+
+The channel's fee net is now filed under `channel-net:<CUR>` in every currency. Versions before
+2026-11-11 filed it under the empty service reference whenever the fee's currency matched the order's.
+If any such row exists, a new fee for the same order is written in the NEW slot while the old row
+stays effective, and both are counted: measured on a copy, two 12.00 SAR nets gave an actual cost of
+24.00 and the estimate beside them was already gone.
+
+Run this on the copy BEFORE anything else, and bring the number back:
+
+```sql
+SELECT COUNT(*) AS legacy_channel_nets
+FROM operational_cost_entries
+WHERE source = 'channel_api' AND is_effective = 1 AND state IN ('actual','reconciled')
+  AND slot_key = SHA2(CONCAT_WS('|', 'slot', seller_id, subject_type, subject_id, cost_component, ''), 256);
+```
+
+**Zero** means this does not apply and nothing needs migrating: the module's own migrations have never
+run on production, so that is the expected answer. **Anything above zero needs a decision before the
+branch is used against that database**, because re-slotting those rows means recomputing `slot_key`
+and `dedupe_key` and deciding what happens where a `channel-net:` row already exists for the same
+service. The migration is writable and testable; it is not written yet, because whether it is needed
+at all is what this query answers.
