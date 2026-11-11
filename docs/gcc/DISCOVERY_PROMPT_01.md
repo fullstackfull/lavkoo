@@ -113,3 +113,7 @@ At end, create a unique `docs/gcc/handoffs/YYYY-MM-DD-HHMM-<session>.md`, commit
 Keep `docs/gcc/STATUS.md` accurate only after checking for concurrent updates, and preserve other agents' work. Do not force push. If a tool only supports document commits rather than command-line push, remote commit confirmation satisfies the remote persistence check.
 
 **Before ending:** verify no application code/production state changed. Provide links to all reports, and STOP. Do not implement anything.
+
+## Mandatory new GCC-20 audit track — Super Admin mobile mode in seller app
+
+The owner now requires a **main platform-owner Super Admin experience within `fullstackfull/lavkooappseller`**, while retaining the normal seller/seller-staff UX and privileges. Read the approved requirements in [GCC-20-SUPER-ADMIN-MOBILE.md](./GCC-20-SUPER-ADMIN-MOBILE.md). In the audit, inspect the backend distinct admin guard, `SellerApiAuthMiddleware`, seller/staff login, `SellerControlTowerController`, seller app auth/token/navigation/control tower and seller API v3 to propose a separate secure **admin mobile principal/API** design. Cover All Markets overview, six-country drilldown, country-company financial segregation, currency-safe KPIs, critical alerts, permissions, step-up approval, cache isolation, seller non-escalation, push audience isolation, and phased read-only monitoring before any write controls. **Do not implement these features; deliver architectural findings, API proposal, compatibility tests and risks only.**
