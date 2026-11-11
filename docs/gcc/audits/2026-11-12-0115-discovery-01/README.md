@@ -75,7 +75,7 @@
 | E06 | الاتصالات، الصفحات القانونية، الصيانة/الإيقاف، التوجيه، SEO، الروابط العميقة | منشور — [evidence/E06-communications-compliance-activation.md](./evidence/E06-communications-compliance-activation.md) — 2026-11-12 02:41 (+03:00) |
 | E07 | نظام الثيم في الـ backend | منشور — [evidence/E07-theme-system-backend.md](./evidence/E07-theme-system-backend.md) — 2026-11-12 02:42 (+03:00) |
 | E08 | الكتالوج، التصنيفات، العلامات، الأسعار، العروض، الكوبونات، البحث | منشور — [evidence/E08-catalog-discovery-pricing.md](./evidence/E08-catalog-discovery-pricing.md) — 2026-11-12 02:28 (+03:00) |
-| E09 | السلة، الدفع، الطلبات، المرتجعات، العمولات، الضريبة، الفواتير | قيد الإعداد |
+| E09 | السلة، الدفع، الطلبات، المرتجعات، العمولات، الضريبة، الفواتير | منشور — [evidence/E09-cart-checkout-order-pipeline.md](./evidence/E09-cart-checkout-order-pipeline.md) — 2026-11-12 02:46 (+03:00) |
 | E10 | بوابات الدفع والتحقق والـ webhooks | منشور — [evidence/E10-payments-gateways.md](./evidence/E10-payments-gateways.md) — 2026-11-12 02:44 (+03:00) |
 | E11 | المخزون والحجوزات ومزوّدو التنفيذ (Torod/M5AZN) والشحن | منشور — [evidence/E11-inventory-fulfillment-shipping.md](./evidence/E11-inventory-fulfillment-shipping.md) — 2026-11-12 02:43 (+03:00) |
 | E12 | قنوات البيع والأسواق (Amazon/Noon/Trendyol) | منشور — [evidence/E12-sales-channels-marketplaces.md](./evidence/E12-sales-channels-marketplaces.md) — 2026-11-12 02:17 (+03:00) |
