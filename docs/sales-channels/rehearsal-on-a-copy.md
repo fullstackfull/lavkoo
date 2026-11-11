@@ -89,7 +89,12 @@ rather than being informed in passing. The three answers:
 | `not_required` | There is no `operational_cost_entries` table, so no commission row of any kind exists. | Nothing. Record the output; no migration is needed. |
 | `no_risk_in_this_data` | The table exists and no net is filed the old way. | Nothing. Record the output; no migration is needed. |
 | `stop_and_plan_a_data_repair` | Rows are filed the old way, and it names them. | **Stop.** Do not run the module's migrations against this database, and do not merge, until a repair plan is agreed. |
-| `could_not_look` | The database could not be read at all, and the error says why. | **Stop.** An unreachable database is not an empty one; fix the connection and run it again. |
+| `could_not_look` | The rows could not be read to the end, and the error says why. | **Stop.** Fix it and run again. |
+
+Read `verdict` and the exit code, not `legacy_rows` on its own. On `could_not_look` the count is
+**null**, never 0, and `scan_complete` is false: an unreachable or half-read table is not an empty one,
+and the one thing this check must never let you conclude is that "I could not look" means "I looked and
+found nothing". Only a finished scan that found nothing exits zero.
 
 **Why it is a command and not the SQL that used to be printed here.** The first version of this check
 rebuilt the hash in SQL with `SHA2(CONCAT_WS('|', 'slot', seller_id, …, ''), 256)`, and that is wrong

@@ -17,6 +17,8 @@ use App\Services\SalesChannels\Sync\ChannelSyncService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
+use App\Services\OperationalCosts\Profit\ProfitabilityService;
+use App\Services\OperationalCosts\Sales\SaleDocumentReader;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Tests\Support\BuildsSalesChannelSchema;
@@ -377,13 +379,27 @@ class ChannelSyncServiceTest extends TestCase
             'seller_id' => 0, 'dedupe_key' => 'e', 'slot_key' => hash('sha256', implode('|', ['slot', 0, 'channel_order', $mapping->id, CostComponent::MarketplaceCommission->value, ''])),
             'subject_type' => 'channel_order', 'subject_id' => $mapping->id, 'period_date' => '2026-11-05', 'cost_component' => 'marketplace_commission', 'cost_class' => 'marketplace',
             'state' => CostState::Estimated->value, 'is_effective' => true, 'amount' => '18.000000', 'currency' => 'SAR', 'source' => 'rule', 'allocation_status' => 'not_applicable',
+            // Without this the profit never sees the estimate at all: `entriesForDocuments()` gathers an order's entries by
+            // `order_id` or `external_order_mapping_id`, not by subject. The row used to be read only through the ledger.
+            'external_order_mapping_id' => $mapping->id, 'sales_channel' => 'amazon', 'account_id' => $account->id,
         ]);
         Http::fake($this->lwa() + [self::AMAZON . '/*' => Http::response(['payload' => ['transactions' => [Amazon::transaction()]]])]);
 
         $this->sync->syncFinances($account);
 
-        $effective = OperationalCostEntry::where('is_effective', true)->where('cost_component', 'marketplace_commission')->get();
-        $this->assertCount(1, $effective);
-        $this->assertSame([CostState::Actual, '20.000000'], [$effective[0]->state, $effective[0]->amount]);
+        // **Two rows now, and that is deliberate.** Since 2026-11-11 the channel's net has a slot of its own
+        // (`channel-net:<CUR>`) so that one fee cannot wipe out the estimate before anything proves the service settled.
+        // So the estimate and the net both stay in the ledger, and the question this test asks -- is the estimate added on
+        // top of the actual -- is answered where it is now decided: in the profit, not by counting rows.
+        $effective = OperationalCostEntry::where('is_effective', true)->where('cost_component', 'marketplace_commission')->orderBy('id')->get();
+        $this->assertSame([CostState::Estimated, CostState::Actual], $effective->pluck('state')->all(), 'the expectation and what arrived, each once');
+        $this->assertSame(['18.000000', '20.000000'], $effective->pluck('amount')->all());
+
+        $profit = app(ProfitabilityService::class)->forDocument(app(SaleDocumentReader::class)->forChannelOrder($mapping->id));
+        $commission = $profit->buckets['marketplace_commission'];
+
+        $this->assertSame('20.000000', $commission->actual->toStorage(), 'the fees that arrived are reported as what arrived');
+        $this->assertSame('18.000000', $commission->estimated->toStorage(), 'and the estimate is NOT added on top of them');
+        $this->assertContains('marketplace_commission', $profit->pendingActualComponents, 'nor is 20.00 presented as the settled commission');
     }
 }

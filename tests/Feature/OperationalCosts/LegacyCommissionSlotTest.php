@@ -258,4 +258,79 @@ class LegacyCommissionSlotTest extends TestCase
         $this->assertNull($report['legacy_rows'], 'an unreachable database is not an empty one');
         $this->assertNotSame(0, $exit);
     }
+
+    // ---- a read that does not finish is never a zero -----------------------------------------------------------------
+
+    public function test_a_read_that_fails_part_way_through_the_rows_is_could_not_look_and_not_a_zero(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->legacyNet($mapping, '12.00');
+
+        // The scan reads the table; this makes the read itself fail, the way a connection dropped mid-scan would. Before
+        // the scan moved inside the handler this threw straight past it.
+        $seen = 0;
+        DB::listen(function ($query) use (&$seen): void {
+            // The filter is the table name alone: `source = 'channel_api'` is a BOUND parameter, so it never appears in
+            // the SQL text, and matching on it meant this listener never fired.
+            if (str_contains($query->sql, 'operational_cost_entries')) {
+                $seen++;
+                throw new \RuntimeException('the connection went away mid-scan');
+            }
+        });
+
+        [$json, $exit] = $this->check();
+        $report = json_decode($json, true);
+
+        $this->assertGreaterThan(0, $seen, 'the scan really did try to read');
+        $this->assertSame('could_not_look', $report['verdict']);
+        $this->assertFalse($report['scan_complete']);
+        $this->assertNull($report['legacy_rows'], 'a half-read table must never report a count');
+        $this->assertNull($report['channel_api_rows_checked'], 'nor a partial tally');
+        $this->assertSame([], $report['examples']);
+        $this->assertNotSame(0, $exit, 'and it stops the rollout');
+    }
+
+    public function test_a_table_that_cannot_be_reached_is_could_not_look_rather_than_not_required(): void
+    {
+        // `not_required` means "there is no such table, so there is nothing to migrate". A table that exists but cannot be
+        // READ must never borrow that reassuring answer.
+        DB::listen(function ($query): void {
+            if (str_contains($query->sql, 'operational_cost_entries')) {
+                throw new \RuntimeException('permission denied on operational_cost_entries');
+            }
+        });
+
+        [$json, $exit] = $this->check();
+        $report = json_decode($json, true);
+
+        $this->assertSame('could_not_look', $report['verdict']);
+        $this->assertNotSame('not_required', $report['verdict']);
+        $this->assertNull($report['legacy_rows']);
+        $this->assertNotSame(0, $exit);
+    }
+
+    public function test_every_answer_that_is_not_a_finished_scan_exits_non_zero(): void
+    {
+        // The property that matters to a rollout script: only a finished scan with nothing found may ever exit zero.
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->newFee('12.00');
+
+        [$cleanJson, $cleanExit] = $this->check();
+        $this->assertSame(0, $cleanExit, 'a finished scan with nothing found');
+        $this->assertTrue(json_decode($cleanJson, true)['scan_complete']);
+
+        DB::listen(function ($query): void {
+            if (str_contains($query->sql, 'operational_cost_entries')) {
+                throw new \RuntimeException('gone');
+            }
+        });
+
+        [$brokenJson, $brokenExit] = $this->check();
+        $this->assertNotSame(0, $brokenExit);
+        $this->assertFalse(json_decode($brokenJson, true)['scan_complete']);
+    }
 }

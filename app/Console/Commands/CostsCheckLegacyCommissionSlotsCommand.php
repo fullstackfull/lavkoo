@@ -52,35 +52,66 @@ class CostsCheckLegacyCommissionSlotsCommand extends Command
     public function handle(): int
     {
         try {
-            $hasTable = Schema::hasTable('operational_cost_entries');
+            if (!Schema::hasTable('operational_cost_entries')) {
+                $this->report([
+                    'table' => false,
+                    'scan_complete' => true,
+                    'channel_api_rows_checked' => 0,
+                    'legacy_rows' => 0,
+                    'verdict' => 'not_required',
+                    'message' => 'There is no operational_cost_entries table here, so no commission row of any kind exists and nothing needs migrating.',
+                    'examples' => [],
+                ]);
+
+                return self::SUCCESS;
+            }
+
+            [$checked, $legacy, $examples] = $this->scan();
         } catch (Throwable $exception) {
-            // **An unreachable database is not an empty one.** Without this the check died with a stack trace, and a
-            // rollout script reading an exit code would have learned nothing about whether the hazard is present. The
-            // answer "I could not look" has to be its own answer, and it has to stop the rollout exactly as a positive
-            // finding does.
+            // **Everything that reads is inside this, and that is the point.** The first version only guarded the
+            // `hasTable()` call, so a connection that died DURING the scan threw past the handler: the command crashed, or
+            // worse, a caller could have read a count gathered from half a table as though the scan had finished.
+            //
+            // `legacy_rows` is NULL here, never 0. An unreachable or half-read database is not an empty one, and the one
+            // thing this check must never do is let "I could not look" be mistaken for "I looked and found nothing".
             $this->report([
                 'table' => null,
+                'scan_complete' => false,
+                'channel_api_rows_checked' => null,
                 'legacy_rows' => null,
                 'verdict' => 'could_not_look',
-                'message' => 'The database could not be read, so nothing is known about legacy commission rows: ' . $exception->getMessage(),
+                'message' => 'The rows could not be read to the end, so nothing is known about legacy commission rows: ' . $exception->getMessage(),
                 'examples' => [],
             ]);
 
             return self::FAILURE;
         }
 
-        if (!$hasTable) {
-            $this->report([
-                'table' => false,
-                'legacy_rows' => 0,
-                'verdict' => 'not_required',
-                'message' => 'There is no operational_cost_entries table here, so no commission row of any kind exists and nothing needs migrating.',
-                'examples' => [],
-            ]);
+        $this->report([
+            'table' => true,
+            'scan_complete' => true,
+            'channel_api_rows_checked' => $checked,
+            'legacy_rows' => $legacy,
+            'verdict' => $legacy === 0 ? 'no_risk_in_this_data' : 'stop_and_plan_a_data_repair',
+            'message' => $legacy === 0
+                ? 'No channel fee net is filed under the old service reference, so this database carries none of the hazard and no migration is needed for it.'
+                : "{$legacy} channel fee net(s) are filed under the old service reference. Each would be counted a second time once a new fee arrives for the same order. Do not run the module's migrations against this database until a data-repair plan has been agreed.",
+            'examples' => $examples,
+        ]);
 
-            return self::SUCCESS;
-        }
+        return $legacy === 0 ? self::SUCCESS : self::FAILURE;
+    }
 
+    /**
+     * Read every channel-API net and count the ones in the old slot.
+     *
+     * It returns only when the whole table has been read. Anything that goes wrong on the way out of here is a
+     * `could_not_look`, so a half-finished count never reaches the report.
+     *
+     * @return array{0: int, 1: int, 2: list<array<string, mixed>>}
+     */
+    private function scan(): array
+    {
         $examples = [];
         $legacy = 0;
         $checked = 0;
@@ -110,18 +141,7 @@ class CostsCheckLegacyCommissionSlotsCommand extends Command
                 }
             });
 
-        $this->report([
-            'table' => true,
-            'channel_api_rows_checked' => $checked,
-            'legacy_rows' => $legacy,
-            'verdict' => $legacy === 0 ? 'no_risk_in_this_data' : 'stop_and_plan_a_data_repair',
-            'message' => $legacy === 0
-                ? 'No channel fee net is filed under the old service reference, so this database carries none of the hazard and no migration is needed for it.'
-                : "{$legacy} channel fee net(s) are filed under the old service reference. Each would be counted a second time once a new fee arrives for the same order. Do not run the module's migrations against this database until a data-repair plan has been agreed.",
-            'examples' => $examples,
-        ]);
-
-        return $legacy === 0 ? self::SUCCESS : self::FAILURE;
+        return [$checked, $legacy, $examples];
     }
 
     /** The slot an entry would have with this service reference, computed by the ledger's own draft. */

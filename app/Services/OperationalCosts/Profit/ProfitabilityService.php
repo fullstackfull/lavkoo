@@ -164,11 +164,15 @@ class ProfitabilityService
         // is not convertible, so nothing is invented and nothing is presented as final (the fourth condition).
         $finallySettled = [];
         $awaitingSettlement = [];
+        $somethingArrived = [];
         foreach ($entries as $entry) {
             $service = $this->serviceOf($entry);
             if ($entry->state === CostState::Estimated) {
                 $awaitingSettlement[$service] = true;
                 continue;
+            }
+            if ($entry->state->isSettled() && $this->inBase($entry, $base) !== null) {
+                $somethingArrived[$service] = true;
             }
             if ($this->isAProvenSettlement($entry) && $this->inBase($entry, $base) !== null) {
                 $finallySettled[$service] = true;
@@ -177,6 +181,24 @@ class ProfitabilityService
 
         foreach ($entries as $entry) {
             if ($document->isCancelled() && $this->isNotOwedByACancelledSale($entry)) {
+                continue;
+            }
+            if ($entry->state === CostState::Missing && isset($somethingArrived[$this->serviceOf($entry)])) {
+                // **A `Missing` marker is falsified by one real figure; an estimate is not.**
+                //
+                // `Missing` asserts that we have NO figure for this service -- `awaiting_channel_statement` and the like.
+                // The moment the channel sends one, that assertion is simply false, and leaving it in `missingComponents`
+                // tells an operator the fees never arrived while they are sitting in the same report. Before the net moved
+                // to its own slot the ledger retired the marker for us, because both lived in the one slot.
+                //
+                // An ESTIMATED row is the opposite case and keeps its own branch below: it asserts "we expect about this
+                // much", which a partial fee does NOT falsify, so only a proven settlement displaces it. The asymmetry is
+                // the point -- and neither branch claims the service has SETTLED: the component stays pending until
+                // something proves it.
+                $bucket = $buckets[$entry->cost_component] ??= new CostBucket($entry->cost_component, $entry->cost_class);
+                $bucket->supersededEstimates++;
+                $bucket->pendingActual++;
+                $pending[$entry->cost_component] = $entry->cost_component;
                 continue;
             }
             if ($entry->state === CostState::Estimated && isset($finallySettled[$this->serviceOf($entry)])) {
