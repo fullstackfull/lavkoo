@@ -71,22 +71,37 @@ step here sends anything to a channel.
 
 The channel's fee net is now filed under `channel-net:<CUR>` in every currency. Versions before
 2026-11-11 filed it under the empty service reference whenever the fee's currency matched the order's.
-If any such row exists, a new fee for the same order is written in the NEW slot while the old row
-stays effective, and both are counted: measured on a copy, two 12.00 SAR nets gave an actual cost of
-24.00 and the estimate beside them was already gone.
+If any such row exists, a new fee for the same order is written in the NEW slot while the old row stays
+effective, and both are counted: measured, two 12.00 SAR nets gave an actual cost of 24.00, with the
+estimate beside them already superseded by the legacy row.
 
-Run this on the copy BEFORE anything else, and bring the number back:
+**Run this on the copy before the module's migrations, and bring the output back:**
 
-```sql
-SELECT COUNT(*) AS legacy_channel_nets
-FROM operational_cost_entries
-WHERE source = 'channel_api' AND is_effective = 1 AND state IN ('actual','reconciled')
-  AND slot_key = SHA2(CONCAT_WS('|', 'slot', seller_id, subject_type, subject_id, cost_component, ''), 256);
+```bash
+php artisan costs:check-legacy-commission-slots --json
 ```
 
-**Zero** means this does not apply and nothing needs migrating: the module's own migrations have never
-run on production, so that is the expected answer. **Anything above zero needs a decision before the
-branch is used against that database**, because re-slotting those rows means recomputing `slot_key`
-and `dedupe_key` and deciding what happens where a `channel-net:` row already exists for the same
-service. The migration is writable and testable; it is not written yet, because whether it is needed
-at all is what this query answers.
+It reads and writes nothing, and it exits non-zero when it finds anything, so a rollout script stops
+rather than being informed in passing. The three answers:
+
+| `verdict` | What it means | What to do |
+|---|---|---|
+| `not_required` | There is no `operational_cost_entries` table, so no commission row of any kind exists. | Nothing. Record the output; no migration is needed. |
+| `no_risk_in_this_data` | The table exists and no net is filed the old way. | Nothing. Record the output; no migration is needed. |
+| `stop_and_plan_a_data_repair` | Rows are filed the old way, and it names them. | **Stop.** Do not run the module's migrations against this database, and do not merge, until a repair plan is agreed. |
+| `could_not_look` | The database could not be read at all, and the error says why. | **Stop.** An unreachable database is not an empty one; fix the connection and run it again. |
+
+**Why it is a command and not the SQL that used to be printed here.** The first version of this check
+rebuilt the hash in SQL with `SHA2(CONCAT_WS('|', 'slot', seller_id, …, ''), 256)`, and that is wrong
+in the direction that matters: `CostDraft::slotKey()` builds its string with `implode`, which renders a
+NULL field as an EMPTY SEGMENT, while SQL's `CONCAT_WS` omits a NULL argument altogether. One nullable
+column holding a null and the strings differ, the hashes differ, and the check reports zero where the
+hazard is real. The command asks `CostDraft::slotKey()` itself, so it cannot drift from the thing it
+is checking.
+
+**And if the verdict is `stop_and_plan_a_data_repair`**, the repair is a separate piece of work with
+its own plan, not a migration bolted onto this branch. It would have to keep every entry's identity and
+its audit trail, never double a fee, and be reversible; and it would have to decide what happens where
+a `channel-net:` row ALREADY exists for the same service, because then two rows would want one slot.
+Nothing of that is written, deliberately: `LegacyCommissionSlotTest` proves the hazard, proves that
+`CostLedger`'s general rule was not bent to hide it, and proves this check catches it.
