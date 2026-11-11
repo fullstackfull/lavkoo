@@ -88,7 +88,7 @@
 | E19 | تطبيق البائع: المعمارية والدخول والصلاحيات وبوابة الإصدار | قيد الإعداد |
 | E20 | تطبيق البائع: المنتجات والمخزون والطلبات والمالية | قيد الإعداد |
 | E21 | نسب Git والـ PRs القديمة وحالة التكاملات | منشور — [evidence/E21-git-lineage-legacy-prs.md](./evidence/E21-git-lineage-legacy-prs.md) — 2026-11-12 02:55 (+03:00) |
-| E22 | عقد الـ API: تطبيق العميل مقابل API v1/v2 | قيد الإعداد |
+| E22 | عقد الـ API: تطبيق العميل مقابل API v1/v2 | منشور — [evidence/E22-api-contract-customer.md](./evidence/E22-api-contract-customer.md) — 2026-11-12 02:56 (+03:00) |
 | E23 | عقد الـ API: تطبيق البائع مقابل Seller API v3 | منشور — [evidence/E23-api-contract-seller.md](./evidence/E23-api-contract-seller.md) — 2026-11-12 02:54 (+03:00) |
 
 ## 7. ما لم يُنفَّذ في هذه الجلسة (بحكم المرحلة)
