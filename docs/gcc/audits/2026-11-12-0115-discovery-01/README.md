@@ -77,7 +77,7 @@
 | E08 | الكتالوج، التصنيفات، العلامات، الأسعار، العروض، الكوبونات، البحث | منشور — [evidence/E08-catalog-discovery-pricing.md](./evidence/E08-catalog-discovery-pricing.md) — 2026-11-12 02:28 (+03:00) |
 | E09 | السلة، الدفع، الطلبات، المرتجعات، العمولات، الضريبة، الفواتير | قيد الإعداد |
 | E10 | بوابات الدفع والتحقق والـ webhooks | قيد الإعداد |
-| E11 | المخزون والحجوزات ومزوّدو التنفيذ (Torod/M5AZN) والشحن | قيد الإعداد |
+| E11 | المخزون والحجوزات ومزوّدو التنفيذ (Torod/M5AZN) والشحن | منشور — [evidence/E11-inventory-fulfillment-shipping.md](./evidence/E11-inventory-fulfillment-shipping.md) — 2026-11-12 02:43 (+03:00) |
 | E12 | قنوات البيع والأسواق (Amazon/Noon/Trendyol) | منشور — [evidence/E12-sales-channels-marketplaces.md](./evidence/E12-sales-channels-marketplaces.md) — 2026-11-12 02:17 (+03:00) |
 | E13 | المحاسبة: Odoo، التكاليف التشغيلية، التسويات، الضريبة، التقارير | قيد الإعداد |
 | E14 | مجال البائع في الـ backend: Seller API v3 ولوحة البائع | منشور — [evidence/E14-seller-vendor-backend-api-v3.md](./evidence/E14-seller-vendor-backend-api-v3.md) — 2026-11-12 02:43 (+03:00) |
