@@ -81,7 +81,7 @@
 | E12 | قنوات البيع والأسواق (Amazon/Noon/Trendyol) | منشور — [evidence/E12-sales-channels-marketplaces.md](./evidence/E12-sales-channels-marketplaces.md) — 2026-11-12 02:17 (+03:00) |
 | E13 | المحاسبة: Odoo، التكاليف التشغيلية، التسويات، الضريبة، التقارير | منشور — [evidence/E13-finance-odoo-costs-settlements.md](./evidence/E13-finance-odoo-costs-settlements.md) — 2026-11-12 02:44 (+03:00) |
 | E14 | مجال البائع في الـ backend: Seller API v3 ولوحة البائع | منشور — [evidence/E14-seller-vendor-backend-api-v3.md](./evidence/E14-seller-vendor-backend-api-v3.md) — 2026-11-12 02:43 (+03:00) |
-| E15 | الاختبارات الآلية والـ CI وبوابات الجودة | قيد الإعداد |
+| E15 | الاختبارات الآلية والـ CI وبوابات الجودة | منشور — [evidence/E15-tests-ci-quality-gates.md](./evidence/E15-tests-ci-quality-gates.md) — 2026-11-12 02:45 (+03:00) |
 | E16 | تطبيق العميل: المعمارية والإعداد وانتقال السياق | منشور — [evidence/E16-customer-app-architecture-context.md](./evidence/E16-customer-app-architecture-context.md) — 2026-11-12 02:41 (+03:00) |
 | E17 | تطبيق العميل: الثيم الديناميكي وعقده مع الـ backend | منشور — [evidence/E17-customer-app-dynamic-theme.md](./evidence/E17-customer-app-dynamic-theme.md) — 2026-11-12 02:42 (+03:00) |
 | E18 | تطبيق العميل: السلة والدفع والطلبات والمحفظة والولاء | قيد الإعداد |
