@@ -43,3 +43,10 @@
 
 **Frontend:** Vue 2 + Bootstrap 4 + Laravel Mix 5 — intentionally legacy, be conservative.
 
+## Lavkoo GCC — Shared Planning and Multi-Claude Sessions
+
+**Current repo name:** `fullstackfull/lavkoo` (formerly planned as PharmacyKSA GCC). Related Flutter apps: `fullstackfull/lavkooapp` (customer) and `fullstackfull/lavkooappseller` (seller).
+
+**Mandatory first read for any GCC task:** `docs/gcc/README.md`, `docs/gcc/DECISIONS.md`, `docs/gcc/STATUS.md`, `docs/gcc/COLLABORATION.md`, `docs/gcc/DISCOVERY_PROMPT_01.md` and latest `docs/gcc/handoffs/`.
+
+**Currently approved stage is DISCOVERY ONLY.** No implementation, application source edits, database changes, production writes, merging or deployment. Audit Markdown reports/handoffs are the only permitted write exception. Commit and **publish to GitHub immediately** after each meaningful documentation checkpoint and report exact remote commit SHA, link and branch. Preserve other Claude accounts' work, read latest remote state first, and never force push. Git push is not deployment. Full rules: `docs/gcc/COLLABORATION.md`.
