@@ -49,11 +49,28 @@ class TrendyolClient
      * @throws ChannelUnavailableException
      * @throws ChannelPermissionDenied
      */
-    public function call(SalesChannelAccount $account, string $operation, string $method, string $path, array $query = [], ?array $json = null, ?IntegrationCapability $capability = null, ?string $scope = null): ChannelResponse
+    public function call(SalesChannelAccount $account, string $operation, string $method, string $path, array $query = [], ?array $json = null, ?IntegrationCapability $capability = null, ?string $scope = null, ?array $multipart = null): ChannelResponse
     {
         $url = $this->baseUrl($account) . $path;
         $rehearsal = $this->http->assertAllowed($account, $operation, $method, $capability, $scope, $query);
-        $response = $this->http->send($account, $operation, $method, $url, $this->headers($account, withCredentials: !$rehearsal), $json, $query, null, $capability, $scope);
+        // `$multipart` is for the two endpoints Trendyol documents with no other encoding: the return rejection and the invoice
+        // file. It carries plain fields only -- no document's bytes ever travel through a parameter a logger would then have to
+        // be trusted to leave out.
+        // NAMED, NOT POSITIONAL. `ChannelHttp::send()` is shared with every other channel and a new body kind can be added to
+        // it between `$scope` and `$multipart`; passing these by position would then hand a multipart body to whatever parameter
+        // had taken that slot, and the request would leave with no body at all.
+        $response = $this->http->send(
+            account: $account,
+            operation: $operation,
+            method: $method,
+            url: $url,
+            headers: $this->headers($account, withCredentials: !$rehearsal),
+            json: $json,
+            query: $query,
+            capability: $capability,
+            scope: $scope,
+            multipart: $multipart,
+        );
 
         return match ($response->status) {
             401 => throw new ChannelUnavailableException(ChannelUnavailableException::AUTH_NEEDED, 'Trendyol rejected the API key or secret (HTTP 401). Copy them again from the Trendyol seller panel (Account Information, Integration Information); stage and production keys differ.'),

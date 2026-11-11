@@ -38,14 +38,104 @@ class AdminChannelListingScreenTest extends AdminSalesChannelsTestCase
         $this->makeTheProductFitToList($this->productId);
     }
 
+    // ---- what the channel's catalogue said, on the screen ---------------------------------------------------------
+
+    public function test_the_screen_offers_to_ask_the_channels_catalogue(): void
+    {
+        $this->saveTheDraft(['brand' => 'Acme']);
+
+        $this->actingAs(Admin::findOrFail(self::CHANNELS_ADMIN), 'admin')
+            ->get($this->screen())
+            ->assertOk()
+            ->assertSee(translate('ask_the_catalogue'), false);
+    }
+
+    public function test_a_catalogue_that_could_not_be_asked_is_shown_as_unknown_and_never_as_an_empty_catalogue(): void
+    {
+        $draft = $this->saveTheDraft(['brand' => 'Acme']);
+        $draft->forceFill([
+            'catalog_match' => ['state' => 'unknown', 'reason' => 'channel_unreachable', 'candidates' => []],
+            'catalog_read_at' => now(),
+        ])->save();
+
+        $response = $this->actingAs(Admin::findOrFail(self::CHANNELS_ADMIN), 'admin')->get($this->screen())->assertOk();
+
+        $response->assertSee(translate('the_channels_catalogue_could_not_be_asked'));
+        $response->assertSee(translate('catalog_channel_unreachable'));
+        // The sentence that would invite a second listing of a product that is already listed.
+        $response->assertDontSee(translate('the_channels_catalogue_holds_nothing_for_this_barcode'));
+    }
+
+    public function test_a_definite_zero_says_so_plainly(): void
+    {
+        $draft = $this->saveTheDraft(['brand' => 'Acme']);
+        $draft->forceFill(['catalog_match' => ['state' => 'none', 'candidates' => []], 'catalog_read_at' => now()])->save();
+
+        $this->actingAs(Admin::findOrFail(self::CHANNELS_ADMIN), 'admin')
+            ->get($this->screen())
+            ->assertOk()
+            ->assertSee(translate('the_channels_catalogue_holds_nothing_for_this_barcode'))
+            ->assertDontSee(translate('the_channels_catalogue_could_not_be_asked'));
+    }
+
+    public function test_several_candidates_are_all_shown_with_a_button_for_each_and_the_channels_own_product_type(): void
+    {
+        $draft = $this->saveTheDraft(['brand' => 'Acme']);
+        $draft->forceFill([
+            'catalog_match' => ['state' => 'several', 'candidates' => [
+                ['external_id' => 'B07N4M94X4', 'title' => 'Vitamin C 500mg', 'brand' => 'Acme', 'product_type' => self::TYPE],
+                ['external_id' => 'B08AAAAAAA', 'title' => 'Vitamin C 1000mg', 'brand' => 'Acme', 'product_type' => 'BEAUTY'],
+            ]],
+            'catalog_read_at' => now(),
+        ])->save();
+
+        $response = $this->actingAs(Admin::findOrFail(self::CHANNELS_ADMIN), 'admin')->get($this->screen())->assertOk();
+
+        $response->assertSee(translate('the_channel_holds_more_than_one_product_with_this_barcode'), false);
+        $response->assertSee('B07N4M94X4', false);
+        $response->assertSee('B08AAAAAAA', false);
+        // The channel's own word for the kind of thing it is, shown exactly as it came and never translated.
+        $response->assertSee(self::TYPE, false);
+        $response->assertSee('BEAUTY', false);
+        $response->assertSee(translate('it_is_this_one'), false);
+    }
+
+    public function test_the_candidate_a_person_chose_is_marked_and_offers_no_button(): void
+    {
+        $draft = $this->saveTheDraft(['brand' => 'Acme']);
+        $draft->forceFill([
+            'catalog_match' => ['state' => 'matched', 'candidates' => [['external_id' => 'B07N4M94X4', 'title' => 'Vitamin C 500mg', 'product_type' => self::TYPE]]],
+            'catalog_read_at' => now(),
+            'catalog_external_id' => 'B07N4M94X4',
+        ])->save();
+
+        $this->actingAs(Admin::findOrFail(self::CHANNELS_ADMIN), 'admin')
+            ->get($this->screen())
+            ->assertOk()
+            ->assertSee(translate('this_one'), false)
+            ->assertDontSee(translate('it_is_this_one'), false);
+    }
+
+    public function test_the_catalogue_panel_is_absent_until_the_catalogue_has_been_asked(): void
+    {
+        $this->saveTheDraft(['brand' => 'Acme']);
+
+        $this->actingAs(Admin::findOrFail(self::CHANNELS_ADMIN), 'admin')
+            ->get($this->screen())
+            ->assertOk()
+            ->assertDontSee(translate('what_the_channels_catalogue_says'), false);
+    }
+
     /** The store's own data a product needs before any channel may be asked (ProductListingReadiness). */
     private function makeTheProductFitToList(int $productId): void
     {
         DB::table('products')->where('id', $productId)->update([
             'details' => '<p>Vitamin C, 500mg, 60 tablets.</p>',
             'category_ids' => json_encode([['id' => '7', 'position' => 1]]),
-            'thumbnail' => 'thumb-' . $productId . '.png',
-            'images' => json_encode([['image_name' => 'front-' . $productId . '.png', 'storage' => 'public']]),
+            // Absolute https URLs, which is what a shop of any size really has: its pictures sit on a CDN. A channel is given
+            // the URL and fetches it, so this is also the only shape that can be checked without writing files to a disk.
+            'thumbnail' => 'https://cdn.pharmacyksa.sa/thumb-' . $productId . '.png',
+            'images' => json_encode([['image_name' => 'https://cdn.pharmacyksa.sa/front-' . $productId . '.png', 'storage' => 'public']]),
             'brand_id' => 3,
         ]);
     }

@@ -120,6 +120,11 @@
                 <div class="fs-12 text-muted">{{ translate('check_it_help') }}</div>
             </form>
 
+            <form method="POST" action="{{ route('admin.sales-channels.listings.identify', $draft) }}">@csrf
+                <button class="btn btn-outline-primary btn-sm" type="submit">{{ translate('ask_the_catalogue') }}</button>
+                <div class="fs-12 text-muted">{{ translate('ask_the_catalogue_help') }}</div>
+            </form>
+
             <form method="POST" action="{{ route('admin.sales-channels.listings.follow', $draft) }}">@csrf
                 <button class="btn btn-outline-secondary btn-sm" type="submit" @disabled(!$waiting)>{{ translate('ask_the_channel_what_it_holds') }}</button>
                 <div class="fs-12 text-muted">{{ $waiting ? translate('ask_the_channel_what_it_holds_help') : translate('nothing_is_waiting_for_the_channel') }}</div>
@@ -131,6 +136,56 @@
                 </form>
             @endunless
         </div>
+
+        @php($catalog = (array) ($draft->catalog_match ?? []))
+        @if (($catalog['state'] ?? null) !== null)
+            <hr class="my-3">
+            <div class="fs-12 fw-bold mb-1">{{ translate('what_the_channels_catalogue_says') }}</div>
+
+            @if ($catalog['state'] === 'unknown')
+                {{-- The answer that must never be shown as an empty catalogue: it is why nobody may create a listing yet. --}}
+                <div class="alert alert-warning py-2 px-3 fs-12 mb-2" role="alert">
+                    <div class="fw-bold">{{ translate('the_channels_catalogue_could_not_be_asked') }}</div>
+                    <div>{{ $labels->refusal('catalog_' . ($catalog['reason'] ?? '')) }}</div>
+                </div>
+            @elseif ($catalog['state'] === 'none')
+                <div class="fs-12 text-muted mb-2">{{ translate('the_channels_catalogue_holds_nothing_for_this_barcode') }}</div>
+            @else
+                @if ($catalog['state'] === 'several')
+                    <div class="alert alert-info py-2 px-3 fs-12 mb-2" role="alert">
+                        <div class="fw-bold">{{ translate('the_channel_holds_more_than_one_product_with_this_barcode') }}</div>
+                        <div>{{ translate('choose_the_right_one_before_sending_anything') }}</div>
+                    </div>
+                @endif
+                <div class="d-flex flex-column gap-2">
+                    @foreach ((array) ($catalog['candidates'] ?? []) as $candidate)
+                        @php($chosen = (string) ($draft->catalog_external_id ?? '') === (string) ($candidate['external_id'] ?? ''))
+                        <div class="d-flex flex-wrap align-items-center gap-2 border rounded p-2 {{ $chosen ? 'border-primary' : '' }}">
+                            @if (!empty($candidate['image_url']))
+                                <img src="{{ $candidate['image_url'] }}" alt="" width="40" height="40" class="rounded" loading="lazy">
+                            @endif
+                            <div class="flex-grow-1 fs-12">
+                                <div class="fw-bold">{{ $candidate['title'] ?? $candidate['external_id'] }}</div>
+                                <div class="text-muted">
+                                    <span>{{ $candidate['external_id'] }}</span>
+                                    @if (!empty($candidate['brand'])) · <span>{{ $candidate['brand'] }}</span> @endif
+                                    {{-- The channel's own word for the kind of thing it is: shown as it came, never translated. --}}
+                                    @if (!empty($candidate['product_type'])) · <code>{{ $candidate['product_type'] }}</code> @endif
+                                </div>
+                            </div>
+                            @if ($chosen)
+                                <span class="badge badge-soft-primary">{{ translate('this_one') }}</span>
+                            @else
+                                <form method="POST" action="{{ route('admin.sales-channels.listings.catalog-item', $draft) }}">@csrf
+                                    <input type="hidden" name="external_id" value="{{ $candidate['external_id'] }}">
+                                    <button class="btn btn-outline-primary btn-sm" type="submit">{{ translate('it_is_this_one') }}</button>
+                                </form>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+        @endif
 
         @if ($row['needsClearance'])
             <hr class="my-3">

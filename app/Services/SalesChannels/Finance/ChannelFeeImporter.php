@@ -327,7 +327,23 @@ class ChannelFeeImporter
         $identities = $postings->pluck('dedupe_key')->all();
         $latest = $postings->max('occurred_at') ?? $entry->postedAt;
 
-        return $this->record($account, $entry, subjectType: SaleDocument::SUBJECT_CHANNEL_ORDER, subjectId: (int) $mapping->id, mapping: $mapping, net: $net, identity: 'net:' . hash('sha256', implode(',', $identities)), serviceRef: $entry->currency === $mapping->currency ? '' : 'channel-net:' . $entry->currency, postedAt: CarbonImmutable::parse($latest), identities: $identities, days: $this->daysOf($postings));
+        return $this->record($account, $entry, subjectType: SaleDocument::SUBJECT_CHANNEL_ORDER, subjectId: (int) $mapping->id, mapping: $mapping, net: $net, identity: 'net:' . hash('sha256', implode(',', $identities)), // **The channel's net always has a slot of its own, in every currency.**
+            //
+            // It used to share the contract estimate's slot (`''`) whenever the currencies matched, and `CostLedger`
+            // supersedes within a slot, so the first fee to arrive made the estimate not-effective -- BEFORE anything
+            // proved the service had settled. Measured: a 1 SAR fee against a 15.652174 SAR commission estimate left the
+            // order reading as a 1 SAR commission, and because the estimate's row was gone no read-time rule could
+            // recover it. The foreign-currency half of the same defect was visible earlier; this was the same thing
+            // hiding behind a matching currency.
+            //
+            // Now the estimate keeps its slot and the net keeps `channel-net:<CUR>`, so each currency still nets on its
+            // own (two currencies never add into one figure) and the estimate survives until a settlement is proven.
+            // Which of the two counts is decided in `ProfitabilityService` at read time.
+            //
+            // `CostLedger`'s general supersession rule is untouched, which is the point: one effective row per slot still
+            // holds, aggregation of later fees still works inside the net's own slot, and the `superseded_by_id` link
+            // that `ReconciliationService::reconcileItem()` follows is written by the INVOICE path and is unaffected.
+            serviceRef: 'channel-net:' . $entry->currency, postedAt: CarbonImmutable::parse($latest), identities: $identities, days: $this->daysOf($postings));
     }
 
     /**

@@ -178,4 +178,63 @@ class AdminSalesChannelsInventoryTest extends AdminSalesChannelsTestCase
         $this->assertSame($before, [InventoryLocationBalance::query()->orderBy('id')->get()->toArray(), ProviderProductMapping::query()->orderBy('id')->get()->toArray(), DB::table('inventory_locations')->count()]);
         Http::assertNothingSent();
     }
+
+    // ---- which channels a location feeds: one location at a time, by a person -----------------------------------------
+
+    public function test_the_page_offers_each_channel_as_a_tick_and_noon_is_not_ticked_to_begin_with(): void
+    {
+        $own = app(InventoryLocationService::class)->ensureDefaults()[2];
+
+        $html = $this->stock(['location' => $own->id]);
+
+        $this->assertStringContainsString('feeds-noon', $html, 'noon can be admitted from the screen');
+        $this->assertStringContainsString('feeds-trendyol', $html);
+        $this->assertMatchesRegularExpression('/id="feeds-noon"(?![^>]*checked)/', $html, 'and it is not admitted until a person ticks it');
+    }
+
+    public function test_admitting_noon_on_one_location_saves_it_and_leaves_the_others_alone(): void
+    {
+        $locations = app(InventoryLocationService::class)->ensureDefaults();
+        $own = $locations[2];
+        $torod = $locations[0];
+
+        $this->post(route('admin.sales-channels.inventory.locations.channels', $own->id), ['channels' => ['storefront', 'trendyol', 'amazon_fbm', 'noon']])
+            ->assertRedirect(route('admin.sales-channels.inventory.index', ['location' => $own->id]));
+
+        $this->assertContains('noon', (array) $own->fresh()->publishable_channels);
+        $this->assertNotContains('noon', (array) $torod->fresh()->publishable_channels, 'the other locations are not touched');
+    }
+
+    public function test_a_channel_nobody_ticked_is_removed(): void
+    {
+        $own = app(InventoryLocationService::class)->ensureDefaults()[2];
+
+        $this->post(route('admin.sales-channels.inventory.locations.channels', $own->id), ['channels' => ['storefront']])->assertRedirect();
+
+        // The change is also written to `audit_logs` with what was added and removed. It is not asserted here because this
+        // suite does not build that table and `AuditLogger` deliberately degrades to a no-op when it is absent -- a missing
+        // note is never worth failing the audited action.
+        $this->assertSame(['storefront'], (array) $own->fresh()->publishable_channels);
+    }
+
+    public function test_an_unknown_channel_key_is_refused_rather_than_stored(): void
+    {
+        $own = app(InventoryLocationService::class)->ensureDefaults()[2];
+        $before = (array) $own->publishable_channels;
+
+        $this->post(route('admin.sales-channels.inventory.locations.channels', $own->id), ['channels' => ['storefront', 'noonn']])
+            ->assertSessionHasErrors('channels.1');
+
+        $this->assertSame($before, (array) $own->fresh()->publishable_channels, 'a typo changes nothing: the key would never match at publish time');
+    }
+
+    public function test_a_form_that_carried_no_field_at_all_is_refused_instead_of_emptying_the_list(): void
+    {
+        $own = app(InventoryLocationService::class)->ensureDefaults()[2];
+        $before = (array) $own->publishable_channels;
+
+        $this->post(route('admin.sales-channels.inventory.locations.channels', $own->id), [])->assertSessionHasErrors('channels');
+
+        $this->assertSame($before, (array) $own->fresh()->publishable_channels, 'a lost form must not read as "feed nothing"');
+    }
 }

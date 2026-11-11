@@ -38,6 +38,11 @@ final class ListingLabels
         'could_not_read_what_the_channel_holds', 'could_not_confirm_that_the_channel_holds_no_listing',
         // The write itself.
         'listing_write_failed', 'channel_refused_the_listing', 'listing_not_waiting_for_the_channel',
+        // Asking the channel's own CATALOGUE about a barcode. `could_not_ask` and the three beneath it are the honest "we do not know", and a screen must never show them as
+        // an empty catalogue: that is what invites a second listing of a product that is already listed.
+        'catalog_not_read_yet', 'catalog_candidate_not_offered', 'catalog_no_identifier_the_catalogue_knows',
+        'catalog_rehearsal', 'catalog_channel_unreachable', 'catalog_channel_has_no_catalogue',
+        'catalog_product_has_no_barcode_or_code', 'catalog_account_is_gone',
     ];
 
     /**
@@ -48,7 +53,7 @@ final class ListingLabels
         ChannelUnavailableException::GLOBAL_OFF, ChannelUnavailableException::ACCOUNT_OFF, ChannelUnavailableException::CAPABILITY_OFF,
         ChannelUnavailableException::WRITES_OFF_ENVIRONMENT, ChannelUnavailableException::WRITES_OFF_ACCOUNT, ChannelUnavailableException::NOT_APPROVED,
         ChannelUnavailableException::UNREGISTERED_OPERATION, ChannelUnavailableException::AUTH_NEEDED, ChannelUnavailableException::BUYER_DATA_OFF,
-        'rate_limited',
+        ChannelUnavailableException::SETTING_MISSING, ChannelUnavailableException::ANOTHER_ATTEMPT_RUNNING, 'rate_limited',
     ];
 
     /** Every problem of our own that can stand beside a draft: what the store has not finished, and what the channel reports that a person has to look at. */
@@ -56,6 +61,8 @@ final class ListingLabels
         ...ProductListingReadiness::CODES,
         ListingPublisher::BUYABLE_WITHOUT_OUR_OFFER,
         'listing_key_belongs_to_another_product',
+        // The catalogue names a different product type than the one on the draft. Not an error and not overwritten: a person decides which is right.
+        'catalog_product_type_differs',
     ];
 
     /** Where a product can stand on one channel, as the screens name it (`product_channel_state_` + state; the product card uses the same keys). */

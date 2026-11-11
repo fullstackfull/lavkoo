@@ -13,6 +13,9 @@ final class SalesChannelSchema
     private const REQUIRED = [
         'sales_channel_accounts', 'external_order_mappings', 'sales_channel_sync_states', 'inventory_locations', 'operational_cost_entries', 'operational_cost_return_decisions', 'channel_order_dispatches',
         'provider_fulfillments', 'provider_fulfillment_items', 'provider_product_mappings', 'inventory_pools',
+        // Required rather than optional because it is the mutual exclusion around the one write that puts goods on a van: without the table, a shipment would be sent with
+        // nothing deciding which of two processes owns it. The module saying "not migrated" is the right failure; a SQL error halfway through a dispatch is not.
+        'channel_shipment_sends',
     ];
 
     /**

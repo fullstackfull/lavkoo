@@ -13,12 +13,14 @@ use App\Services\SalesChannels\Contracts\ChannelConnector;
 use App\Services\SalesChannels\Contracts\ConfirmsShipments;
 use App\Services\SalesChannels\Contracts\CreatesListings;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
+use App\Services\SalesChannels\Contracts\ReadsCatalog;
 use App\Services\SalesChannels\Contracts\PublishesStockAndPrices;
 use App\Services\SalesChannels\Contracts\ReadsChannelInventory;
 use App\Services\SalesChannels\Contracts\ReadsFinances;
 use App\Services\SalesChannels\Contracts\ReadsListings;
 use App\Services\SalesChannels\Contracts\ReadsOrders;
 use App\Services\SalesChannels\Contracts\ReadsRecipient;
+use App\Services\SalesChannels\Data\CatalogMatch;
 use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Data\ListingRequirements;
@@ -45,7 +47,7 @@ use RuntimeException;
  * What it will not do: guess a field, ask for personal data it does not need, treat an order Amazon fulfils (FBA) or one that is not an Amazon channel's own
  * as ours to ship, or write anything unless the transport (ChannelHttp) lets the call out.
  */
-class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments, CreatesListings, DescribesListingRequirements
+class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, ReadsRecipient, ReadsChannelInventory, ReadsFinances, PublishesStockAndPrices, ConfirmsShipments, CreatesListings, DescribesListingRequirements, ReadsCatalog
 {
     private const LISTINGS_CAP = 1000;
 
@@ -54,6 +56,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         private readonly AmazonOrderMapper $orders,
         private readonly AmazonListingMapper $listings,
         private readonly AmazonFinanceMapper $finances,
+        private readonly AmazonCatalogMapper $catalog,
     ) {
     }
 
@@ -69,14 +72,15 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             'orders_v2026_01_01' => ['documented' => true, 'built' => true, 'note' => 'searchOrders / getOrder. Orders v0 reads are deprecated and are not used.'],
             'fba_vs_fbm' => ['documented' => true, 'built' => true, 'note' => 'fulfillment.fulfilledBy with salesChannel.channelName; an unclear order is never treated as FBM.'],
             'listings_items' => ['documented' => true, 'built' => true, 'note' => 'searchListingsItems (capped at 1000 per query: windows are split); patchListingsItem for a price or a quantity, with a validation preview, and for the CONTENT of a listing that exists (only the fields that differ, nothing removed); putListingsItem ONLY to create the listing of a SKU Amazon holds nothing for, with the product-only requirements mode and never an offer attribute; and getListingsItem with summaries and issues, which is the only thing that says a listing exists — `ACCEPTED` on a write means the submission was taken, not that anything is listed.'],
-            'catalog_items' => ['documented' => true, 'built' => false, 'note' => 'Read-only enrichment (EAN/UPC for matching) is designed; not built in this version.'],
+            'catalog_items' => ['documented' => true, 'built' => true, 'note' => 'searchCatalogItems by EAN/UPC (one identifier kind per call, tried most trustworthy first), read-only. It brings back the ASIN and Amazon\'s own productType, which is what makes the requirements call possible without a person guessing the type. Four answers are kept apart and a catalogue that could not be reached is UNKNOWN, never "holds nothing": one ASIN is a match, several wait for a person, and only an answered zero licenses anything.'],
             'product_type_definitions' => ['documented' => true, 'built' => true, 'note' => 'getDefinitionsProductType is read before a listing is created, and ONLY a `required` list the response itself carries is used. The full rules live in a JSON Schema behind a presigned link this version does not fetch (it is not on the allowed list), so where the response carries no such list the answer is UNKNOWN and the owner\'s own declared list on the account is used instead, recorded as the owner\'s and not Amazon\'s.'],
             'fba_inventory' => ['documented' => true, 'built' => true, 'note' => 'getInventorySummaries v1 with inventoryDetails; kept apart from Torod Point stock.'],
             'finances_v2024_06_19' => ['documented' => true, 'built' => true, 'note' => 'listTransactions; fee types are an open set classified by configurable patterns, anything unknown is kept for review.'],
-            'feeds_json_listings' => ['documented' => true, 'built' => false, 'note' => 'JSON_LISTINGS_FEED for bulk price and quantity is registered on the allowed list but not called: stock and price go one SKU at a time through Listings Items. The legacy flat-file and XML listing feeds are removed by Amazon.'],
+            'finance_event_groups_v0' => ['documented' => true, 'built' => true, 'note' => 'listFinancialEventGroups, so a payout matches a settlement PERIOD by Amazon\'s own `FinancialEventGroupId` rather than by overlapping dates. Four published facts are guarded because each is a wrong answer otherwise: a window over 180 days returns NO groups and a clean 200 (refused locally, because an empty list reads as a seller who has never been paid); both bounds must be more than two minutes old, which a nightly job asking up to "now" trips every time; `FundTransferDate` is "Only present for closed settlements", so its absence means still open and not unpaid; and `FundTransferStatus` has no documented value list at all, so it is carried verbatim and never interpreted, while `ProcessingStatus` has exactly `Open` and `Closed` and a third value is UNKNOWN. `AccountTail` -- the seller\'s own bank-account tail -- is read and dropped, and adding it to the PII redactor stopped it reaching `sales_channel_api_logs`.'],
+            'feeds_json_listings' => ['documented' => true, 'built' => true, 'note' => 'THE WHOLE CYCLE IS NOW BUILT, and the earlier note recorded two things that were wrong. (1) It said the result document "has no documented field names". Amazon publishes `schemas/feeds/listings-feed-processing-report-schema-v2.json` in its own `amzn/selling-partner-api-models` repository: `header`, `issues`, `summary` and an optional `items`, each issue carrying `severity` (ERROR|WARNING|INFO), `message` and usually `messageId` and `sku`. (2) It said the `contentType` for this feed type "is stated on no page Amazon publishes". Amazon\'s own submit-a-feed tutorial states the rule -- "The contentType must match the input provided to the createFeedDocument operation" -- and its JSON sample uses `application/json; charset=UTF-8`, which is one named constant here. BUILT: `AmazonListingsFeed` (the document, PATCH not UPDATE, one message per SKU because Amazon does not guarantee order within a feed, 25,000 maximum, and `header.report.includedData` so the report can carry each listing\'s own data), `AmazonFeedResult` (the report by field name; the accepted set derived by SUBTRACTION and refused unless the counts reconcile three ways), `AmazonFeedState` (the five `processingStatus` values, CANCELLED kept apart from FATAL because Amazon says a cancelled feed never started while a FATAL one may have applied "some, none, or all") and `AmazonFeedSubmitter` (createFeedDocument, the PUT upload, createFeed, getFeed, getFeedDocument, the download -- with `amazon_feed_submissions` keeping the feedId and the messageId-to-SKU map, and a write-ahead fence because Amazon documents NO idempotency for createFeed). SWITCHED OFF: `sales_channels.amazon.bulk_feeds_enabled` ships false and per-SKU publishing stays the default path -- one accepted feed carries up to 25,000 changes and `cancelFeed` works only while IN_QUEUE. Amazon also states feeds "can take up to eight hours to process" and are "processed sequentially", so the feed is the cheaper path and not the faster one. See docs/sales-channels/gap-matrix.md.'],
             'confirm_shipment' => ['documented' => true, 'built' => true, 'note' => 'Orders v0 confirmShipment (still current; no equivalent in v2026-01-01). Carrier codes for Saudi carriers are not published: "Other" with a carrier name is used.'],
-            'notifications' => ['documented' => true, 'built' => false, 'note' => 'Delivered only to the seller\'s own AWS SQS/EventBridge, never to a URL. Polling stays the source of truth; an SQS poller is designed, not built.'],
-            'reports' => ['documented' => true, 'built' => false, 'note' => 'Settlement and full-listing reports (GET_MERCHANT_LISTINGS_ALL_DATA) are registered but the report reader is not built; listing windows are used instead.'],
+            'notifications' => ['documented' => true, 'built' => false, 'note' => 'NOT BUILT BY DECISION, re-verified 2026-11-09 and the conclusion stands. There is NO notification type for a new order: the complete published list has no `ORDER_CREATED`, and `ORDER_CHANGE` is documented as "Sent when there is an important change in the order. Important changes include order status changes and buyer requested cancelations." -- a change to an order that already exists, with `eventFilter` values BuyerRequestedChange, DeliveryTipChange and OrderStatusChange. So notifications can only ever accelerate the order cycle, never replace the polling that discovers an order in the first place. What blocks them is not documentation but infrastructure the seller must own: SQS needs the seller\'s own AWS account and a STANDARD queue (FIFO is explicitly unsupported) with a policy granting `arn:aws:iam::437568002678:root` the actions `sqs:GetQueueAttributes` and `sqs:SendMessage`; EventBridge needs an AWS account that pays for delivery and allows only one destination per account. Amazon also documents that standard-queue notifications "might be delivered more than once" and are not guaranteed to arrive in order, so any consumer must de-duplicate on `notificationId` and accept any order. Worth knowing for later: `LISTINGS_ITEM_ISSUES_CHANGE` and `LISTINGS_ITEM_STATUS_CHANGE` exist and would report a listing\'s post-acceptance problems, but they are EventBridge-only.'],
+            'reports' => ['documented' => true, 'built' => true, 'note' => 'Two flows, because Amazon allows only two: a requestable report (GET_MERCHANT_LISTINGS_ALL_DATA, GET_AFN_INVENTORY_DATA) is createReport, poll, getReportDocument, download; a SETTLEMENT report cannot be requested at all -- Amazon schedules it and its page says so outright -- so it is found with getReports. The request is fenced before it leaves, because a lost reply to createReport means a report exists under a number we never saw, and the row is then found with getReports rather than requested again. A settlement lands as an UNAPPROVED marketplace statement, never as cost entries: the Finances API already records the fees, and writing both would book the same commission twice. Which download path is used is a property of the READER, not a limit of the client: the settlement reader takes the whole document because it finds its settlement by scanning it, and `report_max_bytes` bounds what that path parses and refuses by name above it; the listings reconciliation reads row by row through `AmazonReportStream`, where `report_stream_max_bytes` is enforced mid-flight and a body shorter than its promised `Content-Length` is refused instead of being read as the whole document. This note used to end `the streaming download is not built`, which stopped being true when that path was built.'],
             'sandbox' => ['documented' => true, 'built' => true, 'note' => 'The EU sandbox list omits Saudi Arabia; use another EU marketplace id for sandbox runs.'],
         ];
     }
@@ -241,6 +245,115 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         $middle = $from->addSeconds((int) ($from->diffInSeconds($to, true) / 2));
 
         return [[$from->toIso8601ZuluString(), $middle->toIso8601ZuluString()], [$middle->toIso8601ZuluString(), $to->toIso8601ZuluString()]];
+    }
+
+    // ---- the channel's own catalogue ------------------------------------------------------------------------------
+
+    /**
+     * Asks Amazon's catalogue whether it already holds a product with our barcode, and brings back the ASIN and — the reason this call exists — Amazon's own `productType`,
+     * without which the requirements of a listing cannot be asked for at all.
+     *
+     * `searchCatalogItems` takes ONE kind of identifier per call (`identifiersType`), so the kinds are tried in order of how much they can be trusted and the FIRST kind that
+     * produces an answer wins. A kind that finds nothing is not a failure: the next is tried. Amazon knows EAN, UPC, GTIN, JAN, ISBN and MINSAN; a kind it does not know is
+     * never sent, because the call would be refused for the whole batch.
+     *
+     * The four answers are kept apart deliberately, and the distinction is the point of the method:
+     *
+     *  - every kind asked, every one answered, none held anything  → `NONE`, a definite zero;
+     *  - exactly one ASIN                                          → `MATCHED`;
+     *  - several                                                   → `SEVERAL`, for a person; never a guess, because the wrong ASIN is another seller's product;
+     *  - a switch off, a rehearsal, a refusal, a rate limit        → `UNKNOWN`, with the reason.
+     *
+     * The last one is why `saysNothingIsThere()` exists. A rate-limited search that answered nothing looks exactly like an empty catalogue if you only count the results, and
+     * acting on that is how a product that is already listed gets listed a second time.
+     *
+     * @param array<string, string> $identifiers
+     */
+    public function catalogMatch(SalesChannelAccount $account, array $identifiers): CatalogMatch
+    {
+        $marketplace = $this->primaryMarketplace($account);
+        $usable = $this->catalogIdentifiers($identifiers);
+        if ($usable === []) {
+            return CatalogMatch::unknown('no_identifier_the_catalogue_knows', $identifiers);
+        }
+
+        $asked = [];
+        foreach ($usable as $kind => $value) {
+            $asked[$kind] = $value;
+            $response = $this->client->call(
+                $account,
+                'amazon.catalog_search',
+                'GET',
+                '/catalog/2022-04-01/items',
+                ['identifiers' => $value, 'identifiersType' => $kind, 'marketplaceIds' => $marketplace, 'includedData' => 'identifiers,images,productTypes,summaries', 'pageSize' => 10],
+                capability: IntegrationCapability::ProductSync,
+            );
+
+            // Not asked, or asked and not answered. Either way we do not know, and we say so instead of moving on to the next kind as though this one had come back empty.
+            if ($response->isDryRun()) {
+                return CatalogMatch::unknown('rehearsal', $asked);
+            }
+            if ($response->isTransient()) {
+                return CatalogMatch::unknown('channel_unreachable', $asked);
+            }
+            if (!$response->ok()) {
+                // Amazon refuses an identifier it considers malformed for the kind. That is about this identifier, not about the catalogue, so the next kind is still worth asking.
+                continue;
+            }
+
+            $candidates = [];
+            foreach ((array) $response->get('items', []) as $item) {
+                $candidate = $this->catalog->map((array) $item, $marketplace);
+                if ($candidate->externalId !== '') {
+                    $candidates[$candidate->externalId] = $candidate;
+                }
+            }
+            if ($candidates !== []) {
+                return CatalogMatch::of(array_values($candidates), $asked);
+            }
+        }
+
+        // Every kind we could ask was asked and answered, and Amazon holds nothing. This is the one path that may read as a definite zero.
+        return CatalogMatch::none($asked);
+    }
+
+    /**
+     * Our identifiers reduced to the kinds Amazon's catalogue accepts, most trustworthy first. A GTIN-shaped barcode is offered as EAN or UPC by its length, which is what
+     * those kinds are; anything else is left out rather than sent under a kind it is not.
+     *
+     * @param array<string, string> $identifiers
+     * @return array<string, string>
+     */
+    private function catalogIdentifiers(array $identifiers): array
+    {
+        $known = ['ASIN', 'EAN', 'UPC', 'GTIN', 'JAN', 'ISBN', 'MINSAN'];
+        $usable = [];
+        foreach ($identifiers as $kind => $value) {
+            $kind = mb_strtoupper(trim((string) $kind));
+            $value = trim((string) $value);
+            if ($value === '' || !in_array($kind, $known, true)) {
+                continue;
+            }
+            $usable[$kind] = $value;
+        }
+
+        // A bare barcode arrives under no kind at all: its length is the only honest thing to go on. 13 digits is an EAN, 12 a UPC; anything else is not offered as either.
+        $barcode = trim((string) ($identifiers['barcode'] ?? ''));
+        if ($barcode !== '' && ctype_digit($barcode)) {
+            $kind = match (mb_strlen($barcode)) {
+                13 => 'EAN',
+                12 => 'UPC',
+                default => null,
+            };
+            if ($kind !== null) {
+                $usable[$kind] ??= $barcode;
+            }
+        }
+
+        $order = array_flip($known);
+        uksort($usable, static fn (string $a, string $b): int => ($order[$a] ?? 99) <=> ($order[$b] ?? 99));
+
+        return $usable;
     }
 
     // ---- orders -------------------------------------------------------------------------------------------------

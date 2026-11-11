@@ -173,7 +173,18 @@ class AmazonFinanceMapper
      * @param list<string> $path
      * @return array{0: string, 1: ?CostComponent}
      */
-    private function classify(string $transactionType, array $path): array
+    /**
+     * What one of Amazon's money labels means for our books.
+     *
+     * **Public because the settlement REPORT needs the same answer as the Finances API.** A settlement row carries its own two
+     * labels (`transaction-type`, and `amount-type` / `amount-description`), which is the same shape of question as a
+     * breakdown node's type and path — so it feeds them to this rather than to a second set of patterns. One place decides what
+     * "FBAPerUnitFulfillmentFee" means, and a label nobody matched is UNCLASSIFIED in both readers alike.
+     *
+     * @param list<string> $path the label and any sub-label, outermost first
+     * @return array{0: string, 1: CostComponent|null}
+     */
+    public function classify(string $transactionType, array $path): array
     {
         $map = (array) config('sales_channels.amazon.finance_map', []);
         $leaf = end($path) ?: '';

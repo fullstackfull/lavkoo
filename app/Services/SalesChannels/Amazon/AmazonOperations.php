@@ -63,6 +63,13 @@ final class AmazonOperations
             'amazon.feeds_create' => Ops::write(['POST'], $publishing, ['price_publishing', 'inventory_publishing']),
             'amazon.feeds_get' => Ops::read(capabilities: $publishing),
             'amazon.feeds_document' => Ops::read(capabilities: $publishing),
+            // Listing Amazon's own feeds: the ONLY honest way back from the fence. A submission whose `createFeed` reply was
+            // lost is identified by looking at what Amazon has, never by submitting again -- so this read is part of the
+            // write path's safety, not a convenience.
+            'amazon.feeds_list' => Ops::read(capabilities: $publishing),
+            // The presigned download of a processing report. A GET of a URL Amazon just handed us; it reaches a bucket rather
+            // than the API, which is why it is registered apart from `feeds_document`.
+            'amazon.feed_report_download' => Ops::read(capabilities: $publishing),
 
             // ---- FBA stock ----
             'amazon.fba_inventory' => Ops::read(capabilities: $read),
@@ -74,7 +81,13 @@ final class AmazonOperations
             // ---- reports (a report request reads; it changes nothing the seller owns) ----
             'amazon.reports_create' => Ops::read(methods: ['POST'], capabilities: $read, retrySafe: false),
             'amazon.reports_get' => Ops::read(capabilities: $read),
+            // getReports. **The only way a settlement report is ever found**: Amazon's own page says settlement reports "cannot
+            // be requested or scheduled" and are searched for with this operation, so a reader without it has no settlement at
+            // all. It is also how a report whose id was lost is found again.
+            'amazon.reports_list' => Ops::read(capabilities: $read),
             'amazon.reports_document' => Ops::read(capabilities: $read),
+            // The presigned S3 download. Not an SP-API path and it carries NO Amazon credential: the URL is already signed, and
+            // adding the access token would send a credential somewhere it was not asked for.
             'amazon.report_download' => Ops::read(capabilities: $read),
 
             // ---- notifications (delivered to the seller's own AWS queue, never to a URL here) ----

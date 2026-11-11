@@ -8,6 +8,7 @@ enum SalesChannel: string
     case Storefront = 'storefront';
     case Amazon = 'amazon';
     case Trendyol = 'trendyol';
+    case Noon = 'noon';
 
     public function isExternal(): bool
     {
@@ -17,7 +18,7 @@ enum SalesChannel: string
     /** @return list<self> the channels that have a connector (and therefore accounts) */
     public static function connectable(): array
     {
-        return [self::Amazon, self::Trendyol];
+        return [self::Amazon, self::Trendyol, self::Noon];
     }
 
     public function labelKey(): string

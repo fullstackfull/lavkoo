@@ -37,6 +37,12 @@ final class PiiRedactor
         'contactperson', 'contactname', 'contactno', 'firstname', 'lastname', 'fullname', 'buyer', 'latitude', 'longitude', 'zipcode',
         'postal', 'postcode', 'landmark', 'neighborhood', 'neighbourhood', 'district', 'national', 'iqama', 'identity', 'passport',
         'iban', 'drivername', 'sendername', 'note', 'comment', 'remark',
+        // **The tail of a payment instrument.** Found by Amazon's `financialEventGroups`, which returns `AccountTail` -- "the
+        // account tail of the payment instrument", the last digits of the seller's own bank account -- and it was going
+        // straight into `sales_channel_api_logs.response_summary` because neither redactor knew the name. `iban` was already
+        // here; these are the other shapes the same fact arrives in. Deliberately composite rather than a bare `account`,
+        // which would hide `account_id` and every other ordinary identifier in the module.
+        'accounttail', 'accountnumber', 'bankaccount', 'cardnumber', 'cardlast', 'last4',
     ];
 
     /** Keys that are personal when they are exactly this, in any mode: too short to be a fragment. */

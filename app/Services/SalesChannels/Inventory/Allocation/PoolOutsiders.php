@@ -3,6 +3,7 @@
 namespace App\Services\SalesChannels\Inventory\Allocation;
 
 use App\Models\SalesChannelProductMapping;
+use App\Services\SalesChannels\Publishing\StockListingGate;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
 
@@ -34,7 +35,7 @@ class PoolOutsiders
             ->whereNotNull('last_published_quantity')->whereNotIn('id', $memberIds)->orderBy('id')->get();
         foreach ($listings as $listing) {
             $shown = $listing->shownQuantity() ?? 0;
-            if ($shown > 0 && $listing->fulfillment_mode !== 'fba' && $this->takesItsStockFrom(listing: $listing, key: $key)) {
+            if ($shown > 0 && !StockListingGate::channelHoldsTheStock($listing) && $this->takesItsStockFrom(listing: $listing, key: $key)) {
                 $outsiders[] = new PoolOutsider($listing, $shown);
             }
         }

@@ -26,3 +26,87 @@ Run the test suite itself against a **different** empty database, never against 
 ## What to bring back
 
 The output of steps 1 to 7 (including 5b), `SELECT VERSION();`, `SHOW CREATE TABLE orders` and `order_details` (structure only), and anything that failed. Until then the statement in the final report stays true: *nothing was tested against the real schema*.
+
+
+---
+
+## Scrubbing the copy before anybody works on it
+
+The owner asked for the rehearsal to run on an isolated copy of the real schema **and data, with the
+sensitive data scrubbed**. The dump carries patients' names, addresses, telephone numbers and what
+they ordered, so the scrub is part of making the copy, not a step afterwards.
+
+Run these on the COPY, never on production, and before any of steps 1 to 7:
+
+```sql
+-- customers and the orders' own copies of their details
+UPDATE customers SET f_name = CONCAT('Test', id), l_name = 'Customer', email = CONCAT('c', id, '@example.invalid'),
+       phone = CONCAT('+9665', LPAD(id, 8, '0')), street_address = NULL, city = city, zip = NULL;
+UPDATE orders SET shipping_address_data = JSON_OBJECT('city', JSON_UNQUOTE(JSON_EXTRACT(shipping_address_data, '$.city')), 'redacted', true),
+       billing_address_data = NULL;
+UPDATE shipping_addresses SET contact_person_name = CONCAT('Test', id), phone = CONCAT('+9665', LPAD(id, 8, '0')),
+       address = NULL, latitude = NULL, longitude = NULL;
+-- anything the channels stored about a buyer
+UPDATE external_order_mappings SET buyer_name = NULL, buyer_email = NULL, buyer_phone = NULL;
+DELETE FROM sales_channel_api_logs;
+```
+
+Then check the scrub actually bit, because a scrub that silently matched nothing is worse than none:
+
+```sql
+SELECT COUNT(*) FROM customers WHERE email NOT LIKE '%@example.invalid';
+SELECT COUNT(*) FROM external_order_mappings WHERE buyer_phone IS NOT NULL;
+```
+
+Both must be zero. If a column above does not exist on the dump, that is a schema difference worth
+reporting rather than skipping: step 1 (`channels:check-platform-schema`) is the place it shows up.
+
+**And the credentials.** Point `DB_*` at the copy, leave every `SALES_CHANNELS_*`, `ODOO_*` and
+`AMAZON_*` switch unset, and put no real Amazon, Trendyol, noon, Torod, M5AZN or MyFatoorah
+credential anywhere on that machine. The switches ship off and the rehearsal does not need them: no
+step here sends anything to a channel.
+
+
+## One check that decides whether a data migration is needed
+
+The channel's fee net is now filed under `channel-net:<CUR>` in every currency. Versions before
+2026-11-11 filed it under the empty service reference whenever the fee's currency matched the order's.
+If any such row exists, a new fee for the same order is written in the NEW slot while the old row stays
+effective, and both are counted: measured, two 12.00 SAR nets gave an actual cost of 24.00, with the
+estimate beside them already superseded by the legacy row.
+
+**Run this on the copy before the module's migrations, and bring the output back:**
+
+```bash
+php artisan costs:check-legacy-commission-slots --json
+```
+
+It reads and writes nothing, and it exits non-zero when it finds anything, so a rollout script stops
+rather than being informed in passing. The three answers:
+
+| `verdict` | What it means | What to do |
+|---|---|---|
+| `not_required` | There is no `operational_cost_entries` table, so no commission row of any kind exists. | Nothing. Record the output; no migration is needed. |
+| `no_risk_in_this_data` | The table exists and no net is filed the old way. | Nothing. Record the output; no migration is needed. |
+| `stop_and_plan_a_data_repair` | Rows are filed the old way, and it names them. | **Stop.** Do not run the module's migrations against this database, and do not merge, until a repair plan is agreed. |
+| `could_not_look` | The rows could not be read to the end, and the error says why. | **Stop.** Fix it and run again. |
+
+Read `verdict` and the exit code, not `legacy_rows` on its own. On `could_not_look` the count is
+**null**, never 0, and `scan_complete` is false: an unreachable or half-read table is not an empty one,
+and the one thing this check must never let you conclude is that "I could not look" means "I looked and
+found nothing". Only a finished scan that found nothing exits zero.
+
+**Why it is a command and not the SQL that used to be printed here.** The first version of this check
+rebuilt the hash in SQL with `SHA2(CONCAT_WS('|', 'slot', seller_id, …, ''), 256)`, and that is wrong
+in the direction that matters: `CostDraft::slotKey()` builds its string with `implode`, which renders a
+NULL field as an EMPTY SEGMENT, while SQL's `CONCAT_WS` omits a NULL argument altogether. One nullable
+column holding a null and the strings differ, the hashes differ, and the check reports zero where the
+hazard is real. The command asks `CostDraft::slotKey()` itself, so it cannot drift from the thing it
+is checking.
+
+**And if the verdict is `stop_and_plan_a_data_repair`**, the repair is a separate piece of work with
+its own plan, not a migration bolted onto this branch. It would have to keep every entry's identity and
+its audit trail, never double a fee, and be reversible; and it would have to decide what happens where
+a `channel-net:` row ALREADY exists for the same service, because then two rows would want one slot.
+Nothing of that is written, deliberately: `LegacyCommissionSlotTest` proves the hazard, proves that
+`CostLedger`'s general rule was not bent to hide it, and proves this check catches it.

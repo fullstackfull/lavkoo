@@ -13,6 +13,7 @@ use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Admin;
+use Devrabiul\ToastMagic\Facades\ToastMagic;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -36,6 +37,33 @@ abstract class AdminPagesTestCase extends TestCase
 
     /** @var array<string, string> */
     private array $languageFileHashes = [];
+
+    /**
+     * The text of the toasts the last request flashed.
+     *
+     * Here rather than on the sales-channel case because every admin page in this application answers through the same toast
+     * queue, and the Odoo accounting screens are not sales-channel screens.
+     *
+     * @return list<string>
+     */
+    protected function flashedToasts(): array
+    {
+        return array_map(static fn (array $toast): string => (string) ($toast['message'] ?? ''), array_values((array) session('laravel-toaster-magic::messages', [])));
+    }
+
+    /** Text that came from a service or a channel is escaped by SafeToast, so it is looked for as it was typed and as it is shown. */
+    protected function assertToastContains(string $needle, string $message = ''): void
+    {
+        $toasts = implode(' | ', $this->flashedToasts());
+
+        $this->assertTrue(str_contains($toasts, $needle) || str_contains($toasts, e($needle)), $message ?: "no toast says '{$needle}'; the toasts were: {$toasts}");
+    }
+
+    /** The toast library keeps its queue in a singleton, which lives as long as the test does; a real request starts with an empty one. */
+    protected function forgetToasts(): void
+    {
+        ToastMagic::clear();
+    }
 
     protected function setUp(): void
     {

@@ -28,6 +28,10 @@ return [
     'operation_providers' => [
         \App\Services\SalesChannels\Trendyol\TrendyolOperations::class,
         \App\Services\SalesChannels\Amazon\AmazonOperations::class,
+        \App\Services\SalesChannels\Noon\NoonOperations::class,
+        // Odoo is not a sales channel. It is registered here so that writing into somebody's books goes through the same host
+        // switch, account switch, rehearsal mode, recorded approval and redacted audit log as every other outbound call.
+        \App\Services\Accounting\Odoo\OdooOperations::class,
     ],
 
     'http' => [
@@ -38,6 +42,38 @@ return [
         'retries' => 3,
         'retry_base_milliseconds' => 500,
         'retry_max_seconds' => 30,
+    ],
+
+    // Deciding a customer's return at the channel. One decision per claim item ever (`channel_return_decisions`), recorded
+    // before it is sent, because Trendyol documents no idempotency for either decision and publishes no way to ask what became
+    // of one.
+    'returns' => [
+        // How long a run that claimed a decision and never finished holds it before another may take it. Short, because the
+        // decision itself is already recorded: what is being handed over is only the sending.
+        'claim_minutes' => 10,
+    ],
+
+    // Cutting a shipment package into several (`channel_package_splits`). Trendyol documents no idempotency for any of its
+    // four split endpoints, says nothing about a repeated identical request, and creates the new packages ASYNCHRONOUSLY -- so
+    // the intent is recorded before the request leaves and the outcome is then read off the order rather than assumed.
+    'splits' => [
+        // How long a run that claimed a split and never finished holds it before another may take it.
+        'claim_minutes' => 10,
+        // How long to wait before reading the order again, looking for the proof that the cut landed. The split is
+        // asynchronous: a package that has not changed yet is not a package that was never cut.
+        'check_seconds' => 60,
+        // How many such reads before the row is handed to a person. Nothing is ever sent again either way: what runs out here
+        // is the patience to keep asking, not the willingness to retry.
+        'max_checks' => 8,
+    ],
+
+    // What waits for a person, gathered from nine tables into one screen (`AttentionCollector`). It reads and sends
+    // NOTHING: every state it shows is one a pipeline reached because the outcome was not knowable, and the value of those
+    // states is that no machine touches them again. So there is one number here and it is only about how the screen looks.
+    'attention' => [
+        // After this long with nobody looking, a row is shown as late. A fenced refund is not an emergency in its first hour
+        // and is one after a day.
+        'late_after_hours' => 24,
     ],
 
     'logs' => [
@@ -62,6 +98,11 @@ return [
                 'trendyol.claims_list' => ['max' => 100, 'per_seconds' => 60],
                 'trendyol.finance_settlements' => ['max' => 80, 'per_seconds' => 60],
                 'trendyol.finance_other' => ['max' => 80, 'per_seconds' => 60],
+                // İade Servisleri: approve and reject are each 5 requests a minute, which is the tightest limit Trendyol
+                // publishes anywhere. A screen that let somebody click through a page of returns would hit it, so the pacing
+                // is here rather than in a person's hands.
+                'trendyol.claims_approve' => ['max' => 5, 'per_seconds' => 60],
+                'trendyol.claims_reject' => ['max' => 5, 'per_seconds' => 60],
                 'trendyol.price_inventory_update' => ['max' => 300, 'per_seconds' => 60],
                 'trendyol.products_create' => ['max' => 150, 'per_seconds' => 60],
                 'trendyol.products_update' => ['max' => 150, 'per_seconds' => 60],
@@ -95,10 +136,29 @@ return [
                 'amazon.finances_groups' => ['max' => 10, 'per_seconds' => 20],
                 // getMarketplaceParticipations: 0.016 requests/second, burst 15.
                 'amazon.probe_participations' => ['max' => 10, 'per_seconds' => 900],
+                // createReport: 0.0167 requests/second, burst 15 -- one a minute, so a retry loop against it would spend the
+                // whole account's budget. Ours is deliberately under it.
                 'amazon.reports_create' => ['max' => 10, 'per_seconds' => 900],
+                // getReport: 2 requests/second, burst 15. The one report call that may be made freely, which is why polling is
+                // how a run waits and every other step is recorded rather than repeated.
+                'amazon.reports_get' => ['max' => 2, 'per_seconds' => 1],
+                // getReports: 0.0222 requests/second, burst 10.
+                'amazon.reports_list' => ['max' => 10, 'per_seconds' => 900],
+                // getReportDocument: 0.0167 requests/second, burst 15.
                 'amazon.reports_document' => ['max' => 10, 'per_seconds' => 900],
+                // The presigned download is S3, not SP-API, and Amazon publishes no limit for it. Paced anyway: a document is
+                // fetched once per report and the URL is good for five minutes.
+                'amazon.report_download' => ['max' => 10, 'per_seconds' => 60],
+                // JSON_LISTINGS_FEED is documented at "five feeds submission per five minutes" -- which Amazon states is NOT
+                // the generic createFeed rate of 0.0083 requests a second. Two is deliberately under it.
                 'amazon.feeds_create' => ['max' => 2, 'per_seconds' => 300],
                 'amazon.feeds_create_document' => ['max' => 10, 'per_seconds' => 20],
+                // getFeed: 2 requests/second, burst 15.
+                'amazon.feeds_get' => ['max' => 2, 'per_seconds' => 1],
+                // getFeedDocument and getFeeds: 0.0222 requests/second, burst 10 -- one call per 45 seconds.
+                'amazon.feeds_document' => ['max' => 10, 'per_seconds' => 450],
+                'amazon.feeds_list' => ['max' => 10, 'per_seconds' => 450],
+                'amazon.feed_report_download' => ['max' => 10, 'per_seconds' => 60],
             ],
         ],
     ],
@@ -111,8 +171,41 @@ return [
         ],
         // The User-Agent Amazon requires on every call: application, version, language.
         'user_agent' => ['application' => 'PharmacyChannelHub', 'version' => '1.0'],
+        // The largest report document this version will read. The HTTP client buffers a whole body, so this bounds what gets
+        // PARSED and names the refusal; it does not bound what gets received. A catalogue that outgrows it needs the streaming
+        // download, which is a declared gap rather than something half-done (docs/sales-channels/api-reference.md).
+        'report_max_bytes' => 33554432,
+        // The STREAMING ceiling, and it is a different kind of number from the one above. `report_max_bytes` bounds what the
+        // buffering reader will PARSE after the whole body has already arrived; this one is enforced mid-flight by
+        // `ChannelHttp::stream()`, so it bounds what is RECEIVED. Zero means no ceiling, which is the right default for a
+        // reader that holds one batch at a time: a catalogue is as big as it is, and refusing it is what the old reader did.
+        'report_stream_max_bytes' => 0,
         // A fresh access token is fetched when the one held has less than this many seconds left (tokens last 3600).
         'token_refresh_margin_seconds' => 300,
+        // **The bulk feed path, and it ships OFF.** Its own switch, on top of `enabled` and `external_writes_enabled`, because
+        // one JSON_LISTINGS_FEED carries up to 25,000 price and quantity changes in a single accepted submission that cannot
+        // be recalled once it leaves IN_QUEUE -- a different kind of exposure from a per-SKU PATCH, and so a different
+        // decision. Per-SKU publishing stays the default path whatever this says.
+        'bulk_feeds_enabled' => filter_var(env('AMAZON_BULK_FEEDS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        // **The full-catalogue listings COMPARISON, and it ships OFF.** With it off,
+        // `GET_MERCHANT_LISTINGS_ALL_DATA` is named `amazon_report_has_no_reader` exactly as before. On, the report is
+        // compared against the listings we hold and the result is written to the report run's own row only: how many of its
+        // rows name a listing we hold, how many do not, and a few examples.
+        //
+        // **It is not a stock sync and must not be described as one.** It writes no quantity, no status and no
+        // `last_seen_at`, so nothing it does can reach StockPlanner, the publisher, or what the channel is believed to show.
+        // Keeping quantities in step would need Amazon's own report generation time stored on the run row, which is a
+        // separate decision; see docs/sales-channels/decisions.md.
+        'listings_reconciliation_enabled' => filter_var(env('AMAZON_LISTINGS_RECONCILIATION_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        // Amazon's own suggested minimum feed size. Under it, the per-SKU Listings Items API is "faster with less than 1,500
+        // items during a five-minute period" by Amazon's own comparison, so a feed is refused rather than wasting one of five
+        // submissions per five minutes.
+        'feed_minimum_messages' => 1500,
+        // When the first poll of a new feed is due, and how often after that. Amazon says feeds "can take up to eight hours
+        // to process", so polling hard buys nothing.
+        'feed_first_poll_seconds' => 60,
+        'feed_poll_seconds' => 300,
+        'feed_retry_seconds' => 300,
         // Everything searchOrders is asked to include. BUYER is requested only when the account asks for buyer data; names, addresses and phones are never stored on the channel order record.
         'orders_included_data' => ['FULFILLMENT', 'PROCEEDS', 'PACKAGES', 'CANCELLATION', 'TAX', 'RECIPIENT', 'PAYMENT'],
         // Amazon's financial breakdown types are an open set. These patterns decide what a type means for our books; anything that matches none is kept as an event for a person, never as a cost or as revenue.
@@ -160,6 +253,26 @@ return [
         ],
         // The largest body a webhook delivery may have before it is refused (a package with many lines is a few kilobytes).
         'webhook_max_bytes' => 262144,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | noon (partners.noon.com)
+    |--------------------------------------------------------------------------
+    | Paths and hosts follow the official partner documentation as read on 2026-11-08. The request and response SHAPES of every call but the sign-in are not published in a
+    | readable form, so this version signs in and asks who it is, and nothing else: see NoonOperations.
+    */
+    'noon' => [
+        'bases' => ['production' => 'https://noon-api-gateway.noon.partners', 'sandbox' => 'https://noon-sandbox-api-gateway.noon.partners'],
+        // The sign-in ALWAYS goes to production, even for a sandbox account: the documentation says to keep the login call on the production host and point only the other
+        // calls at the sandbox. A sandbox that answered a sign-in would hand out a session that production does not know.
+        'login_always_production' => true,
+        // noon requires a User-Agent on every request.
+        'user_agent' => ['application' => 'PharmacyChannelHub', 'version' => '1.0'],
+        // A session lasts 30 days; it is renewed once less than this is left of it, so a run never starts with a session about to lapse.
+        'session_refresh_margin_hours' => 24,
+        // The JWT noon is sent is rejected if it is more than five minutes away from its clock, so it is made per sign-in and never cached.
+        'jwt_lifetime_seconds' => 120,
     ],
 
     'stock' => [
@@ -250,7 +363,9 @@ return [
         'offer_attributes' => [
             'amazon' => ['purchasable_offer', 'list_price', 'fulfillment_availability', 'offer', 'price', 'quantity', 'main_offer_image_locator'],
             'trendyol' => ['listPrice', 'salePrice', 'quantity', 'stockCode'],
-            'noon' => ['price', 'sale_price', 'stock', 'quantity'],
+            // noon keeps price and quantity in services of their own, so its content call has no field for either. These names are listed because `attributes{}` is a
+            // free-form map of a category's attributes: a noon category that happened to carry one of them must not deliver it through the one call no price switch guards.
+            'noon' => ['price', 'sale_price', 'msrp', 'stock', 'quantity', 'qty', 'is_active', 'processing_time'],
         ],
         /*
         | What the shop wants of its OWN product before it is offered anywhere (ProductListingReadiness): nothing here fetches an image or judges its pixels — it checks that the
@@ -259,10 +374,18 @@ return [
         */
         'product_data' => [
             'images_at_least' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_LEAST', 1),
+            // How many photographs a channel is sent. Trendyol documents "Bir barkod için maksimum 8 adet görsel" -- a maximum
+            // of eight per barcode -- and sending a ninth would have the whole batch refused for a reason a person then has to
+            // decipher from a batch result.
+            'images_at_most' => (int) env('SALES_CHANNELS_LISTING_IMAGES_AT_MOST', 8),
             'brand_required' => filter_var(env('SALES_CHANNELS_LISTING_BRAND_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
         ],
         // How long the channel's own answer about a product type's required fields is trusted before it is asked again.
         'requirements_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_REQUIREMENTS_FRESH_HOURS', 24),
+        // How long the channel CATALOGUE's answer about a barcode is trusted. Longer than the requirements, because an ASIN for a barcode does not move: what moves is the
+        // required fields of its product type. An `unknown` answer is never trusted for any length of time -- it is asked again at once, since it is the answer that stops a
+        // person from listing anything and freezing it for a week would be the worst of both.
+        'catalog_fresh_hours' => (int) env('SALES_CHANNELS_LISTING_CATALOG_FRESH_HOURS', 168),
         /*
         | A pharmacy's catalogue. The code does not and cannot decide which of the shop's categories need a licence, so these are the OWNER's rules, and the gate FAILS CLOSED
         | when it is on: a product with no category recorded at all is refused, because "we could not tell" is not "it is fine".
@@ -344,10 +467,21 @@ return [
         'max_buyer_data_days' => 30,
     ],
 
+    /*
+    | Telling a channel that goods shipped. One claimed row per shipment reference (`channel_shipment_sends`) decides which process owns the attempt, because asking the channel
+    | first does not stop two processes both being told "no such shipment" and both sending. A send that may have reached the channel is never repeated automatically.
+    */
+    'shipment_sends' => [
+        // An attempt that claimed a shipment reference and never finished (a crash) is given up after this long, and the reference may be claimed again. Taking it over does
+        // NOT grant permission to send: the row still says whether a send may already have left.
+        'claim_minutes' => 10,
+    ],
+
     // The class that speaks to each channel. A new channel is a connector class added here.
     'connectors' => [
         'amazon' => \App\Services\SalesChannels\Amazon\AmazonConnector::class,
         'trendyol' => \App\Services\SalesChannels\Trendyol\TrendyolConnector::class,
+        'noon' => \App\Services\SalesChannels\Noon\NoonConnector::class,
     ],
 
     'sync' => [

@@ -59,6 +59,54 @@
             "path": "app/Enums/MyFatoorah/GatewayStatus.php",
             "line": 33,
             "reason": "An English sentence for the admin panel ('No webhook secret key saved.') in an early commit of the MyFatoorah pull request. The scanner matched the shape -- an enum case named for a credential paired with mixed-case quoted text -- which is the right instinct on a payment class. A later commit of the same pull request returns a lowercase translation key instead, so no source line looks like a credential and the panel reads in Arabic too. It was never a credential."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "app/Services/SalesChannels/Noon/NoonOperations.php",
+            "line": 95,
+            "reason": "A URL PATH, not a credential, in an early commit of the noon pull request: a registry key for noon's OAuth create operation whose value was the constant request path for it under the identity service. The scanner matched the shape -- a key naming an authorisation step beside a quoted string -- which is the right instinct in a file full of API wiring. The value was a fixed path with no secret in it, so nothing was real and nothing needed rotating. A later commit of the same pull request REMOVES the line outright, for an unrelated and stronger reason: noon's OAuth reference page was never read, so the path was guessed from the pattern of its neighbours, and this repository does not register a path it has not read. NoonOperations::documentedButUnread() now names the operation as a gap instead. This reason deliberately describes the line rather than reproducing it: an earlier wording pasted the key and value in, and the allow file itself then tripped the same rule."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "app/Services/SalesChannels/Noon/NoonOperations.php",
+            "line": 96,
+            "reason": "The same as the line above, for noon's OAuth exchange operation: a registry key whose value was the constant request path for it under the identity service, in an early commit of the noon pull request. Never a credential, and removed by a later commit of the same pull request because noon's OAuth page was never read and a plausible path is still a wrong one."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "scripts/ci/leak-guard-allow.json",
+            "line": 67,
+            "reason": "A sentence of English prose in this very file, in an early commit of the noon pull request. I was writing the reason for the two noon OAuth entries above and pasted the offending lines in verbatim instead of describing them, so the allow file itself then matched the same rule -- a key naming an authorisation step beside a quoted path. The guard was right both times. A later commit of the same pull request rewords both reasons to describe the lines rather than reproduce them, so no current line matches; this entry covers the wording that is still in the history, because the branch is not rewritten over a false alarm. No credential was involved at any point: the values were constant request paths."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "scripts/ci/leak-guard-allow.json",
+            "line": 73,
+            "reason": "A sentence of English prose in this very file, in an early commit of the noon pull request. I was writing the reason for the two noon OAuth entries above and pasted the offending lines in verbatim instead of describing them, so the allow file itself then matched the same rule -- a key naming an authorisation step beside a quoted path. The guard was right both times. A later commit of the same pull request rewords both reasons to describe the lines rather than reproduce them, so no current line matches; this entry covers the wording that is still in the history, because the branch is not rewritten over a false alarm. No credential was involved at any point: the values were constant request paths."
+        },
+        {
+            "rule": "api-token",
+            "path": "app/Services/Fulfillment/Support/SecretRedactor.php",
+            "line": 79,
+            "reason": "A made-up AWS key id spelled out in a CODE COMMENT, in commit d958ac8 of the Amazon feed branch: the commit that taught this redactor to mask that shape, and the comment explained the shape by giving one. The next commit (8db9a92) says 'an id beginning AKIA' instead, so no source line looks like a credential. It was never a real credential -- it is AWS's own documentation example."
+        },
+        {
+            "rule": "api-token",
+            "path": "tests/Feature/SalesChannels/SecretRedactorCoversEveryStoredSecretTest.php",
+            "line": 82,
+            "reason": "A made-up AWS key id in a presigned-URL fixture for the test of this redactor (the text it must remove), in commit d958ac8; the next commit (8db9a92) assembles every part of that URL at run time instead, so no source line looks like a credential. It was never a real credential."
+        },
+        {
+            "rule": "api-token",
+            "path": "tests/Feature/SalesChannels/SecretRedactorCoversEveryStoredSecretTest.php",
+            "line": 89,
+            "reason": "The same made-up AWS key id, in the assertion that it was removed, in commit d958ac8; the next commit (8db9a92) asserts against the run-time value instead. It was never a real credential."
+        },
+        {
+            "rule": "api-token",
+            "path": "tests/Feature/SalesChannels/SecretRedactorCoversEveryStoredSecretTest.php",
+            "line": 102,
+            "reason": "Two made-up AWS key ids, one per prefix AWS documents (AKIA and ASIA), in the test that the shape is masked whatever the field is called, in commit d958ac8; the next commit (8db9a92) builds both at run time. Neither was ever a real credential."
         }
     ]
 }

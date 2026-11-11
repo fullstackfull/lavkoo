@@ -55,7 +55,9 @@ class ChannelListingDraft extends Model
         'requirements' => 'array',
         'problems' => 'array',
         'channel_problems' => 'array',
+        'catalog_match' => 'array',
         'requirements_read_at' => 'datetime',
+        'catalog_read_at' => 'datetime',
         'submitted_at' => 'datetime',
         'checked_at' => 'datetime',
     ];

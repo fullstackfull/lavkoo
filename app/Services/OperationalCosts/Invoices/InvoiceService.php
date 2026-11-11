@@ -222,7 +222,16 @@ class InvoiceService
                 source: 'invoice',
                 identity: $net === null ? 'invoice-item:' . $item->id : 'invoice:' . $invoice->id . ':' . $net['key'],
                 serviceRef: match ($subjectType) {
-                    'channel_order' => $item->currency === $mapping?->currency ? '' : 'channel-net:' . $item->currency,
+                    // **The same slot as the channel's own net, and it has to stay the same.** An invoice line for a
+                    // channel order and the statement net it bills are ONE cost told twice, and sharing the slot is how
+                    // the invoice supersedes the net instead of standing beside it. `ChannelFeeImporter` chooses this
+                    // reference with the same rule, and the two must change together: when the importer began filing
+                    // every net under `channel-net:<CUR>` and this still used `''` for a matching currency, an approved
+                    // 25 SAR invoice left TWO effective actuals of 25 on one order.
+                    //
+                    // The contract-priced estimate keeps `''` and is reached by `retiresEstimates` instead -- which is
+                    // right, because an APPROVED invoice is the settlement proof the estimate was waiting for.
+                    'channel_order' => 'channel-net:' . $item->currency,
                     'invoice_item' => '',
                     default => 'invoice-item:' . $item->id,
                 },

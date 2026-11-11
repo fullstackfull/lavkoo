@@ -35,15 +35,52 @@ final class ChannelLabels
             'global_off', 'account_off', 'capability_off', 'setting_off', 'not_supported_by_channel', 'writes_off_environment', 'writes_off_account', 'not_approved', 'unregistered_operation', 'auth_needed',
             'no_linked_shipment_with_tracking', 'already_notified', 'fulfillment_dispatch_off', 'dry_run', 'channel_did_not_confirm', 'channel_refused_repeatedly', 'channel_notify_error',
             'order_pending', 'order_awaiting_review', 'order_delivered', 'order_cancelled', 'order_returned', 'order_failed',
-            'rate_limited', 'buyer_data_off',
+            'rate_limited', 'buyer_data_off', 'setting_missing', 'another_attempt_running',
         ],
+        /*
+        | The Odoo accounting screens' own codes.
+        |
+        | They live here rather than in a class of their own because this is where the translation guard and the hygiene guard
+        | already look, and a second home for label families is a second place to forget. Odoo is not a sales channel; its words
+        | are simply kept with the others.
+        */
+        // What the outbox says about one fact. `may_have_posted` is the one that matters: a create may be in the customer's
+        // books, so nothing creates from that row again.
+        'odoo_posting_state_' => ['pending', 'may_have_posted', 'posted', 'failed', 'needs_review', 'dead'],
+        // Which of Odoo's two external APIs an instance was DISCOVERED to speak. `OdooTransport::labelKey()` builds these.
+        'odoo_transport_' => ['json2', 'xmlrpc', 'unknown'],
+        // What a mapping row maps: one of our cost components, or the account that balances it.
+        'odoo_fact_kind_' => ['cost_component', 'counterpart'],
+
+        /*
+        | What waits for a person. Three families, because the screen has to name three different things: WHERE a row is
+        | waiting, WHICH part of the business it belongs to, and WHAT state it is in -- and the states come from nine tables
+        | that were built separately and do not share a vocabulary.
+        */
+        'attention_source_' => [
+            'return_decisions', 'package_splits', 'shipment_sends', 'dispatches', 'stock_events',
+            'odoo_postings', 'amazon_reports', 'payment_mismatches', 'refunds', 'order_links',
+        ],
+        'attention_domain_' => ['returns', 'shipments', 'stock', 'accounting', 'finance', 'payments', 'orders'],
+        // What a person SAW at the channel. A fixed vocabulary, never free text: a word nobody can group is not a record.
+        'attention_outcome_' => ['confirmed_at_channel', 'not_done_at_channel', 'still_unknown', 'no_longer_relevant'],
+        'attention_state_' => [
+            'may_have_sent', 'needs_review', 'may_have_posted', 'dead', 'blocked', 'failed', 'unknown', 'mismatch', 'rejected',
+        ],
+        // Why a row cannot simply be sent again -- a fact about the integration, which is why it is a code and not a sentence
+        // in the view. Eight of the nine sources have one.
+        'attention_why_' => [
+            'return_decisions', 'package_splits', 'shipment_sends', 'dispatches',
+            'odoo_postings', 'amazon_reports', 'payment_mismatches', 'refunds', 'order_links',
+        ],
+
         'sync_resource_' => ['orders', 'returns', 'listings', 'inventory', 'finances', 'publish_stock', 'publish_price'],
         'run_stat_' => [
             'pages', 'created', 'updated', 'unchanged', 'stale', 'needs_review', 'skipped', 'decisions', 'linked', 'suggested', 'conflicts', 'unseen', 'stored', 'unlinked',
             'new', 'duplicates', 'costs_recorded', 'considered', 'sent', 'accepted', 'failed', 'applied', 'unconfirmed', 'pending', 'unreadable', 'unknown_order',
         ],
         'publish_skip_' => [
-            'fba_listing', 'fulfillment_mode_unknown', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
+            'fba_listing', 'fbn_listing', 'fulfillment_mode_unknown', 'no_stock_source', 'location_not_for_this_channel', 'stock_not_confirmed', 'unchanged', 'awaiting_result', 'failed_repeatedly',
             'channel_owns_price', 'storefront_price_not_supported', 'no_manual_price', 'price_not_positive',
             'variant_key_required', 'storefront_owned_needs_owner_decision', 'order_sync_stale', 'deficit_block', 'awaiting_siblings', 'not_in_the_pool', 'not_worth_lowering_now', 'outside_the_pool', 'variant_figure_missing',
         ],
@@ -61,8 +98,11 @@ final class ChannelLabels
         'price_source_' => ['internal', 'channel', 'manual'],
         'stock_share_mode_' => ['fixed', 'percent', 'priority'],
         'price_source_help_' => ['internal', 'channel', 'manual'],
-        'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer'],
-        'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer'],
+        // Every approval a master admin can record, from all four integrations. Two of them were added on separate branches
+        // and each is its own decision: `return_decisions` moves a customer's money, `accounting_posting` writes into
+        // somebody's books, and neither belongs inside the other or inside `product_writes`.
+        'approval_scope_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer', 'return_decisions', 'accounting_posting'],
+        'approval_scope_help_' => ['product_writes', 'webhook_management', 'notification_management', 'buyer_data_transfer', 'return_decisions', 'accounting_posting'],
         'dispatch_state_' => ['claimed', 'blocked', 'materialized', 'accepted', 'failed', 'cancelled'],
         'dispatch_reason_' => ['payment_method_unknown', 'database_error', 'orders_table_not_supported', 'managed_dispatch_off', 'buyer_data_transfer_off', 'account_off', 'dispatch_capability_off', 'buyer_data_approval_missing', 'shipments_are_created_by_the_provider_directly', 'shipment_creation_not_declared', 'already_dispatched', 'shipment_already_known', 'order_not_open', 'fulfilment_not_ours', 'cash_on_delivery_not_supported', 'destination_not_supported', 'currency_not_supported', 'no_routing_decision_to_one_provider', 'no_active_lines', 'line_without_product', 'product_not_physical', 'product_owned_by_other_provider', 'provider_mapping_not_approved', 'claim_lost', 'provider_changed', 'recipient_incomplete', 'audit_not_written', 'order_number_busy', 'attempts_exhausted', 'channel_cannot_give_the_recipient', 'order_not_found_at_channel', 'not_shipped_by_the_seller', 'recipient_not_permitted', 'channel_error', 'channel_buyer_data_off', 'channel_not_approved', 'channel_account_off', 'channel_capability_off', 'channel_global_off', 'channel_auth_needed', 'buyer_data_expired'],
         'dispatch_problem_' => ['name_missing', 'phone_missing', 'phone_not_a_saudi_mobile', 'address_missing', 'city_missing', 'country_not_supported'],
@@ -102,12 +142,31 @@ final class ChannelLabels
         'channel_reason_no_linked_shipment_with_tracking', 'channel_reason_already_notified', 'channel_reason_fulfillment_dispatch_off', 'channel_reason_dry_run',
         'channel_reason_channel_did_not_confirm', 'channel_reason_channel_refused_repeatedly', 'channel_reason_channel_notify_error', 'channel_reason_order_pending', 'channel_reason_order_awaiting_review',
         'channel_reason_order_delivered', 'channel_reason_order_cancelled', 'channel_reason_order_returned', 'channel_reason_order_failed',
-        'channel_reason_rate_limited', 'channel_reason_buyer_data_off',
+        'channel_reason_rate_limited', 'channel_reason_buyer_data_off', 'channel_reason_setting_missing', 'channel_reason_another_attempt_running',
+        'odoo_posting_state_pending', 'odoo_posting_state_may_have_posted', 'odoo_posting_state_posted', 'odoo_posting_state_failed',
+        'odoo_posting_state_needs_review', 'odoo_posting_state_dead',
+        'odoo_transport_json2', 'odoo_transport_xmlrpc', 'odoo_transport_unknown',
+        'odoo_fact_kind_cost_component', 'odoo_fact_kind_counterpart',
+        // What waits for a person: where it is waiting, which area it belongs to, what state it is in, and why it is
+        // never simply sent again.
+        'attention_source_return_decisions', 'attention_source_package_splits', 'attention_source_shipment_sends', 'attention_source_dispatches',
+        'attention_source_stock_events', 'attention_source_odoo_postings', 'attention_source_amazon_reports', 'attention_source_payment_mismatches',
+        'attention_source_refunds', 'attention_source_order_links',
+        'attention_outcome_confirmed_at_channel', 'attention_outcome_not_done_at_channel', 'attention_outcome_still_unknown',
+        'attention_outcome_no_longer_relevant',
+        'attention_domain_returns', 'attention_domain_shipments', 'attention_domain_stock', 'attention_domain_accounting',
+        'attention_domain_finance', 'attention_domain_payments', 'attention_domain_orders',
+        'attention_state_may_have_sent', 'attention_state_needs_review', 'attention_state_may_have_posted', 'attention_state_dead',
+        'attention_state_blocked', 'attention_state_failed', 'attention_state_unknown', 'attention_state_mismatch',
+        'attention_state_rejected',
+        'attention_why_return_decisions', 'attention_why_package_splits', 'attention_why_shipment_sends', 'attention_why_dispatches',
+        'attention_why_odoo_postings', 'attention_why_amazon_reports', 'attention_why_payment_mismatches', 'attention_why_refunds',
+        'attention_why_order_links',
         'sync_resource_orders', 'sync_resource_returns', 'sync_resource_listings', 'sync_resource_inventory', 'sync_resource_finances', 'sync_resource_publish_stock', 'sync_resource_publish_price',
         'run_stat_pages', 'run_stat_created', 'run_stat_updated', 'run_stat_unchanged', 'run_stat_stale', 'run_stat_needs_review', 'run_stat_skipped', 'run_stat_decisions',
         'run_stat_linked', 'run_stat_suggested', 'run_stat_conflicts', 'run_stat_unseen', 'run_stat_stored', 'run_stat_unlinked', 'run_stat_new', 'run_stat_duplicates',
         'run_stat_costs_recorded', 'run_stat_considered', 'run_stat_sent', 'run_stat_accepted', 'run_stat_failed', 'run_stat_applied', 'run_stat_unconfirmed', 'run_stat_pending', 'run_stat_unreadable', 'run_stat_unknown_order',
-        'publish_skip_fba_listing', 'publish_skip_fulfillment_mode_unknown', 'publish_skip_no_stock_source', 'publish_skip_location_not_for_this_channel', 'publish_skip_stock_not_confirmed', 'publish_skip_unchanged',
+        'publish_skip_fba_listing', 'publish_skip_fbn_listing', 'publish_skip_fulfillment_mode_unknown', 'publish_skip_no_stock_source', 'publish_skip_location_not_for_this_channel', 'publish_skip_stock_not_confirmed', 'publish_skip_unchanged',
         'publish_skip_awaiting_result', 'publish_skip_failed_repeatedly', 'publish_skip_channel_owns_price', 'publish_skip_storefront_price_not_supported',
         'publish_skip_no_manual_price', 'publish_skip_price_not_positive',
         'publish_skip_variant_key_required', 'publish_skip_storefront_owned_needs_owner_decision', 'publish_skip_order_sync_stale', 'publish_skip_deficit_block',
@@ -128,7 +187,9 @@ final class ChannelLabels
         'stock_share_mode_fixed', 'stock_share_mode_percent', 'stock_share_mode_priority',
         'price_source_help_internal', 'price_source_help_channel', 'price_source_help_manual',
         'approval_scope_product_writes', 'approval_scope_webhook_management', 'approval_scope_notification_management', 'approval_scope_buyer_data_transfer',
+        'approval_scope_return_decisions', 'approval_scope_accounting_posting',
         'approval_scope_help_product_writes', 'approval_scope_help_webhook_management', 'approval_scope_help_notification_management', 'approval_scope_help_buyer_data_transfer',
+        'approval_scope_help_return_decisions', 'approval_scope_help_accounting_posting',
         'dispatch_state_claimed',
         'dispatch_state_blocked',
         'dispatch_state_materialized',

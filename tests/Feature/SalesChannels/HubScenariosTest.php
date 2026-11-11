@@ -30,6 +30,9 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
+use App\Services\OperationalCosts\Profit\ProfitabilityService;
+use App\Services\OperationalCosts\Sales\SaleDocumentReader;
+use App\Enums\OperationalCosts\CostState;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Tests\Support\BuildsSalesChannelSchema;
@@ -236,8 +239,19 @@ class HubScenariosTest extends TestCase
 
         $this->sync->syncFinances($account);
 
-        $this->assertSame('10.000000', OperationalCostEntry::where('is_effective', true)->where('cost_component', 'fba_fulfillment')->firstOrFail()->amount, 'The statement replaced the missing figure.');
-        $this->assertSame(1, OperationalCostEntry::where('is_effective', true)->where('cost_component', 'fba_fulfillment')->count());
+        // The statement supplied the figure. The `Missing` marker is still a row -- the channel's net has its own slot since
+        // 2026-11-11 -- but it must no longer be REPORTED as missing, because saying the fees never arrived while they sit
+        // in the same report is the one thing a person would act on wrongly.
+        $rows = OperationalCostEntry::where('is_effective', true)->where('cost_component', 'fba_fulfillment')->orderBy('id')->get();
+        $this->assertSame([CostState::Missing, CostState::Actual], $rows->pluck('state')->all());
+        $this->assertSame('10.000000', $rows->last()->amount, 'the statement supplied the figure');
+
+        $mapping = \App\Models\ExternalOrderMapping::where('sales_channel', 'amazon')->firstOrFail();
+        $profit = app(ProfitabilityService::class)->forDocument(app(SaleDocumentReader::class)->forChannelOrder($mapping->id));
+
+        $this->assertNotContains('fba_fulfillment', $profit->missingComponents, 'a figure arrived, so nothing about it is missing any more');
+        $this->assertSame('10.000000', $profit->buckets['fba_fulfillment']->actual->toStorage());
+        $this->assertContains('fba_fulfillment', $profit->pendingActualComponents, 'and arriving is still not settling');
     }
 
     // ---- Amazon FBM -------------------------------------------------------------------------------------

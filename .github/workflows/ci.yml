@@ -207,7 +207,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8.0', 'MariaDB 11.4.2']
-        group: ['sales channels', 'costs']
+        group: ['sales channels A-M', 'sales channels N-Z', 'concurrency', 'myfatoorah', 'costs']
         include:
           - engine: MySQL 8.0
             image: mysql:8.0
@@ -217,13 +217,55 @@ jobs:
             image: mariadb:11.4.2
             version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
-          - group: sales channels
-            # tests/Feature/Concurrency and the dispatch/stock concurrency tests start several PHP processes at the same instant against this database; they skip on SQLite.
-            # tests/Feature/MyFatoorah runs here as well as on SQLite: three of its failures were visible only on a real server — an `orders` table that
-            # outlives the test, a currency left switched off by an earlier test, and REPEATABLE READ hiding a sibling's just-committed row from a plain SELECT.
-            paths: tests/Feature/SalesChannels tests/Feature/Concurrency tests/Feature/MyFatoorah tests/Unit/MyFatoorah
+          # SPLIT IN TWO, for the third time this group has outgrown a runner's hour and a half. On the Amazon-feed branch
+          # the MySQL 8.0 job ran from 01:05:27 to 02:55:43 -- **exactly the 110-minute ceiling** -- and was killed with
+          # "Terminate orphan process: pid (php)". GitHub reports a job killed by its own timeout as CANCELLED, which is the
+          # failure mode the comment below the concurrency group warns about: a slow suite looks exactly like a broken one.
+          #
+          # Split by the first letter of the test CLASS, with `--filter`, and the directory still handed to phpunit. Two
+          # earlier attempts at this were wrong and are worth recording:
+          #
+          #  - By channel ("Amazon tests here, the rest there") is quietly unsafe: a new test file matching neither list
+          #    would never run, on either engine, and nothing would say so. A test that never runs beats a test that fails.
+          #  - By file glob (`SalesChannels/[A-M]*.php`) FAILED IMMEDIATELY: this directory holds three abstract base
+          #    classes (`AdminPagesTestCase`, `AdminSalesChannelsTestCase`, `DispatchTestCase`), and phpunit given a file
+          #    list tries to load each as a test and dies on the first abstract one -- "Class ... is abstract", 45 seconds in.
+          #    Handing it the DIRECTORY lets its own discovery skip them, which is why the path stays.
+          #
+          # The partition is exact and measured: 1,169 + 736 = 1,905, which is the whole directory.
+          # `CiSalesChannelSplitCoversEveryTestTest` asserts it from the class names, so a class cannot fall between.
+          - group: sales channels A-M
+            paths: tests/Feature/SalesChannels --filter '/^Tests.Feature.SalesChannels.[A-M]/'
+          - group: sales channels N-Z
+            paths: tests/Feature/SalesChannels --filter '/^Tests.Feature.SalesChannels.[N-Z]/'
+          - group: concurrency
+            # Split out of the sales-channel group, with MyFatoorah below, because that group could no longer FINISH on MySQL.
+            #
+            # Measured across the branches: MariaDB did the whole group in about 40 minutes, while the MySQL 8.0 job reached
+            # 105 minutes against a 110-minute ceiling and reported NOTHING. It is not a hang -- the costs group shows the same
+            # ratio on the same two engines (11 minutes on MariaDB, 34 on MySQL) -- so this engine is several times slower at
+            # this workload and three suites in one job had outgrown it.
+            #
+            # A job killed by its own timeout reports NO RESULT, which is worse than a failure: a slow suite then looks exactly
+            # like a broken one, and the head never shows a complete answer however often CI is re-run.
+            #
+            # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this job
+            # is the only place they run at all -- the stock, shipment, return-decision and Odoo races included.
+            paths: tests/Feature/Concurrency
+          - group: myfatoorah
+            # Its own job since PR #12. It used to ride along with the sales-channel group, and that group then reached the 110-minute ceiling on MySQL 8 and was cancelled:
+            # the two suites had grown into more than one runner's hour and a half together (82 minutes on MariaDB for the same set). Nothing is skipped by splitting them —
+            # the same tests run on the same two engines, in parallel instead of in series.
+            #
+            # It runs on a real server as well as on SQLite because three of its failures were visible only here: an `orders` table that outlived the test, a currency left
+            # switched off by an earlier test, and REPEATABLE READ hiding a sibling's just-committed row from a plain SELECT.
+            paths: tests/Feature/MyFatoorah tests/Unit/MyFatoorah
           - group: costs
-            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Feature/CiDatabaseTest.php
+            # tests/*/Accounting is the Odoo posting, which belongs with the cost ledger it reads from. It runs on a real engine
+            # because its whole job is uniqueness: a NULL is never equal to another NULL in a unique index, so a mapping or a
+            # reconciliation row that means "every channel" can only be kept single by a sentinel value the index can compare --
+            # and that is a property of the engine, not of the code, so SQLite agreeing proves nothing about MySQL.
+            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Unit/Accounting tests/Feature/Accounting tests/Feature/CiDatabaseTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
