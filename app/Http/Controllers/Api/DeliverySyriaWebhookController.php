@@ -56,7 +56,7 @@ class DeliverySyriaWebhookController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Order not found in Pharmacy Syria',
+                'message' => 'Order not found in Lavkoo',
             ], 404);
         }
 
@@ -92,7 +92,7 @@ class DeliverySyriaWebhookController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Order status recorded successfully in Pharmacy Syria',
+            'message' => 'Order status recorded successfully in Lavkoo',
             'order_id' => $order->id,
             'status_code' => $code,
             'status_label' => $label,

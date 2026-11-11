@@ -244,7 +244,7 @@ class OdooDraftBuilder
      */
     private function narrationFor(OperationalCostEntry $entry, OdooUndoLink $undo): ?string
     {
-        $lines = ['PharmacyKSA ledger entry #' . (int) $entry->id . ' (' . $entry->state->value . ')'];
+        $lines = ['Lavkoo ledger entry #' . (int) $entry->id . ' (' . $entry->state->value . ')'];
         // Which entry this one takes back, INCLUDING when it could not be told: an accountant who reads that the original was
         // not identified knows to look, and one who reads nothing assumes there was nothing to say.
         $undoes = $undo->describe();

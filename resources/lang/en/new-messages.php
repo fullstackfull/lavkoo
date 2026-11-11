@@ -11232,4 +11232,11 @@ return [
 	'attention_outcome_not_done_at_channel' => 'The channel shows it did not happen',
 	'attention_outcome_still_unknown' => 'I looked and the channel does not say',
 	'attention_outcome_no_longer_relevant' => 'No longer relevant',
+	'profile_updated_successfully' => 'Profile updated successfully',
+	'theme_created_from_preset_successfully' => 'Theme created from preset successfully',
+	'no_review_meets_the_minimum_rating_yet' => 'No review meets the minimum rating yet',
+	'the_app_has_no_newsletter_signup_surface' => 'The app has no newsletter signup surface',
+	'sections_the_app_cannot_show' => 'Sections the app cannot show',
+	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
+	'theme_activated_successfully' => 'Theme activated successfully',
 ];

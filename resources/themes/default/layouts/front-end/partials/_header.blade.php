@@ -214,8 +214,8 @@
                                id="authDropdownButton" role="button" data-toggle="dropdown" aria-haspopup="true"
                                href="#" rel="nofollow" aria-expanded="false"
                                aria-label="{{ translate('sign_in') }}">
-                                <div class="navbar-tool-icon-box bg-secondary">
-                                    <svg width="16" height="17" viewBox="0 0 16 17" fill="none"
+                                <div class="navbar-tool-icon-box bg-secondary d-flex align-items-center justify-content-center" style="padding:0;line-height:1;">
+                                    <svg style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:block;margin:0;" width="16" height="17" viewBox="0 0 16 17" fill="none"
                                          xmlns="http://www.w3.org/2000/svg">
                                         <path d="M4.25 4.41675C4.25 6.48425 5.9325 8.16675 8 8.16675C10.0675 8.16675 11.75 6.48425 11.75 4.41675C11.75 2.34925 10.0675 0.666748 8 0.666748C5.9325 0.666748 4.25 2.34925 4.25 4.41675ZM14.6667 16.5001H15.5V15.6667C15.5 12.4509 12.8825 9.83341 9.66667 9.83341H6.33333C3.11667 9.83341 0.5 12.4509 0.5 15.6667V16.5001H14.6667Z"
                                               fill="{{ $web_config['primary_color'] ?? '#1B7FED'}}"/>

@@ -66,7 +66,7 @@
                       </small>
                      <br>
                       <small class="text-muted">
-            https://pharmacysyria.com/api/v2/delivery-syria/orders/update-status
+            https://lavkoo.com/api/v2/delivery-syria/orders/update-status
                       </small>
                       <br>
                       

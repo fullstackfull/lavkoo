@@ -3,13 +3,13 @@ importScripts('https://www.gstatic.com/firebasejs/8.3.2/firebase-messaging.js');
 importScripts('https://www.gstatic.com/firebasejs/8.3.2/firebase-auth.js');
 
 firebase.initializeApp({
-    apiKey: "AIzaSyB-c19Gbou-m0Q5jA-bbPNLwE_URMf1VCQ",
-    authDomain: "ksa-cosmetics.firebaseapp.com",
-    projectId: "ksa-cosmetics",
-    storageBucket: "ksa-cosmetics.firebasestorage.app",
-    messagingSenderId: "486850863620",
-    appId: "1:486850863620:android:ab24ddac27304d92bb0b51",
-    measurementId: ""
+    apiKey: "AIzaSyA7a2iNx_uqBXI8HAjE0IBOq4EblYbd8t4",
+    authDomain: "lavkoo-380f1.firebaseapp.com",
+    projectId: "lavkoo-380f1",
+    storageBucket: "lavkoo-380f1.firebasestorage.app",
+    messagingSenderId: "533968466510",
+    appId: "1:533968466510:web:5d6d8d6ae872e87e81891f",
+    measurementId: "G-R8XT3GY36Q"
 });
 
 const messaging = firebase.messaging();

@@ -131,7 +131,7 @@ final readonly class OdooUndoLink
             return 'This entry ' . $what . ', and the ledger entry it takes back was not identified.';
         }
 
-        $original = 'PharmacyKSA ledger entry #' . $this->originalEntryId;
+        $original = 'Lavkoo ledger entry #' . $this->originalEntryId;
         if ($this->originalPosting === null) {
             return 'This entry ' . $what . ' ' . $original . ', which was never queued for Odoo.';
         }

@@ -7,7 +7,7 @@
     'username' => 'tkncream',
     'purchase_key' => '50c625dd-7da4-4632-a166-76f4b333652e',
     'software_id' => 'MzE0NDg1OTc=',
-    'domain' => 'pharmacyksa.com',
+    'domain' => 'lavkoo.com',
     'software_type' => 'product',
     'errors' => 
     array (

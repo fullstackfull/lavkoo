@@ -14,7 +14,7 @@
 <style>
 .iti__flag{
 
-background-image: url('https://pharmacysyria.com/assets/backend/libs/intl-tel-input/img/flags.png');
+background-image: url('{{ asset("public/assets/backend/libs/intl-tel-input/img/flags.png") }}');
 
 }
 

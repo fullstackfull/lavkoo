@@ -112,7 +112,7 @@
 
                 <x-slot:filters>
                     <x-k.chip :key="translate('status')">{{ translate('pending') }}</x-k.chip>
-                    <x-k.chip :key="translate('store')">Pharmacy Syria</x-k.chip>
+                    <x-k.chip :key="translate('store')">Lavkoo</x-k.chip>
                     <x-k.chip :key="translate('date')">{{ translate('last_30_days') }}</x-k.chip>
                 </x-slot:filters>
 
