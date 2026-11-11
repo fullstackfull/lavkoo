@@ -265,16 +265,22 @@ class ProfitabilityService
      * channel, nothing more: the channel reports fees as they accrue, so one fee is "what we have been charged so far"
      * and never "what this service cost". Treating it as a settlement let a 1 TRY fee displace a 15.652174 SAR estimate.
      *
-     * What does prove it is a figure a person or a reconciliation has signed off, and the ledger already says what that
-     * means: `CostLedger::write()` treats an entry as final when `approved_at` is set or its state is `Reconciled`
-     * (CostLedger.php:205), and `markReconciled()` is what sets both. So the evidence is the ledger's own, not a new
-     * invention, and it carries its date in `approved_at`.
+     * **And `approved_at` is not it either.** `CostLedger::approve()` is reached from the cost-entry screen
+     * (CostEntryController.php:92), where a person vouches for THE AMOUNT OF ONE ENTRY. Approving a 1 SAR fee says that
+     * fee is right, not that the commission is complete, so letting it close the estimate would be the same mistake in
+     * slower motion. The ledger's own `$heldIsFinal` (CostLedger.php:205) accepts either, because it answers a different
+     * question -- may this row be overwritten -- and that is not the question here.
+     *
+     * What proves it is `Reconciled`, and only `ReconciliationService` writes it: at :361 and :184 when an invoice line
+     * MATCHED its estimate within tolerance, and at :273 when a person accepted or wrote off the difference. In each case
+     * the proof is an invoice with a party and a period, compared against what we expected, rather than a figure arriving
+     * on its own. `markReconciled()` carries the date and the signer with it.
      *
      * No amount is compared and no `max(estimated, actual)` is taken: a fee that happens to be large is still just a fee.
      */
     private function isAProvenSettlement(OperationalCostEntry $entry): bool
     {
-        return $entry->approved_at !== null || $entry->state === CostState::Reconciled;
+        return $entry->state === CostState::Reconciled;
     }
 
     /**

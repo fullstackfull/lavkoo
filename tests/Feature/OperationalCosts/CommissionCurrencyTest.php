@@ -121,19 +121,6 @@ class CommissionCurrencyTest extends TestCase
 
     // ---- the control: same currency, which has always worked ---------------------------------------------------------
 
-    public function test_an_actual_commission_in_the_order_currency_replaces_the_estimate(): void
-    {
-        $this->contract();
-        $mapping = $this->order();
-        $this->estimate($mapping);
-        $this->actual('18.00', 'SAR');
-
-        $effective = $this->effectiveCommissions();
-
-        $this->assertCount(1, $effective, 'the estimate and its actual are one commission, not two: ' . json_encode($effective));
-        $this->assertNotSame(CostState::Estimated->value, $effective[0]['state'], 'the actual is what stands once it has arrived');
-    }
-
     // ---- the case the owner's rule is about --------------------------------------------------------------------------
 
     // ---- and the limits the owner set on the same rule ---------------------------------------------------------------
@@ -146,10 +133,11 @@ class CommissionCurrencyTest extends TestCase
         $this->actual('10.00', 'SAR', 'fee-a');
         $this->actual('5.00', 'SAR', 'fee-b');
 
-        $effective = $this->effectiveCommissions();
+        $nets = array_values(array_filter($this->effectiveCommissions(), static fn (array $row): bool => $row['state'] !== 'estimated'));
 
-        $this->assertCount(1, $effective, 'two fees are one commission: ' . json_encode($effective));
-        $this->assertSame('15.000000', $effective[0]['amount'], 'and the actual is their sum, so no single fee is mistaken for the whole');
+        $this->assertCount(1, $nets, 'two fees are one net: ' . json_encode($nets));
+        $this->assertSame('15.000000', $nets[0]['amount'], 'their sum, so no single fee is mistaken for the whole');
+        $this->assertSame('15.652174', $this->profit($mapping)->estimatedCost->toStorage(), 'and the expectation is untouched until a settlement is proven');
     }
 
     public function test_with_no_trustworthy_rate_nothing_is_converted_and_the_profit_is_not_final(): void
@@ -358,5 +346,78 @@ class CommissionCurrencyTest extends TestCase
         $result = $this->profit($mapping);
 
         $this->assertSame(0, $result->buckets['marketplace_commission']->supersededEstimates, 'a different service reference is a different service');
+    }
+
+    // ---- the same defect in the order's own currency ------------------------------------------------------------------
+
+    /**
+     * **The same-currency half of the partial-fee defect.** A fee in the ORDER's currency lands in the estimate's own slot,
+     * so `CostLedger` supersedes the estimate at write time -- before anything proves the service settled. The estimate
+     * stops being effective, so no read-time rule can recover it.
+     */
+    public function test_a_partial_fee_in_the_order_currency_leaves_the_estimate_as_the_expectation(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('1.00', 'SAR', 'tiny-same-currency');
+
+        $result = $this->profit($mapping);
+
+        $this->assertSame('15.652174', $result->estimatedCost->toStorage(), 'one fee does not cut the expectation down');
+        $this->assertSame('1.000000', $result->actualCost->toStorage(), 'and what arrived is reported on its own');
+        $this->assertContains('marketplace_commission', $result->pendingActualComponents, 'the settlement is not proven');
+    }
+
+    public function test_a_proven_settlement_in_the_order_currency_is_still_counted_once(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('18.00', 'SAR');
+        $this->proveTheSettlement();
+
+        $result = $this->profit($mapping);
+
+        $this->assertSame('18.000000', $result->estimatedCost->toStorage());
+        $this->assertSame('18.000000', $result->actualCost->toStorage());
+        $this->assertNotContains('marketplace_commission', $result->pendingActualComponents);
+    }
+
+    /**
+     * **A person approving one amount is not a settlement.** `CostLedger::approve()` is reached from the cost-entry screen,
+     * where somebody vouches for the figure in front of them. Vouching for a 1 SAR fee says that fee is right; it says
+     * nothing about the commission being complete. So approval alone must not close the estimate.
+     */
+    public function test_a_person_approving_a_partial_amount_does_not_close_the_estimate(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('1.00', 'SAR', 'tiny-then-approved');
+
+        $fee = OperationalCostEntry::where('cost_component', 'marketplace_commission')->where('state', CostState::Actual->value)->firstOrFail();
+        app(CostLedger::class)->approve($fee, adminId: 1, note: 'the fee itself is right');
+
+        $result = $this->profit($mapping);
+
+        $this->assertNotNull($fee->fresh()->approved_at, 'the approval happened');
+        $this->assertSame('15.652174', $result->estimatedCost->toStorage(), 'and the expectation still stands: approving an amount is not settling a service');
+        $this->assertContains('marketplace_commission', $result->pendingActualComponents);
+    }
+
+    public function test_re_importing_the_same_fees_changes_no_figure(): void
+    {
+        $this->contract();
+        $mapping = $this->order();
+        $this->estimate($mapping);
+        $this->actual('10.00', 'SAR', 'fee-a');
+        $first = $this->profit($mapping);
+
+        $this->actual('10.00', 'SAR', 'fee-a');
+        $again = $this->profit($mapping);
+
+        $this->assertSame($first->estimatedCost->toStorage(), $again->estimatedCost->toStorage());
+        $this->assertSame($first->actualCost->toStorage(), $again->actualCost->toStorage(), 'a repeated import is one fee, not two');
     }
 }

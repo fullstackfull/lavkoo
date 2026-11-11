@@ -81,6 +81,7 @@ class ChannelInventoryController extends Controller
 
         return view('admin-views.sales-channels.inventory', [
             'labels' => $this->labels,
+            'admissibleChannels' => self::ADMISSIBLE_CHANNELS,
             'locations' => $locations,
             'selected' => $selected,
             'accounts' => SalesChannelAccount::orderBy('name')->pluck('name', 'id'),

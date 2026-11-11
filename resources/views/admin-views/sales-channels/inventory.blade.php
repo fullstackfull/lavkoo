@@ -58,7 +58,7 @@
                 <form method="POST" action="{{ route('admin.sales-channels.inventory.locations.channels', $selected->id) }}">
                     @csrf
                     <input type="hidden" name="channels[]" value="">
-                    @foreach (\App\Http\Controllers\Admin\SalesChannels\ChannelInventoryController::ADMISSIBLE_CHANNELS as $channel)
+                    @foreach ($admissibleChannels as $channel)
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="feeds-{{ $channel }}" name="channels[]" value="{{ $channel }}"
                                    @checked(in_array($channel, (array) ($selected->publishable_channels ?? []), true))>

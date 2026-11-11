@@ -103,7 +103,16 @@ class MarketplaceFeeContributorTest extends TestCase
         $this->assertSame(0, OperationalCostEntry::where('cost_component', 'fba_fulfillment')->count());
     }
 
-    public function test_the_statements_actual_replaces_the_estimate_and_running_the_estimate_again_does_not_bring_it_back(): void
+    /**
+     * The statements' net stands BESIDE the estimate until a settlement is proven, and re-running the estimator does not
+     * make a second estimate.
+     *
+     * This test used to assert that the net replaced the estimate on arrival. It no longer does, and the change is the
+     * owner's rule of 2026-11-10 (decisions.md §8, decision two): `CostState::Actual` says an amount arrived, not that the
+     * service settled, so one fee must not stand in for the whole commission. Which figure COUNTS is decided in
+     * `ProfitabilityService`; the ledger keeps both rows.
+     */
+    public function test_the_statements_actual_stands_beside_the_estimate_and_running_the_estimate_again_does_not_duplicate_it(): void
     {
         $this->contract('trendyol', '10');
         $mapping = $this->order();
@@ -112,9 +121,11 @@ class MarketplaceFeeContributorTest extends TestCase
         app(ChannelFeeImporter::class)->import($mapping->account, [new RemoteFinancialEntry('a', RemoteFinancialEntry::FEE, CostComponent::MarketplaceCommission, Money::of('25'), 'SAR', '111', '900', null, null, CarbonImmutable::parse('2026-11-06'), 'Sale:commission')]);
         $this->contribute($mapping);
 
-        $effective = OperationalCostEntry::where('is_effective', true)->where('cost_component', 'marketplace_commission')->get();
-        $this->assertCount(1, $effective);
-        $this->assertSame([CostState::Actual, '25.000000'], [$effective[0]->state, $effective[0]->amount]);
+        $effective = OperationalCostEntry::where('is_effective', true)->where('cost_component', 'marketplace_commission')->orderBy('id')->get();
+
+        $this->assertCount(2, $effective, 'the estimate and the net, each once');
+        $this->assertSame([CostState::Estimated, CostState::Actual], $effective->pluck('state')->all(), 'running the estimator twice makes one estimate, not two');
+        $this->assertSame('25.000000', $effective[1]->amount, 'and the net is what the statements said');
     }
 
     public function test_a_cancelled_order_and_a_storefront_order_get_nothing(): void
