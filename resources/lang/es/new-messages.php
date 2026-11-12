@@ -7790,4 +7790,6 @@ return [
 	'last_Updated_Stock' => 'Last Updated Stock',
 	'current_Stock	' => 'Current Stock	',
 	'The_last_name_field_is_required.' => 'The last name field is required.',
+	'Please_add_item_to_cart' => 'Please add item to cart',
+	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
 ];

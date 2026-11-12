@@ -2897,4 +2897,6 @@ return [
 	'cart_empty_warning' => 'Cart empty warning',
 	'Discounted_Products' => 'Discounted Products',
 	'يجب_أن_يكون_الحد_الأدنى_لكمية_الطلب_موجبًا!' => 'يجب أن يكون الحد الأدنى لكمية الطلب موجبًا!',
+	'Please_add_item_to_cart' => 'Please add item to cart',
+	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
 ];

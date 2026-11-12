@@ -4856,4 +4856,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'_this_page_will_be_unavailable_throughout_the_user_section.' => ' this page will be unavailable throughout the user section.',
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
+	'Please_add_item_to_cart' => 'Please add item to cart',
+	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
 ];
