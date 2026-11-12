@@ -62,3 +62,7 @@ Update this STATUS file only after fetching latest `main`, preserving concurrent
 - Whether seller app shares sufficient auth, scope, themes and multi-country context; no assumption of parity.
 - Multi-seller checkout internals and the impact of the provisional one-legal-entity checkout.
 - Scope strategy for global categories/brands/local attribute overrides.
+
+## 2026-11-12 — GCC-20 new owner request
+
+The project owner added a **global Super Admin dashboard inside the existing Flutter seller application** for owner-level monitoring and country-specific oversight/actions. This is a distinct platform-admin mode, not seller account impersonation or an expanded seller token. Scope recorded in [GCC-20-SUPER-ADMIN-MOBILE.md](./GCC-20-SUPER-ADMIN-MOBILE.md); add platform admin mobile auth, country-level KPIs, country drill-down, safety approvals, notification isolation and regression/authorization tests to Discovery. **No application code changes authorized.**

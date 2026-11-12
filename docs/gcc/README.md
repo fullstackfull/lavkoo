@@ -30,3 +30,7 @@
 - Every session must refresh from GitHub, inspect open PRs, read the canonical docs, and leave a remote-pushed handoff with links and exact commit SHAs.
 
 Approved default first-launch storefront: **Saudi Arabia**. Countries planned from the beginning: **SA, AE, KW, QA, BH, OM**.
+
+## New scope: GCC-20 Super Admin Mobile
+
+The existing **seller Flutter app** will additionally support a secure, separately authenticated **platform Super Admin** mode with cross-country oversight and scoped per-country management. It must not turn seller accounts into platform admins. See [GCC-20-SUPER-ADMIN-MOBILE.md](./GCC-20-SUPER-ADMIN-MOBILE.md). Discovery only; no application-code changes approved.
