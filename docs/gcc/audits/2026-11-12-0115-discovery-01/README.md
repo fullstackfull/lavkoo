@@ -61,7 +61,7 @@
 | 09 | استراتيجية الاختبار | `09-test-strategy.md` | منشور — [09-test-strategy.md](./09-test-strategy.md) — 2026-11-12 03:08 (+03:00) |
 | 10 | خارطة طريق التنفيذ على مراحل صغيرة | `10-implementation-roadmap.md` | منشور — [10-implementation-roadmap.md](./10-implementation-roadmap.md) — 2026-11-12 03:26 (+03:00) |
 | 11 | القرارات غير المحسومة التي تحتاج مدخلات المالك | `11-open-decisions-for-owner.md` | منشور — [11-open-decisions-for-owner.md](./11-open-decisions-for-owner.md) — 2026-11-12 03:33 (+03:00) |
-| 12 | توصية Go / No-Go النهائية | `12-go-no-go-recommendation.md` | قيد الإعداد |
+| 12 | توصية Go / No-Go النهائية | `12-go-no-go-recommendation.md` | منشور — [12-go-no-go-recommendation.md](./12-go-no-go-recommendation.md) — 2026-11-12 03:39 (+03:00) |
 
 ### ملاحق الأدلة (`evidence/`)
 
