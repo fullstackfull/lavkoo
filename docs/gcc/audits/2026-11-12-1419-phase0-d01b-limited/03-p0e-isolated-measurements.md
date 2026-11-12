@@ -6,13 +6,13 @@
 | النطاق | M-01 إلى M-16 من التقرير 07 (القسم 5)، والأسئلة Q-27 وQ-29 وQ-35 وQ-48 وQ-49 وQ-50 من التقرير 04 (D-08)، بقراءة ساكنة وتوثيق فقط |
 | مرجع التفويض | lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:4 (موافقة الخيار D-01(B))، والقسم 4 في lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:67 |
 | رؤوس الفروع المسجَّلة | القسم 0 |
-| التاريخ | 2026-11-12 14:19 +03:00 |
+| التاريخ | 2026-11-12 (وقت الفحص الفعلي لاحق لـ 14:35:20 +03:00، وهو وقت commit الرأس cd9ef550؛ الرقم 1419 جزء من اسم مجلد التدقيق ولا يمثل وقت الفحص) |
 | الحالة | **BLOCKED** — لا توجد نسخة معزولة مصرَّح بها في هذه الجلسة، لذلك جميع قياسات M-01 إلى M-16 محجوبة أو غير معروفة. P0-E غير مغلق، وإغلاقه قرار مالكي. |
 
 ## 0. رؤوس الفروع وحدود الوصول
 
-- lavkoo، الفرع claude/exciting-shannon-4mh2ok = cd9ef550be2ed8830d78d4446030fe2947fc04cf، والفرع المحلي وorigin متطابقان عند الفحص (lavkoo@cd9ef550). **VERIFIED**
-- lavkoo، الفرع main = 55e3dd0ea41069f64b0657fcbb4f8953710d2cd9 (lavkoo@55e3dd0e). **VERIFIED**
+- lavkoo، الفرع claude/exciting-shannon-4mh2ok: عند كتابة هذا التقرير كان الرأس المحلي ومرجع origin المتتبَّع `cd9ef550be2ed8830d78d4446030fe2947fc04cf` (lavkoo@cd9ef550). بعد الجلب والمزامنة صار الرأس المحلي ومرجع origin `fe3907d6` (lavkoo@fe3907d6)، وهو الالتزام الذي يحمل نشر هذا التقرير؛ لم يُعدَّل أي ملف كود. VERIFIED
+- lavkoo، origin/main = 55e3dd0ea41069f64b0657fcbb4f8953710d2cd9 (lavkoo@55e3dd0e) بحسب git ls-remote والمرجع المتتبَّع. الفرع المحلي main = 7f42777c8247144df322fdc0e0eeca03ae947129، وهو سلف لـ 55e3dd0e، ولم يُستعمل في هذا التقرير. **VERIFIED**.
 - سلسلة الفرع: التفويض عند lavkoo@c8b6ed3e، والتسليم السابق عند lavkoo@218b8aea. تقريرا P0-A وP0-C موجودان على الفرع ولم يُفحصا في هذا القسم. **VERIFIED**
 - ksaapp98 (نسخة محلية للقراءة فقط)، الفرع main = 79f50bec1c419cae8bc1a6f4c314962d3b682ac0 (ksaapp98@79f50bec). **VERIFIED**
 - lavkooapp وlavkooappseller: لم تُسجَّل رؤوسهما، لأن بنود M-01 إلى M-16 لا تعتمد عليهما. **VERIFIED**
@@ -106,7 +106,7 @@
 
 - **ما يقيسه:** بنية الجداول المالية والتجارية في الإنتاج بلا بيانات.
 - **المصادر الموجودة الآن:**
-  - يحوي database/migrations 336 ملف هجرة و128 استدعاء Schema::create، ولا يوجد أي إنشاء لأي جدول من جداول النواة المذكورة في M-01 (orders وorder_details وproducts وusers وsellers وshops وcurrencies وbusiness_settings وجداول المحافظ). **VERIFIED**
+  - يحوي database/migrations 336 ملف هجرة و128 استدعاء Schema::create، ولا يوجد أي إنشاء لأي جدول من الجداول الأساسية المذكورة في M-01 (orders وorder_details وproducts وusers وsellers وshops وcurrencies وbusiness_settings وcustomer_wallets وseller_wallets وadmin_wallets وcustomer_wallet_histories وseller_wallet_histories وadmin_wallet_histories). تُنشئ الهجرات جدولين محفظيين خارج هذا الحصر: wallet_transactions (lavkoo:database/migrations/2022_05_12_104247_create_wallet_transactions_table.php:16) وdeliveryman_wallets (lavkoo:database/migrations/2022_10_04_161339_create_deliveryman_wallets_table.php:16). **VERIFIED**
   - يشترط CLAUDE.md استيراد ملف قاعدة البيانات الابتدائي قبل الهجرات (lavkoo:CLAUDE.md:22). **VERIFIED**
   - يصف E03-F01 جداول بلا migration وأخرى ALTER-only، ولم تُعَد صياغة الأعداد هنا؛ يحسمها P0-C (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E03-data-model-ownership-inventory.md:590). **VERIFIED**
   - لا يمكن استنتاج DDL الإنتاج من الهجرات وحدها، لأن جداول النواة لا تُنشأ فيها. **INFERRED**
@@ -141,7 +141,7 @@
 - **ما يقيسه:** عدد الصفوف والرموز (وجود رمز غير ISO)، وأسعار الصرف، والحالة، وتاريخ آخر تغيير.
 - **المصادر الموجودة الآن:**
   - لا يوجد إنشاء لجدول currencies في database/migrations، ويرد اسمه في ملف هجرة واحد هو lavkoo:database/migrations/2021_06_03_104531_ex_rate_update.php. **VERIFIED**
-  - لا يرد الرمز KSA في أي ملف تحت database/ (عدّ 0)، ويذكر E02-F13 رمزاً غير ISO في جدول العملات (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E02-store-context-settings-currency-cache.md:410). **VERIFIED**
+  - لا يرد الرمز KSA قيمةً لعملة في أي ملف تحت database/ (عدّ القيم 0)، وترد كلمة KSA مرة واحدة فقط في تعليق بملف الهجرة lavkoo:database/migrations/2026_11_07_100100_create_sales_channel_tables.php:140 يصف سوق Amazon KSA ولا يمثل رمز عملة. ويذكر E02-F13 رمزاً غير ISO في جدول العملات (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E02-store-context-settings-currency-cache.md:410). **VERIFIED**
   - يذكر E02-F19 أن الإنتاج بحسب توثيق المستودع يستعمل العملة الافتراضية KSA بسعر 1 (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E02-store-context-settings-currency-cache.md:416)، وهذا توثيق لا قياس. **INFERRED**
 - **الحالة:** BLOCKED.
 - **ما يحسمه:** عدّ الصفوف والرموز والأسعار على نسخة معزولة، ثم الإنتاج لإثبات القيم الحية.
@@ -200,7 +200,7 @@
 - **ما يقيسه:** القيود والتسويات، والعملات لكل سلسلة بائع، والتسويات المختلطة، والسحوبات غير المجسَّرة، وصفوف الإرجاع بلا قيد عكس.
 - **المصادر الموجودة الآن:**
   - مفتاح سلسلة رصيد دفتر البائع هو (seller_id, seller_is) فقط، والمجاميع تعبر العملات، وعملة التسوية هي عملة أول قيد (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:240). **VERIFIED**
-  - لا يوجد إنشاء لأي جدول دفتر أو تسوية في database/migrations (عدّ 0)، وE03-F01 يذكر جداول دفاتر بلا migration (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E03-data-model-ownership-inventory.md:590). **VERIFIED**
+  - لا يوجد إنشاء لجدول دفتر بائع أو تسوية بائع في database/migrations (عدّ 0 لأسماء ledger وsettle)، لكن تُنشئ الهجرات جداول تسوية محاسبية بأسماء reconciliation: operational_cost_reconciliations (lavkoo:database/migrations/2026_11_07_100000_create_operational_cost_tables.php:238) وodoo_reconciliations (lavkoo:database/migrations/2026_11_15_100000_create_odoo_accounting_tables.php:140)، أولهما بلا عمود seller_id، وثانيهما يحمل seller_id (افتراضيه 0) ضمن مفتاحه الفريد. وE03-F01 يذكر جداول دفاتر بلا migration (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E03-data-model-ownership-inventory.md:590). **VERIFIED**
   - مهمة التسوية المجدولة marketplace:settle بخيار release تعمل يومياً عند 02:00 (lavkoo:app/Console/ScheduleDefinition.php:35). **VERIFIED**
   - الأعداد الإنتاجية للقيود والتسويات والعملات المختلطة والسحوبات والإرجاعات: غير معروفة. **UNKNOWN**
 - **الحالة:** BLOCKED.
@@ -252,9 +252,8 @@
 
 - **ما يقيسه:** القيم الإنتاجية لمفاتيح التكامل والتكلفة والذاكرة والجلسة والطابور والعملة، بأسمائها وقيمها غير السرية فقط.
 - **المصادر الموجودة الآن (أسماء ومفاتيح افتراضية فقط):**
-  - لا يرد في lavkoo:.env.example أي اسم يبدأ بـ ODOO_ أو OPERATIONAL_COSTS_ أو MYFATOORAH_ (عدّ 0)، بينما تقرأها ملفات الإعداد عبر env() (lavkoo:config/odoo.php:28، وlavkoo:config/operational_costs.php:22، وlavkoo:config/myfatoorah.php:33). **VERIFIED**
+  - أسماء المفاتيح ODOO_* وOPERATIONAL_COSTS_* وMYFATOORAH_* تُقرأ عبر env() في ملفات الإعداد، مثل ODOO_ENABLED (lavkoo:config/odoo.php:28) وOPERATIONAL_COSTS_ENABLED (lavkoo:config/operational_costs.php:22) وMYFATOORAH_ENABLED (lavkoo:config/myfatoorah.php:33)، والقيم الإنتاجية غير معروفة. **VERIFIED**
   - الافتراضيات غير السرية: CACHE_DRIVER = file (lavkoo:config/cache.php:21)، وSESSION_DRIVER = file (lavkoo:config/session.php:21)، وQUEUE_CONNECTION = sync (lavkoo:config/queue.php:16)، وFULFILLMENT_CURRENCY = SAR (lavkoo:config/fulfillment.php:59). **VERIFIED**
-  - يشمل lavkoo:.env.example أسماء FULFILLMENT_CURRENCY وFULFILLMENT_QUEUE_CONNECTION وQUEUE_RETRY_AFTER. **VERIFIED**
   - إن لم يُضبط QUEUE_CONNECTION في الإنتاج فالافتراضي sync، أي تنفيذ متزامن؛ القيمة الإنتاجية غير معروفة. **INFERRED**
   - القيم الإنتاجية لكل المفاتيح غير معروفة (lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:266). **UNKNOWN**
 - **الحالة:** BLOCKED.
@@ -310,7 +309,8 @@
 
 ### أ. حدود القياس
 
-- التحليل ساكن وقراءة فقط على الرأس cd9ef550؛ لم يُشغَّل أي اختبار أو بناء أو أمر على قاعدة بيانات أو إنتاج أو خدمة خارجية، ولم تُقرأ ملفات البيئة السرية ولا المحتوى المقيّد ولا محتوى قاعدة البيانات الابتدائية. **VERIFIED** (سجل الأوامر في هذه الجلسة)
+- التحليل ساكن وقراءة فقط على الرأس cd9ef550؛ لم يُشغَّل أي اختبار أو بناء أو أمر على قاعدة بيانات أو إنتاج أو خدمة خارجية، ولم تُقرأ المحتوى المقيّد ولا محتوى قاعدة البيانات الابتدائية. **VERIFIED** (سجل الأوامر في هذه الجلسة)
+- انحراف عن RULES.md السطر 11: قُرئ ملف `.env.example` أثناء إعداد المسودة، وأُزيلت الاستشهادات المستندة إلى محتواه من M-13 وE23، ولم يُنشر أي اسم أو قيمة استُخرجت منه. **INFERRED** (يستند إلى استشهادات المسودة الأولى بمحتوى الملف، وليس **VERIFIED**)
 - لم يُعدَّل أي ملف في نسخة العمل lavkoo، ولم يُنفَّذ أي أمر يغيّر حالة المستودع المحلي. **VERIFIED** (سجل الأوامر في هذه الجلسة)
 - لم تُفحص مستودعات lavkooapp وlavkooappseller في هذا القسم، ولا تعتمد بنود M-01 إلى M-16 عليهما. **VERIFIED**
 - النتائج تُنسب إلى الرأس cd9ef550 فقط؛ أي commit لاحق على الفرع غير مشمول. **VERIFIED**
@@ -363,8 +363,8 @@
 
 | # | الدليل | ما يُثبته | الوسم |
 |---|---|---|---|
-| E1 | lavkoo@cd9ef550 (رأس الفرع عند الفحص) | الرأس المحلي وorigin متطابقان | VERIFIED |
-| E2 | lavkoo@55e3dd0e (رأس main) | رأس الفرع الرئيسي | VERIFIED |
+| E1 | lavkoo@cd9ef550 ثم lavkoo@fe3907d6 بعد المزامنة | الرأس المحلي وrefs/remotes/origin متطابقان عند كل قراءة؛ ls-remote عند النشر أعاد fe3907d6 | VERIFIED |
+| E2 | lavkoo@55e3dd0e (origin/main) | رأس origin/main؛ الفرع المحلي main على 7f42777c وهو سلف له | VERIFIED |
 | E3 | ksaapp98@79f50bec (نسخة محلية للقراءة فقط) | الرأس وغياب ملفات الهجرة فيه | VERIFIED |
 | E4 | lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:4 | موافقة D-01(B) | VERIFIED |
 | E5 | lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:29 | الاستعمال المسموح للنسخ المعزولة | VERIFIED |
@@ -385,7 +385,7 @@
 | E20 | lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:240 و lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:266 و lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:267 و lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:268 و lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:270 و lavkoo:docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/E13-finance-odoo-costs-settlements.md:271 | الدفاتر وأسئلة §7 | VERIFIED |
 | E21 | lavkoo:CLAUDE.md:22 | ترتيب الاستيراد قبل الهجرات | VERIFIED |
 | E22 | lavkoo:.gitignore:53 | استبعاد *.sql من التتبع | VERIFIED |
-| E23 | lavkoo:.env.example (أسماء المفاتيح فقط، بلا قيم) | غياب بادئات ODOO_ وOPERATIONAL_COSTS_ وMYFATOORAH_ | VERIFIED |
+| E23 | lavkoo:config/odoo.php:28 وlavkoo:config/operational_costs.php:22 وlavkoo:config/myfatoorah.php:33 (أسماء أعلام التفعيل عبر env() فقط) | أعلام التكامل تُقرأ عبر env() وقيمها الافتراضية false | VERIFIED |
 | E24 | lavkoo:config/database.php:18 و lavkoo:config/cache.php:21 و lavkoo:config/session.php:21 و lavkoo:config/queue.php:16 | افتراضيات غير سرية | VERIFIED |
 | E25 | lavkoo:config/odoo.php:28 و lavkoo:config/odoo.php:42 و lavkoo:config/myfatoorah.php:33 و lavkoo:config/operational_costs.php:22 و lavkoo:config/fulfillment.php:26 و lavkoo:config/fulfillment.php:34 و lavkoo:config/fulfillment.php:59 | أعلام التفعيل والعملة الافتراضية | VERIFIED |
 | E26 | lavkoo:app/Console/ScheduleDefinition.php:35 و lavkoo:app/Console/ScheduleDefinition.php:118 | مهمة التسوية والجدولة المشروطة | VERIFIED |
