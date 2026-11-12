@@ -55,6 +55,8 @@ Place new handoffs in `docs/gcc/handoffs/YYYY-MM-DD-HHMM-<agent-or-session>-<slu
 
 Update this STATUS file only after fetching latest `main`, preserving concurrent work; never force-push.
 
+- **2026-11-12 Discovery-01** (`claude/exciting-shannon-4mh2ok`, AUDIT ONLY): [handoff](./handoffs/2026-11-12-0115-discovery-01-claude-exciting-shannon.md) · [audit index](./audits/2026-11-12-0115-discovery-01/README.md). Phase 0 is Go with conditions; implementation phases are No-Go until G0 closes. GCC-20 not yet evaluated.
+
 ## Open questions for audit
 
 - Exact branch/commit relationship between legacy and renamed repositories.
