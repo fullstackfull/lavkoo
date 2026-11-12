@@ -57,6 +57,7 @@ Update this STATUS file only after fetching latest `main`, preserving concurrent
 
 - **2026-11-12 Discovery-01** (`claude/exciting-shannon-4mh2ok`, AUDIT ONLY): [handoff](./handoffs/2026-11-12-0115-discovery-01-claude-exciting-shannon.md) · [audit index](./audits/2026-11-12-0115-discovery-01/README.md). Phase 0 is Go with conditions; implementation phases are No-Go until G0 closes. GCC-20 not yet evaluated.
 - **2026-11-12 Discovery-02 follow-up** (`claude/exciting-shannon-4mh2ok`, AUDIT ONLY): [handoff](./handoffs/2026-11-12-1240-discovery-02-followup-claude-exciting-shannon.md) · [audit index](./audits/2026-11-12-1240-discovery-02-followup/README.md). Phase 0 remains NOT authorised; implementation phases No-Go; seller version gate and CI flagged for owner decision; Q-30 open.
+- **2026-11-12 Phase 0 D-01(B) limited** (`claude/exciting-shannon-4mh2ok`, READ/DOCUMENT ONLY): [handoff](./handoffs/2026-11-12-1419-phase0-d01b-claude-exciting-shannon.md) · [index](./audits/2026-11-12-1419-phase0-d01b-limited/README.md). P0-A, P0-C and P0-E documented, NOT closed; every isolated measurement BLOCKED (no authorised copy supplied); pharmacyksa98 access refused; G0 not closed; Phase 1-17 No-Go.
 
 ## Open questions for audit
 
