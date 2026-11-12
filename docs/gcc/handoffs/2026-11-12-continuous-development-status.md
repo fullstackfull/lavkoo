@@ -1,4 +1,4 @@
-# Continuous development handoff — LAVKOO GCC (2026-11-12, status at 16:03Z)
+# Continuous development handoff — LAVKOO GCC (2026-11-12, status at 16:27Z)
 
 Nothing is merged, deployed or run against production. Each CI reading is for the head SHA named, at the time shown. A run that is still running or queued is not reported as green.
 
@@ -6,13 +6,13 @@ Governing text: `docs/gcc/AUTONOMOUS_DEVELOPMENT_CHARTER.md` on `main`. The stan
 
 ## Draft PRs (all into `main`, none merged)
 
-| PR | Branch | Head | Scope | CI at 16:03Z (run) |
+| PR | Branch | Head | Scope | CI, latest reading (run) |
 |---|---|---|---|---|
 | fullstackfull/lavkoo#1 | `gcc/p0-saudi-baseline-ci` | `d664ab4b` | Torod fixture repair (the only branch that carries it); routing characterization | 20 of 21 passed. 1 failed by design: overlay gate. Complete (last read 15:43Z). (43227034387) |
-| fullstackfull/lavkoo#2 | `gcc/p0-admin-coupon-translation-key` | `590ed03c` | Admin minimum message uses the defined key | 15 passed, 6 failed. Torod test in 5 jobs: SQLite 8.2, SQLite 8.3, strict-mode MariaDB, MySQL sales channels N–Z and MariaDB sales channels N–Z. Overlay gate. Complete. (43231075495) |
-| fullstackfull/lavkoo#3 | `gcc/p0-remove-duplicate-payment-routing` | `1a4d8730` | Removes two dead duplicate classes; adds a guard test | 15 passed, 6 failed. Torod test in the same 5 jobs as fullstackfull/lavkoo#2. Overlay gate, which also refuses this PR's two deletions. Complete. (43232156614) |
-| fullstackfull/lavkoo#4 | `gcc/p0-coupon-minimum-boundary` | `e2898afa` | Customer minimum boundary: 12 tests, including product discounts | 14 passed, 5 failed, 2 running. Torod test in 4 jobs: SQLite 8.2, SQLite 8.3, strict-mode MariaDB and MariaDB sales channels N–Z. Overlay gate. Still running: MySQL 8.0 sales channels A–M and N–Z. (43236431540) |
-| fullstackfull/lavkoo#5 | `gcc/p0-missing-message-keys` | `ecef6647` | Defines two missing messages in seven locales; no wording change | 15 passed, 6 failed. Torod test in the same 5 jobs as fullstackfull/lavkoo#2. Overlay gate. Complete. (43233763748) |
+| fullstackfull/lavkoo#2 | `gcc/p0-admin-coupon-translation-key` | `590ed03c` | Admin minimum message uses the defined key | 15 passed, 6 failed. Torod test in 5 jobs: SQLite 8.2, SQLite 8.3, strict-mode MariaDB, MySQL sales channels N–Z and MariaDB sales channels N–Z. Overlay gate. Complete (read 16:03Z). (43231075495) |
+| fullstackfull/lavkoo#3 | `gcc/p0-remove-duplicate-payment-routing` | `1a4d8730` | Removes two dead duplicate classes; adds a guard test | 15 passed, 6 failed. Torod test in the same 5 jobs as fullstackfull/lavkoo#2. Overlay gate, which also refuses this PR's two deletions. Complete (read 16:03Z). (43232156614) |
+| fullstackfull/lavkoo#4 | `gcc/p0-coupon-minimum-boundary` | `e2898afa` | Customer minimum boundary: 12 tests, including product discounts | 15 passed, 5 failed, 1 running (read 16:27Z). Torod test in 4 jobs: SQLite 8.2, SQLite 8.3, strict-mode MariaDB and MariaDB sales channels N–Z. Overlay gate. Still running: MySQL 8.0 sales channels N–Z, step started 14:59Z. Its A–M job passed at 16:10Z. (43236431540) |
+| fullstackfull/lavkoo#5 | `gcc/p0-missing-message-keys` | `ecef6647` | Defines two missing messages in seven locales; no wording change | 15 passed, 6 failed. Torod test in the same 5 jobs as fullstackfull/lavkoo#2. Overlay gate. Complete (read 16:03Z). (43233763748) |
 
 Audit branch (docs only): the seller verification report at `docs/gcc/audits/2026-11-12-seller-version-verification.md`, and this handoff.
 
@@ -38,7 +38,7 @@ Both failures come from `main`'s state, not from the code in these PRs. The over
 - The `coupons` table in fullstackfull/lavkoo#4's tests is inferred. The live schema is not in the repository.
 - The empty-cart path in fullstackfull/lavkoo#5 is covered for its message and its no-write guard. Its wording is not reviewed.
 - PHPUnit reports deprecations in the CI runs (1, 8 or 9 per job). The logs print only the totals, so they are not investigated.
-- Still running at 16:03Z: fullstackfull/lavkoo#4, MySQL 8.0 sales channels A–M and N–Z. Re-read before reporting them.
+- Still running at 16:27Z: fullstackfull/lavkoo#4, MySQL 8.0 sales channels N–Z. That job's test step started at 14:59Z, about 88 minutes ago. The same job took 41 to 48 minutes on the other draft PRs. Re-read before reporting it.
 
 ## Evidence summary
 
