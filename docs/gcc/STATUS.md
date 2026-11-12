@@ -66,3 +66,11 @@ Update this STATUS file only after fetching latest `main`, preserving concurrent
 ## 2026-11-12 — GCC-20 new owner request
 
 The project owner added a **global Super Admin dashboard inside the existing Flutter seller application** for owner-level monitoring and country-specific oversight/actions. This is a distinct platform-admin mode, not seller account impersonation or an expanded seller token. Scope recorded in [GCC-20-SUPER-ADMIN-MOBILE.md](./GCC-20-SUPER-ADMIN-MOBILE.md); add platform admin mobile auth, country-level KPIs, country drill-down, safety approvals, notification isolation and regression/authorization tests to Discovery. **No application code changes authorized.**
+
+## 2026-11-12 — Owner approved standing autonomous branch development
+
+**Current instruction:** [AUTONOMOUS_DEVELOPMENT_CHARTER.md](./AUTONOMOUS_DEVELOPMENT_CHARTER.md) supersedes historical `DISCOVERY ONLY` limitations **for feature-branch coding only**. Claude can independently make reversible technical implementation decisions, modify runtime source, add regression tests, investigate and repair CI, work across Laravel and both Flutter apps, push reviewed checkpoints immediately and open draft PRs, without asking for each small change. The owner explicitly requested continuous execution rather than further permission cycles. 
+
+**Still gated:** No merges to `main`, no production deployment/release, no production database access, migration execution/backfill, live provider actions, credential rotation, force pushes or destructive irreversible operations without separate approval. G0 remains **OPEN**: GCC phases 1–17 may be coded on isolated branches but may NOT merge/release before G0. All new country behavior must default OFF where feasible. Security and financial-sensitive changes need rigorous review before merge. The seller app version remains unverified. 
+
+**Active known work:** Backend Draft PR #1 (`gcc/p0-saudi-baseline-ci`), independent coupon branch `gcc/p0-coupon-minimum-boundary`; owner approved equality with coupon minimum (`eligibleSubtotal >= min_purchase`) and copy correction only if demonstrably misleading. Continue development and CI resolution autonomously. Do not treat this status file as evidence that the old audit findings or outstanding P0/G0 requirements are closed.
