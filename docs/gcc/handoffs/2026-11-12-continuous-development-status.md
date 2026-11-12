@@ -11,7 +11,7 @@ Governing text: `docs/gcc/AUTONOMOUS_DEVELOPMENT_CHARTER.md` on `main`. The stan
 | #1 | `gcc/p0-saudi-baseline-ci` | `d664ab4b` | Torod fixture repair; routing characterization | 18 of 21 passed. 1 failed by design (deployment overlay gate). 2 still running: MySQL A–M and MariaDB strict. |
 | #2 | `gcc/p0-admin-coupon-translation-key` | `590ed03c` | Admin minimum message uses the defined key | Queued since 13:50Z |
 | #3 | `gcc/p0-remove-duplicate-payment-routing` | `1a4d8730` | Removes two dead duplicate class declarations and adds a guard test. Payment-provider file: needs a security or financial owner review before merge. | Queued since 13:56Z |
-| #4 | `gcc/p0-coupon-minimum-boundary` | `d4bcea03` | Customer minimum boundary, 10 tests. Review record on the PR. | Queued since 14:03Z |
+| #4 | `gcc/p0-coupon-minimum-boundary` | `e2898afa` | Customer minimum boundary, 12 tests, including product discounts. Review record on the PR. | Queued since 14:03Z for `d4bcea03`; re-queued for `e2898afa` |
 | #5 | `gcc/p0-missing-message-keys` | `ecef6647` | Defines two missing messages in seven locales, with no wording change | Queued since 14:06Z |
 
 Audit branch (docs only): the seller verification report at `docs/gcc/audits/2026-11-12-seller-version-verification.md`, and this handoff.
@@ -26,7 +26,6 @@ Audit branch (docs only): the seller verification report at `docs/gcc/audits/202
 
 ## Known gaps, not fixed
 
-- The coupon boundary tests (PR #4) do not exercise product-level discounts, so the boundary is proven only for undiscounted carts.
 - The `coupons` table in those tests is inferred. The live schema is not in the repository.
 - The empty-cart path (PR #5) is covered for its message and for the no-write guard. Its wording is not reviewed.
 
@@ -34,11 +33,11 @@ Audit branch (docs only): the seller verification report at `docs/gcc/audits/202
 
 - **Torod test:** fails at `TorodShipmentDiscoveryTest.php:198` on the real clock. Passes 12 of 12 with the fixture stamped 10 hours ago, both on the real clock and pinned to 2030.
 - **Routing characterization:** 7 of 7. Reversing the order fails 3 tests. Removing de-duplication fails 1.
-- **Coupon boundary (PR #4):** 10 of 10. Changing `min_purchase >` to `>=` fails exactly the three equal-to-minimum tests. Each endpoint test asserts one analytics record.
+- **Coupon boundary (PR #4):** 12 of 12. Changing `min_purchase >` to `>=` fails four tests, including the discounted equal case. Ignoring the product discount fails both discount tests. Each endpoint test asserts one analytics record.
 - **Admin key (PR #2):** on `main`, the test run wrote into `en` and `sa` `new-messages.php`, and the Arabic admin received English. After the fix, 4 of 4 pass.
 - **Missing messages (PR #5):** on `main`, all three tests fail. With the entries, all three pass.
 - **Duplicate classes (PR #3):** the guard fails on `main` with two duplicated names, and passes after the change. The optimized classmap is unchanged. The full Unit suite passes, 1116 tests.
-- **Independent review of PR #4's first version:** two medium defects were confirmed, an inert recorder stub and a teardown without `finally`. Both are fixed in `d4bcea03`, and the record is on the PR.
+- **Independent review of PR #4's first version:** 3 of 11 findings survived verification: a teardown without `finally`, an inert recorder stub, and product discounts never exercised. All three are addressed, in `d4bcea03` and `e2898afa`. The record is on the PR.
 
 ## How another Claude account resumes
 
