@@ -7,7 +7,7 @@
 | المستودع | الفرع/المرجع | SHA | ملاحظة |
 |---|---|---|---|
 | `lavkoo` | `origin/main` (GitHub) | `55e3dd0e` | مطابق لـ `git ls-remote` ولـ MCP |
-| `lavkoo` | `origin/claude/exciting-shannon-4mh2ok` | `f2e01213` | الفرع الذي تُقرأ منه وثائق الجولة |
+| `lavkoo` | `origin/claude/exciting-shannon-4mh2ok` | `f7d5d966 (وكان f2e01213 عند بدء الجولة)` | الفرع الذي تُقرأ منه وثائق الجولة |
 | `lavkoo` | الفرع المحلي `claude/exciting-shannon-4mh2ok` (HEAD) | `f2e01213` | شجرة العمل نظيفة عند البداية |
 | `lavkoo` | الفرع المحلي `main` | `7f42777c` | متأخر 5 commits عن `origin/main`؛ لم يُحدَّث (قراءة فقط) |
 | `lavkoo` | خط الأساس للتدقيق `89f1be9` | — | سلف لـ `origin/main`، والفرق 16 commit |
@@ -31,7 +31,7 @@
 
 | المستودع | عدد الطلبات (state=all) | الفروع | ملاحظة |
 |---|---|---|---|
-| `fullstackfull/lavkoo` | **0** (MCP وgh كلاهما) | `main` (`55e3dd0e`)، `claude/exciting-shannon-4mh2ok` (`f2e01213`) | الفروع `claude/pr-c-amazon-completion` و`pr-d-trendyol-products` و`pr-e-noon` و`pr-f-odoo` و`pr-g-guards` و`integration-cdef` و`amazon-feeds` و`pharmacyksa-shipping-tests-31q1nu` **غير موجودة على الريموت الحالي** |
+| `fullstackfull/lavkoo` | **0** (MCP وgh كلاهما) | `main` (`55e3dd0e`)، `claude/exciting-shannon-4mh2ok` (`f2e01213` عند بدء الجولة؛ ثم `f7d5d966` عند النشر) | الفروع `claude/pr-c-amazon-completion` و`pr-d-trendyol-products` و`pr-e-noon` و`pr-f-odoo` و`pr-g-guards` و`integration-cdef` و`amazon-feeds` و`pharmacyksa-shipping-tests-31q1nu` **غير موجودة على الريموت الحالي** |
 | `fullstackfull/lavkooapp` | **0** | `main` (`eedbbb8`) | — |
 | `fullstackfull/lavkooappseller` | **0** | `main` (`9ea6423`) | — |
 
@@ -257,7 +257,7 @@ origin/main ← cbf2cddb (PR #17، 2026-11-11)
 - **INFERRED:** أن `lavkoo` أُنشئ بنقل التاريخ من `pharmacyksa98` بأرقامه الأصلية. هذا مرجَّح من رسائل merge ومن `E21 §2.3`، لكنه لم يُتحقق منه بوصول إلى legacy.
 - **حد التحقق:** الوثائق المعتمدة قُرئت من `origin/main` (55e3dd0e). شجرة العمل المحلية في `f2e01213`، وقد تختلف أرقام أسطرها؛ لذلك تُقرأ الأسطر من `origin/main` لا من شجرة العمل.
 - **خارج النطاق:** تحليل كود تطبيق البائع، وتحليل محتوى merge الفروع C–G بالتفصيل، ومراجعة PR كل رقم.
-- **لم يُكتب أي شيء:** لم يُعدَّل `DECISIONS.md` ولا `STATUS.md` ولا `final-report.md` ولا `merge-plan.md`. هذه المقترحات كلها تنتظر موافقة المالك.
+- **لم تُعدَّل الوثائق المعتمدة:** نشرت الجولة تقاريرها تحت `docs/gcc/audits/2026-11-12-1240-discovery-02-followup/`. لم يمسّ أي commit من الجولة (f2e01213 وثمانية commits بعده حتى f7d5d966) الملفات `DECISIONS.md` و`STATUS.md` و`final-report.md` و`merge-plan.md`؛ وblobs الملفات الأربعة متطابقة بين f2e01213 ورأس الفرع. هذه المقترحات كلها تنتظر موافقة المالك.
 
 ## 10. قرارات المالك المطلوبة
 
