@@ -2,7 +2,7 @@
 
 > **المرحلة:** AUDIT (قراءة فقط) — **الجلسة:** `claude/exciting-shannon-4mh2ok` — **التاريخ:** 2026-11-12 (+03:00)
 > **SHA الأساس:** `lavkoo@7f42777` · `lavkooapp@eedbbb8` · `lavkooappseller@8ea0092` · مرجع قديم `ksaapp98@79f50be`
-> **يعتمد على:** [التقرير 02](./02-cross-repo-architecture-api-contracts.md) · [التقرير 03](./03-data-ownership-isolation-matrix.md) · [التقرير 04](./04-preserve-extend-refactor-new-matrix.md) · [التقرير 05](./05-gap-risk-register.md) · [التقرير 06](./06-git-lineage-legacy-prs.md) · [التقرير 07](./07-migration-rollback-plan.md) · [التقرير 08](./08-web-customer-seller-impact-matrix.md) · [التقرير 09](./09-test-strategy.md) · الملاحق [E01](./evidence/E01-backend-architecture-map.md) إلى [E23](./evidence/E23-api-contract-seller.md) · القرارات المعتمدة `lavkoo:docs/gcc/DECISIONS.md`
+> **يعتمد على:** [التقرير 02](./02-cross-repo-architecture-api-contracts.md) · [التقرير 03](./03-data-ownership-isolation-matrix.md) · [التقرير 04](./04-preserve-extend-refactor-new-matrix.md) · [التقرير 05](./05-gap-risk-register.md) · [التقرير 10](./10-implementation-roadmap.md) · [التقرير 06](./06-git-lineage-legacy-prs.md) · [التقرير 07](./07-migration-rollback-plan.md) · [التقرير 08](./08-web-customer-seller-impact-matrix.md) · [التقرير 09](./09-test-strategy.md) · الملاحق [E01](./evidence/E01-backend-architecture-map.md) إلى [E23](./evidence/E23-api-contract-seller.md) · القرارات المعتمدة `lavkoo:docs/gcc/DECISIONS.md`
 > **الحالة:** نهائي لهذه الجلسة — لا يتضمن أي تنفيذ.
 
 ## 0. الغرض وكيفية القراءة
