@@ -9,8 +9,8 @@
 | النطاق | `lavkoo` و`lavkooapp` و`lavkooappseller` عبر أدوات GitHub للقراءة وls-remote. `ksaapp98` من النسخة المحلية للقراءة فقط |
 | خارج النطاق | `pharmacyksa98`: BLOCKED، ولم يُستدعَ أي أمر أو أداة عليه |
 | ما لم يُنفَّذ | لا تعديل كود، ولا قاعدة بيانات، ولا نسخة معزولة، ولا إنتاج، ولا اختبارات، ولا CI، ولا fetch أو checkout |
-| رؤوس الفروع المسجّلة | `lavkoo@55e3dd0e` لـ `origin/main`، و`lavkoo@c8b6ed3e` لرأس التدقيق (التفاصيل في القسم 1) |
-| التاريخ | 2026-11-12 14:19 +03:00 (تاريخ الهيدر المطلوب). أول استعلام عن الريموت في هذه الجلسة كان 2026-11-12T11:21:49Z |
+| رؤوس الفروع المسجّلة | `lavkoo@55e3dd0e` لـ `origin/main` (لم يتغيّر عند التحقق). رأس التدقيق عند الاستعلام الأول (2026-11-12T11:21:49Z) كان `lavkoo@c8b6ed3e`؛ بعد نشر P0-C (`lavkoo@52055fe4`) صار `lavkoo@cd9ef550` (هذا التقرير)؛ والرأس عند التحقق (2026-11-12T11:54:36Z) هو `lavkoo@fe3907d6` (تقرير P0-E، أبوه `lavkoo@cd9ef550`). التفاصيل في القسم 1. |
+| التاريخ | 2026-11-12 14:19 +03:00 (تاريخ الهيدر المطلوب، وليس وقت التنفيذ). أول استعلام عن الريموت في هذه الجلسة كان 2026-11-12T11:21:49Z |
 | الحالة | **P0-A غير مُغلَق.** نسب الـ commits داخل lavkoo مُثبَت. كائنات PR وحالة legacy والإنتاج غير مُحسومة. Q-30 غير مُغلَق، وG0 غير مُغلَق |
 
 ## 1. رؤوس الفروع والتوقيت (الخطوة 1)
@@ -18,7 +18,8 @@
 | المستودع | المرجع | SHA | وقت الـ commit (+03:00) | طريقة التحقق | حدّ الوصول | الحكم |
 |---|---|---|---|---|---|---|
 | lavkoo | `origin/main` | `lavkoo@55e3dd0e` | 2026-11-12 02:49 | ls-remote، ومطابق لـ MCP وللمرجع المحلي `origin/main` | لا | VERIFIED |
-| lavkoo | `origin/claude/exciting-shannon-4mh2ok` (رأس التدقيق) | `lavkoo@c8b6ed3e` | 2026-11-12 13:55 | ls-remote، ومطابق لـ MCP ولـ HEAD المحلي | لا | VERIFIED |
+| lavkoo | `origin/claude/exciting-shannon-4mh2ok` (رأس التدقيق عند الاستعلام الأول 11:21:49Z) | `lavkoo@c8b6ed3e` | 2026-11-12 13:55 | ls-remote عند 11:21:49Z، ومطابق لـ MCP ولـ HEAD المحلي حينها | لا | VERIFIED (لقطة زمنية) |
+| lavkoo | `origin/claude/exciting-shannon-4mh2ok` عند التحقق (11:54:36Z) | `lavkoo@fe3907d6` | 2026-11-12 14:52:45 +03:00 | ls-remote، وMCP get_commit، وgh api compare (متقدّم بـ commit واحد عن `lavkoo@cd9ef550`، وملف واحد تحت docs/gcc/) | لا | VERIFIED |
 | lavkoo | `main` المحلي (لم يُستعمل مرجعاً) | `lavkoo@7f42777c` | 2026-11-12 00:56 | git محلي | متأخر 5 commits عن `origin/main` | VERIFIED |
 | lavkooapp | `origin/main` | `lavkooapp@eedbbb8` | 2026-11-12 00:55 | ls-remote، ومطابق لـ HEAD المحلي | لا | VERIFIED |
 | lavkooappseller | `origin/main` على GitHub | `lavkooappseller` main `9ea64232` (غير موجود محلياً، ولذلك لا يُستشهد به بصيغة commit) | 2026-11-12 04:50 (01:50:02Z) | ls-remote، وMCP get_commit | الرأس الريموت غير موجود في النسخة المحلية | VERIFIED |
@@ -27,7 +28,7 @@
 | pharmacyksa98 | — | — | — | لم يُستدعَ | الوصول مرفوض لهذه الجلسة وفق قواعد التشغيل، ولم تُختبر إعادة المحاولة | BLOCKED |
 
 - خط الأساس `lavkoo@89f1be90` (من Discovery-01): سلف لـ `origin/main`، وبعده 16 commit على `origin/main`، وهو الرأس الثاني (parent 2) لدمج PR #17 `lavkoo@cbf2cddb`. [VERIFIED]
-- رأس التدقيق تقدّم من `lavkoo@f7d5d966` (المرجع في Discovery-02) إلى `lavkoo@c8b6ed3e` بإضافة 11 commit. كل المسارات المختلفة عن `origin/main` (51 مساراً) تقع تحت `docs/gcc/`، فلا تغيير على كود التطبيق في الرأس الجديد. [VERIFIED]
+- رأس التدقيق تقدّم من `lavkoo@f7d5d966` (المرجع في Discovery-02) إلى `lavkoo@c8b6ed3e` بإضافة 11 commit عند `c8b6ed3e`. كل المسارات المختلفة عن `origin/main` (51 مساراً عند `c8b6ed3e`، و53 عند `cd9ef550`) تقع كلها تحت `docs/gcc/`، فلا تغيير على كود التطبيق في الرأس الجديد. [VERIFIED]
 - `DECISIONS.md` و`final-report.md` و`merge-plan.md` مطابقة بين `origin/main` ورأس التدقيق. `STATUS.md` يختلف بإضافة ثلاثة أسطر (58–60)، والسطر 35 مطابق في الاثنين (`lavkoo:docs/gcc/STATUS.md:35`). [VERIFIED]
 - حالة ريموت `ksaapp98` لم تُستعلم عنها، لأن قاعدة الجلسة تحصر القراءة في النسخة المحلية. [UNKNOWN]
 
@@ -96,17 +97,17 @@
 
 | المستودع / PR | الـ commit أو الدمج | في `lavkoo main` | في كود العميل أو البائع | عدم اليقين | الأدلة الداعمة | الحكم |
 |---|---|---|---|---|---|---|
-| legacy `pharmacyksa98` / #9 (channels) | `lavkoo@4fa2cb56` | نعم | UNKNOWN (لم يُختبر مصطلح مميز) | حالة legacy: OWNER-REPORTED (merged)، ولا كائن PR | نص الدمج؛ رأس `lavkoo@f8035bd3` يحوي الـ commits التي يذكرها `final-report.md:622-626` | VERIFIED (lavkoo) / UNKNOWN (legacy) |
-| legacy / #10 (MyFatoorah) | `lavkoo@8517d6ee` | نعم | INFERRED: نعم على مستوى الميزة (7 ملفات في `lavkooapp` تذكر MyFatoorah) | لم يُختبر عقد الـ API بين العميل والخلفية؛ حالة legacy OWNER-REPORTED | القسم 4؛ نص الدمج | VERIFIED / UNKNOWN |
-| legacy / #11 (stock) | `lavkoo@cd54f1eb` | نعم | UNKNOWN (5 ملفات في البائع تطابق `outbox` ولم تُحلَّل) | حالة legacy OWNER-REPORTED (merged)، ولا كائن PR | نص الدمج؛ 40 ملفاً | VERIFIED / UNKNOWN |
-| legacy / #12 (Amazon، `claude/pr-c-amazon-completion`) | `lavkoo@d9c76422` (رأس `lavkoo@7efe022e`) | نعم (المحتوى) | INFERRED: لا (لا تطابق لـ `amazon` في العميل أو البائع) | حالة legacy OWNER-REPORTED (closed or merged)؛ `DECISIONS.md:60` يقول open في لقطة قديمة | سلف لـ `origin/main`؛ `merge-plan.md:127` | VERIFIED / INFERRED / UNKNOWN |
-| legacy / #13 (Trendyol، `claude/pr-d-trendyol-products`) | 6 دمجات، أولها `lavkoo@92f0feea` | نعم (المحتوى) | INFERRED: لا (لا تطابق لـ `trendyol`) | حالة legacy OWNER-REPORTED (closed or merged) | سلف لـ `origin/main`؛ `merge-plan.md:128` | VERIFIED / INFERRED / UNKNOWN |
-| legacy / #14 (Noon، `claude/pr-e-noon`) | `lavkoo@561e8585` | نعم (المحتوى) | UNKNOWN (ملف واحد في العميل يطابق `noon` ولم يُحلَّل) | حالة legacy OWNER-REPORTED (closed or merged) | سلف لـ `origin/main`؛ `merge-plan.md:129` | VERIFIED / UNKNOWN |
-| legacy / #15 (Odoo، `claude/pr-f-odoo`) | `lavkoo@538fe91f` و`lavkoo@905571fa` | نعم (المحتوى) | INFERRED: لا (لا تطابق لـ `odoo`) | حالة legacy OWNER-REPORTED (closed or merged) | سلف لـ `origin/main`؛ `merge-plan.md:130` | VERIFIED / INFERRED / UNKNOWN |
-| legacy / #16 (guards، `claude/pr-g-guards`) | `lavkoo@9b3d5244` | نعم (المحتوى) | UNKNOWN (مصطلح عام لا يصلح للاختبار) | مسودة في لقطة وقت الكتابة (`final-report.md:250`)، والحالة الحالية OWNER-REPORTED | سلف لـ `origin/main`؛ `merge-plan.md:132` | VERIFIED / UNKNOWN |
+| legacy `pharmacyksa98` / #9 (channels) | `lavkoo@4fa2cb56` | نعم | UNKNOWN (لم يُختبر مصطلح مميز) | حالة legacy: UNKNOWN (قول المالك) (merged)، ولا كائن PR | نص الدمج؛ رأس `lavkoo@f8035bd3` يحوي الـ commits التي يذكرها `final-report.md:622-626` | VERIFIED (lavkoo) / UNKNOWN (legacy) |
+| legacy / #10 (MyFatoorah) | `lavkoo@8517d6ee` | نعم | INFERRED: نعم على مستوى الميزة (7 ملفات في `lavkooapp` تذكر MyFatoorah) | لم يُختبر عقد الـ API بين العميل والخلفية؛ حالة legacy UNKNOWN (قول المالك) | القسم 4؛ نص الدمج | VERIFIED / UNKNOWN |
+| legacy / #11 (stock) | `lavkoo@cd54f1eb` | نعم | UNKNOWN (5 ملفات في HEAD المحلي للبائع `8ea00922` تطابق `outbox` ولم تُحلَّل؛ الرأس الريموت `9ea64232` لم يُفحص محتواه) | حالة legacy UNKNOWN (قول المالك) (merged)، ولا كائن PR | نص الدمج؛ 40 ملفاً | VERIFIED / UNKNOWN |
+| legacy / #12 (Amazon، `claude/pr-c-amazon-completion`) | `lavkoo@d9c76422` (رأس `lavkoo@7efe022e`) | نعم (المحتوى) | INFERRED: لا (لا تطابق لـ `amazon` في العميل أو البائع) | حالة legacy UNKNOWN (قول المالك) (closed or merged)؛ `DECISIONS.md:60` يقول open في لقطة قديمة | سلف لـ `origin/main`؛ `merge-plan.md:127` | VERIFIED / INFERRED / UNKNOWN |
+| legacy / #13 (Trendyol، `claude/pr-d-trendyol-products`) | 6 دمجات، أقدمها `lavkoo@bc3742ea` (2026-11-09 18:57 +03:00) وأحدثها `lavkoo@92f0feea` (21:19 +03:00) | نعم (المحتوى) | INFERRED: لا (لا تطابق لـ `trendyol`) | حالة legacy UNKNOWN (قول المالك) (closed or merged) | سلف لـ `origin/main`؛ `merge-plan.md:128` | VERIFIED / INFERRED / UNKNOWN |
+| legacy / #14 (Noon، `claude/pr-e-noon`) | `lavkoo@561e8585` | نعم (المحتوى) | UNKNOWN (لا ملف نصي في `lavkooapp` يطابق `noon` ككلمة؛ المطابق الوحيد ملف خط ثنائي `assets/fonts/Tajawal/Tajawal-Medium.ttf` وهو تطابق عرضي محتمل؛ المطابقة الحرفية 12 ملفاً ولم تُحلَّل) | حالة legacy UNKNOWN (قول المالك) (closed or merged) | سلف لـ `origin/main`؛ `merge-plan.md:129` | VERIFIED / UNKNOWN |
+| legacy / #15 (Odoo، `claude/pr-f-odoo`) | `lavkoo@538fe91f` و`lavkoo@905571fa` | نعم (المحتوى) | INFERRED: لا (لا تطابق لـ `odoo`) | حالة legacy UNKNOWN (قول المالك) (closed or merged) | سلف لـ `origin/main`؛ `merge-plan.md:130` | VERIFIED / INFERRED / UNKNOWN |
+| legacy / #16 (guards، `claude/pr-g-guards`) | `lavkoo@9b3d5244` | نعم (المحتوى) | UNKNOWN (مصطلح عام لا يصلح للاختبار) | مسودة في لقطة وقت الكتابة (`final-report.md:250`)، والحالة الحالية UNKNOWN (قول المالك) | سلف لـ `origin/main`؛ `merge-plan.md:132` | VERIFIED / UNKNOWN |
 | lavkoo / #17 (shipping tests، `claude/pharmacyksa-shipping-tests-31q1nu`) | `lavkoo@cbf2cddb` (رأس `lavkoo@89f1be90`) | نعم | INFERRED: لا (لا تطابق لـ `torod`، وهو مصطلح واحد فقط) | لا PR له في legacy وقت الكتابة (`merge-plan.md:134`) | دمج 254 ملفاً؛ نص الدمج | VERIFIED / INFERRED |
-| lavkoo / #18 (App deep-link routes) | `lavkoo@f61939f8` (رأس `lavkoo@68612acc`) | نعم | INFERRED: نعم على مستوى الميزة (12 ملفاً في `lavkooapp` و1 في البائع تطابق deep link) | لا كائن PR؛ الربط بـ PR #2 لـ ksaapp98 بالعنوان فقط | نص الدمج؛ 3 ملفات | VERIFIED / INFERRED |
-| legacy #12 إلى #18 (ملخص) | المحتوى عبر `lavkoo@cbf2cddb` | نعم (المحتوى) | — | OWNER-REPORTED: مغلقة أو مدموجة. لا وصول إلى legacy | القسم 2 والقسم 3 | UNKNOWN / BLOCKED |
+| lavkoo / #18 (App deep-link routes) | `lavkoo@f61939f8` (رأس `lavkoo@68612acc`) | نعم | INFERRED: نعم على مستوى الميزة (النمط `deep[ _-]*link` بلا تفرقة حالة الأحرف: 12 ملفاً في `lavkooapp` و1 في HEAD المحلي للبائع؛ العبارة الحرفية `deep link` تعطي 3 في `lavkooapp`) | لا كائن PR؛ الربط بـ PR #2 لـ ksaapp98 بالعنوان فقط | نص الدمج؛ 3 ملفات | VERIFIED / INFERRED |
+| legacy #12 إلى #18 (ملخص) | المحتوى عبر `lavkoo@cbf2cddb` | نعم (المحتوى) | — | UNKNOWN (قول المالك): مغلقة أو مدموجة. لا وصول إلى legacy | القسم 2 والقسم 3 | UNKNOWN / BLOCKED |
 | ksaapp98 / PR #1 (MyFatoorah) | `ksaapp98@c0035656` | غير منطبق (مستودع مختلف، لا commits مشتركة) | نعم جزئياً: INFERRED للاكتمال | حالة PR #1 على GitHub UNKNOWN؛ 8 ملفات معدّلة مختلفة | القسم 4 | VERIFIED (الحضور) / INFERRED (الاكتمال) |
 | ksaapp98 / PR #2 (app/backend compatibility) | `ksaapp98@79f50bec` | غير منطبق | لا بشكل معتبر: INFERRED | حالة PR #2 على GitHub UNKNOWN (لا بيان للمالك في المصادر المقروءة) | القسم 4 | VERIFIED (الأعداد) / INFERRED / UNKNOWN |
 
@@ -146,7 +147,7 @@ N6 كما صاغته Discovery-01 (`lavkoo:docs/gcc/audits/2026-11-12-0115-disco
 
 | # | البند | الحكم | الأساس |
 |---|---|---|---|
-| 1 | رؤوس `main` ورأس التدقيق مع التوقيت | VERIFIED | القسم 1 |
+| 1 | رؤوس `main` ورأس التدقيق مع التوقيت (لقطة 11:21:49Z؛ الرأس الحالي في القسم 1) | VERIFIED | القسم 1 |
 | 2 | رؤوس مستودعات العميل والبائع والنسخة المحلية لـ ksaapp98 | VERIFIED | القسم 1 |
 | 3 | رؤوس legacy (`pharmacyksa98`) | BLOCKED | خارج النطاق، والوصول مرفوض |
 | 4 | عدّ PRs والفروع في المستودعات الثلاثة | VERIFIED | القسم 2 |
@@ -170,8 +171,8 @@ N6 كما صاغته Discovery-01 (`lavkoo:docs/gcc/audits/2026-11-12-0115-disco
 - **UNKNOWN:** سبب غياب كائنات PR في lavkoo مع بقاء أرقامها في رسائل الدمج. حالة #9 إلى #18 في legacy (قول المالك فقط، غير متحقق منه). حالة PR #1 و#2 في ksaapp98 على GitHub (القراءة محلية فقط). محتوى `lavkooappseller` عند الرأس الريموت `9ea64232` (غير موجود محلياً، ولم تُقارن محتوياته). معنى الأسطر الـ11 الناقصة في `digital_payment_order_place_screen.dart` وطبيعة الفروقات في الملفات الثمانية المعدّلة. [UNKNOWN]
 - **INFERRED:** ربط أرقام PR بأسماء الفروع من `merge-plan.md`. أن دمجي #11 و#18 جرى خارج تدفق PR على GitHub. أن `lavkoo` أُنشئ بنقل تاريخ من مستودع آخر، وهذا لم يُتحقق منه بوصول إلى legacy. أن رؤوس الدمج الثانية تساوي رؤوس الفروع لدى legacy. [INFERRED]
 - **مدى أسماء الميزات:** البحث بأسماء الميزات (`myfatoorah` و`deep link` وغيرها) مؤشر ضعيف. لا يثبت وجود الكود بمعناه، ولا يثبت التطابق الدلالي. [INFERRED]
-- **التوقيت:** الهيدر 14:19 +03:00 كما طُلب. أول استعلام عن الريموت كان 2026-11-12T11:21:49Z (14:21:49 +03:00). [VERIFIED]
-- **الرفع:** رُفع هذا الملف وحده إلى الفرع التدقيقي بعد طلب المستخدم الصريح. لم يُعدَّل أي ملف آخر، ولا يوجد دمج أو force push. [VERIFIED]
+- **التوقيت:** الهيدر 14:19 +03:00 كما طُلب. أول استعلام عن الريموت كان بحسب المؤلف 2026-11-12T11:21:49Z (14:21:49 +03:00). [UNKNOWN: لا سجل خارجي]
+- **النشر:** نُشرت نسخة أولى من هذا الملف (`lavkoo@cd9ef550`) قبل إكمال مراجعة المؤلف، ثم صُحِّحت بنشر لاحق بعد التحقق. لم يُعدَّل أي ملف آخر، ولا يوجد دمج أو force push. [VERIFIED]
 - **حدود القرار:** لم يُغلق P0-A، ولا Q-30، ولا G0. القرار للمالك بتوقيع كتابي منفصل. [VERIFIED]
 - **خارج هذا التقرير:** مخرجات P0-C وP0-E، والمستند الختامي للمرحلة، والـ handoff. [VERIFIED]
 
@@ -179,8 +180,8 @@ N6 كما صاغته Discovery-01 (`lavkoo:docs/gcc/audits/2026-11-12-0115-disco
 
 | المعرّف | الطريقة (للقراءة فقط) | المدى | النتيجة | الحكم |
 |---|---|---|---|---|
-| E-A01 | `git ls-remote` لـ `refs/heads/main` و`refs/heads/claude/exciting-shannon-4mh2ok` | lavkoo، lavkooapp، lavkooappseller | `55e3dd0e`، `c8b6ed3e`، `eedbbb8`، `9ea64232` | VERIFIED |
-| E-A02 | `git rev-parse` و`git log -1` لـ HEAD المحلي | lavkooapp، lavkooappseller، ksaapp98، lavkoo | `eedbbb8`، `8ea00922`، `79f50bec`، `7f42777c` | VERIFIED |
+| E-A01 | `git ls-remote` لـ `refs/heads/main` و`refs/heads/claude/exciting-shannon-4mh2ok` | lavkoo، lavkooapp، lavkooappseller | `55e3dd0e`، `c8b6ed3e` (رأس وقت الاستعلام الأول، وليس الرأس الحالي `fe3907d6`)، `eedbbb8`، `9ea64232` | VERIFIED |
+| E-A02 | `git rev-parse` و`git log -1` لـ HEAD المحلي | lavkooapp، lavkooappseller، ksaapp98، lavkoo | `eedbbb8` (HEAD لـ lavkooapp، فرع `claude/exciting-shannon-4mh2ok`)، `8ea00922` (HEAD المحلي لـ lavkooappseller، فرع `claude/exciting-shannon-4mh2ok`، وليس الرأس الريموت `9ea64232`)، `79f50bec` (HEAD لـ ksaapp98، فرع `main`)، `c8b6ed3e` (HEAD لـ lavkoo وقت الاستعلام؛ `7f42777c` هو فرع `main` المحلي وليس HEAD) | VERIFIED |
 | E-A03 | MCP get_commit و list_commits | lavkooappseller | `9ea64232` بتاريخ 2026-11-12T01:50:02Z؛ `8ea00922` في سلفه (8 commits) | VERIFIED |
 | E-A04 | MCP list_pull_requests (`all` و`closed`) و pull_request_read لـ `pulls/9` و`pulls/18` | lavkoo، lavkooapp، lavkooappseller | 0 لكل مستودع؛ 404 لـ #9 و#18 | VERIFIED |
 | E-A05 | GET فقط عبر gh api: `commits/<sha>/pulls` لخمسة merges، و`pulls?state=all`، والإعدادات الأساسية للمستودع | lavkoo | 0 لكل merge؛ 0 PR؛ `has_pull_requests` = true | VERIFIED |
@@ -191,7 +192,7 @@ N6 كما صاغته Discovery-01 (`lavkoo:docs/gcc/audits/2026-11-12-0115-disco
 | E-A10 | `git log --merges`، و`git rev-list --count` | ksaapp98، lavkooapp، lavkooappseller | ksaapp98: دمجان من 20 commit؛ lavkooapp: 2 commit؛ lavkooappseller المحلي: 3 commits | VERIFIED |
 | E-A11 | مقارنة البصمات (blob) لكل مسار في دمجي ksaapp98 مقابل HEAD لـ lavkooapp | ksaapp98 PR #1 و#2 | PR #1: 5 مطابق و8 مختلف. PR #2: 3 مطابق و27 مختلف و10 غائب و1 محذوف لم يُطبَّق | VERIFIED |
 | E-A12 | `git diff -U0` ثم بحث الأسطر الكاملة في الملف المقابل | ksaapp98 PR #1 و#2 | PR #1: 672 من 683. PR #2: 353 من 5145 | INFERRED (مؤشر حضور) |
-| E-A13 | `git grep -il` و`git ls-tree` بالمصطلحات | HEAD لـ lavkooapp وlavkooappseller | `myfatoorah`: 7 بالمحتوى و4 بالاسم؛ `deep link`: 12 و1؛ `amazon` و`trendyol` و`odoo` و`torod`: 0 | VERIFIED (الأعداد) |
+| E-A13 | `git grep -il` و`git ls-tree` بالمصطلحات | HEAD المحلي لـ lavkooapp (`eedbbb8`) وlavkooappseller (`8ea00922`، وليس الرأس الريموت `9ea64232`) | `myfatoorah`: 7 بالمحتوى و4 بالاسم؛ `deep[ _-]*link` بلا تفرقة حالة الأحرف: 12 و1 (العبارة الحرفية `deep link`: 3 و1)؛ `amazon` و`trendyol` و`odoo` و`torod`: 0 | VERIFIED (الأعداد) |
 | E-A14 | قراءة نصوص مُستشهد بها | DECISIONS.md:58-62، STATUS.md:33-36، final-report.md:1-9 و249-251 و697-699 و622-626، merge-plan.md:127-134، Q-30 (file 11:389)، N5 و N6 (file 12:148-149)، Discovery-02 report 02 | نصوص مطابقة للاستشهادات | VERIFIED |
 | E-A15 | لا تغيير: لم يُنفَّذ fetch أو checkout أو commit أو push في المستودعات الأخرى، ولم يُستعمل أي اتصال إنتاجي أو قاعدة بيانات | كل المستودعات | لا تغيير على كود أو قاعدة بيانات أو إنتاج | VERIFIED |
 | E-A16 | `git tag --list` | lavkoo | 0 وسوم | VERIFIED |
