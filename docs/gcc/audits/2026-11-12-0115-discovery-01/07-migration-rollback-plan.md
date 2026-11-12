@@ -2,7 +2,7 @@
 
 > **المرحلة:** AUDIT (قراءة فقط) — **الجلسة:** `claude/exciting-shannon-4mh2ok` — **التاريخ:** 2026-11-12 (+03:00)
 > **SHA الأساس:** `lavkoo@7f42777` · `lavkooapp@eedbbb8` · `lavkooappseller@8ea0092` · مرجع قديم `ksaapp98@79f50be`
-> **يعتمد على:** [E03](./evidence/E03-data-model-ownership-inventory.md)، [E04](./evidence/E04-customer-identity-wallet-loyalty.md)، [E09](./evidence/E09-cart-checkout-order-pipeline.md)، [E13](./evidence/E13-finance-odoo-costs-settlements.md)، [E02](./evidence/E02-store-context-settings-currency-cache.md)، [E10](./evidence/E10-payments-gateways.md)، [E11](./evidence/E11-inventory-fulfillment-shipping.md)، [التقرير 03](./03-data-ownership-isolation-matrix.md) اكتمل أثناء الكتابة وقُورنت به الخطة للتحقق من الاتساق، والتقريران 04 و05 لم يكونا متاحين (انظر حدود التقرير)، وقرارات `lavkoo:docs/gcc/DECISIONS.md:34`.
+> **يعتمد على:** [E03](./evidence/E03-data-model-ownership-inventory.md)، [E04](./evidence/E04-customer-identity-wallet-loyalty.md)، [E09](./evidence/E09-cart-checkout-order-pipeline.md)، [E13](./evidence/E13-finance-odoo-costs-settlements.md)، [E02](./evidence/E02-store-context-settings-currency-cache.md)، [E10](./evidence/E10-payments-gateways.md)، [E11](./evidence/E11-inventory-fulfillment-shipping.md)، [التقرير 03](./03-data-ownership-isolation-matrix.md) اكتمل أثناء الكتابة وقُورنت به الخطة للتحقق من الاتساق، والتقريران 04 و05 لم يكونا متاحين وقت الكتابة (انظر حدود التقرير)، وقرارات `lavkoo:docs/gcc/DECISIONS.md:34`.
 > **الحالة:** نهائي لهذه الجلسة — لا يتضمن أي تنفيذ.
 
 ## 0. الغرض وحدود الوثيقة
@@ -325,7 +325,7 @@
 
 ## حدود هذا التقرير وعناصر UNKNOWN
 
-- **المصادر:** التقريران 04 و05 لم يكونا موجودين في مجلد التقارير وقت الكتابة. التقرير 03 اكتمل أثناء الكتابة، وقُورنت به الخطة للاتساق (مراحل الكيانات وترتيب الكاتب الموحّد وشرط نطاقات الموظفين)، لكن لم تُنقل منه أي حقيقة لم تُثبت في الملاحق. الاعتماد الأساسي على الملاحق E02 وE03 وE04 وE09 وE10 وE11 وE13.
+- **المصادر:** التقريران 04 و05 لم يكونا موجودين في مجلد التقارير وقت الكتابة، ثم صارا متاحين لاحقاً ([التقرير 10] حدود التقرير). التقرير 03 اكتمل أثناء الكتابة، وقُورنت به الخطة للاتساق (مراحل الكيانات وترتيب الكاتب الموحّد وشرط نطاقات الموظفين)، لكن لم تُنقل منه أي حقيقة لم تُثبت في الملاحق. الاعتماد الأساسي على الملاحق E02 وE03 وE04 وE09 وE10 وE11 وE13.
 - **الوصول:** لا وصول إلى قاعدة بيانات الإنتاج ولا إلى `.env` ولا إلى المستودع القديم `pharmacyksa98`. كل قيمة إنتاجية `UNKNOWN` (انظر القسم 5).
 - **التنفيذ:** لم يُشغَّل أي كود أو اختبار من المستودعات، ولم يُكتب أي استعلام. كل الاستعلامات موصوفة بالكلمات فقط.
 - **المعادلات:** صيغة رصيد المحفظة (Σ الإيداع + مكافأة − الخصم) مستنتجة من الكود ومن توصيف الملحق E04 (`INFERRED`)، ولم تُختبر على بيانات حقيقية. الحكم على إمكانية إعادة البناء يبقى `INFERRED` حتى تُشغَّل المطابقة (M-06).
