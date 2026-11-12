@@ -9,17 +9,18 @@
 | مسار العمل | P0-C، بنية المخطط وخط أساس DDL، قراءة فقط (D-01(B) المحدود) | VERIFIED |
 | النطاق | مستودع `lavkoo` فقط: جرد ثابت لملفات الترحيل وجداول النماذج ومراجع SQL. لا اتصال بأي قاعدة بيانات، ولا تشغيل ترحيل، ولا اختبار، ولا بناء، ولا تعديل لأي ملف | VERIFIED |
 | مرجع التفويض | `lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:56-65` (القسم 3)، و`lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:36` (المنع)، و`lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:62` (تأجيل المحركين) | VERIFIED |
-| رأس فرع التدقيق `claude/exciting-shannon-4mh2ok` | `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` (على الخادم عبر ls-remote، ومطابق لمرجع الفرع المحلي) | VERIFIED |
+| رأس فرع التدقيق `claude/exciting-shannon-4mh2ok` | وقت التحليل: `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` (على الخادم عبر ls-remote ومطابق للمحلي). عند التحقق المستقل (2026-11-12 11:38 UTC): `lavkoo@cd9ef550be2ed8830d78d4446030fe2947fc04cf` محلياً وعلى الخادم، ويحوي `lavkoo@52055fe4` (هذا التقرير) و`lavkoo@cd9ef550` (P0-A). بين c8b6ed3e وcd9ef550 ملفا توثيق جديدان فقط تحت `docs/gcc/audits/2026-11-12-1419-phase0-d01b-limited/` ولا تغيير في migrations أو Modules أو app/Models أو app/Console | VERIFIED |
 | رأس `main` على الخادم | `lavkoo@55e3dd0ea41069f64b0657fcbb4f8953710d2cd9` (عبر ls-remote) | VERIFIED |
 | رأس `main` المحلي | `lavkoo@7f42777c8247144df322fdc0e0eeca03ae947129`. يختلف عن رأس `main` على الخادم. لم يُجلب ولم يُعدَّل، والأمر من اختصاص P0-A | VERIFIED |
-| التفويض السابق | `lavkoo@218b8aea` (سلف لرأس فرع التدقيق) | VERIFIED |
+| التفويض (موافقة المالك D-01(B)) | `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` (commit تسجيل التفويض) | VERIFIED |
+| المُسلَّم السابق (prior handoff) | `lavkoo@218b8aea` (سلف لـ c8b6ed3e وcd9ef550؛ تحقق بـ merge-base --is-ancestor) | VERIFIED |
 | التاريخ | 2026-11-12 14:19 +03:00 حسب التكليف. ساعة النظام عند التنفيذ 2026-11-12 11:22 +0000 | VERIFIED |
 | خارج النطاق | lavkooapp وlavkooappseller لم تُفحص في هذا التقرير | VERIFIED |
 | الحالة | توثيق مكتمل؛ فحص المخطط المعزول BLOCKED؛ P0-C غير مُغلق | VERIFIED |
 
 ## الخلاصة
 
-- 350 ملف ترحيل PHP: 336 في `database/migrations` و14 في وحدات `Modules`. تُنشئ 139 اسم جدول بـ`Schema::create` بالاسم الحرفي، وتعدّل 69 اسماً بالاسم الحرفي، منها 36 لا يُنشأ في أي ترحيل. VERIFIED
+- 350 ملف ترحيل PHP: 336 في `database/migrations` و14 في وحدات `Modules`. تُنشئ 139 اسم جدول بـ`Schema::create` بالاسم الحرفي، وتعدّل 69 اسماً بالاسم الحرفي داخل up() (على كامل الملف 70، والزائد order_transaction يظهر في down() فقط)، منها 36 لا يُنشأ في أي ترحيل (على كامل الملف 37). VERIFIED
 - 243 اسم جدول مرتبط بـ244 صنفاً من نماذج Eloquent: 133 له create، و35 تعديل فقط، و75 بلا أي ترحيل. الأعداد VERIFIED، وتسمية الجداول الضمنية INFERRED.
 - لا يوجد ملف SQL متتبَّع في المستودع. ملف الـ dump المذكور في `CLAUDE.md` مستبعد بالقاعدة `*.sql`. VERIFIED
 - المخطط الأساسي غير موجود في المستودع، ولا توجد نسخة معزولة مفوّضة. لذلك لا يمكن تحديد المخطط الفعلي للإنتاج أو لأي نسخة. BLOCKED
@@ -35,11 +36,11 @@
 ```
 git -C /home/user/lavkoo rev-parse HEAD
 git -C /home/user/lavkoo ls-remote origin refs/heads/main refs/heads/claude/exciting-shannon-4mh2ok
-git -C /home/user/lavkoo ls-tree -r --name-only HEAD -- database/migrations
-git -C /home/user/lavkoo ls-tree -r --name-only HEAD        # ثم تصفية Modules/*/[Dd]atabase/[Mm]igrations/
-git -C /home/user/lavkoo cat-file -p HEAD:<path>            # قراءة كل ملف ترحيل، ثم تقسيمه إلى up() وdown()
+git -C /home/user/lavkoo ls-tree -r --name-only c8b6ed3e434ba39d28a2fd5f01a9159b925bb268 -- database/migrations
+git -C /home/user/lavkoo ls-tree -r --name-only c8b6ed3e434ba39d28a2fd5f01a9159b925bb268        # ثم تصفية Modules/*/[Dd]atabase/[Mm]igrations/
+git -C /home/user/lavkoo cat-file -p c8b6ed3e434ba39d28a2fd5f01a9159b925bb268:<path>            # قراءة كل ملف ترحيل، ثم تقسيمه إلى up() وdown()
 git -C /home/user/lavkoo ls-files                            # تصفية امتدادات SQL
-git -C /home/user/lavkoo log -1 --format='%h %ad' --date=short -- app/Console/Commands/BootstrapTestSchema.php
+git -C /home/user/lavkoo log -1 --format='%h %ad' --date=short c8b6ed3e434ba39d28a2fd5f01a9159b925bb268 -- app/Console/Commands/BootstrapTestSchema.php
 ```
 
 أنماط التحليل المستعملة (لا تُنشر أي عبارة DDL):
@@ -56,7 +57,7 @@ SQL خام       : DB::(statement|unprepared)\s*\(  ;  CREATE TABLE (غير حس
 
 | المقياس | القيمة | الوسم |
 |---|---|---|
-| ملفات ترحيل PHP في `database/migrations` | 336، والمدى الزمني من 2016-06-01 إلى 2026-11-22 | VERIFIED |
+| ملفات ترحيل PHP في `database/migrations` | 336، والمدى الزمني من 2016-06-01 إلى 2026-11-22. تسعة منها اسم ملفها بتاريخ بعد تاريخ هذا التقرير (2026-11-12)، من 2026_11_13_100000 إلى 2026_11_22_100000 (ثمانية منها create_ في الاسم، وواحد add_catalog_match_to_channel_listing_drafts)، ووجودها في الشجرة لا يثبت تطبيقها | VERIFIED للعدّ والتواريخ، UNKNOWN للتطبيق |
 | ملفات ترحيل PHP في `Modules/*/database/migrations` | 14 في وحدات AI وBlog وTaxModule، مع ملفي `.gitkeep` غير PHP | VERIFIED |
 | الإجمالي PHP | 350 | VERIFIED |
 | ملفات فيها `Schema::create` داخل `up()` | 103 (92 في الجذر و11 في الوحدات) | VERIFIED |
@@ -64,13 +65,14 @@ SQL خام       : DB::(statement|unprepared)\s*\(  ;  CREATE TABLE (غير حس
 | ملفات بلا أي استدعاء بنّاء من `Schema` | 5، كلها في الجذر (انظر 1.3) | VERIFIED |
 | استدعاءات `create` بالاسم الحرفي | 139، وأسماء مميزة 139، ولا اسم يُنشأ مرتين | VERIFIED |
 | استدعاءات `create` باسم غير حرفي | 0 | VERIFIED |
-| أسماء مميزة في `Schema::table` بالاسم الحرفي | 69، منها 36 لا يُنشأ في أي ترحيل | VERIFIED |
-| استدعاءات `Schema::table` باسم غير حرفي | 6 (5 في الجذر و1 في الوحدات)؛ الجدول المستهدف غير معروف | UNKNOWN |
+| أسماء مميزة في `Schema::table` بالاسم الحرفي | 69 داخل up() (على كامل الملف 70، والزائد order_transaction في down() فقط)، منها 36 لا يُنشأ في أي ترحيل (على كامل الملف 37) | VERIFIED |
+| استدعاءات `Schema::table` باسم غير حرفي | 14 استدعاءً في 5 ملفات، وهدف كل منها ثابت في الكود نفسه: 8 عبر `self::TABLE` (`shipping_addresses` في 2026_11_07_100100، و`provider_cities` في 2026_11_07_100300)، و2 عبر `self::SHARE_TABLES` (اسمان حرفيان في 2026_11_10_100000)، و2 عبر معامل حرفي لاستدعاء مساعد في 2026_11_11_100000، و2 عبر مصفوفة `$this->tables` الحرفية في Modules/TaxModule | VERIFIED للعدّ والهدف |
 | `rename` أو `drop` داخل `up()` | 0. و`drop` داخل `down()` في 117 ملفاً | VERIFIED |
 | ملفات فيها `DB::statement` أو `DB::unprepared` | 2 (انظر 1.3) | VERIFIED |
-| استدعاءات `hasTable` أو `hasColumn` شرطية داخل الترحيلات | 110 سطراً | VERIFIED |
-| أسطر `json(` | 72 | VERIFIED |
-| `generatedAs` و`storedAs` و`virtualAs` و`check(` و`fullText(` و`spatialIndex(` و`change(` و`charset(` و`collation(` و`engine(` و`useCurrentOnUpdate(` | 0 لكل منها | VERIFIED |
+| استدعاءات `hasTable` أو `hasColumn` شرطية داخل الترحيلات | 112 سطراً (110 في database/migrations و2 في Modules/TaxModule) | VERIFIED |
+| أسطر `json(` | 74 (72 في database/migrations و2 في Modules/AI) | VERIFIED |
+| `generatedAs` و`storedAs` و`virtualAs` و`check(` و`fullText(` و`spatialIndex(` و`charset(` و`collation(` و`engine(` و`useCurrentOnUpdate(` | 0 لكل منها | VERIFIED |
+| `change(` (كلها `->change()` لتعديل الأعمدة) | 216 سطراً | VERIFIED |
 | ملفات يحوي اسمها `_create_` | 102، والفرق عن 103 ملفاً فيها create هو ملف `add_stock_allocation`، أي أن العدّ بالاسم وحده يخطئ | VERIFIED |
 
 ### 1.3 الملفات الخمسة بلا استدعاء بنّاء، وملفات SQL الخام
@@ -78,16 +80,16 @@ SQL خام       : DB::(statement|unprepared)\s*\(  ;  CREATE TABLE (غير حس
 | الملف | ما يفعله في `up()` | الوسم |
 |---|---|---|
 | `database/migrations/2026_04_23_120000_rename_admin_role_module_access_keys.php` | ترحيل بيانات على `admin_roles` عبر `DB::table` (السطر 41)، لا DDL | VERIFIED |
-| `database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php` | `DB::statement($sql)` بوسيط متغيّر (السطر 104، ويتكرر في `down()` عند السطر 204)؛ نص SQL غير معروف بالتحليل الثابت | VERIFIED للاستدعاء، UNKNOWN للأثر |
-| `database/migrations/2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment.php` | يستدعي `LegacyColumnWidener::widenString` (السطر 21)، والـ DDL داخل صنف مساعد لم يُفحص | VERIFIED للاستدعاء، UNKNOWN للأثر |
-| `database/migrations/2026_11_06_100100_widen_order_details_variation_for_fulfillment.php` | يستدعي `LegacyColumnWidener::convertToText` (السطر 21)، والـ DDL داخل الصنف المساعد نفسه | VERIFIED للاستدعاء، UNKNOWN للأثر |
+| `database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php` | `DB::statement($sql)` بوسيط متغيّر (السطر 104، ويتكرر في `down()` عند السطر 204)؛ نص الـ SQL حرفي داخل الملف نفسه في up() وdown()، فالجداول المستهدفة ثابتة، ولا يُنشر النص | VERIFIED للاستدعاء والهدف، UNKNOWN لأثر التنفيذ الفعلي |
+| `database/migrations/2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment.php` | يستدعي `LegacyColumnWidener::widenString` (السطر 21)، الهدف ثابت في الاستدعاء (order_details / delivery_status، وorder_details / variation، السطر 21). الصنف المساعد واحد: lavkoo:app/Services/Fulfillment/Support/LegacyColumnWidener.php:25، ودالة statement (السطر 224) تُرجع نصاً ولم تُقرأ بعد؛ القراءة الثابتة مسموحة | VERIFIED للاستدعاء والهدف، UNKNOWN للأثر |
+| `database/migrations/2026_11_06_100100_widen_order_details_variation_for_fulfillment.php` | يستدعي `LegacyColumnWidener::convertToText` (السطر 21)، الهدف ثابت في الاستدعاء (order_details / delivery_status، وorder_details / variation، السطر 21). الصنف المساعد واحد: lavkoo:app/Services/Fulfillment/Support/LegacyColumnWidener.php:25، ودالة statement (السطر 224) تُرجع نصاً ولم تُقرأ بعد؛ القراءة الثابتة مسموحة | VERIFIED للاستدعاء والهدف، UNKNOWN للأثر |
 | `database/migrations/2026_11_08_100004_register_myfatoorah_payment_gateway.php` | ترحيل بيانات (إدراج صف) على `addon_settings` بعد حارس `hasTable` (السطر 31، والإدراج عند السطر 74) | VERIFIED |
-| `database/migrations/2026_03_29_140000_add_unique_index_to_seo_meta_info_table.php` | `DB::statement("…")` بنص متعدد الأسطر (السطر 16)، ولم يُفكَّك نصه في هذا التقرير | VERIFIED للاستدعاء، UNKNOWN للأثر |
+| `database/migrations/2026_03_29_140000_add_unique_index_to_seo_meta_info_table.php` | `DB::statement("…")` بنص متعدد الأسطر (السطر 16)، نصه حرفي داخل الملف، ولم يُفكَّك في هذا التقرير | VERIFIED للاستدعاء، UNKNOWN للأثر |
 
 ### 1.4 مقارنة الفروع
 
 - عدد ملفات الجذر 336 في كل من `lavkoo@55e3dd0ea41069f64b0657fcbb4f8953710d2cd9` و`lavkoo@7f42777c8247144df322fdc0e0eeca03ae947129` و`lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` و`lavkoo@218b8aea`. VERIFIED
-- عدّ وحدات `Modules` على الفروع الأخرى لم يُعَد. في محاولة أولى أعاد نمط حساس لحالة الأحرف صفراً للوحدات، وصُحّح العدّ على الفرع `c8b6ed3e` فقط. UNKNOWN
+- عدّ وحدات `Modules` على الفروع الأخرى لم يُعَد. في محاولة أولى أعاد git grep بمسار glob (Modules/*/database/migrations) صفراً للوحدات، بينما يعيد المسار الصريح لكل وحدة نتائج (لنمط `Schema::`: Modules/AI/database/migrations: 8، وModules/Blog/database/migrations: 8، وModules/TaxModule/database/migrations: 14)، والسبب المرجَّح أنه المسار لا حساسية الأحرف، وصُحّح العدّ على الفرع `c8b6ed3e` فقط. UNKNOWN
 
 ## 2. جداول النماذج ومراجع SQL
 
@@ -95,7 +97,7 @@ SQL خام       : DB::(statement|unprepared)\s*\(  ;  CREATE TABLE (غير حس
 
 - فحص 2628 ملف PHP متتبَّعاً في `app/` و`Modules/` و`database/` و`routes/` و`config/` و`bootstrap/`، مع استبعاد مجلدات الترحيل. VERIFIED
 - عُدّ نموذجاً كل صنف غير مجرّد يرث من `Model` أو `Authenticatable` أو `Pivot` أو `MorphPivot`، أو يكون اسم أبيه منتهياً بـ`Model`. العدد 244. VERIFIED
-- الكشف بالاسم المباشر للأب لا يلتقط الوراثة متعددة المستويات، فالعدد قد يقل عن الواقع. INFERRED
+- الكشف بالاسم المباشر للأب لا يلتقط الوراثة متعددة المستويات، وقد تحقّق المُحقِّق بالتحويل المتعدد المستويات فلم يُضِف أي صنف (244 مؤكَّد). VERIFIED
 - اسم الجدول: قيمة `$table` الحرفية إن وُجدت (89 صنفاً، ولم توجد قيمة غير حرفية)، وإلا الاسم الضمني بقاعدة Laravel (155 صنفاً). VERIFIED للعدّ
 - الاسم الضمني حُسب بتحويل اسم الصنف إلى snake_case وجمع كلمته الأخيرة بقواعد إنجليزية مبسطة، ويُقبل الاسم كما هو أو جمعه. لم يُشغَّل محلّل Laravel لأن تشغيل PHP محظور. INFERRED
 - التصنيف: M = له `Schema::create` حرفي في `up()` لأي ترحيل؛ A = له `Schema::table` حرفي ولا create؛ D = لا يظهر في أي منهما. VERIFIED (تعريف الطريقة)
@@ -110,8 +112,8 @@ SQL خام       : DB::(statement|unprepared)\s*\(  ;  CREATE TABLE (غير حس
 | الجداول النموذجية بلا create (A + D) | 110 | VERIFIED |
 | جداول create غير مرتبطة بنموذج | 6: `jobs` و5 جداول `oauth_*` | VERIFIED |
 | الجداول المُنشأة بالاسم الحرفي (M + غير المرتبط) | 139 = 133 + 6 | VERIFIED |
-| مراجع جداول في الشيفرة خارج النماذج (`DB::table` و`->table` و`hasTable` بالاسم الحرفي) | 158 اسماً مميزاً | VERIFIED |
-| من تلك المراجع، أسماء بلا create وبلا alter | 34 (قائمتها في 2.5، وتشمل 17 جدول `monitoring_*`) | VERIFIED |
+| مراجع جداول في الشيفرة خارج النماذج (`DB::table` و`->table` و`hasTable` بالاسم الحرفي) | 158 اسماً مميزاً (باستثناء مجلد app/Models/ ومجلدات الترحيل؛ استبعاد كل ملف يحوي نموذجاً يعطي 157) | VERIFIED |
+| أسماء خارج النماذج بلا create وبلا alter (القسم 2.5 ج) | 34 (تشمل 17 جدول `monitoring_*`) | VERIFIED |
 | استدعاءات بأسماء ديناميكية لا يلتقطها البحث الحرفي | عددها غير معروف (منها استدعاء `Schema::create($table, …)` في الأمر المذكور في 2.4) | UNKNOWN |
 
 ### 2.3 مراجع SQL في المستودع
@@ -123,7 +125,7 @@ SQL خام       : DB::(statement|unprepared)\s*\(  ;  CREATE TABLE (غير حس
 | `CLAUDE.md` السطر 22 | يطلب استيراد `installation/backup/database.sql` قبل الترحيل، والملف مستبعد من Git | VERIFIED |
 | `installation/` المتتبَّع | ملفان نصيان فقط: `activate_install_routes.txt` و`activate_update_routes.txt` | VERIFIED |
 | `database/` المتتبَّع خارج الترحيلات | ملف `.gitignore`، وثلاثة ملفات في `data`، وملف في `factories`، وخمسة في `seeds`؛ لا SQL فيها | VERIFIED |
-| `docs/` | 17 ملف Markdown يحوي النص `create table` (لم يُستخرج محتواها)؛ لا ملف مخطط SQL بين الملفات | VERIFIED |
+| `docs/` | 18 ملف Markdown عند `lavkoo@cd9ef550` (منها هذا التقرير؛ عند `lavkoo@c8b6ed3e` 17) يحوي النص `create table` (لم يُستخرج محتواها)؛ لا ملف مخطط SQL بين الملفات | VERIFIED |
 | وجود نسخة من الـ dump محلياً عند المالك أو في مكان آخر | لم يُبحث عنه، لأن القواعد تمنع البحث عن أي نسخة قاعدة بيانات | UNKNOWN |
 
 ### 2.4 الأمر `dev:bootstrap-test-schema`
@@ -147,6 +149,8 @@ analytics_campaign_clicks, analytics_campaigns, analytics_daily, analytics_event
 
 **د. جداول create غير مرتبطة بنموذج (6 أسماء):** VERIFIED
 jobs, oauth_access_tokens, oauth_auth_codes, oauth_clients, oauth_personal_access_clients, oauth_refresh_tokens
+
+هـ. الاسم غير النموذجي المعدَّل بلا إنشاء (الاسم السادس والثلاثون في 1.2): paytabs_invoices. يُعدَّل في up() من 2026_01_22_164104_update_paytabs_invoices_amount_column.php، ولا ينشئه أي ترحيل، ولا يوجد له نموذج Eloquent. VERIFIED
 
 ## 3. مطابقة التقديرات السابقة وافتراضات الترحيلات
 
@@ -179,10 +183,11 @@ jobs, oauth_access_tokens, oauth_auth_codes, oauth_clients, oauth_personal_acces
 | أن أسماء الترحيلات تصف أثرها | 102 بالاسم مقابل 103 بالمحتوى | العدّ بالاسم يخطئ | VERIFIED |
 | أن التعديلات تكفي لمعرفة الأنواع والمفاتيح | لا CREATE أساسي للجداول الـ36 في المستودع | أنواع الأعمدة والمفاتيح غير مؤكدة | UNKNOWN |
 | أن الترحيل يعمل من قاعدة فارغة | التعليق في الكود يقرّر أن التنفيذ على قاعدة فارغة يتوقف، والتشغيل محظور لتأكيد ذلك | الترحيل يحتاج أساساً خارجياً | INFERRED (من التعليق) |
-| أن الترحيل غير مشروط بحالة القاعدة | 110 سطراً `hasTable` أو `hasColumn` | النتيجة تتوقف على حالة القاعدة الفعلية | VERIFIED للعدّ، UNKNOWN للأثر |
-| أن كل DDL ظاهر في النص | صنفان مساعدان، وخمسة استدعاءات بأسماء غير حرفية، وملفا SQL خام | أثرها الفعلي غير معروف | VERIFIED للاستدعاء، UNKNOWN للأثر |
+| أن الترحيل غير مشروط بحالة القاعدة | 112 سطراً `hasTable` أو `hasColumn` | النتيجة تتوقف على حالة القاعدة الفعلية | VERIFIED للعدّ، UNKNOWN للأثر |
+| أن كل DDL ظاهر في النص | صنف مساعد واحد (LegacyColumnWidener)، و14 استدعاء Schema::table بأسماء غير حرفية (أهدافها ثابتة، انظر 1.2)، وملفا SQL خام | أثر الـ DDL داخل الصنف المساعد وفي نص الـ SQL الخام غير مُقرأ بعد | VERIFIED للاستدعاء، UNKNOWN للأثر |
 | أن الجداول غير النموذجية كلها في اتصال واحد | 17 جدولاً من `monitoring_*` تُقرأ عبر إعداد اتصال منفصل (E03 السطر 370) | وجودها يُقاس على الاتصال المعني | VERIFIED للمصدر، UNKNOWN لوجودها |
 | أن الترحيلات تمثّل ما هو مطبَّق في الإنتاج | جدول `migrations` في الإنتاج غير معروف (M-02) | لا يُعرف أي ترحيل طُبِّق فعلاً | UNKNOWN |
+| أن كل الترحيلات مؤرَّخة حتى تاريخ التقرير | تسعة ملفات مؤرَّخة بعده | وجودها في الشجرة لا يثبت تطبيقها | UNKNOWN لحالة التطبيق |
 
 ## 4. فحص المخطط المعزول: BLOCKED
 
@@ -202,9 +207,9 @@ jobs, oauth_access_tokens, oauth_auth_codes, oauth_clients, oauth_personal_acces
 | PR-03 | أنواع الأعمدة والمفاتيح لجداول التعديل فقط (35 نموذجاً) | القسم 2.2 | UNKNOWN | مقارنة الأعمدة التي أضافتها الترحيلات بالكتالوج، بالأسماء فقط | PR-01 |
 | PR-04 | حضور جداول D (75 نموذجاً، منها 71 بعد الاستبعاد) في المخطط المعزول | القسم 2.5 ب و3.2 | UNKNOWN | حضور كل اسم أو غيابه في الكتالوج، ثم عدّ الفئات | PR-01 |
 | PR-05 | الجداول غير النموذجية (34) واتصال المراقبة المنفصل | القسم 2.5 ج، وE03 السطر 370 | UNKNOWN | حضور كل اسم على الاتصال المعني، مع تسجيل اسم الاتصال لا قيمته | PR-01 وتفويض صريح لاتصال المراقبة |
-| PR-06 | أثر الاستدعاءات غير الحرفية (6)، والصنفان المساعدان، وملفا SQL الخام | القسم 1.3 | UNKNOWN | قراءة ثابتة للصنف المساعد وتحديد الجدول والعمود المستهدفين؛ لا تنفيذ | لا شيء الآن. التنفيذ على نسخة معزولة يحتاج تفويضاً منفصلاً |
+| PR-06 | أثر الاستدعاءات غير الحرفية (14)، والصنف المساعد الواحد، وملفا SQL الخام | القسم 1.2 و1.3 | UNKNOWN (الأهداف ثابتة، والأثر غير مقروء بعد) | قراءة ثابتة لدالة statement في LegacyColumnWidener ولنص الـ SQL، دون تنفيذ | لا تفويض إضافي للقراءة الثابتة (P0-C البند 1)؛ التنفيذ على نسخة معزولة يحتاج تفويضاً منفصلاً |
 | PR-07 | الترحيلات المطبَّقة فعلاً في الإنتاج | M-02 في تقرير 07 (السطر 273) | UNKNOWN | قراءة أسماء الترحيلات من جدول `migrations` في نسخة معزولة، ومقارنتها بالـ350 ملفاً | PR-01 |
-| PR-08 | أثر الشروط `hasTable` و`hasColumn` (110 سطراً) | القسم 1.2 | UNKNOWN | تسجيل حالة كل شرط في النسخة المعزولة (وجود أو غياب) | PR-01 |
+| PR-08 | أثر الشروط `hasTable` و`hasColumn` (112 سطراً) | القسم 1.2 | UNKNOWN | تسجيل حالة كل شرط في النسخة المعزولة (وجود أو غياب) | PR-01 |
 | PR-09 | المحركان المستهدفان MySQL 8 وMariaDB 11.4.2، مع إصدار الإنتاج | `lavkoo:docs/gcc/PHASE0-D01B-LIMITED-AUTHORIZATION.md:62`، وM-05 | BLOCKED (DEFERRED) | بناء قاعدة معزولة لكل محرك من ملف أساس مفوّض، ثم مقارنة الكتالوج بالقاعدة المرجعية | تفويض منفصل، ولا تطبيق ترحيل في هذه المهمة |
 | PR-10 | سلوك عمود `json` (72 موضعاً) عبر المحركين | القسم 1.2 | BLOCKED (DEFERRED) | مقارنة تمثيل الأنواع والقيود لكل محرك بعد PR-09 | تفويض منفصل |
 | PR-11 | هل تُحمَّل ترحيلات الوحدات AI وBlog وTaxModule في بيئة الإنتاج | القسم 1.1 | UNKNOWN | قراءة إعدادات تحميل الوحدات، بأسماء المفاتيح وقيمها الافتراضية غير السرية فقط | قراءة إعدادات مفوّضة |
@@ -229,11 +234,11 @@ jobs, oauth_access_tokens, oauth_auth_codes, oauth_clients, oauth_personal_acces
 - AC-03: لكل اسم من الـ36 المعدَّل فقط، الجدول موجود، وكل عمود أضافته الترحيلات موجود بالاسم. الحالة: BLOCKED
 - AC-04: لكل اسم من الـ139 المُنشأ، الجدول موجود، أو يُسجَّل الفرق مع سببه. الحالة: BLOCKED
 - AC-05: لكل اسم من الـ34 غير النموذجي، الحضور على الاتصال المعني، مع اسم الاتصال فقط. الحالة: BLOCKED
-- AC-06: حسم الاستدعاءات غير الحرفية، والصنفين المساعدين، وملفي SQL الخام إلى أهداف، أو فئة UNKNOWN مع السبب. الحالة: BLOCKED
+- AC-06: حسم الاستدعاءات غير الحرفية (14)، والصنف المساعد الواحد، وملفي SQL الخام إلى أهداف، أو فئة UNKNOWN مع السبب. الحالة: UNKNOWN (القراءة الثابتة متاحة الآن ولم تُنفَّذ؛ ليست BLOCKED).
 - AC-07: مطابقة الترحيلات المطبَّقة (بالأسماء فقط) مع الـ350 ملفاً، وكل فرق مُفسَّر. الحالة: BLOCKED
-- AC-08: إعادة الجرد الثابت بالأوامر الموثقة في القسم 1.1 على رأس commit محدد، مع تسجيل الـ SHA. الحالة: BLOCKED
+- AC-08: إعادة الجرد الثابت بالأوامر الموثقة في القسم 1.1 على رأس commit محدد، مع تسجيل الـ SHA. الحالة: NOT RUN (ممكنة الآن بأوامر git للقراءة فقط؛ ليست BLOCKED). أعاد المُحقِّق الحساب على cd9ef550be2ed8830d78d4446030fe2947fc04cf فتطابقت الأعداد عدا ما صُحِّح أعلاه
 - AC-09: تطبيق الترحيلات على قاعدة معزولة لكل محرك (MySQL 8 وMariaDB 11.4.2) بعد تفويض منفصل فقط. معيار القبول: لا خطأ في التطبيق، وتقرير فروق الكتالوج بالفئات. الحالة: BLOCKED (DEFERRED)
-- AC-10: لا DDL ولا بيانات ولا اتصال في المستودع العام، وأي مادة حساسة تُحفظ في التخزين المقيَّد. الحالة: BLOCKED
+- AC-10: لا DDL ولا بيانات ولا اتصال في المستودع العام، وأي مادة حساسة تُحفظ في التخزين المقيَّد. الحالة: قابل للفحص الآن بـ scan_sensitive (لا يحتاج نسخة معزولة؛ ليست BLOCKED)
 - AC-11: قرار إغلاق P0-C بتوقيع مالك منفصل. الحالة: BLOCKED
 
 ## حدود هذا التقرير وعناصر BLOCKED / UNKNOWN
@@ -255,7 +260,7 @@ jobs, oauth_access_tokens, oauth_auth_codes, oauth_clients, oauth_personal_acces
 
 | المعرّف | المصدر | المنهج أو الأمر | النتيجة | الوسم |
 |---|---|---|---|---|
-| EV-01 | `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` | `rev-parse HEAD` و`ls-remote` على `main` وفرع التدقيق | رؤوس الفروع كما في الترويسة | VERIFIED |
+| EV-01 | `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` | `rev-parse HEAD` و`ls-remote` على `main` وفرع التدقيق | رؤوس الفروع كما في الترويسة (لحظة التحليل؛ الرأس الحالي موثّق في صف الترويسة) | VERIFIED |
 | EV-02 | `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` | `ls-tree -r --name-only` لمسار الترحيل والوحدات | 336 جذر، و14 وحدات، و2 `.gitkeep` | VERIFIED |
 | EV-03 | `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` | `cat-file -p` وتقسيم `up()` و`down()` وأنماط القسم 1.1 | 139 و69 و102 و103 و242 و5 وغيرها (القسم 1.2) | VERIFIED |
 | EV-04 | `lavkoo@c8b6ed3e434ba39d28a2fd5f01a9159b925bb268` | تحليل أصناف النماذج والوراثة و`$table` وقائمة الأسماء | 244 و89 و155 و243 و133 و35 و75 و6 | VERIFIED |
@@ -268,7 +273,7 @@ jobs, oauth_access_tokens, oauth_auth_codes, oauth_clients, oauth_personal_acces
 | EV-11 | `lavkoo:app/Console/Commands/BootstrapTestSchema.php:64` | قراءة مفاتيح `definitions()` | 14 مفتاحاً | VERIFIED |
 | EV-12 | `lavkoo:app/Services/Fulfillment/Readiness/Compatibility/RestoreSection.php:24-30` | قراءة القائمة وفحص عضويتها في الترحيلات | 31 اسماً، كلها بلا create وبلا alter | VERIFIED |
 | EV-13 | `lavkoo:config/database.php:18` | قراءة سطر الافتراضي | `mysql` | VERIFIED |
-| EV-14 | `lavkoo@13d1fc33` و`lavkoo@4c47205b` | `git log -1 --format='%h %ad' --date=short -- <path>` | آخر تعديل للأمر في 2026-11-06، وللمجلد في 2026-11-09 | VERIFIED |
+| EV-14 | `lavkoo@13d1fc33` و`lavkoo@4c47205b` | `git log -1 --format='%h %ad' --date=short -- <path>` | آخر تعديل للأمر في 2026-11-06، ولـ database/migrations في 2026-11-09 (lavkoo@4c47205b) | VERIFIED |
 | EV-15 | `lavkoo:database/migrations/2026_04_23_120000_rename_admin_role_module_access_keys.php:41` | قراءة السطر | ترحيل بيانات، لا DDL | VERIFIED |
 | EV-16 | `lavkoo:database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php:104` | قراءة السطر | `DB::statement` بمتغيّر | VERIFIED |
 | EV-17 | `lavkoo:database/migrations/2026_11_06_100000_widen_order_details_delivery_status_for_fulfillment.php:21` | قراءة السطر | استدعاء صنف مساعد | VERIFIED |
