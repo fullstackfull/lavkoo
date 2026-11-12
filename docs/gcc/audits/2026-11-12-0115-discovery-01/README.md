@@ -52,7 +52,7 @@
 |---|---|---|---|
 | 01 | الملخص التنفيذي وتغطية التدقيق والعوائق الحرجة | `01-executive-summary.md` | قيد الإعداد |
 | 02 | المعمارية الحالية عبر المستودعات وعقود الـ API ومخطط الاعتماديات | `02-cross-repo-architecture-api-contracts.md` | منشور — [02-cross-repo-architecture-api-contracts.md](./02-cross-repo-architecture-api-contracts.md) — 2026-11-12 03:09 (+03:00) |
-| 03 | مصفوفة ملكية البيانات والعزل والعلاقات المستهدفة | `03-data-ownership-isolation-matrix.md` | قيد الإعداد |
+| 03 | مصفوفة ملكية البيانات والعزل والعلاقات المستهدفة | `03-data-ownership-isolation-matrix.md` | منشور — [03-data-ownership-isolation-matrix.md](./03-data-ownership-isolation-matrix.md) — 2026-11-12 03:09 (+03:00) |
 | 04 | مصفوفة Preserve / Extend / Refactor / New / Dependent-On-PR | `04-preserve-extend-refactor-new-matrix.md` | قيد الإعداد |
 | 05 | سجل الفجوات والمخاطر P0/P1/P2 | `05-gap-risk-register.md` | قيد الإعداد |
 | 06 | نسب Git والـ PRs والفروع بين المستودعات القديمة والحالية | `06-git-lineage-legacy-prs.md` | منشور — [06-git-lineage-legacy-prs.md](./06-git-lineage-legacy-prs.md) — 2026-11-12 03:05 (+03:00) |
