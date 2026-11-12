@@ -21,10 +21,9 @@ use Tests\Feature\Address\StorefrontTestCase;
  * Its minimum clause is `min_purchase > eligible subtotal` (app/Utils/OrderManager.php:598): a subtotal below the minimum is refused,
  * a subtotal equal to it or above it passes, provided the other coupon conditions hold.
  *
- * Limits: the carts here carry no product discount, so the eligible subtotal is the cart price times the quantity. Product-level
- * discounts are not exercised. The coupons table is INFERRED: the installation dump is not in the repository. Its base columns come from
- * the Coupon model and the code that reads them; the columns the migrations added are reproduced as written. These tests prove this rule
- * on those tables, not on the live schema.
+ * The eligible subtotal is the cart price less the product discount, times the quantity; the two discount tests cover that. The coupons
+ * table is INFERRED: the installation dump is not in the repository. Its base columns come from the Coupon model and the code that reads
+ * them; the columns the migrations added are reproduced as written. These tests prove this rule on those tables, not on the live schema.
  *
  * Translations: the messages on the paths tested are defined in resources/lang/en/messages.php, so translate() writes nothing on them.
  * An empty cart is not tested. That branch (app/Utils/OrderManager.php:547-553) asks for Please_add_item_to_cart, which no language file
@@ -72,6 +71,10 @@ class CouponMinimumPurchaseBoundaryTest extends StorefrontTestCase
         Schema::table(table: 'orders', callback: function (Blueprint $table) {
             $table->string('coupon_code')->nullable();
             $table->string('order_group_id')->nullable();
+        });
+        Schema::table(table: 'products', callback: function (Blueprint $table) {
+            $table->decimal(column: 'discount', total: 16, places: 2)->default(0);
+            $table->string('discount_type')->nullable();
         });
         $this->useThrowawayPassportKeys();
         $this->analyticsRecorder = $this->mock(EventRecorder::class);
@@ -138,6 +141,28 @@ class CouponMinimumPurchaseBoundaryTest extends StorefrontTestCase
     {
         $this->shopperWithCart(subtotal: 40);
         $this->saudiCouponOfTenRiyals(overrides: ['min_purchase' => 30, 'discount' => 50]);
+
+        $result = OrderManager::getTotalCouponAmount(request: request(), couponCode: self::COUPON_CODE);
+
+        $this->assertFalse($result['status']);
+        $this->assertSame(self::NOT_REACHED, $result['messages']);
+    }
+
+    public function test_the_minimum_applies_to_the_subtotal_after_a_flat_product_discount(): void
+    {
+        $this->shopperWithCart(subtotal: 110, productDiscount: 10, productDiscountType: 'flat');
+        $this->saudiCouponOfTenRiyals();
+
+        $result = OrderManager::getTotalCouponAmount(request: request(), couponCode: self::COUPON_CODE);
+
+        $this->assertTrue($result['status']);
+        $this->assertEquals(100, $result['total_cart_amount']);
+    }
+
+    public function test_a_list_price_above_the_minimum_is_refused_when_the_discounted_subtotal_is_below_it(): void
+    {
+        $this->shopperWithCart(subtotal: 109, productDiscount: 10, productDiscountType: 'flat');
+        $this->saudiCouponOfTenRiyals();
 
         $result = OrderManager::getTotalCouponAmount(request: request(), couponCode: self::COUPON_CODE);
 
@@ -219,13 +244,14 @@ class CouponMinimumPurchaseBoundaryTest extends StorefrontTestCase
         $this->assertSame('discount_on_purchase', $response->json('coupon_type'));
     }
 
-    /** A signed-in customer with one checked, active, in-house product whose subtotal is the given SAR amount. */
-    private function shopperWithCart(int|float $subtotal): User
+    /** A signed-in customer with one checked, active, in-house product priced at the given SAR amount, optionally with a product discount. */
+    private function shopperWithCart(int|float $subtotal, int|float $productDiscount = 0, ?string $productDiscountType = null): User
     {
         $customer = $this->signIn($this->makeCustomer());
 
         DB::table('products')->insert([
             'id' => 1, 'name' => 'Paracetamol 500 mg', 'added_by' => 'admin', 'user_id' => 1, 'unit_price' => $subtotal,
+            'discount' => $productDiscount, 'discount_type' => $productDiscountType,
         ]);
         DB::table('carts')->insert([
             'customer_id' => $customer->id, 'is_guest' => false, 'cart_group_id' => 'group-sar', 'product_id' => 1, 'product_type' => 'physical',
