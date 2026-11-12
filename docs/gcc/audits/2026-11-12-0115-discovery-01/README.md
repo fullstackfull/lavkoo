@@ -50,7 +50,7 @@
 
 | # | التقرير | الملف | الحالة |
 |---|---|---|---|
-| 01 | الملخص التنفيذي وتغطية التدقيق والعوائق الحرجة | `01-executive-summary.md` | قيد الإعداد |
+| 01 | الملخص التنفيذي وتغطية التدقيق والعوائق الحرجة | `01-executive-summary.md` | منشور — [01-executive-summary.md](./01-executive-summary.md) — 2026-11-12 03:48 (+03:00) |
 | 02 | المعمارية الحالية عبر المستودعات وعقود الـ API ومخطط الاعتماديات | `02-cross-repo-architecture-api-contracts.md` | منشور — [02-cross-repo-architecture-api-contracts.md](./02-cross-repo-architecture-api-contracts.md) — 2026-11-12 03:09 (+03:00) |
 | 03 | مصفوفة ملكية البيانات والعزل والعلاقات المستهدفة | `03-data-ownership-isolation-matrix.md` | منشور — [03-data-ownership-isolation-matrix.md](./03-data-ownership-isolation-matrix.md) — 2026-11-12 03:09 (+03:00) |
 | 04 | مصفوفة Preserve / Extend / Refactor / New / Dependent-On-PR | `04-preserve-extend-refactor-new-matrix.md` | منشور — [04-preserve-extend-refactor-new-matrix.md](./04-preserve-extend-refactor-new-matrix.md) — 2026-11-12 03:12 (+03:00) |
