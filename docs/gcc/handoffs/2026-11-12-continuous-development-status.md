@@ -1,6 +1,6 @@
 # Continuous development handoff — LAVKOO GCC (2026-11-12, Asia/Kuwait)
 
-Status is written as of 13:58Z. Nothing here is merged, deployed, or run against production. CI results are stated only for the head SHA named, and pending runs are not reported as green.
+Status is written as of 14:10Z. CI rows show the last reading; pending runs are not reported as green. Nothing here is merged, deployed, or run against production. CI results are stated only for the head SHA named, and pending runs are not reported as green.
 
 Governing text: `docs/gcc/AUTONOMOUS_DEVELOPMENT_CHARTER.md` on `main` (c5c04b7b). Standing permission covers coding and draft PRs on isolated feature branches. It does not cover merging, production access, migrations on real data, secret or version changes, or deployment.
 
@@ -9,7 +9,7 @@ Governing text: `docs/gcc/AUTONOMOUS_DEVELOPMENT_CHARTER.md` on `main` (c5c04b7b
 | Item | Branch | Head | PR | State |
 |---|---|---|---|---|
 | Saudi baseline: Torod fixture repair and routing characterization | `gcc/p0-saudi-baseline-ci` | `d664ab4b` | #1 (draft) | CI on `d664ab4b` at 13:52Z: 14 passed, 1 failed by design (deployment overlay gate), 6 still running. Not green yet. |
-| Coupon minimum boundary, customer channels (`>=`) | `gcc/p0-coupon-minimum-boundary` | pending | pending | Test written: 10 tests, pass in sandbox, mutation-checked. Independent review running; fixes from the standards review are in a revised file, not yet committed. |
+| Coupon minimum boundary, customer channels (`>=`) | `gcc/p0-coupon-minimum-boundary` | `d4bcea03` | #4 (draft) | Tests: 10 of 10 in the sandbox; mutation-checked. An independent read-only review confirmed two medium defects in the first version; both are fixed in `d4bcea03`, and the review record is on PR #4. CI pending. |
 | Admin coupon message uses the defined translation key | `gcc/p0-admin-coupon-translation-key` | `590ed03c` | #2 (draft) | Defect reproduced on `main`; fix passes 4/4 in sandbox. CI queued at 13:50Z. |
 | Remove two dead duplicate class declarations and guard against new ones | `gcc/p0-remove-duplicate-payment-routing` | `1a4d8730` | #3 (draft) | Guard fails on `main`, passes after; classmap unchanged; Unit suite 1116 tests OK. Payment-provider file: needs security or financial owner review before merge. CI pending. |
 | Seller app version and gate verification (read-only) | `claude/exciting-shannon-4mh2ok` (audit) | `1cd43a17` | none | Report committed as docs only. No version, gate or backend change. Published versions and live minimum are UNKNOWN. |
