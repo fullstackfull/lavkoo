@@ -251,7 +251,10 @@ jobs:
             #
             # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this job
             # is the only place they run at all -- the stock, shipment, return-decision and Odoo races included.
-            paths: tests/Feature/Concurrency
+            #
+            # The wallet and loyalty tests ride here: their row locks and their rollbacks only mean something on a real engine.
+            # CiDatabaseTest makes a job that fell back to SQLite fail instead of skipping every race test in green.
+            paths: tests/Feature/Concurrency tests/Feature/Wallet tests/Feature/Loyalty tests/Feature/CiDatabaseTest.php
           - group: myfatoorah
             # Its own job since PR #12. It used to ride along with the sales-channel group, and that group then reached the 110-minute ceiling on MySQL 8 and was cancelled:
             # the two suites had grown into more than one runner's hour and a half together (82 minutes on MariaDB for the same set). Nothing is skipped by splitting them —
@@ -354,4 +357,4 @@ jobs:
       - name: Environment
         run: cp .env.example .env
       - name: Tests with the database connection in strict mode
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet tests/Feature/Loyalty --display-skipped
