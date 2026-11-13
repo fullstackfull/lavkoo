@@ -193,6 +193,7 @@ class TorodShipmentDiscoveryTest extends TorodTestCase
     public function test_the_scheduled_run_links_what_appeared_later_and_keeps_the_status_of_a_linked_shipment_current(): void
     {
         $mapping = $this->followed();
+        $mapping->forceFill(['purchased_at' => now()->subHours(10)])->save();
         $this->torodList([]);
         app(ShipmentDiscovery::class)->run();
         $this->assertSame(ExternalOrderMapping::LINK_UNLINKED, $this->fresh($mapping)->shipment_link_state);
