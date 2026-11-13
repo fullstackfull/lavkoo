@@ -11,15 +11,19 @@ use InvalidArgumentException;
  */
 final class StorefrontResolver
 {
+    private readonly string $defaultCountry;
+
     /**
      * @param array<string, array{path: string, currency: string, active?: bool}> $countries keyed by ISO country code
      */
     public function __construct(
         private readonly bool $enabled,
-        private readonly string $defaultCountry,
+        string $defaultCountry,
         private readonly array $countries,
     ) {
-        if (!$this->isActive($this->requireCountry($defaultCountry))) {
+        $this->defaultCountry = $this->requireCountry($defaultCountry);
+
+        if (!$this->isActive($this->defaultCountry)) {
             throw new InvalidArgumentException("Default storefront country [{$defaultCountry}] is not active.");
         }
     }

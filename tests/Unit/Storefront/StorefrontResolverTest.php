@@ -58,6 +58,63 @@ class StorefrontResolverTest extends TestCase
         $this->assertSame('QA', $resolver->resolve(path: '/QA/offers'));
     }
 
+    #[DataProvider('invalidChoices')]
+    public function test_an_invalid_choice_falls_back_to_the_path_prefix(string $explicitChoice): void
+    {
+        $resolver = $this->resolver(countries: $this->withInactive('AE'));
+
+        $this->assertSame('KW', $resolver->resolve(explicitChoice: $explicitChoice, path: '/kw/cart'));
+    }
+
+    #[DataProvider('invalidChoices')]
+    public function test_an_invalid_choice_without_a_path_falls_back_to_the_default(string $explicitChoice): void
+    {
+        $resolver = $this->resolver(countries: $this->withInactive('AE'));
+
+        $this->assertSame('SA', $resolver->resolve(explicitChoice: $explicitChoice));
+        $this->assertSame('SA', $resolver->context(explicitChoice: $explicitChoice, path: '/')->country);
+    }
+
+    public static function invalidChoices(): array
+    {
+        return [
+            'empty string' => [''],
+            'whitespace only' => ["  \t\n "],
+            'unknown code' => ['XX'],
+            'inactive code' => ['AE'],
+            'very long string' => [str_repeat('SA', 5000)],
+            'NUL byte inside a valid code' => ["S\0A"],
+        ];
+    }
+
+    public function test_a_lowercase_valid_choice_resolves_to_its_country_code(): void
+    {
+        $this->assertSame('SA', $this->resolver(defaultCountry: 'KW')->resolve(explicitChoice: 'sa'));
+    }
+
+    public function test_a_valid_choice_with_surrounding_whitespace_resolves_to_its_country_code(): void
+    {
+        $this->assertSame('SA', $this->resolver(defaultCountry: 'KW')->resolve(explicitChoice: " \tsa\n "));
+    }
+
+    public function test_a_lowercase_configured_default_resolves_to_its_country_code_while_switched_off(): void
+    {
+        $resolver = $this->resolver(enabled: false, defaultCountry: ' sa ');
+
+        $this->assertSame('SA', $resolver->resolve(explicitChoice: 'KW', path: '/ae/cart'));
+        $this->assertSame('SA', $resolver->context()->country);
+        $this->assertSame('SAR', $resolver->context()->currency);
+    }
+
+    public function test_a_lowercase_configured_default_resolves_to_its_country_code_while_switched_on(): void
+    {
+        $resolver = $this->resolver(defaultCountry: 'sa');
+
+        $this->assertSame('SA', $resolver->resolve());
+        $this->assertSame('SA', $resolver->resolve(explicitChoice: 'XX', path: '/xx/offers'));
+        $this->assertSame('SA', $resolver->context(path: '/')->country);
+    }
+
     #[DataProvider('currencies')]
     public function test_each_country_has_its_own_currency(string $countryCode, string $currency): void
     {

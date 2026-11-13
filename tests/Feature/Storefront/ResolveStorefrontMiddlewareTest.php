@@ -71,6 +71,45 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->probe('/__storefront-probe?storefront=ZZ')->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
     }
 
+    public function test_an_array_choice_is_ignored_and_the_path_prefix_applies(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/ae/__storefront-probe?storefront[]=sa')
+            ->assertOk()
+            ->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+    }
+
+    public function test_a_keyed_array_choice_is_ignored_and_the_default_applies(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/__storefront-probe?storefront[x]=ae')
+            ->assertOk()
+            ->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+    }
+
+    public function test_an_array_choice_resolves_to_saudi_while_switched_off(): void
+    {
+        $this->registerProbeRoutes();
+
+        $this->probe('/ae/__storefront-probe?storefront[]=ae')
+            ->assertOk()
+            ->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+    }
+
+    public function test_an_invalid_string_choice_falls_back_to_the_path_and_then_the_default(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/ae/__storefront-probe?storefront=XX')->assertOk()->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+        $this->probe('/__storefront-probe?storefront=%00')->assertOk()->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+        $this->probe('/__storefront-probe?storefront=')->assertOk()->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+    }
+
     public function test_an_inactive_default_country_fails_the_request_instead_of_serving_another_storefront(): void
     {
         config(['gcc.storefronts.countries.SA.active' => false]);

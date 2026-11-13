@@ -16,8 +16,10 @@ class ResolveStorefront
 {
     public function handle(Request $request, Closure $next): Response
     {
+        $explicitChoice = $request->query('storefront');
+
         $context = StorefrontResolver::fromConfig()->context(
-            explicitChoice: $request->query('storefront'),
+            explicitChoice: is_string($explicitChoice) ? $explicitChoice : null,
             path: $request->path(),
         );
 
