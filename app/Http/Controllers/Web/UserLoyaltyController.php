@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Web;
 
-use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\LoyaltyExchangeCurrencyRequest;
 use App\Mail\AddFundToWallet;
 use App\Models\LoyaltyPointTransaction;
+use App\Services\Loyalty\PointsToWalletConversion;
 use App\Traits\CustomerTrait;
 use Brian2694\Toastr\Facades\Toastr;
 use Carbon\Carbon;
@@ -21,7 +21,7 @@ class UserLoyaltyController extends Controller
 {
     use CustomerTrait;
 
-    public function __construct(private readonly LoyaltyPointTransactionRepositoryInterface $loyaltyPointTransactionRepo)
+    public function __construct(private readonly PointsToWalletConversion $pointsToWallet)
     {
     }
 
@@ -125,8 +125,15 @@ class UserLoyaltyController extends Controller
             return back();
         }
 
-        $walletTransaction = $this->createWalletTransaction(user_id: $user['id'], amount: $request['point'], transaction_type: 'loyalty_point', reference: 'point_to_wallet');
-        $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $user['id'], reference: $walletTransaction['transaction_id'], amount: $request['point'], transactionType: 'point_to_wallet');
+        $walletTransaction = $this->pointsToWallet->convert(
+            customerId: $user['id'],
+            points: $request['point'],
+            creditWallet: fn () => $this->createWalletTransaction(user_id: $user['id'], amount: $request['point'], transaction_type: 'loyalty_point', reference: 'point_to_wallet'),
+        );
+        if ($walletTransaction === false) {
+            Toastr::warning(translate('conversion_is_limited_to_current_points_only'));
+            return back();
+        }
 
         try {
             Mail::to($user['email'])->send(new AddFundToWallet($walletTransaction));
