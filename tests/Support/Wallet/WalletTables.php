@@ -93,7 +93,7 @@ final class WalletTables
         return (float) DB::table('users')->where('id', $customerId)->value('wallet_balance');
     }
 
-    private static function guardTestDatabase(): void
+    public static function guardTestDatabase(): void
     {
         $connection = DB::connection();
         if ($connection->getDriverName() === 'sqlite') {
