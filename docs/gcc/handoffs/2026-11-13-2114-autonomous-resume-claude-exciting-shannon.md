@@ -142,3 +142,20 @@ Still in progress, not pushed:
 - `gcc/p0-loyalty-refund-characterization` and `gcc/p0-order-owner-is-guest-scope`, still being implemented.
 
 Not started: RMA receipt idempotency, checkout stock tests and the GCC storefront alias (second batch); seller and vendor order scoping, the remaining web due-payment ownership check, and the gateway replay guard (after the wallet chain).
+
+## 15. Loyalty chain restacked, CI coverage and draft PRs 14 to 16 (2026-11-13, about 23:15Z)
+
+This section supersedes the note in section 13 that PR 10's SQLite 8.3 job had no log yet. The job had completed with two failures.
+
+- `fullstackfull/lavkoo#10` is now at `4e860229`. Two failures were fixed:
+  - The Torod clock fixture. The branch was restacked on the wallet branch head `bad99c78` with a merge (`1df11ab0`), so it now contains the repair.
+  - `ConcurrentOperationsAreRegisteredTest`. The new loyalty concurrency test asks for `loyalty.convert`, which the harness answers but the test's built-in list did not name. The list now names the wallet and loyalty match arms (`4e860229`). The affected classes pass locally (15 tests). CI for `4e860229` is pending.
+- Draft PRs opened:
+  - `fullstackfull/lavkoo#14`, CI coverage for the wallet and loyalty tests (`062c25fb`, stacked on `gcc/p0-loyalty-balance-lock`). The reviewer rejected the first commit: its trailer named a model, and the stack precondition failed. The message is amended, and the branch is rebased on `4e860229`. Local tests pass (46). The rebased commit has not been independently reviewed.
+  - `fullstackfull/lavkoo#15`, refund and loyalty characterization tests and the proposal document (`d5206691`, stacked). The reviewer accepted with notes. The four MySQL race tests are skipped on purpose until the owner decides.
+  - `fullstackfull/lavkoo#16`, customer order ownership with `is_guest` (PERM-04), based on `main` (`637196e1`). The reviewer rejected it for a model name in the trailer (amended), and for a web invoice hunk outside the scope list. Decision: keep the web `generate_invoice` hunk, because the commit message describes it and the defect is the same. The PR body says so, and the owner can drop it. 12 of 15 regression cases fail on `main`.
+- Commit messages: the model-name trailer was removed from the new commits (`0f794153`, `c9f4b2d4`). The earlier commits on these branches were already clean.
+- Second batch, implemented locally and not pushed: RMA receipt idempotency (`5760bad6`), checkout stock tests (`5c680ea8`, reviewer accepted with notes), and the GCC storefront alias (`6f568043`, reviewer accepted with notes). The alias is based on `a8c6a42b`, which carries the Torod repair.
+- Main-based branches (`fullstackfull/lavkoo#16` and the second batch) do not carry the Torod repair. They get it only if their logs show the same assertion.
+- Disk: the Composer download cache (8.6 GB) was cleared. The session allowance had reached 100% during a test run. Run fewer test processes at once.
+- Owner decisions open: the PERM-04 web invoice scope (`fullstackfull/lavkoo#16`); whether a failing guard should report once; the wallet and loyalty idempotency keys; the items listed in section 11.
