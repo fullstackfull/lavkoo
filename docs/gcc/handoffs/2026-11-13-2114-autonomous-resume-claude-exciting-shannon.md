@@ -159,3 +159,29 @@ This section supersedes the note in section 13 that PR 10's SQLite 8.3 job had n
 - Main-based branches (`fullstackfull/lavkoo#16` and the second batch) do not carry the Torod repair. They get it only if their logs show the same assertion.
 - Disk: the Composer download cache (8.6 GB) was cleared. The session allowance had reached 100% during a test run. Run fewer test processes at once.
 - Owner decisions open: the PERM-04 web invoice scope (`fullstackfull/lavkoo#16`); whether a failing guard should report once; the wallet and loyalty idempotency keys; the items listed in section 11.
+
+## 16. Second batch pushed as draft PRs 17 to 19 (2026-11-13, about 23:20Z)
+
+This supersedes the note in section 15 that the second batch was not pushed. Three new branches were pushed without force; remote heads match local.
+
+- `fullstackfull/lavkoo#17`: RMA receipt idempotency (`gcc/p0-rma-receive-idempotency`, `cc35d611`), based on `main` (`c5c04b7b`). A partial return received twice restocked twice. The return row is now re-read under `lockForUpdate` and re-checked inside the transaction. The variant qty rises with the restock (INV-01, INV-03). No money, refund or schema change.
+- `fullstackfull/lavkoo#18`: checkout stock tests (`gcc/p0-checkout-stock-tests`, `28cd8725`), based on `main`. Test-only. Covers product and variant shortfall, `allow_oversell`, unknown policy, whole-cart refusal and id-ordered locks. Adds a MySQL/MariaDB concurrency test that skips on SQLite.
+- `fullstackfull/lavkoo#19`: storefront alias (`gcc/p1-storefront-middleware-alias`, `6f568043`), stacked on `gcc/p1-storefront-context` (`fullstackfull/lavkoo#8`, `a8c6a42b`). Not on any route, so Saudi behaviour is unchanged.
+
+Commit messages: the `Co-Authored-By` line naming a model was removed (`5760bad6` became `cc35d611`, `5c680ea8` became `28cd8725`). The `Claude-Session` trailer is kept. No model names in pushed commits, PR titles or PR bodies.
+
+Local verification, SQLite, PHP 8.3.6, PHPUnit 11.5.55. All three worktrees were clean afterwards.
+- `#17`, `--filter ReturnReceipt`: 5 tests, 23 assertions, OK, 1 skipped (MySQL concurrency).
+- `#18`, `--filter 'GenerateOrderStock|CheckoutStockConcurrency'`: 10 tests, 33 assertions, OK, 1 skipped (MySQL concurrency).
+- `#19`, `--filter Storefront`: 230 tests, 5226 assertions, OK, 1 skipped (cause not inspected).
+- Not run locally: every MySQL 8.0 and MariaDB 11.4.2 concurrency test. The worktrees have no working DB credential. CI is the authority.
+
+Status: all three are drafts. Each got accept-with-notes from an independent reviewer, with 0 blocking. CI is pending on all three and is not green.
+- `fullstackfull/lavkoo#8` (base of `#19`) at `a8c6a42b`: when read at opening, 4 checks succeeded, 2 in progress, 15 queued, none failed. `#19` stays unproven until `#8` is green.
+
+Open items, none blocking:
+- `#19`: `ResolveStorefront` passes the raw `storefront` query value into a `?string` parameter. An array input throws a TypeError (HTTP 500). Unreachable today. Fix before any route adopts the alias.
+- `#17`: `variationWithReturnedUnits` uses `array_map`, which keeps JSON keys. Review says production data is a list, so it is harmless. Unchanged.
+- `#18`: the lock-order assertion in `GenerateOrderStockTest` uses SQLite identifier quoting. It fails if that class runs on MySQL. Test-only fix if CI shows it.
+
+Next: CI re-check of the draft PRs `#6` to `#19`. Carry the Torod repair (`TorodShipmentDiscoveryTest.php:198`) only where a log shows the same assertion. Never report pending jobs as green.
