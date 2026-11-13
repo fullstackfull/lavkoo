@@ -27,6 +27,8 @@ class LoyaltyExchangeEndpointTest extends TestCase
     {
         parent::setUp();
         $this->rememberLanguageFiles();
+        LoyaltyTables::drop();
+        WalletTables::drop();
         WalletTables::create();
         LoyaltyTables::create();
         WalletTables::setSetting('wallet_status', '1');
@@ -40,6 +42,8 @@ class LoyaltyExchangeEndpointTest extends TestCase
     protected function tearDown(): void
     {
         $this->restoreLanguageFiles();
+        LoyaltyTables::drop();
+        WalletTables::drop();
         parent::tearDown();
     }
 

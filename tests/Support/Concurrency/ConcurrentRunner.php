@@ -2,13 +2,14 @@
 
 namespace Tests\Support\Concurrency;
 
+use PHPUnit\Framework\Assert;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
 /**
  * Runs one operation in several PHP processes at the same instant, against the real MySQL/MariaDB the test is connected to, and returns what each process reported.
  *
- * SQLite in memory is private to one process, so none of this works there: `available()` says so and the tests skip. The processes boot the application with the environment of
+ * SQLite in memory is private to one process, so none of this works there: `available()` says so and the tests skip (or fail, in a CI job that declares a real engine). The processes boot the application with the environment of
  * the parent (the database settings come from it), wait for a common start time, run the named operation of `Operations`, and print one JSON line.
  */
 final class ConcurrentRunner
@@ -16,11 +17,19 @@ final class ConcurrentRunner
     /** How long the processes are given to boot before the common start time. */
     private const BOOT_SECONDS = 6.0;
 
+    /** False lets a local run skip. A CI job that declares EXPECT_DB_DRIVER=mysql fails instead, because a skipped race test there is green and proves nothing. */
     public static function available(): bool
     {
-        return in_array((string) config('database.default'), ['mysql', 'mariadb'], true)
-            && (string) config('database.connections.' . config('database.default') . '.driver') === 'mysql'
-            && getenv('CONCURRENCY_TESTS') !== '0';
+        $realEngine = in_array((string) config('database.default'), ['mysql', 'mariadb'], true)
+            && (string) config('database.connections.' . config('database.default') . '.driver') === 'mysql';
+        $switchedOff = getenv('CONCURRENCY_TESTS') === '0';
+
+        if (getenv('EXPECT_DB_DRIVER') === 'mysql') {
+            Assert::assertTrue($realEngine, 'EXPECT_DB_DRIVER=mysql, but the test connection is not MySQL or MariaDB, so the concurrency tests would skip.');
+            Assert::assertFalse($switchedOff, 'EXPECT_DB_DRIVER=mysql, but CONCURRENCY_TESTS=0 switches the concurrency tests off.');
+        }
+
+        return $realEngine && !$switchedOff;
     }
 
     /**
