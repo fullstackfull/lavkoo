@@ -202,7 +202,8 @@ class GenerateOrderStockTest extends ApiAddressTestCase
         $queries = DB::getQueryLog();
         DB::disableQueryLog();
 
-        $lockQueries = array_values(array_filter($queries, static fn (array $query): bool => preg_match('/from "products" where "id" in \(\?, \?\) order by "id" asc/', $query['query']) === 1));
+        $expectedLockSql = DB::table('products')->whereIn(column: 'id', values: [self::PRODUCT, self::SECOND_PRODUCT])->orderBy(column: 'id')->lockForUpdate()->toSql();
+        $lockQueries = array_values(array_filter($queries, static fn (array $query): bool => $query['query'] === $expectedLockSql));
         $this->assertCount(1, $lockQueries, 'one up-front lock over the whole cart');
         $this->assertSame([self::PRODUCT, self::SECOND_PRODUCT], array_map('intval', $lockQueries[0]['bindings']), 'ascending ids, whatever the cart order');
         $this->assertSame([4, 4], [$this->stockOf(self::PRODUCT), $this->stockOf(self::SECOND_PRODUCT)]);
