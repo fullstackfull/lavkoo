@@ -86,6 +86,13 @@ class ReturnLogisticsService
         }
 
         return DB::transaction(function () use ($rma, $by, $byType) {
+            // Callers load the return before this transaction, so two receipts of one return can both pass the
+            // check above. Re-reading it under a row lock lets only the first one restock; the rest wait, then see it closed.
+            $rma = ReturnShipment::whereKey($rma->getKey())->lockForUpdate()->first();
+            if (!$rma || !$rma->isOpen()) {
+                return ['ok' => false, 'reason' => 'return_is_not_in_a_receivable_state'];
+            }
+
             $restocked = false;
             $balanceAfter = null;
 
@@ -97,22 +104,31 @@ class ReturnLogisticsService
                 // skip. A partial RMA never touches the marker, so it can neither be double-counted against
                 // the legacy full-line restore nor block it from restoring the remainder (never under-restock).
                 $mayRestock = true;
+                $line = null;
                 if ($rma->order_details_id && Schema::hasTable('order_details')) {
                     $line = DB::table('order_details')->where('id', $rma->order_details_id)->first();
                     if ($line && (int) $line->qty <= (int) $rma->qty) {
-                        $claimed = DB::table('order_details')
+                        $markerClaimed = DB::table('order_details')
                             ->where('id', $rma->order_details_id)
                             ->where('is_stock_decreased', 1)
                             ->update(['is_stock_decreased' => 0]);
-                        $mayRestock = $claimed > 0;
+                        $mayRestock = $markerClaimed > 0;
                     }
                 }
 
                 $locked = $mayRestock ? DB::table('products')->where('id', $rma->product_id)->lockForUpdate()->first() : null;
                 if ($locked) {
                     $balanceAfter = (int) $locked->current_stock + (int) $rma->qty;
-                    DB::table('products')->where('id', $rma->product_id)
-                        ->update(['current_stock' => $balanceAfter, 'updated_at' => now()]);
+                    $restock = ['current_stock' => $balanceAfter, 'updated_at' => now()];
+                    $variant = (string) ($line->variant ?? '');
+                    if ($variant !== '') {
+                        $restock['variation'] = $this->variationWithReturnedUnits(
+                            variation: $locked->variation,
+                            variant: $variant,
+                            qty: (int) $rma->qty,
+                        );
+                    }
+                    DB::table('products')->where('id', $rma->product_id)->update($restock);
 
                     ($this->inventory ?? app(InventoryService::class))->record(
                         productId: $rma->product_id,
@@ -252,6 +268,17 @@ class ReturnLogisticsService
 
             return null;
         }
+    }
+
+    /** The product's variations with the returned units added back to the one the order line bought, as the order-status restock does. */
+    private function variationWithReturnedUnits(?string $variation, string $variant, int $qty): string
+    {
+        return json_encode(array_map(
+            static fn (array $option): array => ($option['type'] ?? null) == $variant
+                ? array_merge($option, ['qty' => (int) ($option['qty'] ?? 0) + $qty])
+                : $option,
+            json_decode((string) $variation, true) ?: [],
+        ));
     }
 
     private function nextReference(): string
