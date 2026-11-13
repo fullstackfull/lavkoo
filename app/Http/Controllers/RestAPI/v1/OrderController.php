@@ -22,6 +22,7 @@ use App\Models\RefundRequest;
 use App\Models\Setting;
 use App\Models\ShippingAddress;
 use App\Services\OrderService;
+use App\Services\Wallet\WalletPaymentRefused;
 use App\Traits\CommonTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\SmsGateway;
@@ -442,7 +443,7 @@ class OrderController extends Controller
         }
 
         if ($paymentAmount > $user->wallet_balance) {
-            return response()->json(['message' => 'inefficient balance in your wallet to pay for this order'], 403);
+            return $this->insufficientWalletBalance();
         } else {
             $physical_product = false;
             foreach ($carts as $cart) {
@@ -469,35 +470,43 @@ class OrderController extends Controller
                 }
             }
 
-            $orderIds = OrderManager::generateOrder(data: [
-                'is_guest' => 0,
-                'guest_id' => $request['guest_id'] ?? 0,
-                'customer_id' => $user['id'],
-                'address_channel' => AddressChannel::Api,
-                'order_status' => 'confirmed',
-                'payment_method' => 'pay_by_wallet',
-                'payment_status' => 'paid',
-                'transaction_ref' => '',
-                'address_id' => $request['address_id'],
-                'billing_address_id' => $request['billing_address_id'],
-                'payment_note' => $request['payment_note'],
-                'order_note' => $request['order_note'],
-                'coupon_code' => $request['coupon_code'],
-                'requestObj' => $request,
-            ]);
+            try {
+                $orderIds = OrderManager::generateOrder(data: [
+                    'is_guest' => 0,
+                    'guest_id' => $request['guest_id'] ?? 0,
+                    'customer_id' => $user['id'],
+                    'address_channel' => AddressChannel::Api,
+                    'order_status' => 'confirmed',
+                    'payment_method' => 'pay_by_wallet',
+                    'payment_status' => 'paid',
+                    'transaction_ref' => '',
+                    'address_id' => $request['address_id'],
+                    'billing_address_id' => $request['billing_address_id'],
+                    'payment_note' => $request['payment_note'],
+                    'order_note' => $request['order_note'],
+                    'coupon_code' => $request['coupon_code'],
+                    'requestObj' => $request,
+                    'walletPayment' => ['customerId' => $user->id, 'amount' => Convert::default($paymentAmount)],
+                ]);
+            } catch (WalletPaymentRefused) {
+                return $this->insufficientWalletBalance();
+            }
 
-            // Guarded before the wallet is touched: debiting for an order that was refused
-            // would take the customer's balance and leave them with nothing to show for it.
+            // The debit is written inside the order transaction, so an order refused for stock took nothing from the wallet.
             if (empty($orderIds)) {
                 return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
             return response()->json([
                 'messages' => translate('order_placed_successfully'),
                 'order_ids' => $orderIds,
             ], 200);
         }
+    }
+
+    private function insufficientWalletBalance(): JsonResponse
+    {
+        return response()->json(['message' => 'inefficient balance in your wallet to pay for this order'], 403);
     }
 
     public function refund_request(Request $request): JsonResponse

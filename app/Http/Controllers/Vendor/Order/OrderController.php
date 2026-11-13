@@ -31,6 +31,7 @@ use App\Models\OrderEditHistory;
 use App\Models\ReferralCustomer;
 use App\Repositories\WalletTransactionRepository;
 use App\Services\CustomerWalletService;
+use App\Services\Wallet\WalletCreditRefused;
 use App\Services\DeliveryCountryCodeService;
 use App\Services\DeliveryManTransactionService;
 use App\Services\DeliveryManWalletService;
@@ -237,7 +238,10 @@ class OrderController extends BaseController
                     $sellerWallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $order['seller_id']]);
                     $this->vendorWalletRepo->updateWhere(params: ['seller_id' => $order['seller_id']], data: ['total_earning' => $sellerWallet['total_earning'] - $order['edit_return_amount']]);
                 }
-                CustomerManager::create_wallet_transaction($customer['id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                $walletCredit = CustomerManager::create_wallet_transaction($customer['id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                if ($walletCredit === false) {
+                    throw new WalletCreditRefused(customerId: $customer['id'], amount: (float) $order['edit_return_amount']);
+                }
             }
 
             $data = $orderEditReturnAmountService->getReturnAmountData($validated, $order['edit_return_amount']);
