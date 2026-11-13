@@ -100,7 +100,7 @@ Scheduled re-read of `fullstackfull/lavkoo#2` to `#6`. Each run has 21 jobs, and
 - No new failing test, so no PR comment was posted in this pass.
 - Nothing merged, `main` untouched, production not touched.
 
-## 13. CI re-check of the draft PRs (2026-11-13, about 23:05Z)
+## 13. CI re-check of the draft PRs (2026-11-13, about 22:55Z)
 
 Scheduled re-check. Remote heads at the check: `fullstackfull/lavkoo#6` `5c4b3e66`; `fullstackfull/lavkoo#7` `603c2a49` (it was `b2ff9be9` at scheduling); `fullstackfull/lavkoo#8` `adf923ce`; `fullstackfull/lavkoo#9` `41454349`; `fullstackfull/lavkoo#10` `4015ae17`. Each latest run has 21 jobs. The log of every failed job was read.
 
@@ -118,3 +118,27 @@ Scheduled re-check. Remote heads at the check: `fullstackfull/lavkoo#6` `5c4b3e6
 - `fullstackfull/lavkoo#10` has the same fixture and no repair yet. Its `Tests, SQLite (PHP 8.3)` job is still in progress with no completed log. If it fails on the same assertion, the same one-line repair will be carried to `fullstackfull/lavkoo#10` as a fast-forward commit.
 - `fullstackfull/lavkoo#6` and `fullstackfull/lavkoo#7` have no test failure so far. Their remaining jobs are in progress or queued.
 - Nothing merged, `main` untouched, production not touched. No PR comment was posted: each failure was either the known gate or fixed by a commit.
+
+## 14. Wallet overdraft chain, POS ordering and draft PRs (2026-11-13, about 23:00Z)
+
+Opened as draft PRs, stacked. None is merged or deployed.
+- `fullstackfull/lavkoo#11`: the overdraft guard (`gcc/p0-wallet-overdraft-guard`, `692950b5`), based on `gcc/p0-wallet-concurrency-lock`.
+- `fullstackfull/lavkoo#12`: checkout and return credit honour a refused debit (`gcc/p0-wallet-debit-result-handling`, `4b31fabd`), based on the guard.
+- `fullstackfull/lavkoo#13`: POS sales and edited-order due payments are atomic and lock in product order (`gcc/p0-pos-wallet-atomicity`, `d93cafae` and `4f510ae3`), based on the guard.
+
+Merge rule: `fullstackfull/lavkoo#11` must not merge alone. A caller that ignores a refusal would create an order that was never paid for. `fullstackfull/lavkoo#12` and `fullstackfull/lavkoo#13` are the callers that honour the refusal. Merge all three together, or none.
+
+Review:
+- `4b31fabd`: independent review approved with notes. A deadlock inside the nested wallet writer surfaces as a 500 or a false refusal; the fix (rethrow concurrency errors from `CustomerBalanceLock` when nested) is not done. The seller-panel return credit never fires because the request has no customer; this is base behaviour and an owner decision. The checkout debit amount is computed separately from the order total; owner decision.
+- `d93cafae`: approved.
+- `4f510ae3`: accepted with notes. The stock-order test fails before the change (updates ran 3, 2, 1) and passes after. Its SQL matcher is SQLite-specific, so it is not in a MySQL group.
+
+Not yet reported: the MySQL and MariaDB concurrency tests for the guard, checkout and POS paths (`WalletOverdraftConcurrencyTest`, `WalletCheckoutConcurrencyTest`, `OrderEditDueConcurrencyTest`). All are pending CI.
+
+Branch names: the internal work names `gcc/p0-ov-impl1` and `gcc/p0-ov-impl2` were renamed before the push to `gcc/p0-wallet-debit-result-handling` and `gcc/p0-pos-wallet-atomicity`.
+
+Still in progress, not pushed:
+- `gcc/p0-wallet-loyalty-ci-coverage` at `0f794153`, awaiting review.
+- `gcc/p0-loyalty-refund-characterization` and `gcc/p0-order-owner-is-guest-scope`, still being implemented.
+
+Not started: RMA receipt idempotency, checkout stock tests and the GCC storefront alias (second batch); seller and vendor order scoping, the remaining web due-payment ownership check, and the gateway replay guard (after the wallet chain).
