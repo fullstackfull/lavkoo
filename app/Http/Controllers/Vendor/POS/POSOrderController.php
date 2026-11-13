@@ -155,7 +155,8 @@ class POSOrderController extends BaseController
                         $orderId = $this->orderRepo->getList(orderBy: ['id' => 'DESC'])->first()->id + 1;
                     }
                     $totalTaxAmount = 0;
-                    foreach ($cartListSession as $item) {
+                    // Ascending product id, as generateOrder locks: two sales never lock the same product rows in opposite orders.
+                    foreach ($cartListSession->sortBy('id') as $item) {
                         if (is_array($item)) {
                             $product = $products->firstWhere('id', $item['id']);
                             if ($product) {

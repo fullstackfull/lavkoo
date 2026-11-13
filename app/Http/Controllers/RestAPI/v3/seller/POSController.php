@@ -350,7 +350,8 @@ class POSController extends Controller
                 $generateOrderID = self::getOrderNewId();
 
                 if ($request['modified_cart']) {
-                    foreach ($request['modified_cart'] as $cartItem) {
+                    // Ascending product id, as generateOrder locks: two sales never lock the same product rows in opposite orders.
+                    foreach (collect($request['modified_cart'])->sortBy('id') as $cartItem) {
                         if (is_array($cartItem)) {
                             $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
                                 return $query->active();
