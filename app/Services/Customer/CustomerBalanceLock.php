@@ -5,6 +5,7 @@ namespace App\Services\Customer;
 use App\Models\User;
 use Closure;
 use Exception;
+use Illuminate\Database\ConcurrencyErrorDetector;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -21,6 +22,8 @@ final class CustomerBalanceLock
      * @param Closure(User): mixed $write runs with the locked customer, inside the transaction, and returns what the caller gets.
      * @return mixed the closure's result. False when the customer does not exist, or when the write throws an exception; the
      *               transaction is rolled back in both cases, so neither the balance nor the ledger changes.
+     * @throws Exception a deadlock or lock-wait timeout, after the rollback: it is not a refusal, and the caller must not read it
+     *                   as one.
      */
     public static function apply(int|string $customerId, Closure $write): mixed
     {
@@ -38,8 +41,11 @@ final class CustomerBalanceLock
 
             return $result;
         } catch (Exception $exception) {
-            info($exception);
             DB::rollBack();
+            if ((new ConcurrencyErrorDetector())->causedByConcurrencyError($exception)) {
+                throw $exception;
+            }
+            info($exception);
 
             return false;
         } catch (Throwable $error) {
