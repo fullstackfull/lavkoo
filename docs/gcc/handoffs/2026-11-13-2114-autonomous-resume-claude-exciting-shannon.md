@@ -99,3 +99,22 @@ Scheduled re-read of `fullstackfull/lavkoo#2` to `#6`. Each run has 21 jobs, and
 - Jobs still running or queued on `fullstackfull/lavkoo#3` to `fullstackfull/lavkoo#6` are not green. They are unresolved and need a later re-read.
 - No new failing test, so no PR comment was posted in this pass.
 - Nothing merged, `main` untouched, production not touched.
+
+## 13. CI re-check of the draft PRs (2026-11-13, about 23:05Z)
+
+Scheduled re-check. Remote heads at the check: `fullstackfull/lavkoo#6` `5c4b3e66`; `fullstackfull/lavkoo#7` `603c2a49` (it was `b2ff9be9` at scheduling); `fullstackfull/lavkoo#8` `adf923ce`; `fullstackfull/lavkoo#9` `41454349`; `fullstackfull/lavkoo#10` `4015ae17`. Each latest run has 21 jobs. The log of every failed job was read.
+
+| PR | Failed jobs (log read) | Completed, success | In progress | Queued |
+|---|---|---|---|---|
+| `fullstackfull/lavkoo#6` (`5c4b3e66`) | Deployment overlay only | 8 | 2 | 10 |
+| `fullstackfull/lavkoo#7` (`603c2a49`) | Deployment overlay only | 3 | 5 | 12 |
+| `fullstackfull/lavkoo#8` (`adf923ce`) | Deployment overlay; `Tests, SQLite (PHP 8.2)` | 6 | 2 | 11 |
+| `fullstackfull/lavkoo#9` (`41454349`) | Deployment overlay; `Tests, SQLite (PHP 8.3)` | 8 | 3 | 8 |
+| `fullstackfull/lavkoo#10` (`4015ae17`) | Deployment overlay only | 6 | 4 | 10 |
+
+- The overlay gate is red on all five. Its log names only the three known files (`firebase-messaging-sw.js`, `public/firebase-messaging-sw.js`, `robots.txt`), so it is the known cause from section 3.
+- `Tests, SQLite` failed on `fullstackfull/lavkoo#8` (PHP 8.2) and on `fullstackfull/lavkoo#9` (PHP 8.3) with the same single failure: `TorodShipmentDiscoveryTest::test_the_scheduled_run_links_what_appeared_later_and_keeps_the_status_of_a_linked_shipment_current`, expected `unlinked`, got `needs_review`, at line 198. The fixture's purchase time comes from the clock. The failure reproduces locally on `adf923ce` and on `41454349`.
+- The fix is the one-line repair from `5c4b3e66`, which sets the purchase to ten hours ago before the scheduled run. It is carried as `a8c6a42b` on `fullstackfull/lavkoo#8` and as `bad99c78` on `fullstackfull/lavkoo#9`. Both are fast-forward pushes. The test passes locally after the repair. No assertion was changed. The new runs on those two heads are queued, so they are not reported green.
+- `fullstackfull/lavkoo#10` has the same fixture and no repair yet. Its `Tests, SQLite (PHP 8.3)` job is still in progress with no completed log. If it fails on the same assertion, the same one-line repair will be carried to `fullstackfull/lavkoo#10` as a fast-forward commit.
+- `fullstackfull/lavkoo#6` and `fullstackfull/lavkoo#7` have no test failure so far. Their remaining jobs are in progress or queued.
+- Nothing merged, `main` untouched, production not touched. No PR comment was posted: each failure was either the known gate or fixed by a commit.
