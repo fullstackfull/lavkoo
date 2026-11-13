@@ -80,3 +80,22 @@ The tests characterize `App\Repositories\WalletTransactionRepository::addWalletT
 6. `fullstackfull/lavkoo#3`: payments sign-off before merge.
 7. `fullstackfull/lavkoo#4`: scope or drop its `CLAUDE.md` section before any merge.
 8. Seller app: live minimum and published store versions.
+
+## 12. CI re-read of the draft PRs (2026-11-13, 22:31Z)
+
+Scheduled re-read of `fullstackfull/lavkoo#2` to `#6`. Each run has 21 jobs, and the log of every failed job was read. The stored head for `#6` was stale: the head is `5c4b3e66`, not `0a4bb27d`. All other stored heads matched.
+
+| PR | Head | Run | Failed job (log read) | Completed, success | In progress | Queued |
+|---|---|---|---|---|---|---|
+| `fullstackfull/lavkoo#2` | `1ca1c4d8` | `43507739560` | Deployment overlay | 20 | 0 | 0 |
+| `fullstackfull/lavkoo#3` | `24cc1033` | `43507754123` | Deployment overlay | 12 | 6 | 2 |
+| `fullstackfull/lavkoo#4` | `1d000dfa` | `43507775762` | Deployment overlay | 14 | 4 | 2 |
+| `fullstackfull/lavkoo#5` | `cf7d3e28` | `43507803019` | Deployment overlay | 16 | 3 | 1 |
+| `fullstackfull/lavkoo#6` | `5c4b3e66` | `43513155172` | Deployment overlay | 5 | 3 | 12 |
+
+- The overlay gate is red on all five heads. Each log names `firebase-messaging-sw.js`, `public/firebase-messaging-sw.js` and `robots.txt` against baseline `698aa1e`. That is the known cause in section 3, not a new one.
+- `24cc1033` (`fullstackfull/lavkoo#3`) also lists two deletions: `app/Http/Controllers/Payment/PaymeraController.php` and `app/Services/PaymentRoutingService.php`. The gate never deploys a deletion, so this release needs a manual removal step. Section 4 covers why the deletions are safe in code.
+- No job failed on any head except the overlay gate. On `fullstackfull/lavkoo#2`, all 20 other jobs completed with success, including the full SQLite suite that contains the Torod test that failed before the repair.
+- Jobs still running or queued on `fullstackfull/lavkoo#3` to `fullstackfull/lavkoo#6` are not green. They are unresolved and need a later re-read.
+- No new failing test, so no PR comment was posted in this pass.
+- Nothing merged, `main` untouched, production not touched.
