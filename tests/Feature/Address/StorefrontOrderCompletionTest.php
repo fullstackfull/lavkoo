@@ -7,6 +7,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
+use Tests\Support\BuildsApiAddressSchema;
+use Tests\Support\Wallet\WalletTables;
 
 /**
  * The three places the website completes an order (cash on delivery, offline payment, wallet) judge the addresses of the session
@@ -171,5 +173,68 @@ class StorefrontOrderCompletionTest extends StorefrontTestCase
             ->assertRedirect(route('checkout-details'));
 
         $this->assertNothingWasPlaced($shopperId);
+    }
+
+    /**
+     * The wallet path all the way to the order writer, with its ledger: the shopper's session still says WALLET_BALANCE while the
+     * database holds $storedBalance. The order writer needs the fuller order, product and cart tables of the order-placement tests.
+     */
+    private function aShopperWhoseWalletWasDrainedTo(float $storedBalance): int
+    {
+        Schema::drop('orders');
+        Schema::drop('products');
+        Schema::drop('carts');
+        $orderPipeline = new class {
+            use BuildsApiAddressSchema {
+                createApiStoreTables as public;
+                createOrderPipelineTables as public;
+                useTaxIncludedPrices as public;
+                putOneProductInTheCart as public;
+            }
+        };
+        $orderPipeline->createApiStoreTables();
+        $orderPipeline->createOrderPipelineTables();
+        $orderPipeline->useTaxIncludedPrices();
+        WalletTables::createLedger();
+        $this->setBusinessSetting('wallet_status', 1);
+
+        $shopper = $this->signIn($this->makeCustomer(['wallet_balance' => self::WALLET_BALANCE]));
+        $orderPipeline->putOneProductInTheCart($shopper->id);
+        DB::table('users')->where('id', $shopper->id)->update(['wallet_balance' => $storedBalance]);
+
+        return $shopper->id;
+    }
+
+    public function test_wallet_a_balance_drained_after_the_check_sends_the_shopper_back_to_the_cart_and_takes_nothing(): void
+    {
+        $shopperId = $this->aShopperWhoseWalletWasDrainedTo(storedBalance: 40);
+        $address = $this->makeStructuredAddress($this->ids, $shopperId);
+
+        $this->withSession($this->sessionOf($address->id))
+            ->post(route('checkout-complete-wallet'))
+            ->assertRedirect(route('shop-cart'));
+
+        $this->assertSame(
+            [['type' => 'warning', 'message' => translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!']],
+            array_map(fn (array $toast): array => ['type' => $toast['type'], 'message' => $toast['message']], session('toastr::messages', [])),
+        );
+        $this->assertSame(0, DB::table('orders')->count(), 'no order');
+        $this->assertSame(10, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'no stock was taken');
+        $this->assertEquals(40, DB::table('users')->where('id', $shopperId)->value('wallet_balance'), 'the wallet is as it was');
+        $this->assertSame(0, DB::table('wallet_transactions')->count(), 'no ledger row');
+    }
+
+    public function test_wallet_an_order_the_balance_covers_is_placed_with_its_debit(): void
+    {
+        $shopperId = $this->aShopperWhoseWalletWasDrainedTo(storedBalance: self::WALLET_BALANCE);
+        $address = $this->makeStructuredAddress($this->ids, $shopperId);
+
+        $this->withSession($this->sessionOf($address->id))
+            ->post(route('checkout-complete-wallet'))
+            ->assertRedirect(route('account-oder'));
+
+        $this->assertSame(1, DB::table('orders')->count());
+        $this->assertEquals(self::WALLET_BALANCE - 100, DB::table('users')->where('id', $shopperId)->value('wallet_balance'));
+        $this->assertSame(1, DB::table('wallet_transactions')->where('transaction_type', 'order_place')->count());
     }
 }

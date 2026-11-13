@@ -45,6 +45,7 @@ use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\DeliverySyria\DeliverySyriaClient;
 use App\Services\Customer\CustomerBalanceLock;
 use App\Services\Wallet\WalletOverdraft;
+use App\Services\Wallet\WalletPaymentRefused;
 use App\Services\DeliverySyria\DeliverySyriaRateCalculator;
 use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
@@ -1573,6 +1574,12 @@ class OrderManager
         // strictly worse than an oversold line a human can reconcile. See generateOrder's callers.
         $stockPolicy = ($data['stock_policy'] ?? 'reject') === 'allow_oversell' ? 'allow_oversell' : 'reject';
 
+        // A wallet checkout pays inside this transaction: the debit is written with the order, and a refused debit rolls the order
+        // back. Debiting after the commit would leave a paid order behind whenever the debit is refused.
+        $walletPayment = isset($data['walletPayment'])
+            ? ['customerId' => $data['walletPayment']['customerId'], 'amount' => (float) $data['walletPayment']['amount']]
+            : null;
+
         // Order ids are chosen by generateNewOrderID(), not by the database, so two checkouts that
         // start together can pick the same number and the second insert dies on the primary key.
         // Observed on the running store: "Duplicate entry '100002' for key 'PRIMARY'" — a hard 500
@@ -1582,7 +1589,7 @@ class OrderManager
         for ($idCollisionAttempt = 1; ; $idCollisionAttempt++) {
         try {
             DB::transaction(function () use (
-                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy,
+                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy, $walletPayment,
                 &$orderPlacedIds, &$orderPlacedNotificationEvents, &$orderPlacedMailEvents
             ) {
                 // Reset per attempt. DB::transaction retries on deadlock, and these accumulate —
@@ -1590,6 +1597,12 @@ class OrderManager
                 $orderPlacedIds = [];
                 $orderPlacedNotificationEvents = [];
                 $orderPlacedMailEvents = [];
+
+                // The customer row is locked before any product row, and the wallet writer locks the same row again. Every wallet
+                // checkout therefore takes its locks in one order, customer then stock, and two of them cannot wait on each other.
+                if ($walletPayment !== null) {
+                    User::query()->lockForUpdate()->find($walletPayment['customerId']);
+                }
 
                 // Lock every product in the order up front, ordered by id. Two carts holding the
                 // same two products in opposite orders would otherwise each hold the row the other
@@ -1732,6 +1745,13 @@ class OrderManager
                 customer: $getCustomerInfo['customer'],
             );
         }
+
+                if ($walletPayment !== null) {
+                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment');
+                    if ($walletDebit === false) {
+                        throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
+                    }
+                }
             }, attempts: 3);
 
             break;

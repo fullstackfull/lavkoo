@@ -6,6 +6,7 @@ use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\Analytics\Analytics;
 use App\Services\Fulfillment\CheckoutCodGuard;
+use App\Services\Wallet\WalletPaymentRefused;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
 use App\Models\Admin;
 use App\Services\ProductService;
@@ -854,22 +855,27 @@ class WebController extends Controller
                 return redirect()->route('checkout-details');
             }
 
-            $order_ids = OrderManager::generateOrder(data: [
-                'order_status' => 'confirmed',
-                'payment_method' => 'pay_by_wallet',
-                'payment_status' => 'paid',
-                'transaction_ref' => '',
-                'coupon_code' => session('coupon_code'),
-                'address_id' => session('address_id'),
-                'billing_address_id' => session('billing_address_id'),
-                'requestObj' => $request,
-            ]);
+            try {
+                $order_ids = OrderManager::generateOrder(data: [
+                    'order_status' => 'confirmed',
+                    'payment_method' => 'pay_by_wallet',
+                    'payment_status' => 'paid',
+                    'transaction_ref' => '',
+                    'coupon_code' => session('coupon_code'),
+                    'address_id' => session('address_id'),
+                    'billing_address_id' => session('billing_address_id'),
+                    'requestObj' => $request,
+                    'walletPayment' => ['customerId' => $user->id, 'amount' => Convert::default($paymentAmount)],
+                ]);
+            } catch (WalletPaymentRefused) {
+                Toastr::warning(translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!');
+                return redirect()->route('shop-cart');
+            }
 
             if (empty($order_ids)) {
                 // generateOrder returns [] after rolling back its transaction (e.g. an item went out of
-                // stock, or a conditional stock decrement failed). No order exists, so the wallet must
-                // NOT be debited — otherwise the customer loses money for nothing. (The API path already
-                // guards this; the web path did not.)
+                // stock, or a conditional stock decrement failed). The wallet debit is written inside
+                // that transaction, so it rolled back too and the customer was charged nothing.
                 Toastr::error(translate('order_place_failed_please_try_again'));
                 return redirect()->route('shop-cart');
             }
@@ -877,8 +883,6 @@ class WebController extends Controller
             foreach ($order_ids as $order_id) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $order_id);
             }
-
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
         }
 
         if (session()->has('payment_mode') && session('payment_mode') == 'app') {

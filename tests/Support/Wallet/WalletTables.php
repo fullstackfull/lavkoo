@@ -25,19 +25,7 @@ final class WalletTables
             $table->decimal('loyalty_point', 18, 4)->nullable()->default(0);
             $table->timestamps();
         });
-        Schema::create('wallet_transactions', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('user_id')->nullable();
-            $table->uuid('transaction_id');
-            $table->decimal('credit', 24, 3)->default(0);
-            $table->decimal('debit', 24, 3)->default(0);
-            $table->decimal('admin_bonus', 24, 3)->default(0);
-            $table->decimal('balance', 24, 3)->default(0);
-            $table->string('transaction_type', 191)->nullable();
-            $table->string('reference', 191)->nullable();
-            $table->string('payment_method')->nullable();
-            $table->timestamps();
-        });
+        self::createLedger();
         Schema::create('business_settings', function (Blueprint $table): void {
             $table->id();
             $table->string('type');
@@ -55,6 +43,26 @@ final class WalletTables
             $table->dateTime('start_date_time')->nullable();
             $table->dateTime('end_date_time')->nullable();
             $table->boolean('is_active')->default(0);
+            $table->timestamps();
+        });
+    }
+
+    /** The ledger alone, for a test whose base case already builds the customers and the settings. */
+    public static function createLedger(): void
+    {
+        self::guardTestDatabase();
+
+        Schema::create('wallet_transactions', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('user_id')->nullable();
+            $table->uuid('transaction_id');
+            $table->decimal('credit', 24, 3)->default(0);
+            $table->decimal('debit', 24, 3)->default(0);
+            $table->decimal('admin_bonus', 24, 3)->default(0);
+            $table->decimal('balance', 24, 3)->default(0);
+            $table->string('transaction_type', 191)->nullable();
+            $table->string('reference', 191)->nullable();
+            $table->string('payment_method')->nullable();
             $table->timestamps();
         });
     }
