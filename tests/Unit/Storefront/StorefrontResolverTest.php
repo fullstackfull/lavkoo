@@ -10,12 +10,12 @@ use PHPUnit\Framework\TestCase;
 class StorefrontResolverTest extends TestCase
 {
     private const COUNTRIES = [
-        'SA' => ['path' => 'sa', 'currency' => 'SAR'],
-        'AE' => ['path' => 'ae', 'currency' => 'AED'],
-        'KW' => ['path' => 'kw', 'currency' => 'KWD'],
-        'QA' => ['path' => 'qa', 'currency' => 'QAR'],
-        'BH' => ['path' => 'bh', 'currency' => 'BHD'],
-        'OM' => ['path' => 'om', 'currency' => 'OMR'],
+        'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true],
+        'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => true],
+        'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => true],
+        'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => true],
+        'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => true],
+        'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => true],
     ];
 
     public function test_while_switched_off_every_request_resolves_to_the_default_country(): void
@@ -90,8 +90,63 @@ class StorefrontResolverTest extends TestCase
         $this->resolver()->currencyOf('XX');
     }
 
-    private function resolver(bool $enabled = true, string $defaultCountry = 'SA'): StorefrontResolver
+    public function test_an_inactive_country_is_ignored_by_path_and_choice(): void
     {
-        return new StorefrontResolver(enabled: $enabled, defaultCountry: $defaultCountry, countries: self::COUNTRIES);
+        $resolver = $this->resolver(countries: $this->withInactive('AE'));
+
+        $this->assertSame('SA', $resolver->resolve(explicitChoice: 'AE'));
+        $this->assertSame('SA', $resolver->resolve(path: '/ae/cart'));
+        $this->assertSame('KW', $resolver->resolve(explicitChoice: 'AE', path: '/kw/cart'));
+    }
+
+    public function test_a_country_without_an_active_key_is_treated_as_inactive(): void
+    {
+        $countries = self::COUNTRIES;
+        unset($countries['AE']['active']);
+
+        $this->assertSame('SA', $this->resolver(countries: $countries)->resolve(path: '/ae/cart'));
+    }
+
+    public function test_an_inactive_default_country_is_refused(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->resolver(countries: $this->withInactive('SA'));
+    }
+
+    public function test_an_inactive_default_country_is_refused_even_while_switched_off(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->resolver(enabled: false, countries: $this->withInactive('SA'));
+    }
+
+    public function test_the_context_carries_the_resolved_country_and_its_currency(): void
+    {
+        $context = $this->resolver()->context(path: '/kw/cart');
+
+        $this->assertSame('KW', $context->country);
+        $this->assertSame('KWD', $context->currency);
+    }
+
+    public function test_the_context_is_saudi_while_switched_off(): void
+    {
+        $context = $this->resolver(enabled: false)->context(explicitChoice: 'AE', path: '/ae');
+
+        $this->assertSame('SA', $context->country);
+        $this->assertSame('SAR', $context->currency);
+    }
+
+    private function withInactive(string $countryCode): array
+    {
+        $countries = self::COUNTRIES;
+        $countries[$countryCode]['active'] = false;
+
+        return $countries;
+    }
+
+    private function resolver(bool $enabled = true, string $defaultCountry = 'SA', array $countries = self::COUNTRIES): StorefrontResolver
+    {
+        return new StorefrontResolver(enabled: $enabled, defaultCountry: $defaultCountry, countries: $countries);
     }
 }
