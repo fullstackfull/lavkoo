@@ -5,6 +5,7 @@ namespace Tests\Feature\Payment;
 use App\Http\Controllers\Payment_Methods\PaymeraController;
 use App\Models\PaymentRequest;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request as OutgoingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -143,6 +144,82 @@ class PaymeraCallbackTest extends TestCase
         $this->assertStringNotContainsString('paymera_hook_test', $source);
         $this->assertDoesNotMatchRegularExpression('/\bdd\(/', $source);
         $this->assertDoesNotMatchRegularExpression("/'X-Secret-Key'\s*=>\s*'/", $source);
+    }
+
+    public function test_a_repeated_accepted_callback_runs_the_success_hook_once_and_asks_paymera_once(): void
+    {
+        Http::fake(['*/api/get-payment-status/*' => Http::response($this->paymeraStatus('A'))]);
+        $payment = $this->payment();
+
+        $this->runCallback($payment->id);
+        $this->runCallback($payment->id);
+
+        $this->assertSame(1, self::$succeeded);
+        $this->assertSame(1, (int) $this->stored($payment->id, 'is_paid'));
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_pending_status_runs_no_hook_and_marks_nothing_paid(): void
+    {
+        Http::fake(['*/api/get-payment-status/*' => Http::response($this->paymeraStatus('P'))]);
+        $payment = $this->payment();
+
+        $response = $this->runCallback($payment->id);
+
+        $this->assertSame(0, self::$succeeded);
+        $this->assertSame(0, (int) $this->stored($payment->id, 'is_paid'));
+        $this->assertStringStartsWith(route('payment-fail'), $response->getTargetUrl());
+    }
+
+    public function test_a_rejected_status_response_runs_no_hook_and_marks_nothing_paid(): void
+    {
+        Http::fake(['*/api/get-payment-status/*' => Http::response(['ErrorCode' => 5, 'Data' => []])]);
+        $payment = $this->payment();
+
+        $this->runCallback($payment->id);
+
+        $this->assertSame(0, self::$succeeded);
+        $this->assertSame(0, (int) $this->stored($payment->id, 'is_paid'));
+    }
+
+    public function test_a_network_failure_on_the_status_request_runs_no_hook_and_logs_nothing(): void
+    {
+        Http::fake(['*/api/get-payment-status/*' => fn () => throw new ConnectionException('network down')]);
+        $this->expectNoLogging();
+        $payment = $this->payment();
+
+        $this->runCallback($payment->id);
+
+        $this->assertSame(0, self::$succeeded);
+        $this->assertSame(0, (int) $this->stored($payment->id, 'is_paid'));
+    }
+
+    /**
+     * Not endorsed. The create request sends the amount rounded to a whole number, so 12.75 goes out as 13. For a currency with
+     * three decimal places that drops part of the price. The payments owner must confirm the unit Paymera expects before this changes,
+     * because the change alters what customers are charged.
+     */
+    public function test_current_behaviour_the_create_request_sends_the_amount_rounded_to_a_whole_number(): void
+    {
+        Http::fake(['*/api/create-payment' => Http::response([
+            'ErrorCode' => 0,
+            'Data' => ['url' => 'https://pay.example/session', 'paymentId' => self::PAYMERA_PAYMENT_ID],
+        ])]);
+        $payment = PaymentRequest::create([
+            'payer_id' => 'customer-42',
+            'payment_amount' => 12.75,
+            'currency_code' => 'SYP',
+            'payment_method' => 'paymera',
+            'payment_platform' => 'web',
+            'success_hook' => self::SUCCEEDING_HOOK,
+            'failure_hook' => '',
+            'additional_data' => json_encode([]),
+            'is_paid' => 0,
+        ])->refresh();
+
+        app(PaymeraController::class)->index(Request::create('/paymera/pay', 'POST', ['payment_id' => $payment->id]));
+
+        Http::assertSent(fn (OutgoingRequest $request): bool => ($request->data()['amount'] ?? null) === 13);
     }
 
     private function runCallback(string $paymentId): mixed

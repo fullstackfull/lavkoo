@@ -41,6 +41,20 @@ The callback is unauthenticated, so the controller does not trust its contents. 
 | `F`, `C` failed or cancelled | Runs the failure hook. |
 | anything else | Runs no hook. |
 
+## Verification and duplicate callbacks
+
+- The callback never trusts its own body. It takes the Paymera payment id stored when the payment was created, asks Paymera for that payment's status, and acts only on that answer.
+- A payment is marked paid by one conditional update (`is_paid` from 0 to 1). Only the request whose update changed one row runs the success hook. A repeated callback finds the payment already paid, returns success, and neither asks Paymera nor runs the hook again. Test: `test_a_repeated_accepted_callback_runs_the_success_hook_once_and_asks_paymera_once`.
+- A pending, rejected or network-failed status never marks a payment paid and never runs the success hook. Each has a test.
+
+## What the callback does not verify
+
+- The status response is not checked against the amount, the currency or the terminal. This repository documents the status response only as `ErrorCode`, `Data.status` and `Data.rrn`, so no such check was added. The payments owner must confirm which fields Paymera returns, and whether an amount check is required.
+
+## Open decision for the payments owner: amount rounding
+
+- The create request sends `(int) round(payment_amount)`. A price of 12.75 goes out as 13. For a currency with three decimal places, part of the price is dropped. The current behaviour is pinned by `test_current_behaviour_the_create_request_sends_the_amount_rounded_to_a_whole_number`. It is not endorsed. Changing it changes what customers are charged, so the unit Paymera expects must be confirmed by the payments owner first.
+
 ## Known issue outside this change
 
 `app/Http/Controllers/Payment/PaymeraController.php` is a duplicate with the same class name. It has `dd()` calls and the same header value written in source. PR #3 deletes it. Until that PR merges, the duplicate still carries the old value.
