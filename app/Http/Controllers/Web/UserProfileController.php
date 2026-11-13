@@ -823,7 +823,7 @@ class UserProfileController extends Controller
     {
         // Ownership scope: a customer may only cancel their OWN order (prevents cancelling/restocking
         // arbitrary orders by guessing sequential ids).
-        $order = Order::where(['id' => $id, 'customer_id' => auth('customer')->id()])->first();
+        $order = Order::where('id', $id)->ownedByCustomer(customerId: auth('customer')->id())->first();
         if (!$order) {
             Toastr::error(translate('order_not_found'));
             return back();
@@ -851,7 +851,7 @@ class UserProfileController extends Controller
         $user = auth('customer')->user();
 
         // Ownership: the refund-request form exposes another customer's order line otherwise.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             abort(404);
         }
 
@@ -892,7 +892,7 @@ class UserProfileController extends Controller
 
         // Ownership: a customer may only file a refund against a line of their OWN order. Without this
         // a customer could refund another customer's order line by passing its order_details_id.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             Toastr::error(translate('order_not_found'));
             return back();
         }
@@ -942,7 +942,7 @@ class UserProfileController extends Controller
             ->where('id', $id)
             ->where(function ($query) {
                 auth('customer')->check()
-                    ? $query->where('customer_id', auth('customer')->id())
+                    ? $query->ownedByCustomer(customerId: auth('customer')->id())
                     : $query->where(['customer_id' => session('guest_id'), 'is_guest' => 1]);
             })
             ->first();
@@ -958,7 +958,7 @@ class UserProfileController extends Controller
     {
         $order_details = OrderDetail::find($id);
         // Ownership: the order line (price/qty/discount/tax) must belong to the requesting customer.
-        if (!$order_details || !Order::where('id', $order_details->order_id)->where('customer_id', auth('customer')->id())->exists()) {
+        if (!$order_details || !Order::where('id', $order_details->order_id)->ownedByCustomer(customerId: auth('customer')->id())->exists()) {
             abort(404);
         }
         $refund = RefundRequest::with(['product', 'order'])->where('customer_id', auth('customer')->id())
