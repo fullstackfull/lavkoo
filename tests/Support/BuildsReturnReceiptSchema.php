@@ -93,7 +93,7 @@ trait BuildsReturnReceiptSchema
     /**
      * One product, one order line of it and an authorised return of part (or all) of that line.
      *
-     * @param list<array{type: string, qty: int}>|null $variations
+     * @param array<array-key, array{type: string, qty: int|string}>|null $variations
      */
     protected function returnOf(int $lineQty, int $returnQty, int $stock, ?string $variant = null, ?array $variations = null): ReturnShipment
     {
