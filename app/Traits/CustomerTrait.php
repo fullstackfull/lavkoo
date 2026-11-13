@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
 use App\Utils\Helpers;
 use App\Utils\Convert;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Wallet\WalletOverdraft;
 
 trait CustomerTrait
 {
@@ -70,6 +71,9 @@ trait CustomerTrait
 
             $creditAmount = currencyConverter($credit);
             $debitAmount = currencyConverter($debit);
+            if (WalletOverdraft::refuses($currentBalance, $debitAmount)) {
+                return false;
+            }
             $walletTransaction->credit = $creditAmount;
             $walletTransaction->debit = $debitAmount;
             $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
