@@ -7,10 +7,10 @@ use App\Models\AddFundBonusCategories;
 use App\Models\WalletTransaction;
 use App\Models\BusinessSetting;
 use App\Models\User;
+use App\Services\Customer\CustomerBalanceLock;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class WalletTransactionRepository implements WalletTransactionRepositoryInterface
@@ -107,54 +107,49 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
     public function addWalletTransaction(string $user_id, float $amount, string $transactionType, ?string $reference = null, array $payment_data = []): bool|WalletTransaction
     {
         if ($this->businessSetting->where('type', 'wallet_status')->first()->value != 1) return false;
-        $user = $this->user->where('id', $user_id)->first();
-        if (!$user) return false;
-        $currentBalance = $user->wallet_balance;
 
-        $wallet_transaction = new WalletTransaction();
-        $wallet_transaction['user_id'] = $user->id;
-        $wallet_transaction['transaction_id'] = Str::uuid();
-        $wallet_transaction['reference'] = $reference;
-        $wallet_transaction['transaction_type'] = $transactionType;
-        $wallet_transaction['payment_method'] = $payment_data['payment_method'] ?? null;
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($user_id, $amount, $transactionType, $reference, $payment_data) {
+            $currentBalance = $user->wallet_balance;
 
-        $debit = 0.0;
-        $credit = 0.0;
-        $addFundToWalletBonus = 0;
+            $wallet_transaction = new WalletTransaction();
+            $wallet_transaction['user_id'] = $user->id;
+            $wallet_transaction['transaction_id'] = Str::uuid();
+            $wallet_transaction['reference'] = $reference;
+            $wallet_transaction['transaction_type'] = $transactionType;
+            $wallet_transaction['payment_method'] = $payment_data['payment_method'] ?? null;
 
-        if (in_array($transactionType, ['add_fund_by_admin', 'add_fund', 'order_refund', 'loyalty_point', 'return_order_amount_by_admin'])) {
-            $credit = $amount;
-            if ($transactionType == 'add_fund') {
-                $wallet_transaction['admin_bonus'] = $this->addFundToWalletBonus(amount: currencyConverter(amount: $amount ?? 0));
-                $addFundToWalletBonus = $this->addFundToWalletBonus(amount: currencyConverter(amount: $amount ?? 0));
-            } else if ($transactionType == 'loyalty_point') {
-                $credit = (($amount / $this->businessSetting->where('type', 'loyalty_point_exchange_rate')->first()->value) * currencyConverter(1));
+            $debit = 0.0;
+            $credit = 0.0;
+            $addFundToWalletBonus = 0;
+
+            if (in_array($transactionType, ['add_fund_by_admin', 'add_fund', 'order_refund', 'loyalty_point', 'return_order_amount_by_admin'])) {
+                $credit = $amount;
+                if ($transactionType == 'add_fund') {
+                    $wallet_transaction['admin_bonus'] = $this->addFundToWalletBonus(amount: currencyConverter(amount: $amount ?? 0));
+                    $addFundToWalletBonus = $this->addFundToWalletBonus(amount: currencyConverter(amount: $amount ?? 0));
+                } else if ($transactionType == 'loyalty_point') {
+                    $credit = (($amount / $this->businessSetting->where('type', 'loyalty_point_exchange_rate')->first()->value) * currencyConverter(1));
+                }
+            } else if ($transactionType == 'order_place') {
+                $debit = $amount;
             }
-        } else if ($transactionType == 'order_place') {
-            $debit = $amount;
-        }
 
-        $credit_amount = currencyConverter(amount: $credit);
-        $debit_amount = currencyConverter(amount: $debit);
-        $wallet_transaction['credit'] = $credit_amount;
-        $wallet_transaction['debit'] = $debit_amount;
-        $wallet_transaction['balance'] = $currentBalance + $credit_amount - $debit_amount;
-        $wallet_transaction['created_at'] = now();
-        $wallet_transaction['updated_at'] = now();
+            $credit_amount = currencyConverter(amount: $credit);
+            $debit_amount = currencyConverter(amount: $debit);
+            $wallet_transaction['credit'] = $credit_amount;
+            $wallet_transaction['debit'] = $debit_amount;
+            $wallet_transaction['balance'] = $currentBalance + $credit_amount - $debit_amount;
+            $wallet_transaction['created_at'] = now();
+            $wallet_transaction['updated_at'] = now();
 
-        try {
-            DB::beginTransaction();
             $this->user->where('id', $user_id)->update([
                 'wallet_balance' => $currentBalance + $addFundToWalletBonus + $credit_amount - $debit_amount,
             ]);
             $wallet_transaction->save();
-            DB::commit();
+
             if (in_array($transactionType, ['loyalty_point', 'order_place', 'add_fund_by_admin'])) return $wallet_transaction;
             return true;
-        } catch (\Exception $ex) {
-            DB::rollback();
-        }
-        return false;
+        });
     }
 
     public function addFundToWalletBonus(float $amount): string|float
