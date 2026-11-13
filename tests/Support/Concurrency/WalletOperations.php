@@ -5,6 +5,7 @@ namespace Tests\Support\Concurrency;
 use App\Repositories\WalletTransactionRepository;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
+use Tests\Support\Wallet\OrderDuePayingHost;
 use Tests\Support\Wallet\WalletWritingHost;
 
 /**
@@ -55,5 +56,19 @@ final class WalletOperations
             transactionType: (string) $args['transaction_type'],
             reference: (string) $args['reference'],
         ) !== false;
+    }
+
+    /**
+     * Pays the due of an edited order from the owner's wallet, as the REST and web controllers do. translate() is pointed at a locale
+     * without language files first, so the messages of the payment cannot be written into resources/lang by a worker process.
+     */
+    public static function payEditOrderDue(array $args): bool
+    {
+        session(['local' => 'zz-no-language-files']);
+
+        return app(OrderDuePayingHost::class)->payFromWallet(
+            orderId: (int) $args['order_id'],
+            customerId: (int) $args['customer_id'],
+        )['status'];
     }
 }

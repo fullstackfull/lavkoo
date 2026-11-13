@@ -29,6 +29,7 @@ final class Operations
             'wallet.customer_manager' => WalletOperations::writeThroughCustomerManager($args),
             'wallet.order_manager' => WalletOperations::writeThroughOrderManager($args),
             'wallet.customer_trait' => WalletOperations::writeThroughCustomerTrait($args),
+            'wallet.pay_edit_due' => WalletOperations::payEditOrderDue($args),
             default => (self::$registered[$name] ?? throw new InvalidArgumentException("Unknown concurrent operation: {$name}"))($args, $index),
         };
     }
