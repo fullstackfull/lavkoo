@@ -15,6 +15,7 @@ use App\Models\WalletTransaction;
 use Illuminate\Support\Facades\DB;
 use App\Models\LoyaltyPointTransaction;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Wallet\WalletOverdraft;
 
 class CustomerManager
 {
@@ -71,6 +72,9 @@ class CustomerManager
             }
             $credit_amount = Convert::usd($credit);
             $debit_amount = Convert::usd($debit);
+            if (WalletOverdraft::refuses($current_balance, $debit_amount)) {
+                return false;
+            }
             $wallet_transaction->credit = $credit_amount;
             $wallet_transaction->debit = $debit_amount;
             $wallet_transaction->balance = $current_balance + $credit_amount - $debit_amount;
