@@ -38,18 +38,10 @@ class Helpers
             $user = auth('customer')->user();
 
         } elseif (is_object($request) && method_exists($request, 'user')) {
-            $user = $request->user() ?? $request->user;
-
-        } elseif (isset($request['payment_request_from']) && in_array($request['payment_request_from'], ['app']) && !isset($request->user)) {
-            $user = $request['is_guest'] ? 'offline' : User::find($request['customer_id']);
+            $user = $request->user();
 
         } elseif (session()->has('customer_id') && !session('is_guest')) {
             $user = User::find(session('customer_id'));
-
-        } elseif (isset($request->user)) {
-            $user = $request->user;
-        } elseif (isset($request['payment_request_from']) && $request['payment_request_from'] == 'app' && isset($request->customer_id) && $request->is_guest != 1) {
-            $user = User::find($request['customer_id']);
         }
 
         if ($user == null) {
