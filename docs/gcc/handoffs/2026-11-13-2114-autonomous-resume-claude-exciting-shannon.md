@@ -364,3 +364,36 @@ Resume
 - Check runs: `pull_request_read` with `get_check_runs` on `#16` and `#17`. Failing jobs: `get_job_logs` with `job_id`, then count the `Failures: N` line in the PHPUnit summary.
 
 Heads at the time of writing: `#16` `65d2d096`, `#17` `5cbc3844`, `#18` `de1270f8`, `#20` `19520b10`, `#21` `2fa52614`, `#22` `99865aff`, `#23` `9db1506b`, `#24` `cb8b53fa`.
+
+## 22. LO-02 referral characterization in draft PR 25, and owner-level financial exposure (2026-11-14, about 03:30Z)
+
+Since section 21
+- Draft PR `fullstackfull/lavkoo#25`, branch `gcc/p0-referral-characterization`, head `fb6b126e`, base `main` at `c5c04b7b`. Test-only: 28 tests, 83 assertions on SQLite. No production file changed. Two commits: `84b96d66` (20 tests) and `fb6b126e` (eight more). A fresh read-only reviewer accepted each with notes and no blocking items. The mutation checks in both reviews failed the tests they targeted.
+- Verified by reading `origin/main` and by running each path in the test on SQLite. Not checked against production data.
+  1. The delivery-man app pays the referrer twice for one first delivery: `DeliveryManController.php:229` (shared writer) and `:249` (CustomerManager). Live route `PUT /api/v2/delivery-man/update-order-status`.
+  2. Seller API v3 `order_detail_status` pays twice: `RestAPI/v3/seller/OrderController.php:475` then `:479`. Live route `PUT /api/v3/seller/order-detail-status/{id}`.
+  3. The admin panel pays again when `delivered` is submitted twice: `Admin/Order/OrderController.php` has no already-delivered guard, and `:736` runs the shared writer on every submission. The vendor panel has the guard (line 624).
+  4. The vendor panel credits the referee, not the referrer: `Vendor/Order/OrderController.php:696`, credited at `:699-703`.
+  5. The vendor first-order check counts cancelled orders: `:695` uses `OrderRepository::getListWhereCount` (lines 489-495), which filters only on `customer_id`.
+  6. Multi-currency: the setting is stored in USD (`Admin/Customer/CustomerController.php:507`). The vendor writer and `CustomerManager` divide it by the default-currency rate again. In the test, 10 becomes 10 USD from the shared writer and 2.6667 USD from the others. Seller API v3 `updateOrderDetails` (`:772`) is affected too.
+  7. The shared writer (`OrderManager.php:872-882`) has no per-order guard: a second call for the same first order pays again.
+- Audit correction: E04 section 5 cites `Admin/Order/OrderController.php:726-734` as a referral writer. Those lines pay loyalty points. The admin referral writer is line 736.
+- Not fixed. Any fix changes a payout or a balance, so the owner decides the rule first. Then someone authorized runs a read-only check of production `wallet_transactions` (`reference = 'earned_by_referral'`), grouped by referee. This session has no access to production, and nothing here touches it.
+
+Owner decisions (new)
+- D15. Delivery-man app and seller API v3 `order_detail_status`: should the referrer be paid once or twice? If once, through which writer? The shared writer matches the stored USD unit.
+- D16. Vendor panel: the referee is credited today. Confirm the referrer should receive the reward, and decide whether any referee credits already made need correcting.
+- D17. Admin re-submission of `delivered`: add a server-side already-delivered guard?
+- D18. Referral setting unit: USD (as stored, and as the shared writer reads it) or the default currency (as the admin form label shows)?
+- D19. First-order rule: delivered and paid orders only (what the shared writer counts), or every order (what the vendor path counts today)?
+- D1 to D14 are unchanged.
+
+Pending
+- CI on `#25` has not run yet. Expect the Deployment Overlay gate to fail, by design. The full-suite SQLite and MySQL jobs include `TorodShipmentDiscoveryTest`, so the time-bomb can fail there too. Carry the one-line repair (`de1270f8`, the same one carried on `#16` and `#17`) only with a log that shows `TorodShipmentDiscoveryTest.php:198` (`'unlinked'` expected, `'needs_review'` got).
+- This session is subscribed to activity on `#25`.
+- Heads at the time of writing: `#25` `fb6b126e`, plus the heads in section 21.
+
+Resume
+- `git ls-remote origin refs/heads/gcc/p0-referral-characterization` should print `fb6b126e`.
+- Check runs: `pull_request_read` with `get_check_runs` on `#25`. Classify each failure as overlay-only or technical.
+- Test run: in a worktree of `gcc/p0-referral-characterization` with its vendor hard-linked, `php vendor/bin/phpunit tests/Feature/Referral` should give 28 tests and 83 assertions.
