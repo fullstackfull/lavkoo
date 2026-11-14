@@ -185,3 +185,53 @@ Open items, none blocking:
 - `#18`: the lock-order assertion in `GenerateOrderStockTest` uses SQLite identifier quoting. It fails if that class runs on MySQL. Test-only fix if CI shows it.
 
 Next: CI re-check of the draft PRs `#6` to `#19`. Carry the Torod repair (`TorodShipmentDiscoveryTest.php:198`) only where a log shows the same assertion. Never report pending jobs as green.
+
+## 17. CI re-check, Torod carry, PR 9 fix propagated, new tracks (2026-11-14, about 00:05Z)
+
+Status changes since section 16. Remote heads are the authority. The list at the end gives the heads at the time of writing.
+
+Completed
+- `fullstackfull/lavkoo#9` fix: `CustomerBalanceLock::apply()` rethrows deadlocks and lock-wait timeouts after the rollback, instead of returning `false`, which the callers read as a refusal. Commit `f2866840`. Reviewer verdict: accept with notes. Verified locally: `WalletConcurrencyTest` on MySQL 8.0.46 (4 tests) and `CustomerBalanceLockTest` on SQLite (6 tests).
+- Carried into the stack by merge commits, not rebases: `#10`, `#11`, `#12`, `#13`, `#14` and `#15`. `#11` also receives the one-line Torod fixture repair, which `#9` already carries. Verified: `#11` 57 tests OK (10 MySQL-only cases skipped); `#14` 19 tests OK; `#10` `LoyaltyConcurrencyTest` on MySQL 3 of 3.
+- `fullstackfull/lavkoo#7`: the one-line Torod repair, cherry-picked from `bad99c78`, pushed as `ad09d6c6`. Log evidence: the only real failure in run 43518357116 was `TorodShipmentDiscoveryTest.php:198`, expected `'unlinked'`, got `'needs_review'`. Reproduced locally before the repair; passes after it. A comment with the evidence is on `#7`.
+- `#17` `fb3493dd` (RMA shape characterization, test-only), `#18` `94d82c5f` (lock-query match through the active grammar) and `#19` `74372ebf` (non-string storefront input, default normalization). Each was verified on SQLite and, where relevant, on MySQL 8.0.46 locally. The PR bodies are updated.
+- New draft `fullstackfull/lavkoo#20`, based on `main`, head `4a9fa320`: six seller API lookups scoped to `seller_is = 'seller'`. Ten regression tests fail on the base for the leak or crash they name. The diff scan flagged only test fixtures, a dummy bearer-token constant.
+
+In progress when this section was written
+- Web due-payment authorization, branch `gcc/p0-web-due-payment-authorization`, base `main`. See S3 and D2.
+- API v1 edit-order due-payment ownership, branch `gcc/p0-api-edit-order-due-payment-ownership`, base `main`. See S2 and D1.
+
+CI snapshot, 00:00 to 00:05Z. Authoritative for each head SHA. Many jobs were still queued or running, and pending is not green.
+- The only completed failure other than the Deployment Overlay gate was the Torod assertion on `#7`, now repaired.
+- The Deployment Overlay job fails on every branch on the known baseline gate: `firebase-messaging-sw.js`, `public/firebase-messaging-sw.js` and `robots.txt`. Not changed here, and `PILOT_BASELINE` is not changed.
+- `#16`, `#17` and `#18` are based on `main` and do not carry the Torod repair. Carry it only where their logs show the same assertion.
+- Triage note: `--display-skipped` prints skipped tests with messages such as "Needs a real MySQL" and "Only root can give files to another user". In a raw log they look like failures. Count the PHPUnit summary line (`Failures: N`) instead.
+
+Security findings (production exposure; owner and security review required)
+- S1. `Helpers::getCustomerInformation` (`app/Utils/Helpers.php`) trusts a client-posted `user` field when no guard user exists. The web and API wallet and digital due-payment paths resolve identity through it. Reproduced on the unchanged code: a posted `user` field debited the owner's wallet (460 against an expected 500). The helper is shared, so it needs a caller inventory before any change. Not changed in this section.
+- S2. API v1 edit-order due-payment (`routes/rest_api/v1/api.php` lines 461 to 468, `RestAPI\v1\OrderEditController`) sits behind `apiGuestCheck`, which accepts any valid bearer token or any non-empty `guest_id`. Nothing checks ownership. `duePaymentByCod` and `duePaymentByOfflinePayment` rewrite any order's due-payment record. Track D is in progress.
+- S3. Web due-payment (`routes/web/routes.php` line 462, `PaymentController::customerOrderEditPayDueAmount`) has no authentication. Reproduced: unauthenticated offline and cash-on-delivery writes to another customer's order, and a signed-in non-owner spending their own wallet on another order. Track A is in progress.
+- S4. Six seller API lookups answered for in-house orders and other sellers' lines. Fixed in `#20`, pending review and CI.
+
+Owner decisions (open; the assistant does not decide these)
+- D1. Guest due payment through the API. Track D is checking whether any order-to-guest binding exists in the schema and in guest checkout. If none does, the options are to keep guest writes refused, or to add an order-bound guest token.
+- D2. Web guest due payment from the order-tracking page. Track A keeps it working through a marker stored in the session when the order id and phone match. Confirm this approach or choose another.
+- D3. A return authorized for zero units is stored as one unit, because `authorize()` clamps the quantity with `max(1, qty)`. Reject such requests instead? Characterized in `#17`.
+- D4. Keyed-object variations. The legacy restock path rebuilds an object as a list, while the RMA helper keeps the object (`#17`). Choose one canonical shape. Production data is reported as lists.
+- D5. `#9` behaviour change. Deadlocks and lock-wait timeouts now reach four wallet callers as exceptions (HTTP 500, or an outer rollback) instead of a false refusal. Retries are deferred until the closures' side effects are audited. Financial-owner review.
+- D6. Debit above balance and idempotency keys (the `#9` notes; unchanged).
+- D7. The four refund race tests in `#15` stay skipped until the owner approves fixes (RF-01, RF-03, RF-04, IDEM-08).
+- D8. `#3` needs payments sign-off. The Paymera secret rotation (`#7`) needs an authorized person. G0 remains open, and nothing is merged.
+
+Next, in order
+1. Review and push the Track A and Track D branches once their reports are accepted, then open draft PRs against `main`.
+2. Watch the CI runs for `#8` to `#20`. Carry the Torod repair to `#16`, `#17` or `#18` only with log proof. Keep the stack in sync: a change to `#9` is merged into `#10`, `#11`, `#12`, `#13`, `#14` and `#15`.
+3. Add the positive test for the v2 `refund_status_update` happy path (noted in `#20`).
+4. Remaining items: gateway replay guard (IDEM-05, owner review); referral characterization (LO-02); inventory and holds tests; six-storefront foundation behind flags; Flutter work by dependency.
+
+Operational notes
+- Disk: the session allowance is small. Create new worktrees with `cp -al` (hard links) for `vendor/`. Never use `cp -a` for it, because that fills the allowance. Never symlink `vendor/`, because autoload then resolves app classes from the wrong worktree.
+- The local MySQL 8.0.46 instance in the session scratchpad is throwaway: port 3307, with a local-only test credential. That credential must not be copied into any repository or document.
+- Commit attribution: commits carry the `Claude-Session` trailer only. No model name is written into any commit, PR title, PR body, comment or handoff.
+
+Heads at the time of writing: `#6` `5c4b3e66`, `#7` `ad09d6c6`, `#8` `a8c6a42b`, `#9` `f2866840`, `#10` `9b398748`, `#11` `7fc382c8`, `#12` `dd5f95e4`, `#13` `d7bd84f6`, `#14` `2ae74598`, `#15` `59133c35`, `#16` `637196e1`, `#17` `fb3493dd`, `#18` `94d82c5f`, `#19` `74372ebf`, `#20` `4a9fa320`.
