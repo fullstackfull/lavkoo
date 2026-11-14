@@ -441,3 +441,16 @@ Since section 24
 - `#25` (`gcc/p0-referral-characterization`, head `bb0ec132`): the overlay gate failed, as it does on every branch from `main`. The log names the same three files. One comment on `#25` says so. Nothing is bypassed. Its test jobs were still queued or running.
 - Heads at the time of writing: `#25` `bb0ec132`, `#26` `d65a7f5d`, plus the heads in sections 21 to 24.
 - Owner decisions D15 to D22 are unchanged.
+
+## 26. CI complete on draft PR 26, overlay gate unchanged (2026-11-14, about 08:40Z)
+
+Since section 25
+- `#26` (`gcc/p0-seller-admin-permission-characterization`, head `d65a7f5d`, unchanged): all 21 checks have completed. 20 succeeded. The Deployment overlay gate failed by design. Its log (job `132361736972`) names only `firebase-messaging-sw.js`, `public/firebase-messaging-sw.js` and `robots.txt`, so the failure is overlay-only.
+- The two jobs still running in section 25 have finished: `Strict-mode tests, MariaDB 11.4.2` at 07:50:00Z and `Sales-channel and cost tests, MySQL 8.0 (sales channels A-M)` at 07:44:25Z. Both succeeded. Their logs returned HTTP 404 while they ran, so they were not read until completion.
+- No reviews. Comments: the two existing ones. The Torod comment at 06:29:32Z still says the other jobs are queued or running. It is stale and was not edited.
+- No new commit or comment on `#26` in the check-in itself. Nothing bypassed.
+- The only blockers on `#26` are the overlay baseline decision (section 11, item 1) and owner decisions D20 to D22.
+- The `#26` safety-net is not re-armed, because CI is complete.
+
+Heads at the time of writing: `#26` `d65a7f5d`, `#25` `bb0ec132` (not re-read in this check-in), plus the heads in sections 21 to 24.
+Owner decisions D15 to D22 are unchanged.
