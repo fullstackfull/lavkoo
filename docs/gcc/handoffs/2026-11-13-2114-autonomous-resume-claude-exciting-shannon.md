@@ -324,3 +324,43 @@ Pending
 - Owner decisions D11 to D13 from section 19 are unchanged.
 
 Heads at the time of writing: `#7` `ad09d6c6`, `#18` `de1270f8`, `#20` `19520b10`, `#21` `2fa52614`, `#22` `99865aff`, `#23` `9db1506b`, `#24` `cb8b53fa`.
+
+## 21. CI re-read of #8 to #24, Torod repair carried to #16 and #17 (2026-11-14, about 02:05Z)
+
+Since section 20
+- The scheduled CI re-read (trigger `trig_01Uzak1oABmYv3EQGcPDfbRA`, fired 01:52Z) is done. Many jobs were still queued or running when read. Nothing pending is counted as green here.
+- Deployment Overlay gate: fails on every head that completed, by design. The overlay log on `#9`, `#16` and `#17` names three paths outside the overlay directories: `firebase-messaging-sw.js`, `public/firebase-messaging-sw.js` and `robots.txt`. Overlay-only. Nothing bypassed. The overlay baseline the workflow uses (`698aa1e`) is unchanged.
+- Torod fixture, `TorodShipmentDiscoveryTest.php:198` (`'unlinked'` expected, `'needs_review'` got). It failed in one test per run on `#16` (MySQL and MariaDB sales channels N-Z, SQLite PHP 8.2) and on `#17` (MySQL and MariaDB sales channels N-Z, strict-mode MariaDB, SQLite PHP 8.2 and 8.3). Reproduced locally on both base heads. Every log shows the same assertion, so the repair is carried:
+  - `#16`: `65d2d096` on `637196e1`, fast-forward push.
+  - `#17`: `5cbc3844` on `fb3493dd`, fast-forward push.
+  - Each is the one line from `de1270f8` on `#18`, in `tests/Feature/SalesChannels/TorodShipmentDiscoveryTest.php`. It sets the fixture purchase ten hours ago, as the sibling test at line 180 does. No assertion changed. After the repair, the class passes on both branches: 12 tests, 45 assertions, 0 failures.
+- Not carried: `#20` to `#24` have no completed log yet. The time-bomb can still hit them, so the repair goes in only with a log that shows the same assertion.
+- Job state per draft PR, from that read (passed / failed / pending; overlay is the one failure on every completed head):
+  - `#8`: 20 / 0 / 0, complete except overlay.
+  - `#9`: 17 / 0 / 3.
+  - `#10`: 6 / 0 / 14.
+  - `#11`: 14 / 0 / 6.
+  - `#12`: 8 / 0 / 12.
+  - `#13`: 3 / 0 / 17.
+  - `#14`: 1 / 0 / 19.
+  - `#15`: 8 / 0 / 12.
+  - `#16`: 14 / 3 Torod failures / 3, old head `637196e1`, repaired above.
+  - `#17`: 15 / 5 Torod failures / 0, old head `fb3493dd`, repaired above.
+  - `#18`: 21 queued.
+  - `#19`: 14 / 0 / 6.
+  - `#20` to `#24`: 21 queued each, nothing has run yet.
+
+Owner decisions
+- D14 (new). A reservation released for a cancelled channel order stays released after the order is reopened (section 20, invariant). Owner decides whether a reopened order must hold stock again. This can cause oversell until decided.
+- D1 to D13 are unchanged.
+
+Next, in order
+1. Read the new heads `#16` `65d2d096` and `#17` `5cbc3844`, and the pending jobs on `#9` to `#15`, `#18`, `#19` and `#20` to `#24`. Classify each failure as overlay-only or technical. Never report a pending job as green.
+2. Owner review of `#23` (D11) and the decisions above. Nothing below is started until these are answered.
+3. Not read in this pass: `#1` to `#7`, which were outside the trigger's `#8` to `#24` scope. `#7` already carries the repair (section 18).
+
+Resume
+- `git ls-remote origin refs/heads/gcc/p0-order-owner-is-guest-scope refs/heads/gcc/p0-rma-receive-idempotency` should print `65d2d096` and `5cbc3844`.
+- Check runs: `pull_request_read` with `get_check_runs` on `#16` and `#17`. Failing jobs: `get_job_logs` with `job_id`, then count the `Failures: N` line in the PHPUnit summary.
+
+Heads at the time of writing: `#16` `65d2d096`, `#17` `5cbc3844`, `#18` `de1270f8`, `#20` `19520b10`, `#21` `2fa52614`, `#22` `99865aff`, `#23` `9db1506b`, `#24` `cb8b53fa`.
