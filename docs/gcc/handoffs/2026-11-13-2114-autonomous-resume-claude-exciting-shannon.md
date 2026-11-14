@@ -397,3 +397,30 @@ Resume
 - `git ls-remote origin refs/heads/gcc/p0-referral-characterization` should print `fb6b126e`.
 - Check runs: `pull_request_read` with `get_check_runs` on `#25`. Classify each failure as overlay-only or technical.
 - Test run: in a worktree of `gcc/p0-referral-characterization` with its vendor hard-linked, `php vendor/bin/phpunit tests/Feature/Referral` should give 28 tests and 83 assertions.
+
+## 23. Order-action permissions in draft PR 26, and a v2 seller API gap (2026-11-14, about 03:45Z)
+
+Since section 22
+- Draft PR `fullstackfull/lavkoo#26`, branch `gcc/p0-seller-admin-permission-characterization`, head `9b97f09b`, base `main` at `c5c04b7b`. Test-only: 12 tests, 42 assertions on SQLite. No production file changed. Independent review: accept with notes, no blocking items. Removing each gate, one at a time in a scratch copy, fails the test that targets it.
+- Pinned gap, a security finding: the v2 seller refund decision has no status or permission check (`routes/rest_api/v2/api.php:85`). It authenticates through `Helpers::get_seller_by_token` (`app/Utils/Helpers.php:529`), which matches `sellers.auth_token` and checks no status. A seller whose status an admin sets to rejected keeps a working token: the v2 refund decision returns 200 and changes the refund. The v3 route refuses the same token with 401.
+- By reading the code, not tested: that helper has 48 call sites in seven v2 seller controllers. They include the v2 order status, payment status and delivery assignment routes, product and shipping routes, and the balance-withdraw route.
+- Admin suspension rotates the token (`Admin/Vendor/VendorController.php`, both the single and the bulk path), so a suspended seller's old token stops working. Rejection does not rotate it. The gap is reachable through rejection, and through any status change that leaves the token in place.
+- Not fixed. A fix changes which sellers can act, so the owner decides (D20).
+- Observed: `POST /admin/customer/wallet/add-fund` sits behind `module:people` (`routes/admin/routes.php:603`). Any admin who manages people can credit customer wallets (D21).
+- Not covered: the wallet and POS money routes (gates read, not exercised), and issued API keys and their scopes.
+
+Owner decisions (new)
+- D20. Seller API v2 has no status or permission gate. Add the approved check to the v2 seller routes? Should admin rejection also rotate `auth_token`, as suspension does? Either change alters what rejected sellers can do on the mobile app, so it needs owner sign-off before any production change.
+- D21. Admin customer wallet add-fund sits behind `module:people`. Keep it, or give wallet credits their own module?
+- D22. Wallet and POS money gates are read but not yet exercised. Include them in a later track?
+- D1 to D19 are unchanged.
+
+Pending
+- CI on `#25` and `#26` has not run yet. The safety-net check-in for `#25` fires about 03:22Z (trigger `trig_01F2afcce88XumUcEKCw7VGm`).
+- This session is subscribed to activity on `#25`. Subscribe on `#26` as well.
+- Heads at the time of writing: `#25` `fb6b126e`, `#26` `9b97f09b`, `#16` `65d2d096`, `#17` `5cbc3844`.
+
+Resume
+- `git ls-remote origin refs/heads/gcc/p0-seller-admin-permission-characterization` should print `9b97f09b`.
+- In a worktree of that branch with its vendor hard-linked, `php vendor/bin/phpunit tests/Feature/Permissions` should give 12 tests and 42 assertions.
+- Check runs on `#25` and `#26`: classify each failure as overlay-only or technical.
