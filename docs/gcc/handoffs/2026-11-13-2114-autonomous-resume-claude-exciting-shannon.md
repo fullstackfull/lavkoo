@@ -424,3 +424,12 @@ Resume
 - `git ls-remote origin refs/heads/gcc/p0-seller-admin-permission-characterization` should print `9b97f09b`.
 - In a worktree of that branch with its vendor hard-linked, `php vendor/bin/phpunit tests/Feature/Permissions` should give 12 tests and 42 assertions.
 - Check runs on `#25` and `#26`: classify each failure as overlay-only or technical.
+
+## 24. Torod repair carried to draft PR 25, and the first CI results on PR 26 (2026-11-14, about 05:30Z)
+
+Since section 23
+- `#25` (`gcc/p0-referral-characterization`): the MySQL 8.0 sales-channels N-Z job failed on `fb6b126e` with one failure, `TorodShipmentDiscoveryTest.php:198` (`'unlinked'` expected, `'needs_review'` got). The same failure reproduces locally on that head. The one-line repair `de1270f8` is carried as `bb0ec132` (fast-forward). Locally the class passes: 12 tests, 45 assertions. A comment on `#25` cites the log. The other jobs were still queued when this was written.
+- `#26` (`gcc/p0-seller-admin-permission-characterization`, head `9b97f09b`): the Deployment overlay gate failed, as it does on every branch that starts from `main`. Its log names `firebase-messaging-sw.js`, `public/firebase-messaging-sw.js` and `robots.txt`, which this PR does not touch. One comment on `#26` says so. Nothing is bypassed. The other 20 jobs were still queued.
+- Safety-net check-ins are armed: `#25` at 07:24Z (trigger `trig_015kJ84ftTjP9jMxmKKGQmJr`) and `#26` at 07:33Z (trigger `trig_01E6EEY3CtzZci38ejar6fJ1`). Each one re-arms every four hours while CI is still queued.
+- Heads at the time of writing: `#25` `bb0ec132`, `#26` `9b97f09b`, plus the heads in sections 21 and 23.
+- Owner decisions D15 to D22 are unchanged.
