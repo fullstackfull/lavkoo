@@ -52,6 +52,8 @@ class UserProfileController extends Controller
 {
     use CommonTrait, PdfGenerator;
 
+    public const VERIFIED_TRACKING_ORDER_SESSION_KEY = 'verified_tracking_order_id';
+
     public function __construct(
         private Order                                              $order,
         private Seller                                             $seller,
@@ -744,13 +746,11 @@ class UserProfileController extends Controller
                 return redirect()->route('track-order.index', ['order_id' => $request['order_id']]);
             }
 
-            $userInfo = User::where('phone', $request['phone_number'])->orWhere('phone', 'like', "%{$request['phone_number']}%")->first();
-
             if ($order && $order->is_guest) {
                 $orderExist = $this->storefrontAddresses->orderWasPlacedWithPhone(order: $order, phone: $request['phone_number']) ? $order : null;
-            } elseif ($userInfo) {
-                $orderExist = Order::with('latestEditHistory')->where('id', $request['order_id'])->whereHas('details', function ($query) use ($userInfo) {
-                    $query->where('customer_id', $userInfo->id);
+            } elseif ($order && $this->storefrontAddresses->orderBelongsToCustomerWithPhone(order: $order, phone: $request['phone_number'])) {
+                $orderExist = Order::with('latestEditHistory')->where('id', $request['order_id'])->whereHas('details', function ($query) use ($order) {
+                    $query->where('customer_id', $order->customer_id);
                 })->first();
             } else {
                 Toastr::error(translate('invalid_Order_Id_or_phone_Number'));
@@ -783,6 +783,7 @@ class UserProfileController extends Controller
             }
             $isOrderOnlyDigital = self::getCheckIsOrderOnlyDigital($orderExist);
             $orderDetails = $orderExist;
+            session([self::VERIFIED_TRACKING_ORDER_SESSION_KEY => $orderExist->id]);
             return view(VIEW_FILE_NAMES['track_order'], compact(
                 'orderDetails',
                 'user_phone',

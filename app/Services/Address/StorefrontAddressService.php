@@ -178,6 +178,21 @@ class StorefrontAddressService
         return false;
     }
 
+    /**
+     * Is this the phone of the registered customer who placed the order? The customer is the order's own, never one found by the
+     * number, and the whole number has to match after the same normalisation a guest order's phone gets: part of it matches nothing.
+     */
+    public function orderBelongsToCustomerWithPhone(Order $order, mixed $phone): bool
+    {
+        if ($order->is_guest || !is_string($phone) || trim($phone) === '') {
+            return false;
+        }
+
+        $ownerPhone = $order->customer?->phone;
+
+        return is_string($ownerPhone) && $this->isSamePhone(known: $ownerPhone, given: $phone);
+    }
+
     private function isSamePhone(string $known, string $given): bool
     {
         $known = trim($known);
