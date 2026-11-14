@@ -48,4 +48,8 @@ return [
         'redirect' => env('TWITTER_SERVICE_CALLBACK'),
     ],
 
+    'paymera' => [
+        'secret_key' => env('PAYMERA_SECRET_KEY'),
+    ],
+
 ];
