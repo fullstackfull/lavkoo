@@ -269,3 +269,36 @@ Next, in order
 4. The remaining items from section 17.
 
 Heads at the time of writing: `#7` `ad09d6c6`, `#18` `de1270f8`, `#20` `4a9fa320`, `#21` `2fa52614`, `#22` `99865aff`. The other heads are listed in section 17.
+
+## 19. Identity fix in draft PR 23, container restart, and a production exposure (2026-11-14, about 01:20Z)
+
+Since section 18
+- Container restart: background runs stopped. The identity run was interrupted before it reported, and its partial edits were saved and then resumed. The partial change, applied alone, broke the website-payment callback: five `OrderPaymentCallbackTest` cases failed, because the payer had been read from request input. Nothing from that partial state was committed.
+- `fullstackfull/lavkoo#23`, draft on `main`, head `9db1506b`: identity comes from the customer guard, then the request object's user resolver, then the server session, then `offline`. The module payment callback sets its verified payer on the resolver and passes the request object. The `OrderManager`, `CartManager` and callback identity sites pass the request object. The API token middleware sets the token customer on the resolver.
+  - Verified locally on SQLite: 11 identity tests; 5 module payment callback tests; `ApiOrderPlacement|Cart|OrderManager` 25 tests; `Payment` 87 tests with 1 skip (MySQL only); `Address` 1045 tests with 1 skip; `Auth` and `Security` 21 tests. Lint and `resources/lang` clean.
+  - On the previous code, 5 of the 11 new tests fail: the stranger's body on web checkout, the stranger's body on the cart listing (it re-priced the owner's cart row from 40 to 100), and three posted-user cases.
+  - Independent review: accept with notes. Both notes were applied.
+  - CI: pending. Not green.
+- S1 (`Helpers::getCustomerInformation` trusting client input): fixed in `#23`, pending review and CI. The caller inventory covered 74 call sites in 21 files. Each now receives a request object, or the server-set payer.
+
+Production exposure, on `main` before `#23`
+- Web cash-on-delivery and offline checkout (`WebController` around lines 629 and 775) call `generateOrder` without a `requestObj`. The fallback `request()->all()` let a visitor's posted `payment_request_from=app` and `customer_id` name the customer that the order was recorded under. Reproduced on `main` by test (a) in `#23`.
+- Owner action: review production orders from these two paths for a customer that did not sign in on that request. The assistant has no production read access, so this check belongs to the owner.
+
+Owner decisions (open; not decided here)
+- D11. Review and merge `#23` (checkout identity and the module payment callback). This needs a financial and security reviewer. Decide whether any recorded order needs correcting.
+- D12. The debug write in `app/Utils/module-helper.php` (about lines 171 to 193) appends customer ids, guest ids and order ids to `storage/logs/order_generate_test.txt` on every paid order. Remove it, or keep it under a stated purpose.
+- D13. The module callback trusts the stored `additional_data` payload. Confirm how the gateway callback is verified.
+- D1 is unchanged: guest ids are sequential and guessable.
+
+Next, in order
+1. Read CI on `#8` to `#23` again. Carry the Torod repair only to a main-based branch whose log shows the same assertion.
+2. Independent review of `#22` (web due payments) and `#21` (API due payments), then CI on each head.
+3. The debug-log change (D12), as a small separate pull request, once the owner decides.
+4. The items from section 18.
+
+Operational notes
+- Local MySQL 8.0.46 was restarted from the scratchpad data directory on port 3307. It is a throwaway instance.
+- Background tasks do not survive a container restart. Re-create any long run that matters, and check the saved partial edits in the worktree before re-running.
+
+Heads at the time of writing: `#7` `ad09d6c6`, `#18` `de1270f8`, `#20` `19520b10`, `#21` `2fa52614`, `#22` `99865aff`, `#23` `9db1506b`.
