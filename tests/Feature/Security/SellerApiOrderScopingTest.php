@@ -105,6 +105,35 @@ class SellerApiOrderScopingTest extends TestCase
         $this->assertSame(0, DB::table('refund_statuses')->count());
     }
 
+    public function test_a_seller_updates_their_own_refund_request_with_valid_input(): void
+    {
+        $this->insertOrderWithLine(orderId: 100, orderDetailsId: 500, sellerId: self::SELLER_A, sellerIs: 'seller');
+        $refundRequestId = $this->insertRefundRequest(orderId: 100, orderDetailsId: 500);
+
+        $response = $this->v2RefundStatusUpdate(refundRequestId: $refundRequestId);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('refund status updated successfully!', json_decode((string) $response->getContent(), true)['message']);
+
+        $refundRequest = DB::table('refund_requests')->where('id', $refundRequestId)->first();
+        $this->assertSame('rejected', $refundRequest->status);
+        $this->assertSame('seller', $refundRequest->change_by);
+        $this->assertSame('not eligible', $refundRequest->rejected_note);
+        $this->assertNull($refundRequest->approved_note);
+
+        $this->assertSame(3, (int) DB::table('order_details')->where('id', 500)->value('refund_request'));
+
+        $refundStatuses = DB::table('refund_statuses')->where('refund_request_id', $refundRequestId)->get();
+        $this->assertCount(1, $refundStatuses);
+        $this->assertSame('seller', $refundStatuses[0]->change_by);
+        $this->assertSame(self::SELLER_A, (int) $refundStatuses[0]->change_by_id);
+        $this->assertSame('rejected', $refundStatuses[0]->status);
+        $this->assertSame('not eligible', $refundStatuses[0]->message);
+
+        Event::assertDispatched(OrderStatusEvent::class, fn (OrderStatusEvent $event) => $event->key === 'refund_request_canceled_message'
+            && $event->type === 'customer' && $event->order?->id === 100);
+    }
+
     public function test_v2_refund_status_update_of_an_unknown_refund_request_is_not_found(): void
     {
         $response = $this->v2RefundStatusUpdate(refundRequestId: 999);
@@ -362,6 +391,7 @@ class SellerApiOrderScopingTest extends TestCase
             $table->string('variant')->nullable();
             $table->text('variation')->nullable();
             $table->boolean('is_stock_decreased')->default(true);
+            $table->integer('refund_request')->default(0);
             $table->timestamps();
         });
 
@@ -373,6 +403,9 @@ class SellerApiOrderScopingTest extends TestCase
             $table->string('status')->default('pending');
             $table->decimal('amount', 16, 2)->default(0);
             $table->text('images')->nullable();
+            $table->string('change_by')->nullable();
+            $table->text('approved_note')->nullable();
+            $table->text('rejected_note')->nullable();
             $table->timestamps();
         });
 
