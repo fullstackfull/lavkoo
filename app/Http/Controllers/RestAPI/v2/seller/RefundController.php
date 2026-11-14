@@ -65,7 +65,13 @@ class RefundController extends Controller
                 'auth-001' => translate('Your existing session token does not authorize you any more')
             ], 401);
         }
-        $order_details = OrderDetail::find($request->order_details_id);
+        $order_details = OrderDetail::where('seller_id', $seller['id'])
+            ->whereHas('order', function ($query) {
+                $query->where('seller_is', 'seller');
+            })->find($request->order_details_id);
+        if (!$order_details) {
+            return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
+        }
         $refund_request = RefundRequest::with('refund_status')->where('order_details_id',$request->order_details_id)->get();
 
             $order = Order::find($order_details->order_id);
@@ -126,6 +132,12 @@ class RefundController extends Controller
         $refund = RefundRequest::whereHas('order', function ($query) use($data) {
                                     $query->where('seller_is', 'seller')->where('seller_id',$data['data']['id']);
                                 })->find($request->refund_request_id);
+
+        if (!$refund) {
+            return response()->json(['errors' => [
+                ['code' => 'refund', 'message' => translate('refund_request_not_found')],
+            ]], 404);
+        }
 
         $user = User::find($refund->customer_id);
 

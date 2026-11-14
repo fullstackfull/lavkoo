@@ -442,7 +442,7 @@ class POSController extends Controller
             return response()->json(['message' => translate('access_denied!')], 403);
         }
 
-        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id']])->find($request['id']);
+        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['id']);
         if ($orders) {
             foreach ($orders['details'] as $order) {
                 $order['product_details'] = Helpers::product_data_formatting(json_decode($order['product_details'], true));

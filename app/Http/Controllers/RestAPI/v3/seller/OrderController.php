@@ -198,7 +198,10 @@ class OrderController extends Controller
         $seller = $request->seller;
         $detailsList = OrderDetail::with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
             return $query->orderBy('updated_at', 'desc');
-        }])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get();
+        }])->where(['seller_id' => $seller['id'], 'order_id' => $id])
+            ->whereHas('order', function ($query) {
+                $query->where('seller_is', 'seller');
+            })->get();
 
         if ($detailsList->isEmpty()) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -297,7 +300,10 @@ class OrderController extends Controller
         }
 
         $seller = $request->seller;
-        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'id' => $request['order_id']])->first();
+        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller', 'id' => $request['order_id']])->first();
+        if (!$order) {
+            return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
+        }
 
         if ($order['delivery_man_id'] != $request['delivery_man_id']) {
             $order->deliveryman_assigned_at = Carbon::now();
@@ -356,7 +362,10 @@ class OrderController extends Controller
     {
         $seller = $request->seller;
         // Scope the order line to the seller so one seller cannot overwrite another's delivered digital file.
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
+        $order_details = OrderDetail::where('seller_id', $seller['id'])
+            ->whereHas('order', function ($query) {
+                $query->where('seller_is', 'seller');
+            })->find($request->order_id);
         if ($order_details) {
             $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
             $order_details->save();
