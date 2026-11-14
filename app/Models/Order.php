@@ -6,6 +6,7 @@ use App\Services\Address\AddressSnapshot;
 use App\Traits\DemoMaskingTrait;
 use Carbon\Carbon;
 use DateTime;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -189,6 +190,11 @@ class Order extends Model
         'edited_status' => 'integer'
     ];
 
+    /** A guest order stores the guest_id in customer_id, so a registered customer's id alone can match a guest's order. */
+    public function scopeOwnedByCustomer(Builder $query, int|string|null $customerId): Builder
+    {
+        return $query->where('customer_id', $customerId)->where('is_guest', 0);
+    }
 
     public function details(): HasMany
     {

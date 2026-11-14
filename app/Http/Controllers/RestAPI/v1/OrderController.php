@@ -96,7 +96,7 @@ class OrderController extends Controller
             ->where('id', $request['order_id'])
             ->where(function ($query) use ($request) {
                 auth('api')->check()
-                    ? $query->where('customer_id', auth('api')->id())
+                    ? $query->ownedByCustomer(customerId: auth('api')->id())
                     : $query->where(['customer_id' => $request['guest_id'], 'is_guest' => 1]);
             })
             ->first();
@@ -151,7 +151,7 @@ class OrderController extends Controller
         }
         // Scope to the authenticated customer (route is auth:api): only the order's owner may cancel it,
         // otherwise any caller could enumerate sequential ids and cancel/restock arbitrary orders.
-        $order = Order::where(['id' => $request->order_id, 'customer_id' => auth('api')->id()])->first();
+        $order = Order::where('id', $request->order_id)->ownedByCustomer(customerId: auth('api')->id())->first();
         if (!$order) {
             return response()->json(['message' => translate('order_not_found')], 404);
         }
@@ -506,7 +506,7 @@ class OrderController extends Controller
 
         $user = $request->user();
         // Ownership: the order line must belong to the requesting customer.
-        if (!$order_details || !Order::where('id', $order_details->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$order_details || !Order::where('id', $order_details->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
         $loyaltyPointStatus = getWebConfig(name: 'loyalty_point_status');
@@ -565,7 +565,7 @@ class OrderController extends Controller
         $user = $request->user();
 
         // Ownership: a customer may only refund a line of their OWN order.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
 
@@ -629,7 +629,7 @@ class OrderController extends Controller
     {
         $orderDetails = OrderDetail::find($request->id);
         // Ownership: the order line (price/qty/discount/tax) must belong to the requesting customer.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $request->user()->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $request->user()->id)->exists()) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
         $refund = RefundRequest::where('customer_id', $request->user()->id)
