@@ -235,3 +235,37 @@ Operational notes
 - Commit attribution: commits carry the `Claude-Session` trailer only. No model name is written into any commit, PR title, PR body, comment or handoff.
 
 Heads at the time of writing: `#6` `5c4b3e66`, `#7` `ad09d6c6`, `#8` `a8c6a42b`, `#9` `f2866840`, `#10` `9b398748`, `#11` `7fc382c8`, `#12` `dd5f95e4`, `#13` `d7bd84f6`, `#14` `2ae74598`, `#15` `59133c35`, `#16` `637196e1`, `#17` `fb3493dd`, `#18` `94d82c5f`, `#19` `74372ebf`, `#20` `4a9fa320`.
+
+## 18. Second CI pass, three security tracks as draft PRs (2026-11-14, about 00:21Z)
+
+Since section 17
+- Three new draft PRs on `main`. CI is pending on all three, so none is green.
+  - `fullstackfull/lavkoo#20`: seller API order and refund lookups scoped to the seller's own orders (`gcc/p0-seller-order-scoping`, `4a9fa320`). Ten regression tests fail on the base.
+  - `fullstackfull/lavkoo#21`: API v1 edit-order due payments act only for the order's owner, or for a guest order whose stored `customer_id` equals the posted `guest_id` (`gcc/p0-api-edit-order-due-payment-ownership`, `2fa52614`). Fourteen of 21 new tests fail on the base.
+  - `fullstackfull/lavkoo#22`: web due payments act only for the order's owner, or for the order a browser verified on the tracking page (`gcc/p0-web-due-payment-authorization`, `99865aff`). The partial-phone lookup is removed. The test that guarded nothing was rewritten, and it now fails on the old lookup.
+- Torod one-line repair, carried only where a log showed the same assertion at `TorodShipmentDiscoveryTest.php:198` (`'unlinked'` expected, `'needs_review'` got). Each carry has a comment on its PR.
+  - `fullstackfull/lavkoo#7`: `ad09d6c6`. Reproduced locally before the repair, passes after it.
+  - `fullstackfull/lavkoo#18`: `de1270f8`. Reproduced locally before the repair, passes after it.
+- Still to watch, all main-based and not yet completed: `#16`, `#17`, `#20`, `#21`, `#22`. Their Torod job may fail the same way. The repair goes in only with a log that shows the same assertion.
+- CI reads on `#8` to `#21`, about 00:00 to 00:14Z: no failure except the known Deployment Overlay gate, plus the two Torod failures above. Most jobs were still queued or running.
+
+Security findings after this round
+- S1. `Helpers::getCustomerInformation` still trusts a client-posted `user` field for any caller that still uses it. The three endpoints above no longer call it, but the helper itself is unchanged. Open: a caller inventory, then a separate fix. This is a production exposure.
+- S2. API v1 edit-order due payments: fixed in `#21`, pending review and CI. Guest identity is still a sequential, guessable id (D1).
+- S3. Web due payments: fixed in `#22`, pending review and CI. Signed-out access now needs the verified tracking session (D2).
+- S4. Seller API lookups: fixed in `#20`, pending review and CI.
+
+Owner decisions (open; not decided here)
+- D1. Guest ids are sequential and guessable (`#21`). Keep the current check, or add an order-bound guest token?
+- D2. Signed-out web due payments need the verified tracking session. A partial phone is now refused, and formatted Saudi numbers match (`#22`). Confirm this behaviour change.
+- D9. The customer app's guest due-payment flow does not work, before or after `#21`. Guest cash-on-delivery and offline calls send no `guest_id`. The digital call sends the literal `'cash_on_delivery'` as `guest_id`, and that is now refused. Making the guest flow work needs an app change.
+- D10. A signed-in customer can no longer act on a guest order, even one placed under a guest id equal to their user id (`#21`).
+- D3 to D8 and the `#9` behaviour decision (D5) are unchanged from section 17.
+
+Next, in order
+1. Read CI on `#8` to `#22` again. Carry the Torod repair to a main-based branch only with a log that shows the same assertion. Never report pending jobs as green.
+2. Review `#20`, `#21` and `#22` with a fresh reviewer, and read CI on each head SHA.
+3. Caller inventory for `Helpers::getCustomerInformation` (S1), then a separate fix track.
+4. The remaining items from section 17.
+
+Heads at the time of writing: `#7` `ad09d6c6`, `#18` `de1270f8`, `#20` `4a9fa320`, `#21` `2fa52614`, `#22` `99865aff`. The other heads are listed in section 17.
