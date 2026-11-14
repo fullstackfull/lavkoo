@@ -48,6 +48,36 @@ class OrderEditController extends Controller
     {
     }
 
+    /**
+     * The order the caller may pay the due amount of, or null. Identity comes from the bearer token only: a signed-in customer reaches
+     * their own customer orders, a guest reaches only a guest order placed under the guest_id they send, and the wallet is never open
+     * to a guest. A posted `user` or customer id is never trusted.
+     */
+    private function findCallerOrder(Request $request, bool $allowGuest = true): ?Order
+    {
+        $query = Order::with(['latestEditHistory'])->where('id', $request['order_id']);
+
+        if (auth('api')->check()) {
+            return $query->where(['customer_id' => auth('api')->id(), 'is_guest' => 0])->first();
+        }
+
+        $guestId = $this->guestIdFrom(request: $request);
+        if (!$allowGuest || $guestId === null) {
+            return null;
+        }
+
+        return $query->where(['customer_id' => $guestId, 'is_guest' => 1])->first();
+    }
+
+    /** A guest_id is only ever a positive whole number in plain digits; anything else would let the database coerce it into another id. */
+    private function guestIdFrom(Request $request): ?int
+    {
+        $guestId = $request['guest_id'];
+        $isPlainDigits = (is_string($guestId) || is_int($guestId)) && ctype_digit((string) $guestId);
+
+        return $isPlainDigits && (int) $guestId > 0 ? (int) $guestId : null;
+    }
+
     public function duePaymentByWallet(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -59,7 +89,7 @@ class OrderEditController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $order = Order::with(['latestEditHistory'])->where('id', $request['order_id'])->first();
+        $order = $this->findCallerOrder(request: $request, allowGuest: false);
         if (!$order) {
             return response()->json(['message' => translate('Order_not_found')], 401);
         }
@@ -68,15 +98,10 @@ class OrderEditController extends Controller
             return response()->json(['message' => translate('wallet_is_deactivated')], 401);
         }
 
-        $user = Helpers::getCustomerInformation($request);
-        if ($user != 'offline') {
-            $response = $this->payEditOrderDueByCustomerWallet(order: $order, customer: $user);
-            return response()->json([
-                'message' => $response['message'],
-            ], ($response['status'] ? 200 : 403));
-        }
-
-        return response()->json(['message' => 'Unauthorized'], 401);
+        $response = $this->payEditOrderDueByCustomerWallet(order: $order, customer: auth('api')->user());
+        return response()->json([
+            'message' => $response['message'],
+        ], ($response['status'] ? 200 : 403));
     }
 
     public function duePaymentByCod(Request $request): JsonResponse
@@ -90,7 +115,7 @@ class OrderEditController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $order = Order::with(['latestEditHistory'])->where('id', $request['order_id'])->first();
+        $order = $this->findCallerOrder(request: $request);
         if (!$order) {
             return response()->json(['message' => translate('Order_not_found')], 401);
         }
@@ -126,7 +151,7 @@ class OrderEditController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $order = Order::with(['latestEditHistory'])->where('id', $request['order_id'])->first();
+        $order = $this->findCallerOrder(request: $request);
         if (!$order) {
             return response()->json(['message' => translate('Order_not_found')], 401);
         }
@@ -166,12 +191,12 @@ class OrderEditController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $order = Order::with(['latestEditHistory'])->where('id', $request['order_id'])->first();
+        $order = $this->findCallerOrder(request: $request);
         if (!$order) {
             return response()->json(['message' => translate('Order_not_found')], 401);
         }
 
-        $customer = Helpers::getCustomerInformation($request);
+        $customer = auth('api')->user() ?? 'offline';
         $response = $this->payEditOrderDueByDigitalPayment(request: $request, order: $order, customer: $customer);
 
         if (!$response['status'] && isset($response['message'])) {
