@@ -302,3 +302,25 @@ Operational notes
 - Background tasks do not survive a container restart. Re-create any long run that matters, and check the saved partial edits in the worktree before re-running.
 
 Heads at the time of writing: `#7` `ad09d6c6`, `#18` `de1270f8`, `#20` `19520b10`, `#21` `2fa52614`, `#22` `99865aff`, `#23` `9db1506b`.
+
+## 20. Holds characterization in draft PR 24, and a correction to section 19 (2026-11-14, about 01:45Z)
+
+Corrections to section 19
+- The "next" item that asks for an independent review of `#22` and `#21` is out of date. Both were reviewed by workflow reviewers: `#21` accept with notes, and `#22` accept with notes, with a second review of its phone-match test fix also accept with notes. Their heads have not changed since. A new review is needed only after a new head.
+
+New
+- `fullstackfull/lavkoo#24`, draft on `main`, head `cb8b53fa`. Test-only: characterization of stock and hold behaviour. It changes no production file. Seventeen SQLite tests pass in default, reverse and random order. The filtered `Stock`, `Return`, `Reservation`, `ShipmentTracker` and `Hold` suites pass: 827 tests, 25 skipped (MySQL only).
+- Four findings are pinned as they are, each in a test named `..._currently_`. Each is a fix candidate, and each fix flips its test:
+  - F1, `app/Utils/OrderManager.php:135` (twin `app/Repositories/OrderRepository.php:678`): re-opening a cancelled line floors `current_stock` at zero, but decrements the variant quantity with no floor. A variant can go negative.
+  - F2, `app/Services/Marketplace/ReturnLogisticsService.php:102,111-115` with `OrderManager.php:141-142`: a partial return restocks without claiming `is_stock_decreased`. Marking the order returned afterwards restocks the whole line again.
+  - F3, `ReturnLogisticsService.php:45,102,113`: the whole-line claim compares the line quantity with the return quantity, then adds the return quantity. A return for more units than the line restocks units that never left.
+  - F4, `ReturnLogisticsService.php:111-115`: the return receipt raises `current_stock` and never writes the variation JSON. `fullstackfull/lavkoo#17` changes this.
+- Merge dependency: F4's test pins what `#17` changes. Whichever of `#17` and `#24` merges second must update that test.
+- Not a defect, by the code's own docblock: a reservation released for a cancelled order stays released on reopen and reserve (`ReservationService.php:13-18`). It is an invariant. Owner review is needed, because it can keep a reinstated channel order from being held again.
+- Not covered: the insufficient-stock refusal at placement, and `allow_oversell`. Both need the full order pipeline.
+
+Pending
+- The CI re-read scheduled for about 01:52Z has not reported yet. Its results will go in the next update.
+- Owner decisions D11 to D13 from section 19 are unchanged.
+
+Heads at the time of writing: `#7` `ad09d6c6`, `#18` `de1270f8`, `#20` `19520b10`, `#21` `2fa52614`, `#22` `99865aff`, `#23` `9db1506b`, `#24` `cb8b53fa`.
