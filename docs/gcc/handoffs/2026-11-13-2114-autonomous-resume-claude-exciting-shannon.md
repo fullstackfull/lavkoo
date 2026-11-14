@@ -433,3 +433,11 @@ Since section 23
 - Safety-net check-ins are armed: `#25` at 07:24Z (trigger `trig_015kJ84ftTjP9jMxmKKGQmJr`) and `#26` at 07:33Z (trigger `trig_01E6EEY3CtzZci38ejar6fJ1`). Each one re-arms every four hours while CI is still queued.
 - Heads at the time of writing: `#25` `bb0ec132`, `#26` `9b97f09b`, plus the heads in sections 21 and 23.
 - Owner decisions D15 to D22 are unchanged.
+
+## 25. Torod repair carried to draft PR 26, and the overlay comment on draft PR 25 (2026-11-14, about 06:35Z)
+
+Since section 24
+- `#26` (`gcc/p0-seller-admin-permission-characterization`): the strict-mode MariaDB job failed on `9b97f09b` with one failure, `TorodShipmentDiscoveryTest.php:198` (the same assertion as on `#25`). Reproduced locally on that head. The one-line repair `de1270f8` is carried as `d65a7f5d` (fast-forward). Locally the class passes: 12 tests, 45 assertions. A comment on `#26` cites the log.
+- `#25` (`gcc/p0-referral-characterization`, head `bb0ec132`): the overlay gate failed, as it does on every branch from `main`. The log names the same three files. One comment on `#25` says so. Nothing is bypassed. Its test jobs were still queued or running.
+- Heads at the time of writing: `#25` `bb0ec132`, `#26` `d65a7f5d`, plus the heads in sections 21 to 24.
+- Owner decisions D15 to D22 are unchanged.
