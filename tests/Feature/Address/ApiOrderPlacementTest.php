@@ -308,10 +308,11 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         $this->assertIsString($json['message']);
     }
 
-    /** The order writer called the way every controller calls it, for a signed-in customer. */
+    /** The order writer called the way every controller calls it, for a customer signed in with a token: the request's user is that customer, as the API guest check makes it. */
     private function generateOrderFor(User $customer, array $data): array
     {
-        request()->merge(['user' => $customer]);
+        $this->actingAs($customer, 'api');
+        request()->setUserResolver(static fn () => $customer);
 
         return OrderManager::generateOrder(data: $data + [
             'is_guest' => 0, 'customer_id' => $customer->id, 'order_status' => 'pending', 'payment_method' => 'cash_on_delivery',

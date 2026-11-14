@@ -16,10 +16,12 @@ class APIGuestMiddleware
     {
         // Previously: `if ($request->header('Authorization') && app('auth')->guard('api'))`.
         // app('auth')->guard('api') returns a guard OBJECT and is always truthy, so the condition
-        // reduced to "is an Authorization header present?" — the token was never validated, and
-        // $request['user'] was silently set to null. Validate the token for real instead.
+        // reduced to "is an Authorization header present?" — the token was never validated. Validate the token for real instead.
+        // The customer the token names becomes the request's user. It is never written into the input: input is what the
+        // caller sends, so a "user" field there is not an identity and must not be read as one.
         if ($request->header('Authorization') && auth('api')->check()) {
-            $request->merge(['user' => auth('api')->user()]);
+            $tokenCustomer = auth('api')->user();
+            $request->setUserResolver(static fn (?string $guard = null) => $guard === null ? $tokenCustomer : auth($guard)->user());
             return $next($request);
         }
 

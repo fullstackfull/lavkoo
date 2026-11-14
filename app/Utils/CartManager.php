@@ -51,7 +51,7 @@ class CartManager
 
     public static function getCartListQuery($groupId = null, $type = null): Collection|array
     {
-        ProductManager::updateProductPriceInCartList(request: request()->all());
+        ProductManager::updateProductPriceInCartList(request: request());
         self::updateOrderSummaryShippingCost($groupId, $type);
 
         $cartItems = Cart::with(['product' => function ($query) {
@@ -97,7 +97,7 @@ class CartManager
 
     public static function getCartListQueryAPI($request = null, $groupId = null, $type = null): Collection|array
     {
-        ProductManager::updateProductPriceInCartList(request: $request ?? request()->all());
+        ProductManager::updateProductPriceInCartList(request: $request ?? request());
 
         $cartItems = Cart::with(['product' => function ($query) {
                 return $query->active()->with(['clearanceSale' => function ($query) {
@@ -108,7 +108,7 @@ class CartManager
                 return $query->active();
             })
             ->when($groupId == null, function ($query) use ($request) {
-                return $query->whereIn('cart_group_id', CartManager::get_cart_group_ids($request ?? request()->all()));
+                return $query->whereIn('cart_group_id', CartManager::get_cart_group_ids($request ?? request()));
             })
             ->when($groupId, function ($query) use ($groupId) {
                 return $query->where('cart_group_id', $groupId);
