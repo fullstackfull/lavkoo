@@ -18,22 +18,37 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->assertSame(ResolveStorefront::class, app(Router::class)->getMiddleware()['storefront'] ?? null);
     }
 
-    public function test_the_alias_is_in_no_middleware_group_and_on_no_route(): void
+    /**
+     * The alias is on the storefront-facing routes only: the product routes, the theme routes and the storefront pages. It is in no
+     * named group, and it is not on the storefront list or the config route, which must not depend on a storefront.
+     */
+    public function test_the_alias_resolves_the_storefront_only_on_storefront_facing_routes(): void
     {
         $router = app(Router::class);
         $kernel = app(HttpKernel::class);
 
         $this->assertNotContains(ResolveStorefront::class, $kernel->getGlobalMiddleware());
         foreach (['web', 'api'] as $groupName) {
-            $group = $router->getMiddlewareGroups()[$groupName] ?? [];
-            $this->assertNotContains('storefront', $group, "The {$groupName} group must not resolve a storefront.");
-            $this->assertNotContains(ResolveStorefront::class, $group, "The {$groupName} group must not resolve a storefront.");
+            $this->assertNotContains('storefront', $router->getMiddlewareGroups()[$groupName] ?? [], "The {$groupName} group stays unchanged.");
         }
 
+        $resolving = [];
         foreach (Route::getRoutes() as $route) {
-            $routeMiddleware = $route->middleware();
-            $this->assertNotContains('storefront', $routeMiddleware, "Route [{$route->uri()}] must not resolve a storefront yet.");
-            $this->assertNotContains(ResolveStorefront::class, $routeMiddleware, "Route [{$route->uri()}] must not resolve a storefront yet.");
+            if (in_array('storefront', $route->middleware(), true)) {
+                $resolving[] = $route->uri();
+            }
+        }
+
+        $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/products')));
+        $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/theme')));
+        $this->assertNotContains('api/v1/storefronts', $resolving);
+        $this->assertNotContains('api/v1/config', $resolving);
+        foreach ($resolving as $uri) {
+            $isApi = str_starts_with($uri, 'api/');
+            $this->assertTrue(
+                !$isApi || str_starts_with($uri, 'api/v1/products') || str_starts_with($uri, 'api/v1/theme'),
+                "Route [{$uri}] must not resolve a storefront.",
+            );
         }
     }
 

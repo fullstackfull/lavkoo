@@ -26,6 +26,7 @@ use App\Models\Shop;
 use App\Models\StockClearanceProduct;
 use App\Models\Wishlist;
 use App\Services\ProductService;
+use App\Services\Storefront\StorefrontContext;
 use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
 use App\Utils\CategoryManager;
@@ -400,7 +401,7 @@ class ProductController extends Controller
 
     public function get_home_categories(Request $request)
     {
-        $cacheKey = 'cache_home_categories_api_list' . (str_replace(' ', '_', strtolower(app()->getLocale())));
+        $cacheKey = StorefrontContext::current()->scopedCacheKey('cache_home_categories_api_list' . (str_replace(' ', '_', strtolower(app()->getLocale()))));
         $cacheKeys = Cache::get(CACHE_HOME_CATEGORIES_API_LIST, []);
         if (!in_array($cacheKey, $cacheKeys)) {
             $cacheKeys[] = $cacheKey;

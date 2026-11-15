@@ -450,6 +450,9 @@ if (!function_exists('cacheRemoveByType')) {
             Cache::forget(CACHE_MAIN_CATEGORIES_LIST);
             Cache::forget(FIND_WHAT_YOU_NEED_CATEGORIES_LIST);
             Cache::forget(CACHE_HOME_CATEGORIES_LIST);
+            foreach ((array) Cache::get(CACHE_HOME_CATEGORIES_API_LIST, []) as $homeCategoriesKey) {
+                Cache::forget($homeCategoriesKey);
+            }
             Cache::forget(CACHE_HOME_CATEGORIES_API_LIST);
 
             foreach (Cache::get(CACHE_CONTAINER_FOR_LANGUAGE_WISE_CACHE_KEYS, []) as $key) {
