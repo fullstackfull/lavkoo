@@ -6731,4 +6731,5 @@ return [
 	"notify_finance_integrity" => "Earnings are missing",
 	"issue_updated" => "Issue updated",
 	"issue_not_found" => "Issue not found",
+	"storefront_not_open_for_checkout_yet" => "This storefront is not open for checkout yet.",
 ];

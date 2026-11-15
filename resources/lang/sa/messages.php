@@ -7224,4 +7224,5 @@ return [
 	"zip" => "zip",
 	"zip_Code" => "الرمز البريدي",
 	"zip_code" => "الرمز البريدي",
+	"storefront_not_open_for_checkout_yet" => "هذا المتجر غير متاح للشراء حتى الآن.",
 ];
