@@ -31,7 +31,7 @@ class ReferralRewardService
         }
 
         return DB::transaction(function () use ($refereeId, $beneficiaryId, $orderId, $credit): bool|WalletTransaction {
-            // Serialises this credit with any other locked write to the beneficiary's wallet balance.
+            // Serialises referral credits to this beneficiary. Other wallet writers do not take this lock.
             User::whereKey($beneficiaryId)->lockForUpdate()->value('id');
 
             $grantKey = ['referee_id' => $refereeId, 'beneficiary_id' => $beneficiaryId];
