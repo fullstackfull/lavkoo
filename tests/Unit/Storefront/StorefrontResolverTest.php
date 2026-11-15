@@ -194,6 +194,71 @@ class StorefrontResolverTest extends TestCase
         $this->assertSame('SAR', $context->currency);
     }
 
+    public function test_a_header_choice_applies_when_there_is_no_explicit_choice(): void
+    {
+        $this->assertSame('KW', $this->resolver()->resolve(path: '/ae/cart', headerChoice: 'kw'));
+    }
+
+    public function test_an_explicit_choice_beats_the_header_choice(): void
+    {
+        $this->assertSame('QA', $this->resolver()->resolve(explicitChoice: 'QA', path: '/ae/cart', headerChoice: 'KW'));
+    }
+
+    public function test_an_invalid_explicit_choice_falls_back_to_the_header_choice(): void
+    {
+        $resolver = $this->resolver(countries: $this->withInactive('AE'));
+
+        $this->assertSame('KW', $resolver->resolve(explicitChoice: 'AE', path: '/qa/cart', headerChoice: 'KW'));
+    }
+
+    public function test_the_header_choice_is_ignored_while_switched_off(): void
+    {
+        $this->assertSame('SA', $this->resolver(enabled: false)->resolve(headerChoice: 'KW'));
+    }
+
+    public function test_active_storefronts_returns_only_the_default_while_disabled(): void
+    {
+        $this->assertSame(
+            [['country' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'is_default' => true]],
+            $this->resolver(enabled: false)->activeStorefronts(),
+        );
+    }
+
+    public function test_active_storefronts_lists_active_countries_in_config_order(): void
+    {
+        $countries = [
+            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => true],
+            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true],
+            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => true],
+        ];
+
+        $this->assertSame([
+            ['country' => 'KW', 'path' => 'kw', 'currency' => 'KWD', 'is_default' => false],
+            ['country' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'is_default' => true],
+            ['country' => 'AE', 'path' => 'ae', 'currency' => 'AED', 'is_default' => false],
+        ], $this->resolver(countries: $countries)->activeStorefronts());
+    }
+
+    public function test_inactive_countries_are_never_listed(): void
+    {
+        $countries = $this->withInactive('AE');
+        $countries['QA']['active'] = false;
+        unset($countries['OM']['active']);
+
+        $listedCountries = array_column($this->resolver(countries: $countries)->activeStorefronts(), 'country');
+
+        $this->assertSame(['SA', 'KW', 'BH'], $listedCountries);
+        $this->assertSame(['SA'], array_column($this->resolver(enabled: false, countries: $countries)->activeStorefronts(), 'country'));
+    }
+
+    public function test_only_the_default_storefront_is_marked_as_default(): void
+    {
+        $storefronts = $this->resolver(defaultCountry: 'kw')->activeStorefronts();
+
+        $this->assertSame(['KW'], array_column(array_filter($storefronts, fn (array $storefront) => $storefront['is_default']), 'country'));
+        $this->assertSame('KW', $this->resolver(defaultCountry: 'kw')->defaultCountry());
+    }
+
     private function withInactive(string $countryCode): array
     {
         $countries = self::COUNTRIES;
