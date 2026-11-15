@@ -44,6 +44,12 @@ final class StorefrontLegalReadiness
         return true;
     }
 
+    /** The text a new acceptance is recorded against: the newest effective row for that type and locale, or null when there is none. */
+    public function currentTextFor(string $countryCode, string $documentType, string $locale): ?StorefrontLegalDocument
+    {
+        return $this->currentTextsOf(strtoupper(trim($countryCode)))[$documentType][strtolower($locale)] ?? null;
+    }
+
     private function tableExists(): bool
     {
         return $this->tableExists ??= Schema::hasTable('storefront_legal_documents');
