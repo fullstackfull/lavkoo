@@ -4,7 +4,8 @@ namespace App\Http\Controllers\RestAPI\v1;
 
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
-use App\Services\Storefront\StorefrontResolver;
+use App\Services\Storefront\StorefrontLegalReadiness;
+use App\Services\Storefront\StorefrontListing;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -20,14 +21,8 @@ class StorefrontController extends Controller
         stability: ApiDoc::BETA,
         since: 'v1',
     )]
-    public function index(): JsonResponse
+    public function index(StorefrontLegalReadiness $legalReadiness): JsonResponse
     {
-        $resolver = StorefrontResolver::fromConfig();
-
-        return response()->json([
-            'enabled' => $resolver->isEnabled(),
-            'default_country' => $resolver->defaultCountry(),
-            'storefronts' => $resolver->activeStorefronts(),
-        ]);
+        return response()->json(StorefrontListing::fromConfig(legalReadiness: $legalReadiness)->payload());
     }
 }

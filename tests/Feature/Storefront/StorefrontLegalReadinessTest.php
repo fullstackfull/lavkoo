@@ -4,7 +4,7 @@ namespace Tests\Feature\Storefront;
 
 use App\Models\StorefrontLegalDocument;
 use App\Services\Storefront\StorefrontLegalReadiness;
-use Illuminate\Support\Facades\DB;
+use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
 
 /**
@@ -13,12 +13,13 @@ use Tests\TestCase;
  */
 class StorefrontLegalReadinessTest extends TestCase
 {
+    use BuildsStorefrontLegalDocuments;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        $migration = require database_path('migrations/2026_11_23_120000_create_storefront_legal_documents_table.php');
-        $migration->up();
+        $this->buildStorefrontLegalDocumentsTable();
     }
 
     private function readiness(): StorefrontLegalReadiness
@@ -26,41 +27,10 @@ class StorefrontLegalReadinessTest extends TestCase
         return app(StorefrontLegalReadiness::class);
     }
 
-    private function publish(string $country, string $type, array $overrides = []): void
-    {
-        $body = 'Approved text for ' . $type;
-
-        DB::table('storefront_legal_documents')->insert(array_merge([
-            'country_code' => $country,
-            'document_type' => $type,
-            'locale' => 'en',
-            'version' => 1,
-            'status' => StorefrontLegalDocument::STATUS_PUBLISHED,
-            'body' => $body,
-            'body_hash' => hash('sha256', $body),
-            'template_hash' => null,
-            'created_by' => 1,
-            'approved_by' => 2,
-            'approved_at' => now(),
-            'published_at' => now(),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ], $overrides));
-    }
-
-    private function publishRequiredDocuments(string $country, ?string $withheldType = null): void
-    {
-        foreach (config('gcc.storefronts.legal.required_documents') as $type) {
-            if ($type !== $withheldType) {
-                $this->publish(country: $country, type: $type);
-            }
-        }
-    }
-
     private function assertStorefrontStaysClosedWithDefectiveDocument(string $country, string $documentType, array $defect): void
     {
-        $this->publishRequiredDocuments(country: $country, withheldType: $documentType);
-        $this->publish(country: $country, type: $documentType, overrides: $defect);
+        $this->publishRequiredLegalDocuments(country: $country, withheldType: $documentType);
+        $this->publishLegalDocument(country: $country, type: $documentType, overrides: $defect);
 
         $this->assertFalse($this->readiness()->isReady($country));
     }
@@ -77,21 +47,21 @@ class StorefrontLegalReadinessTest extends TestCase
 
     public function test_a_storefront_with_every_required_document_published_and_approved_is_ready(): void
     {
-        $this->publishRequiredDocuments(country: 'AE');
+        $this->publishRequiredLegalDocuments(country: 'AE');
 
         $this->assertTrue($this->readiness()->isReady('AE'));
     }
 
     public function test_the_country_code_is_matched_regardless_of_case(): void
     {
-        $this->publishRequiredDocuments(country: 'AE');
+        $this->publishRequiredLegalDocuments(country: 'AE');
 
         $this->assertTrue($this->readiness()->isReady('ae'));
     }
 
     public function test_one_missing_required_document_keeps_the_storefront_closed(): void
     {
-        $this->publishRequiredDocuments(country: 'KW', withheldType: 'refund');
+        $this->publishRequiredLegalDocuments(country: 'KW', withheldType: 'refund');
 
         $this->assertFalse($this->readiness()->isReady('KW'));
     }
@@ -178,8 +148,8 @@ class StorefrontLegalReadinessTest extends TestCase
 
     public function test_a_template_copy_that_was_edited_counts_as_approved_text(): void
     {
-        $this->publishRequiredDocuments(country: 'AE', withheldType: 'return');
-        $this->publish(
+        $this->publishRequiredLegalDocuments(country: 'AE', withheldType: 'return');
+        $this->publishLegalDocument(
             country: 'AE',
             type: 'return',
             overrides: [
@@ -194,7 +164,7 @@ class StorefrontLegalReadinessTest extends TestCase
 
     public function test_documents_of_another_country_do_not_open_a_storefront(): void
     {
-        $this->publishRequiredDocuments(country: 'KW');
+        $this->publishRequiredLegalDocuments(country: 'KW');
 
         $this->assertFalse($this->readiness()->isReady('AE'));
         $this->assertTrue($this->readiness()->isReady('KW'));
