@@ -11,7 +11,7 @@ use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
- * Two seller requests that move one seller's wallet, sent at the same instant against a real engine.
+ * Two requests that move one seller's wallet, from the seller or from an admin deciding a withdraw, sent at the same instant against a real engine.
  *
  * Every worker reads the wallet and the withdraw request before any of them writes. The totals each one writes must still come from
  * the wallet as it stands inside its own transaction, so the wallet and the withdraw requests agree whichever worker lands first.
@@ -116,6 +116,78 @@ class SellerWithdrawConcurrencyTest extends TestCase
         $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
     }
 
+    public function test_two_creates_that_each_fit_the_balance_alone_but_not_together_give_exactly_one_request(): void
+    {
+        $this->insertWallet(totalEarning: 100, pendingWithdraw: 0);
+
+        $reports = ConcurrentRunner::run('seller_withdraw.create', [
+            ['token' => self::TOKEN, 'method_id' => self::METHOD_ID, 'amount' => 60, 'hold_microseconds' => self::HOLD_MICROSECONDS],
+            ['token' => self::TOKEN, 'method_id' => self::METHOD_ID, 'amount' => 60, 'hold_microseconds' => self::HOLD_MICROSECONDS],
+        ]);
+
+        $this->assertSame([], $this->problemsOf($reports));
+        $statuses = array_column(array_column($reports, 'result'), 'status');
+        sort($statuses);
+        $this->assertSame([200, 403], $statuses, 'one create is accepted and the other is refused');
+        $this->assertSame(1, DB::table('withdraw_requests')->where('seller_id', self::SELLER_ID)->count());
+        $this->assertSame(['total_earning' => 40.0, 'pending_withdraw' => 60.0], $this->wallet(), 'the wallet holds back one request only');
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+    }
+
+    public function test_two_admin_approvals_of_one_request_at_once_pay_it_once(): void
+    {
+        $this->insertWallet(totalEarning: 800, pendingWithdraw: 200);
+        $this->insertRequest(10, amount: 200);
+
+        $reports = ConcurrentRunner::run('seller_withdraw.decide', [
+            ['request_id' => 10, 'approved' => 1, 'hold_microseconds' => self::HOLD_MICROSECONDS],
+            ['request_id' => 10, 'approved' => 1, 'hold_microseconds' => self::HOLD_MICROSECONDS],
+        ]);
+
+        $this->assertSame([], $this->problemsOf($reports));
+        $this->assertSame(1, (int) DB::table('withdraw_requests')->where('id', 10)->value('approved'));
+        $this->assertSame(['total_earning' => 800.0, 'pending_withdraw' => 0.0, 'withdrawn' => 200.0], $this->walletWithWithdrawn(), 'withdrawn grew by the amount once');
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+    }
+
+    public function test_an_approval_and_a_denial_of_one_request_at_once_settle_it_one_way_only(): void
+    {
+        $this->insertWallet(totalEarning: 800, pendingWithdraw: 200);
+        $this->insertRequest(10, amount: 200);
+
+        $reports = ConcurrentRunner::run('seller_withdraw.decide', [
+            ['request_id' => 10, 'approved' => 1, 'hold_microseconds' => self::HOLD_MICROSECONDS],
+            ['request_id' => 10, 'approved' => 2, 'hold_microseconds' => self::HOLD_MICROSECONDS],
+        ]);
+
+        $this->assertSame([], $this->problemsOf($reports));
+        $approved = (int) DB::table('withdraw_requests')->where('id', 10)->value('approved');
+        $this->assertContains($approved, [1, 2]);
+        $expected = $approved === 1
+            ? ['total_earning' => 800.0, 'pending_withdraw' => 0.0, 'withdrawn' => 200.0]
+            : ['total_earning' => 1000.0, 'pending_withdraw' => 0.0, 'withdrawn' => 0.0];
+        $this->assertSame($expected, $this->walletWithWithdrawn(), 'the wallet follows the decision that was stored');
+        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+    }
+
+    public function test_repeating_an_approval_after_it_landed_is_refused_and_changes_nothing(): void
+    {
+        $this->insertWallet(totalEarning: 800, pendingWithdraw: 200);
+        $this->insertRequest(10, amount: 200);
+
+        $first = ConcurrentRunner::run('seller_withdraw.decide', [['request_id' => 10, 'approved' => 1, 'note' => 'first']]);
+        $this->assertSame([], $this->problemsOf($first));
+        $afterFirst = [$this->walletWithWithdrawn(), (array) DB::table('withdraw_requests')->find(10)];
+
+        $repeat = ConcurrentRunner::run('seller_withdraw.decide', [['request_id' => 10, 'approved' => 1, 'note' => 'repeat']]);
+
+        $this->assertSame([], $this->problemsOf($repeat));
+        $this->assertSame(302, $repeat[0]['result']['status']);
+        $this->assertSame($afterFirst, [$this->walletWithWithdrawn(), (array) DB::table('withdraw_requests')->find(10)]);
+        $this->assertSame(['total_earning' => 800.0, 'pending_withdraw' => 0.0, 'withdrawn' => 200.0], $afterFirst[0]);
+        $this->assertSame('first', $afterFirst[1]['transaction_note']);
+    }
+
     /** @param list<array{ok: bool, error?: string, message?: string}> $reports */
     private function problemsOf(array $reports): array
     {
@@ -135,6 +207,14 @@ class SellerWithdrawConcurrencyTest extends TestCase
         $row = DB::table('seller_wallets')->where('seller_id', self::SELLER_ID)->first();
 
         return ['total_earning' => (float) $row->total_earning, 'pending_withdraw' => (float) $row->pending_withdraw];
+    }
+
+    /** @return array{total_earning: float, pending_withdraw: float, withdrawn: float} */
+    private function walletWithWithdrawn(): array
+    {
+        $withdrawn = (float) DB::table('seller_wallets')->where('seller_id', self::SELLER_ID)->value('withdrawn');
+
+        return [...$this->wallet(), 'withdrawn' => $withdrawn];
     }
 
     private function insertWallet(float $totalEarning, float $pendingWithdraw): void
