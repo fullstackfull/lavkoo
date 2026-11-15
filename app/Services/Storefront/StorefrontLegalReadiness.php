@@ -3,14 +3,22 @@
 namespace App\Services\Storefront;
 
 use App\Models\StorefrontLegalDocument;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Schema;
 
 /**
- * Whether a storefront may sell (GCC-11). Each required document type needs a published row for the country whose text was approved by
- * someone other than its author, is not empty, and is not an unedited template. The default storefront is grandfathered (GCC-19): its
- * documents are the ones it has always had, so it never becomes unusable. Nothing enforces this yet; callers ask it.
+ * Whether a storefront may sell (GCC-11). For each required document type and locale, the only text that can count is the newest one
+ * that is already effective: a published row with the latest effective date, then the latest version. Older texts it has superseded
+ * never count, and drafts and scheduled texts are not effective yet. That current text must be approved by someone other than its
+ * author, not revoked, not blank, and not an unedited template.
+ *
+ * The default storefront is grandfathered (GCC-19). When the table is missing the answer is no, so a storefront whose legal text cannot
+ * be read stays closed instead of failing with a server error.
  */
 final class StorefrontLegalReadiness
 {
+    private ?bool $tableExists = null;
+
     public function isReady(string $countryCode): bool
     {
         $country = strtoupper(trim($countryCode));
@@ -19,19 +27,72 @@ final class StorefrontLegalReadiness
             return true;
         }
 
-        $required = (array) config('gcc.storefronts.legal.required_documents', []);
-        $published = StorefrontLegalDocument::query()
+        if (!$this->tableExists()) {
+            return false;
+        }
+
+        $currentTexts = $this->currentTextsOf($country);
+
+        foreach ($this->requiredPairsOf($country) as [$type, $locale]) {
+            $text = $currentTexts[$type][$locale] ?? null;
+
+            if ($text === null || !$this->isSellable($text)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function tableExists(): bool
+    {
+        return $this->tableExists ??= Schema::hasTable('storefront_legal_documents');
+    }
+
+    /**
+     * @return array<string, array<string, StorefrontLegalDocument>> the newest effective row for each document type and locale
+     */
+    private function currentTextsOf(string $country): array
+    {
+        $effective = StorefrontLegalDocument::query()
             ->where('country_code', $country)
             ->where('status', StorefrontLegalDocument::STATUS_PUBLISHED)
-            ->whereNotNull('approved_at')
-            ->whereNotNull('created_by')
-            ->whereColumn('approved_by', '!=', 'created_by')
-            ->where(fn ($query) => $query->whereNull('template_hash')->orWhereColumn('body_hash', '!=', 'template_hash'))
-            ->get(['document_type', 'body'])
-            ->filter(fn (StorefrontLegalDocument $document): bool => trim($document->body) !== '')
-            ->pluck('document_type')
-            ->all();
+            ->where('effective_from', '<=', CarbonImmutable::now())
+            ->orderByDesc('effective_from')
+            ->orderByDesc('version')
+            ->get();
 
-        return array_diff($required, $published) === [];
+        $current = [];
+        foreach ($effective as $text) {
+            $current[$text->document_type][strtolower($text->locale)] ??= $text;
+        }
+
+        return $current;
+    }
+
+    private function isSellable(StorefrontLegalDocument $text): bool
+    {
+        return $text->revoked_at === null
+            && $text->approved_at !== null
+            && $text->created_by !== null
+            && $text->approved_by !== null
+            && $text->approved_by !== $text->created_by
+            && trim((string) $text->body) !== ''
+            && ($text->template_hash === null || $text->template_hash !== $text->body_hash);
+    }
+
+    /** @return list<array{0: string, 1: string}> */
+    private function requiredPairsOf(string $country): array
+    {
+        $locales = config("gcc.storefronts.legal.locales_by_country.{$country}") ?? config('gcc.storefronts.legal.required_locales', []);
+
+        $pairs = [];
+        foreach ((array) config('gcc.storefronts.legal.required_documents', []) as $type) {
+            foreach ((array) $locales as $locale) {
+                $pairs[] = [$type, strtolower($locale)];
+            }
+        }
+
+        return $pairs;
     }
 }
