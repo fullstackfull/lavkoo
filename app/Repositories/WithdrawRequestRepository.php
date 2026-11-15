@@ -140,6 +140,11 @@ class WithdrawRequestRepository implements WithdrawRequestRepositoryInterface
         return true;
     }
 
+    public function updateWhere(array $params, array $data): bool
+    {
+        return $this->withdrawRequest->where($params)->update($data) > 0;
+    }
+
     public function delete(array $params): bool
     {
         return $this->withdrawRequest->where($params)->delete();

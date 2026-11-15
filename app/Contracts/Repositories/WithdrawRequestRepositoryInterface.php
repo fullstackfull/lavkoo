@@ -30,4 +30,11 @@ interface WithdrawRequestRepositoryInterface extends RepositoryInterface
      * @return Model|null
      */
     public function getFirstWhereNotNull(array $params, array $filters = [], array $orderBy = [], array $relations = []): ?Model;
+
+    /**
+     * @param array $params
+     * @param array $data
+     * @return bool true when at least one row matched and was updated
+     */
+    public function updateWhere(array $params, array $data): bool;
 }
