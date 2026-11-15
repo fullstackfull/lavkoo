@@ -110,10 +110,9 @@
             </div>
 
             @if ($withdrawRequest->approved == 0)
-            <form id="vendor-withdraw-offcanvas-delete-form-{{ $withdrawRequest['id'] }}" method="GET" style="display: none;"
+            <form id="vendor-withdraw-offcanvas-delete-form-{{ $withdrawRequest['id'] }}" method="POST" style="display: none;"
                   action="{{ route('vendor.business-settings.withdraw.close', [$withdrawRequest['id']]) }}">
                 @csrf
-                @method('GET')
             </form>
             @endif
         </div>
