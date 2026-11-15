@@ -55,6 +55,14 @@ class PosWalletSaleTest extends ApiAddressTestCase
             $table->timestamps();
         });
         DB::table('business_settings')->insert(['type' => 'wallet_status', 'value' => '1']);
+        Schema::create('pos_sale_idempotency_keys', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->string('idempotency_key', 191);
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->timestamps();
+            $table->unique(['seller_id', 'idempotency_key']);
+        });
         DB::table('products')->insert([
             ['id' => 1, 'name' => 'Paracetamol', 'added_by' => 'seller', 'user_id' => self::SELLER_ID, 'unit_price' => 30, 'current_stock' => self::STOCK],
             ['id' => 2, 'name' => 'Vitamin C', 'added_by' => 'seller', 'user_id' => self::SELLER_ID, 'unit_price' => 20, 'current_stock' => self::STOCK],
@@ -116,14 +124,18 @@ class PosWalletSaleTest extends ApiAddressTestCase
     }
 
     /** @param list<array<string, mixed>> $lines */
-    private function sellerSale(array $lines, float $paidAmount, string $paymentMethod = 'wallet'): JsonResponse
+    private function sellerSale(array $lines, float $paidAmount, string $paymentMethod = 'wallet', ?string $idempotencyKey = null, int $sellerId = self::SELLER_ID): JsonResponse
     {
         $input = [
             'customer_id' => $this->customer->id, 'cart' => [], 'modified_cart' => $lines, 'fulfillment' => 'instant',
             'payment_method' => $paymentMethod, 'paid_amount' => $paidAmount,
         ];
-        $request = Request::create('/api/v3/seller/pos/place-order', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], (string) json_encode($input));
-        $request['seller'] = (new Seller())->forceFill(['id' => self::SELLER_ID]);
+        $server = ['CONTENT_TYPE' => 'application/json'];
+        if ($idempotencyKey !== null) {
+            $server['HTTP_IDEMPOTENCY_KEY'] = $idempotencyKey;
+        }
+        $request = Request::create('/api/v3/seller/pos/place-order', 'POST', [], [], [], $server, (string) json_encode($input));
+        $request['seller'] = (new Seller())->forceFill(['id' => $sellerId]);
 
         return app(SellerApiPOSController::class)->place_order($request);
     }
@@ -195,6 +207,58 @@ class PosWalletSaleTest extends ApiAddressTestCase
             $this->assertSame('the order could not be written', $exception->getMessage());
         }
 
+        $this->assertNothingWasPersisted();
+    }
+
+    public function test_a_repeated_seller_app_wallet_sale_with_the_same_key_returns_the_first_order_and_debits_once(): void
+    {
+        $lines = [$this->sellerLine(productId: 1, quantity: 2, price: 30.0)];
+        $orderId = $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-1')->getData(true)['order_id'];
+
+        $second = $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-1');
+
+        $this->assertSame(200, $second->getStatusCode());
+        $this->assertSame($orderId, $second->getData(true)['order_id']);
+        $this->assertSame(40.0, $this->walletBalance(), 'the second submit would not have covered 60 from 40: it is answered, not charged');
+        $this->assertSame([1, 1], [DB::table('orders')->count(), DB::table('wallet_transactions')->count()]);
+        $this->assertSame([1 => 8, 2 => self::STOCK], $this->stock());
+    }
+
+    public function test_the_same_key_from_another_seller_is_a_sale_of_its_own(): void
+    {
+        $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0, idempotencyKey: 'sale-1');
+
+        $other = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 1, price: 30.0)], paidAmount: 30.0, idempotencyKey: 'sale-1', sellerId: 6);
+
+        $this->assertSame(200, $other->getStatusCode());
+        $this->assertSame(2, DB::table('orders')->count());
+        $this->assertSame(10.0, $this->walletBalance());
+    }
+
+    public function test_a_failed_attempt_does_not_use_up_its_key(): void
+    {
+        $lines = [$this->sellerLine(productId: 1, quantity: 2, price: 30.0)];
+        $orderAddresses = Mockery::mock(OrderAddressService::class);
+        $orderAddresses->shouldReceive('snapshot')->andThrow(new \RuntimeException('the order could not be written'));
+        $this->app->instance(OrderAddressService::class, $orderAddresses);
+        try {
+            $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-2');
+            $this->fail('the first attempt must not complete');
+        } catch (\RuntimeException) {
+        }
+        $this->app->forgetInstance(OrderAddressService::class);
+
+        $retry = $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-2');
+
+        $this->assertSame(200, $retry->getStatusCode());
+        $this->assertSame([1, 40.0], [DB::table('orders')->count(), $this->walletBalance()]);
+    }
+
+    public function test_an_idempotency_key_longer_than_the_column_is_refused_with_nothing_written(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0, idempotencyKey: str_repeat('k', 192));
+
+        $this->assertSame(422, $response->getStatusCode());
         $this->assertNothingWasPersisted();
     }
 

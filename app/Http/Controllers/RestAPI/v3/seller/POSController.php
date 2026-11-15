@@ -10,6 +10,7 @@ use App\Contracts\Repositories\StorageRepositoryInterface;
 use App\Enums\Address\AddressChannel;
 use App\Events\CustomerRegistrationEvent;
 use App\Events\DigitalProductDownloadEvent;
+use App\Exceptions\PosSaleReplayedException;
 use App\Exceptions\WalletDebitRefusedException;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
@@ -318,6 +319,14 @@ class POSController extends Controller
             }
         }
 
+        $idempotencyKey = $this->idempotencyKeyOf(request: $request);
+        if ($idempotencyKey !== null && strlen($idempotencyKey) > 191) {
+            return response()->json(['message' => 'Idempotency-Key must be 191 characters or fewer.'], 422);
+        }
+        if ($idempotencyKey !== null && ($placedOrderId = $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey)) !== null) {
+            return response()->json(['order_id' => $placedOrderId], 200);
+        }
+
         foreach ($request['modified_cart'] ?: [] as $cartItem) {
             if (is_array($cartItem)) {
                 $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
@@ -346,7 +355,10 @@ class POSController extends Controller
         $amountPaid = $payByWallet ? currencyConverter(amount: $orderTotal) : currencyConverter(amount: $tenderedAmount);
 
         try {
-            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountPaid, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet) {
+            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountPaid, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet, $idempotencyKey) {
+                if ($idempotencyKey !== null && !$this->claimIdempotencyKey(sellerId: $seller->id, key: $idempotencyKey)) {
+                    throw new PosSaleReplayedException(orderId: (int) $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey, lock: true));
+                }
                 if ($payByWallet && $this->createWalletTransaction(user_id: $customerId, amount: floatval($orderTotal), transaction_type: 'order_place', reference: 'order_place_in_pos') === false) {
                     throw new WalletDebitRefusedException(customerId: $customerId);
                 }
@@ -421,11 +433,16 @@ class POSController extends Controller
                     'updated_at' => now(),
                 ];
                 DB::table('orders')->insertGetId($orderData);
+                if ($idempotencyKey !== null) {
+                    $this->recordIdempotencyKeyOrder(sellerId: $seller->id, key: $idempotencyKey, orderId: $generateOrderID);
+                }
 
                 return $generateOrderID;
             });
         } catch (WalletDebitRefusedException) {
             return $this->walletBalanceNeededResponse();
+        } catch (PosSaleReplayedException $exception) {
+            return response()->json(['order_id' => $exception->orderId], 200);
         }
 
         if ($isDigitalProduct) {
@@ -458,6 +475,34 @@ class POSController extends Controller
         }
 
         return $total;
+    }
+
+    private function idempotencyKeyOf(Request $request): ?string
+    {
+        $key = trim((string) $request->header('Idempotency-Key', ''));
+
+        return $key === '' ? null : $key;
+    }
+
+    private function placedOrderIdOf(int $sellerId, string $key, bool $lock = false): ?int
+    {
+        $sale = DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key]);
+        $orderId = $lock ? $sale->lockForUpdate()->value('order_id') : $sale->value('order_id');
+
+        return $orderId === null ? null : (int) $orderId;
+    }
+
+    /** False when a sale already holds the key, whether that sale has been written or another request is still writing it. */
+    private function claimIdempotencyKey(int $sellerId, string $key): bool
+    {
+        return DB::table('pos_sale_idempotency_keys')->insertOrIgnore([
+            'seller_id' => $sellerId, 'idempotency_key' => $key, 'order_id' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]) === 1;
+    }
+
+    private function recordIdempotencyKeyOrder(int $sellerId, string $key, int $orderId): void
+    {
+        DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key])->update(['order_id' => $orderId, 'updated_at' => now()]);
     }
 
     private function walletBalanceNeededResponse(): JsonResponse
