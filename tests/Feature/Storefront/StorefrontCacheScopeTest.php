@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Http\Controllers\RestAPI\v1\ProductController;
+use App\Http\Middleware\ResolveStorefront;
 use App\Services\Storefront\StorefrontContext;
 use App\Services\Theme\StorefrontThemeRenderer;
 use App\Services\Theme\ThemeDelivery;
@@ -105,6 +106,31 @@ class StorefrontCacheScopeTest extends TestCase
 
         $this->assertFalse(Cache::has($scopedKey));
         $this->assertFalse(Cache::has(self::HOME_CATEGORIES_KEY));
+    }
+
+    public function test_while_storefronts_are_on_a_response_varies_on_the_storefront_header(): void
+    {
+        $response = app(ResolveStorefront::class)->handle(
+            Request::create('/api/v1/products/home-categories', 'GET'),
+            fn () => response('ok'),
+        );
+
+        $this->assertContains(
+            ResolveStorefront::HEADER,
+            array_map('trim', explode(',', (string) $response->headers->get('Vary'))),
+        );
+    }
+
+    public function test_while_storefronts_are_off_the_response_is_not_changed(): void
+    {
+        config(['gcc.storefronts.enabled' => false]);
+
+        $response = app(ResolveStorefront::class)->handle(
+            Request::create('/api/v1/products/home-categories', 'GET'),
+            fn () => response('ok'),
+        );
+
+        $this->assertNull($response->headers->get('Vary'));
     }
 
     /** The home categories request reads the cache for its index, writes that index, and remembers the page under exactly one key. */
