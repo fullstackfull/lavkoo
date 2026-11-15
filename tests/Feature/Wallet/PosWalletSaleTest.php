@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Schema;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Address\ApiAddressTestCase;
+use Tests\Support\BuildsPosSaleWorld;
 use Tests\Support\KeepsTranslateOffLanguageFiles;
 
 /**
@@ -28,6 +29,7 @@ use Tests\Support\KeepsTranslateOffLanguageFiles;
  */
 class PosWalletSaleTest extends ApiAddressTestCase
 {
+    use BuildsPosSaleWorld;
     use KeepsTranslateOffLanguageFiles;
 
     private const SELLER_ID = 5;
@@ -39,35 +41,7 @@ class PosWalletSaleTest extends ApiAddressTestCase
     {
         parent::setUp();
 
-        $this->createOrderPipelineTables();
-        $this->useTaxIncludedPrices();
-        Schema::create('wallet_transactions', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('user_id')->nullable();
-            $table->uuid('transaction_id');
-            $table->decimal('credit', 24, 3)->default(0);
-            $table->decimal('debit', 24, 3)->default(0);
-            $table->decimal('admin_bonus', 24, 3)->default(0);
-            $table->decimal('balance', 24, 3)->default(0);
-            $table->string('transaction_type', 191)->nullable();
-            $table->string('reference', 191)->nullable();
-            $table->string('payment_method')->nullable();
-            $table->timestamps();
-        });
-        DB::table('business_settings')->insert(['type' => 'wallet_status', 'value' => '1']);
-        Schema::create('pos_sale_idempotency_keys', function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('seller_id');
-            $table->string('idempotency_key', 191);
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->timestamps();
-            $table->unique(['seller_id', 'idempotency_key']);
-        });
-        DB::table('products')->insert([
-            ['id' => 1, 'name' => 'Paracetamol', 'added_by' => 'seller', 'user_id' => self::SELLER_ID, 'unit_price' => 30, 'current_stock' => self::STOCK],
-            ['id' => 2, 'name' => 'Vitamin C', 'added_by' => 'seller', 'user_id' => self::SELLER_ID, 'unit_price' => 20, 'current_stock' => self::STOCK],
-        ]);
-        $this->customer = $this->makeCustomer(['wallet_balance' => 100]);
+        $this->customer = $this->buildPosSaleWorld(sellerId: self::SELLER_ID);
         $this->keepTranslateOffLanguageFiles();
     }
 
