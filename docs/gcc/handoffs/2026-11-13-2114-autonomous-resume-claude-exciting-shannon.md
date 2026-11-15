@@ -504,3 +504,48 @@ Owner directive: keep working under the charter. Fix open draft PRs; do not mult
 - Overlay gate: still failing by design on every PR from `main`, with the three known files.
 - In flight: the vendor close forms rendering test on #33 (`gcc/p0-vendor-withdraw-close-post`), and the v3 POS payment-method normalisation on #30 (`gcc/p0-wallet-v3-pos-paid-amount-guard`). Both are fixes on existing branches, not new PRs.
 - Resume: read the heads of #27 to #33 with the GitHub tools, and re-read CI on the new heads. Classify each failure as overlay-only or technical from its log. Do not treat pending jobs as passed. The workflow IDs are listed in section 27.
+
+## 29. Wallet and POS tracks as draft PRs, owner order of 2026-11-15 (2026-11-15, about 11:30Z)
+
+Scope: the owner delegated the engineering decisions for these tracks. No merge to `main`, no production publishing, no real financial change, no owner decision taken on the owner's behalf. Every PR below is a draft.
+
+- **Seller withdraw locks, PR 32 (`gcc/p0-wallet-seller-withdraw-scoping`, head `726e681e`).** Seller create-withdraw and admin approval now lock the wallet and the request inside one transaction. Admin approval moves its ledger write inside that transaction, guarded by `approved == 0`. Commits `7af5d10a` (the MySQL races) and `726e681e` (the locks). Verified on the local MySQL (`lavkoo_seller_test`): 25 tests (7 concurrency, 18 scoping), 92 assertions, OK. The author checked `726e681e`; an independent review is still needed before merge. PR 32's body now says so.
+- **Currency debit, PR 34 base (`gcc/p0-wallet-currency-consistent-debit`, head `f7aafda9`, draft to be opened).** A wallet order debits its USD amount rounded half up to whole cents, once. The check reads the balance to cents with the same rounding. The debit goes through `CustomerManager::create_wallet_transaction(..., amountInUsd: true)`. This replaces the earlier local commit `8b0384c4`, which was never pushed: that commit still debited `Convert::usd(Convert::default(x))`, so a 10.01 USD order debited 10.010667 in SAR. Verified: the wallet suites on SQLite (85 tests including a unit test, OK) and on MySQL (76 tests including the two-process race, OK). The full SQLite suite is recorded in the PR.
+- **POS server total, PR 13 base (`gcc/p0-pos-wallet-server-total`, head `0d6a63c1`, draft PR 35).** A seller-app wallet sale is charged the server total in the store currency, not the client's `paid_amount`. The old path also converted the debit twice: a 37.54 SAR sale debited 2.67 USD. Cash below the total is refused with the existing message. An optional `Idempotency-Key` (additive table `pos_sale_idempotency_keys`) answers a repeated submit with the first order, debited once. A MySQL race test covers two simultaneous submits. Verified: `PosWalletSaleTest` 17 tests, OK on SQLite and MySQL; `tests/Feature/Pos` 3 tests, OK on SQLite. On MySQL, 3 tests in `PosStockDecrementOrderTest` fail on the base as well (seller app, admin panel, vendor panel stock order), with and without this change; they are not touched.
+- **Not changed here:** the debit-after-order ordering and the unlocked balance check on REST and web checkout belong to PR 12 and PR 9. Admin POS keeps its unrounded `currencyConverter` debit.
+
+Open decisions for the financial owner. They do not block the drafts, and none of them is merged:
+
+1. **D18 rounding.** Whole-cent half-up rounding for the wallet debit (PR 34 base) against the unrounded `currencyConverter` debit of the admin POS and the v3 POS (PR 35). Align after the owner decides.
+2. **Saudi wallets.** A 10.01 USD order now debits 10.01 USD, where SAR stores debited 10.010667. An order whose balance equals its USD amount is now placed, where it was refused. Sign-off is needed before merge of the currency PR.
+3. **POS order units.** For wallet sales `paid_amount` is USD and `order_amount` is in the store currency. This mix predates this round.
+4. **Idempotency needs the app.** Retry protection applies only when the seller app sends `Idempotency-Key`. The app change is not in these PRs.
+
+Not done in this round: the country and store context behind flags (PR 28 is its base), the Flutter customer and seller slices, and the scheduled CI read of the heads of PRs 27 and 29 to 34 and `lavkooapp#1`. Those carry to the next section.
+
+### CI read of the continuity heads (scheduled trigger, fired 11:06Z)
+
+Read-only. One agent per head confirmed the head with the GitHub get method and read its check runs. Each failing job was re-read by a separate agent, which tried to refute the first classification from the log. The trigger's expected head for PR 32 was 4bb35ccb, which the PR's own lock commits have since superseded; the table gives the real head.
+
+| PR | Head read | Result at read time |
+|---|---|---|
+| 27 | df1c778a | 19 success, 1 running (MySQL 8.0 sales channels A-M), 1 failure: overlay, verified |
+| 29 | 73708954 | 17 success, 3 running, 1 failure: overlay, verified |
+| 30 | 4f66dce1 | 11 success, 9 queued or running, 1 failure: overlay, verified |
+| 31 | 00b99740 | 20 success, 1 failure: overlay, verified; every check complete |
+| 32 | 726e681e | 4 success, 17 queued or running, no failure yet |
+| 33 | 8af7d149 | 16 success, 4 running, 1 failure: overlay, verified |
+| 34 | a4bd0353, now 832377a3 | 6 success, 3 failures: overlay, verified, plus 2 technical, verified (see below) |
+| 35 | 0d6a63c1 | 1 success, 20 queued |
+| lavkooapp 1 | 2a8c84c9 | storefront-header, two runs, both success |
+
+PR 34, technical: `TorodShipmentDiscoveryTest.php:198`, `'unlinked'` expected, `'needs_review'` got, in the scheduled-run test, on sales-channel MySQL 8.0 N-Z and on SQLite PHP 8.2. The failing test on that head did not set `purchased_at`, so the time-bomb applied. Fixed by carrying the one-line repair (`de1270f8`, cherry-picked as `832377a3`) onto the same branch. Reproduced red on the head first, then green on SQLite and MySQL (`lavkoo_test_checkout`): 12 tests, 45 assertions. Pushed fast-forward. The new CI run on 832377a3 was queued at push time and is not yet read.
+
+Torod repair state on the other heads: present in both tests on 27, 29, 30, 31, 33 and 35. Missing only on 34, now carried.
+
+Still running at read time, not reported green: 27 (1 job), 29 (3), 30 (9), 32 (17), 33 (4), 35 (20), and the new head of 34. The trigger does not loop, so these were not polled again. Re-read them by hand before any status is reported.
+
+Open items:
+- PR 31's body lists two commits; its branch has three, including `00b99740`, the Torod carry. The body needs correcting.
+- The currency branch (`gcc/p0-wallet-currency-consistent-debit`, local `f7aafda9`) is stacked on the old PR 34 head. It is rebased onto 832377a3 and pushed only after its full SQLite run passes. The Torod carry is part of that branch too.
+- The overlay gate fails on every PR from `main`, as expected, and is not bypassed.
