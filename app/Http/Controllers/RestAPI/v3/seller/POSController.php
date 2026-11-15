@@ -301,6 +301,12 @@ class POSController extends Controller
             ]], 403);
         }
 
+        if ($paymentMethod === 'wallet' && $customerId == 0) {
+            return response()->json(['errors' => [
+                ['code' => 'customer_id', 'message' => translate('select_customer_is_required')],
+            ]], 403);
+        }
+
         $taxConfig = self::getTaxSystemType();
 
         if ($customerId == 0 && $fulfillment == 'delivery') {
