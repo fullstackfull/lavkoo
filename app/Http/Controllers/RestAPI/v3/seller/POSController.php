@@ -291,6 +291,12 @@ class POSController extends Controller
         $fulfillment = $request['fulfillment'] == 'delivery' ? 'delivery' : 'instant';
         $isCashOnDelivery = $fulfillment == 'delivery' && $paymentMethod == 'cash';
 
+        if ($paymentMethod == 'wallet' && $paidAmount <= 0) {
+            return response()->json(['errors' => [
+                ['code' => 'paid_amount', 'message' => translate('You cannot place an order with an amount of zero. Please enter a valid amount.')],
+            ]], 403);
+        }
+
         $taxConfig = self::getTaxSystemType();
 
         if ($customerId == 0 && $fulfillment == 'delivery') {
