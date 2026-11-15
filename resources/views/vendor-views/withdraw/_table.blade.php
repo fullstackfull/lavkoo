@@ -49,10 +49,9 @@
                                     </button>
                                 @endif
                             </div>
-                            <form id="vendor-withdraw-delete-form-{{ $withdrawRequest['id'] }}" method="GET" style="display: none;"
+                            <form id="vendor-withdraw-delete-form-{{ $withdrawRequest['id'] }}" method="POST" style="display: none;"
                              action="{{ route('vendor.business-settings.withdraw.close', [$withdrawRequest['id']]) }}">
                                 @csrf
-                                @method('GET')
                             </form>
                         </td>
                     </tr>
