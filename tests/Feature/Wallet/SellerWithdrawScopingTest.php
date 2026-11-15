@@ -207,6 +207,38 @@ class SellerWithdrawScopingTest extends TestCase
         $this->assertSame(['request' => $expectedRequest] + $expectedWallets, $this->snapshot(10));
     }
 
+    public function test_vendor_close_of_a_request_approved_after_it_was_read_is_refused_and_the_request_survives(): void
+    {
+        $this->insertRequest(10, self::OWNER_ID, amount: 200, approved: self::PENDING);
+        $this->setWallet(self::OWNER_ID, totalEarning: 800, pendingWithdraw: 200);
+        $this->approveRequestRightAfterItIsRead(10);
+        $expectedRequest = ['seller_id' => self::OWNER_ID, 'amount' => 200.0, 'approved' => self::APPROVED];
+        $expectedWallets = ['owner' => $this->wallet(self::OWNER_ID), 'other' => $this->wallet(self::OTHER_ID)];
+
+        $response = $this->vendorClose(self::OWNER_ID, requestId: 10);
+
+        $response->assertRedirect();
+        $this->assertContains('error', $this->toastTypes());
+        $this->assertNotContains('success', $this->toastTypes());
+        $this->assertSame(['request' => $expectedRequest] + $expectedWallets, $this->snapshot(10));
+    }
+
+    public function test_vendor_close_of_the_sellers_own_pending_request_returns_the_amount_to_the_wallet(): void
+    {
+        $this->insertRequest(10, self::OWNER_ID, amount: 200, approved: self::PENDING);
+        $this->setWallet(self::OWNER_ID, totalEarning: 800, pendingWithdraw: 200);
+        $otherWallet = $this->wallet(self::OTHER_ID);
+
+        $response = $this->vendorClose(self::OWNER_ID, requestId: 10);
+
+        $response->assertRedirect();
+        $this->assertContains('success', $this->toastTypes());
+        $this->assertSame(
+            ['request' => null, 'owner' => ['total_earning' => 1000.0, 'pending_withdraw' => 0.0], 'other' => $otherWallet],
+            $this->snapshot(10)
+        );
+    }
+
     public function test_v3_update_of_the_sellers_own_pending_request_moves_the_difference_between_the_wallet_columns(): void
     {
         $this->insertRequest(10, self::OWNER_ID, amount: 200, approved: self::PENDING);
@@ -323,6 +355,13 @@ class SellerWithdrawScopingTest extends TestCase
         return $this->from('/vendor/dashboard')->post(route('vendor.dashboard.withdraw-request-update'), [
             'withdraw_request_id' => $requestId, 'withdraw_method' => self::METHOD_ID, 'amount' => $amount, 'method_info' => ['account' => 'SA00'],
         ]);
+    }
+
+    private function vendorClose(int $sellerId, int $requestId): TestResponse
+    {
+        $this->actingAs(Seller::query()->findOrFail($sellerId), 'seller');
+
+        return $this->from('/vendor/dashboard')->get(route('vendor.business-settings.withdraw.close', ['id' => $requestId]));
     }
 
     /** @return list<string> */
