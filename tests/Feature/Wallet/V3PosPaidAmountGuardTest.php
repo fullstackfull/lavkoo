@@ -56,7 +56,7 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         ]);
     }
 
-    private function placeOrder(string $paymentMethod, float|int $paidAmount): TestResponse
+    private function placeOrder(mixed $paymentMethod, float|int $paidAmount): TestResponse
     {
         $cartLine = [
             'id' => self::PRODUCT_ID, 'quantity' => 1, 'variant' => null, 'variation' => [], 'price' => 40, 'discounted_price' => 40,
@@ -141,5 +141,52 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         $this->assertSame(self::STOCK - 1, $this->stock());
         $this->assertSame(0, DB::table('wallet_transactions')->count());
         $this->assertSame(self::WALLET_BALANCE, $this->walletBalance());
+    }
+
+    public function test_a_wallet_payment_method_in_another_case_debits_the_wallet_and_is_stored_as_wallet(): void
+    {
+        $this->assertNothingWasWritten();
+
+        $response = $this->placeOrder(paymentMethod: 'Wallet', paidAmount: 40);
+
+        $response->assertOk();
+        $this->assertSame('wallet', DB::table('orders')->sole()->payment_method);
+        $this->assertSame(self::WALLET_BALANCE - currencyConverter(amount: 40), $this->walletBalance());
+        $entry = DB::table('wallet_transactions')->sole();
+        $this->assertSame(['order_place', 40.0], [$entry->transaction_type, (float) $entry->debit]);
+    }
+
+    public function test_a_wallet_payment_method_in_another_case_with_a_negative_paid_amount_is_refused_before_anything_is_written(): void
+    {
+        $this->assertNothingWasWritten();
+
+        $response = $this->placeOrder(paymentMethod: 'Wallet', paidAmount: -50);
+
+        $this->assertRefusedAsAWrongPaidAmount($response);
+        $this->assertNothingWasWritten();
+    }
+
+    public function test_a_wallet_payment_method_with_surrounding_spaces_is_treated_as_wallet(): void
+    {
+        $this->assertNothingWasWritten();
+
+        $response = $this->placeOrder(paymentMethod: ' wallet ', paidAmount: 40);
+
+        $response->assertOk();
+        $this->assertSame('wallet', DB::table('orders')->sole()->payment_method);
+        $this->assertSame(self::WALLET_BALANCE - currencyConverter(amount: 40), $this->walletBalance());
+        $this->assertSame(1, DB::table('wallet_transactions')->count());
+    }
+
+    public function test_a_payment_method_that_is_not_text_is_refused_before_anything_is_written(): void
+    {
+        foreach ([true, ['wallet'], 1] as $paymentMethod) {
+            $response = $this->placeOrder(paymentMethod: $paymentMethod, paidAmount: 40);
+
+            $response->assertStatus(422);
+            $this->assertSame('payment_method', $response->json('errors.0.code'));
+            $this->assertNotEmpty($response->json('errors.0.message'));
+            $this->assertNothingWasWritten();
+        }
     }
 }
