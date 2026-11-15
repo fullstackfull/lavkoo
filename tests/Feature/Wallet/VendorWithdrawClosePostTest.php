@@ -4,6 +4,10 @@ namespace Tests\Feature\Wallet;
 
 use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\Seller;
+use App\Models\WithdrawRequest;
+use DOMDocument;
+use DOMElement;
+use DOMXPath;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +18,8 @@ use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
- * The vendor panel closes a withdraw request only on a POST that carries a valid CSRF token.
+ * The vendor panel closes a withdraw request only on a POST that carries a valid CSRF token, and the list and preview
+ * forms that trigger it render as that POST.
  *
  * Every request goes through the real route with the real vendor panel middleware and seller guard. CSRF verification is
  * switched on by binding a VerifyCsrfToken subclass that does not skip the check while unit tests run.
@@ -31,6 +36,8 @@ class VendorWithdrawClosePostTest extends TestCase
 
     private const PENDING = 0;
 
+    private const APPROVED = 1;
+
     private const CSRF_TOKEN = 'csrf-token-0123456789-0123456789-0123456789';
 
     protected function setUp(): void
@@ -41,6 +48,9 @@ class VendorWithdrawClosePostTest extends TestCase
         Http::preventStrayRequests();
         $this->createWithdrawTables();
         $this->setBusinessSetting('currency_model', 'single_currency');
+        $this->setBusinessSetting('pagination_limit', '25');
+        $this->setBusinessSetting('system_default_currency', '1');
+        DB::table('currencies')->insert(['id' => 1, 'name' => 'Saudi Riyal', 'symbol' => 'SR', 'code' => 'SAR', 'exchange_rate' => '1', 'status' => 1]);
         $this->enforceCsrfVerification();
 
         $this->insertSeller(self::OWNER_ID);
@@ -105,6 +115,71 @@ class VendorWithdrawClosePostTest extends TestCase
         $this->assertContains('error', $this->toastTypes());
         $this->assertNotContains('success', $this->toastTypes());
         $this->assertSame($before, $this->snapshot(10));
+    }
+
+    public function test_withdraw_list_renders_the_close_form_as_a_csrf_protected_post(): void
+    {
+        $this->insertRequest(10, self::OWNER_ID, amount: 200);
+
+        $this->actingAsSeller(self::OWNER_ID);
+        $response = $this->withSession(['_token' => self::CSRF_TOKEN])
+            ->postJson(route('vendor.business-settings.withdraw.index'), ['_token' => self::CSRF_TOKEN, 'status' => 'pending']);
+
+        $response->assertOk();
+        $this->assertCloseFormPostsWithCsrf($response->json('view'), formId: 'vendor-withdraw-delete-form-10', requestId: 10);
+    }
+
+    public function test_preview_of_a_pending_request_renders_the_close_form_as_a_csrf_protected_post(): void
+    {
+        $this->insertRequest(10, self::OWNER_ID, amount: 200);
+
+        $html = $this->renderPreview(requestId: 10);
+
+        $this->assertCloseFormPostsWithCsrf($html, formId: 'vendor-withdraw-offcanvas-delete-form-10', requestId: 10);
+    }
+
+    public function test_preview_of_an_approved_request_renders_no_close_form(): void
+    {
+        $this->insertRequest(10, self::OWNER_ID, amount: 200, approved: self::APPROVED);
+
+        $html = $this->renderPreview(requestId: 10);
+
+        $this->assertNull($this->findForm($html, formId: 'vendor-withdraw-offcanvas-delete-form-10'));
+    }
+
+    private function renderPreview(int $requestId): string
+    {
+        $this->actingAsSeller(self::OWNER_ID);
+        $this->session(['_token' => self::CSRF_TOKEN]);
+
+        return view('vendor-views.withdraw._withdraw-request-preview', [
+            'withdrawRequest' => WithdrawRequest::query()->findOrFail($requestId),
+        ])->render();
+    }
+
+    private function assertCloseFormPostsWithCsrf(string $html, string $formId, int $requestId): void
+    {
+        $form = $this->findForm($html, $formId);
+
+        $this->assertNotNull($form, "Form {$formId} is not rendered.");
+        $this->assertSame('POST', strtoupper($form->getAttribute('method')));
+        $this->assertSame($this->closeUrl($requestId), $form->getAttribute('action'));
+
+        $tokenInputs = (new DOMXPath($form->ownerDocument))->query('.//input[@type="hidden"][@name="_token"]', $form);
+        $this->assertSame(1, $tokenInputs->length);
+        $this->assertSame(self::CSRF_TOKEN, $tokenInputs->item(0)->getAttribute('value'));
+
+        $methodOverrides = (new DOMXPath($form->ownerDocument))->query('.//input[@name="_method"]', $form);
+        $this->assertSame(0, $methodOverrides->length);
+    }
+
+    private function findForm(string $html, string $formId): ?DOMElement
+    {
+        $document = new DOMDocument();
+        $document->loadHTML('<?xml encoding="UTF-8"><body>' . $html . '</body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $form = (new DOMXPath($document))->query(sprintf('//form[@id="%s"]', $formId))->item(0);
+
+        return $form instanceof DOMElement ? $form : null;
     }
 
     private function enforceCsrfVerification(): void
@@ -179,11 +254,11 @@ class VendorWithdrawClosePostTest extends TestCase
         ]);
     }
 
-    private function insertRequest(int $id, int $sellerId, float $amount): void
+    private function insertRequest(int $id, int $sellerId, float $amount, int $approved = self::PENDING): void
     {
         DB::table('withdraw_requests')->insert([
             'id' => $id, 'seller_id' => $sellerId, 'amount' => $amount, 'withdrawal_method_id' => self::METHOD_ID,
-            'withdrawal_method_fields' => json_encode(['method_name' => 'Bank']), 'approved' => self::PENDING, 'created_at' => now(), 'updated_at' => now(),
+            'withdrawal_method_fields' => json_encode(['method_name' => 'Bank']), 'approved' => $approved, 'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
@@ -199,6 +274,16 @@ class VendorWithdrawClosePostTest extends TestCase
             $table->id();
             $table->string('type');
             $table->text('value')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('currencies', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('symbol');
+            $table->string('code');
+            $table->string('exchange_rate');
+            $table->boolean('status')->default(true);
             $table->timestamps();
         });
 
