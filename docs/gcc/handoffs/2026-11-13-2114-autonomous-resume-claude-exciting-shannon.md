@@ -549,3 +549,11 @@ Open items:
 - PR 31's body lists two commits; its branch has three, including `00b99740`, the Torod carry. The body needs correcting.
 - The currency branch (`gcc/p0-wallet-currency-consistent-debit`, local `f7aafda9`) is stacked on the old PR 34 head. It is rebased onto 832377a3 and pushed only after its full SQLite run passes. The Torod carry is part of that branch too.
 - The overlay gate fails on every PR from `main`, as expected, and is not bypassed.
+
+### Currency debit PR 36 (2026-11-15, about 11:30Z)
+
+Draft PR 36 (`gcc/p0-wallet-currency-consistent-debit`, head `8a4eca3b`, base PR 34 branch) carries the whole-cent USD debit. The earlier local commit `8b0384c4` was dropped unpushed. The branch was rebased onto PR 34's head `832377a3`, which carries the Torod repair.
+
+Full SQLite suite, run before the rebase: 6286 tests, 792746 assertions, 98 skipped (MySQL-only), 9 deprecations. One failure: the Torod time-bomb at `TorodShipmentDiscoveryTest.php:198`, which the rebase fixes. After the rebase the Torod file passes (12 tests, 45 assertions) and the wallet subset passes (85 tests).
+
+The PR is not for merge without financial review. Two items need the owner's sign-off: the rounding rule (D18, half up to whole cents) and the Saudi SAR change (a 10.01 USD order now debits 10.01 USD, not 10.010667).
