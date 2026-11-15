@@ -140,6 +140,12 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
             ->postJson('/api/v3/seller/balance-withdraw', ['withdraw_method_id' => self::METHOD_ID, 'amount' => $amount, 'iban' => 'SA0380000000608010167519']);
     }
 
+    private function withdrawV2(float|int $amount): TestResponse
+    {
+        return $this->withHeaders(['Authorization' => 'Bearer ' . self::TOKEN, 'lang' => 'en'])
+            ->postJson('/api/v2/seller/balance-withdraw', ['amount' => $amount]);
+    }
+
     /** @return array{0: float, 1: float} total_earning and pending_withdraw as stored */
     private function wallet(): array
     {
@@ -200,6 +206,49 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
         DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => json_encode(self::USD_ID)]);
 
         $response = $this->withdrawV3(375);
+
+        $response->assertStatus(200);
+        $this->assertSame([-275.0, 395.0], $this->wallet());
+        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'), 'the request row records the guard conversion, not the debit');
+    }
+
+    public function test_v2_accepts_a_request_that_converts_to_exactly_the_total_earning_and_moves_it_to_pending(): void
+    {
+        $response = $this->withdrawV2(375);
+
+        $response->assertStatus(200);
+        $this->assertSame('Withdraw request sent successfully!', $response->json());
+        $this->assertSame([0.0, 120.0], $this->wallet());
+        $row = DB::table('withdraw_requests')->sole();
+        $this->assertSame([self::SELLER_ID, 100.0, null, null, 0], [(int) $row->seller_id, (float) $row->amount, $row->withdrawal_method_id, $row->withdrawal_method_fields, (int) $row->approved]);
+    }
+
+    public function test_v2_refuses_a_request_above_the_total_earning_and_writes_nothing(): void
+    {
+        $response = $this->withdrawV2(375.01);
+
+        $response->assertStatus(400);
+        $this->assertSame(['message' => 'Invalid withdraw request'], $response->json());
+        $this->assertNothingWritten();
+    }
+
+    public function test_v2_refuses_a_zero_or_negative_amount_and_writes_nothing(): void
+    {
+        foreach ([0, -375] as $amount) {
+            $response = $this->withdrawV2($amount);
+
+            $response->assertStatus(400);
+            $this->assertSame(['message' => 'Invalid withdraw request'], $response->json(), (string) $amount);
+        }
+        $this->assertNothingWritten();
+    }
+
+    public function test_v2_currently_debits_through_a_different_currency_lookup_than_the_guard_and_drives_total_earning_negative(): void
+    {
+        $this->assertEquals(self::SAR_ID, getWebConfig(name: 'system_default_currency'));
+        DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => json_encode(self::USD_ID)]);
+
+        $response = $this->withdrawV2(375);
 
         $response->assertStatus(200);
         $this->assertSame([-275.0, 395.0], $this->wallet());
