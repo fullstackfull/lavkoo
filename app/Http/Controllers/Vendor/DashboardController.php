@@ -255,45 +255,51 @@ class DashboardController extends BaseController
     {
         $vendorId = auth('seller')->id();
         $withdrawMethod = $this->withdrawalMethodRepo->getFirstWhere(params: ['id' => $request['withdraw_method']]);
-        $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
         $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $request['withdraw_request_id'], 'seller_id' => $vendorId]);
 
         if ($withdrawRequest && $withdrawRequest['approved'] == 0) {
-            $totalEarning = $wallet['total_earning'] + $withdrawRequest['amount'];
-            $pendingWithdraw = $wallet['pending_withdraw'] - $withdrawRequest['amount'];
-
-            if ($totalEarning >= currencyConverter($request['amount']) && $request['amount'] > 0) {
-                $isUpdated = DB::transaction(function () use ($withdrawRequest, $withdrawMethod, $request, $vendorId, $wallet, $totalEarning, $pendingWithdraw) {
-                    $isRequestUpdated = $this->withdrawRequestRepo->updateWhere(
-                        params: ['id' => $withdrawRequest['id'], 'seller_id' => $vendorId, 'approved' => 0],
-                        data: $this->withdrawRequestService->getWithdrawRequestData(
-                            withdrawMethod: $withdrawMethod,
-                            request: $request,
-                            addedBy: 'vendor',
-                            vendorId: $vendorId
-                        ),
-                    );
-                    if (!$isRequestUpdated) {
-                        return false;
-                    }
-
-                    $this->vendorWalletRepo->update(
-                        id: $wallet['id'],
-                        data: [
-                            'total_earning' => $totalEarning - currencyConverter($request['amount']),
-                            'pending_withdraw' => $pendingWithdraw + currencyConverter($request['amount']),
-                        ],
-                    );
-                    return true;
-                });
-                if (!$isUpdated) {
-                    ToastMagic::error(translate('invalid_request') . '!');
-                    return redirect()->back();
+            $outcome = DB::transaction(function () use ($withdrawRequest, $withdrawMethod, $request, $vendorId) {
+                $wallet = $this->vendorWalletRepo->getFirstWhereForUpdate(params: ['seller_id' => $vendorId]);
+                $pendingRequest = $this->withdrawRequestRepo->getFirstWhereForUpdate(
+                    params: ['id' => $withdrawRequest['id'], 'seller_id' => $vendorId, 'approved' => 0]
+                );
+                if (!$pendingRequest) {
+                    return 'invalid';
                 }
-                ToastMagic::success(translate('withdraw_request_has_been_update'));
-            } else {
-                ToastMagic::error(translate('Currently this amount not withdrawable') . '!');
-            }
+
+                $totalEarning = $wallet['total_earning'] + $pendingRequest['amount'];
+                $pendingWithdraw = $wallet['pending_withdraw'] - $pendingRequest['amount'];
+                if (!($totalEarning >= currencyConverter($request['amount']) && $request['amount'] > 0)) {
+                    return 'not_withdrawable';
+                }
+
+                $isRequestUpdated = $this->withdrawRequestRepo->updateWhere(
+                    params: ['id' => $withdrawRequest['id'], 'seller_id' => $vendorId, 'approved' => 0],
+                    data: $this->withdrawRequestService->getWithdrawRequestData(
+                        withdrawMethod: $withdrawMethod,
+                        request: $request,
+                        addedBy: 'vendor',
+                        vendorId: $vendorId
+                    ),
+                );
+                if (!$isRequestUpdated) {
+                    return 'invalid';
+                }
+
+                $this->vendorWalletRepo->update(
+                    id: $wallet['id'],
+                    data: [
+                        'total_earning' => $totalEarning - currencyConverter($request['amount']),
+                        'pending_withdraw' => $pendingWithdraw + currencyConverter($request['amount']),
+                    ],
+                );
+                return 'updated';
+            });
+            match ($outcome) {
+                'updated' => ToastMagic::success(translate('withdraw_request_has_been_update')),
+                'not_withdrawable' => ToastMagic::error(translate('Currently this amount not withdrawable') . '!'),
+                default => ToastMagic::error(translate('invalid_request') . '!'),
+            };
             return redirect()->back();
         }
 

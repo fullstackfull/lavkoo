@@ -37,4 +37,12 @@ interface WithdrawRequestRepositoryInterface extends RepositoryInterface
      * @return bool true when at least one row matched and was updated
      */
     public function updateWhere(array $params, array $data): bool;
+
+    /**
+     * Reads the first matching withdraw request and holds a row lock on it until the surrounding transaction ends.
+     *
+     * @param array $params
+     * @return Model|null
+     */
+    public function getFirstWhereForUpdate(array $params): ?Model;
 }

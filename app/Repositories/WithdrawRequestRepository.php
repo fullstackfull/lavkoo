@@ -27,6 +27,11 @@ class WithdrawRequestRepository implements WithdrawRequestRepositoryInterface
         return $this->withdrawRequest->with($relations)->where($params)->first();
     }
 
+    public function getFirstWhereForUpdate(array $params): ?Model
+    {
+        return $this->withdrawRequest->where($params)->lockForUpdate()->first();
+    }
+
     public function getFirstWhereNotNull(array $params, array $filters = [], array $orderBy = [], array $relations = []): ?Model
     {
         return $this->withdrawRequest->where($params)->whereNotNull($filters)

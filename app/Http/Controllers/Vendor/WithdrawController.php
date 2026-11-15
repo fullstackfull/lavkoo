@@ -182,16 +182,22 @@ class WithdrawController extends BaseController
             ToastMagic::error(message: translate('invalid_withdraw_request'));
             return redirect()->back();
         }
-        $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
-        $isClosed = $withdrawRequest['approved'] == 0 && DB::transaction(function () use ($withdrawRequest, $wallet) {
+        $isClosed = $withdrawRequest['approved'] == 0 && DB::transaction(function () use ($withdrawRequest) {
+            $wallet = $this->vendorWalletRepo->getFirstWhereForUpdate(params: ['seller_id' => auth('seller')->id()]);
+            $pendingRequest = $this->withdrawRequestRepo->getFirstWhereForUpdate(
+                params: ['id' => $withdrawRequest['id'], 'seller_id' => auth('seller')->id(), 'approved' => 0]
+            );
+            if (!$pendingRequest) {
+                return false;
+            }
             $isRequestDeleted = $this->withdrawRequestRepo->delete(
                 params: ['id' => $withdrawRequest['id'], 'seller_id' => auth('seller')->id(), 'approved' => 0]
             );
             if (!$isRequestDeleted) {
                 return false;
             }
-            $totalEarning = $wallet['total_earning'] + $withdrawRequest['amount'];
-            $pendingWithdraw = $wallet['pending_withdraw'] - $withdrawRequest['amount'];
+            $totalEarning = $wallet['total_earning'] + $pendingRequest['amount'];
+            $pendingWithdraw = $wallet['pending_withdraw'] - $pendingRequest['amount'];
             $this->vendorWalletRepo->update(
                 id: $wallet['id'],
                 data: $this->vendorWalletService->getVendorWalletData(
