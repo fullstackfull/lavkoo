@@ -51,6 +51,7 @@ use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
 use App\Services\Address\OrderAddressService;
+use App\Services\Referral\ReferralRewardService;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
@@ -874,11 +875,16 @@ class OrderManager
             $isFirstOrder = Order::where(['customer_id' => $order['customer_id'], 'order_status' => 'delivered', 'payment_status' => 'paid'])->count();
             $referredByUser = User::where(['id' => $customer['referred_by']])->first();
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                self::createWalletTransaction(
-                    user_id: $referredByUser['id'],
-                    amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
-                    transaction_type: 'add_fund_by_admin',
-                    reference: 'earned_by_referral'
+                app(ReferralRewardService::class)->creditOnce(
+                    refereeId: $customer['id'],
+                    beneficiaryId: $referredByUser['id'],
+                    orderId: $order['id'],
+                    credit: fn () => self::createWalletTransaction(
+                        user_id: $referredByUser['id'],
+                        amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
+                        transaction_type: 'add_fund_by_admin',
+                        reference: 'earned_by_referral'
+                    ),
                 );
             }
         }
