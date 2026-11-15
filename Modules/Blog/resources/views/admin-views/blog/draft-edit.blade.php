@@ -15,7 +15,7 @@
                 </a>
                 {{ translate('edit_draft_blog') }}
             </h2>
-            <a href="{{ route('frontend.blog.details', ['slug' => $blog['slug'], 'source' => 'draft']) }}"
+            <a href="{{ route('admin.blog.draft-preview', ['id' => $blog['id']]) }}"
                target="_blank" class="btn btn-outline-primary"  data-bs-toggle="tooltip" data-placement="bottom"
                title=""
             >
