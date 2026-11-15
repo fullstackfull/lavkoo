@@ -452,8 +452,12 @@ class SellerController extends Controller
             return response()->json(['message' => translate('kyc_verification_required')], 403);
         }
 
-        $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
-        if (($wallet->total_earning) >= Convert::usd($request['amount']) && $request['amount'] > 0) {
+        $isCreated = DB::transaction(function () use ($seller, $request, $data) {
+            $wallet = SellerWallet::where('seller_id', $seller['id'])->lockForUpdate()->first();
+            if (!(($wallet->total_earning) >= Convert::usd($request['amount']) && $request['amount'] > 0)) {
+                return false;
+            }
+
             DB::table('withdraw_requests')->insert([
                 'seller_id' => $seller['id'],
                 'amount' => Convert::usd($request['amount']),
@@ -467,6 +471,9 @@ class SellerController extends Controller
             $wallet->total_earning -= BackEndHelper::currency_to_usd($request['amount']);
             $wallet->pending_withdraw += BackEndHelper::currency_to_usd($request['amount']);
             $wallet->save();
+            return true;
+        });
+        if ($isCreated) {
             return response()->json(translate('Withdraw request sent successfully!'), 200);
         }
         return response()->json(['message' => translate('Invalid_withdraw_request')], 403);
