@@ -7,6 +7,7 @@ use App\Http\Middleware\APILocalizationMiddleware;
 use App\Http\Middleware\CustomerMiddleware;
 use App\Http\Middleware\DatabaseRefreshMiddleware;
 use App\Http\Middleware\DeliveryManAuth;
+use App\Http\Middleware\EnsureLegacySellerTokenIsApproved;
 use App\Http\Middleware\GuestMiddleware;
 use App\Http\Middleware\InstallationMiddleware;
 use App\Http\Middleware\MaintenanceModeMiddleware;
@@ -122,7 +123,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'maintenance_mode' => MaintenanceModeMiddleware::class,
             'delivery_man_auth' => DeliveryManAuth::class,
             'seller_api_auth' => SellerApiAuthMiddleware::class,
-            'legacy_seller_approved' => \App\Http\Middleware\EnsureLegacySellerTokenIsApproved::class,
+            'legacy_seller_approved' => EnsureLegacySellerTokenIsApproved::class,
             // Enforced on the route, never by hiding a menu item.
             'seller_can' => \App\Http\Middleware\EnsureSellerPermission::class,
             'seller_owner' => \App\Http\Middleware\EnsureSellerIsOwner::class,
