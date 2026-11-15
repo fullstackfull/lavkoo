@@ -8,6 +8,7 @@ use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Address\OrderAddressService;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\Customer\WalletOrderDebit;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
@@ -27,7 +28,6 @@ use App\Traits\FileManagerTrait;
 use App\Traits\SmsGateway;
 use App\Models\User;
 use App\Utils\CartManager;
-use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
@@ -441,7 +441,8 @@ class OrderController extends Controller
             return $refusal;
         }
 
-        if ($paymentAmount > $user->wallet_balance) {
+        $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
+        if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
             return response()->json(['message' => 'inefficient balance in your wallet to pay for this order'], 403);
         } else {
             $physical_product = false;
@@ -492,7 +493,7 @@ class OrderController extends Controller
                 return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
+            CustomerManager::create_wallet_transaction(user_id: $user->id, amount: $walletDebit->amountInUsd(), transaction_type: 'order_place', reference: 'order payment', amountInUsd: true);
             return response()->json([
                 'messages' => translate('order_placed_successfully'),
                 'order_ids' => $orderIds,

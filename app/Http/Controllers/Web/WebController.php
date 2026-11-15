@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\Customer\WalletOrderDebit;
 use App\Services\Analytics\Analytics;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
@@ -46,7 +47,6 @@ use App\Models\Wishlist;
 use App\Traits\CommonTrait;
 use App\Traits\SmsGateway;
 use App\Utils\CartManager;
-use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
 use App\Utils\ProductManager;
@@ -825,7 +825,8 @@ class WebController extends Controller
         $paymentAmount = collect($vendorWiseCartList)->sum('order_amount_with_tax');
 
         $user = Helpers::getCustomerInformation($request);
-        if ($paymentAmount > $user->wallet_balance) {
+        $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
+        if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
             Toastr::warning(translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!');
             return back();
         } else {
@@ -878,7 +879,7 @@ class WebController extends Controller
                 OrderManager::generateReferBonusForFirstOrder(orderId: $order_id);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
+            CustomerManager::create_wallet_transaction(user_id: $user->id, amount: $walletDebit->amountInUsd(), transaction_type: 'order_place', reference: 'order payment', amountInUsd: true);
         }
 
         if (session()->has('payment_mode') && session('payment_mode') == 'app') {
