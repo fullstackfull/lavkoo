@@ -5,6 +5,7 @@ namespace Tests\Feature\Wallet;
 use App\Enums\SessionKey;
 use App\Models\Admin;
 use App\Models\User;
+use App\Services\Customer\WalletOrderDebit;
 use App\Utils\Convert;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -17,12 +18,12 @@ use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
- * The wallet is kept in USD and an order amount is in USD, but the wallet checkouts debit Convert::default($amount), which is rounded to two
- * decimals in the store currency, and the writer turns that back into USD with Convert::usd, unrounded. These tests record, for SAR, USD, KWD,
- * BHD and OMR as the store default, what the balance is compared with, what is debited in USD and what is left.
+ * A wallet order debits its USD amount rounded half up to whole cents, once (WalletOrderDebit), in every store currency. The store amount is
+ * still what the customer is shown (Convert::default), but it is no longer turned back into USD for the debit. Before this, a 10.01 USD order
+ * debited Convert::usd(Convert::default(10.01)): 10.010667 in SAR, which was refused against 10.01 USD, and 10.00 in KWD and BHD, which left a
+ * cent behind. The admin POS is not changed here; its tests pin what it does today.
  *
  * The rates are fixtures (SAR 3.75, KWD 0.307, BHD 0.376, OMR 0.3845 to the dollar), each currency with its own decimal_point_settings.
- * A name with "currently" marks today's behaviour, not necessarily the intended one.
  */
 class WalletCurrencyConsistencyTest extends TestCase
 {
@@ -45,65 +46,122 @@ class WalletCurrencyConsistencyTest extends TestCase
         parent::tearDown();
     }
 
-    /** @return array<string, array{code: string, rate: string, decimals: int, defaultAmount: float, flooredAmount: float, debitedUsd: string, overOrderAmount: string}> */
-    public static function conversionsOfTenDollarsOneCent(): array
+    /** @return array<string, array{code: string, rate: string, decimals: int}> */
+    public static function storeCurrencies(): array
     {
         return [
-            'SAR' => ['code' => 'SAR', 'rate' => '3.75', 'decimals' => 2, 'defaultAmount' => 37.54, 'flooredAmount' => 37.53, 'debitedUsd' => '10.010667', 'overOrderAmount' => '0.000667'],
-            'USD' => ['code' => 'USD', 'rate' => '1', 'decimals' => 2, 'defaultAmount' => 10.01, 'flooredAmount' => 10.01, 'debitedUsd' => '10.010000', 'overOrderAmount' => '0.000000'],
-            'KWD' => ['code' => 'KWD', 'rate' => '0.307', 'decimals' => 3, 'defaultAmount' => 3.07, 'flooredAmount' => 3.073, 'debitedUsd' => '10.000000', 'overOrderAmount' => '-0.010000'],
-            'BHD' => ['code' => 'BHD', 'rate' => '0.376', 'decimals' => 3, 'defaultAmount' => 3.76, 'flooredAmount' => 3.763, 'debitedUsd' => '10.000000', 'overOrderAmount' => '-0.010000'],
-            'OMR' => ['code' => 'OMR', 'rate' => '0.3845', 'decimals' => 3, 'defaultAmount' => 3.85, 'flooredAmount' => 3.848, 'debitedUsd' => '10.013004', 'overOrderAmount' => '0.003004'],
+            'SAR' => ['code' => 'SAR', 'rate' => '3.75', 'decimals' => 2],
+            'USD' => ['code' => 'USD', 'rate' => '1', 'decimals' => 2],
+            'KWD' => ['code' => 'KWD', 'rate' => '0.307', 'decimals' => 3],
+            'BHD' => ['code' => 'BHD', 'rate' => '0.376', 'decimals' => 3],
+            'OMR' => ['code' => 'OMR', 'rate' => '0.3845', 'decimals' => 3],
         ];
     }
 
-    #[DataProvider('conversionsOfTenDollarsOneCent')]
-    public function test_the_store_currency_conversions_of_an_order_amount_are(string $code, string $rate, int $decimals, float $defaultAmount, float $flooredAmount, string $debitedUsd, string $overOrderAmount): void
+    /** @return array<string, array{code: string, rate: string, decimals: int, shownAmount: float}> */
+    public static function storeAmountsShownForTenDollarsOneCent(): array
+    {
+        return [
+            'SAR' => ['code' => 'SAR', 'rate' => '3.75', 'decimals' => 2, 'shownAmount' => 37.54],
+            'USD' => ['code' => 'USD', 'rate' => '1', 'decimals' => 2, 'shownAmount' => 10.01],
+            'KWD' => ['code' => 'KWD', 'rate' => '0.307', 'decimals' => 3, 'shownAmount' => 3.07],
+            'BHD' => ['code' => 'BHD', 'rate' => '0.376', 'decimals' => 3, 'shownAmount' => 3.76],
+            'OMR' => ['code' => 'OMR', 'rate' => '0.3845', 'decimals' => 3, 'shownAmount' => 3.85],
+        ];
+    }
+
+    /** @return array<string, array{code: string, rate: string, decimals: int, walletBalance: string, placed: bool}> */
+    public static function walletBalancesAroundTheDebit(): array
+    {
+        $balances = [
+            'one cent short' => ['10.00', false],
+            'more than half a cent short' => ['10.004', false],
+            'half a cent short rounds up to the debit' => ['10.005', true],
+            'float residue below the debit' => ['10.00999999999999978684', true],
+        ];
+
+        $cases = [];
+        foreach (self::storeCurrencies() as $currency => $store) {
+            foreach ($balances as $balanceCase => [$walletBalance, $placed]) {
+                $cases["{$currency}, {$balanceCase}"] = $store + ['walletBalance' => $walletBalance, 'placed' => $placed];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('storeAmountsShownForTenDollarsOneCent')]
+    public function test_the_store_amount_shown_is_unchanged_and_the_debit_is_the_usd_order_amount(string $code, string $rate, int $decimals, float $shownAmount): void
     {
         $this->useStoreCurrency(code: $code, rate: $rate, decimals: $decimals);
 
-        $this->assertSame($defaultAmount, Convert::default(10.01), 'Convert::default rounds to two decimals whatever the decimal setting');
-        $this->assertSame($flooredAmount, usdToDefaultCurrency(amount: 10.01), 'usdToDefaultCurrency floors to the decimal setting');
-        $this->assertSame($debitedUsd, self::decimal(Convert::usd(Convert::default(10.01))), 'what the writer debits for a 10.01 USD order');
-        $this->assertSame($overOrderAmount, bcsub(self::decimal(Convert::usd(Convert::default(10.01))), '10.010000', 6), 'debited minus the order amount');
+        $this->assertSame($shownAmount, Convert::default(10.01));
+        $this->assertSame(10.01, WalletOrderDebit::forOrderAmount(10.01)->amountInUsd());
     }
 
-    /** @return array<string, array{code: string, rate: string, decimals: int, ledger: array<string, int|string>}> */
-    public static function anOrderEqualToTheBalanceInUsd(): array
-    {
-        $placed = static fn (string $debited, string $left): array => ['orders' => 1, 'paid_orders' => 1, 'wallet_transactions' => 1, 'debited' => $debited, 'wallet_balance' => $left];
-
-        return [
-            'SAR' => ['code' => 'SAR', 'rate' => '3.75', 'decimals' => 2, 'ledger' => $placed('10.010667', '-0.000667')],
-            'USD' => ['code' => 'USD', 'rate' => '1', 'decimals' => 2, 'ledger' => $placed('10.010000', '0.000000')],
-            'KWD' => ['code' => 'KWD', 'rate' => '0.307', 'decimals' => 3, 'ledger' => $placed('10.000000', '0.010000')],
-            'BHD' => ['code' => 'BHD', 'rate' => '0.376', 'decimals' => 3, 'ledger' => $placed('10.000000', '0.010000')],
-            'OMR' => ['code' => 'OMR', 'rate' => '0.3845', 'decimals' => 3, 'ledger' => $placed('10.013004', '-0.003004')],
-        ];
-    }
-
-    /** The balance check compares the 10.01 USD order amount; the debit is the rounded store amount turned back into USD. */
-    #[DataProvider('anOrderEqualToTheBalanceInUsd')]
-    public function test_api_wallet_order_equal_to_the_balance_in_usd_currently_debits_the_rounded_store_amount(string $code, string $rate, int $decimals, array $ledger): void
+    #[DataProvider('storeCurrencies')]
+    public function test_api_wallet_order_equal_to_the_balance_in_usd_is_placed_and_empties_the_wallet(string $code, string $rate, int $decimals): void
     {
         $this->useStoreCurrency(code: $code, rate: $rate, decimals: $decimals);
         $customer = $this->shopperWithCart(walletBalance: '10.01', price: '10.01');
 
-        $this->placeApiWalletOrder($customer)->assertOk();
+        $this->placeApiWalletOrder($customer)->assertOk()->assertJsonPath('order_ids', [100001]);
 
-        $this->assertSame('10.01', self::decimal(DB::table('orders')->value('order_amount'), scale: 2), 'the amount the balance was checked against');
-        $this->assertSame($ledger, $this->walletLedgerOf(customerId: $customer->id));
+        $this->assertSame(['orders' => 1, 'paid_orders' => 1, 'wallet_transactions' => 1, 'debited' => '10.010000', 'wallet_balance' => '0.000000'], $this->walletLedgerOf(customerId: $customer->id));
+        $this->assertWalletIsNotNegative(customerId: $customer->id);
     }
 
-    #[DataProvider('anOrderEqualToTheBalanceInUsd')]
-    public function test_web_wallet_checkout_equal_to_the_balance_in_usd_currently_debits_the_rounded_store_amount(string $code, string $rate, int $decimals, array $ledger): void
+    #[DataProvider('storeCurrencies')]
+    public function test_web_wallet_checkout_equal_to_the_balance_in_usd_is_placed_and_empties_the_wallet(string $code, string $rate, int $decimals): void
     {
         $this->useStoreCurrency(code: $code, rate: $rate, decimals: $decimals);
         $customer = $this->shopperWithCart(walletBalance: '10.01', price: '10.01');
 
         $this->completeWebWalletCheckout($customer)->assertRedirect(route('account-oder'));
 
-        $this->assertSame($ledger, $this->walletLedgerOf(customerId: $customer->id));
+        $this->assertSame(['orders' => 1, 'paid_orders' => 1, 'wallet_transactions' => 1, 'debited' => '10.010000', 'wallet_balance' => '0.000000'], $this->walletLedgerOf(customerId: $customer->id));
+        $this->assertWalletIsNotNegative(customerId: $customer->id);
+    }
+
+    #[DataProvider('walletBalancesAroundTheDebit')]
+    public function test_api_wallet_order_is_placed_only_when_the_balance_covers_the_usd_debit_in_whole_cents(string $code, string $rate, int $decimals, string $walletBalance, bool $placed): void
+    {
+        $this->useStoreCurrency(code: $code, rate: $rate, decimals: $decimals);
+        $customer = $this->shopperWithCart(walletBalance: $walletBalance, price: '10.01');
+        $before = $this->walletLedgerOf(customerId: $customer->id);
+
+        $response = $this->placeApiWalletOrder($customer);
+
+        if ($placed) {
+            $response->assertOk()->assertJsonPath('order_ids', [100001]);
+            $this->assertSame(['orders' => 1, 'paid_orders' => 1, 'wallet_transactions' => 1, 'debited' => '10.010000', 'wallet_balance' => '0.000000'], $this->walletLedgerOf(customerId: $customer->id));
+        } else {
+            $response->assertStatus(403)->assertExactJson(['message' => 'inefficient balance in your wallet to pay for this order']);
+            $this->assertSame($before, $this->walletLedgerOf(customerId: $customer->id));
+            $this->assertSame(10, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+        }
+        $this->assertWalletIsNotNegative(customerId: $customer->id);
+    }
+
+    #[DataProvider('walletBalancesAroundTheDebit')]
+    public function test_web_wallet_checkout_is_placed_only_when_the_balance_covers_the_usd_debit_in_whole_cents(string $code, string $rate, int $decimals, string $walletBalance, bool $placed): void
+    {
+        $this->useStoreCurrency(code: $code, rate: $rate, decimals: $decimals);
+        $customer = $this->shopperWithCart(walletBalance: $walletBalance, price: '10.01');
+        $before = $this->walletLedgerOf(customerId: $customer->id);
+
+        $response = $this->completeWebWalletCheckout($customer);
+
+        if ($placed) {
+            $response->assertRedirect(route('account-oder'));
+            $this->assertSame(['orders' => 1, 'paid_orders' => 1, 'wallet_transactions' => 1, 'debited' => '10.010000', 'wallet_balance' => '0.000000'], $this->walletLedgerOf(customerId: $customer->id));
+        } else {
+            $response->assertRedirect(route('checkout-payment'));
+            $this->assertSame(['Inefficient balance in your wallet to pay for this order!!'], array_column(session('toastr::messages', []), 'message'));
+            $this->assertSame($before, $this->walletLedgerOf(customerId: $customer->id));
+            $this->assertSame(10, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+        }
+        $this->assertWalletIsNotNegative(customerId: $customer->id);
     }
 
     /** @return array<string, array{code: string, rate: string, decimals: int, exactAmount: string, oneUnitOver: string}> */
