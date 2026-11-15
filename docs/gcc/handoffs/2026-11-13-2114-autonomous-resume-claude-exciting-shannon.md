@@ -557,3 +557,20 @@ Draft PR 36 (`gcc/p0-wallet-currency-consistent-debit`, head `8a4eca3b`, base PR
 Full SQLite suite, run before the rebase: 6286 tests, 792746 assertions, 98 skipped (MySQL-only), 9 deprecations. One failure: the Torod time-bomb at `TorodShipmentDiscoveryTest.php:198`, which the rebase fixes. After the rebase the Torod file passes (12 tests, 45 assertions) and the wallet subset passes (85 tests).
 
 The PR is not for merge without financial review. Two items need the owner's sign-off: the rounding rule (D18, half up to whole cents) and the Saudi SAR change (a 10.01 USD order now debits 10.01 USD, not 10.010667).
+
+## 30. Currency PR, storefront country context and the Flutter choice slices (2026-11-15, about 12:00Z)
+
+Owner order: no routine status between steps, continue the six-country plan and the Flutter apps, keep Saudi behaviour unchanged, keep new features default-off, and leave merge and production decisions to the owner.
+
+Draft PRs and their heads at the time of writing:
+
+- **PR 36, currency whole-cent debit** (`gcc/p0-wallet-currency-consistent-debit`, head `8a4eca3b`, base PR 34's branch). Rebased onto PR 34's head `832377a3`, which carries the Torod repair. The full SQLite suite ran before the rebase: 6286 tests, 792746 assertions, 98 skipped, 9 deprecations, one failure, the Torod time-bomb, which the rebase fixes. After the rebase the Torod file (12 tests) and the wallet subset (85 tests) pass. Not for merge without financial review: the rounding rule (D18) and the Saudi SAR change.
+- **Storefront country context** (`gcc/p1-storefront-country-context`, stacked on PR 28's head `8c8d32a6`). Storefront-facing caches are keyed by market while storefronts are on: the home categories, the theme sections and settings, the theme revision and payloads, and bought-together. Saudi keys and every key while storefronts are off stay as they were. A publish, a theme flush and a category change forget every market's copy. The category change also forgets the entries listed in the home-category index, which before only forgot the index, so the entries served stale data until their TTL. The `storefront` alias now sits on the product groups, the theme group and the beta web group, and not on the list or the config route. Tests: 168 storefront and related tests pass. The full SQLite suite was running at the time of writing; its result goes in the PR.
+- **Flutter customer choice** (`lavkooapp` #2, `gcc/p1-customer-storefront-choice`, head `6b745240`, stacked on PR 1). `StorefrontChoice` reads and saves the chosen storefront only while the flag is on. Six tests. The Flutter SDK is not available here, so the result comes from CI, which now also analyses and tests the file.
+- **Flutter seller choice** (`lavkooappseller` #2, `gcc/p1-seller-market-choice`, head `e5fd7164`, stacked on the seller storefront header). `SellerMarketChoice`: while the flag is off, every read answers All Markets; while on, one market at a time, and All Markets is refused. Seven tests. Its CI runs the whole project and was already failing on the version gate, which this change does not touch.
+
+Legal readiness (GCC-11) is the next backend slice. Today policies are global `business_settings` keys (`privacy_policy`, `refund_policy`, `return_policy`, `shipping_policy`, `about_us`) and business pages. Per-storefront approval needs an additive table, a readiness service with Saudi grandfathered, and a `sellable` flag on the storefront list while the flag is on. Checkout enforcement comes after that, with its own tests.
+
+Environment note: the session's temporary volume filled up once while a vendor directory was being copied. The partial copy was removed. The new storefront worktree's `vendor` is a real directory whose packages are symlinks to the PR 28 worktree, so the autoloader serves its own code.
+
+Explicit approvals still needed from the owner: the D18 rounding rule and the Saudi SAR change before PR 36 merges; the storefront flag and country list before any Flutter release; the seller version gate before the seller PR's CI can go green.
