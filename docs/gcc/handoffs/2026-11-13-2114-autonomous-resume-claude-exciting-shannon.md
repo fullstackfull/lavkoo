@@ -454,3 +454,53 @@ Since section 25
 
 Heads at the time of writing: `#26` `d65a7f5d`, `#25` `bb0ec132` (not re-read in this check-in), plus the heads in sections 21 to 24.
 Owner decisions D15 to D22 are unchanged.
+
+## 27. Owner order of 2026-11-15: four tracks as draft PRs (2026-11-15, about 07:50Z)
+
+Owner order: run the four tracks in sequence, without asking for technical decisions. Financial and security review is needed before merge, not before tests and a proposed fix on an isolated branch. No merge, no production, no real data, no secret changes. None of the PRs below is merged or deployed.
+
+Draft PRs:
+- Track 1, seller API v2 refund gate: PR #27 `gcc/p0-seller-v2-refund-approved-gate`, head `887a365f`, base `main`. A `legacy_seller_approved` route middleware on the three v2 refund routes, using the same approved-owner lookup as v3. 9 permission tests and 10 security tests pass. Without the gate, 5 of the 8 original tests fail. Two reviewers: accept with notes. Remaining exposure: 45 other v2 callers of `Helpers::get_seller_by_token` still accept a rejected seller's token. The choke-point fix is recommended, but it needs owner sign-off (D20).
+- Track 2, referral exactly-once: PR #29 `gcc/p0-referral-reward-idempotency`, head `f0014cdc`, base `main`. Additive migration `2026_11_23_100000_create_referral_reward_grants_table`, unique on (referee_id, beneficiary_id), no backfill. `ReferralRewardService::creditOnce` is the only reward writer path. 52 referral tests pass; with the guard bypassed, 26 to 27 fail. The concurrency tests skip on SQLite, so their first real run is CI's MySQL partition. Two reviewers: accept with notes. Two cherry-picked commits duplicate PR #25. Amount decision needed (below).
+- Track 3, wallet and refund write paths: a read-only scout is running (workflow `wf_0ddbdbee-f97`). No code yet.
+- Track 4, GCC foundation:
+  - Backend: PR #28 `gcc/p1-storefront-api-header`, head `8c8d32a6`, stacked on PR #19 (`gcc/p1-storefront-middleware-alias`, `74372ebf`), which is stacked on PR #8 (`gcc/p1-storefront-context`, `a8c6a42b`). Adds the `X-Storefront` header and a public `GET /api/v1/storefronts`. Flag `GCC_STOREFRONTS_ENABLED` defaults to false, and only SA is active. Route parity: 191 routes before, 192 after. 268 storefront tests pass. Retarget to `main` after #8 and #19 merge.
+  - Seller app: https://github.com/fullstackfull/lavkooappseller/pull/1, head `964557e8`. `MarketScope` plus a default-off `X-Storefront` header. CI runs on the PR. Dart was not run locally.
+  - Customer app: https://github.com/fullstackfull/lavkooapp/pull/1, head `5e109211`. Default-off header and six-storefront config. The repo has no CI, and Dart tests were NOT run. Before merge, rename or move the test "is off unless the build defines it".
+
+Open owner decisions (they block merge, not coding):
+- D15 to D19, the amount that survives on multi-currency stores. PR #29 changes what is paid on the mixed paths. Delivery-man now credits 10.0 (main wrote 10.0 and 2.67). Seller v3 `order_detail_status` now credits 2.67 (main wrote 2.67 and 10.0). If the owner picks the shared writer's amount, the change is which writer survives.
+- D20, the choke-point fix for the 48 v2 `get_seller_by_token` callers. PR #27 covers only the refund group.
+- D21 and D22, the wallet module and the POS money gates (for track 3).
+- Overlay baseline: `PILOT_BASELINE` is unset and the gate fails on every PR from `main`. Do not change it without server state.
+- Merge order: #8, then #19, then retarget #28 to `main`.
+
+Process facts:
+- The high-tier review model quota is exhausted until 2026-11-17 21:00 UTC. Do not use that model tier for reviews or agents until it resets. Reviews ran on the other tiers.
+- Worktrees under `scratchpad/wt`: `seller-v2-refund`, `referral-idempotency`, `gcc-storefront-api-header`, `flutter-customer-storefront`, `flutter-seller-storefront`. Each vendor directory is hard-linked from the `permissions` worktree with `cp -al`. Tests use a throwaway `APP_KEY` per run.
+- Workflow IDs: refund `wf_09530400-968` (review `wf_8508a1f9-c0b`, staff test `wf_c8d29e2b-ee8`); referral `wf_3f9dbf1d-a42` (review `wf_f5a3708d-6b1`); storefront `wf_d65dc964-e8f` (review `wf_dfbb0b82-517`, test fixes `wf_cf6f16fa-ae0`); Flutter `wf_ec13b3c6-cfd`; wallet scout `wf_0ddbdbee-f97`.
+
+Resume:
+- `git -C /home/user/lavkoo fetch --prune origin`, then read PRs #27, #28, #29 and the two Flutter PRs with the GitHub tools. Check each head SHA against this section before acting.
+- Next: the wallet track, from the output of `wf_0ddbdbee-f97`. Choose fixes that do not change an undecided amount. If a fix touches the referral writer lines, base it on `gcc/p0-referral-reward-idempotency` or wait for PR #29.
+- Still open from sections 21 to 26: PR #25 and PR #26 have 20 of 21 checks passing, with only the overlay gate failing. Owner decisions D11 to D14 and D15 to D22 are open.
+
+Later in the same session, these draft PRs were also opened (heads as of their last push):
+- PR #30 `gcc/p0-wallet-v3-pos-paid-amount-guard`, head `88d21d8e`: refuses a non-positive wallet paid amount on the v3 seller POS, before any write. Follow-ups: the payment method is matched case-sensitively, so `Wallet` skips both the guard and the debit; the wallet is debited before the stock check (PR #13 may cover this for v3, to be verified); double currency conversion (D18).
+- PR #31 `gcc/p0-wallet-withdraw-boundary-tests`, head `77330aa0`: test-only. Pins the withdraw boundaries on v3 and v2. The conversion defect appears only when the settings cache is stale. A multi-currency store with no USD row is noted but not run.
+- PR #32 `gcc/p0-wallet-seller-withdraw-scoping`, head `6922d994`: scopes seller withdraw update and close to the signed-in seller and refuses decided requests, with transactions and guards in each WHERE clause. Follow-ups: concurrent updates of a pending request (needs the lock track); wallet rows read outside the transaction; an identical update in the same second is refused.
+- PR #33 `gcc/p0-vendor-withdraw-close-post`, head `550a8331`: the vendor close moves from GET to POST, with CSRF enforced. This is a security fix. After deploy, check the vendor close button manually. The view markup has no direct test.
+- Flutter: seller app PR https://github.com/fullstackfull/lavkooappseller/pull/1 (head `964557e8`, CI runs on it), and customer app PR https://github.com/fullstackfull/lavkooapp/pull/1 (head `5e109211`, no CI, Dart tests not run).
+
+Open owner items: D15 to D19 (the surviving amount, which also affects PR #29); D18 (currency and rounding); D20 (the choke point for the 45 remaining v2 callers in PR #27); D21 and D22 (the wallet module and the POS money gates); the overlay baseline; the merge order (#8, then #19, then retarget #28 to `main`); financial or security review of #27, #29, #32 and #33; and the manual check of #33 after deploy.
+
+## 28. Continuity pass: Torod carry on open draft PRs, and CI state (2026-11-15, about 10:30Z)
+
+Owner directive: keep working under the charter. Fix open draft PRs; do not multiply them. Nothing is merged or deployed.
+
+- CI on #27 and #29 to #33 failed the SQLite job and the sales-channel N-Z partitions with `TorodShipmentDiscoveryTest::test_the_scheduled_run_links_what_appeared_later_and_keeps_the_status_of_a_linked_shipment_current`, with `'unlinked'` expected and `'needs_review'` returned, at `TorodShipmentDiscoveryTest.php:198`. Evidence: job 132741345797 (PR #27, SQLite PHP 8.3). The cause is the clock-dependent purchase time in the fixture on `main`.
+- The one-line repair `de1270f8` (on `gcc/p0-checkout-stock-tests`) was carried to each `main`-based branch, after a local reproduction at line 198 on each: `gcc/p0-seller-v2-refund-approved-gate` `df1c778a`; `gcc/p0-referral-reward-idempotency` `73708954`; `gcc/p0-wallet-v3-pos-paid-amount-guard` `4cae4971`; `gcc/p0-wallet-withdraw-boundary-tests` `00b99740`; `gcc/p0-wallet-seller-withdraw-scoping` `628fa693`; `gcc/p0-vendor-withdraw-close-post` `cb2c5b87`. After the carry each shows 12 tests and 45 assertions passing. PR #28 already had it, inherited from #8.
+- Flutter seller app, `lavkooappseller#1`: `analyze-and-test` ran 155 tests, 154 passed and 1 failed. The failure is `app_version_gate_test`: pubspec 1.0.0 against the backend minimum 2.0.1. This is the known release blocker. Neither the version nor the minimum is changed.
+- Overlay gate: still failing by design on every PR from `main`, with the three known files.
+- In flight: the vendor close forms rendering test on #33 (`gcc/p0-vendor-withdraw-close-post`), and the v3 POS payment-method normalisation on #30 (`gcc/p0-wallet-v3-pos-paid-amount-guard`). Both are fixes on existing branches, not new PRs.
+- Resume: read the heads of #27 to #33 with the GitHub tools, and re-read CI on the new heads. Classify each failure as overlay-only or technical from its log. Do not treat pending jobs as passed. The workflow IDs are listed in section 27.
