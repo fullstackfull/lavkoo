@@ -26,6 +26,13 @@ return [
             'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false],
             'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false],
         ],
+
+        'legal' => [
+            // Every type here needs published, approved, non-template text before a storefront may sell (GCC-11).
+            'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],
+            // The default storefront keeps the documents it has always had, so it never becomes unusable (GCC-19).
+            'grandfathered' => ['SA'],
+        ],
     ],
 
 ];
