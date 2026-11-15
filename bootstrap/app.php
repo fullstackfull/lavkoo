@@ -130,8 +130,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'apiGuestCheck' => APIGuestMiddleware::class,
             'logUserBrowsingNavigation' => \App\Http\Middleware\LogUserBrowsingNavigationMiddleware::class,
             'detectMobile' => \App\Http\Middleware\DetectMobile::class,
-            // Opt-in only: applied to no route and in no group, so the Saudi storefront is untouched until a later slice adopts it.
+            // Adopted only by the new-sale routes the storefront legal gate covers (GCC-11). Elsewhere the Saudi storefront is untouched.
             'storefront' => \App\Http\Middleware\ResolveStorefront::class,
+            'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
         ]);
     })
     // The schedule itself lives in App\Console\ScheduleDefinition, so the monitoring page can

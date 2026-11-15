@@ -19,8 +19,9 @@ class ResolveStorefrontMiddlewareTest extends TestCase
     }
 
     /**
-     * The alias is on the storefront-facing routes only: the product routes, the theme routes and the storefront pages. It is in no
-     * named group, and it is not on the storefront list or the config route, which must not depend on a storefront.
+     * The alias is on the storefront-facing routes (the product and theme routes) and on the routes that start a new sale, which
+     * also carry the sale gate (GCC-11). It is in no named group, and it is not on the storefront list or the config route, which
+     * must not depend on a storefront.
      */
     public function test_the_alias_resolves_the_storefront_only_on_storefront_facing_routes(): void
     {
@@ -33,21 +34,27 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         }
 
         $resolving = [];
+        $startingASale = [];
         foreach (Route::getRoutes() as $route) {
             if (in_array('storefront', $route->middleware(), true)) {
                 $resolving[] = $route->uri();
+                if (in_array('storefront.sellable', $route->middleware(), true)) {
+                    $startingASale[] = $route->uri();
+                }
             }
         }
 
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/products')));
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/theme')));
+        $this->assertNotEmpty($startingASale);
         $this->assertNotContains('api/v1/storefronts', $resolving);
         $this->assertNotContains('api/v1/config', $resolving);
         foreach ($resolving as $uri) {
             $isApi = str_starts_with($uri, 'api/');
+            $isStorefrontFacing = str_starts_with($uri, 'api/v1/products') || str_starts_with($uri, 'api/v1/theme');
             $this->assertTrue(
-                !$isApi || str_starts_with($uri, 'api/v1/products') || str_starts_with($uri, 'api/v1/theme'),
-                "Route [{$uri}] must not resolve a storefront.",
+                !$isApi || $isStorefrontFacing || in_array($uri, $startingASale, true),
+                "API route [{$uri}] must not resolve a storefront unless it starts a new sale.",
             );
         }
     }

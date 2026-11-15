@@ -324,9 +324,9 @@ Route::get('/cash', function () {
 
             Route::group(['prefix' => 'order'], function () {
                 Route::controller(OrderController::class)->group(function () {
-                    Route::get('place', 'place_order');
+                    Route::get('place', 'place_order')->middleware(['storefront', 'storefront.sellable']);
                     Route::get('offline-payment-method-list', 'offline_payment_method_list');
-                    Route::post('place-by-offline-payment', 'placeOrderByOfflinePayment');
+                    Route::post('place-by-offline-payment', 'placeOrderByOfflinePayment')->middleware(['storefront', 'storefront.sellable']);
                 });
                 Route::controller(CustomerController::class)->group(function () {
                     Route::get('details', 'get_order_details');
@@ -390,11 +390,11 @@ Route::get('/cash', function () {
 
         Route::group(['prefix' => 'order'], function () {
             Route::controller(OrderController::class)->group(function () {
-                Route::get('place-by-wallet', 'placeOrderByWallet');
+                Route::get('place-by-wallet', 'placeOrderByWallet')->middleware(['storefront', 'storefront.sellable']);
                 Route::get('refund', 'refund_request');
                 Route::post('refund-store', 'store_refund');
                 Route::get('refund-details', 'refund_details');
-                Route::post('again', 'order_again');
+                Route::post('again', 'order_again')->middleware(['storefront', 'storefront.sellable']);
             });
 
             Route::controller(CustomerController::class)->group(function () {
@@ -444,11 +444,11 @@ Route::get('/cash', function () {
         });
     });
 
-    Route::group(['prefix' => 'digital-payment', 'middleware' => 'apiGuestCheck'], function () {
+    Route::group(['prefix' => 'digital-payment', 'middleware' => ['apiGuestCheck', 'storefront', 'storefront.sellable']], function () {
         Route::post('/', [PaymentController::class, 'payment']);
     });
 
-    Route::group(['prefix' => 'add-to-fund', 'middleware' => 'auth:api'], function () {
+    Route::group(['prefix' => 'add-to-fund', 'middleware' => ['auth:api', 'storefront', 'storefront.sellable']], function () {
         Route::post('/', [PaymentController::class, 'customer_add_to_fund_request']);
     });
 
