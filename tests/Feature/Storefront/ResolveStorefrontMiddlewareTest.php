@@ -204,6 +204,15 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->assertSame([], $response->headers->getCookies());
         $this->assertSame($sessionBefore, session()->all());
         $this->assertFalse(session()->has('currency_code'));
+
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+
+        $headerResponse = $this->probe('/__storefront-probe', ['X-Storefront' => 'AE']);
+
+        $headerResponse->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+        $this->assertSame([], $headerResponse->headers->getCookies());
+        $this->assertSame($sessionBefore, session()->all());
+        $this->assertFalse(session()->has('currency_code'));
     }
 
     private function probe(string $uri, array $headers = []): TestResponse
