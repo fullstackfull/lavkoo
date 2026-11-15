@@ -24,10 +24,11 @@ final class StorefrontLegalReadiness
             ->where('country_code', $country)
             ->where('status', StorefrontLegalDocument::STATUS_PUBLISHED)
             ->whereNotNull('approved_at')
+            ->whereNotNull('created_by')
             ->whereColumn('approved_by', '!=', 'created_by')
-            ->whereRaw("trim(body) <> ''")
             ->where(fn ($query) => $query->whereNull('template_hash')->orWhereColumn('body_hash', '!=', 'template_hash'))
-            ->distinct()
+            ->get(['document_type', 'body'])
+            ->filter(fn (StorefrontLegalDocument $document): bool => trim($document->body) !== '')
             ->pluck('document_type')
             ->all();
 
