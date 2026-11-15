@@ -33,6 +33,9 @@ use App\Exports\VendorWithdrawRequest;
 use App\Events\VendorRegistrationEvent;
 use App\Http\Controllers\BaseController;
 use App\Events\WithdrawStatusUpdateEvent;
+use App\Models\SellerWallet;
+use App\Models\WithdrawRequest;
+use Illuminate\Support\Facades\DB;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use App\Contracts\Repositories\ShopRepositoryInterface;
 use App\Contracts\Repositories\OrderRepositoryInterface;
@@ -771,38 +774,54 @@ class VendorController extends BaseController
             return redirect()->route('admin.vendors.withdraw_list');
         }
 
+        $isDecided = DB::transaction(function () use ($withdraw, $id, $request, $withdrawData) {
+            $wallet = SellerWallet::where('seller_id', $withdraw['seller_id'])->lockForUpdate()->first();
+            $pendingRequest = WithdrawRequest::where(['id' => $id, 'seller_id' => $withdraw['seller_id'], 'approved' => 0])->lockForUpdate()->first();
+            if (!$pendingRequest || WithdrawRequest::where(['id' => $id, 'approved' => 0])->update($withdrawData) !== 1) {
+                return false;
+            }
+
+            if ($request['approved'] == 1) {
+                $wallet->withdrawn += $pendingRequest['amount'];
+                $wallet->pending_withdraw -= $pendingRequest['amount'];
+                $wallet->save();
+
+                // Consolidation bridge: mirror the legacy payout into the vendor ledger so the ledger is the
+                // single record of ALL money that has left, and its withdrawable() accounts for legacy
+                // withdrawals too — closing the double-withdraw gap between the two channels. The legacy
+                // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
+                // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
+                // ledger withdrawable, never raise it, so it can never enable an over-payment.
+                app(\App\Services\Marketplace\VendorLedger::class)->record(
+                    sellerId: $withdraw['seller_id'],
+                    entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
+                    debit: (float) usdToDefaultCurrency($pendingRequest['amount']),
+                    status: \App\Models\VendorLedgerEntry::STATUS_PAID,
+                    referenceType: 'legacy_withdraw',
+                    referenceId: $id,
+                    description: 'Legacy withdraw request #' . $id . ' paid',
+                );
+            } else {
+                $wallet->total_earning += $pendingRequest['amount'];
+                $wallet->pending_withdraw -= $pendingRequest['amount'];
+                $wallet->save();
+            }
+
+            return true;
+        });
+        if (!$isDecided) {
+            ToastMagic::warning(translate('this_withdraw_request_has_already_been_processed'));
+            return redirect()->route('admin.vendors.withdraw_list');
+        }
+
         if (isset($withdraw->seller->cm_firebase_token) && $withdraw->seller->cm_firebase_token) {
             event(new WithdrawStatusUpdateEvent(key: 'withdraw_request_status_message', type: 'seller', lang: $withdraw->deliveryMan?->app_language ?? getDefaultLanguage(), status: $request['approved'], fcmToken: $withdraw->seller?->cm_firebase_token));
         }
 
         if ($request['approved'] == 1) {
-            $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->increment('withdrawn', $withdraw['amount']);
-            $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->decrement('pending_withdraw', $withdraw['amount']);
-
-            // Consolidation bridge: mirror the legacy payout into the vendor ledger so the ledger is the
-            // single record of ALL money that has left, and its withdrawable() accounts for legacy
-            // withdrawals too — closing the double-withdraw gap between the two channels. The legacy
-            // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
-            // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
-            // ledger withdrawable, never raise it, so it can never enable an over-payment.
-            app(\App\Services\Marketplace\VendorLedger::class)->record(
-                sellerId: $withdraw['seller_id'],
-                entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
-                debit: (float) usdToDefaultCurrency($withdraw['amount']),
-                status: \App\Models\VendorLedgerEntry::STATUS_PAID,
-                referenceType: 'legacy_withdraw',
-                referenceId: $id,
-                description: 'Legacy withdraw request #' . $id . ' paid',
-            );
-
-            $this->withdrawRequestRepo->update(id: $id, data: $withdrawData);
             ToastMagic::success(translate('Vendor_Payment_has_been_approved_successfully'));
             return redirect()->route('admin.vendors.withdraw_list');
         }
-
-        $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->increment('total_earning', $withdraw['amount']);
-        $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->decrement('pending_withdraw', $withdraw['amount']);
-        $this->withdrawRequestRepo->update(id: $id, data: $withdrawData);
 
         ToastMagic::info(translate('Vendor_Payment_request_has_been_Denied_successfully'));
         return redirect()->route('admin.vendors.withdraw_list');

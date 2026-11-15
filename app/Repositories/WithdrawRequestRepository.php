@@ -27,6 +27,11 @@ class WithdrawRequestRepository implements WithdrawRequestRepositoryInterface
         return $this->withdrawRequest->with($relations)->where($params)->first();
     }
 
+    public function getFirstWhereForUpdate(array $params): ?Model
+    {
+        return $this->withdrawRequest->where($params)->lockForUpdate()->first();
+    }
+
     public function getFirstWhereNotNull(array $params, array $filters = [], array $orderBy = [], array $relations = []): ?Model
     {
         return $this->withdrawRequest->where($params)->whereNotNull($filters)
@@ -138,6 +143,11 @@ class WithdrawRequestRepository implements WithdrawRequestRepositoryInterface
     {
         $this->withdrawRequest->where(['id' => $id])->update($data);
         return true;
+    }
+
+    public function updateWhere(array $params, array $data): bool
+    {
+        return $this->withdrawRequest->where($params)->update($data) > 0;
     }
 
     public function delete(array $params): bool

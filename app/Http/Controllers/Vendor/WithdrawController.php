@@ -17,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -181,10 +182,22 @@ class WithdrawController extends BaseController
             ToastMagic::error(message: translate('invalid_withdraw_request'));
             return redirect()->back();
         }
-        $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
-        if ($withdrawRequest['approved'] == 0) {
-            $totalEarning = $wallet['total_earning'] + $withdrawRequest['amount'];
-            $pendingWithdraw = $wallet['pending_withdraw'] - $withdrawRequest['amount'];
+        $isClosed = $withdrawRequest['approved'] == 0 && DB::transaction(function () use ($withdrawRequest) {
+            $wallet = $this->vendorWalletRepo->getFirstWhereForUpdate(params: ['seller_id' => auth('seller')->id()]);
+            $pendingRequest = $this->withdrawRequestRepo->getFirstWhereForUpdate(
+                params: ['id' => $withdrawRequest['id'], 'seller_id' => auth('seller')->id(), 'approved' => 0]
+            );
+            if (!$pendingRequest) {
+                return false;
+            }
+            $isRequestDeleted = $this->withdrawRequestRepo->delete(
+                params: ['id' => $withdrawRequest['id'], 'seller_id' => auth('seller')->id(), 'approved' => 0]
+            );
+            if (!$isRequestDeleted) {
+                return false;
+            }
+            $totalEarning = $wallet['total_earning'] + $pendingRequest['amount'];
+            $pendingWithdraw = $wallet['pending_withdraw'] - $pendingRequest['amount'];
             $this->vendorWalletRepo->update(
                 id: $wallet['id'],
                 data: $this->vendorWalletService->getVendorWalletData(
@@ -192,7 +205,9 @@ class WithdrawController extends BaseController
                     pendingWithdraw: $pendingWithdraw
                 )
             );
-            $this->withdrawRequestRepo->delete(['id' => $withdrawRequest['id']]);
+            return true;
+        });
+        if ($isClosed) {
             ToastMagic::success(message: translate('withdraw_request_closed') . '!');
         } else {
             ToastMagic::error(message: translate('invalid_withdraw_request'));
