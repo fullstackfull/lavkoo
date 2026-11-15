@@ -574,3 +574,43 @@ Legal readiness (GCC-11) is the next backend slice. Today policies are global `b
 Environment note: the session's temporary volume filled up once while a vendor directory was being copied. The partial copy was removed. The new storefront worktree's `vendor` is a real directory whose packages are symlinks to the PR 28 worktree, so the autoloader serves its own code.
 
 Explicit approvals still needed from the owner: the D18 rounding rule and the Saudi SAR change before PR 36 merges; the storefront flag and country list before any Flutter release; the seller version gate before the seller PR's CI can go green.
+
+## 31. Legal readiness as draft PR 38, and the open decisions (2026-11-15, later the same day)
+
+Owner order unchanged: no routine status between steps, continue the six-country plan and the Flutter apps, keep Saudi behaviour unchanged, keep new features default-off, and leave merge and production decisions to the owner.
+
+Draft PRs and heads at the time of writing:
+
+- **PR 36, currency whole-cent debit**: unchanged, head `8a4eca3b`. Not for merge without financial review.
+- **PR 37, storefront country context**: unchanged since section 30, head `2344fa30`.
+- **PR 38, legal readiness (GCC-11)**: https://github.com/fullstackfull/lavkoo/pull/38, head `72f96581`, base `gcc/p1-storefront-country-context`. Stacked on PR 37: merge 37 first, then retarget 38 to `main`. CI not read at time of writing.
+- **lavkooapp #2** (customer choice): unchanged, head `6b745240`.
+- **lavkooappseller #2** (seller choice): unchanged, head `e5fd7164`.
+
+Legal readiness, the first slice of GCC-11:
+
+- Additive table `storefront_legal_documents` (one row per country, document type, locale and version), model `StorefrontLegalDocument`, service `StorefrontLegalReadiness::isReady()`, and `storefronts.legal` in `config/gcc.php` (six required types, Saudi Arabia grandfathered).
+- A country is ready when every required type has a published row with a non-blank body, an approver other than its author, and text that is not an unedited template.
+- Nothing calls `isReady()` yet, so no response, checkout or page changes.
+- The first commit, `a08cbf0d`, had two defects. SQL `trim()` removes spaces only, so newline-only bodies passed. Its negative tests also passed for the wrong reason, because the other required types were missing. `72f96581` fixes both: each rule is tested with everything else valid, and the test builds the table from the real migration. The blank-body case was red before the fix and green after it.
+- Tests: readiness 15 OK; `tests/Unit/Storefront` and `tests/Feature/Storefront` 103 OK. SQLite only, not run on MySQL. The one PHPUnit deprecation also appears in `StorefrontCacheKeysTest` on its own, so it does not come from this change.
+
+Open decisions for the owner (also in PR 38's body):
+
+- Final list of required types.
+- Locale: any locale satisfies a type today, so English alone can pass. Decide whether Arabic must be present.
+- Versions: every published version counts. Decide whether only the latest counts.
+- Whether checkout must record acceptance of a specific version.
+- Approval flow: `App\Services\ApprovalEngine` exists. Wiring legal documents to it has not started.
+
+Security finding, reported and not fixed:
+
+- `app/Http/Controllers/Web/PageController.php`, `getPageView`: when the request carries `source=admin`, the `status = 1` filter is skipped. Anyone who adds `?source=admin` can read unpublished business pages. Changing it alters an access check, so it waits for owner authorization.
+
+Next backend slice, not started:
+
+- A `sellable` flag on the storefront list while the flag is on, computed with `isReady()`. Additive, default off, Saudi unchanged. Checkout enforcement follows it, with its own tests.
+
+Environment note: the primary checkout `/home/user/lavkoo` is on `gcc/p0-coupon-minimum-boundary` (`e2898afa`). Nothing in this work touches it; work runs in the worktrees under the session scratchpad.
+
+Explicit approvals still needed from the owner: the D18 rounding rule and the Saudi SAR change before PR 36 merges; the `?source=admin` fix; the storefront flag and country list before any release; the seller version gate before the seller PR's CI can go green; the open decisions on PR 38.
