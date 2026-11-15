@@ -110,6 +110,67 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->probe('/__storefront-probe?storefront=')->assertOk()->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
     }
 
+    public function test_while_switched_off_the_header_resolves_to_saudi(): void
+    {
+        config(['gcc.storefronts.countries.AE.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/__storefront-probe', ['X-Storefront' => 'AE'])->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+        $this->probe('/ae/__storefront-probe?storefront=AE', ['X-Storefront' => 'AE'])
+            ->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+    }
+
+    public function test_switched_on_an_active_header_country_is_resolved(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/__storefront-probe', ['X-Storefront' => 'ae'])->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+    }
+
+    public function test_the_header_beats_the_path_prefix(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true, 'gcc.storefronts.countries.KW.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/ae/__storefront-probe', ['X-Storefront' => 'KW'])->assertExactJson(['country' => 'KW', 'currency' => 'KWD']);
+    }
+
+    public function test_query_choice_beats_header(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true, 'gcc.storefronts.countries.KW.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/__storefront-probe?storefront=KW', ['X-Storefront' => 'AE'])->assertExactJson(['country' => 'KW', 'currency' => 'KWD']);
+        $this->probe('/__storefront-probe?storefront=XX', ['X-Storefront' => 'AE'])->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+    }
+
+    public function test_unknown_or_inactive_header_falls_back_to_path_then_default(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->registerProbeRoutes();
+
+        foreach (['ZZ', 'KW', '', '   '] as $headerValue) {
+            $this->probe('/ae/__storefront-probe', ['X-Storefront' => $headerValue])
+                ->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+            $this->probe('/__storefront-probe', ['X-Storefront' => $headerValue])
+                ->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+        }
+    }
+
+    public function test_a_non_string_header_is_ignored(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true, 'gcc.storefronts.countries.KW.active' => true]);
+        $this->registerProbeRoutes();
+
+        $this->probe('/ae/__storefront-probe', ['X-Storefront' => ['KW', 'KW']])
+            ->assertOk()
+            ->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+        $this->probe('/__storefront-probe', ['X-Storefront' => ['KW', 'AE']])
+            ->assertOk()
+            ->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+    }
+
     public function test_an_inactive_default_country_fails_the_request_instead_of_serving_another_storefront(): void
     {
         config(['gcc.storefronts.countries.SA.active' => false]);
@@ -143,11 +204,20 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->assertSame([], $response->headers->getCookies());
         $this->assertSame($sessionBefore, session()->all());
         $this->assertFalse(session()->has('currency_code'));
+
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+
+        $headerResponse = $this->probe('/__storefront-probe', ['X-Storefront' => 'AE']);
+
+        $headerResponse->assertExactJson(['country' => 'AE', 'currency' => 'AED']);
+        $this->assertSame([], $headerResponse->headers->getCookies());
+        $this->assertSame($sessionBefore, session()->all());
+        $this->assertFalse(session()->has('currency_code'));
     }
 
-    private function probe(string $uri): TestResponse
+    private function probe(string $uri, array $headers = []): TestResponse
     {
-        return $this->withoutExceptionHandling()->get($uri);
+        return $this->withoutExceptionHandling()->get($uri, $headers);
     }
 
     private function registerProbeRoutes(): void
