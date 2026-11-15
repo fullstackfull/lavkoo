@@ -66,6 +66,12 @@ final class StorefrontResolver
         return $this->defaultCountry;
     }
 
+    /** Every configured country, active or not: invalidation has to reach a storefront that was switched off after its entries were cached. */
+    public function configuredCountries(): array
+    {
+        return array_keys($this->countries);
+    }
+
     /**
      * While storefronts are switched off only the default storefront is listed, because it is the only one a request can reach.
      *

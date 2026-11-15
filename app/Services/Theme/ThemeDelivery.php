@@ -5,6 +5,7 @@ namespace App\Services\Theme;
 use App\Models\Theme;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
+use App\Services\Storefront\StorefrontContext;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
@@ -76,7 +77,7 @@ class ThemeDelivery
         }
 
         try {
-            return Cache::remember(self::CACHE_PREFIX . 'revision', self::CACHE_TTL, function () use ($empty) {
+            return Cache::remember(StorefrontContext::current()->scopedCacheKey(self::CACHE_PREFIX . 'revision'), self::CACHE_TTL, function () use ($empty) {
                 $version = $this->publishedVersion();
                 if ($version === null) {
                     return $empty;
@@ -126,8 +127,10 @@ class ThemeDelivery
             $assignments = $this->assignments($page, $viewer);
 
             return Cache::remember(
-                self::CACHE_PREFIX . $page . '_' . $this->fingerprint($viewer)
-                    . $this->campaignKeyPart($page) . $this->experimentKeyPart($assignments),
+                StorefrontContext::current()->scopedCacheKey(
+                    self::CACHE_PREFIX . $page . '_' . $this->fingerprint($viewer)
+                        . $this->campaignKeyPart($page) . $this->experimentKeyPart($assignments),
+                ),
                 self::CACHE_TTL,
                 fn () => $this->build($page, $viewer, null, $assignments),
             );
@@ -159,12 +162,16 @@ class ThemeDelivery
     /** Drop every cached delivery — called on publish, alongside the storefront's own flush. */
     public function flush(): void
     {
-        Cache::forget(self::CACHE_PREFIX . 'revision');
+        foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_PREFIX . 'revision') as $key) {
+            Cache::forget($key);
+        }
 
         // Per-client payloads are keyed by a capability fingerprint nobody enumerates, so they
         // cannot be forgotten one by one. They carry the revision in their key instead: a publish
         // moves the revision, which strands every old entry to expire on its own TTL.
-        Cache::forget(self::CACHE_PREFIX . 'home_index');
+        foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_PREFIX . 'home_index') as $key) {
+            Cache::forget($key);
+        }
     }
 
     /**

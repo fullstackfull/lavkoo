@@ -231,7 +231,7 @@ Route::get('/cash', function () {
         });
     });
 
-    Route::group(['prefix' => 'products'], function () {
+    Route::group(['prefix' => 'products', 'middleware' => ['storefront']], function () {
         Route::controller(ProductController::class)->group(function () {
             Route::get('reviews/{slug}', 'get_product_reviews');
             Route::get('rating/{product_id}', 'get_product_rating');
@@ -246,7 +246,7 @@ Route::get('/cash', function () {
     });
 
     Route::group(['middleware' => 'apiGuestCheck'], function () {
-        Route::group(['prefix' => 'products'], function () {
+        Route::group(['prefix' => 'products', 'middleware' => ['storefront']], function () {
             Route::controller(ProductController::class)->group(function () {
                 Route::get('latest', 'get_latest_products');
                 Route::get('new-arrival', 'getNewArrivalProducts');
@@ -475,7 +475,7 @@ Route::get('/cash', function () {
      * throttled because it walks the theme structure per call; the renderer behind it caches per
      * page, so the throttle is about politeness, not protection.
      */
-    Route::group(['prefix' => 'theme', 'middleware' => ['throttle:60,1']], function () {
+    Route::group(['prefix' => 'theme', 'middleware' => ['throttle:60,1', 'storefront']], function () {
         Route::controller(ThemeSectionController::class)->group(function () {
             Route::get('sections', 'sections')->name('api.v1.theme.sections');
 
