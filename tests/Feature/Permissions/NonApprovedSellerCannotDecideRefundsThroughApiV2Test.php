@@ -3,6 +3,9 @@
 namespace Tests\Feature\Permissions;
 
 use App\Events\OrderStatusEvent;
+use App\Models\SellerRole;
+use App\Models\SellerStaff;
+use App\Services\Marketplace\SellerPermissionService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -27,6 +30,8 @@ class NonApprovedSellerCannotDecideRefundsThroughApiV2Test extends TestCase
     private const ORDER_ID = 100100;
     private const ORDER_DETAIL_ID = 11;
     private const REFUND_REQUEST_ID = 21;
+    private const SELLER_ROLE_ID = 31;
+    private const SELLER_STAFF_ID = 41;
     private const PENDING_REFUND = 1;
     private const STATUS_UPDATE_URI = '/api/v2/seller/refund/refund-status-update';
     private const SESSION_REFUSAL = ['auth-001' => 'Your existing session token does not authorize you any more'];
@@ -119,6 +124,23 @@ class NonApprovedSellerCannotDecideRefundsThroughApiV2Test extends TestCase
         $this->assertRefusedWithoutAnyChange(token: $this->token);
     }
 
+    public function test_staff_token_of_an_approved_seller_is_refused_on_the_refund_routes(): void
+    {
+        $staffToken = Str::random(64);
+        $this->buildStaffSchema();
+        $this->seedActiveStaffMember(token: $staffToken);
+        $principal = app(SellerPermissionService::class)->principalFor(token: $staffToken);
+        $this->assertSame([self::SELLER_STAFF_ID, false, true], [$principal?->staffId(), $principal?->isOwner(), $principal?->can('orders.manage')]);
+        $before = $this->refundState();
+
+        $this->withToken($staffToken)->getJson('/api/v2/seller/refund/list')->assertStatus(401)->assertExactJson(self::SESSION_REFUSAL);
+        $this->withToken($staffToken)->getJson('/api/v2/seller/refund/refund-details?order_details_id=' . self::ORDER_DETAIL_ID)
+            ->assertStatus(401)->assertExactJson(self::SESSION_REFUSAL);
+        $this->assertRefusedWithoutAnyChange(token: $staffToken);
+
+        $this->assertSame($before, $this->refundState());
+    }
+
     private function assertRefusedWithoutAnyChange(string $token): void
     {
         $before = $this->refundState();
@@ -169,6 +191,44 @@ class NonApprovedSellerCannotDecideRefundsThroughApiV2Test extends TestCase
             'id' => self::REFUND_REQUEST_ID, 'order_details_id' => self::ORDER_DETAIL_ID, 'customer_id' => self::CUSTOMER_ID, 'order_id' => self::ORDER_ID,
             'status' => 'pending', 'amount' => 120, 'refund_reason' => 'broken', 'change_by' => 'customer',
         ]);
+    }
+
+    private function seedActiveStaffMember(string $token): void
+    {
+        DB::table('seller_roles')->insert([
+            'id' => self::SELLER_ROLE_ID, 'seller_id' => self::SELLER_ID, 'name' => 'Refund desk',
+            'permissions' => json_encode(['orders.view', 'orders.manage']), 'status' => SellerRole::STATUS_ACTIVE, 'created_by' => self::SELLER_ID,
+        ]);
+        DB::table('seller_staff')->insert([
+            'id' => self::SELLER_STAFF_ID, 'seller_id' => self::SELLER_ID, 'seller_role_id' => self::SELLER_ROLE_ID, 'name' => 'Staff member',
+            'email' => 'staff@example.test', 'password' => 'not-a-real-hash', 'auth_token' => $token, 'status' => SellerStaff::STATUS_ACTIVE,
+        ]);
+    }
+
+    /** The columns SellerStaff and SellerRole read; neither table has a migration in the repository. */
+    private function buildStaffSchema(): void
+    {
+        Schema::create('seller_roles', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->string('name');
+            $table->text('permissions')->nullable();
+            $table->string('status')->default(SellerRole::STATUS_ACTIVE);
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('seller_staff', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->unsignedBigInteger('seller_role_id')->nullable();
+            $table->string('name');
+            $table->string('email');
+            $table->string('password');
+            $table->string('auth_token')->nullable();
+            $table->string('status')->default(SellerStaff::STATUS_ACTIVE);
+            $table->timestamp('last_login_at')->nullable();
+            $table->timestamps();
+        });
     }
 
     /** The columns the refund decision reads and writes; the real tables come from the installation dump, which is not in the repository. */
