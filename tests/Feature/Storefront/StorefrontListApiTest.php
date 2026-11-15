@@ -7,6 +7,7 @@ use App\Http\Controllers\RestAPI\v1\StorefrontController;
 use App\Http\Middleware\ResolveStorefront;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
 
@@ -84,6 +85,21 @@ class StorefrontListApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('storefronts.1.country', 'AE')
             ->assertJsonPath('storefronts.1.sellable', true);
+    }
+
+    public function test_flag_on_without_the_legal_table_lists_every_non_default_storefront_as_not_sellable(): void
+    {
+        config([
+            'gcc.storefronts.enabled' => true,
+            'gcc.storefronts.countries.AE.active' => true,
+        ]);
+        Schema::drop('storefront_legal_documents');
+
+        $this->getJson('/api/v1/storefronts')
+            ->assertOk()
+            ->assertJsonPath('storefronts.0.sellable', true)
+            ->assertJsonPath('storefronts.1.country', 'AE')
+            ->assertJsonPath('storefronts.1.sellable', false);
     }
 
     public function test_endpoint_has_no_storefront_middleware_and_needs_no_auth(): void

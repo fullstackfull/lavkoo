@@ -28,8 +28,12 @@ return [
         ],
 
         'legal' => [
-            // Every type here needs published, approved, non-template text before a storefront may sell (GCC-11).
+            // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],
+            // Arabic is required everywhere, and English too because the storefront presents it. An English-only text never suffices.
+            'required_locales' => ['ar', 'en'],
+            // A country that does not present English may drop 'en' here. Changing this needs the same review as the documents.
+            'locales_by_country' => [],
             // The default storefront keeps the documents it has always had, so it never becomes unusable (GCC-19).
             'grandfathered' => ['SA'],
         ],
