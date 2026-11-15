@@ -28,8 +28,8 @@ return new class extends Migration {
             $table->timestamp('published_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['country_code', 'document_type', 'locale', 'version']);
-            $table->index(['country_code', 'status']);
+            $table->unique(['country_code', 'document_type', 'locale', 'version'], 'storefront_legal_docs_version_unique');
+            $table->index(['country_code', 'status'], 'storefront_legal_docs_country_status_index');
         });
     }
 

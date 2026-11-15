@@ -5,6 +5,7 @@ namespace Tests\Feature\Storefront;
 use App\Models\StorefrontLegalDocument;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -17,8 +18,12 @@ class StorefrontLegalReadinessTest extends TestCase
     {
         parent::setUp();
 
-        $migration = require database_path('migrations/2026_11_23_120000_create_storefront_legal_documents_table.php');
-        $migration->up();
+        if (!Schema::hasTable('storefront_legal_documents')) {
+            $migration = require database_path('migrations/2026_11_23_120000_create_storefront_legal_documents_table.php');
+            $migration->up();
+        }
+
+        DB::table('storefront_legal_documents')->delete();
     }
 
     private function readiness(): StorefrontLegalReadiness
