@@ -62,7 +62,7 @@ class StorefrontListApiTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_config_endpoint_payload_is_unchanged(): void
+    public function test_config_route_and_controller_are_untouched_by_storefronts(): void
     {
         $route = $this->apiRoute(uri: 'api/v1/config');
 
