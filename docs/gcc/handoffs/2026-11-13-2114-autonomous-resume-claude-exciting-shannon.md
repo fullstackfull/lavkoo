@@ -644,3 +644,37 @@ MySQL runs (local, 127.0.0.1:3307, scratch database `lavkoo_storefront_test`): r
 Checked, with a limit: the POS idempotency migration in PR 35 (`2026_11_23_110000`) generates a unique name of 58 characters, under the limit. That was a name-length calculation, not a MySQL run. Other migrations in these PRs were not audited.
 
 PR bodies 38 and 39 were updated to say what was run on MySQL.
+
+## 34. Owner directive of 2026-11-15 executed: unpublished exposure, checkout gate, browse-only (2026-11-15, later the same day)
+
+Owner directive: `docs/gcc/handoffs/2026-11-15-legal-security-next-execution.md` (on this branch at `af9b8d7a`). Its engineering defaults are adopted. G0 remains open. Nothing is merged, deployed or released, and every new gate is off.
+
+Draft PRs and heads at the time of writing:
+
+- **PR 40, business pages** (`gcc/security-business-page-unpublished`, base `main`; heads `14bf6a4a` and `84e3c1a1`). `source=admin` is no longer read, and the public page needs status 1. The page-list cache is cleared after a status change or a delete, not before.
+- **PR 41, blog posts** (`gcc/security-blog-unpublished-posts`, base `main`; head `dae3b642`). A public post needs status 1 and is_published 1. A draft is no longer public, and the admin preview is a route in the blog admin group. `draft_data` is read as the model's array. The old `json_decode` raised a TypeError on any post with a pending draft.
+- **PR 38, legal readiness v2** (`gcc/p1-storefront-legal-readiness`, base #37; head `122960e9`). Only the newest effective text per document type and locale counts. Arabic and English are required by default. Additive migration `2026_11_24_100000` adds `effective_from` and `revoked_at`. A missing table answers no.
+- **PR 39, sellable list** (`gcc/p1-storefront-sellable-list`, base #38; head `8149090c`). Merges #38, and the list test covers a missing legal table.
+- **PR 42, checkout gate** (`gcc/p1-checkout-legal-readiness`, base #39; head `25349536`). `storefront.sellable` guards place-order (online, offline, wallet), reorder, the digital payment and the wallet top-up. Left open: refund request and store, cancel, the due payments on existing orders, the MyFatoorah status check and the webhook. Web checkout and the seller POS are not gated (see the blockers).
+- **PR 43, acceptance receipts, test-only** (`gcc/p1-legal-acceptance-receipts`, base #42; head `82b6dfa3`). Write-once rows. Only the document types listed in `explicit_acceptance` are recorded, and that list is empty by default. Identity is off by default, and a guest is kept only as a SHA-256 hash. The legal entity comes from `GCC_LEGAL_ENTITY`.
+- **lavkooapp PR 3, browse-only** (`gcc/p1-customer-sellable-browse-only`, base lavkooapp #2; head `eda78143`). `StorefrontCountry.sellable` is true for Saudi Arabia and false for the others. `StorefrontChoice.canSell()` refuses checkout for a browse-only storefront while storefronts are on. Verified in CI only: no Flutter SDK in this session.
+
+Tests on SQLite: readiness 28 (PR 38); storefront unit and feature suites 136 (PR 43 branch); PR 40 web visibility 9 and admin security guards 10; PR 41 blog 7, with the security guards, 17 in total.
+
+Blockers before any non-Saudi storefront goes live on the web:
+
+- **Web checkout is not gated.** `checkout-complete`, `offline-payment-checkout-complete`, `checkout-complete-wallet` and the web payment routes carry no storefront context. On the web the storefront comes only from the path prefix, and a checkout request has none. The fix is to bind the storefront to the cart when the cart is created, which is not designed yet.
+- **Seller POS and the seller API** are out of scope until the seller storefront context exists (phase 2).
+
+Owner decisions and authorizations still needed. Nothing here was changed, because each changes authentication or ownership:
+
+- `APIGuestMiddleware` passes any truthy `guest_id` (`app/Http/Middleware/APIGuestMiddleware.php:26`). The cart (`CartController@index`, the merge of a guest cart), the guest order-by-id call, and the edit-order routes accept it.
+- The paid digital download is gated by a 4-digit OTP: `rand(1000, 9999)` in `OrderController`, at lines 730 and 870.
+- Customer impersonation by request input: `Helpers::getCustomerInformation` takes `customer_id` from the request when `payment_request_from=app` and no user is set.
+- The social-login confirmation route is reachable without authentication (`SocialAuthController`, line 211).
+
+Still pending when this section was written: the verify phase of the `source=admin` audit, the checkout map's classification of the gateways and seller routes, the price and stock map for GCC-02/03, and the full SQLite suite on PR 40's branch.
+
+Environment: the local MySQL on 127.0.0.1:3307 was stopped when I checked it. I started it with default options, and `root` now needs a password that no configured credential provides. No account was changed. MySQL runs for PRs 38, 39, 42 and 43 are still pending.
+
+Next, in order: bind the storefront to the cart so web checkout can be gated; the Saudi price and stock characterization tests, then the seams; the seller storefront context; and the owner decisions listed above.
