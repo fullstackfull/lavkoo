@@ -4,13 +4,19 @@ namespace Tests\Support;
 
 use App\Models\StorefrontLegalDocument;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 trait BuildsStorefrontLegalDocuments
 {
+    /** Creates the table once and empties it, because MySQL keeps tables and rows between tests. */
     protected function buildStorefrontLegalDocumentsTable(): void
     {
-        $migration = require database_path('migrations/2026_11_23_120000_create_storefront_legal_documents_table.php');
-        $migration->up();
+        if (!Schema::hasTable('storefront_legal_documents')) {
+            $migration = require database_path('migrations/2026_11_23_120000_create_storefront_legal_documents_table.php');
+            $migration->up();
+        }
+
+        DB::table('storefront_legal_documents')->delete();
     }
 
     protected function publishLegalDocument(string $country, string $type, array $overrides = []): void
