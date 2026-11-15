@@ -499,20 +499,28 @@ class SellerController extends Controller
             $pendingWithdraw = $wallet->pending_withdraw - $withdrawRequest['amount'];
 
             if (($totalEarning) >= Convert::usd($request['amount']) && $request['amount'] > 0) {
-                WithdrawRequest::where(['id' => $withdrawRequest['id'], 'seller_id' => $seller['id']])->update([
-                    'seller_id' => $seller['id'],
-                    'amount' => Convert::usd($request['amount']),
-                    'transaction_note' => null,
-                    'withdrawal_method_id' => $request['withdraw_method_id'],
-                    'withdrawal_method_fields' => json_encode($data),
-                    'approved' => 0,
-                    'updated_at' => now()
-                ]);
-                SellerWallet::where('seller_id', $seller['id'])->update([
-                    'total_earning' => $totalEarning - BackEndHelper::currency_to_usd($request['amount']),
-                    'pending_withdraw' => $pendingWithdraw + BackEndHelper::currency_to_usd($request['amount']),
-                ]);
-                return response()->json(translate('Withdraw request update successfully!'), 200);
+                $isUpdated = DB::transaction(function () use ($withdrawRequest, $seller, $request, $data, $totalEarning, $pendingWithdraw) {
+                    $updatedRows = WithdrawRequest::where(['id' => $withdrawRequest['id'], 'seller_id' => $seller['id'], 'approved' => 0])->update([
+                        'seller_id' => $seller['id'],
+                        'amount' => Convert::usd($request['amount']),
+                        'transaction_note' => null,
+                        'withdrawal_method_id' => $request['withdraw_method_id'],
+                        'withdrawal_method_fields' => json_encode($data),
+                        'approved' => 0,
+                        'updated_at' => now()
+                    ]);
+                    if ($updatedRows !== 1) {
+                        return false;
+                    }
+                    SellerWallet::where('seller_id', $seller['id'])->update([
+                        'total_earning' => $totalEarning - BackEndHelper::currency_to_usd($request['amount']),
+                        'pending_withdraw' => $pendingWithdraw + BackEndHelper::currency_to_usd($request['amount']),
+                    ]);
+                    return true;
+                });
+                if ($isUpdated) {
+                    return response()->json(translate('Withdraw request update successfully!'), 200);
+                }
             }
         }
         return response()->json(['message' => translate('Invalid_withdraw_request')], 403);
