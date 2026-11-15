@@ -20,6 +20,7 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
     private const SELLER_TOKEN = 'seller-pos-token-0123456789abcdefghijklmnop';
     private const SELLER_ID = 5;
     private const CUSTOMER_ID = 7;
+    private const WALK_IN_CUSTOMER_ID = 0;
     private const PRODUCT_ID = 1;
     private const STOCK = 10;
     private const WALLET_BALANCE = 100.0;
@@ -56,7 +57,7 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         ]);
     }
 
-    private function placeOrder(mixed $paymentMethod, float|int $paidAmount): TestResponse
+    private function placeOrder(mixed $paymentMethod, float|int $paidAmount, int $customerId = self::CUSTOMER_ID): TestResponse
     {
         $cartLine = [
             'id' => self::PRODUCT_ID, 'quantity' => 1, 'variant' => null, 'variation' => [], 'price' => 40, 'discounted_price' => 40,
@@ -64,7 +65,7 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         ];
 
         return $this->withHeader('Authorization', 'Bearer ' . self::SELLER_TOKEN)->postJson('/api/v3/seller/pos/place-order', [
-            'customer_id' => self::CUSTOMER_ID, 'cart' => [$cartLine], 'modified_cart' => [$cartLine], 'fulfillment' => 'instant',
+            'customer_id' => $customerId, 'cart' => [$cartLine], 'modified_cart' => [$cartLine], 'fulfillment' => 'instant',
             'payment_method' => $paymentMethod, 'paid_amount' => $paidAmount,
         ]);
     }
@@ -188,5 +189,31 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
             $this->assertNotEmpty($response->json('errors.0.message'));
             $this->assertNothingWasWritten();
         }
+    }
+
+    public function test_a_wallet_payment_for_a_walk_in_customer_is_refused_before_anything_is_written(): void
+    {
+        $this->assertNothingWasWritten();
+
+        $response = $this->placeOrder(paymentMethod: 'wallet', paidAmount: 40, customerId: self::WALK_IN_CUSTOMER_ID);
+
+        $response->assertStatus(403);
+        $this->assertSame('customer_id', $response->json('errors.0.code'));
+        $this->assertNotEmpty($response->json('errors.0.message'));
+        $this->assertNothingWasWritten();
+    }
+
+    public function test_a_cash_payment_for_a_walk_in_customer_is_placed_as_before(): void
+    {
+        $this->assertNothingWasWritten();
+
+        $response = $this->placeOrder(paymentMethod: 'cash', paidAmount: 40, customerId: self::WALK_IN_CUSTOMER_ID);
+
+        $response->assertOk();
+        $order = DB::table('orders')->sole();
+        $this->assertSame(['cash', 'paid'], [$order->payment_method, $order->payment_status]);
+        $this->assertSame(self::STOCK - 1, $this->stock());
+        $this->assertSame(0, DB::table('wallet_transactions')->count());
+        $this->assertSame(self::WALLET_BALANCE, $this->walletBalance());
     }
 }
