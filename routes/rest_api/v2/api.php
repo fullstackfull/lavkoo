@@ -79,7 +79,7 @@ Route::group(['namespace' => 'RestAPI\v2', 'prefix' => 'v2', 'middleware' => ['a
             });
         });
 
-        Route::controller(RefundController::class)->prefix('refund')->group(function () {
+        Route::controller(RefundController::class)->prefix('refund')->middleware('legacy_seller_approved')->group(function () {
             Route::get('list', 'list');
             Route::get('refund-details', 'refund_details');
             Route::post('refund-status-update', 'refund_status_update');
