@@ -493,13 +493,13 @@ class SellerController extends Controller
         $seller = $request->seller;
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
-        $withdrawRequest = WithdrawRequest::where(['id' => $request['withdraw_request_id']])->first();
-        if ($withdrawRequest) {
+        $withdrawRequest = WithdrawRequest::where(['id' => $request['withdraw_request_id'], 'seller_id' => $seller['id']])->first();
+        if ($withdrawRequest && $withdrawRequest->approved == 0) {
             $totalEarning = $wallet->total_earning + $withdrawRequest['amount'];
             $pendingWithdraw = $wallet->pending_withdraw - $withdrawRequest['amount'];
 
             if (($totalEarning) >= Convert::usd($request['amount']) && $request['amount'] > 0) {
-                WithdrawRequest::where(['id' => $request['withdraw_request_id']])->update([
+                WithdrawRequest::where(['id' => $withdrawRequest['id'], 'seller_id' => $seller['id']])->update([
                     'seller_id' => $seller['id'],
                     'amount' => Convert::usd($request['amount']),
                     'transaction_note' => null,
@@ -522,7 +522,7 @@ class SellerController extends Controller
     {
         $seller = $request->seller;
 
-        $withdraw_request = WithdrawRequest::find($request['id']);
+        $withdraw_request = WithdrawRequest::where(['id' => $request['id'], 'seller_id' => $seller['id']])->first();
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {

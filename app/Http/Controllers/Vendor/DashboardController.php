@@ -255,9 +255,9 @@ class DashboardController extends BaseController
         $vendorId = auth('seller')->id();
         $withdrawMethod = $this->withdrawalMethodRepo->getFirstWhere(params: ['id' => $request['withdraw_method']]);
         $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
-        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $request['withdraw_request_id']]);
+        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $request['withdraw_request_id'], 'seller_id' => $vendorId]);
 
-        if ($withdrawRequest) {
+        if ($withdrawRequest && $withdrawRequest['approved'] == 0) {
             $totalEarning = $wallet['total_earning'] + $withdrawRequest['amount'];
             $pendingWithdraw = $wallet['pending_withdraw'] - $withdrawRequest['amount'];
 

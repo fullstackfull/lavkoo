@@ -236,7 +236,7 @@ class SellerController extends Controller
             ], 401);
         }
 
-        $withdraw_request = WithdrawRequest::find($request['id']);
+        $withdraw_request = WithdrawRequest::where(['id' => $request['id'], 'seller_id' => $seller['id']])->first();
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {
