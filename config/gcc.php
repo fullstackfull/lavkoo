@@ -36,6 +36,12 @@ return [
             'locales_by_country' => [],
             // The default storefront keeps the documents it has always had, so it never becomes unusable (GCC-19).
             'grandfathered' => ['SA'],
+            // Explicit acceptance is recorded only for the document types listed here (GCC-11). Nothing is assumed to need a checkbox.
+            'explicit_acceptance' => [],
+            // The legal entity a storefront contracts with. Recorded on every acceptance; set per storefront before release.
+            'legal_entity' => env('GCC_LEGAL_ENTITY'),
+            // Whether an acceptance records who accepted it. Off by default: the record keeps the text, its version and time only.
+            'store_identity' => false,
         ],
     ],
 
