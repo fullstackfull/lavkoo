@@ -240,11 +240,19 @@ class SellerController extends Controller
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {
-            $wallet->total_earning += BackEndHelper::currency_to_usd($withdraw_request['amount']);
-            $wallet->pending_withdraw -= BackEndHelper::currency_to_usd($request['amount']);
-            $wallet->save();
-            $withdraw_request->delete();
-            return response()->json(translate('Withdraw request has been closed successfully!'), 200);
+            $isClosed = DB::transaction(function () use ($withdraw_request, $wallet, $seller, $request) {
+                $deletedRows = WithdrawRequest::where(['id' => $withdraw_request['id'], 'seller_id' => $seller['id'], 'approved' => 0])->delete();
+                if ($deletedRows !== 1) {
+                    return false;
+                }
+                $wallet->total_earning += BackEndHelper::currency_to_usd($withdraw_request['amount']);
+                $wallet->pending_withdraw -= BackEndHelper::currency_to_usd($request['amount']);
+                $wallet->save();
+                return true;
+            });
+            if ($isClosed) {
+                return response()->json(translate('Withdraw request has been closed successfully!'), 200);
+            }
         }
 
         return response()->json(translate('Withdraw request is invalid'), 400);

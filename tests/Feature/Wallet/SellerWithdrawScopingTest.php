@@ -179,6 +179,34 @@ class SellerWithdrawScopingTest extends TestCase
         $this->assertSame(['request' => $expectedRequest] + $expectedWallets, $this->snapshot(10));
     }
 
+    public function test_v3_close_of_a_request_approved_after_it_was_read_is_refused_and_the_request_survives(): void
+    {
+        $this->insertRequest(10, self::OWNER_ID, amount: 200, approved: self::PENDING);
+        $this->setWallet(self::OWNER_ID, totalEarning: 800, pendingWithdraw: 200);
+        $this->approveRequestRightAfterItIsRead(10);
+        $expectedRequest = ['seller_id' => self::OWNER_ID, 'amount' => 200.0, 'approved' => self::APPROVED];
+        $expectedWallets = ['owner' => $this->wallet(self::OWNER_ID), 'other' => $this->wallet(self::OTHER_ID)];
+
+        $response = $this->v3Close(self::OWNER_TOKEN, requestId: 10);
+
+        $response->assertStatus(403);
+        $this->assertSame(['request' => $expectedRequest] + $expectedWallets, $this->snapshot(10));
+    }
+
+    public function test_v2_close_of_a_request_approved_after_it_was_read_is_refused_and_the_request_survives(): void
+    {
+        $this->insertRequest(10, self::OWNER_ID, amount: 200, approved: self::PENDING);
+        $this->setWallet(self::OWNER_ID, totalEarning: 800, pendingWithdraw: 200);
+        $this->approveRequestRightAfterItIsRead(10);
+        $expectedRequest = ['seller_id' => self::OWNER_ID, 'amount' => 200.0, 'approved' => self::APPROVED];
+        $expectedWallets = ['owner' => $this->wallet(self::OWNER_ID), 'other' => $this->wallet(self::OTHER_ID)];
+
+        $response = $this->v2Close(self::OWNER_TOKEN, requestId: 10, amount: 200);
+
+        $response->assertStatus(400);
+        $this->assertSame(['request' => $expectedRequest] + $expectedWallets, $this->snapshot(10));
+    }
+
     public function test_v3_update_of_the_sellers_own_pending_request_moves_the_difference_between_the_wallet_columns(): void
     {
         $this->insertRequest(10, self::OWNER_ID, amount: 200, approved: self::PENDING);
