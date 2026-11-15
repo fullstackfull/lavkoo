@@ -614,3 +614,16 @@ Next backend slice, not started:
 Environment note: the primary checkout `/home/user/lavkoo` is on `gcc/p0-coupon-minimum-boundary` (`e2898afa`). Nothing in this work touches it; work runs in the worktrees under the session scratchpad.
 
 Explicit approvals still needed from the owner: the D18 rounding rule and the Saudi SAR change before PR 36 merges; the `?source=admin` fix; the storefront flag and country list before any release; the seller version gate before the seller PR's CI can go green; the open decisions on PR 38.
+
+## 32. Sellable flag on the storefront list, draft PR 39 (2026-11-15, later the same day)
+
+Draft PR 39 (https://github.com/fullstackfull/lavkoo/pull/39, `gcc/p1-storefront-sellable-list`, head `ba398ce0`, base PR 38's branch). While storefronts are on, `GET /api/v1/storefronts` adds `sellable` to each listed storefront, computed by `StorefrontLegalReadiness::isReady()`. While they are off, the payload is unchanged.
+
+- Built as `StorefrontListing` (new), with the controller delegating to it so the controller stays thin.
+- Tests on SQLite: list 6 OK and readiness 15 OK; `tests/Unit/Storefront` and `tests/Feature/Storefront` 105 OK. Not run on MySQL.
+- Deployment order: run the legal documents migration before enabling `GCC_STOREFRONTS_ENABLED`. With the flag on and any active non-Saudi country, the list queries that table. Without the migration the list returns a server error.
+- Open owner decision: keep non-sellable storefronts in the list (the current behaviour, so an app can show them as coming soon) or hide them.
+
+Stack, bottom to top: PR 28, PR 37, PR 38, PR 39. Merge in that order, then retarget each to `main`. CI was not read for PRs 38 or 39 at the time of writing, and it was not polled.
+
+Still open: checkout enforcement of legal readiness (not started); per-storefront stock and price; the Flutter apps do not read `sellable` yet; the `?source=admin` finding; the owner decisions in sections 30 and 31; the financial review of PR 36.
