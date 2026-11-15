@@ -122,6 +122,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'maintenance_mode' => MaintenanceModeMiddleware::class,
             'delivery_man_auth' => DeliveryManAuth::class,
             'seller_api_auth' => SellerApiAuthMiddleware::class,
+            'legacy_seller_approved' => \App\Http\Middleware\EnsureLegacySellerTokenIsApproved::class,
             // Enforced on the route, never by hiding a menu item.
             'seller_can' => \App\Http\Middleware\EnsureSellerPermission::class,
             'seller_owner' => \App\Http\Middleware\EnsureSellerIsOwner::class,
