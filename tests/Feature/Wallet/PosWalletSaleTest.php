@@ -10,9 +10,11 @@ use App\Http\Controllers\Vendor\POS\POSOrderController as VendorPOSOrderControll
 use App\Models\Seller;
 use App\Models\User;
 use App\Repositories\CustomerRepository;
+use App\Services\Address\OrderAddressService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Mockery;
@@ -114,16 +116,86 @@ class PosWalletSaleTest extends ApiAddressTestCase
     }
 
     /** @param list<array<string, mixed>> $lines */
-    private function sellerSale(array $lines, float $paidAmount): JsonResponse
+    private function sellerSale(array $lines, float $paidAmount, string $paymentMethod = 'wallet'): JsonResponse
     {
         $input = [
             'customer_id' => $this->customer->id, 'cart' => [], 'modified_cart' => $lines, 'fulfillment' => 'instant',
-            'payment_method' => 'wallet', 'paid_amount' => $paidAmount,
+            'payment_method' => $paymentMethod, 'paid_amount' => $paidAmount,
         ];
         $request = Request::create('/api/v3/seller/pos/place-order', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], (string) json_encode($input));
         $request['seller'] = (new Seller())->forceFill(['id' => self::SELLER_ID]);
 
         return app(SellerApiPOSController::class)->place_order($request);
+    }
+
+    public function test_a_seller_app_wallet_sale_is_charged_the_server_total_whatever_the_client_says_it_paid(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 1.0);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(40.0, $this->walletBalance());
+        $this->assertSame(60.0, (float) DB::table('wallet_transactions')->value('debit'));
+        $this->assertSame([60.0, 60.0], [(float) DB::table('orders')->value('order_amount'), (float) DB::table('orders')->value('paid_amount')]);
+    }
+
+    public function test_a_seller_app_wallet_sale_the_wallet_cannot_cover_at_the_server_total_is_refused_even_when_the_client_paid_less(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 4, price: 30.0)], paidAmount: 10.0);
+
+        $this->assertTrue($response->getData(true)['need_balance'] ?? false, 'the operator is told the wallet does not cover the sale');
+        $this->assertNothingWasPersisted();
+    }
+
+    public function test_a_seller_app_cash_sale_paid_below_the_server_total_is_refused_with_nothing_written(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 50.0, paymentMethod: 'cash');
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(translate('paid_amount_is_less_than_total_amount'), $response->getData(true)['message']);
+        $this->assertNothingWasPersisted();
+    }
+
+    public function test_a_seller_app_cash_sale_paid_at_the_server_total_is_written_once_without_a_wallet_debit(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0, paymentMethod: 'cash');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(100.0, $this->walletBalance());
+        $this->assertSame(0, DB::table('wallet_transactions')->count());
+        $this->assertSame(1, DB::table('orders')->count());
+        $this->assertSame([60.0, 60.0], [(float) DB::table('orders')->value('order_amount'), (float) DB::table('orders')->value('paid_amount')]);
+    }
+
+    /** A 37.54 SAR sale is 10.010667 USD at 3.75 SAR to the dollar; the wallet is debited that once, not converted a second time to 2.67 USD. */
+    public function test_a_seller_app_wallet_sale_in_a_store_currency_debits_the_usd_value_of_the_server_total_once(): void
+    {
+        DB::table('business_settings')->where('type', 'currency_model')->update(['value' => json_encode('multi_currency')]);
+        DB::table('currencies')->where('id', 1)->update(['exchange_rate' => 3.75]);
+        DB::table('currencies')->insert(['id' => 2, 'name' => 'US Dollar', 'code' => 'USD', 'symbol' => '$', 'exchange_rate' => 1, 'status' => 1]);
+        Cache::flush();
+        $this->useTaxIncludedPrices();
+
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 1, price: 37.54)], paidAmount: 0.01);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([10.011, 89.99], [round((float) DB::table('wallet_transactions')->value('debit'), 3), round($this->walletBalance(), 2)]);
+    }
+
+    /** The order is written after the debit; a failure there takes the debit, the order, its lines and the stock back with it. */
+    public function test_a_seller_app_wallet_sale_that_fails_after_the_debit_rolls_back_the_debit_and_the_order(): void
+    {
+        $orderAddresses = Mockery::mock(OrderAddressService::class);
+        $orderAddresses->shouldReceive('snapshot')->andThrow(new \RuntimeException('the order could not be written'));
+        $this->app->instance(OrderAddressService::class, $orderAddresses);
+
+        try {
+            $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0);
+            $this->fail('the sale must not complete');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('the order could not be written', $exception->getMessage());
+        }
+
+        $this->assertNothingWasPersisted();
     }
 
     public function test_a_seller_app_wallet_sale_debits_the_wallet_and_writes_the_order_once(): void
