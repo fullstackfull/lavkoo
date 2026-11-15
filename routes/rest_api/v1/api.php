@@ -34,6 +34,7 @@ use App\Http\Controllers\RestAPI\v1\ProductController;
 use App\Http\Controllers\RestAPI\v1\ReviewController;
 use App\Http\Controllers\RestAPI\v1\SellerController;
 use App\Http\Controllers\RestAPI\v1\ShippingMethodController;
+use App\Http\Controllers\RestAPI\v1\StorefrontController;
 use App\Http\Controllers\RestAPI\v1\ThemeSectionController;
 use App\Http\Controllers\RestAPI\v1\UserLoyaltyController;
 use App\Http\Controllers\RestAPI\v1\UserWalletController;
@@ -66,6 +67,8 @@ Route::get('/cash', function () {
         Route::get('config', 'configuration');
         Route::get('business-pages', 'getBusinessPagesList');
     });
+
+    Route::get('storefronts', [StorefrontController::class, 'index'])->middleware('throttle:60,1')->name('api.v1.storefronts');
 
     Route::group(['prefix' => 'address', 'middleware' => ['throttle:120,1,address-catalog-api']], function () {
         Route::get('regions', [AddressCatalogController::class, 'regions']);
