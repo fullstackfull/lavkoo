@@ -627,3 +627,20 @@ Draft PR 39 (https://github.com/fullstackfull/lavkoo/pull/39, `gcc/p1-storefront
 Stack, bottom to top: PR 28, PR 37, PR 38, PR 39. Merge in that order, then retarget each to `main`. CI was not read for PRs 38 or 39 at the time of writing, and it was not polled.
 
 Still open: checkout enforcement of legal readiness (not started); per-storefront stock and price; the Flutter apps do not read `sellable` yet; the `?source=admin` finding; the owner decisions in sections 30 and 31; the financial review of PR 36.
+
+## 33. MySQL migration defect fixed in PRs 38 and 39 (2026-11-15, later the same day)
+
+Owner order unchanged: continue without routine status, keep Saudi behaviour unchanged, keep new features default-off, and leave merge and production decisions to the owner.
+
+The MySQL run found a deployment blocker. The legal documents migration failed on MySQL: Laravel's generated unique index name was 74 characters, over MySQL's 64-character limit (error 1059), so `php artisan migrate` would have failed there. Both indexes now have short explicit names, `storefront_legal_docs_version_unique` and `storefront_legal_docs_country_status_index`.
+
+Fixes, both pushed as fast-forwards:
+
+- PR 38 (`gcc/p1-storefront-legal-readiness`): `53ad482a`. Short index names. The readiness test builds the table only when it is missing and empties it before each test.
+- PR 39 (`gcc/p1-storefront-sellable-list`): `7bb90819`. The same migration fix, and the shared test helper does the same.
+
+MySQL runs (local, 127.0.0.1:3307, scratch database `lavkoo_storefront_test`): readiness 15 OK; list and readiness 21 OK. Both started from a freshly dropped table, so the migration ran with the new names. `SHOW INDEX` confirmed that the unique constraint covers all four columns.
+
+Checked, with a limit: the POS idempotency migration in PR 35 (`2026_11_23_110000`) generates a unique name of 58 characters, under the limit. That was a name-length calculation, not a MySQL run. Other migrations in these PRs were not audited.
+
+PR bodies 38 and 39 were updated to say what was run on MySQL.
