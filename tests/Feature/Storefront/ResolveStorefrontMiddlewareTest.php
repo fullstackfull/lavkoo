@@ -203,6 +203,25 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->assertContains('X-Storefront', array_map('trim', explode(',', implode(',', $response->headers->all('vary')))));
     }
 
+    public function test_a_route_with_both_storefront_middlewares_says_it_varies_by_storefront_once(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        Route::middleware(['storefront', 'storefront.vary'])->get('/__vary-twice-probe', fn () => response()->json([])->header('Vary', 'Accept-Encoding'));
+
+        $response = $this->getJson('/__vary-twice-probe')->assertOk();
+
+        $listed = array_map('trim', explode(',', implode(',', $response->headers->all('vary'))));
+        $this->assertSame(['Accept-Encoding', 'X-Storefront'], $listed);
+    }
+
+    public function test_an_answer_that_already_varies_on_everything_is_left_alone(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        Route::middleware(['storefront', 'storefront.vary'])->get('/__vary-star-probe', fn () => response()->json([])->header('Vary', '*'));
+
+        $this->getJson('/__vary-star-probe')->assertOk()->assertHeader('Vary', '*');
+    }
+
     public function test_while_switched_off_no_api_v1_answer_varies_by_storefront(): void
     {
         $response = $this->getJson('/api/v1/storefronts')->assertOk();

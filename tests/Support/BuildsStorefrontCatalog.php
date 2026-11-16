@@ -97,10 +97,6 @@ trait BuildsStorefrontCatalog
     /** The database as it is before the migration has run. The migration's own rollback refuses while another country's products exist, so the column is dropped directly. */
     protected function removeStorefrontCountryColumn(): void
     {
-        if (Schema::hasIndex('products', 'products_storefront_id_idx')) {
-            Schema::table('products', fn ($table) => $table->dropIndex('products_storefront_id_idx'));
-        }
-
         Schema::table('products', fn ($table) => $table->dropColumn('storefront_country'));
     }
 
