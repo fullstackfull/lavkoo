@@ -52,7 +52,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
     Route::group(['prefix' => 'third-party', 'as' => 'third-party.'], function () {
-        Route::group(['prefix' => 'ai-setting', 'as' => 'ai-setting.'], function () {
+        Route::group(['prefix' => 'ai-setting', 'as' => 'ai-setting.', 'middleware' => ['module:3rd_party_setup']], function () {
             Route::controller(AISettingController::class)->group(function () {
                 Route::get('', 'index')->name('index');
                 Route::post('store', 'store')->name('store');
