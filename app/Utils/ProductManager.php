@@ -28,6 +28,8 @@ use App\Models\ShippingType;
 use App\Models\StockClearanceProduct;
 use App\Models\Translation;
 use App\Models\Wishlist;
+use App\Services\Storefront\ProductCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
@@ -2892,6 +2894,12 @@ class ProductManager
         if (!empty($request['product_status'])) {
             $filterWhereIn['status'] = array_values($request['product_status']);
         }
+
+        $countries = ProductCountry::filterOf(requestedCountries: $request['filter_storefront_countries'] ?? null);
+        if ($countries !== []) {
+            $filterWhereIn[StorefrontCatalog::COLUMN] = $countries;
+        }
+
         return $filterWhereIn;
     }
 

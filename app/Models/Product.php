@@ -124,6 +124,7 @@ class Product extends Model
         'digital_file_ready_storage_type',
         'is_shipping_cost_updated',
         'temp_shipping_cost',
+        'storefront_country',
     ];
 
     /**
