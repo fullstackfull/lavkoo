@@ -6,11 +6,13 @@ use App\Events\OrderStatusEvent;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\BuildsPanelOrderEditTables;
 
 /**
  * Three order handlers of the vendor panel took an order, a driver or an order line from the request without the ownership their seller API twins
@@ -25,6 +27,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class VendorOrderHandlerOwnershipTest extends VendorPanelTestCase
 {
+    use BuildsPanelOrderEditTables;
+
     private const OWN_ORDER = 100001;
     private const OTHER_SELLERS_ORDER = 100002;
     private const IN_HOUSE_ORDER = 100003;
@@ -197,6 +201,28 @@ class VendorOrderHandlerOwnershipTest extends VendorPanelTestCase
         $this->assertNull(DB::table('orders')->where('id', self::OWN_DELIVERED_ORDER)->value('delivery_man_id'));
     }
 
+    // ---- the drivers the order page offers ----
+
+    /** @return array<string, array{int, string}> the order, and the drivers its page offers for it: the pool the assignment above accepts */
+    public static function ordersAndTheDriversTheirPagesOffer(): array
+    {
+        return [
+            'an order the shop ships' => [self::OWN_ORDER, 'Own'],
+            'an order the store ships' => [self::OWN_ORDER_SHIPPED_IN_HOUSE, 'Inhouse'],
+        ];
+    }
+
+    #[DataProvider('ordersAndTheDriversTheirPagesOffer')]
+    public function test_the_order_page_offers_the_drivers_of_the_pool_the_assignment_accepts(int $orderId, string $drivers): void
+    {
+        $this->createTheTablesTheOrderPageReads();
+
+        $response = $this->signInAs(self::SELLER)->get('/vendor/orders/details/' . $orderId);
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression('/^drivers:' . $drivers . '$/m', (string)$response->getContent());
+    }
+
     // ---- the amount and the date of an order ----
 
     /** @return array<string, array{int, array<string, mixed>}> an order that is not the seller's and each of the two fields the page edits */
@@ -276,6 +302,20 @@ class VendorOrderHandlerOwnershipTest extends VendorPanelTestCase
     private function uploadForm(int $lineId): array
     {
         return ['order_id' => $lineId, 'digital_file_after_sell' => UploadedFile::fake()->createWithContent('replacement.pdf', 'REPLACEMENT')];
+    }
+
+    /** The order page, stood in for by tests/Support/vendor-panel-views, prices the order's edit session: it needs what the edit needs, and a line that carries its product. */
+    private function createTheTablesTheOrderPageReads(): void
+    {
+        $this->createTheTablesTheOrderEditUses();
+        Cache::put('tax_system_type_vendor_with_vat', [
+            'SystemTaxVat' => ['is_active' => 0, 'tax_ids' => [], 'additionalData' => []], 'SystemTaxVatType' => 'order_wise', 'is_included' => 1,
+            'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([]),
+        ], 3600);
+        DB::table('order_details')->where('id', self::OWN_LINE)->update(['qty' => 2, 'price' => 100, 'product_details' => json_encode([
+            'id' => self::OWN_PRODUCT, 'name' => 'Own product', 'product_type' => 'physical', 'variation' => '[]', 'choice_options' => '[]', 'minimum_order_qty' => 1,
+            'current_stock' => 5, 'unit_price' => 100, 'discount' => 0, 'discount_type' => 'flat',
+        ])]);
     }
 
     /** @return list<array<string, mixed>> */

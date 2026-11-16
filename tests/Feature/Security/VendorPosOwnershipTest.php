@@ -140,6 +140,41 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
         $this->assertStringNotContainsString('In-house pro', $summary);
     }
 
+    public function test_the_discount_update_summary_leaves_out_a_product_that_is_not_the_sellers(): void
+    {
+        $session = $this->cartHolding(productIds: [self::OWN_PRODUCT, self::OTHER_SELLERS_PRODUCT, self::IN_HOUSE_PRODUCT]);
+
+        $summary = $this->signInAs(self::SELLER)->withSession($session)->postJson('/vendor/pos/update-discount', ['type' => 'flat', 'discount' => 1])->assertOk()->json('view');
+
+        $this->assertStringContainsString('Own product', $summary);
+        $this->assertStringNotContainsString('Other seller', $summary);
+        $this->assertStringNotContainsString('In-house pro', $summary);
+    }
+
+    public function test_the_summary_of_the_cart_that_moves_to_another_customer_leaves_out_a_product_that_is_not_the_sellers(): void
+    {
+        $this->createTheTablesTheCustomerInfoReads();
+        $session = $this->cartHolding(productIds: [self::OWN_PRODUCT, self::OTHER_SELLERS_PRODUCT, self::IN_HOUSE_PRODUCT]);
+
+        $response = $this->signInAs(self::SELLER)->withSession($session)->postJson('/vendor/pos/change-customer', ['user_id' => 0])->assertOk();
+
+        $summary = (string) $response->json('view') . (string) $response->json('cart_view');
+        $this->assertStringContainsString('Own product', $summary);
+        $this->assertStringNotContainsString('Other seller', $summary);
+        $this->assertStringNotContainsString('In-house pro', $summary);
+    }
+
+    public function test_the_hold_orders_summary_leaves_out_a_product_that_is_not_the_sellers(): void
+    {
+        $session = $this->cartHolding(productIds: [self::OWN_PRODUCT, self::OTHER_SELLERS_PRODUCT, self::IN_HOUSE_PRODUCT], onHold: true);
+
+        $summary = $this->signInAs(self::SELLER)->withSession($session)->postJson('/vendor/pos/view-hold-orders')->assertOk()->json('view');
+
+        $this->assertStringContainsString('Own product', $summary);
+        $this->assertStringNotContainsString('Other seller', $summary);
+        $this->assertStringNotContainsString('In-house pro', $summary);
+    }
+
     // ---- the order details route nothing linked to ----
 
     /** @return array<string, array{int}> */
@@ -191,6 +226,20 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
         $this->assertStringContainsString('Own product', $response->json('view'));
     }
 
+    private function createTheTablesTheCustomerInfoReads(): void
+    {
+        Schema::create('users', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('f_name')->nullable();
+            $table->string('l_name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('image')->nullable();
+            $table->decimal('wallet_balance', 16, 2)->default(0);
+            $table->timestamps();
+        });
+    }
+
     private function createTheTablesTheQuickViewReads(): void
     {
         foreach (['tags' => 'tag', 'authors' => 'name', 'publishing_houses' => 'name'] as $tableName => $column) {
@@ -222,7 +271,7 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
      * @param list<int> $productIds
      * @return array<string, mixed> a walk-in customer's session cart with two of each product, the way the add to cart route puts them there
      */
-    private function cartHolding(array $productIds): array
+    private function cartHolding(array $productIds, bool $onHold = false): array
     {
         $names = [self::OWN_PRODUCT => 'Own product', self::OTHER_SELLERS_PRODUCT => 'Other sellers product', self::IN_HOUSE_PRODUCT => 'In-house product'];
 
@@ -230,7 +279,7 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
             SessionKey::CURRENT_USER => self::CART,
             'cart_name' => [self::CART],
             self::CART => array_map(static fn (int $productId): array => [
-                'id' => $productId, 'customerId' => 0, 'customerOnHold' => false, 'quantity' => 2, 'price' => 100, 'name' => $names[$productId] ?? 'Unknown product',
+                'id' => $productId, 'customerId' => 0, 'customerOnHold' => $onHold, 'quantity' => 2, 'price' => 100, 'name' => $names[$productId] ?? 'Unknown product',
                 'productType' => 'physical', 'image' => 'thumbnail.png', 'discount' => 0, 'variant' => '', 'variations' => ['color' => null],
             ], $productIds),
         ];

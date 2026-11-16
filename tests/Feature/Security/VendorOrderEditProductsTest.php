@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\BuildsPanelOrderEditTables;
 
 /**
  * The vendor panel's order edit takes the order from the signed-in seller, but the product from the request: the modal, the variant price and the
@@ -20,6 +21,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class VendorOrderEditProductsTest extends VendorPanelTestCase
 {
+    use BuildsPanelOrderEditTables;
+
     private const ORDER = 100001;
     private const SESSION_KEY = 'SELLER_SESSION_FOR_EDIT_ORDER_100001';
     private const HELD_LINE_KEY = '20-single-variant';
@@ -28,7 +31,8 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
     {
         parent::setUp();
 
-        $this->createTheTablesTheEditWritersUse();
+        $this->createTheTablesTheOrderEditUses();
+        $this->createTheTablesTheModalReads();
         $this->seedAnOwnOrderHoldingTwoUnitsOfTheOwnProduct();
     }
 
@@ -250,42 +254,9 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         ]);
     }
 
-    /** What the real edit writers read and write beyond what the panel's core tables hold. */
-    private function createTheTablesTheEditWritersUse(): void
+    /** What the modal of a product reads beyond what the edit itself does. */
+    private function createTheTablesTheModalReads(): void
     {
-        Schema::table('orders', static function (Blueprint $table): void {
-            foreach (['discount_type', 'coupon_code', 'coupon_discount_bearer', 'tax_type', 'tax_model', 'extra_discount_type', 'free_delivery_bearer'] as $column) {
-                $table->string($column)->nullable();
-            }
-            foreach (['admin_commission', 'edit_due_amount', 'edit_return_amount', 'total_tax_amount', 'extra_discount', 'discount_amount', 'init_order_amount', 'refer_and_earn_discount'] as $column) {
-                $table->decimal($column, 16, 2)->default(0);
-            }
-            $table->unsignedBigInteger('shipping_method_id')->nullable();
-            $table->unsignedBigInteger('delivery_man_id')->nullable();
-            $table->dateTime('deliveryman_assigned_at')->nullable();
-            $table->decimal('deliveryman_charge', 16, 2)->default(0);
-            $table->boolean('is_shipping_free')->default(false);
-            $table->boolean('edited_status')->default(false);
-        });
-        Schema::table('order_details', static function (Blueprint $table): void {
-            $table->string('discount_type')->nullable();
-            $table->string('digital_file_after_sell')->nullable();
-            $table->unsignedBigInteger('shipping_method_id')->nullable();
-            $table->dateTime('refund_started_at')->nullable();
-            $table->boolean('is_stock_decreased')->default(false);
-            $table->integer('refund_request')->default(0);
-        });
-        Schema::create('order_delivery_verifications', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('order_id');
-            $table->string('image')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('offline_payments', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('order_id');
-            $table->timestamps();
-        });
         Schema::create('tags', static function (Blueprint $table): void {
             $table->id();
             $table->string('tag')->nullable();
@@ -312,88 +283,6 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
             $table->id();
             $table->unsignedBigInteger('product_id');
             $table->unsignedBigInteger('publishing_house_id');
-            $table->timestamps();
-        });
-        Schema::create('colors', static function (Blueprint $table): void {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->string('code')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('users', static function (Blueprint $table): void {
-            $table->id();
-            $table->string('f_name')->nullable();
-            $table->string('l_name')->nullable();
-            $table->string('email')->nullable();
-            $table->string('phone')->nullable();
-            $table->string('cm_firebase_token')->nullable();
-            $table->integer('loyalty_point')->default(0);
-            $table->timestamps();
-        });
-        Schema::create('order_edit_histories', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('order_id');
-            $table->string('edit_by')->nullable();
-            $table->unsignedBigInteger('edited_user_id')->nullable();
-            $table->string('edited_user_name')->nullable();
-            $table->decimal('order_amount', 16, 2)->default(0);
-            $table->decimal('order_due_amount', 16, 2)->default(0);
-            $table->string('order_due_payment_method')->nullable();
-            $table->string('order_due_payment_status')->nullable();
-            $table->decimal('order_return_amount', 16, 2)->default(0);
-            $table->string('order_return_payment_status')->nullable();
-            $table->unsignedBigInteger('u_id')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('order_transactions', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->unsignedBigInteger('seller_id')->nullable();
-            $table->string('seller_is')->nullable();
-            $table->decimal('order_amount', 16, 2)->default(0);
-            $table->decimal('seller_amount', 16, 2)->default(0);
-            $table->decimal('admin_commission', 16, 2)->default(0);
-            $table->decimal('delivery_charge', 16, 2)->default(0);
-            $table->decimal('tax', 16, 2)->default(0);
-            $table->timestamps();
-        });
-        Schema::create('order_details_rewards', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->unsignedBigInteger('product_id')->nullable();
-            $table->unsignedBigInteger('order_details_id')->nullable();
-            $table->boolean('reward_delivered')->default(false);
-            $table->string('reward_type')->nullable();
-            $table->decimal('reward_amount', 16, 2)->default(0);
-            $table->timestamps();
-        });
-        Schema::create('order_taxes', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->string('tax_for')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('shipping_types', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('seller_id')->nullable();
-            $table->string('shipping_type')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('shipping_methods', static function (Blueprint $table): void {
-            $table->id();
-            $table->string('title')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('coupons', static function (Blueprint $table): void {
-            $table->id();
-            $table->string('code')->nullable();
-            $table->string('coupon_type')->nullable();
-            $table->string('coupon_bearer')->nullable();
-            $table->unsignedBigInteger('seller_id')->nullable();
-            $table->unsignedBigInteger('customer_id')->nullable();
-            $table->date('start_date')->nullable();
-            $table->date('expire_date')->nullable();
-            $table->integer('status')->default(1);
             $table->timestamps();
         });
     }
