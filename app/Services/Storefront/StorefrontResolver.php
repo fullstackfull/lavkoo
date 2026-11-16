@@ -2,6 +2,7 @@
 
 namespace App\Services\Storefront;
 
+use Illuminate\Http\Request;
 use InvalidArgumentException;
 
 /**
@@ -11,6 +12,8 @@ use InvalidArgumentException;
  */
 final class StorefrontResolver
 {
+    public const HEADER = 'X-Storefront';
+
     private readonly string $defaultCountry;
 
     /**
@@ -54,6 +57,19 @@ final class StorefrontResolver
         $country = $this->resolve(explicitChoice: $explicitChoice, path: $path, headerChoice: $headerChoice);
 
         return new StorefrontContext(country: $country, currency: $this->currencyOf($country), storefrontsEnabled: $this->enabled);
+    }
+
+    /** The storefront a request asks for: its explicit choice, then its header, then its path, then the default. */
+    public function contextForRequest(Request $request): StorefrontContext
+    {
+        $explicitChoice = $request->query('storefront');
+        $headerValues = $request->headers->all(self::HEADER);
+
+        return $this->context(
+            explicitChoice: is_string($explicitChoice) ? $explicitChoice : null,
+            path: $request->path(),
+            headerChoice: count($headerValues) === 1 && is_string($headerValues[0]) ? $headerValues[0] : null,
+        );
     }
 
     public function isEnabled(): bool

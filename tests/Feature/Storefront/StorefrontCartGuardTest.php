@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Http\Controllers\Web\CartController as WebCartController;
 use App\Models\Product;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontContext;
@@ -141,6 +142,31 @@ class StorefrontCartGuardTest extends TestCase
 
         $this->serveRequestFrom('AE');
         $this->assertFalse(StorefrontCatalog::offers($this->productOf(1)));
+    }
+
+    public function test_a_storefront_request_the_middleware_has_not_reached_is_offered_only_its_own_products(): void
+    {
+        $this->switchStorefrontsOn();
+
+        $this->serveAsHttpRequest('/shop-cart?storefront=AE');
+
+        $this->assertFalse(StorefrontCatalog::offers($this->productOf(1)));
+        $this->assertTrue(StorefrontCatalog::offers($this->productOf(2)));
+    }
+
+    public function test_changing_the_variation_of_another_countrys_product_is_refused_and_leaves_the_cart_empty(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('AE');
+        Schema::create('carts', function ($table) {
+            $table->id();
+        });
+
+        $result = app(WebCartController::class)->update_variation(Request::create('/cart/update-variation', 'POST', ['product_id' => 1]));
+
+        $this->assertSame(0, $result['status']);
+        $this->assertSame(translate('Product_is_unavailable'), $result['message']);
+        $this->assertSame(0, DB::table('carts')->count());
     }
 
     public function test_adding_another_countrys_product_to_the_cart_is_refused_and_leaves_the_cart_empty(): void
