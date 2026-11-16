@@ -692,4 +692,84 @@ class SocialLoginConfirmationTest extends TestCase
             }
         }
     }
+
+    // ---- an address that only collates equal to a customer's ---------------------------------------------------------------------------
+
+    /** @return array<string, array{0: string}> the provider's address, which MySQL's collation reads as victim@example.test */
+    public static function addressesThatCollateEqualToTheVictims(): array
+    {
+        return [
+            'an accent in the local part' => ["v\u{00ED}ctim@example.test"],
+            'an accent in the domain' => ["victim@ex\u{00E1}mple.test"],
+            'a trailing space' => ['victim@example.test '],
+        ];
+    }
+
+    #[DataProvider('addressesThatCollateEqualToTheVictims')]
+    public function test_on_mysql_a_provider_address_that_only_collates_equal_is_not_the_customer_and_changes_nothing(string $providerEmail): void
+    {
+        if (!$this->isRunningOnMySql()) {
+            $this->markTestSkipped('MySQL only: its collation ignores accents and trailing spaces, SQLite compares bytes.');
+        }
+        $rowsBefore = $this->customerRows();
+
+        $callback = $this->returnFromGoogle(email: $providerEmail);
+
+        $callback->assertRedirect(route('customer.auth.login'));
+        $this->assertGuest('customer');
+        $this->assertSame($rowsBefore, $this->customerRows());
+        $this->assertContains(translate('invalid_request'), $this->toastedMessages());
+    }
+
+    #[DataProvider('addressesThatCollateEqualToTheVictims')]
+    public function test_on_mysql_a_customer_already_linked_to_the_provider_is_not_signed_in_or_relinked_by_a_lookalike_address(string $providerEmail): void
+    {
+        if (!$this->isRunningOnMySql()) {
+            $this->markTestSkipped('MySQL only: its collation ignores accents and trailing spaces, SQLite compares bytes.');
+        }
+        DB::table('users')->where('id', self::VICTIM_ID)->update(['login_medium' => 'google', 'social_id' => 'victim-google-id']);
+
+        $this->returnFromProvider(service: 'google', profile: ['id' => 'google-mallory', 'name' => 'Mallory', 'email' => $providerEmail]);
+
+        $this->assertGuest('customer');
+        $this->assertSame('victim-google-id', $this->customerRow(self::VICTIM_ID)['social_id']);
+    }
+
+    public function test_on_mysql_the_same_address_in_another_letter_case_is_still_the_customer(): void
+    {
+        if (!$this->isRunningOnMySql()) {
+            $this->markTestSkipped('MySQL only: SQLite compares an address exactly.');
+        }
+        DB::table('users')->where('id', self::VICTIM_ID)->update(['login_medium' => 'google', 'social_id' => 'victim-google-id']);
+
+        $this->returnFromGoogle(email: 'VICTIM@EXAMPLE.TEST');
+
+        $this->assertAuthenticatedAs(User::query()->findOrFail(self::VICTIM_ID), 'customer');
+    }
+
+    // ---- a second submit of the update form -----------------------------------------------------------------------------------------
+
+    public function test_a_second_submit_of_the_update_form_after_the_sign_in_lands_home_without_an_error_and_changes_nothing(): void
+    {
+        $callback = $this->returnFromGoogle(email: 'new.person@example.test', name: 'New Person');
+        $form = ['identity' => $this->identityOfTheRedirect($callback), 'phone' => '0555000111', 'name' => 'New Person'];
+        $this->post($this->updateUrl(), $form);
+        $rowsAfterTheFirst = $this->customerRows();
+
+        $second = $this->post($this->updateUrl(), $form);
+
+        $second->assertRedirect(route('home'));
+        $this->assertNotContains(translate('invalid_request'), $this->toastedMessages());
+        $this->assertSame($rowsAfterTheFirst, $this->customerRows());
+        $this->assertAuthenticatedAs(User::query()->where('email', 'new.person@example.test')->firstOrFail(), 'customer');
+    }
+
+    public function test_a_form_that_does_not_match_the_pending_login_is_still_refused_for_a_visitor_who_is_not_signed_in(): void
+    {
+        $response = $this->post($this->updateUrl(), ['identity' => $this->identityFor(self::VICTIM_EMAIL), 'phone' => '0555000111', 'name' => 'x']);
+
+        $response->assertRedirect();
+        $this->assertContains(translate('invalid_request'), $this->toastedMessages());
+        $this->assertGuest('customer');
+    }
 }

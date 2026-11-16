@@ -65,6 +65,13 @@ class SocialAuthController extends Controller
 
         $user = $this->customerRepo->getFirstWhere(params: ['email' => $userSocialData->getEmail()]);
 
+        // The database compares an address by its collation (MySQL ignores accents, trailing spaces and case), the confirmation compares it
+        // exactly: an address the provider vouches for that only collates equal to a customer's is not that customer.
+        if ($user && strcasecmp((string) $user['email'], (string) $userSocialData->getEmail()) !== 0) {
+            Toastr::error(translate('invalid_request'));
+            return redirect()->route('customer.auth.login');
+        }
+
         if (!$user || $user['login_medium'] != $service) {
             $name = explode(' ', $userSocialData['name']);
             if (count($name) > 1) {
@@ -252,6 +259,10 @@ class SocialAuthController extends Controller
 
         $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: $request['identity']);
         if ($validator->fails() || !$socialLoginNewCustomer) {
+            // The pending login is spent when the sign-in completes, so a second click on Update finds none: the customer is already in.
+            if (auth('customer')->check()) {
+                return redirect()->route('home');
+            }
             Toastr::error(translate('invalid_request'));
             return back();
         }
