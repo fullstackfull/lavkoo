@@ -819,3 +819,43 @@ What is still an owner decision: the guest id (`APIGuestMiddleware` passes any t
 **MySQL.** The private MySQL 8.0.46 on 127.0.0.1:3308 passes the Storefront feature suite at the tip of the stack (152 tests, 669 assertions) and the Address payment callback and initiation tests (15). Two cart guard tests failed on MySQL only, because they created the `carts` table inside the test and MySQL keeps it between tests; the table is now part of the shared fixture (`457900e5`, merged up the chain). A tooling trap: `ss` is not installed in this container, so "nothing listens on 3308" was a false answer; check with `mysql -uroot -h127.0.0.1 -P3308 -e 'select 1'`. Do not start a second `mysqld` on the same data directory.
 
 **Still running.** The adversarial execution review of #44, #45, #46, #51 and #52 and the integration merge check was started as a workflow. The machine has four CPUs, so it runs two agents at a time and is slow. Its findings are not in yet. The first reviewer, on #44, found no regression for a legitimate caller.
+
+### Addendum: second independent review of the GCC-02/03 stack, what it found, what was fixed, three new PRs (2026-11-16, about 09:30Z)
+
+**The review.** A workflow of 37 agents (about 15 million tokens, 4.3 hours) attacked the stack at `fb8e983d` by execution: dormancy with the flag off, isolation between countries, checkout and cart, payment callbacks, caches, the migration and data layer; a skeptic re-ran every finding from a clean checkout and compared it with the base, and a critic named what nobody examined (four of its five gaps were then verified by execution). Result: 12 confirmed, 11 pre-existing at `origin/main`, 2 refuted. Nothing that was a flag-off change for the Saudi storefront survived, apart from one low finding (below).
+
+**Why most of it was one thing.** A cart group is per customer and seller, not per storefront, so a customer who shops two countries had both countries' rows in one group, and every writer that acts on a whole group or a whole customer cart ignored the storefront. The fix is one global scope on `Cart` (`StorefrontCartScope`), not a patch per writer: it narrows every read and write of a cart row to the storefront's products while the flag is on, so adding from two storefronts makes two cart groups and an action in one storefront never reaches the other's rows. Patching each consumer would have left the ones nobody found; the critic found five more writers (select-cart-items on web and API, remove-all on web and API, buy-now) within minutes.
+
+| Finding | Where it is fixed |
+|---|---|
+| Cart cleanup after an order deletes the other storefront's checked rows and shipping; a second paid payment can then end with no order | #48 (Cart scope) |
+| Zone shipping's free-over threshold summed the other storefront's rows | #48 (Cart scope) |
+| Cash on delivery refused because of an invisible row of another country (the guard joins `carts` and `products` itself) | #48 (`restrictJoinedProducts`) |
+| remove-all, select-cart-items, buy-now reached the other storefront's rows | #48 (Cart scope) |
+| `POST /cart/variant_price` answered the price and stock of any product id | #48 |
+| Web restock request subscribed a customer to a product the storefront cannot see | #48 |
+| `GET /api/v1/banners` inlined another country's product payload | #48 |
+| Search index pool (cap of 500) filled by the largest catalogue; a later storefront got 10 results where Saudi got 60 | #48 (`restrictProductIds`, before the cap) |
+| Arabic (translation-only) search listed every country's product with price and stock; the search category filter escaped the scope | #46, merged into the tip #53, 5 new tests |
+| Reviews of another country's product returned its price and stock inside each review's product; related, rating, counter, share link answered for it | #47 |
+| Index (country, type, status, request status) never chosen; id-ordered lists walked every newer foreign row (1.9 ms became 281 ms on 200,000 rows) | #47: index is now (country, id), 2.0 ms |
+| Country code compared case-insensitively in MySQL but strictly in PHP; bad values hide a product from every storefront silently | #47: `ascii_bin` on MySQL and MariaDB; the validation belongs to the admin tool (GCC-14) |
+| A rollback of the migration would merge the catalogues | #47: `down()` refuses while another country has products |
+| A broken or stale `gcc` configuration failed the cart API routes (and every web route already) while the flag is off | #47: while off, `fromConfig()` falls back to the built-in Saudi storefront; while on it still fails loudly |
+| API v1 routes that vary on `X-Storefront` outside the storefront middleware sent no `Vary` | #47: `VaryByStorefront` on the whole v1 group, header only |
+| Per-storefront cache copies written while the flag was on survive a product edit made while it was off | not changed: `cache:clear` at every flip (runbook); fanning every forget out while off would cost 168 forgets per product save |
+| Nothing ran the storefront tests on MySQL or on MariaDB (the pilot's engine) | #47: a CI group on both |
+| The flag off is not a kill switch once another country has products (nothing is narrowed; an in-flight payment is built from every checked row: paid 275, order 375) | `docs/gcc/STOREFRONT_FLAG_RUNBOOK.md` and `StorefrontKillSwitchTest`: deactivate the country, never the flag |
+
+**Pre-existing at `origin/main`, found on the way, each its own draft PR with a red-then-green test:**
+
+- **PR 54** (`gcc/security-cart-update-variation-owner`, head `856309ca`): web update-variation loaded the cart row by the id in the request with no owner check and no check that it belongs to the product named, then took the price from that product: a 100 product was ordered for 1 (reproduced). API select-cart-items took any row ids. Both are scoped to the caller now.
+- **PR 55** (`gcc/fix-referral-first-order-notification`, head `cbd976a6`): the first order of a referred customer added the promoter notification in the wrong shape and threw after the order was committed: cart not emptied, hook reported failure, a second delivery of the callback built a second order.
+- **PR 56** (`gcc/fix-payment-hook-state-between-settlements`, head `430832b8`): the success hook merged the registered customer into the request and never removed it, so in one process (the scheduled reconcile) a guest settled after a registered customer was read as that customer: no order, payment marked applied, the guest's app told it paid with no order.
+- Left as known limits: wishlist and compare adds accept another country's product id; the quick view answers 500 for an id the storefront cannot see.
+
+**Heads now.** #47 `e7c9a632`, #48 `68f9ae8a`, #49 `467d2eb9`, #50 `efea438b`, #53 `c3fddcb0`. The stack's merge order gains one rule: **#46 first** (the stack's narrowing of the translated-name searches depends on it). The tip contains #46 and the runbook.
+
+**Verification.** Storefront, Unit/Storefront and Security suites on SQLite at the tip: 266 tests; Storefront, Unit/Storefront and `SearchVisibilityTest` on MySQL 8.0.46 at the tip: 256 tests. Address, Fulfillment, Security and Unit suites on SQLite at `68f9ae8a` (the Cart scope's first commit): 3443 tests, 763231 assertions, no failure. Every new test is red on the old code. A full SQLite run of the final tip and MariaDB (not installed here, CI has it) are still to do.
+
+**Round 3.** A third review is running on the fixes themselves, the new Cart scope above all, and on PRs 54 to 56 (`wf_650a02d8-e7e`). Do not push to the stack branches while CI runs: every push cancels the run before it. Open: Flutter (the picker, `canSell` in the checkout UI), GCC-14 (admin and seller tools that set and filter the country; validation of the code against `gcc.storefronts.countries`; the per-country unique SKU rule), the MariaDB run, and the owner decisions of section 35.
