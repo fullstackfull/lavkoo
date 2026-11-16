@@ -28,8 +28,11 @@ final class StoredFileExtension
         'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mpeg', 'mpg', 'm4v', '3gp', 'ogv',
     ];
 
-    /** The extensions a server runs through a handler (`php` and `php3` to `php8` are matched apart). */
-    private const HANDLER_EXTENSIONS = ['phtml', 'pht', 'phar', 'phps', 'inc', 'shtml', 'shtm', 'stm', 'cgi', 'pl', 'py', 'rb', 'asp', 'aspx', 'jsp', 'jspx', 'cfm', 'sh'];
+    /**
+     * The extensions a web server maps to a handler out of the box (`php` and `php3` to `php8` are matched apart). Words that only name a
+     * language or a company, and that ordinary file names hold (`Acme.Inc.jpg`, `terms.pl.pdf`, `price.sh.csv`), are no handler.
+     */
+    private const HANDLER_EXTENSIONS = ['phtml', 'pht', 'phar', 'phps', 'shtml', 'shtm', 'stm', 'cgi'];
 
     public const UNKNOWN = 'bin';
 

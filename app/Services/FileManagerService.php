@@ -101,7 +101,11 @@ class FileManagerService
         $entries = [];
         for ($index = 0; $index < $zip->numFiles; $index++) {
             $name = (string)$zip->statIndex($index)['name'];
+            if ($this->isArchiveMetadata(name: $name)) {
+                continue;
+            }
             if (!$this->isStorableEntry(name: $name)) {
+                $report->skip(name: $name);
                 continue;
             }
             if (count($entries) === self::MOST_ARCHIVE_ENTRIES) {
@@ -130,6 +134,7 @@ class FileManagerService
         foreach ($entries as $index => $name) {
             $written = $this->unpackEntry(zip: $zip, index: $index, target: $directory . '/' . $name, limit: $remainingBytes);
             if ($written === null) {
+                $report->skip(name: $name);
                 continue;
             }
             if ($written > $remainingBytes) {
@@ -176,16 +181,19 @@ class FileManagerService
         return $written === false ? null : $written;
     }
 
+    /** A folder, or a file that the system that made the archive added on its own (the `__MACOSX` twins, `.DS_Store`, Thumbs.db): nothing the admin put there. */
+    private function isArchiveMetadata(string $name): bool
+    {
+        return $name === '' || str_ends_with($name, '/') || self::shouldSkip($name) || self::shouldSkip(basename($name));
+    }
+
     /**
-     * A file of a data type, under a name the disk accepts, that holds no script extension and is no metadata of the system that made the archive.
+     * A file of a data type, under a name the disk accepts, that holds no script extension.
      * A name with a hidden segment (`.hidden/a.jpg`, `.thumb.png`) is none either: the gallery never listed such a path, so it was never stored.
      */
     private function isStorableEntry(string $name): bool
     {
-        return $name !== ''
-            && !str_ends_with($name, '/')
-            && !self::shouldSkip($name)
-            && preg_match('#(^|/)\.[^/]#', $name) !== 1
+        return preg_match('#(^|/)\.[^/]#', $name) !== 1
             && PlainFileName::staysInside(path: $name)
             && StoredFileExtension::isDataType(extension: pathinfo($name, PATHINFO_EXTENSION))
             && !StoredFileExtension::hidesHandler(fileName: basename($name));

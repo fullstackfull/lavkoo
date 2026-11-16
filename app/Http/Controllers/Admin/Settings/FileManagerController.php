@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\FileManagerUploadRequest;
 use App\Services\FileManager\ArchiveReport;
 use App\Services\FileManagerService;
+use App\Services\Fulfillment\Support\SafeToast;
 use App\Utils\PlainFileName;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -93,11 +94,11 @@ class FileManagerController extends BaseController
         cacheRemoveByType(type: 'file_manager');
 
         if (!$isStored) {
-            ToastMagic::error($report->refusalMessage());
+            SafeToast::error(message: $report->refusalMessage(), detail: $report->skippedMessage());
         } elseif ($request->has('images')) {
-            ToastMagic::success(translate('image_uploaded_successfully'));
+            SafeToast::success(message: translate('image_uploaded_successfully'), detail: $report->skippedMessage());
         } else {
-            ToastMagic::success(translate('File_uploaded_successfully'));
+            SafeToast::success(message: translate('File_uploaded_successfully'), detail: $report->skippedMessage());
         }
         return back();
     }

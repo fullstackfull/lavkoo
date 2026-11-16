@@ -3,7 +3,9 @@
 namespace Tests\Feature\Security;
 
 use App\Http\Requests\Admin\FileManagerUploadRequest;
+use App\Services\FileManager\ArchiveReport;
 use App\Services\FileManagerService;
+use App\Utils\StoredFileExtension;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -221,7 +223,7 @@ class FileManagerUploadTest extends TestCase
         $entries = [
             'evil.php.jpg' => '<?php', 'evil.phtml.txt' => '<?php', 'evil.pht.png' => '<?php', 'sub/dir/evil.php.pdf' => '<?php', 'evil.PHP.jpg' => '<?php',
             'evil.php;.jpg' => '<?php', 'evil.php .jpg' => '<?php', 'evil.php5.zip' => '<?php', 'evil.php.old.jpg' => '<?php', 'evil.shtml.csv' => '<!--#exec cmd="id"-->',
-            'evil.cgi.png' => '#!/bin/sh', 'evil.pl.txt' => '#!/usr/bin/perl',
+            'evil.cgi.png' => '#!/bin/sh',
             'photo.jpg' => $this->jpeg(), 'my.holiday.photo.jpg' => $this->jpeg(), 'v1.2.pdf' => '%PDF-1.4', 'archive.tar.zip' => 'zip', 'phpinfo-notes.txt' => 'notes', 'php.jpg' => $this->jpeg(),
         ];
 
@@ -230,6 +232,39 @@ class FileManagerUploadTest extends TestCase
         $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
         sort($copied);
         $this->assertSame(['archive.tar.zip', 'my.holiday.photo.jpg', 'photo.jpg', 'php.jpg', 'phpinfo-notes.txt', 'v1.2.pdf'], $copied);
+    }
+
+    /** @return array<string, array{0: string, 1: bool}> a name, and whether it is stored */
+    public static function namesWithAnExtensionBeforeTheLastOne(): array
+    {
+        $served = [];
+        foreach (['php', 'php3', 'php4', 'php5', 'php6', 'php7', 'php8', 'phtml', 'pht', 'phar', 'phps', 'shtml', 'shtm', 'stm', 'cgi'] as $extension) {
+            $served["a .{$extension} that a server runs"] = ["evil.{$extension}.jpg", false];
+        }
+        $ordinary = [
+            'a company' => 'Acme.Inc.jpg', 'a polish document' => 'terms.pl.pdf', 'a price list' => 'price.sh.csv', 'a python photo' => 'photo.py.jpg',
+            'a ruby logo' => 'logo.rb.png', 'an asp page' => 'page.asp.jpg', 'an aspx page' => 'page.aspx.jpg', 'a jsp menu' => 'menu.jsp.png',
+            'a jspx menu' => 'menu.jspx.png', 'a coldfusion form' => 'form.cfm.png', 'an include' => 'old.inc.txt',
+        ];
+
+        return $served + array_map(static fn (string $name): array => [$name, true], $ordinary);
+    }
+
+    #[DataProvider('namesWithAnExtensionBeforeTheLastOne')]
+    public function test_a_zip_entry_is_stored_unless_an_extension_before_its_last_one_is_one_a_server_runs(string $name, bool $isStored): void
+    {
+        $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload([$name => $this->jpeg(), 'control.jpg' => $this->jpeg()])]));
+
+        $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
+        $this->assertContains('control.jpg', $copied);
+        $this->assertSame($isStored, in_array($name, $copied, true));
+    }
+
+    public function test_the_last_extension_of_a_name_is_its_type_and_hides_no_handler(): void
+    {
+        // `photo.php` is refused because `php` is no data type, not because a handler hides in front of the type
+        $this->assertFalse(StoredFileExtension::hidesHandler(fileName: 'photo.php'));
+        $this->assertTrue(StoredFileExtension::hidesHandler(fileName: 'photo.php.jpg'));
     }
 
     public function test_a_zip_entry_that_the_disk_would_refuse_is_not_copied(): void
@@ -446,7 +481,7 @@ class FileManagerUploadTest extends TestCase
 
     public function test_the_admin_is_told_that_an_archive_holds_no_file_that_can_be_stored(): void
     {
-        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['icons/a.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>'])]);
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['photos/' => '', '__MACOSX/photos/' => ''])]);
 
         $this->assertSame(['type' => 'error', 'message' => 'The archive holds no file that can be stored'], $toast);
     }
@@ -698,6 +733,92 @@ class FileManagerUploadTest extends TestCase
         $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
         sort($copied);
         $this->assertSame(['a.b.c/d.e.jpg', 'dot-slash.jpg', 'v1.0/photo.name.jpg'], $copied);
+    }
+
+    public function test_the_admin_is_told_what_an_archive_left_out_when_it_stored_the_rest(): void
+    {
+        $entries = ['ok.jpg' => $this->jpeg(), 'shell.php' => '<?php', 'icons/a.svg' => '<svg/>', "zero\u{200B}width.png" => $this->jpeg()];
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully: 3 files of the archive were not stored (shell.php, icons/a.svg, zero?width.png)'], $toast);
+    }
+
+    public function test_the_admin_is_told_about_one_entry_that_was_left_out_in_the_singular(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), 'shell.php.jpg' => '<?php'])]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully: One file of the archive was not stored (shell.php.jpg)'], $toast);
+    }
+
+    public function test_the_admin_is_told_the_first_names_of_what_was_left_out_and_how_many_more_there_are(): void
+    {
+        $entries = ['ok.jpg' => $this->jpeg()];
+        foreach (range(1, 8) as $number) {
+            $entries["script-{$number}.php"] = '<?php';
+        }
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertSame('File uploaded successfully: 8 files of the archive were not stored (script-1.php, script-2.php, script-3.php, script-4.php, script-5.php, and 3 more)', $toast['message']);
+    }
+
+    public function test_a_name_the_archive_left_out_is_shown_as_text_and_never_as_markup(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), '<img src=x onerror=alert(1)>.php' => '<?php'])]);
+
+        $this->assertSame('File uploaded successfully: One file of the archive was not stored (&lt;img src=x onerror=alert(1)&gt;.php)', $toast['message']);
+    }
+
+    public function test_the_control_and_format_characters_of_a_name_are_not_shown(): void
+    {
+        $entries = ['ok.jpg' => $this->jpeg(), "line\nbreak.png" => 'x', "right\u{202E}left.png" => 'x', "\u{0645}\u{06CC}\u{200C}\u{062E}.jpg" => 'x', "a\u{E000}b.png" => 'x'];
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertSame("File uploaded successfully: 4 files of the archive were not stored (line?break.png, right?left.png, \u{0645}\u{06CC}?\u{062E}.jpg, a?b.png)", $toast['message']);
+    }
+
+    public function test_a_very_long_name_is_cut_in_the_message(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), str_repeat('long-', 40) . '.php' => '<?php'])]);
+
+        $this->assertSame('File uploaded successfully: One file of the archive was not stored (' . substr(str_repeat('long-', 40), 0, 60) . '...)', $toast['message']);
+    }
+
+    public function test_the_admin_is_told_what_an_archive_left_out_when_it_stored_nothing(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['icons/a.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>'])]);
+
+        $this->assertSame(['type' => 'error', 'message' => 'The archive holds no file that can be stored: One file of the archive was not stored (icons/a.svg)'], $toast);
+    }
+
+    public function test_the_admin_is_told_that_an_entry_nobody_can_read_was_left_out(): void
+    {
+        $encrypt = static fn (ZipArchive $zip): bool => $zip->setEncryptionName('locked.jpg', ZipArchive::EM_AES_256, 'a password nobody knows');
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['locked.jpg' => $this->jpeg(), 'open.jpg' => $this->jpeg()], $encrypt)]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully: One file of the archive was not stored (locked.jpg)'], $toast);
+    }
+
+    public function test_the_folders_and_the_metadata_of_an_archive_are_not_reported_as_left_out(): void
+    {
+        $entries = ['gallery/' => '', '__MACOSX/gallery/._a.jpg' => 'metadata', 'gallery/.DS_Store' => 'metadata', 'gallery/Thumbs.db' => 'metadata', 'gallery/a.jpg' => $this->jpeg()];
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully'], $toast);
+    }
+
+    public function test_on_s3_what_an_archive_left_out_is_reported_like_on_the_disk(): void
+    {
+        $report = new ArchiveReport();
+
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), 'shell.php' => '<?php', 'evil.php.jpg' => '<?php', '.hidden/a.jpg' => 'x'])]), $report);
+
+        $this->assertTrue($stored);
+        $this->assertSame('3 files of the archive were not stored (shell.php, evil.php.jpg, .hidden/a.jpg)', $report->skippedMessage());
     }
 
     // ---- the form ---------------------------------------------------------------------------------------------------------------
