@@ -15,6 +15,11 @@ class CustomerAuthService
         return (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
     }
 
+    public function forgetPendingSocialLogin(): void
+    {
+        session()->forget(['social_login_new_customer', 'socialLoginEmailRemovedForOldUser']);
+    }
+
     public function getCustomerLoginDataReset(): array
     {
         return [
