@@ -7,7 +7,7 @@ use App\Services\Platform\PasswordPolicy;
 use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Events\PasswordResetEvent;
 use App\Http\Controllers\Controller;
-use App\Models\Seller;
+use App\Services\VendorPasswordResetService;
 use App\Traits\CustomerTrait;
 use App\Utils\Helpers;
 use App\Utils\SMSModule;
@@ -27,6 +27,7 @@ class ForgotPasswordController extends Controller
     public function __construct(
         private readonly PhoneOrEmailVerificationRepositoryInterface $phoneOrEmailVerificationRepo,
         private readonly VendorRepositoryInterface                   $vendorRepo,
+        private readonly VendorPasswordResetService                  $vendorPasswordResetService,
     )
     {
     }
@@ -41,11 +42,12 @@ class ForgotPasswordController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
+        $identity = (string)$request['identity'];
         $verification_by = getWebConfig(name: 'vendor_forgot_password_method');
-        DB::table('password_resets')->where('user_type', 'seller')->where('identity', 'like', "%{$request['identity']}%")->delete();
+        DB::table('password_resets')->where('user_type', 'seller')->where('identity', $identity)->delete();
 
         if ($verification_by == 'email') {
-            $seller = Seller::Where(['email' => $request['identity']])->first();
+            $seller = $this->vendorPasswordResetService->findSeller(identity: $identity, method: VendorPasswordResetService::EMAIL);
             if (isset($seller)) {
                 $token = Str::random(120);
                 DB::table('password_resets')->insert([
@@ -77,7 +79,7 @@ class ForgotPasswordController extends Controller
                 return response()->json(['message' => $response], 200);
             }
         } elseif ($verification_by == 'phone') {
-            $seller = Seller::where('phone', 'like', "%{$request['identity']}%")->first();
+            $seller = $this->vendorPasswordResetService->findSeller(identity: $identity, method: VendorPasswordResetService::PHONE);
             if (isset($seller)) {
                 $token = (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
                 DB::table('password_resets')->insert([
@@ -133,15 +135,13 @@ if ($zender && $zender->enabled) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $id = $request['identity'];
-        $data = DB::table('password_resets')
-            ->where('user_type', 'seller')
-            ->where(['token' => $request['otp']])
-            ->where('identity', 'like', "%{$id}%")
-            ->orderBy('created_at', 'desc')
-            ->first();
+        $seller = $this->vendorPasswordResetService->findSellerHoldingCode(
+            identity: (string)$request['identity'],
+            code: (string)$request['otp'],
+            method: getWebConfig(name: 'vendor_forgot_password_method'),
+        );
 
-        if (isset($data)) {
+        if (isset($seller)) {
             return response()->json(['message' => 'otp verified.'], 200);
         }
 
@@ -162,40 +162,23 @@ if ($zender && $zender->enabled) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $data = DB::table('password_resets')
-            ->where('user_type', 'seller')
-            ->where('identity', 'like', "%{$request['identity']}%")
-            ->where(['token' => $request['otp']])
-            ->orderBy('created_at', 'desc')
-            ->first();
+        $identity = (string)$request['identity'];
+        $proof = (string)$request['otp'];
 
-        $data2 = DB::table('phone_or_email_verifications')
-            ->where(['token' => $request['otp']])
-            ->where('phone_or_email', 'like', "%{$request['identity']}%")
-            ->orderBy('created_at', 'desc')
-            ->first();
+        $seller = $this->vendorPasswordResetService->findSellerHoldingCode(
+            identity: $identity,
+            code: $proof,
+            method: getWebConfig(name: 'vendor_forgot_password_method'),
+        ) ?? $this->vendorPasswordResetService->findSellerWithVerifiedSession(phone: $identity, session: $proof);
 
-        if ($data || $data2) {
-
-            // The reset ends every existing session. Someone resetting their
-            // password because they believe they were compromised was leaving
-            // the attacker signed in: the password changed and auth_token did
-            // not, so the stolen bearer kept working.
-            DB::table('sellers')->where('phone', 'like', "%{$request['identity']}%")
-                ->update([
-                    'password' => bcrypt(str_replace(' ', '', $request['password'])),
-                    'auth_token' => Str::random(50),
-                ]);
-
-            DB::table('password_resets')
-                ->where('user_type', 'seller')
-                ->where('identity', 'like', "%{$request['identity']}%")
-                ->delete();
-
-            DB::table('phone_or_email_verifications')
-                ->where(['token' => $request['otp']])
-                ->where('phone_or_email', 'like', "%{$request['identity']}%")
-                ->delete();
+        if (isset($seller)) {
+            $this->vendorPasswordResetService->resetPassword(
+                seller: $seller,
+                identity: $identity,
+                proof: $proof,
+                password: $request['password'],
+                endSessions: true,
+            );
 
             return response()->json(['message' => 'Password changed successfully.'], 200);
         }
@@ -206,10 +189,14 @@ if ($zender && $zender->enabled) {
 
     public function firebaseAuthTokenStore(Request $request): JsonResponse
     {
-        $this->phoneOrEmailVerificationRepo->updateOrCreate(params: ['phone_or_email' => $request['identity']], value: [
-            'phone_or_email' => $request['identity'],
-            'token' => $request['token'],
-        ]);
+        $identity = (string)$request['identity'];
+        if (!$this->vendorPasswordResetService->findSeller(identity: $identity, method: VendorPasswordResetService::PHONE)) {
+            return response()->json(['errors' => [
+                ['code' => 'not-found', 'message' => translate('Vendor not found')]
+            ]], 404);
+        }
+
+        $this->vendorPasswordResetService->rememberSession(phone: $identity, session: (string)$request['token']);
         return response()->json(['message' => translate('Token_is_successfully_Saved')], 200);
     }
 
@@ -252,14 +239,13 @@ if ($zender && $zender->enabled) {
             return response()->json(['errors' => $errors], 403);
         }
 
-        $seller = $this->vendorRepo->getFirstWhere(params: ['identity' => $request['phoneNumber']]);
+        $seller = $this->vendorPasswordResetService->findSeller(identity: (string)$request['phoneNumber'], method: VendorPasswordResetService::PHONE);
 
-        $check = DB::table('phone_or_email_verifications')
-            ->where(['token' => $request['sessionInfo']])
-            ->where('phone_or_email', 'like', "%{$request['phoneNumber']}%")
-            ->first();
-
-        if ($seller && isset($check)) {
+        if ($seller && $this->vendorPasswordResetService->acceptSession(
+                seller: $seller,
+                session: (string)$request['sessionInfo'],
+                verifiedPhone: (string)($responseData['phoneNumber'] ?? ''),
+            )) {
             return response()->json(['message' => 'otp verified.'], 200);
         }
 
