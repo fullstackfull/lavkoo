@@ -6,6 +6,7 @@ use App\Models\SellerRole;
 use App\Models\SellerStaff;
 use App\Services\Marketplace\SellerPermissionService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\Support\BuildsSellerApiStaff;
 use Tests\TestCase;
 
@@ -26,6 +27,7 @@ class SellerApiSecurityDeskGrantTest extends TestCase
     private string $managerToken;
     private int $managerId;
     private int $colleagueId;
+    private int $financeColleagueId;
     private int $financeRoleId;
     private int $everythingRoleId;
 
@@ -39,6 +41,10 @@ class SellerApiSecurityDeskGrantTest extends TestCase
         $this->colleagueId = $this->insertSellerApiStaffMember(name: 'colleague', permissions: null)['id'];
         $this->financeRoleId = $this->insertSellerApiRole(name: 'Finance', permissions: ['payouts.request']);
         $this->everythingRoleId = $this->insertSellerApiRole(name: 'Everything', permissions: $this->everyPermission());
+        $this->financeColleagueId = DB::table('seller_staff')->insertGetId([
+            'seller_id' => self::SELLER, 'seller_role_id' => $this->financeRoleId, 'name' => 'accountant', 'email' => 'accountant@alpha.test', 'password' => 'accountants-hash',
+            'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     protected function tearDown(): void
@@ -53,12 +59,47 @@ class SellerApiSecurityDeskGrantTest extends TestCase
     public function test_a_staff_member_who_manages_staff_writes_a_role_that_holds_no_more_than_their_own(): void
     {
         $created = $this->sellerApiAsStaff($this->managerToken, 'POST', 'seller-center/security/roles', ['name' => 'Self made', 'permissions' => $this->everyPermission()]);
-        $rewritten = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/roles/' . $this->financeRoleId, ['name' => 'Finance', 'permissions' => $this->everyPermission(), 'status' => 'active']);
 
         $this->assertSame(201, $created->getStatusCode());
-        $this->assertSame(200, $rewritten->getStatusCode());
         $this->assertSame(['staff.manage'], $this->permissionsOfRoleNamed('Self made'));
-        $this->assertSame(['staff.manage'], $this->permissionsOfRoleNamed('Finance'));
+    }
+
+    public function test_a_staff_member_who_manages_staff_rewrites_a_role_without_giving_it_more_than_their_own_or_taking_from_it_what_they_do_not_hold(): void
+    {
+        $rewritten = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/roles/' . $this->financeRoleId, ['name' => 'Finance', 'permissions' => $this->everyPermission(), 'status' => 'active']);
+
+        $this->assertSame(200, $rewritten->getStatusCode());
+        $this->assertEqualsCanonicalizing(['payouts.request', 'staff.manage'], $this->permissionsOfRoleNamed('Finance'));
+    }
+
+    public function test_a_staff_member_who_manages_staff_saves_a_richer_role_without_its_holders_losing_what_they_hold(): void
+    {
+        $saved = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/roles/' . $this->financeRoleId, ['name' => 'Finance (renamed)', 'permissions' => ['payouts.request'], 'status' => 'active']);
+
+        $this->assertSame(200, $saved->getStatusCode());
+        $this->assertSame(['payouts.request'], $this->permissionsOfRoleNamed('Finance (renamed)'));
+        $this->assertSame(['payouts.request'], $this->permissionsOf(staffId: $this->financeColleagueId));
+    }
+
+    public function test_a_staff_member_who_manages_staff_can_still_deactivate_or_rename_a_colleague_who_holds_a_richer_role(): void
+    {
+        $response = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/staff/' . $this->financeColleagueId, [
+            'name' => 'Renamed accountant', 'seller_role_id' => $this->financeRoleId, 'status' => 'inactive',
+        ]);
+
+        $accountant = SellerStaff::find($this->financeColleagueId);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['Renamed accountant', 'inactive', $this->financeRoleId], [$accountant->name, $accountant->status, (int) $accountant->seller_role_id]);
+    }
+
+    public function test_a_staff_member_who_manages_staff_cannot_set_a_new_password_for_a_colleague_who_holds_a_richer_role(): void
+    {
+        $response = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/staff/' . $this->financeColleagueId, [
+            'name' => 'accountant', 'seller_role_id' => $this->financeRoleId, 'status' => 'active', 'password' => self::PASSWORD,
+        ]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('accountants-hash', SellerStaff::find($this->financeColleagueId)->password);
     }
 
     public function test_a_staff_member_who_manages_staff_cannot_put_themselves_in_a_role_that_holds_more_than_their_own(): void
@@ -112,6 +153,18 @@ class SellerApiSecurityDeskGrantTest extends TestCase
         $this->assertEqualsCanonicalizing($this->everyPermission(), $this->permissionsOfRoleNamed('Self made'));
         $this->assertEqualsCanonicalizing($this->everyPermission(), $this->permissionsOf(staffId: $this->colleagueId));
         $this->assertSame($this->everythingRoleId, (int) SellerStaff::where('email', 'newcomer@alpha.test')->value('seller_role_id'));
+    }
+
+    public function test_the_owner_still_takes_every_permission_out_of_a_role_and_sets_a_colleagues_password(): void
+    {
+        $rewritten = $this->sellerApi('PUT', 'seller-center/security/roles/' . $this->financeRoleId, ['name' => 'Finance', 'permissions' => [], 'status' => 'active']);
+        $updated = $this->sellerApi('PUT', 'seller-center/security/staff/' . $this->financeColleagueId, [
+            'name' => 'accountant', 'seller_role_id' => $this->everythingRoleId, 'status' => 'active', 'password' => self::PASSWORD,
+        ]);
+
+        $this->assertSame([200, 200], [$rewritten->getStatusCode(), $updated->getStatusCode()]);
+        $this->assertSame([], $this->permissionsOfRoleNamed('Finance'));
+        $this->assertTrue(Hash::check(self::PASSWORD, SellerStaff::find($this->financeColleagueId)->password));
     }
 
     public function test_the_owner_changes_and_removes_roles_and_staff_through_the_other_write_routes_of_the_desk(): void

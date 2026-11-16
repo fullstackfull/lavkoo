@@ -6,6 +6,7 @@ use App\Models\SellerRole;
 use App\Models\SellerStaff;
 use App\Services\Marketplace\SellerPermissionService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * The panel handed SellerTeamService no principal ("the panel is the owner's own door, so nothing is withheld"), but the staff middleware lets any
@@ -21,6 +22,7 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
 
     private int $managerId;
     private int $colleagueId;
+    private int $financeColleagueId;
     private int $financeRoleId;
     private int $everythingRoleId;
 
@@ -33,6 +35,10 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
         $this->colleagueId = $this->insertStaffMember(name: 'colleague', permissions: null);
         $this->financeRoleId = $this->insertSellerRole(name: 'Finance', permissions: ['payouts.request']);
         $this->everythingRoleId = $this->insertSellerRole(name: 'Everything', permissions: $this->everyPermission());
+        $this->financeColleagueId = DB::table('seller_staff')->insertGetId([
+            'seller_id' => self::SELLER, 'seller_role_id' => $this->financeRoleId, 'name' => 'accountant', 'email' => 'accountant@alpha.test', 'password' => 'accountants-hash',
+            'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     public function test_a_staff_member_who_manages_staff_writes_a_role_that_holds_no_more_than_their_own(): void
@@ -42,13 +48,32 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
         $this->assertSame(['staff.manage'], $this->permissionsOfRoleNamed('Self made'));
     }
 
-    public function test_a_staff_member_who_manages_staff_rewrites_a_role_to_hold_no_more_than_their_own(): void
+    public function test_a_staff_member_who_manages_staff_rewrites_a_role_without_giving_it_more_than_their_own_or_taking_from_it_what_they_do_not_hold(): void
     {
         $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/roles/' . $this->financeRoleId, [
             'name' => 'Finance', 'permissions' => $this->everyPermission(), 'status' => 'active',
         ])->assertRedirect();
 
-        $this->assertSame(['staff.manage'], $this->permissionsOfRoleNamed('Finance'));
+        $this->assertEqualsCanonicalizing(['payouts.request', 'staff.manage'], $this->permissionsOfRoleNamed('Finance'));
+    }
+
+    public function test_a_staff_member_who_manages_staff_saves_a_richer_role_without_its_holders_losing_what_they_hold(): void
+    {
+        $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/roles/' . $this->financeRoleId, [
+            'name' => 'Finance (renamed)', 'permissions' => ['payouts.request'], 'status' => 'active',
+        ])->assertRedirect();
+
+        $this->assertSame(['payouts.request'], $this->permissionsOfRoleNamed('Finance (renamed)'));
+        $this->assertSame(['payouts.request'], $this->permissionsOf(staffId: $this->financeColleagueId));
+    }
+
+    public function test_a_staff_member_who_manages_staff_can_still_take_a_permission_they_hold_out_of_a_role(): void
+    {
+        $roleId = $this->insertSellerRole(name: 'Mixed', permissions: ['staff.manage', 'payouts.request']);
+
+        $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/roles/' . $roleId, ['name' => 'Mixed', 'permissions' => [], 'status' => 'active'])->assertRedirect();
+
+        $this->assertSame(['payouts.request'], $this->permissionsOfRoleNamed('Mixed'));
     }
 
     public function test_a_staff_member_who_manages_staff_cannot_put_themselves_in_a_role_that_holds_more_than_their_own(): void
@@ -65,6 +90,27 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
 
         $this->assertSame(['error'], $this->toastTypes());
         $this->assertNull(SellerStaff::find($this->colleagueId)->seller_role_id);
+    }
+
+    public function test_a_staff_member_who_manages_staff_can_still_deactivate_or_rename_a_colleague_who_holds_a_richer_role(): void
+    {
+        $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/' . $this->financeColleagueId, [
+            'name' => 'Renamed accountant', 'seller_role_id' => $this->financeRoleId, 'status' => 'inactive',
+        ])->assertRedirect();
+
+        $this->assertSame(['success'], $this->toastTypes());
+        $accountant = SellerStaff::find($this->financeColleagueId);
+        $this->assertSame(['Renamed accountant', 'inactive', $this->financeRoleId], [$accountant->name, $accountant->status, (int) $accountant->seller_role_id]);
+    }
+
+    public function test_a_staff_member_who_manages_staff_cannot_set_a_new_password_for_a_colleague_who_holds_a_richer_role(): void
+    {
+        $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/' . $this->financeColleagueId, [
+            'name' => 'accountant', 'seller_role_id' => $this->financeRoleId, 'status' => 'active', 'password' => self::PASSWORD,
+        ])->assertRedirect();
+
+        $this->assertSame(['error'], $this->toastTypes());
+        $this->assertSame('accountants-hash', SellerStaff::find($this->financeColleagueId)->password);
     }
 
     public function test_a_staff_member_who_manages_staff_cannot_add_somebody_in_a_role_that_holds_more_than_their_own(): void
@@ -101,6 +147,19 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
         $this->assertSame(['staff.manage'], $this->permissionsOfRoleNamed('Team leads'));
         $this->assertSame($roleId, (int)SellerStaff::find($this->colleagueId)->seller_role_id);
         $this->assertSame($roleId, (int)SellerStaff::where('email', 'newcomer@alpha.test')->value('seller_role_id'));
+    }
+
+    public function test_the_owner_still_takes_every_permission_out_of_a_role_and_sets_a_colleagues_password(): void
+    {
+        $this->signInAs(self::SELLER);
+
+        $this->put('/vendor/business-settings/staff/roles/' . $this->financeRoleId, ['name' => 'Finance', 'permissions' => [], 'status' => 'active'])->assertRedirect();
+        $this->put('/vendor/business-settings/staff/' . $this->financeColleagueId, [
+            'name' => 'accountant', 'seller_role_id' => $this->everythingRoleId, 'status' => 'active', 'password' => self::PASSWORD,
+        ])->assertRedirect();
+
+        $this->assertSame([], $this->permissionsOfRoleNamed('Finance'));
+        $this->assertTrue(Hash::check(self::PASSWORD, SellerStaff::find($this->financeColleagueId)->password));
     }
 
     public function test_the_owner_still_hands_out_every_permission(): void

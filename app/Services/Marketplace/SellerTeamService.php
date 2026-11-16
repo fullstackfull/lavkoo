@@ -61,7 +61,7 @@ class SellerTeamService
 
         $role->update([
             'name' => $input['name'],
-            'permissions' => $this->grantable($input['permissions'] ?? [], $by),
+            'permissions' => $this->permissionsAfterRewrite($input['permissions'] ?? [], $role->permissions ?? [], $by),
             'status' => $input['status'] ?? SellerRole::STATUS_ACTIVE,
         ]);
 
@@ -133,7 +133,9 @@ class SellerTeamService
     public function updateStaff(SellerStaff $staff, array $input, ?SellerPrincipal $by = null): SellerStaff
     {
         $this->assertRoleBelongsToShop($input['seller_role_id'] ?? null, $staff->seller_id);
-        $this->assertRoleIsWithinWhatTheWriterHolds($input['seller_role_id'] ?? null, $by);
+        if ($this->handsOutTheMembersAuthority(staff: $staff, input: $input)) {
+            $this->assertRoleIsWithinWhatTheWriterHolds($input['seller_role_id'] ?? null, $by);
+        }
 
         $before = ['name' => $staff->name, 'seller_role_id' => $staff->seller_role_id, 'status' => $staff->status];
 
@@ -248,11 +250,45 @@ class SellerTeamService
     {
         $valid = $this->permissions->sanitize($requested);
 
-        if ($by === null || $by->isOwner()) {
+        if ($this->isUnrestricted($by)) {
             return $valid;
         }
 
         return array_values(array_filter($valid, fn (string $permission) => $by->can($permission)));
+    }
+
+    /**
+     * What a role holds after it is rewritten: what the writer asked for and may hand out, and, for a writer who is not the owner, what the
+     * role already held that the writer does not hold. Rewriting a role is not a way to take permissions away from the people who hold it.
+     *
+     * @return array<int, string>
+     */
+    private function permissionsAfterRewrite(array $requested, array $existing, ?SellerPrincipal $by): array
+    {
+        $granted = $this->grantable($requested, $by);
+
+        if ($this->isUnrestricted($by)) {
+            return $granted;
+        }
+
+        $keptFromWhatWasHeld = array_filter($this->permissions->sanitize($existing), fn (string $permission) => !$by->can($permission));
+
+        return array_values(array_unique([...$granted, ...$keptFromWhatWasHeld]));
+    }
+
+    /**
+     * Giving somebody another role hands out that role, and setting somebody's password hands out their account, whatever role it holds: both are held to
+     * what the writer holds. Renaming or switching off a member who holds a richer role takes nothing from the writer and gives nothing to them.
+     */
+    private function handsOutTheMembersAuthority(SellerStaff $staff, array $input): bool
+    {
+        return (int) ($input['seller_role_id'] ?? 0) !== (int) $staff->seller_role_id || !empty($input['password']);
+    }
+
+    /** An owner may hand out anything in the catalogue; so may a caller that names no writer, which is how a test or a job reaches the service. */
+    private function isUnrestricted(?SellerPrincipal $by): bool
+    {
+        return $by === null || $by->isOwner();
     }
 
     /**
@@ -264,7 +300,7 @@ class SellerTeamService
      */
     private function assertRoleIsWithinWhatTheWriterHolds(int|string|null $roleId, ?SellerPrincipal $by): void
     {
-        if (!$roleId || $by === null || $by->isOwner()) {
+        if (!$roleId || $this->isUnrestricted($by)) {
             return;
         }
 
