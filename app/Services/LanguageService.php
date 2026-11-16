@@ -266,12 +266,7 @@ class LanguageService
         }
         ksort($newMessagesArray);
 
-        $remainingMessagesFileContents = "<?php\n\nreturn [\n";
-        foreach ($newMessagesArray as $newMsgKey => $newMsgValue) {
-            $remainingMessagesFileContents .= "\t\"" . $newMsgKey . "\" => \"" . $newMsgValue . "\",\n";
-        }
-        $remainingMessagesFileContents .= "];\n";
-        file_put_contents(base_path('resources/lang/' . $language . '/new-messages.php'), $remainingMessagesFileContents);
+        $this->writeMessagesFile(path: base_path('resources/lang/' . $language . '/new-messages.php'), messages: $newMessagesArray);
 
         $getNewMessagesArray = include(base_path('resources/lang/' . $language . '/new-messages.php'));
 
@@ -323,12 +318,7 @@ class LanguageService
                 $cleanKeys
             );
 
-            $messagesFileContents = "<?php\n\nreturn [\n";
-            foreach ($translatedMessagesArray as $k => $tmaValue) {
-                $messagesFileContents .= "\t\"" . $k . "\" => \"" . $tmaValue . "\",\n";
-            }
-            $messagesFileContents .= "];\n";
-            file_put_contents(base_path('resources/lang/' . $language . '/messages.php'), $messagesFileContents);
+            $this->writeMessagesFile(path: base_path('resources/lang/' . $language . '/messages.php'), messages: $translatedMessagesArray);
 
             $response = [
                 'status' => 1,
@@ -352,14 +342,24 @@ class LanguageService
     {
         $getNewMessagesArray = include($sourcePath);
         ksort($getNewMessagesArray);
-        $remainingMessagesFileContents = "<?php\n\nreturn [\n";
-        foreach ($getNewMessagesArray as $newMsgKey => $newMsgValue) {
-            if (!in_array(base64_encode($newMsgKey), $cleanKeys)) {
-                $remainingMessagesFileContents .= "\t\"" . $newMsgKey . "\" => \"" . $newMsgValue . "\",\n";
-            }
+        $remainingMessages = array_filter($getNewMessagesArray, static fn ($newMsgKey): bool => !in_array(base64_encode($newMsgKey), $cleanKeys), ARRAY_FILTER_USE_KEY);
+        $this->writeMessagesFile(path: $targetPath, messages: $remainingMessages);
+    }
+
+    /**
+     * A language file is PHP that every request in that language includes, and a translation is text an admin (or a translation service)
+     * wrote: it is written with var_export so that a `${...}`, a quote or a backslash in a value stays a string and is never code.
+     */
+    private function writeMessagesFile(string $path, array $messages): void
+    {
+        $contents = "<?php\n\nreturn [\n";
+        foreach ($messages as $key => $value) {
+            $contents .= "\t" . var_export((string)$key, true) . ' => ' . var_export((string)$value, true) . ",\n";
         }
-        $remainingMessagesFileContents .= "];\n";
-        file_put_contents($targetPath, $remainingMessagesFileContents);
+        file_put_contents($path, $contents . "];\n");
+        if (function_exists('opcache_invalidate')) {
+            opcache_invalidate($path, true);
+        }
     }
 
     public function updateAdvancedSearchKeyWords($lang, $key, $result): void
