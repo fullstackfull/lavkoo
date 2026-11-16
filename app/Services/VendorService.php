@@ -17,7 +17,7 @@ class VendorService
      */
     public function isLoginSuccessful(string $email, string $password, string|null|bool $rememberToken): bool
     {
-        if (auth('seller')->attempt(['email' => $email, 'password' => $password], $rememberToken)) {
+        if (auth('seller')->attempt(['email' => $email, 'password' => $password, 'status' => 'approved'], $rememberToken)) {
             return true;
         }
         return false;

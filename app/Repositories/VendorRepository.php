@@ -34,6 +34,9 @@ class VendorRepository implements VendorRepositoryInterface
                 return $query->where(['email' => $params['identity']])
                     ->orWhere(['phone' => $params['identity']]);
             })
+            ->when(isset($params['email']), function ($query) use ($params) {
+                return $query->where(['email' => $params['email']]);
+            })
             ->when(isset($params['id']), function ($query) use ($params) {
                 return $query->where(['id' => $params['id']]);
             })

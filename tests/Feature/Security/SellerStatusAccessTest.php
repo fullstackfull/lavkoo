@@ -13,11 +13,13 @@ use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Seller;
+use App\Services\VendorService;
 use App\Utils\Helpers;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsSellerSchema;
 use Tests\Support\RestoresLanguageFiles;
@@ -27,7 +29,9 @@ use Tests\TestCase;
  * A seller's status decides whether anything they hold still works, and a change of status ends what they were holding.
  *
  * The v2 seller API looked a seller up by the token alone, so a seller who was rejected or set back to pending after signing in kept full
- * access (balance-withdraw included) until someone happened to press suspend, the one transition that used to rotate the token.
+ * access (balance-withdraw included) until someone happened to press suspend, the one transition that used to rotate the token. The web
+ * sign-in gate looked up (email OR phone) but authenticated by email, so another seller's phone that spelled a pending seller's e-mail
+ * address made the gate read the wrong row.
  */
 class SellerStatusAccessTest extends TestCase
 {
@@ -104,6 +108,16 @@ class SellerStatusAccessTest extends TestCase
     private function adminSetsStatus(int $sellerId, string $status): void
     {
         app(VendorController::class)->updateStatus(new Request(['id' => $sellerId, 'status' => $status]));
+    }
+
+    private function signInOnTheWeb(string $email, string $password = self::PASSWORD): TestResponse
+    {
+        return $this->post('/vendor/auth/login', ['email' => $email, 'password' => $password]);
+    }
+
+    private function assertToastedError(TestResponse $response, string $translationKey): void
+    {
+        $response->assertSessionHas('laravel-toaster-magic::messages', static fn (array $messages): bool => $messages[0]['type'] === 'error' && $messages[0]['message'] === translate($translationKey) . '!');
     }
 
     #[DataProvider('statusesThatAreNotApproved')]
@@ -211,5 +225,77 @@ class SellerStatusAccessTest extends TestCase
         $secondToken = $this->v2Login();
         $this->assertNotSame($firstToken, $secondToken);
         $this->assertSame(200, $this->useTokenOnV2($secondToken));
+    }
+
+    public function test_a_pending_seller_cannot_sign_in_on_the_web_through_another_sellers_phone(): void
+    {
+        $this->seller(['status' => 'pending', 'phone' => self::EMAIL, 'password' => bcrypt('Another1!password')]);
+        $this->seller(['status' => 'pending', 'email' => self::EMAIL]);
+
+        $response = $this->signInOnTheWeb(self::EMAIL);
+
+        $this->assertGuest('seller');
+        $this->assertToastedError($response, 'Not_approve_yet');
+    }
+
+    public function test_an_approved_seller_signs_in_on_the_web_even_when_another_sellers_phone_looks_like_their_email(): void
+    {
+        $this->seller(['status' => 'pending', 'phone' => self::EMAIL, 'password' => bcrypt('Another1!password')]);
+        $approvedId = $this->seller(['email' => self::EMAIL]);
+
+        $this->signInOnTheWeb(self::EMAIL)->assertRedirect(route('vendor.dashboard.index'));
+
+        $this->assertAuthenticatedAs(Seller::query()->findOrFail($approvedId), 'seller');
+    }
+
+    public function test_an_approved_seller_signs_in_on_the_web(): void
+    {
+        $sellerId = $this->seller(['email' => self::EMAIL]);
+
+        $this->signInOnTheWeb(self::EMAIL)->assertRedirect(route('vendor.dashboard.index'));
+
+        $this->assertAuthenticatedAs(Seller::query()->findOrFail($sellerId), 'seller');
+    }
+
+    #[DataProvider('statusesThatAreNotApproved')]
+    public function test_a_seller_who_is_not_approved_does_not_sign_in_on_the_web_with_the_right_password(string $status): void
+    {
+        $this->seller(['status' => $status, 'email' => self::EMAIL]);
+
+        $response = $this->signInOnTheWeb(self::EMAIL)->assertRedirect();
+
+        $this->assertGuest('seller');
+        $this->assertToastedError($response, 'Not_approve_yet');
+    }
+
+    public function test_an_approved_seller_with_the_wrong_password_does_not_sign_in_on_the_web(): void
+    {
+        $this->seller(['email' => self::EMAIL]);
+
+        $response = $this->signInOnTheWeb(self::EMAIL, 'Wrong1!password')->assertRedirect();
+
+        $this->assertGuest('seller');
+        $this->assertToastedError($response, 'credentials_doesnt_match');
+    }
+
+    #[DataProvider('statusesThatAreNotApproved')]
+    public function test_the_vendor_login_service_authenticates_only_an_approved_seller(string $status): void
+    {
+        $this->seller(['status' => $status, 'email' => self::EMAIL]);
+
+        $signedIn = app(VendorService::class)->isLoginSuccessful(email: self::EMAIL, password: self::PASSWORD, rememberToken: false);
+
+        $this->assertFalse($signedIn);
+        $this->assertGuest('seller');
+    }
+
+    public function test_the_vendor_login_service_authenticates_an_approved_seller(): void
+    {
+        $sellerId = $this->seller(['email' => self::EMAIL]);
+
+        $signedIn = app(VendorService::class)->isLoginSuccessful(email: self::EMAIL, password: self::PASSWORD, rememberToken: false);
+
+        $this->assertTrue($signedIn);
+        $this->assertAuthenticatedAs(Seller::query()->findOrFail($sellerId), 'seller');
     }
 }
