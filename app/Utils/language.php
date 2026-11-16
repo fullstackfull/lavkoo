@@ -13,7 +13,9 @@ if (!function_exists('translate')) {
             App::setLocale($local);
             $key = getOrPutTranslateMessageValueByKey(local: $local, key: $key);
         }
-        App::setLocale(getLanguageCode(country_code: $local));
+        if (!isApiRequest()) {
+            App::setLocale(getLanguageCode(country_code: $local));
+        }
         return $key;
     }
 
@@ -142,10 +144,18 @@ if (!function_exists('removeSpecialCharacters')) {
     }
 }
 
+if (!function_exists('isApiRequest')) {
+    /** The API names its language in a header, which its middleware turns into the locale of the whole request. */
+    function isApiRequest(): bool
+    {
+        return str_contains(url()->current(), '/api');
+    }
+}
+
 if (!function_exists('getDefaultLanguage')) {
     function getDefaultLanguage(): string
     {
-        if (strpos(url()->current(), '/api')) {
+        if (isApiRequest()) {
             $lang = App::getLocale();
         } elseif (session()->has('local')) {
             $lang = session('local');

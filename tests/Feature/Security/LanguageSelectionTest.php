@@ -58,6 +58,13 @@ class LanguageSelectionTest extends TestCase
         return App::getLocale();
     }
 
+    private function bindApiRequest(string $header): void
+    {
+        $request = Request::create('/api/v1/products', 'GET', [], [], [], ['HTTP_LANG' => $header]);
+        $this->app->instance('request', $request);
+        app(APILocalizationMiddleware::class)->handle($request, static fn () => response('ok'));
+    }
+
     /** @return array<string, array{0: mixed}> */
     public static function codesTheStoreDoesNotList(): array
     {
@@ -117,6 +124,45 @@ class LanguageSelectionTest extends TestCase
     public function test_the_api_still_resolves_what_the_apps_send(string $header, string $locale): void
     {
         $this->assertSame($locale, $this->localeOfApiRequest($header));
+    }
+
+    // ---- translate() and the locale of the request -----------------------------------------------------------------------------
+
+    /** @return array<string, array{0: string}> */
+    public static function headersThatNameArabic(): array
+    {
+        return ['the language' => ['ar'], 'the language of Saudi Arabia' => ['ar-SA'], 'the language of the Emirates' => ['ar_AE'], 'the store code' => ['sa']];
+    }
+
+    #[DataProvider('headersThatNameArabic')]
+    public function test_translate_leaves_the_locale_the_api_middleware_chose_for_the_whole_request(string $header): void
+    {
+        $spanishFile = base_path('resources/lang/es/new-messages.php');
+        $spanishBefore = (string) file_get_contents($spanishFile);
+        $this->bindApiRequest($header);
+
+        try {
+            $locales = [];
+            foreach (['probe_api_locale_one', 'probe_api_locale_two', 'probe_api_locale_three'] as $key) {
+                translate($key);
+                $locales[] = App::getLocale();
+            }
+
+            $this->assertSame(['sa', 'sa', 'sa'], $locales, 'the locale of the request drifted from the store language to the language code and on');
+            $this->assertSame($spanishBefore, file_get_contents($spanishFile), 'a key of the Arabic request was stored in the Spanish file');
+            $this->assertArrayHasKey('probe_api_locale_three', include base_path('resources/lang/sa/new-messages.php'));
+        } finally {
+            file_put_contents($spanishFile, $spanishBefore);
+        }
+    }
+
+    public function test_translate_still_sets_the_language_code_as_the_locale_of_a_page(): void
+    {
+        session()->put('local', 'sa');
+
+        $this->assertNotNull(translate('probe_page_locale'));
+
+        $this->assertSame('ar', App::getLocale());
     }
 
     // ---- which language a header names ------------------------------------------------------------------------------------------
