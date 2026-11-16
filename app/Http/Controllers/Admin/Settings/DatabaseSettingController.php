@@ -9,10 +9,33 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 
 class DatabaseSettingController extends BaseController
 {
+    /** The tables the screen never offers: the handler empties only a table the screen would have listed. */
+    private const TABLES_THE_SCREEN_HIDES = [
+        'addon_settings',
+        'admin_roles',
+        'admins',
+        'business_settings',
+        'colors',
+        'currencies',
+        'failed_jobs',
+        'migrations',
+        'oauth_access_tokens',
+        'oauth_auth_codes',
+        'oauth_clients',
+        'oauth_personal_access_clients',
+        'oauth_refresh_tokens',
+        'password_resets',
+        'personal_access_tokens',
+        'phone_or_email_verifications',
+        'social_medias',
+        'soft_credentials',
+        'users',
+    ];
 
     /**
      * @param Request|null $request
@@ -27,28 +50,7 @@ class DatabaseSettingController extends BaseController
             ->pluck('TABLE_NAME')
             ->toArray();
 
-        $filterTables = array(
-            'addon_settings',
-            'admin_roles',
-            'admins',
-            'business_settings',
-            'colors',
-            'currencies',
-            'failed_jobs',
-            'migrations',
-            'oauth_access_tokens',
-            'oauth_auth_codes',
-            'oauth_clients',
-            'oauth_personal_access_clients',
-            'oauth_refresh_tokens',
-            'password_resets',
-            'personal_access_tokens',
-            'phone_or_email_verifications',
-            'social_medias',
-            'soft_credentials',
-            'users'
-        );
-        $tables = array_values(array_diff($tables, $filterTables));
+        $tables = array_values(array_diff($tables, self::TABLES_THE_SCREEN_HIDES));
 
         $rows = [];
         foreach ($tables as $table) {
@@ -66,7 +68,10 @@ class DatabaseSettingController extends BaseController
             return back();
         }
 
-        $tables = (array)$request['tables'];
+        $tables = array_values(array_filter(
+            (array)$request['tables'],
+            static fn ($table): bool => is_string($table) && preg_match('/^[A-Za-z0-9_]+$/D', $table) === 1 && !in_array(strtolower($table), self::TABLES_THE_SCREEN_HIDES, true) && Schema::hasTable($table)
+        ));
 
         if(count($tables) == 0) {
             ToastMagic::error(translate('No_Table_Updated'));
