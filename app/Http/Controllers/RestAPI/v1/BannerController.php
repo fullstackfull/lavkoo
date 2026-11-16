@@ -15,6 +15,7 @@ use App\Traits\CacheManagerTrait;
 use App\Utils\Helpers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class BannerController extends Controller
 {
@@ -96,6 +97,16 @@ class BannerController extends Controller
         return response()->json($banners, 200);
     }
 
+    /** A banner of a product a customer may not see would embed the product's whole row and open a page that is not there, so it is not served. */
+    private function withoutBannersOfHiddenProducts(Collection $banners): Collection
+    {
+        $visibleProductIds = Product::active()
+            ->whereIn('id', $banners->where('resource_type', 'product')->pluck('resource_id'))
+            ->pluck('id');
+
+        return $banners->reject(fn ($banner) => $banner['resource_type'] == 'product' && !$visibleProductIds->contains($banner['resource_id']));
+    }
+
     /** @return array<string, mixed> */
     private function formatBanner(object $banner): array
     {
@@ -133,7 +144,7 @@ class BannerController extends Controller
         // Screen-scoped banners are excluded so the installed apps keep receiving
         // exactly the home-screen banners they render today; the category screen
         // reads its own from /categories/page-header/{id}.
-        $banners = $this->cacheBannerTable()->whereNotIn('banner_type', self::SCREEN_SCOPED_TYPES);
+        $banners = $this->withoutBannersOfHiddenProducts(banners: $this->cacheBannerTable()->whereNotIn('banner_type', self::SCREEN_SCOPED_TYPES));
         $productIds = [];
         $notOfferedProductIds = [];
         $shopIds = [];
