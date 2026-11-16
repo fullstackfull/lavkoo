@@ -32,6 +32,8 @@ final class InertSvg
 
     private const RASTER_DATA_URL = '#^data:image/(?:png|jpe?g|gif|webp)(?:;[a-z0-9=.-]+)*;base64,[A-Za-z0-9+/=\s]*$#i';
 
+    private const UTF8_NAMES = ['utf-8', 'utf8', 'us-ascii', 'ascii'];
+
     private const STANDARD_DTD = '#^http://www\.w3\.org/(?:Graphics/SVG|TR)/#';
 
     private const TEXT_ENTITY = '/<!ENTITY\s+[A-Za-z_][A-Za-z0-9._-]*\s+(?:"[^"<&%]*"|\'[^\'<&%]*\')\s*>/';
@@ -69,7 +71,7 @@ final class InertSvg
     private static function parse(string $xml): ?DOMDocument
     {
         $document = self::load(xml: $xml, options: LIBXML_NONET);
-        if ($document === null || !self::hasOnlyAPlainDocumentType(document: $document)) {
+        if ($document === null || !self::isUtf8(xml: $xml, document: $document) || !self::hasOnlyAPlainDocumentType(document: $document)) {
             return null;
         }
 
@@ -85,6 +87,17 @@ final class InertSvg
         libxml_use_internal_errors($reportErrorsAsExceptions);
 
         return $isWellFormed ? $document : null;
+    }
+
+    /**
+     * Only UTF-8 (and ASCII, which it contains) is read. In another encoding libxml and the browser decode the same byte to two characters
+     * (ISO646-DE and Shift_JIS put another character where the other has the backslash of an escape or the at sign of an import, and the
+     * pattern that looks for them then looks at the wrong text), and a UTF-16 or UTF-32 file, which XML tells by its byte order mark or by the
+     * NUL bytes that its markup is made of, is not text that the rules below can read: libxml stops reading at a NUL byte.
+     */
+    private static function isUtf8(string $xml, DOMDocument $document): bool
+    {
+        return !str_contains($xml, "\0") && ($document->xmlEncoding === null || in_array(strtolower($document->xmlEncoding), self::UTF8_NAMES, true));
     }
 
     /**

@@ -55,6 +55,13 @@ class InertSvgTest extends TestCase
             'what older Illustrator writes (the namespaces of the document itself as entities)' => ['<?xml version="1.0" encoding="utf-8"?>' . "\n" . '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd" [' . "\n\t" . '<!ENTITY ns_svg "http://www.w3.org/2000/svg">' . "\n\t" . '<!ENTITY ns_xlink "http://www.w3.org/1999/xlink">' . "\n]>\n" . '<svg xmlns="&ns_svg;" xmlns:xlink="&ns_xlink;" width="1" height="1"><defs><path id="a" d="M0 0"/></defs><use xlink:href="#a"/></svg>'],
             'an entity that holds a word, used as the text of a title' => [self::declaring(entities: '<!ENTITY shop "Lavkoo">', body: '<title>&shop;</title><rect width="1" height="1"/>')],
             'an entity that holds a colour, used as the value of an attribute' => [self::declaring(entities: '<!ENTITY red "#f00">', body: '<rect width="1" height="1" fill="&red;" style="stroke:&red;"/>')],
+            'a UTF-8 byte order mark' => ["\xEF\xBB\xBF<svg $svg><rect width=\"1\" height=\"1\"/></svg>"],
+            'letters outside ASCII, in UTF-8' => [self::declared(encoding: 'UTF-8', body: '<title>caf' . "\xC3\xA9" . '</title>')],
+            'UTF-8 declared in small letters' => [self::declared(encoding: 'utf-8', body: '<rect width="1" height="1"/>')],
+            'UTF-8 declared without the dash' => [self::declared(encoding: 'UTF8', body: '<rect width="1" height="1"/>')],
+            'UTF-8 declared in mixed letters' => [self::declared(encoding: 'Utf-8', body: '<rect width="1" height="1"/>')],
+            'US-ASCII declared' => [self::declared(encoding: 'US-ASCII', body: '<rect width="1" height="1"/>')],
+            'ASCII declared in small letters' => [self::declared(encoding: 'ascii', body: '<rect width="1" height="1"/>')],
         ];
     }
 
@@ -176,6 +183,20 @@ class InertSvgTest extends TestCase
             'an entity that holds half of a script url, next to the other half' => [self::declaring(entities: '<!ENTITY a "java"><!ENTITY b "script:alert(1)">', body: '<a href="&a;&b;"><rect width="1" height="1"/></a>')],
             // libxml stops an expansion that is far larger than the file, so a file cannot be made to fill the memory
             'an entity repeated until it expands to far more than the file holds' => [self::declaring(entities: '<!ENTITY a "' . str_repeat('a', 100000) . '">', body: '<title>' . str_repeat('&a;', 4000) . '</title>')],
+            // only UTF-8 (and ASCII) is read: in another encoding a byte can stand for another character to libxml than to the browser, such as
+            // the backslash of an escape or the at sign of an import, and the UTF-16 and UTF-32 files are not read at all
+            'an import in a document declared as ISO646-DE' => [self::declared(encoding: 'ISO646-DE', body: "<style>@import 'https://evil.test/a.css';</style>")],
+            'an escaped address in a document declared as Shift_JIS' => [self::declared(encoding: 'Shift_JIS', body: '<style>rect{mask-image:\\75rl(https://evil.test/p.png)}</style>')],
+            'an escaped address in an attribute of a document declared as Shift_JIS' => [self::declared(encoding: 'Shift_JIS', body: '<rect mask="\\75rl(https://evil.test/p.png)" width="1" height="1"/>')],
+            'a document declared as ISO-8859-1' => [self::declared(encoding: 'ISO-8859-1', body: '<title>caf' . "\xE9" . '</title>')],
+            'a document declared as windows-1252' => [self::declared(encoding: 'windows-1252', body: '<rect width="1" height="1"/>')],
+            'a document declared as Latin-1 in other letters' => [self::declared(encoding: 'latin1', body: '<rect width="1" height="1"/>')],
+            'a UTF-16 document with a byte order mark (little endian)' => ["\xFF\xFE" . mb_convert_encoding("<svg $svg><rect width=\"1\" height=\"1\"/></svg>", 'UTF-16LE', 'UTF-8')],
+            'a UTF-16 document with a byte order mark (big endian)' => ["\xFE\xFF" . mb_convert_encoding("<svg $svg><rect width=\"1\" height=\"1\"/></svg>", 'UTF-16BE', 'UTF-8')],
+            'a UTF-16 document without a byte order mark that declares UTF-8' => [mb_convert_encoding(self::declared(encoding: 'UTF-8', body: '<rect width="1" height="1"/>'), 'UTF-16LE', 'UTF-8')],
+            'a UTF-32 document without a byte order mark' => [mb_convert_encoding("<svg $svg><rect width=\"1\" height=\"1\"/></svg>", 'UTF-32BE', 'UTF-8')],
+            'a UTF-32 document with a byte order mark' => ["\xFF\xFE\x00\x00" . mb_convert_encoding("<svg $svg><rect width=\"1\" height=\"1\"/></svg>", 'UTF-32LE', 'UTF-8')],
+            'markup after a NUL byte, which libxml does not read' => ["<svg $svg><rect width=\"1\" height=\"1\"/></svg>\0<script>alert(1)</script>"],
         ];
     }
 
@@ -198,6 +219,11 @@ class InertSvgTest extends TestCase
     private static function declaring(string $entities, string $body): string
     {
         return '<?xml version="1.0"?><!DOCTYPE svg [' . $entities . ']><svg ' . self::SVG . ' ' . self::XLINK . '>' . $body . '</svg>';
+    }
+
+    private static function declared(string $encoding, string $body): string
+    {
+        return '<?xml version="1.0" encoding="' . $encoding . '"?><svg ' . self::SVG . '>' . $body . '</svg>';
     }
 
     private function upload(string $content): UploadedFile
