@@ -3,8 +3,13 @@
 namespace Tests\Feature\Security;
 
 use App\Traits\SettingsTrait;
+use App\Utils\EnvironmentFile;
+use App\Utils\Helpers;
+use Closure;
 use Dotenv\Dotenv;
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -29,8 +34,7 @@ class EnvironmentWriterTest extends TestCase
 
     protected function tearDown(): void
     {
-        @unlink($this->directory . '/.env');
-        @rmdir($this->directory);
+        File::deleteDirectory($this->directory);
 
         parent::tearDown();
     }
@@ -149,5 +153,57 @@ class EnvironmentWriterTest extends TestCase
         $this->assertSame('live', $this->write('APP_MODE', 'live'));
         $this->assertSame('"a b"', $this->write('APP_MODE', 'a b'));
         $this->assertSame('"say \"hi\""', $this->write('APP_MODE', 'say "hi"'));
+    }
+
+    // ---- a file the writer cannot write is an error, never a success -------------------------------------------------------------
+
+    /** @return array<string, array{0: Closure(string): string}> a path the writer cannot open for writing, made from the directory of the test */
+    public static function pathsThatCannotBeOpened(): array
+    {
+        return [
+            'a directory in place of the file' => [static function (string $directory): string {
+                mkdir($directory . '/.env-directory');
+
+                return $directory . '/.env-directory';
+            }],
+            'a file that does not exist' => [static fn (string $directory): string => $directory . '/.env-missing'],
+            'a directory that does not exist' => [static fn (string $directory): string => $directory . '/nowhere/.env'],
+        ];
+    }
+
+    #[DataProvider('pathsThatCannotBeOpened')]
+    public function test_a_file_that_cannot_be_opened_is_an_error_and_is_not_created(Closure $makePath): void
+    {
+        $path = $makePath($this->directory);
+        $existedBefore = file_exists($path);
+
+        $failure = $this->failureOf(static fn () => EnvironmentFile::set(path: $path, key: 'APP_DEBUG', value: 'true'));
+
+        $this->assertNotNull($failure, 'the writer answered as if it had written a file it could not open');
+        $this->assertStringContainsString($path, $failure->getMessage());
+        $this->assertSame($existedBefore, file_exists($path), 'a file that was not there is not created holding one line');
+        $this->assertSame(['APP_NAME', 'APP_DEBUG', 'DB_PASSWORD'], array_keys($this->read()), 'the real file is untouched');
+    }
+
+    public function test_the_trait_and_the_legacy_helper_raise_when_the_environment_file_is_missing(): void
+    {
+        unlink($this->directory . '/.env');
+
+        foreach (['the trait' => fn () => $this->write('APP_DEBUG', 'true'), 'the legacy helper' => fn () => Helpers::setEnvironmentValue('APP_DEBUG', 'true')] as $entryPoint => $attempt) {
+            $this->assertNotNull($this->failureOf($attempt), $entryPoint . ' answered as if it had written a file that is not there');
+            $this->assertFileDoesNotExist($this->directory . '/.env');
+        }
+    }
+
+    /** What the writer raised, or nothing when it answered; PHPUnit's own failures are RuntimeExceptions too, so a test cannot catch them in place. */
+    private function failureOf(Closure $write): ?RuntimeException
+    {
+        try {
+            $write();
+        } catch (RuntimeException $failure) {
+            return $failure;
+        }
+
+        return null;
     }
 }
