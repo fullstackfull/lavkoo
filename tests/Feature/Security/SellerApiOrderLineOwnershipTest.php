@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Security;
 
+use App\Services\Marketplace\SellerOrderTimelineService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -13,8 +14,8 @@ use Tests\Support\BuildsSellerApiOrders;
 use Tests\TestCase;
 
 /**
- * The seller apps read an order's lines, upload the file a digital line delivers, read a line's refund and print a point-of-sale invoice by
- * an id the app sends. A line carries the seller's id, and the in-house shop's lines carry id 1 as well, so each lookup must also say that
+ * The seller apps read an order's lines, what it earns and how it progressed, upload the file a digital line delivers, read a line's refund
+ * and print a point-of-sale invoice by an id the app sends. A line carries the seller's id, and the in-house shop's lines carry id 1 as well, so each lookup must also say that
  * the order is a seller's order: another seller's order and the in-house order whose lines carry the caller's id are not found, nothing is
  * read from them and the file they delivered is not replaced.
  */
@@ -204,6 +205,52 @@ class SellerApiOrderLineOwnershipTest extends TestCase
         $this->assertSame(2, $response->json('quntity'));
         $this->assertEqualsWithDelta(200.0, (float) $response->json('refund_amount'), 0.001);
         $this->assertSame(self::OWN_DELIVERY_MAN, $response->json('deliveryman_details.id'));
+    }
+
+    // ---- what an order earns and how it progressed ----
+
+    public function test_v3_the_breakdown_of_the_in_house_order_sharing_the_sellers_id_is_not_found(): void
+    {
+        $response = $this->sellerApi('GET', 'orders/' . self::IN_HOUSE_ORDER . '/breakdown');
+
+        $this->assertNull($response->json('fees'), 'the in-house shop\'s totals were returned');
+        $this->assertNotFound($response, code: 'order');
+    }
+
+    public function test_v3_the_breakdown_of_another_sellers_order_is_not_found(): void
+    {
+        $response = $this->sellerApi('GET', 'orders/' . self::OTHER_SELLERS_ORDER . '/breakdown');
+
+        $this->assertNull($response->json('fees'));
+        $this->assertNotFound($response, code: 'order');
+    }
+
+    public function test_v3_the_seller_can_still_read_the_breakdown_and_timeline_of_their_own_order(): void
+    {
+        DB::table('orders')->where('id', self::OWN_ORDER)->update(['created_at' => now()->subHour()]);
+
+        $response = $this->sellerApi('GET', 'orders/' . self::OWN_ORDER . '/breakdown');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(self::OWN_ORDER, $response->json('order_id'));
+        $this->assertSame(1, $response->json('fees.items.count'));
+        $this->assertSame(2, $response->json('fees.items.quantity'));
+        $this->assertEqualsWithDelta(200.0, (float) $response->json('fees.items.price'), 0.001);
+        $this->assertSame(['order_placed'], array_column($response->json('timeline'), 'key'));
+    }
+
+    public function test_the_timeline_of_the_in_house_order_sharing_the_sellers_id_is_not_found(): void
+    {
+        DB::table('orders')->where('id', self::IN_HOUSE_ORDER)->update(['created_at' => now()->subHour()]);
+
+        $this->assertNull(app(SellerOrderTimelineService::class)->timelineFor(orderId: self::IN_HOUSE_ORDER, sellerId: self::SELLER));
+    }
+
+    public function test_the_timeline_of_another_sellers_order_is_not_found(): void
+    {
+        DB::table('orders')->where('id', self::OTHER_SELLERS_ORDER)->update(['created_at' => now()->subHour()]);
+
+        $this->assertNull(app(SellerOrderTimelineService::class)->timelineFor(orderId: self::OTHER_SELLERS_ORDER, sellerId: self::SELLER));
     }
 
     // ---- the point-of-sale invoice ----
