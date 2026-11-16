@@ -5816,6 +5816,8 @@ return [
     "start_date_field_is_required" => "Start date field is required",
     "Variant:" => "Variant:",
     "product_restock_removed_successfully" => "Product restock removed successfully",
+    "restock_request_not_found" => "Restock request not found",
+    "category_shipping_cost_not_found" => "Category shipping cost not found",
     "If_billing_address_is_off,_customer_is_unable_to_order_any_digital_product" => "If billing address is off, customer is unable to order any digital product",
     "If_disabled,refunds_will_not_be_processed_automatically_to_the_customer’s_wallet." => "If disabled,refunds will not be processed automatically to the customer’s wallet.",
     "Are_you_sure_you_want_to_turn_OFF_Wallet_option" => "Are you sure you want to turn OFF Wallet option",
