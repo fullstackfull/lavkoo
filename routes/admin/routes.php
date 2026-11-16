@@ -41,6 +41,7 @@ use App\Http\Controllers\Admin\Employee\EmployeeController;
 use App\Http\Controllers\Admin\Product\AttributeController;
 use App\Http\Controllers\Admin\Settings\CurrencyController;
 use App\Http\Controllers\Admin\Settings\LanguageController;
+use App\Http\Requests\Admin\LanguageRequest;
 use App\Http\Controllers\Admin\TransactionReportController;
 use App\Http\Controllers\Admin\InhouseProductSaleController;
 use App\Http\Controllers\Admin\ProductStockReportController;
@@ -1259,7 +1260,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             });
 
             Route::group(['prefix' => 'language', 'as' => 'language.', 'middleware' => ['module:system_settings']], function () {
-                Route::controller(LanguageController::class)->group(function () {
+                Route::controller(LanguageController::class)->where(['lang' => LanguageRequest::CODE_PATTERN])->group(function () {
                     Route::get('/', 'index')->name('index');
                     Route::post('add', 'add')->name('add-new');
                     Route::post('update-status', 'updateStatus')->name('update-status');

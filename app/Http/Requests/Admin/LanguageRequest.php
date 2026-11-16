@@ -20,6 +20,10 @@ use Illuminate\Validation\Validator;
 class LanguageRequest extends FormRequest
 {
     use ResponseHandler;
+
+    /** The code names a directory of resources/lang and a file of public/json/admin/lang: letters, digits, hyphen and underscore, never a dot or a slash. */
+    public const CODE_PATTERN = '[A-Za-z][A-Za-z0-9_-]{0,15}';
+
     protected $stopOnFirstFailure = true;
 
     public function authorize(): bool
@@ -31,7 +35,7 @@ class LanguageRequest extends FormRequest
     {
         return [
             'name' => 'required',
-            'code' => 'required',
+            'code' => ['required', 'regex:/^' . self::CODE_PATTERN . '$/D'],
         ];
     }
 
@@ -41,6 +45,7 @@ class LanguageRequest extends FormRequest
         return [
             'name.required' => translate('Language_name_field_is_required!'),
             'code.required' => translate('Language_code_field_is_required!'),
+            'code.regex' => translate('the_language_code_is_not_valid'),
         ];
     }
 
