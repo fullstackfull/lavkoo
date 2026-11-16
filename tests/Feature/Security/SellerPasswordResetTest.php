@@ -552,6 +552,19 @@ class SellerPasswordResetTest extends TestCase
         $this->assertSame(['654321'], $this->tokensKeptFor(self::OWNER_PHONE));
     }
 
+    public function test_the_deploy_cleanup_empties_the_codes_in_flight_and_the_proofs_of_sellers_only(): void
+    {
+        DB::table('phone_or_email_verifications')->insert(['phone_or_email' => self::OWNER_PHONE, 'token' => 'planted-token', 'created_at' => now(), 'updated_at' => now()]);
+        foreach (['seller', 'customer', 'delivery_man', 'admin'] as $userType) {
+            DB::table('password_resets')->insert(['identity' => 'identity-of-' . $userType, 'token' => '482915', 'user_type' => $userType, 'created_at' => now(), 'updated_at' => now()]);
+        }
+
+        (require database_path('migrations/2026_11_26_100100_purge_seller_reset_proofs.php'))->up();
+
+        $this->assertSame(0, DB::table('phone_or_email_verifications')->count());
+        $this->assertEqualsCanonicalizing(['customer', 'delivery_man', 'admin'], DB::table('password_resets')->pluck('user_type')->all());
+    }
+
     public function test_the_firebase_flow_the_app_runs_still_resets_the_password(): void
     {
         $owner = $this->seller(self::OWNER_PHONE, 'owner@example.test');
