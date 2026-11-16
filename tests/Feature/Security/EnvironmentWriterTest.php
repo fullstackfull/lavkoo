@@ -79,27 +79,58 @@ class EnvironmentWriterTest extends TestCase
         $this->assertSame('secret', $read['DB_PASSWORD']);
     }
 
-    /** @return array<string, array{0: string}> */
+    /** @return array<string, array{0: string, 1: string}> the value written, and what the file gives back: the same text without its control characters */
     public static function valuesThatCarryAnotherLine(): array
     {
         return [
-            'a line feed' => ["true\nDB_PASSWORD=attacker"],
-            'a carriage return' => ["true\rQUEUE_CONNECTION=sync"],
-            'both' => ["true\r\nAPP_KEY=base64:AAAA"],
-            'a null byte' => ["true\0\nMAIL_HOST=evil.test"],
-            'a vertical tab and a form feed' => ["true\x0b\x0cLOG_CHANNEL=stack"],
+            'a line feed' => ["true\nDB_PASSWORD=attacker", 'trueDB_PASSWORD=attacker'],
+            'a carriage return' => ["true\rQUEUE_CONNECTION=sync", 'trueQUEUE_CONNECTION=sync'],
+            'both' => ["true\r\nAPP_KEY=base64:AAAA", 'trueAPP_KEY=base64:AAAA'],
+            'a null byte' => ["true\0\nMAIL_HOST=evil.test", 'trueMAIL_HOST=evil.test'],
+            'a vertical tab and a form feed' => ["true\x0b\x0cLOG_CHANNEL=stack", 'trueLOG_CHANNEL=stack'],
+            'a delete character' => ["tr\x7Fue x", 'true x'],
+            'a tab' => ["a\tb", 'ab'],
+            'the whole first block of control characters' => ["x" . implode('', array_map('chr', range(0, 31))) . "y", 'xy'],
         ];
     }
 
     #[DataProvider('valuesThatCarryAnotherLine')]
-    public function test_a_value_never_adds_a_line_to_the_file(string $value): void
+    public function test_a_value_never_adds_a_line_to_the_file(string $value, string $expected): void
     {
         $this->write('APP_DEBUG', $value);
 
-        $lines = file($this->directory . '/.env', FILE_IGNORE_NEW_LINES);
-        $this->assertCount(3, $lines);
+        $content = file_get_contents($this->directory . '/.env');
+        $this->assertCount(3, file($this->directory . '/.env', FILE_IGNORE_NEW_LINES));
+        $this->assertDoesNotMatchRegularExpression('/[\x00-\x09\x0b-\x1f\x7f]/', $content);
         $this->assertSame(['APP_NAME', 'APP_DEBUG', 'DB_PASSWORD'], array_keys($this->read()));
+        $this->assertSame($expected, $this->read()['APP_DEBUG']);
         $this->assertSame('secret', $this->read()['DB_PASSWORD']);
+    }
+
+    public function test_two_writers_that_overlap_leave_a_whole_file_with_every_key(): void
+    {
+        $script = "require " . var_export(base_path('vendor/autoload.php'), true) . ";"
+            . "for (\$i = 0; \$i < 300; \$i++) { App\\Utils\\EnvironmentFile::set(\$argv[1], \$argv[2], (string) \$i); }";
+        $processes = [];
+        foreach (['APP_DEBUG', 'APP_MODE', 'FORCE_HTTPS'] as $key) {
+            $processes[] = proc_open([PHP_BINARY, '-r', $script, '--', $this->directory . '/.env', $key], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        }
+        foreach ($processes as $process) {
+            $this->assertSame(0, proc_close($process));
+        }
+
+        $read = $this->read();
+        $this->assertSame(['APP_NAME', 'APP_DEBUG', 'DB_PASSWORD', 'APP_MODE', 'FORCE_HTTPS'], array_values(array_unique(array_merge(array_keys($read)))), 'no line was lost or cut');
+        $this->assertSame(['Shop', 'secret', '299', '299', '299'], [$read['APP_NAME'], $read['DB_PASSWORD'], $read['APP_DEBUG'], $read['APP_MODE'], $read['FORCE_HTTPS']]);
+    }
+
+    public function test_the_legacy_helper_writes_with_the_same_care(): void
+    {
+        \App\Utils\Helpers::setEnvironmentValue('ADMIN_NAME', "x\"\nDB_PASSWORD=attacker\nY=\"");
+
+        $this->assertSame(['APP_NAME', 'APP_DEBUG', 'DB_PASSWORD', 'ADMIN_NAME'], array_keys($this->read()));
+        $this->assertSame('secret', $this->read()['DB_PASSWORD']);
+        $this->assertSame('x"DB_PASSWORD=attackerY="', $this->read()['ADMIN_NAME']);
     }
 
     public function test_a_key_that_is_not_in_the_file_is_added_once_and_a_known_key_is_replaced(): void
