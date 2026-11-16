@@ -128,6 +128,16 @@ class StorefrontCartGuardTest extends TestCase
         $this->assertTrue(StorefrontCatalog::offers($this->productOf(2)));
     }
 
+    public function test_a_country_code_that_differs_only_in_letter_case_is_not_offered_and_not_listed(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->insertCatalogProduct(id: 3, name: 'Lower case serum', country: 'sa');
+        $this->serveRequestFrom('SA');
+
+        $this->assertFalse(StorefrontCatalog::offers($this->productOf(3)));
+        $this->assertNotContains(3, Product::query()->active()->pluck('id')->map(fn ($id) => (int) $id)->all());
+    }
+
     public function test_a_product_that_cannot_be_read_is_left_to_the_cart_to_refuse(): void
     {
         $this->switchStorefrontsOn();

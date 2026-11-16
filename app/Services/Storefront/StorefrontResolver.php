@@ -14,6 +14,9 @@ final class StorefrontResolver
 {
     public const HEADER = 'X-Storefront';
 
+    /** The country the platform has always served: it stands in for a missing or broken configuration while storefronts are off. */
+    private const BUILT_IN_COUNTRY = 'SA';
+
     private readonly string $defaultCountry;
 
     /**
@@ -33,11 +36,27 @@ final class StorefrontResolver
 
     public static function fromConfig(): self
     {
-        return new self(
-            enabled: (bool) config('gcc.storefronts.enabled'),
-            defaultCountry: (string) config('gcc.storefronts.default_country'),
-            countries: (array) config('gcc.storefronts.countries'),
-        );
+        $enabled = (bool) config('gcc.storefronts.enabled');
+        $defaultCountry = (string) config('gcc.storefronts.default_country');
+        $countries = (array) config('gcc.storefronts.countries');
+
+        // While storefronts are off nothing depends on the configuration, so a cached config that predates it, or a typo in it, must not take the site down.
+        if (!$enabled && !self::servesDefaultCountry(countries: $countries, defaultCountry: $defaultCountry)) {
+            return new self(
+                enabled: false,
+                defaultCountry: self::BUILT_IN_COUNTRY,
+                countries: [self::BUILT_IN_COUNTRY => ['path' => 'sa', 'currency' => 'SAR', 'active' => true]],
+            );
+        }
+
+        return new self(enabled: $enabled, defaultCountry: $defaultCountry, countries: $countries);
+    }
+
+    private static function servesDefaultCountry(array $countries, string $defaultCountry): bool
+    {
+        $code = strtoupper(trim($defaultCountry));
+
+        return isset($countries[$code]) && ($countries[$code]['active'] ?? false) === true;
     }
 
     public function resolve(?string $explicitChoice = null, ?string $path = null, ?string $headerChoice = null): string
