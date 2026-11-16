@@ -102,6 +102,16 @@ class LanguageSelectionTest extends TestCase
         $this->assertSame('ltr', session('direction'));
     }
 
+    public function test_a_language_that_the_store_gave_no_direction_is_switched_to_left_to_right(): void
+    {
+        $this->theStoreLists([self::language('English', 'en', default: true), ['id' => 3, 'name' => 'French', 'code' => 'fr']]);
+        session()->put('direction', 'rtl');
+
+        $this->assertSame(200, $this->switchTo('fr'));
+
+        $this->assertSame('ltr', session('direction'));
+    }
+
     #[DataProvider('codesTheStoreDoesNotList')]
     public function test_the_api_answers_in_the_default_language_when_the_header_names_a_code_the_store_does_not_list(mixed $header): void
     {
@@ -199,6 +209,8 @@ class LanguageSelectionTest extends TestCase
             'Arabic of Saudi Arabia written with an underscore' => [$englishDefault, 'ar_SA', 'sa'],
             'Arabic of the Emirates' => [$englishDefault, 'ar-AE', 'sa'],
             'the name of the language, Arabic' => [$englishDefault, 'Arabic', 'sa'],
+            'the name of the language with a region' => [$arabicDefault, 'English-US', 'en'],
+            'the name of the language with a region, written with an underscore' => [$englishDefault, 'Arabic_SA', 'sa'],
             'English of the United States, where English is the default' => [$englishDefault, 'en-US', 'en'],
             'Arabic filed under another code' => [$arabicUnderAnotherCode, 'ar-SA', 'sy'],
             'a regional code that the store lists as it is' => [$regionalCodes, 'pt-BR', 'pt-br'],

@@ -146,6 +146,32 @@ class TranslationWriterTest extends TestCase
         $this->assertSame([], array_values(array_diff(scandir($this->directory), ['.', '..', 'messages.php', 'new-messages.php'])), 'a temporary file stayed');
     }
 
+    public function test_a_key_that_another_worker_added_is_not_lost_where_opcache_does_not_check_timestamps(): void
+    {
+        if (!function_exists('opcache_invalidate')) {
+            $this->markTestSkipped('OPcache is not installed');
+        }
+        $path = $this->directory . '/opcache-gap.php';
+        file_put_contents($path, "<?php\n\nreturn [\n\t'a' => 'A',\n];\n");
+        // the process includes the file (OPcache keeps it), another worker adds a key that this OPcache is not told about, and the process adds its own
+        $script = 'require ' . var_export(base_path('vendor/autoload.php'), true) . ';' . <<<'PHP'
+            $path = $argv[1];
+            include $path;
+            file_put_contents($path, "<?php\n\nreturn [\n\t'a' => 'A',\n\t'b' => 'B',\n];\n");
+            addNewTranslationMessage(path: $path, key: 'c', message: 'C');
+            PHP;
+        $settings = ['opcache.enable_cli' => '1', 'opcache.validate_timestamps' => '0', 'opcache.file_update_protection' => '0'];
+        $options = [];
+        foreach ($settings as $name => $value) {
+            array_push($options, '-d', "{$name}={$value}");
+        }
+        $process = proc_open([PHP_BINARY, ...$options, '-r', $script, '--', $path], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $error = stream_get_contents($pipes[2]);
+
+        $this->assertSame(0, proc_close($process), $error);
+        $this->assertSame(['a', 'b', 'c'], array_keys(include $path), 'the key of the other worker was lost');
+    }
+
     public function test_a_language_file_that_does_not_parse_raises_and_is_left_as_it_is(): void
     {
         $path = $this->directory . '/new-messages.php';

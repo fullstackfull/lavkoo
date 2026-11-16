@@ -319,6 +319,20 @@ class AdminAddonSurfaceTest extends TestCase
         $this->assertFileExists($module . '/Http/Thing.php');
     }
 
+    public function test_an_info_file_that_became_a_link_is_refused_although_the_service_resolved_its_path_before(): void
+    {
+        $module = $this->makeDirectory('Modules/ProbeLinkedInfo', ['Addon/info.php' => self::INFO]);
+        $elsewhere = $this->makeDirectory('storage/probe-linked-info', ['info.php' => self::ACTIVATED_INFO]);
+        $service = app(AddonService::class);
+        $this->assertSame('Modules/ProbeLinkedInfo', $service->installedAddonPath('Modules/ProbeLinkedInfo'));
+
+        // another process (an upload, a deployment) swaps the file for a link: PHP keeps the paths it resolved for two minutes, unless the file is changed by PHP itself
+        exec('ln -sfn ' . escapeshellarg($elsewhere . '/info.php') . ' ' . escapeshellarg($this->links[] = $module . '/Addon/info.php') . ' 2>&1', result_code: $status);
+        $this->assertSame(0, $status, 'the link could not be made');
+
+        $this->assertNull($service->installedAddonPath('Modules/ProbeLinkedInfo'), 'the answer came from the paths PHP resolved before the link was there');
+    }
+
     public function test_a_directory_in_place_of_the_info_file_is_not_an_addon(): void
     {
         $this->makeDirectory('Modules/ProbeLinkedInfo', ['Addon/info.php/placeholder.txt' => 'x']);

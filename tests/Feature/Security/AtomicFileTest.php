@@ -28,6 +28,9 @@ class AtomicFileTest extends TestCase
     /** @var list<string> */
     private array $mounts = [];
 
+    /** @var list<string> */
+    private array $directoriesOnAnotherFileSystem = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -43,6 +46,7 @@ class AtomicFileTest extends TestCase
             exec('umount ' . escapeshellarg($mount) . ' 2>&1');
         }
         File::deleteDirectory($this->directory);
+        array_map(File::deleteDirectory(...), $this->directoriesOnAnotherFileSystem);
 
         parent::tearDown();
     }
@@ -89,6 +93,21 @@ class AtomicFileTest extends TestCase
         }
 
         return $this->mounts[] = $mountPoint;
+    }
+
+    /** A directory on a file system other than the one of the test's directory (shared memory, which a user may write to), or the test is skipped. */
+    private function directoryOnAnotherFileSystem(): string
+    {
+        $directory = '/dev/shm/atomic-file-' . uniqid();
+        if (!is_dir('/dev/shm') || !@mkdir($directory)) {
+            $this->markTestSkipped('there is no second file system to write to');
+        }
+        $this->directoriesOnAnotherFileSystem[] = $directory;
+        if (stat($directory)['dev'] === stat($this->directory)['dev']) {
+            $this->markTestSkipped('/dev/shm is not another file system here');
+        }
+
+        return $directory;
     }
 
     private function failureOf(Closure $write): ?Throwable
@@ -167,6 +186,78 @@ class AtomicFileTest extends TestCase
         $this->assertNotSame($inodeBefore, fileinode($path), 'the file was written in place although there was no permission to set');
     }
 
+    // ---- the permissions of the old file on the new one -------------------------------------------------------------------------
+
+    /** @return array<string, array{0: int}> */
+    public static function modesWithSpecialBits(): array
+    {
+        return ['setuid' => [04755], 'setgid' => [02775], 'sticky' => [01644]];
+    }
+
+    #[DataProvider('modesWithSpecialBits')]
+    public function test_the_new_file_keeps_the_setuid_setgid_and_sticky_bits_of_the_old_one(int $mode): void
+    {
+        $path = $this->directory . '/settings.txt';
+        file_put_contents($path, "first\n");
+        chmod($path, $mode);
+        clearstatcache();
+        if ((fileperms($path) & 07777) !== $mode) {
+            $this->markTestSkipped('the system does not keep this bit on a file of this user');
+        }
+        $inodeBefore = fileinode($path);
+
+        AtomicFile::rewrite(path: $path, change: static fn (string $content): string => $content . "second\n");
+
+        clearstatcache();
+        $this->assertSame($mode, fileperms($path) & 07777);
+        $this->assertNotSame($inodeBefore, fileinode($path), 'the file was written in place, so no copy of its permissions was made');
+    }
+
+    public function test_the_new_file_is_closed_to_other_users_before_any_content_is_written_to_it(): void
+    {
+        $path = $this->directory . '/secrets.txt';
+        file_put_contents($path, "SECRET=old\n");
+        chmod($path, 0600);
+        // umask 0: a file that is made is open to everyone until its permissions are set
+        $script = 'require ' . var_export(base_path('vendor/autoload.php'), true) . '; umask(0); App\\Utils\\AtomicFile::rewrite($argv[1], fn (string $content): string => str_repeat("SECRET=0123456789abcdef0123\n", 400000));';
+        $writer = proc_open([PHP_BINARY, '-r', $script, '--', $path], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+
+        $looksWithContent = 0;
+        $looksAtContentOthersCanRead = 0;
+        do {
+            $status = proc_get_status($writer);
+            clearstatcache(true, $path . '.tmp');
+            $statistics = @stat($path . '.tmp');
+            if ($statistics !== false && $statistics['size'] > 0) {
+                $looksWithContent++;
+                $looksAtContentOthersCanRead += ($statistics['mode'] & 077) === 0 ? 0 : 1;
+            }
+        } while ($status['running']);
+
+        $this->assertSame(0, $status['exitcode'], (string) stream_get_contents($pipes[2]));
+        proc_close($writer);
+        $this->assertGreaterThan(0, $looksWithContent, 'the reader never saw the temporary file with content in it');
+        $this->assertSame(0, $looksAtContentOthersCanRead, "{$looksAtContentOthersCanRead} of {$looksWithContent} looks at the temporary file found content that other users can read");
+    }
+
+    public function test_a_link_to_a_file_on_another_file_system_is_replaced_where_the_file_is_and_stays_a_link(): void
+    {
+        $target = $this->directoryOnAnotherFileSystem() . '/settings.txt';
+        file_put_contents($target, "first\n");
+        $link = $this->directory . '/settings.txt';
+        symlink($target, $link);
+        $inodeBefore = fileinode($target);
+
+        AtomicFile::rewrite(path: $link, change: static fn (string $content): string => $content . "second\n");
+
+        clearstatcache();
+        $this->assertTrue(is_link($link));
+        $this->assertSame("first\nsecond\n", file_get_contents($target));
+        $this->assertNotSame($inodeBefore, fileinode($target), 'the file behind the link was written in place: its copy was made beside the link, on another file system');
+        $this->assertSame(['settings.txt'], $this->filesIn(dirname($target)));
+        $this->assertSame(['settings.txt'], $this->filesIn($this->directory));
+    }
+
     // ---- a file that belongs to someone else ------------------------------------------------------------------------------------
 
     /** @return array<string, array{0: int, 1: int, 2: int, 3: int|null, 4: bool}> the owner, the group and the mode of the file, the group that the directory gives to the files made in it (it is a directory that does), and whether the file is replaced by a new one */
@@ -202,6 +293,25 @@ class AtomicFileTest extends TestCase
         $this->assertSame([$owner, $group, $mode], [fileowner($path), filegroup($path), fileperms($path) & 07777], 'the file changed hands or permissions');
         $this->assertSame($isReplaced, fileinode($path) !== $inodeBefore, $isReplaced ? 'the file was not replaced although its owner could be kept' : 'the file was replaced by one that its owner no longer owns');
         $this->assertSame(['settings.txt'], $this->filesIn($this->directory));
+    }
+
+    public function test_a_file_of_another_owner_keeps_its_setuid_and_setgid_bits_where_root_gives_the_new_file_to_that_owner(): void
+    {
+        if (!function_exists('posix_geteuid') || posix_geteuid() !== 0) {
+            $this->markTestSkipped('only root may give a file to another user');
+        }
+        $path = $this->directory . '/settings.txt';
+        file_put_contents($path, "first\n");
+        chown($path, 12345);
+        chgrp($path, 23456);
+        chmod($path, 06755); // after the owner: giving a file away takes these bits off it
+        $inodeBefore = fileinode($path);
+
+        AtomicFile::rewrite(path: $path, change: static fn (string $content): string => $content . "second\n");
+
+        clearstatcache();
+        $this->assertSame([12345, 23456, 06755], [fileowner($path), filegroup($path), fileperms($path) & 07777]);
+        $this->assertNotSame($inodeBefore, fileinode($path), 'the file was written in place, so its owner and its bits were never copied');
     }
 
     // ---- a disk without room for a second copy ----------------------------------------------------------------------------------
