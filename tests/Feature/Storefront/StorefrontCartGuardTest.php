@@ -37,9 +37,13 @@ class StorefrontCartGuardTest extends TestCase
 
     private function buildTablesTheCartLoadsWithAProduct(): void
     {
-        foreach (['translations', 'reviews', 'digital_product_variations', 'stock_clearance_products', 'stock_clearance_setups'] as $table) {
+        foreach (['carts', 'translations', 'reviews', 'digital_product_variations', 'stock_clearance_products', 'stock_clearance_setups'] as $table) {
             Schema::dropIfExists($table);
         }
+
+        Schema::create('carts', function ($table) {
+            $table->id();
+        });
 
         Schema::create('translations', function ($table) {
             $table->id();
@@ -158,9 +162,6 @@ class StorefrontCartGuardTest extends TestCase
     {
         $this->switchStorefrontsOn();
         $this->serveRequestFrom('AE');
-        Schema::create('carts', function ($table) {
-            $table->id();
-        });
 
         $result = app(WebCartController::class)->update_variation(Request::create('/cart/update-variation', 'POST', ['product_id' => 1]));
 
@@ -173,9 +174,6 @@ class StorefrontCartGuardTest extends TestCase
     {
         $this->switchStorefrontsOn();
         $this->serveRequestFrom('AE');
-        Schema::create('carts', function ($table) {
-            $table->id();
-        });
 
         $result = CartManager::add_to_cart(Request::create('/api/v1/cart/add', 'POST', ['id' => 1, 'quantity' => 1]));
 
