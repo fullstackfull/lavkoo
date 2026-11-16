@@ -9,6 +9,15 @@ class VendorService
 {
     use FileManagerTrait;
 
+    /** Whether a visitor may register as a seller: the admin has not switched seller registration off, and the business is not a single store. */
+    public function isRegistrationOpen(): bool
+    {
+        $businessMode = getWebConfig(name: 'business_mode');
+        $vendorRegistration = getWebConfig(name: 'seller_registration');
+
+        return !((isset($businessMode) && $businessMode == 'single') || (isset($vendorRegistration) && $vendorRegistration == 0));
+    }
+
     /**
      * @param string $email
      * @param string $password

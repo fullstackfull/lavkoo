@@ -31,6 +31,7 @@ use App\Exports\VendorOrderListExport;
 use App\Exports\VendorWithdrawRequest;
 use App\Events\VendorRegistrationEvent;
 use App\Http\Controllers\BaseController;
+use App\Models\Admin;
 use App\Events\WithdrawStatusUpdateEvent;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use App\Contracts\Repositories\ShopRepositoryInterface;
@@ -126,8 +127,7 @@ class VendorController extends BaseController
     public function add(VendorAddRequest $request): JsonResponse
     {
 
-        $adminEmail = $this->adminRepo->getFirstWhere(['admin_role_id' => 1]);
-        if ($adminEmail && isset($adminEmail['email']) && $request['email'] === $adminEmail['email']) {
+        if (Admin::masterAdminUsesEmail($request['email'])) {
             return response()->json([
                 'error' => 1,
                 'message' => translate('Email_already_exist_please_try_another_email'),

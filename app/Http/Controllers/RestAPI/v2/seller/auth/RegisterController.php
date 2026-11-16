@@ -6,6 +6,7 @@ use App\Services\Platform\PasswordPolicy;
 use App\Models\Admin;
 use App\Models\Seller;
 use App\Models\Shop;
+use App\Services\VendorService;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use Illuminate\Http\JsonResponse;
@@ -35,7 +36,11 @@ class RegisterController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        if (Admin::where('admin_role_id', 1)->where('email', $request['email'])->exists()) {
+        if (!app(VendorService::class)->isRegistrationOpen()) {
+            return response()->json(['errors' => [['code' => 'registration', 'message' => translate('access_denied') . '!!']]], 403);
+        }
+
+        if (Admin::masterAdminUsesEmail($request['email'])) {
             return response()->json(['errors' => [['code' => 'email', 'message' => translate('Email_already_exist_please_try_another_email')]]], 403);
         }
 

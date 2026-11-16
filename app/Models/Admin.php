@@ -33,6 +33,15 @@ use Illuminate\Support\Facades\DB;
  */
 class Admin extends Authenticatable
 {
+    /**
+     * Whether the master admin's e-mail is this one, compared the way the database compares an e-mail (a case variant of it is the same address
+     * on MySQL), so a registration door can refuse it. Anything that is not text is not an e-mail.
+     */
+    public static function masterAdminUsesEmail(mixed $email): bool
+    {
+        return is_string($email) && $email !== '' && static::query()->where('admin_role_id', 1)->where('email', $email)->exists();
+    }
+
     use Notifiable, StorageTrait;
 
     protected $fillable = [
