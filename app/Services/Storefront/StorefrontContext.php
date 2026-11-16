@@ -2,6 +2,8 @@
 
 namespace App\Services\Storefront;
 
+use Closure;
+
 /**
  * The storefront one request is served from. The Saudi storefront owns every cache key that exists today, so its keys, and
  * every key while storefronts are switched off, stay exactly as they are.
@@ -21,6 +23,22 @@ final readonly class StorefrontContext
     public static function current(): self
     {
         return app()->bound(self::class) ? app(self::class) : StorefrontResolver::fromConfig()->context();
+    }
+
+    /**
+     * Runs the callback in this storefront, then puts the request's own storefront back: a queue worker or a recovery runs one job after
+     * another in one process, so a storefront left bound would narrow the next one.
+     */
+    public function serve(Closure $callback): mixed
+    {
+        $requestContext = app()->bound(self::class) ? app(self::class) : null;
+        app()->instance(self::class, $this);
+
+        try {
+            return $callback();
+        } finally {
+            $requestContext === null ? app()->forgetInstance(self::class) : app()->instance(self::class, $requestContext);
+        }
     }
 
     /**

@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Banner;
+use App\Models\Product;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\CacheManagerTrait;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -69,7 +71,26 @@ class BannerPlacementService
      */
     public function getHomePromoBanners(): Collection
     {
-        return $this->remember(type: 'Home Promo Banner', cacheKey: 'home_promo_banner');
+        return $this->offeredByTheStorefront(banners: $this->remember(type: 'Home Promo Banner', cacheKey: 'home_promo_banner'));
+    }
+
+    /**
+     * A banner belongs to no country, but the product it points at does: another storefront's product is neither shown nor opened. The
+     * cache holds every banner, whatever the storefront, so this runs after it.
+     */
+    private function offeredByTheStorefront(Collection $banners): Collection
+    {
+        $productIds = $banners->where('resource_type', 'product')->pluck('resource_id')->unique();
+
+        if (StorefrontCatalog::country() === null || $productIds->isEmpty()) {
+            return $banners;
+        }
+
+        $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
+        return $banners
+            ->filter(fn (Banner $banner) => $banner['resource_type'] !== 'product' || StorefrontCatalog::offers(product: $products->get($banner['resource_id'])))
+            ->values();
     }
 
     /**
