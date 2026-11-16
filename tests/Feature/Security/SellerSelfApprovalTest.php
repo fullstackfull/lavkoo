@@ -217,7 +217,15 @@ class SellerSelfApprovalTest extends TestCase
 
     public function test_the_schema_builder_refuses_a_database_that_is_not_a_test_database(): void
     {
-        config(['database.default' => 'mysql', 'database.connections.mysql.database' => 'lavkoo_production']);
+        // Nothing listens on port 1, so if the guard were ever removed this fails on the connection instead of emptying a database that exists.
+        config([
+            'database.default' => 'mysql',
+            'database.connections.mysql.url' => null,
+            'database.connections.mysql.unix_socket' => '',
+            'database.connections.mysql.host' => '127.0.0.1',
+            'database.connections.mysql.port' => 1,
+            'database.connections.mysql.database' => 'lavkoo_production',
+        ]);
         DB::purge();
 
         $this->expectException(RuntimeException::class);
