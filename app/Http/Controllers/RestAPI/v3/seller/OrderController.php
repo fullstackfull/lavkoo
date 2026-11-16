@@ -196,9 +196,9 @@ class OrderController extends Controller
     public function details(Request $request, $id): JsonResponse
     {
         $seller = $request->seller;
-        $detailsList = OrderDetail::with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
+        $detailsList = OrderDetail::ofSeller(sellerId: $seller['id'])->with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
             return $query->orderBy('updated_at', 'desc');
-        }])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get();
+        }])->where('order_id', $id)->get();
 
         if ($detailsList->isEmpty()) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -356,7 +356,7 @@ class OrderController extends Controller
     {
         $seller = $request->seller;
         // Scope the order line to the seller so one seller cannot overwrite another's delivered digital file.
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
+        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_id);
         if ($order_details) {
             $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
             $order_details->save();

@@ -74,8 +74,20 @@ trait BuildsSellerApiWorld
     /** @param array<string, mixed> $data */
     protected function sellerApi(string $method, string $uri, array $data = [], int $as = self::SELLER): TestResponse
     {
+        return $this->callSellerApi(version: 'v3', method: $method, uri: $uri, data: $data, as: $as);
+    }
+
+    /** The older seller app builds: same token, no permission middleware, every handler authenticates for itself. @param array<string, mixed> $data */
+    protected function sellerApiV2(string $method, string $uri, array $data = [], int $as = self::SELLER): TestResponse
+    {
+        return $this->callSellerApi(version: 'v2', method: $method, uri: $uri, data: $data, as: $as);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function callSellerApi(string $version, string $method, string $uri, array $data, int $as): TestResponse
+    {
         return $this->withHeaders(['Authorization' => 'Bearer ' . self::SELLER_TOKENS[$as], 'Accept' => 'application/json'])
-            ->json($method, '/api/v3/seller/' . $uri, $data);
+            ->json($method, '/api/' . $version . '/seller/' . $uri, $data);
     }
 
     private function startFromAnEmptySellerApiDatabase(): void

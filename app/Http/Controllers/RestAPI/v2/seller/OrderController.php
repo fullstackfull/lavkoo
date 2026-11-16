@@ -62,7 +62,7 @@ class OrderController extends Controller
             ], 401);
         }
 
-        $details = OrderDetail::with(['order'])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get();
+        $details = OrderDetail::ofSeller(sellerId: $seller['id'])->with(['order'])->where('order_id', $id)->get();
         foreach ($details as $det) {
             $det['product_details'] = Helpers::product_data_formatting(json_decode($det['product_details'], true));
         }
@@ -172,7 +172,7 @@ class OrderController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
         }
 
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
+        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_id);
         if ($order_details) {
             $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
             $order_details->save();
