@@ -39,6 +39,8 @@ class StorefrontCacheFillTest extends TestCase
 
     private const INSTALLED_IN_API_SHOP = ['SCRIPT_NAME' => '/api-shop/index.php', 'SCRIPT_FILENAME' => '/var/www/html/api-shop/index.php', 'PHP_SELF' => '/api-shop/index.php'];
 
+    private const UNAPPROVED_REVIEW_TEXT = 'UNAPPROVED review';
+
     /** @var list<string> */
     private array $errorsLoggedByTheBoot = [];
 
@@ -117,6 +119,15 @@ class StorefrontCacheFillTest extends TestCase
         $this->assertSame([], $this->reviewsInTheCategoryTreeThatAreNotApproved(), "{$url}: the cached category tree carries a review nobody approved");
     }
 
+    #[DataProvider('addresses')]
+    public function test_no_entry_of_the_shared_cache_holds_the_text_of_a_review_that_is_not_approved(string $url, array $server): void
+    {
+        $this->bootForAWebRequestAt($url, $server);
+
+        $this->assertSame([], $this->errorsLoggedByTheBoot);
+        $this->assertSame([], $this->cacheKeysHoldingTheUnapprovedReview(), "{$url}: a cache every shopper reads holds the text of a review nobody approved");
+    }
+
     private function bootForAWebRequestAt(string $url, array $server): void
     {
         app()->instance('request', Request::create(uri: $url, server: $server));
@@ -142,14 +153,28 @@ class StorefrontCacheFillTest extends TestCase
             ->all();
     }
 
+    /** @return list<string> */
+    private function cacheKeysHoldingTheUnapprovedReview(): array
+    {
+        $store = Cache::getStore();
+
+        return collect((new ReflectionProperty($store, 'storage'))->getValue($store))
+            ->filter(fn (array $entry): bool => str_contains(serialize($entry['value'] ?? null), self::UNAPPROVED_REVIEW_TEXT))
+            ->keys()
+            ->map(fn (int|string $key): string => (string) $key)
+            ->all();
+    }
+
     private function seedOneProductWithAnApprovedAndAnUnapprovedReview(): void
     {
         DB::table('categories')->insert(['id' => 1, 'name' => 'Medicines', 'slug' => 'medicines', 'parent_id' => 0, 'position' => 0]);
         DB::table('products')->insert(['id' => 1, 'name' => 'Aspirin', 'slug' => 'aspirin', 'category_id' => 1]);
         DB::table('reviews')->insert([
-            ['id' => 1, 'product_id' => 1, 'status' => 1],
-            ['id' => 2, 'product_id' => 1, 'status' => 0],
+            ['id' => 1, 'product_id' => 1, 'status' => 1, 'comment' => 'approved review'],
+            ['id' => 2, 'product_id' => 1, 'status' => 0, 'comment' => self::UNAPPROVED_REVIEW_TEXT],
         ]);
+        DB::table('publishing_houses')->insert(['id' => 1, 'name' => 'Pub house']);
+        DB::table('digital_product_publishing_houses')->insert(['publishing_house_id' => 1, 'product_id' => 1]);
         DB::table('currencies')->insert(['id' => 1, 'name' => 'Riyal', 'symbol' => 'SAR', 'code' => 'SAR']);
         DB::table('business_settings')->insert([['type' => 'social_login', 'value' => '[]'], ['type' => 'apple_login', 'value' => '[]']]);
     }
@@ -157,6 +182,18 @@ class StorefrontCacheFillTest extends TestCase
     /** What the boot of a storefront request reads on top of the core store tables. */
     private function createTablesTheBootReads(): void
     {
+        Schema::table('reviews', fn (Blueprint $table) => $table->text('comment')->nullable());
+        Schema::create('publishing_houses', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('digital_product_publishing_houses', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('publishing_house_id')->nullable();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->timestamps();
+        });
         Schema::table('categories', fn (Blueprint $table) => $table->integer('priority')->default(0));
         Schema::create('business_pages', function (Blueprint $table) {
             $table->id();

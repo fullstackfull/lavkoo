@@ -5,8 +5,10 @@ namespace Tests\Feature\Security;
 use App\Models\Product;
 use App\Models\Review;
 use App\Traits\CacheManagerTrait;
+use App\Utils\ProductManager;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -28,6 +30,8 @@ class ReviewVisibilityTest extends TestCase
     private const APPROVED_REVIEWS = 2;
 
     private const ALL_REVIEWS = 3;
+
+    private const UNAPPROVED_REVIEW_TEXT = 'UNAPPROVED review';
 
     protected function setUp(): void
     {
@@ -162,6 +166,44 @@ class ReviewVisibilityTest extends TestCase
         );
     }
 
+    public static function addressesOfTheSellerApiAndTheStorefront(): array
+    {
+        return [
+            'the seller API, a panel to the models' => ['/api/v3/seller/products/digital-publishing-house-list'],
+            'the customer API' => ['/api/v1/products/digital-publishing-house-list'],
+            'the storefront' => ['/'],
+        ];
+    }
+
+    #[DataProvider('addressesOfTheSellerApiAndTheStorefront')]
+    public function test_the_publishing_house_list_holds_the_link_rows_only_so_no_product_and_no_review_goes_with_it(string $uri): void
+    {
+        $this->seedTwoDigitalProductsOfTwoOwnersInOnePublishingHouse();
+        $this->visit($uri);
+
+        $houses = ProductManager::getPublishingHouseList()->values();
+
+        $this->assertSame(['Pub house'], $houses->pluck('name')->all());
+        $this->assertSame(2, $houses[0]->publishing_house_products_count, 'the count the filters show is unchanged');
+        $this->assertSame([1, 2], $houses[0]->publishingHouseProducts->pluck('product_id')->sort()->values()->all());
+        $this->assertSame([], $houses[0]->publishingHouseProducts->filter(fn ($link): bool => $link->relationLoaded('product'))->pluck('id')->all());
+        $this->assertStringNotContainsString(self::UNAPPROVED_REVIEW_TEXT, $houses->toJson());
+        $this->assertStringNotContainsString('reviews', $houses->toJson());
+    }
+
+    #[DataProvider('addressesOfTheSellerApiAndTheStorefront')]
+    public function test_the_publishing_house_list_of_one_shop_counts_that_shops_products_only(string $uri): void
+    {
+        $this->seedTwoDigitalProductsOfTwoOwnersInOnePublishingHouse();
+        $this->visit($uri);
+
+        $houses = ProductManager::getPublishingHouseList(productIds: [2])->values();
+
+        $this->assertSame(['Pub house'], $houses->pluck('name')->all());
+        $this->assertSame(1, $houses[0]->publishing_house_products_count);
+        $this->assertStringNotContainsString(self::UNAPPROVED_REVIEW_TEXT, $houses->toJson());
+    }
+
     #[DataProvider('databasesThatAreNotForTests')]
     public function test_the_review_tables_are_never_rebuilt_outside_a_test_database(string $database, string $environment): void
     {
@@ -186,6 +228,37 @@ class ReviewVisibilityTest extends TestCase
             'a production name' => ['pharmacy', 'testing'],
             'a test database name outside the testing environment' => ['pharmacy_testing', 'production'],
         ];
+    }
+
+    /** The admin's product 1 and the product 2 of seller 2, both digital and both with a review nobody approved, in one publishing house. */
+    private function seedTwoDigitalProductsOfTwoOwnersInOnePublishingHouse(): void
+    {
+        $this->createTablesTheHomePageProductListsRead();
+        Schema::table('reviews', fn (Blueprint $table) => $table->text('comment')->nullable());
+        Schema::create('publishing_houses', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('digital_product_publishing_houses', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('publishing_house_id')->nullable();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->timestamps();
+        });
+
+        DB::table('business_settings')->insert(['type' => 'digital_product', 'value' => '1']);
+        Cache::flush(); // the application booted before this table was built, and may hold the settings of the test before
+        DB::table('sellers')->insert(['id' => 2, 'status' => 'approved']);
+        DB::table('products')->where('id', 1)->update(['product_type' => 'digital']);
+        DB::table('products')->insert(['id' => 2, 'name' => 'Vendor book', 'slug' => 'vendor-book', 'product_type' => 'digital', 'added_by' => 'seller', 'user_id' => 2]);
+        DB::table('reviews')->insert([
+            ['product_id' => 2, 'status' => 1, 'rating' => 4, 'comment' => 'approved review'],
+            ['product_id' => 2, 'status' => 0, 'rating' => 1, 'comment' => self::UNAPPROVED_REVIEW_TEXT],
+        ]);
+        DB::table('reviews')->where('product_id', 1)->where('status', 0)->update(['comment' => self::UNAPPROVED_REVIEW_TEXT]);
+        DB::table('publishing_houses')->insert(['id' => 1, 'name' => 'Pub house']);
+        DB::table('digital_product_publishing_houses')->insert([['publishing_house_id' => 1, 'product_id' => 1], ['publishing_house_id' => 1, 'product_id' => 2]]);
     }
 
     /** What Product::active() and the home page rails join in: sellers, and the clearance sale each product may carry. */
