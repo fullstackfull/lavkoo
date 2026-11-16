@@ -203,6 +203,24 @@ class FileManagerUploadTest extends TestCase
         return $upload;
     }
 
+    /**
+     * An archive in which the data of one entry is damaged: its first bytes are inverted, so a stored entry no longer matches the checksum the
+     * archive keeps for it and a deflated entry is no deflate stream. The entries around it are whole.
+     *
+     * @param array<string, string> $entries
+     * @param int $compression ZipArchive::CM_STORE or ZipArchive::CM_DEFLATE, the method of the damaged entry
+     */
+    private function zipUploadWithADamagedEntry(string $damagedName, array $entries, int $compression): UploadedFile
+    {
+        $upload = $this->zipUpload($entries, static fn (ZipArchive $zip): bool => $zip->setCompressionName($damagedName, $compression));
+        $bytes = (string) file_get_contents($upload->getPathname());
+        $nameStart = (int) strpos($bytes, $damagedName);
+        $dataStart = $nameStart + strlen($damagedName) + unpack('v', $bytes, $nameStart - 2)[1];
+        file_put_contents($upload->getPathname(), substr_replace($bytes, ~substr($bytes, $dataStart, 4), $dataStart, 4));
+
+        return $upload;
+    }
+
     /** @return array<string, mixed> */
     private function statOfTheFirstEntry(UploadedFile $upload): array
     {
@@ -212,6 +230,15 @@ class FileManagerUploadTest extends TestCase
         $archive->close();
 
         return $stat;
+    }
+
+    /** @return list<string> the files below the test folder of the public disk, by their path in it */
+    private function copiedFiles(): array
+    {
+        $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
+        sort($copied);
+
+        return $copied;
     }
 
     /** Noise with a zero run after every byte: a zip stores it in about a twentieth of its size, so the ratio is far below the one an archive of zeros has. */
@@ -571,6 +598,53 @@ class FileManagerUploadTest extends TestCase
         $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
         $this->assertSame(['open.jpg'], $copied);
         $this->assertCount(1, $this->storedOnTheBucket());
+    }
+
+    /** @return array<string, array{0: int}> */
+    public static function methodsOfADamagedEntry(): array
+    {
+        return ['a stored entry whose data fails its checksum' => [ZipArchive::CM_STORE], 'a deflated entry whose data is no deflate stream' => [ZipArchive::CM_DEFLATE]];
+    }
+
+    #[DataProvider('methodsOfADamagedEntry')]
+    public function test_an_entry_whose_data_is_damaged_is_left_out_and_listed_and_the_entries_around_it_are_stored_on_either_disk(int $compression): void
+    {
+        $entries = ['first.jpg' => $this->jpeg(), 'damaged.jpg' => str_repeat('damaged ', 512), 'last.jpg' => $this->jpeg()];
+        $reportOfTheDisk = new ArchiveReport();
+        $reportOfTheBucket = new ArchiveReport();
+
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUploadWithADamagedEntry('damaged.jpg', $entries, $compression)]), $reportOfTheDisk);
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUploadWithADamagedEntry('damaged.jpg', $entries, $compression)]), $reportOfTheBucket);
+
+        $this->assertTrue($onTheDisk);
+        $this->assertTrue($onTheBucket);
+        $this->assertSame(['first.jpg', 'last.jpg'], $this->copiedFiles());
+        $this->assertCount(2, $this->storedOnTheBucket());
+        $this->assertSame('One file of the archive was not stored (damaged.jpg)', $reportOfTheDisk->skippedMessage());
+        $this->assertSame('One file of the archive was not stored (damaged.jpg)', $reportOfTheBucket->skippedMessage());
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_the_admin_is_told_that_an_entry_with_damaged_data_was_left_out_and_not_given_a_server_error(): void
+    {
+        $archive = $this->zipUploadWithADamagedEntry('damaged.jpg', ['ok.jpg' => $this->jpeg(), 'damaged.jpg' => str_repeat('damaged ', 512)], ZipArchive::CM_STORE);
+
+        $toast = $this->toastAfterPosting(['file' => $archive]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully: One file of the archive was not stored (damaged.jpg)'], $toast);
+    }
+
+    public function test_an_archive_whose_only_entry_is_damaged_is_reported_as_not_stored_on_either_disk(): void
+    {
+        $entries = ['damaged.jpg' => str_repeat('damaged ', 512)];
+
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUploadWithADamagedEntry('damaged.jpg', $entries, ZipArchive::CM_STORE)]));
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUploadWithADamagedEntry('damaged.jpg', $entries, ZipArchive::CM_STORE)]));
+
+        $this->assertFalse($onTheDisk);
+        $this->assertFalse($onTheBucket);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+        $this->assertSame([], $this->storedOnTheBucket());
     }
 
     /** @return array<string, array{0: string}> */

@@ -120,8 +120,8 @@ class FileManagerService
 
     /**
      * Streams the entries into the directory and counts the bytes that really arrive: the sizes an archive declares are what its maker wrote
-     * down, and a stream of zeros under a header that says 100 bytes unpacks to what it unpacks to. An entry that cannot be read (an encrypted
-     * one) is left out.
+     * down, and a stream of zeros under a header that says 100 bytes unpacks to what it unpacks to. An entry that cannot be read to its end (an
+     * encrypted one, one whose data is damaged) is left out and its partial file goes with it.
      *
      * @param array<int, string> $entries
      * @return list<string>|null the names that were unpacked, or nothing when the archive unpacks to more than it may
@@ -164,7 +164,7 @@ class FileManagerService
         return max(self::LARGE_ARCHIVE_BYTES, self::MOST_COMPRESSION_RATIO * min($compressedBytes, $archiveBytes));
     }
 
-    /** @return int|null the bytes written, one more than the limit at the most; nothing when the entry cannot be read */
+    /** @return int|null the bytes written, one more than the limit at the most; nothing when the entry cannot be read to its end (an encrypted one, a damaged one) */
     private function unpackEntry(ZipArchive $zip, int $index, string $target, int $limit): ?int
     {
         $source = $zip->getStreamIndex($index);
@@ -174,11 +174,15 @@ class FileManagerService
 
         File::ensureDirectoryExists(dirname($target));
         $destination = fopen($target, 'wb');
-        $written = stream_copy_to_stream($source, $destination, $limit + 1);
+        $written = @stream_copy_to_stream($source, $destination, $limit + 1);
         fclose($source);
         fclose($destination);
+        if ($written === false) {
+            File::delete($target);
+            return null;
+        }
 
-        return $written === false ? null : $written;
+        return $written;
     }
 
     /** A folder, or a file that the system that made the archive added on its own (the `__MACOSX` twins, `.DS_Store`, Thumbs.db): nothing the admin put there. */
