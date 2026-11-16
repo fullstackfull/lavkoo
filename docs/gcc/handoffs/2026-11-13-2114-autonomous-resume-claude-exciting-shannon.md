@@ -678,3 +678,66 @@ Still pending when this section was written: the verify phase of the `source=adm
 Environment: the local MySQL on 127.0.0.1:3307 was stopped when I checked it. I started it with default options, and `root` now needs a password that no configured credential provides. No account was changed. MySQL runs for PRs 38, 39, 42 and 43 are still pending.
 
 Next, in order: bind the storefront to the cart so web checkout can be gated; the Saudi price and stock characterization tests, then the seams; the seller storefront context; and the owner decisions listed above.
+
+## 35. Audit disposition, the first GCC-02/03 slices, and MySQL verification (2026-11-16, about 03:00Z)
+
+Same standing rules as section 34. Nothing is merged or deployed. Every new storefront gate is off by default.
+
+### New draft PRs
+
+- **PR 44, seller self-approval** (`gcc/security-seller-self-approval`, base `main`). The web vendor form and API v2 and v3 seller registration took `status` from the request body, so a visitor could send `approved`. All three public paths now create a `pending` seller. `VendorService::getAddData(..., createdByAdmin: true)` keeps the admin add-vendor form, which posts `approved` on purpose. The seller Flutter app never sends `status`. Red then green, 6 tests.
+- **PR 45, social login confirmation** (`gcc/security-social-login-confirmation`, base `main`). `GET /customer/auth/login/social/confirmation?status=approve` and its update POST took the customer from the URL and never checked that the browser had just come back from the provider. Both now require the `social_login_new_customer` session entry, and its email must match the identity. Section 34 listed this as an owner decision. On a second look no normal flow depends on the old behaviour (the provider callback always sets the session entry first), so a draft PR is the safe form: it changes nothing until someone merges it. 9 tests, 6 red on the old code.
+- **PR 46, search visibility** (`gcc/security-search-fallback-visibility`, base `main`). The translated-name searches had no `active()` scope, and the category filter of three search helpers was chained with `orWhere` outside every other condition, so a search inside a sub category returned every product of it, hidden ones included. Found while verifying audit candidates by running the real queries. 8 tests, 6 red on the old code.
+- **PR 47, products belong to one country** (`gcc/p1-country-owned-products`, base #43). `products.storefront_country` (default `SA`, composite index) and `StorefrontCatalog::restrict()` called from `Product::scopeActive()`. It applies only when storefronts are on and the request was bound to a storefront. Before the migration, the default storefront is unchanged and any other shows nothing. 12 tests, also green on MySQL 8.0.46.
+- **PR 48, cart guard** (`gcc/p1-storefront-cart-guard`, base #47). The cart routes of API v1 carry the `storefront` alias, and `CartManager::add_to_cart` refuses another country's product. 6 tests, and the alias-placement guard test now requires the alias on the cart routes.
+
+Design choice for GCC-02/03: a product row belongs to one country. DECISIONS.md asks for independent products, prices, SKUs, availability and inventories by country, with deliberate admin-only copying. The price and stock map found about 400 sites (`OrderManager` 67, `CartManager` 40, `ProductManager` 21, `WebController` 21, `OrderEditManager` 21, and the rest), all of which read the product row. With the country on the row, none of them changes. A separate per-country price table, which the map's first draft proposed, would have touched every one of them.
+
+Open after the first two slices: stamp `orders.storefront_country` (and refuse a place-order whose lines belong to another country), bind the web routes to a storefront, admin and seller tools that set the country, and make the product `code` and `barcode` validation unique per country before any admin copy exists.
+
+### CI and carried repairs
+
+- The Torod fixture repair `de1270f8` was carried onto PRs 40, 41, 44 and 45 (`8c6236dc`, `f096f4bc`, `0349aa7e`, `5e0e6b6f`). Before it, PRs 40 and 41 failed the SQLite job and the sales-channel N-Z and strict-mode jobs on `TorodShipmentDiscoveryTest`, the same pre-existing `main` failure as in section 28. The full SQLite suite on PR 40 at `84e3c1a1` ran 6209 tests with that one failure, which replaces the "pending" sentence in section 34.
+- The overlay gate still fails by design on every PR from `main` (`firebase-messaging-sw.js`, `public/firebase-messaging-sw.js` and `robots.txt` differ from baseline `698aa1e`). It is not caused by any of these PRs.
+- PR 43's checks were all green on its last run.
+
+### Audit disposition: the `source=admin` sweep
+
+The sweep returned 113 "confirmed" rows out of 303 candidates. Most are inventory (the Flutter apps' query paths, coverage notes, cleared items). Those marked confirmed from reading alone are not reliable: one was refuted by compiling the SQL.
+
+Fixed in draft PRs: business pages (#40), blog drafts and unpublished posts (#41), seller self-approval (#44), social confirmation (#45), search visibility (#46).
+
+Rejected after running it: `Product::scopeSellerApproved` as an unparenthesised `orWhere`. Eloquent groups the conditions a scope adds, and the compiled SQL is correctly parenthesised.
+
+Cleared by the sweep itself: `?theme_preview` (HMAC token with expiry), the blog `source` click-count flag, the admin preview links, the tax-report `source`, and every Flutter query string (neither app sends a visibility flag; the only builder of `source=` in the apps is dormant).
+
+Not fixed here, static findings that should be re-verified by running them before anyone acts, listed by what they expose:
+
+- `GET /api/v1/seller?slug=` returns the seller's name, phone and image and the whole shop row, including `tax_identification_number` and the tin certificate URL, for any shop slug, with no approval check. Owner decision: what a public seller page may show.
+- `GET /api/v2/seller/brands` is unauthenticated and lists inactive brands too.
+- Reviews, rating and counters of a hidden product (`/api/v1/products/reviews/{slug}`, `/rating/{id}`, `/counter/{slug}`), the banner endpoint embedding a hidden product, shop or brand, `/api/v1/faq` returning disabled entries, `/api/v1/shipping-method/detail/{id}` returning disabled methods, and `POST /cart/variant_price` answering for any product.
+- The `Review` global scope turns itself off when the URL starts with `/vendor`, `/seller` or `/admin`, as a prefix test, so public `/vendor-shop/...` and `/vendors` pages skip it.
+- The about-us text is read without a status filter in `AppServiceProvider` and reaches every page's meta description and footer when the page is unpublished.
+
+Owner decisions still needed, unchanged from section 34 because each changes how the apps authenticate:
+
+- `APIGuestMiddleware` passes any truthy `guest_id`.
+- `Helpers::getCustomerInformation` takes `customer_id`, and also a `user[id]` input, from the request on routes that reach it with no customer session. The payment WebView of the app uses this path, so it needs a signed-token design rather than a one-line fix.
+- The paid digital download is gated by a 4-digit OTP from `rand(1000, 9999)`.
+
+### A secret in the repository, for the owner
+
+Four tracked files start with a PEM private key header: `public/assets/back-end/Apple-AuthKey.p8`, `public/assets/back-end/Apple-AuthKey (copy).txt`, and the same two names under `resources/assets/back-end/`. They are 257 bytes each, which is the size of an Apple Sign-In key, and they date from the initial commit. I did not open them. `.gitignore` lists `*.p8`, but a tracked file stays tracked. The two under `public/` are downloadable when the document root is `public`. Nothing in `app`, `config` or `routes` refers to the name. Owner action: confirm whether the key is real; if it is, revoke and replace it in the Apple developer account, remove the files, and keep keys outside the web root. I did not delete them, because removing a file from history needs a force push, which is not allowed here.
+
+### MySQL verification
+
+The MySQL on port 3307 still needs a password that nothing configured provides, and I did not touch its accounts. To verify without it, I started a private, throwaway MySQL 8.0.46 on 127.0.0.1:3308, with its own data directory under the scratchpad and `root` without a password. On it, the whole storefront chain (readiness v2 with its migration, the sellable list, the checkout gate, the acceptance receipts, and the new catalog and cart tests) passes: 136 tests for the chain, and 12 for the catalog file. PRs 38, 39, 42 and 43 are therefore verified on MySQL. The base schema dump `installation/backup/database.sql` is not in the checkout, so the migrations were not run against a copy of the production schema.
+
+### Tooling notes for the next session
+
+- Worktrees are under `scratchpad/wt/`, one per branch. `vendor` in each is a hardlink copy of `scratchpad/wallet-sandbox/vendor`; do not delete that directory. I removed 30 worktrees whose commits were all on GitHub; several others had symlinked into one of them, so I rebuilt their `vendor` from the surviving copy (210 packages, identical to `composer.lock`).
+- `translate()` writes missing keys into `resources/lang/<locale>/new-messages.php` whenever a test runs. I restored the file before each commit on the new branches, so these PRs add no lang keys; the keys register themselves on first use.
+
+### Still pending
+
+The checkout-path map (gateways and seller routes) and the price and stock map were still verifying their last candidates when this was written. Their results are not used above except for the site counts, which come from the finished sweep phase.
