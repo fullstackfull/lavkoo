@@ -13,10 +13,22 @@ use RuntimeException;
  * The lock only keeps writers apart; readers take none. The new content is therefore written beside the file and renamed over it, so a reader
  * sees the old file or the new one, and a write that fails or is killed leaves the old one whole.
  *
+ * The replacement is an improvement on writing in place and never a condition for it. Where it is impossible (a PHP that has disabled chmod,
+ * chown or chgrp, a disk with no room for a second copy of the file, a file a container mounts) the file is written in place under the lock, and
+ * fsync, which only asks the disk to make the bytes durable, is asked for where PHP has it and never decides whether a write succeeded.
+ *
  * A file that cannot be opened, locked, read or written is an error, never a success.
  */
 final class AtomicFile
 {
+    /**
+     * How often a writer that waited for the lock may find the file replaced under it before it gives up. Each time is a write that another writer
+     * finished while it waited, and a lock is not granted in turn: three processes that write 300 times each in a tight loop made one of them lose
+     * 432 rounds in a row. A file whose inode never matches its name (a file system that makes up an inode for each open) would otherwise keep
+     * the request in this loop for good.
+     */
+    private const MOST_REPLACEMENTS_WAITED_OUT = 1000;
+
     /**
      * Replaces what the file holds by what $change makes of it.
      *
@@ -35,7 +47,7 @@ final class AtomicFile
             }
             self::write(path: $path, handle: $handle, current: $current, updated: $change($current));
         } finally {
-            flock($handle, LOCK_UN);
+            self::attempt('flock', $handle, LOCK_UN);
             fclose($handle);
         }
     }
@@ -45,23 +57,38 @@ final class AtomicFile
      * it replaced: what it would read there is out of date, so it locks the file the path names now.
      *
      * @return resource
+     * @throws RuntimeException when the file cannot be opened or locked
      */
     private static function openLocked(string $path, bool $createWhenMissing)
     {
-        while (true) {
+        $handle = self::lockedHandle(path: $path, createWhenMissing: $createWhenMissing);
+        if ($handle === null) {
+            throw new RuntimeException("The file {$path} cannot be locked.");
+        }
+
+        return $handle;
+    }
+
+    /** @return resource|null the locked file, or nothing where no lock can be had (a file system that refuses it, a file replaced again and again) */
+    private static function lockedHandle(string $path, bool $createWhenMissing)
+    {
+        for ($round = 0; $round < self::MOST_REPLACEMENTS_WAITED_OUT; $round++) {
             $handle = @fopen($path, $createWhenMissing ? 'c+' : 'r+');
             if ($handle === false) {
                 throw new RuntimeException("The file {$path} cannot be opened for writing.");
             }
-            if (!flock($handle, LOCK_EX)) {
+            if (!self::attempt('flock', $handle, LOCK_EX)) {
                 fclose($handle);
-                throw new RuntimeException("The file {$path} cannot be locked.");
+
+                return null;
             }
             if (self::isTheFileAt(path: $path, handle: $handle)) {
                 return $handle;
             }
             fclose($handle);
         }
+
+        return null;
     }
 
     /** @param resource $handle */
@@ -90,15 +117,15 @@ final class AtomicFile
     /**
      * Writes the content beside the file and renames it over the file the path leads to (a link stays a link), with the permissions and, for
      * root, the owner of the old one. False where that is impossible (a file a container mounts, a directory the web user cannot write to,
-     * another file system): the caller writes in place. A write that fails after the temporary file was made is an error, and it leaves the
-     * old file as it was. The temporary file has one fixed name, which the lock makes safe, so a killed write leaves nothing the next one does
-     * not replace.
+     * another file system, a disk with no room for a second copy, a PHP that has disabled the functions that set the permissions): the caller
+     * writes in place, and the old file is as it was. The temporary file has one fixed name, which the lock makes safe, so a killed write leaves
+     * nothing the next one does not replace.
      *
      * @param resource $handle
      */
     private static function replaceThroughTemporaryFile(string $path, $handle, string $content): bool
     {
-        $realPath = realpath($path);
+        $realPath = function_exists('realpath') ? realpath($path) : false;
         if ($realPath === false) {
             return false;
         }
@@ -111,12 +138,9 @@ final class AtomicFile
 
         $replaced = false;
         try {
-            if (self::copyAttributes(from: $handle, temporaryPath: $temporaryPath)) {
-                if (!self::writeAll(handle: $temporary, content: $content)) {
-                    throw new RuntimeException("The file {$path} cannot be written.");
-                }
-                $replaced = @rename($temporaryPath, $realPath);
-            }
+            $replaced = self::copyAttributes(from: $handle, temporaryPath: $temporaryPath)
+                && self::writeAll(handle: $temporary, content: $content)
+                && @rename($temporaryPath, $realPath);
         } finally {
             fclose($temporary);
             if (!$replaced) {
@@ -129,7 +153,7 @@ final class AtomicFile
 
     /**
      * The permissions and the owner of the old file, so that the new one is not more readable than it was. False where the permissions cannot
-     * be set (a file system without them): the old file is then written in place.
+     * be set (a file system without them, a PHP without chmod): the old file is then written in place.
      *
      * @param resource $from
      */
@@ -137,21 +161,38 @@ final class AtomicFile
     {
         $attributes = fstat($from);
         // only root may give a file to another user; for anyone else the new file stays with the user who made it
-        @chown($temporaryPath, $attributes['uid']);
-        @chgrp($temporaryPath, $attributes['gid']);
+        self::attempt('chown', $temporaryPath, $attributes['uid']);
+        self::attempt('chgrp', $temporaryPath, $attributes['gid']);
 
-        return @chmod($temporaryPath, $attributes['mode'] & 07777);
+        return self::attempt('chmod', $temporaryPath, $attributes['mode'] & 07777);
     }
 
     /** @param resource $handle */
     private static function overwrite($handle, string $content): bool
     {
-        return ftruncate($handle, 0) && rewind($handle) && self::writeAll(handle: $handle, content: $content);
+        return @ftruncate($handle, 0) && @rewind($handle) && self::writeAll(handle: $handle, content: $content);
     }
 
-    /** @param resource $handle */
+    /**
+     * What fwrite and fflush report is whether the bytes were written, and a write that failed (a full disk is reported as a notice, which the
+     * framework raises as an exception) is a result here and not an exception, so the caller can fall back. fsync only asks the disk to make
+     * them durable: a file system that refuses it (certain FUSE and network mounts) still holds what was written.
+     *
+     * @param resource $handle
+     */
     private static function writeAll($handle, string $content): bool
     {
-        return fwrite($handle, $content) === strlen($content) && fflush($handle) && fsync($handle);
+        if (@fwrite($handle, $content) !== strlen($content) || !@fflush($handle)) {
+            return false;
+        }
+        self::attempt('fsync', $handle);
+
+        return true;
+    }
+
+    /** A file function that a hardened PHP has disabled (disable_functions) is one that refuses: what a refusal means is for the caller to say. */
+    private static function attempt(string $function, mixed ...$arguments): bool
+    {
+        return function_exists($function) && @$function(...$arguments);
     }
 }

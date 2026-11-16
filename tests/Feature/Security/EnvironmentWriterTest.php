@@ -431,26 +431,28 @@ class EnvironmentWriterTest extends TestCase
         $this->assertSame($original, file_get_contents($path), 'a write that did not finish cut the file short');
     }
 
-    public function test_a_write_that_fails_halfway_raises_and_leaves_the_old_file_whole(): void
+    public function test_a_write_that_fails_in_the_copy_and_in_place_raises_and_leaves_the_old_file_whole(): void
     {
         $this->skipUnlessTheSizeOfAFileCanBeLimited();
         $path = $this->directory . '/.env';
-        $original = $this->fileLongerThanTheLimit();
+        $original = $this->fileJustUnderTheLimit();
         file_put_contents($path, $original);
 
-        $writer = $this->startPhp(self::LIMIT_THE_SIZE_OF_A_FILE . self::SURVIVE_THE_LIMIT . 'App\\Utils\\EnvironmentFile::set($argv[1], "APP_DEBUG", "true");', $path);
+        // the copy passes the limit and fails, the write in place that follows passes it too, and the old content is put back
+        $writer = $this->startPhp(self::LIMIT_THE_SIZE_OF_A_FILE . self::SURVIVE_THE_LIMIT . 'App\\Utils\\EnvironmentFile::set($argv[1], "APP_DEBUG", str_repeat("x", 300));', $path);
         $error = stream_get_contents($writer['pipes'][2]);
 
         $this->assertNotSame(0, proc_close($writer['process']), 'the writer answered as if it had written');
         $this->assertStringContainsString('cannot be written', $error);
         $this->assertSame($original, file_get_contents($path));
+        $this->assertSame(['.env'], array_values(array_diff(scandir($this->directory), ['.', '..'])), 'a temporary file stayed');
     }
 
     public function test_a_write_in_place_that_fails_halfway_raises_and_puts_the_old_content_back(): void
     {
         $this->skipUnlessTheSizeOfAFileCanBeLimited();
         $path = $this->directory . '/.env';
-        $original = str_repeat("# a comment that keeps the file just under the limit\n", 18) . "APP_KEY=base64:abc\nDB_PASSWORD=secret\n";
+        $original = $this->fileJustUnderTheLimit();
         file_put_contents($path, $original);
         mkdir($path . '.tmp'); // no replacement is possible: the file is written in place, and the new content passes the limit
 
@@ -472,5 +474,11 @@ class EnvironmentWriterTest extends TestCase
     private function fileLongerThanTheLimit(): string
     {
         return str_repeat("# a comment that makes the file longer than the limit\n", 30) . "APP_KEY=base64:abc\nDB_PASSWORD=secret\n";
+    }
+
+    /** A file that fits under the limit, so that the old content can be put back after a write that passes the limit. */
+    private function fileJustUnderTheLimit(): string
+    {
+        return str_repeat("# a comment that keeps the file just under the limit\n", 18) . "APP_KEY=base64:abc\nDB_PASSWORD=secret\n";
     }
 }
