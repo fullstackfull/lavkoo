@@ -161,6 +161,35 @@ class EnvironmentWriterTest extends TestCase
         $this->assertSame('"say \"hi\""', $this->write('APP_MODE', 'say "hi"'));
     }
 
+    // ---- what the writer does to the lines it does not own -----------------------------------------------------------------------
+
+    /** @return array<string, array{0: string, 1: string, 2: string, 3: string}> the file, the key written, the value written, and the file after */
+    public static function filesThatAreChangedLineByLine(): array
+    {
+        return [
+            'lines that end in CRLF' => ["APP_NAME=Shop\r\nAPP_DEBUG=false\r\nDB_PASSWORD=secret\r\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\nDB_PASSWORD=secret\n"],
+            'a key with a character that a pattern reads as its own' => ["AXB=keep\nA.B=old\n", 'A.B', 'new', "AXB=keep\nA.B=new\n"],
+            'a key with a parenthesis' => ["A=keep\nA(B=old\n", 'A(B', 'new', "A=keep\nA(B=new\n"],
+            'the key in lower case in the file' => ["app_debug=false\nAPP_NAME=Shop\n", 'APP_DEBUG', 'true', "APP_DEBUG=true\nAPP_NAME=Shop\n"],
+            'a key that is the start of another key' => ["APP_NAME=Shop\n", 'APP', 'x', "APP_NAME=Shop\nAPP=x\n"],
+            'a key that is the end of another key' => ["OTHER_APP_DEBUG=1\n", 'APP_DEBUG', 'true', "OTHER_APP_DEBUG=1\nAPP_DEBUG=true\n"],
+            'spaces around the equals sign' => ["APP_DEBUG = false\n", 'APP_DEBUG', 'true', "APP_DEBUG=true\n"],
+            'a comment and blank lines' => ["# the shop\n\nAPP_NAME=Shop\n\n", 'APP_DEBUG', 'true', "# the shop\nAPP_NAME=Shop\nAPP_DEBUG=true\n"],
+            'a file without a final line break' => ['APP_NAME=Shop', 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\n"],
+            'an empty file' => ['', 'APP_DEBUG', 'true', "APP_DEBUG=true\n"],
+        ];
+    }
+
+    #[DataProvider('filesThatAreChangedLineByLine')]
+    public function test_the_lines_the_key_does_not_name_are_kept_and_the_line_it_names_is_replaced(string $before, string $key, string $value, string $after): void
+    {
+        file_put_contents($this->directory . '/.env', $before);
+
+        $this->write($key, $value);
+
+        $this->assertSame($after, file_get_contents($this->directory . '/.env'));
+    }
+
     // ---- a file the writer cannot write is an error, never a success -------------------------------------------------------------
 
     /** @return array<string, array{0: Closure(string): string}> a path the writer cannot open for writing, made from the directory of the test */
