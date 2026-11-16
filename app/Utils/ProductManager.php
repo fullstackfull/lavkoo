@@ -2181,13 +2181,7 @@ class ProductManager
                 return $query->whereIn('brand_id', $request['brand_ids']);
             })
             ->when($request->has('search_category_value') && !empty($request['search_category_value']) && $request['search_category_value'] != 'all', function ($query) use ($request) {
-                return $query->where(['category_id' => $request['search_category_value']])
-                    ->orWhere(function ($query) use ($request) {
-                        $query->where('sub_category_id', $request['search_category_value']);
-                    })
-                    ->orWhere(function ($query) use ($request) {
-                        $query->where('sub_sub_category_id', $request['search_category_value']);
-                    });
+                return self::whereInCategory(query: $query, category: $request['search_category_value']);
             })
             ->when($request['offer_type'] == 'clearance_sale', function ($query) {
                 $stockClearanceProductIds = StockClearanceProduct::active()->pluck('product_id')->toArray();

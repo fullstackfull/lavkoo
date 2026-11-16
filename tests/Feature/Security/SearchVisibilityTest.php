@@ -34,11 +34,15 @@ class SearchVisibilityTest extends TestCase
         $this->insertProduct(id: 4, name: 'Alpha draft lamp', requestStatus: 0);
         $this->insertProduct(id: 5, name: 'Alpha pending seller lamp', userId: 9, addedBy: 'seller');
         DB::table('sellers')->insert(['id' => 9, 'status' => 'pending']);
+        DB::table('categories')->insert([
+            ['id' => self::CATEGORY, 'name' => 'Lamps', 'parent_id' => 0, 'position' => 0],
+            ['id' => self::SUB_CATEGORY, 'name' => 'Table lamps', 'parent_id' => self::CATEGORY, 'position' => 1],
+        ]);
     }
 
     private function buildCatalogTables(): void
     {
-        foreach (['business_settings', 'products', 'sellers', 'brands', 'translations', 'tags', 'product_tag', 'order_details', 'reviews', 'wishlists', 'stock_clearance_products', 'stock_clearance_setups', 'authors', 'digital_product_authors', 'publishing_houses', 'digital_product_publishing_houses'] as $table) {
+        foreach (['business_settings', 'products', 'sellers', 'brands', 'translations', 'tags', 'product_tag', 'order_details', 'reviews', 'wishlists', 'stock_clearance_products', 'stock_clearance_setups', 'authors', 'digital_product_authors', 'publishing_houses', 'digital_product_publishing_houses', 'categories', 'shops'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -98,6 +102,8 @@ class SearchVisibilityTest extends TestCase
         Schema::create('order_details', function ($table) {
             $table->id();
             $table->unsignedBigInteger('product_id');
+            $table->integer('qty')->default(1);
+            $table->string('delivery_status')->nullable();
         });
         Schema::create('reviews', function ($table) {
             $table->id();
@@ -117,6 +123,22 @@ class SearchVisibilityTest extends TestCase
             $table->unsignedBigInteger('setup_id')->nullable();
             $table->boolean('is_active')->default(false);
             $table->string('added_by')->nullable();
+        });
+        Schema::create('shops', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('name')->nullable();
+            $table->string('slug')->nullable();
+        });
+        Schema::create('categories', function ($table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('slug')->nullable();
+            $table->unsignedBigInteger('parent_id')->default(0);
+            $table->integer('position')->default(0);
+            $table->boolean('home_status')->default(false);
+            $table->integer('priority')->nullable();
+            $table->timestamps();
         });
         Schema::create('authors', function ($table) {
             $table->id();
@@ -205,6 +227,19 @@ class SearchVisibilityTest extends TestCase
             'web search' => [fn (string $name, int $category) => ProductManager::getSearchProductsForWeb($name, $category)['products']],
             'translated API search' => [fn (string $name, int $category) => ProductManager::translated_product_search(base64_encode($name), $category)['products']],
         ];
+    }
+
+    public function test_the_web_product_list_filtered_by_a_search_category_shows_only_visible_products(): void
+    {
+        $request = Request::create('/products', 'GET', [
+            'data_from' => 'search',
+            'category_ids' => [self::CATEGORY],
+            'search_category_value' => self::SUB_CATEGORY,
+        ]);
+
+        $listed = ProductManager::getProductListData(request: $request);
+
+        $this->assertSame([1, 3], $this->idsOf($listed));
     }
 
     #[DataProvider('nameSearches')]
