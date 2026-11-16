@@ -83,14 +83,20 @@ class FileManagerUploadTest extends TestCase
         return (string) ob_get_clean();
     }
 
-    /** @param array<string, string> $entries */
-    private function zipUpload(array $entries): UploadedFile
+    /**
+     * @param array<string, string> $entries
+     * @param callable(ZipArchive): void|null $beforeClose what is done to the archive after its entries are added (an encryption, an attribute)
+     */
+    private function zipUpload(array $entries, ?callable $beforeClose = null): UploadedFile
     {
         $path = $this->temporaryFile('');
         $zip = new ZipArchive();
         $zip->open($path, ZipArchive::OVERWRITE);
         foreach ($entries as $name => $content) {
             $zip->addFromString($name, $content);
+        }
+        if ($beforeClose !== null) {
+            $beforeClose($zip);
         }
         $zip->close();
 
@@ -111,6 +117,21 @@ class FileManagerUploadTest extends TestCase
     private function service(): FileManagerService
     {
         return app(FileManagerService::class);
+    }
+
+    /** A shop that keeps its files on S3 (a fake bucket), and the request that uploads into it. */
+    private function bucketRequest(array $files): Request
+    {
+        Storage::fake('s3');
+        Cache::put('storage_connection_type', 's3');
+
+        return Request::create('/', 'POST', ['storage' => 's3', 'path' => self::FOLDER], [], $files);
+    }
+
+    /** @return list<string> */
+    private function storedOnTheBucket(): array
+    {
+        return Storage::disk('s3')->allFiles(self::FOLDER);
     }
 
     public function test_a_zip_is_unpacked_into_the_folder_and_only_files_of_a_data_type_are_copied(): void
@@ -307,17 +328,101 @@ class FileManagerUploadTest extends TestCase
 
     public function test_on_s3_a_zip_stores_only_files_of_a_data_type_under_generated_names(): void
     {
-        Storage::fake('s3');
-        Cache::put('storage_connection_type', 's3');
+        $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'b.pdf' => '%PDF-1.4', 'shell.php' => '<?php', 'page.html' => '<script>alert(1)</script>', 'c.php.jpg' => '<?php'])]));
 
-        $this->service()->uploadFileAndImages(Request::create('/', 'POST', ['storage' => 's3', 'path' => self::FOLDER], [], ['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'b.pdf' => '%PDF-1.4', 'shell.php' => '<?php', 'page.html' => '<script>alert(1)</script>', 'c.php.jpg' => '<?php'])]));
-
-        // the name is generated, so the script extension inside `c.php.jpg` is not in what is stored
-        $stored = Storage::disk('s3')->allFiles(self::FOLDER);
-        $this->assertCount(3, $stored);
+        // `c.php.jpg` is chosen out like on the local disk, whatever name the bucket would give it
+        $stored = $this->storedOnTheBucket();
+        $this->assertCount(2, $stored);
         foreach ($stored as $name) {
             $this->assertMatchesRegularExpression('#^' . self::FOLDER . '/\d{4}-\d{2}-\d{2}-[0-9a-f]+\.(jpg|pdf)$#', $name);
         }
+    }
+
+    public function test_on_s3_the_entries_of_the_local_disk_are_stored_and_no_others(): void
+    {
+        $entries = [
+            'ok.jpg' => $this->jpeg(), 'evil.php.jpg' => $this->jpeg(), "line\nbreak.png" => $this->jpeg(), "zero\u{200B}width.png" => $this->jpeg(),
+            '.hidden/h.jpg' => $this->jpeg(), '../up.jpg' => $this->jpeg(), 'page.html' => '<script>alert(1)</script>', 'icon.svg' => '<svg/>',
+        ];
+
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($entries)]));
+
+        $this->assertTrue($stored);
+        $this->assertCount(1, $this->storedOnTheBucket());
+    }
+
+    /** @return array<string, array{0: array<string, string>}> */
+    public static function entriesThatTheGalleryDoesNotStore(): array
+    {
+        return [
+            'an svg' => [['icons/a.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>']],
+            'a script' => [['shell.php' => '<?php']],
+            'a script behind a data type' => [['shell.php.jpg' => '<?php']],
+            'folders' => [['album.jpg/' => '', 'photos/' => '']],
+            'hidden paths' => [['.hidden/a.jpg' => 'x', '.hidden.jpg' => 'x', 'sub/.thumb.png' => 'x']],
+        ];
+    }
+
+    /** @param array<string, string> $entries */
+    #[DataProvider('entriesThatTheGalleryDoesNotStore')]
+    public function test_an_archive_that_holds_nothing_the_gallery_stores_is_reported_as_not_stored_on_either_disk(array $entries): void
+    {
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($entries)]));
+
+        $this->assertFalse($onTheDisk);
+        $this->assertFalse($onTheBucket);
+        $this->assertSame([], $this->storedOnTheBucket());
+    }
+
+    public function test_a_file_that_is_not_an_archive_is_reported_as_not_stored_on_either_disk(): void
+    {
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->imageUpload('images.zip', 'plain text, no archive')]));
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->imageUpload('images.zip', 'plain text, no archive')]));
+
+        $this->assertFalse($onTheDisk);
+        $this->assertFalse($onTheBucket);
+    }
+
+    public function test_on_s3_a_folder_entry_that_is_named_like_an_image_is_not_stored_as_an_empty_object(): void
+    {
+        $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload(['album.jpg/' => '', 'album.jpg/inner.jpg' => $this->jpeg()])]));
+
+        $stored = $this->storedOnTheBucket();
+        $this->assertCount(1, $stored);
+        $this->assertGreaterThan(0, Storage::disk('s3')->size($stored[0]));
+    }
+
+    public function test_an_archive_whose_only_entry_cannot_be_read_is_reported_as_not_stored_on_either_disk(): void
+    {
+        $encrypt = static fn (ZipArchive $zip): bool => $zip->setEncryptionName('locked.jpg', ZipArchive::EM_AES_256, 'a password nobody knows');
+
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['locked.jpg' => $this->jpeg()], $encrypt)]));
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload(['locked.jpg' => $this->jpeg()], $encrypt)]));
+
+        $this->assertFalse($onTheDisk);
+        $this->assertFalse($onTheBucket);
+        $this->assertSame([], $this->storedOnTheBucket());
+    }
+
+    public function test_a_hidden_path_is_not_stored_and_the_visible_file_beside_it_is(): void
+    {
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['.hidden/a.jpg' => $this->jpeg(), 'sub/.thumb.png' => $this->jpeg(), 'visible.jpg' => $this->jpeg()])]));
+
+        $this->assertTrue($stored);
+        $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
+        $this->assertSame(['visible.jpg'], $copied);
+    }
+
+    public function test_a_dot_in_the_middle_of_a_name_or_a_dot_slash_in_front_of_it_does_not_hide_a_path(): void
+    {
+        $entries = ['./dot-slash.jpg' => $this->jpeg(), 'v1.0/photo.name.jpg' => $this->jpeg(), 'a.b.c/d.e.jpg' => $this->jpeg()];
+
+        $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+
+        $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
+        sort($copied);
+        $this->assertSame(['a.b.c/d.e.jpg', 'dot-slash.jpg', 'v1.0/photo.name.jpg'], $copied);
     }
 
     // ---- the form ---------------------------------------------------------------------------------------------------------------

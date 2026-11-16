@@ -51,38 +51,38 @@ class FileManagerService
         }
 
         if ($request->hasfile('file')) {
-            $file = $request->file('file');
-            if ($storage === 's3') {
-                $zip = new ZipArchive;
-                if ($zip->open($file->path()) === true) {
-                    if ($this->storableEntries(zip: $zip) === null) {
-                        $zip->close();
-                        return false;
-                    }
-                    for ($i = 0; $i < $zip->numFiles; $i++) {
-                        $stat = $zip->statIndex($i);
-
-                        if (!$stat['name'] || $this->shouldSkip($stat['name'])) {
-                            continue;
-                        }
-                        $filename = $stat['name'];
-                        $format = pathinfo($filename, PATHINFO_EXTENSION);
-                        if (!StoredFileExtension::isDataType(extension: $format)) {
-                            continue;
-                        }
-                        $fileContent = $zip->getFromIndex($i);
-                        $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
-                        $s3 = Storage::disk('s3');
-                        $s3Path = $folder . '/' . $imageName;
-                        $s3->put($s3Path, $fileContent, 'public');
-                    }
-                    $zip->close();
-                }
-            } elseif (!$this->unpackArchive(archive: $request->file('file'), folder: $folder)) {
+            $archive = $request->file('file');
+            $isStored = $storage === 's3'
+                ? $this->putArchiveOnBucket(archive: $archive, folder: $folder)
+                : $this->unpackArchive(archive: $archive, folder: $folder);
+            if (!$isStored) {
                 return false;
             }
         }
         return true;
+    }
+
+    /** Stores the entries of an archive that the gallery stores on the bucket, each under a name of its own; whether anything was stored. */
+    private function putArchiveOnBucket(mixed $archive, string $folder): bool
+    {
+        $zip = new ZipArchive();
+        if ($zip->open($archive) !== true) {
+            return false;
+        }
+
+        $stored = 0;
+        foreach ($this->storableEntries(zip: $zip) ?? [] as $index => $name) {
+            $content = $zip->getFromIndex($index);
+            if ($content === false) {
+                continue;
+            }
+            $imageName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION);
+            Storage::disk('s3')->put($folder . '/' . $imageName, $content, 'public');
+            $stored++;
+        }
+        $zip->close();
+
+        return $stored > 0;
     }
 
     /**
@@ -105,18 +105,18 @@ class FileManagerService
         $tempPath = storage_path('app/temp-zip-' . Str::random(10));
         File::makeDirectory($tempPath);
         try {
-            $zip->extractTo($tempPath, $entries);
+            $zip->extractTo($tempPath, array_values($entries));
             $zip->close();
-            $this->copyAndTouch($tempPath, $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder));
+            $stored = $this->copyAndTouch($tempPath, $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder));
         } finally {
             File::deleteDirectory($tempPath);
         }
         cacheRemoveByType(type: 'file_manager');
 
-        return true;
+        return $stored > 0;
     }
 
-    /** @return list<string>|null the names of the entries the gallery stores, or nothing when the archive is a way to fill the disk */
+    /** @return array<int, string>|null the names of the entries the gallery stores by their index, or nothing when the archive is a way to fill the disk */
     private function storableEntries(ZipArchive $zip): ?array
     {
         if ($zip->numFiles > self::MOST_ARCHIVE_ENTRIES) {
@@ -131,26 +131,32 @@ class FileManagerService
             $size += $stat['size'];
             $compressedSize += $stat['comp_size'];
             if ($this->isStorableEntry(name: (string)$stat['name'])) {
-                $entries[] = $stat['name'];
+                $entries[$index] = $stat['name'];
             }
         }
 
         return $size > self::LARGE_ARCHIVE_BYTES && $size > $compressedSize * self::MOST_COMPRESSION_RATIO ? null : $entries;
     }
 
-    /** A file of a data type, under a name the disk accepts, that holds no script extension and is no metadata of the system that made the archive. */
+    /**
+     * A file of a data type, under a name the disk accepts, that holds no script extension and is no metadata of the system that made the archive.
+     * A name with a hidden segment (`.hidden/a.jpg`, `.thumb.png`) is none either: the unpacking never listed it, so it was never stored.
+     */
     private function isStorableEntry(string $name): bool
     {
         return $name !== ''
             && !str_ends_with($name, '/')
             && !self::shouldSkip($name)
+            && preg_match('#(^|/)\.[^/]#', $name) !== 1
             && PlainFileName::staysInside(path: $name)
             && StoredFileExtension::isDataType(extension: pathinfo($name, PATHINFO_EXTENSION))
             && !StoredFileExtension::hidesHandler(fileName: basename($name));
     }
 
-    private function copyAndTouch($src, $dst): void
+    /** @return int how many files were copied */
+    private function copyAndTouch($src, $dst): int
     {
+        $copied = 0;
         $files = File::allFiles($src);
         foreach ($files as $file) {
             if (!StoredFileExtension::isDataType(extension: $file->getExtension()) || StoredFileExtension::hidesHandler(fileName: $file->getFilename())) {
@@ -161,7 +167,10 @@ class FileManagerService
             File::ensureDirectoryExists(dirname($destinationPath));
             File::copy($file->getPathname(), $destinationPath);
             touch($destinationPath);
+            $copied++;
         }
+
+        return $copied;
     }
 
     public static function shouldSkip($filename): bool
