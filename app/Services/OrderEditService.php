@@ -217,7 +217,8 @@ class OrderEditService
 
     public function addOrUpdateProductInOrderSession(object|array $request, object|array $order = [], object|array|null $color = []): array
     {
-        if (!$this->isProductAllowedOnOrder(order: $order, productId: $request['product_id'])) {
+        $requestedLine = ['product_id' => $request['product_id'], 'variant' => $request['variant'], 'qty' => $request['quantity'] ?? 1];
+        if (!$this->areEditedLinesAllowedOnOrder(order: $order, editedLines: [$requestedLine])) {
             return [
                 'status' => 'error',
                 'message' => translate('Product_is_unavailable'),
@@ -379,6 +380,13 @@ class OrderEditService
             }
         }
 
+        if (!$this->areEditedLinesAllowedOnOrder(order: $order, editedLines: $filteredProducts)) {
+            return [
+                'status' => 'error',
+                'message' => translate('Product_is_unavailable'),
+            ];
+        }
+
         $orderSession['product_list'] = $filteredProducts;
         Session::put($this->getOrderEditSessionKey(orderId: $order['id']), $orderSession);
 
@@ -451,7 +459,11 @@ class OrderEditService
     }
 
 
-    /** An edit writes each product it names as a line of the order, reprices the order from it and moves its stock: only products of the order's own shop, or ones the order already holds, may be named. */
+    /**
+     * An edit writes each product it names as a line of the order, reprices the order from it and moves its stock: it may only name products of
+     * the order's own shop, and lines the order already holds, which it may keep or reduce but not increase (the edit gives back what the line
+     * held and takes what the line now holds, so a bigger line would take the stock of a shop the order does not belong to).
+     */
     public function areRequestedProductsAllowedOnOrder(object|array $request, object $order): bool
     {
         $requestProducts = $this->getRequestProducts(request: $request);
@@ -459,30 +471,66 @@ class OrderEditService
             return false;
         }
 
-        return $this->areProductIdsAllowedOnOrder(order: $order, productIds: collect($requestProducts)
-            ->map(fn ($productItem) => is_array($productItem) ? ($productItem['id'] ?? null) : null));
+        return $this->areLinesAllowedOnOrder(order: $order, lines: collect($requestProducts)->map(fn ($productItem) => [
+            'product_id' => is_array($productItem) ? ($productItem['id'] ?? null) : null,
+            'variant' => is_array($productItem) ? ($productItem['variant'] ?? null) : null,
+            'quantity' => is_array($productItem) ? ($productItem['quantity'] ?? 1) : 1,
+        ]));
     }
 
     public function areEditedLinesAllowedOnOrder(object $order, iterable $editedLines): bool
     {
-        return $this->areProductIdsAllowedOnOrder(order: $order, productIds: collect($editedLines)->pluck('product_id'));
+        return $this->areLinesAllowedOnOrder(order: $order, lines: collect($editedLines)->map(fn ($line) => [
+            'product_id' => $line['product_id'] ?? null,
+            'variant' => $line['variant'] ?? null,
+            'quantity' => $line['qty'] ?? 1,
+        ]));
     }
 
+    /** Whether an edit of the order may look at the product: it is the order's shop's own, or the order holds a line of it. */
     public function isProductAllowedOnOrder(object $order, mixed $productId): bool
     {
-        return $this->areProductIdsAllowedOnOrder(order: $order, productIds: collect([$productId]));
+        $productId = filter_var($productId, FILTER_VALIDATE_INT);
+
+        return $productId !== false
+            && ($this->getOrderShopProductIds(order: $order, ids: [$productId])->isNotEmpty() || $this->getHeldProductIds(order: $order)->containsStrict($productId));
     }
 
-    private function areProductIdsAllowedOnOrder(object $order, Collection $productIds): bool
+    private function areLinesAllowedOnOrder(object $order, Collection $lines): bool
     {
-        $requestedIds = $productIds->map(fn ($productId) => filter_var($productId, FILTER_VALIDATE_INT));
-        if ($requestedIds->containsStrict(false)) {
-            return false;
+        $requestedLines = [];
+        foreach ($lines as $line) {
+            $productId = filter_var($line['product_id'], FILTER_VALIDATE_INT);
+            if ($productId === false) {
+                return false;
+            }
+            $lineKey = $this->getLineKey(productId: $productId, variant: $line['variant']);
+            $requestedLines[$lineKey] = ['product_id' => $productId, 'quantity' => ($requestedLines[$lineKey]['quantity'] ?? 0) + (float)$line['quantity']];
         }
 
-        $newIds = $requestedIds->unique()->diff($order->details->pluck('product_id'));
+        $shopProductIds = $this->getOrderShopProductIds(order: $order, ids: array_column($requestedLines, 'product_id'));
+        $heldQuantities = $this->getHeldQuantities(order: $order);
 
-        return $newIds->diff($this->getOrderShopProductIds(order: $order, ids: $newIds->all()))->isEmpty();
+        return collect($requestedLines)->every(fn (array $line, string $lineKey) => $shopProductIds->containsStrict($line['product_id'])
+            || ($heldQuantities->has($lineKey) && $line['quantity'] >= 0 && $line['quantity'] <= $heldQuantities[$lineKey]));
+    }
+
+    private function getLineKey(mixed $productId, mixed $variant): string
+    {
+        return (int)$productId . '|' . (is_scalar($variant) ? $variant : '');
+    }
+
+    /** @return Collection<string, int|float> the quantity of each line the order holds, by product and variant */
+    private function getHeldQuantities(object $order): Collection
+    {
+        return $order->details
+            ->groupBy(fn ($detail) => $this->getLineKey(productId: $detail['product_id'], variant: $detail['variant']))
+            ->map(fn ($details) => $details->sum('qty'));
+    }
+
+    private function getHeldProductIds(object $order): Collection
+    {
+        return $order->details->pluck('product_id')->filter()->map(fn ($productId) => (int)$productId);
     }
 
     private function getRequestProducts(object|array $request): mixed
@@ -496,7 +544,7 @@ class OrderEditService
             $order['seller_is'] == 'seller',
             fn ($query) => $query->ofSeller(sellerId: $order['seller_id']),
             fn ($query) => $query->where('added_by', 'admin'),
-        )->whereIn('id', $ids)->pluck('id');
+        )->whereIn('id', $ids)->pluck('id')->map(fn ($productId) => (int)$productId);
     }
 
     public function getFormatAPIProductsForEditOrder(object|array $request, object|array $order = [], object|array|null $colors = []): array

@@ -22,6 +22,7 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
 {
     private const ORDER = 100001;
     private const SESSION_KEY = 'SELLER_SESSION_FOR_EDIT_ORDER_100001';
+    private const HELD_LINE_KEY = '20-single-variant';
 
     protected function setUp(): void
     {
@@ -98,7 +99,77 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         $response->assertOk()->assertJson(['status' => 'error']);
     }
 
+    // ---- another shop's product the order already holds ----
+
+    public function test_an_order_that_holds_another_sellers_product_can_reduce_the_line_and_the_units_go_back_to_that_shop(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        $updated = $this->updateTheQuantityInTheEdit(key: self::HELD_LINE_KEY, quantity: 1);
+        $saved = $this->saveTheEdit();
+
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 1]], $this->linesOfTheOrder());
+        $this->assertSame(51, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
+        $updated->assertOk()->assertJson(['status' => 'success']);
+        $saved->assertOk()->assertJson(['status' => 'success']);
+    }
+
+    public function test_an_order_that_holds_another_sellers_product_can_keep_the_line_when_it_is_named_again_with_the_quantity_it_holds(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        $this->addToTheEdit(productId: self::OTHER_SELLERS_PRODUCT, quantity: 2)->assertOk()->assertJson(['status' => 'success']);
+        $this->saveTheEdit()->assertOk()->assertJson(['status' => 'success']);
+
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 2]], $this->linesOfTheOrder());
+        $this->assertSame(50, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
+    }
+
+    #[DataProvider('quantitiesTheHeldLineMayNotTake')]
+    public function test_an_order_that_holds_another_sellers_product_cannot_take_more_of_it_through_the_quantity_update_or_the_add(int $quantity): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        $updated = $this->updateTheQuantityInTheEdit(key: self::HELD_LINE_KEY, quantity: $quantity);
+        $added = $this->addToTheEdit(productId: self::OTHER_SELLERS_PRODUCT, quantity: $quantity);
+        $this->saveTheEdit()->assertOk();
+
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 2]], $this->linesOfTheOrder());
+        $this->assertSame(50, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
+        $updated->assertOk()->assertJson(['status' => 'error']);
+        $added->assertOk()->assertJson(['status' => 'error']);
+    }
+
+    #[DataProvider('quantitiesTheHeldLineMayNotTake')]
+    public function test_a_saved_edit_whose_session_takes_more_of_another_sellers_held_product_writes_nothing(int $quantity): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+        $this->updateTheQuantityInTheEdit(key: self::HELD_LINE_KEY, quantity: 2)->assertOk();
+        $session = session(self::SESSION_KEY);
+        $session['product_list'][self::HELD_LINE_KEY]['qty'] = $quantity;
+        $this->withSession([self::SESSION_KEY => $session]);
+
+        $response = $this->saveTheEdit();
+
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 2]], $this->linesOfTheOrder());
+        $this->assertSame(50, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
+        $this->assertSame(0, DB::table('order_edit_histories')->count(), 'an edit was recorded');
+        $response->assertOk()->assertJson(['status' => 'error']);
+    }
+
     // ---- helpers ----
+
+    private function theOrderHoldsTwoUnitsOfAnotherSellersProduct(): void
+    {
+        DB::table('order_details')->where('id', 1)->update(['product_id' => self::OTHER_SELLERS_PRODUCT]);
+    }
+
+    private function updateTheQuantityInTheEdit(string $key, int $quantity): TestResponse
+    {
+        return $this->signInAs(self::SELLER)->postJson('/vendor/orders/edit-order-product-list-update', [
+            'order_id' => self::ORDER, 'products' => [$key => ['qty' => $quantity]],
+        ]);
+    }
 
     /** The edit's session, as a handler that took the product by another way would have left it. */
     private function putALineOfProductIntoTheSession(int $productId, int $quantity): void
@@ -130,6 +201,19 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         $this->assertEqualsWithDelta(200.0, (float) DB::table('orders')->where('id', self::ORDER)->value('order_amount'), 0.001);
     }
 
+    /** @return iterable<string, array{0: int}> */
+    public static function quantitiesTheHeldLineMayNotTake(): iterable
+    {
+        yield 'one more' => [3];
+        yield 'a huge quantity' => [999];
+        yield 'a negative quantity, which would put units on that shop\'s shelf' => [-999];
+    }
+
+    private function stockOf(int $productId): int
+    {
+        return (int) DB::table('products')->where('id', $productId)->value('current_stock');
+    }
+
     /** @return list<array{0: int, 1: int}> product and quantity of every line of the seller's own order */
     private function linesOfTheOrder(): array
     {
@@ -140,10 +224,7 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
     /** @return array{0: int, 1: int, 2: int} stock of the own, the other seller's and the in-house product */
     private function stockOfEachProduct(): array
     {
-        return array_map(
-            static fn (int $productId): int => (int) DB::table('products')->where('id', $productId)->value('current_stock'),
-            [self::OWN_PRODUCT, self::OTHER_SELLERS_PRODUCT, self::IN_HOUSE_PRODUCT],
-        );
+        return array_map(fn (int $productId): int => $this->stockOf($productId), [self::OWN_PRODUCT, self::OTHER_SELLERS_PRODUCT, self::IN_HOUSE_PRODUCT]);
     }
 
     private function seedAnOwnOrderHoldingTwoUnitsOfTheOwnProduct(): void

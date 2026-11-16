@@ -190,6 +190,80 @@ class SellerApiOrderEditProductsTest extends TestCase
         $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
     }
 
+    // ---- another shop's product the order already holds ----
+
+    /** @return iterable<string, array{0: int}> */
+    public static function quantitiesTheHeldLineMayKeep(): iterable
+    {
+        yield 'the quantity it holds' => [2];
+        yield 'fewer' => [1];
+    }
+
+    #[DataProvider('quantitiesTheHeldLineMayKeep')]
+    public function test_an_order_that_holds_another_sellers_product_can_keep_or_reduce_the_line_and_the_units_go_back_to_that_shop(int $quantity): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        $response = $this->submitEdit([$this->item(self::OTHER_SELLERS_PRODUCT, quantity: $quantity)]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('success', $response->json('status'));
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, $quantity]], $this->linesOfTheOrder());
+        $this->assertSame(50 + 2 - $quantity, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
+    }
+
+    /** @return iterable<string, array{0: int}> */
+    public static function quantitiesTheHeldLineMayNotTake(): iterable
+    {
+        yield 'one more' => [3];
+        yield 'a huge quantity' => [999];
+        yield 'a negative quantity, which would put units on that shop\'s shelf' => [-999];
+    }
+
+    #[DataProvider('quantitiesTheHeldLineMayNotTake')]
+    public function test_an_order_that_holds_another_sellers_product_cannot_take_more_of_it_or_put_units_on_that_shops_shelf(int $quantity): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        $response = $this->submitEdit([$this->item(self::OTHER_SELLERS_PRODUCT, quantity: $quantity)]);
+
+        $this->assertSame(50, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 2]], $this->linesOfTheOrder());
+        $this->assertNotFound($response, code: 'product');
+    }
+
+    public function test_the_lines_an_edit_names_for_one_held_product_of_another_seller_together_cannot_take_more_than_the_order_holds(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        $response = $this->submitEdit([$this->item(self::OTHER_SELLERS_PRODUCT, quantity: 2), $this->item(self::OTHER_SELLERS_PRODUCT, quantity: 1)]);
+
+        $this->assertSame(50, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
+        $this->assertNotFound($response, code: 'product');
+    }
+
+    public function test_an_edit_cannot_move_the_held_units_of_another_sellers_product_to_a_variant_the_order_does_not_hold(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+        DB::table('order_details')->where('id', self::OWN_LINE)->update(['variant' => 'red']);
+
+        $kept = $this->submitEdit([['variant' => 'red'] + $this->item(self::OTHER_SELLERS_PRODUCT, quantity: 2)]);
+        $moved = $this->submitEdit([['variant' => 'blue'] + $this->item(self::OTHER_SELLERS_PRODUCT, quantity: 2)]);
+
+        $this->assertSame(200, $kept->getStatusCode());
+        $this->assertNotFound($moved, code: 'product');
+    }
+
+    public function test_validating_an_edit_that_takes_more_of_another_sellers_held_product_is_refused_and_prices_nothing(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        $response = $this->sellerApi('POST', 'orders/edit-order-validation', ['order_id' => (string) self::OWN_ORDER, 'products' => json_encode([$this->item(self::OTHER_SELLERS_PRODUCT, quantity: 3)])]);
+
+        $this->assertNull($response->json('order_amount'), 'the order was priced with the product');
+        $this->assertNotFound($response, code: 'product');
+    }
+
     // ---- the in-house shop's own orders ----
 
     public function test_an_in_house_order_may_be_edited_with_in_house_products_only_and_not_with_a_sellers_who_shares_its_seller_id(): void
@@ -252,6 +326,11 @@ class SellerApiOrderEditProductsTest extends TestCase
     }
 
     // ---- helpers ----
+
+    private function theOrderHoldsTwoUnitsOfAnotherSellersProduct(): void
+    {
+        DB::table('order_details')->where('id', self::OWN_LINE)->update(['product_id' => self::OTHER_SELLERS_PRODUCT]);
+    }
 
     /** @param list<array<string, mixed>> $items */
     private function submitEdit(array $items, string $encoding = 'json'): TestResponse
