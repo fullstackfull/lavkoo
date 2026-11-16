@@ -370,8 +370,8 @@
             "use strict";
             async function initAutocomplete() {
                 var myLatLng = {
-                    lat: {{$default_location?$default_location['lat']:'-33.8688'}},
-                    lng: {{$default_location?$default_location['lng']:'151.2195'}}
+                    lat: {{ (float) ($default_location ? $default_location['lat'] : -33.8688) }},
+                    lng: {{ (float) ($default_location ? $default_location['lng'] : 151.2195) }}
                 };
                 const { Map } = await google.maps.importLibrary("maps");
                 const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
