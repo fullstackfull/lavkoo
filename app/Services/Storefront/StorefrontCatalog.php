@@ -143,6 +143,12 @@ final class StorefrontCatalog
             ->value(self::TABLE . '.' . self::COLUMN);
     }
 
+    /** Whether the admin tools see a product's country: storefronts are on and the products migration has run. */
+    public static function tracksProductCountry(): bool
+    {
+        return (bool) config('gcc.storefronts.enabled') && self::columnReady();
+    }
+
     public static function flush(): void
     {
         self::$columnAnswer = null;

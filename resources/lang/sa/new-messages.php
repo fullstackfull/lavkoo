@@ -1259,6 +1259,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'products_of_the_running_featured_deal_campaign' => 'منتجات حملة العرض المميز الجارية',
 	'products_you_put_on_clearance_from_promotion_clearance_sale' => 'المنتجات التي وضعتها في التصفية من العروض ← تصفية المخزون',
 	'product_barcode' => 'باركود المنتج',
+	'product_country' => 'الدولة',
+	'the_country_this_product_is_sold_in_it_cannot_be_changed_after_the_product_is_added' => 'الدولة التي يُباع فيها هذا المنتج. لا يمكن تغييرها بعد إضافة المنتج: استخدم معرض المنتجات لإضافة نسخة لدولة أخرى.',
 	'Product_SEO_&_Meta_data' => 'Product SEO & Meta data',
 	'product_slider' => 'شريط المنتجات',
 	'product_source' => 'مصدر المنتجات',

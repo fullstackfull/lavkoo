@@ -210,6 +210,7 @@
                                        placeholder="{{ translate('ex').': 6291234567890'}}">
                             </div>
                         </div>
+                        @include('admin-views.product.partials._storefront-country')
                         <div class="col-md-6 col-lg-4 show-for-physical-product">
                             <div class="form-group">
                                 <label class="form-label">

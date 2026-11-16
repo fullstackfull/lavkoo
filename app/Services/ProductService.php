@@ -5,6 +5,7 @@ namespace App\Services;
 
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
+use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use Illuminate\Support\Str;
 use Rap2hpoutre\FastExcel\FastExcel;
@@ -584,7 +585,9 @@ class ProductService
         $digitalFileOptions = $this->getDigitalVariationOptions(request: $request);
         $digitalFileCombinations = $this->getDigitalVariationCombinations(arrays: $digitalFileOptions);
 
-        return [
+        $countryAttributes = $addedBy == 'admin' ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country']) : [];
+
+        return $countryAttributes + [
             'added_by' => $addedBy,
             'user_id' => $addedBy == 'admin' ? auth('admin')->id() : auth('seller')->id(),
             'shop_id' => $shopId,

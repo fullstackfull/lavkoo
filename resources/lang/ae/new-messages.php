@@ -11502,6 +11502,8 @@ return [
 	'products_you_put_on_clearance_from_promotion_clearance_sale' => 'Products you put on clearance from Promotion → Clearance sale',
 	'Product_Additional_Images' => 'Product Additional Images',
 	'product_barcode' => 'Product barcode',
+	'product_country' => 'الدولة',
+	'the_country_this_product_is_sold_in_it_cannot_be_changed_after_the_product_is_added' => 'الدولة التي يُباع فيها هذا المنتج. لا يمكن تغييرها بعد إضافة المنتج: استخدم معرض المنتجات لإضافة نسخة لدولة أخرى.',
 	'product_Bulk_Import' => 'Product Bulk Import',
 	'Product_Color_Wise_Images' => 'Product Color Wise Images',
 	'Product_Description' => 'Product Description',
