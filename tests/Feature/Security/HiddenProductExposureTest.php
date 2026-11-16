@@ -16,32 +16,42 @@ use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordApiResponseShape;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Product;
+use App\Models\User;
+use App\Services\Theme\SectionDataResolver;
 use App\Utils\ProductManager;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsProductCatalog;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
  * A product a customer may not see (disabled, never approved, or owned by a seller who is still pending) is not reachable by any other
  * door either: not through its id or slug, not through the reviews, counters and prices that hang off it, not through a banner that
- * points at it and not through a deal list. Every lookup answers for such a product exactly as it answers for an id that does not exist.
+ * points at it, not through a deal list and not by putting it in a cart. Every lookup answers for such a product exactly as it answers
+ * for an id that does not exist.
  */
 class HiddenProductExposureTest extends TestCase
 {
     use BuildsProductCatalog;
+    use RestoresLanguageFiles;
 
     /** Disabled, never approved, owned by a pending seller, and of a brand that is switched off. */
     private const HIDDEN_PRODUCTS = [2, 4, 5, 6];
+
+    /** What the storefront's scripts send with every request, and what makes the cart answer with JSON instead of a redirect. */
+    private const AJAX = ['X-Requested-With' => 'XMLHttpRequest'];
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->rememberLanguageFiles();
         Cache::flush();
         $this->buildCatalogTables();
         $this->registerMySqlLocate();
@@ -60,6 +70,13 @@ class HiddenProductExposureTest extends TestCase
             MonitorRequest::class, RecordAnalytics::class, ActivationCheckMiddleware::class, APILocalizationMiddleware::class,
             APIGuestMiddleware::class, GuestMiddleware::class, MaintenanceModeMiddleware::class, RecordApiResponseShape::class,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
     }
 
     private function seedStoreSettings(): void
@@ -181,6 +198,50 @@ class HiddenProductExposureTest extends TestCase
         $this->assertStringNotContainsString('purchase_price', $response->getContent());
     }
 
+    /** Two customers who reviewed product 1, as the store holds them: with an address, a wallet and the contact details they signed up with. */
+    private function seedReviewersWithContactDetails(): void
+    {
+        DB::table('users')->insert([
+            ['id' => 1, 'name' => 'Rev Iewer', 'f_name' => 'Rev', 'l_name' => 'Iewer', 'email' => 'reviewer@example.test', 'phone' => '0500000001', 'street_address' => '12 Secret Street', 'city' => 'Riyadh', 'zip' => '11564', 'wallet_balance' => 321.5, 'referral_code' => 'REFCODE1', 'social_id' => 'social-1'],
+            ['id' => 2, 'name' => 'Sec Ond', 'f_name' => 'Sec', 'l_name' => 'Ond', 'email' => 'second@example.test', 'phone' => '0500000002', 'street_address' => '34 Hidden Road', 'city' => 'Jeddah', 'zip' => '21442', 'wallet_balance' => 12, 'referral_code' => 'REFCODE2', 'social_id' => 'social-2'],
+        ]);
+        DB::table('reviews')->insert([
+            ['product_id' => 1, 'customer_id' => 1, 'comment' => 'Great lamp', 'rating' => 5, 'status' => 1],
+            ['product_id' => 1, 'customer_id' => 2, 'comment' => 'Good lamp', 'rating' => 3, 'status' => 1],
+            ['product_id' => 1, 'customer_id' => 404, 'comment' => 'Review of a deleted customer', 'rating' => 4, 'status' => 1],
+        ]);
+    }
+
+    public function test_the_product_details_carry_the_reviews_with_the_reviewers_display_fields_only(): void
+    {
+        $this->seedReviewersWithContactDetails();
+
+        $response = $this->getJson('/api/v1/products/details/product-1')->assertOk();
+
+        $this->assertSame('Alpha lamp', $response->json('name'));
+        $this->assertSame(3, $response->json('reviews_count'));
+        $this->assertSame(4.0, (float) $response->json('average_review'));
+        $this->assertSame(['Great lamp', 'Good lamp', 'Review of a deleted customer'], $response->json('reviews.*.comment'));
+        $this->assertSame(['Rev', 'Iewer'], [$response->json('reviews.0.customer.f_name'), $response->json('reviews.0.customer.l_name')]);
+        $this->assertNull($response->json('reviews.2.customer'));
+        foreach ([0, 1] as $position) {
+            $customer = $response->json("reviews.{$position}.customer");
+
+            $this->assertSame(['f_name', 'id', 'image', 'image_full_url', 'l_name', 'name'], collect($customer)->keys()->sort()->values()->all());
+        }
+    }
+
+    public function test_the_product_details_do_not_hand_the_reviewers_contact_details_to_anyone_who_asks(): void
+    {
+        $this->seedReviewersWithContactDetails();
+
+        $content = $this->getJson('/api/v1/products/details/product-1')->assertOk()->getContent();
+
+        foreach (['reviewer@example.test', 'second@example.test', '0500000001', '0500000002', 'Secret Street', 'Hidden Road', 'REFCODE', 'social-1', '321.5'] as $detailOfAReviewer) {
+            $this->assertStringNotContainsString($detailOfAReviewer, $content, $detailOfAReviewer);
+        }
+    }
+
     public function test_the_reviews_of_a_hidden_product_are_not_found_like_those_of_an_unknown_one(): void
     {
         $this->seedActivityOnProductsOneAndTwo();
@@ -266,6 +327,285 @@ class HiddenProductExposureTest extends TestCase
 
             $this->assertStringNotContainsString('Great hidden lamp', $response->getContent());
         }
+    }
+
+    /** Flash deal 2 holds eleven products: the five a customer may see (1, 3, 11, 14, 15) and six that are not (2, 4, 5, 6, 12, 13). */
+    private function seedFlashDealOfVisibleAndHiddenProducts(): void
+    {
+        $this->approvedSellerWithProduct(sellerId: 10, productId: 11, shopClosed: false);
+        $this->insertProduct(id: 12, name: 'Seller ten disabled lamp', status: 0, userId: 10, addedBy: 'seller');
+        $this->insertProduct(id: 13, name: 'Seller ten draft lamp', requestStatus: 0, userId: 10, addedBy: 'seller');
+        DB::table('brands')->insert(['id' => 8, 'name' => 'Live brand', 'status' => 1]);
+        $this->insertProduct(id: 14, name: 'Live brand lamp', extra: ['brand_id' => 8]);
+        $this->insertProduct(id: 15, name: 'Plain lamp');
+        $this->insertFlashDeal(id: 2, memberIds: [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15]);
+    }
+
+    private function insertFlashDeal(int $id, array $memberIds): void
+    {
+        DB::table('flash_deals')->insert([
+            'id' => $id, 'title' => "Flash deal {$id}", 'deal_type' => 'flash_deal', 'status' => 1,
+            'start_date' => date('Y-m-d', strtotime('-1 day')), 'end_date' => date('Y-m-d', strtotime('+1 day')),
+        ]);
+        foreach ($memberIds as $productId) {
+            DB::table('flash_deal_products')->insert(['flash_deal_id' => $id, 'product_id' => $productId]);
+        }
+        Cache::flush();
+    }
+
+    public function test_the_flash_deal_counts_the_products_a_customer_may_see_and_not_those_it_holds_unseen(): void
+    {
+        $this->seedFlashDealOfVisibleAndHiddenProducts();
+
+        $deal = $this->getJson('/api/v1/flash-deals')->assertOk();
+        $products = $this->getJson('/api/v1/flash-deals/products/2?limit=20&offset=1')->assertOk();
+
+        $this->assertSame([1, 3, 11, 14, 15], $this->idsOf($products->json('products')));
+        $this->assertSame(5, $products->json('total_size'));
+        $this->assertSame(5, $deal->json('products_count'));
+    }
+
+    public function test_the_storefront_flash_deal_counts_the_same_products_as_the_api(): void
+    {
+        $this->seedFlashDealOfVisibleAndHiddenProducts();
+
+        $flashDeal = ProductManager::getPriorityWiseFlashDealsProductsQuery()['flashDeal'];
+
+        $this->assertSame(5, $flashDeal->products_count);
+    }
+
+    public function test_a_flash_deal_of_products_none_of_which_a_customer_may_see_counts_none(): void
+    {
+        $this->insertFlashDeal(id: 2, memberIds: self::HIDDEN_PRODUCTS);
+
+        $this->assertSame(0, $this->getJson('/api/v1/flash-deals')->assertOk()->json('products_count'));
+        $this->assertSame(0, $this->getJson('/api/v1/flash-deals/products/2')->assertOk()->json('total_size'));
+    }
+
+    public function test_the_flash_deal_section_of_a_theme_counts_the_products_a_customer_may_see(): void
+    {
+        $this->seedFlashDealOfVisibleAndHiddenProducts();
+
+        $section = (new SectionDataResolver())->flashDeal(dealId: 2);
+
+        $this->assertSame(5, $section['products_count']);
+        $this->assertSame([1, 3, 11, 14, 15], $this->idsOf((new SectionDataResolver())->flashDealProducts(dealId: 2, limit: 24)));
+    }
+
+    /** The reviews of product 1 and of every hidden product, each reading "Review of <product id>". */
+    private function seedOneReviewPerProduct(): void
+    {
+        DB::table('users')->insert(['id' => 1, 'name' => 'Rev Iewer', 'f_name' => 'Rev', 'l_name' => 'Iewer', 'email' => 'reviewer@example.test', 'phone' => '0500000001']);
+        foreach ([1, ...self::HIDDEN_PRODUCTS] as $productId) {
+            DB::table('reviews')->insert(['product_id' => $productId, 'customer_id' => 1, 'comment' => "Review of {$productId}", 'rating' => 5, 'status' => 1]);
+        }
+    }
+
+    /** What a browser, a script or an app can put in the product_id of a form: one number, or something that holds several. */
+    public static function productIdsThatHoldSeveralIds(): array
+    {
+        return [
+            'a list' => [fn (int $first, int $second) => [$first, $second]],
+            'a list with numbered keys' => [fn (int $first, int $second) => [3 => $first, 7 => $second]],
+            'a list with named keys' => [fn (int $first, int $second) => ['a' => $first, 'b' => $second]],
+            'a list of lists' => [fn (int $first, int $second) => [[$first], [$second]]],
+        ];
+    }
+
+    #[DataProvider('productIdsThatHoldSeveralIds')]
+    public function test_a_product_id_that_holds_several_ids_does_not_open_the_reviews_of_a_hidden_product_behind_a_visible_one(Closure $severalIds): void
+    {
+        $this->seedOneReviewPerProduct();
+        $unknown = $this->postJson('/review-list-product', ['product_id' => 999, 'offset' => 0]);
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            foreach ([[$hiddenId, 1], [1, $hiddenId]] as [$first, $second]) {
+                $response = $this->postJson('/review-list-product', ['product_id' => $severalIds($first, $second), 'offset' => 0]);
+
+                $this->assertStringNotContainsString("Review of {$hiddenId}", $response->getContent(), "ids {$first} and {$second}");
+                $this->assertSame($unknown->getStatusCode(), $response->getStatusCode(), "ids {$first} and {$second}");
+                $this->assertSame($unknown->getContent(), $response->getContent(), "ids {$first} and {$second}");
+            }
+        }
+    }
+
+    public function test_several_product_ids_sent_as_a_form_or_in_the_query_string_are_both_refused(): void
+    {
+        $this->seedOneReviewPerProduct();
+
+        $form = $this->post('/review-list-product', ['product_id' => [2, 1], 'offset' => 0], ['Accept' => 'application/json']);
+        $queryString = $this->post('/review-list-product?product_id[]=2&product_id[]=1', ['offset' => 0], ['Accept' => 'application/json']);
+
+        $form->assertNotFound();
+        $queryString->assertNotFound();
+        $this->assertStringNotContainsString('Review of 2', $form->getContent() . $queryString->getContent());
+    }
+
+    public static function visibleProductIds(): array
+    {
+        return [
+            'a number' => [1],
+            'a numeric string, the way a form carries it' => ['1'],
+        ];
+    }
+
+    #[DataProvider('visibleProductIds')]
+    public function test_a_form_post_of_a_single_visible_product_id_still_lists_its_reviews(int|string $productId): void
+    {
+        $this->seedOneReviewPerProduct();
+
+        $response = $this->post('/review-list-product', ['product_id' => $productId, 'offset' => 0], ['Accept' => 'application/json'])->assertOk();
+
+        $this->assertSame(1, $response->json('not_empty'));
+        $this->assertStringContainsString('Review of 1', $response->json('productReview'));
+    }
+
+    public function test_a_form_post_of_a_single_hidden_or_unknown_product_id_is_still_not_found_with_the_same_answer(): void
+    {
+        $this->seedOneReviewPerProduct();
+        $unknown = $this->post('/review-list-product', ['product_id' => 999, 'offset' => 0], ['Accept' => 'application/json'])->assertNotFound();
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $hidden = $this->post('/review-list-product', ['product_id' => (string) $hiddenId, 'offset' => 0], ['Accept' => 'application/json'])->assertNotFound();
+
+            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+        }
+    }
+
+    /** The in-house shop is open and its shipping is a flat cost per product: what the cart reads before it adds a line. */
+    private function openTheShopForTheCart(): void
+    {
+        $this->setBusinessSetting('shipping_method', 'inhouse_shipping');
+        $this->setBusinessSetting('temporary_close', ['status' => 0]);
+        $this->setBusinessSetting('vacation_add', ['status' => 0, 'vacation_start_date' => null, 'vacation_end_date' => null, 'vacation_note' => '']);
+        DB::table('shipping_types')->insert(['seller_id' => 0, 'shipping_type' => 'product_wise']);
+        DB::table('users')->insert(['id' => 1, 'name' => 'Rev Iewer', 'f_name' => 'Rev', 'l_name' => 'Iewer', 'email' => 'reviewer@example.test', 'phone' => '0500000001']);
+        $this->useThrowawayPassportKeys();
+        Cache::flush();
+    }
+
+    /** The ways a customer or a guest puts a product in a cart: the app and the storefront, each as a guest and signed in, and the shop check of a product card. */
+    public static function cartDoors(): array
+    {
+        return [
+            'the app as a guest' => ['app as guest'],
+            'the app as a signed in customer' => ['app as customer'],
+            'the storefront as a guest' => ['storefront as guest'],
+            'the storefront as a signed in customer' => ['storefront as customer'],
+            'the shop check of a product card' => ['shop check'],
+        ];
+    }
+
+    private function putInTheCart(string $door, int $productId): TestResponse
+    {
+        $customer = User::find(1);
+
+        return match ($door) {
+            'app as guest' => $this->postJson('/api/v1/cart/add', ['id' => $productId, 'guest_id' => 'guest-1', 'quantity' => 1, 'variant' => null, 'buy_now' => 0]),
+            'app as customer' => $this->actingAs($customer, 'api')->postJson('/api/v1/cart/add', ['id' => $productId, 'quantity' => 1, 'variant' => null, 'buy_now' => 0]),
+            'storefront as guest' => $this->withSession(['guest_id' => 'guest-1'])->postJson('/cart/add', ['id' => $productId, 'quantity' => 1], self::AJAX),
+            'storefront as customer' => $this->actingAs($customer, 'customer')->postJson('/cart/add', ['id' => $productId, 'quantity' => 1], self::AJAX),
+            'shop check' => $this->withSession(['guest_id' => 'guest-1'])->getJson('/ajax-shop-vacation-check?' . http_build_query(['id' => $productId, 'added_by' => 'admin']), self::AJAX),
+        };
+    }
+
+    #[DataProvider('cartDoors')]
+    public function test_a_visible_product_is_added_to_the_cart_and_the_answer_carries_it(string $door): void
+    {
+        $this->openTheShopForTheCart();
+
+        $response = $this->putInTheCart($door, productId: 1)->assertOk();
+
+        $this->assertSame(1, $response->json('status'));
+        $this->assertSame('Alpha lamp', $response->json('cart.name'));
+        $this->assertSame(1, DB::table('carts')->where('product_id', 1)->count());
+    }
+
+    #[DataProvider('cartDoors')]
+    public function test_an_unknown_product_is_refused_as_unavailable_and_not_with_a_server_error(string $door): void
+    {
+        $this->openTheShopForTheCart();
+
+        $response = $this->putInTheCart($door, productId: 999)->assertOk();
+
+        $this->assertSame(['status' => 0, 'message' => translate('Product_is_unavailable')], $response->json());
+        $this->assertSame(0, DB::table('carts')->count());
+    }
+
+    #[DataProvider('cartDoors')]
+    public function test_a_product_a_customer_may_not_see_is_not_added_to_the_cart_and_is_refused_like_an_unknown_one(string $door): void
+    {
+        $this->openTheShopForTheCart();
+        $unknown = $this->putInTheCart($door, productId: 999);
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $hidden = $this->putInTheCart($door, productId: $hiddenId);
+
+            $this->assertSame(['status' => 0, 'message' => translate('Product_is_unavailable')], $hidden->json(), "product {$hiddenId}");
+            $this->assertSame($unknown->getStatusCode(), $hidden->getStatusCode(), "product {$hiddenId}");
+            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+            $this->assertSame(0, DB::table('carts')->count(), "product {$hiddenId}");
+        }
+    }
+
+    public function test_a_plain_form_post_of_a_hidden_product_goes_back_with_the_same_answer_as_one_of_an_unknown_product(): void
+    {
+        $this->openTheShopForTheCart();
+        $unknown = $this->post('/cart/add', ['id' => 999, 'quantity' => 1])->assertRedirect();
+
+        $this->assertStringContainsString(translate('Product_is_unavailable'), json_encode(session('toastr::messages')));
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $hidden = $this->post('/cart/add', ['id' => $hiddenId, 'quantity' => 1])->assertRedirect();
+
+            $this->assertSame($unknown->headers->get('Location'), $hidden->headers->get('Location'), "product {$hiddenId}");
+        }
+        $this->assertSame(0, DB::table('carts')->count());
+    }
+
+    private function updateVariation(int $productId, int $cartRowId = 987654): TestResponse
+    {
+        return $this->withSession(['guest_id' => 'guest-1'])->postJson('/cart/update-variation', ['product_id' => $productId, 'id' => $cartRowId, 'quantity' => 1, 'variant_key' => null, 'current_variant_key' => null], self::AJAX);
+    }
+
+    /** The route that re-prices a cart line (it has no caller in this repository) answered for a hidden product with its price, and put a row in the cart for a hidden digital product. */
+    public function test_the_update_variation_route_refuses_a_hidden_product_like_an_unknown_one_and_stores_no_row(): void
+    {
+        $this->openTheShopForTheCart();
+        $this->insertProduct(id: 21, name: 'Hidden digital download', status: 0, extra: ['product_type' => 'digital']);
+        $unknown = $this->updateVariation(999);
+
+        $this->assertSame(['status' => 0, 'message' => translate('Product_is_unavailable')], $unknown->json());
+        foreach ([...self::HIDDEN_PRODUCTS, 21] as $hiddenId) {
+            $hidden = $this->updateVariation($hiddenId);
+
+            $this->assertSame($unknown->getStatusCode(), $hidden->getStatusCode(), "product {$hiddenId}");
+            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+        }
+        $this->assertSame(0, DB::table('carts')->count());
+    }
+
+    public function test_the_wishlist_adds_the_visible_products_to_the_cart_and_passes_over_those_a_customer_may_not_see(): void
+    {
+        $this->openTheShopForTheCart();
+        $wishedProductIds = [999, ...self::HIDDEN_PRODUCTS, 1, 3];
+        $wishlist = ['items' => ['data' => array_map(fn (int $id) => ['product_id' => $id, 'product_full_info' => ['minimum_order_qty' => 1]], $wishedProductIds)]];
+
+        $this->withSession(['guest_id' => 'guest-1'])->postJson('/cart/add-all-to-cart', $wishlist)->assertOk()->assertJson(['success' => true]);
+
+        $this->assertEquals([1, 3], DB::table('carts')->orderBy('product_id')->pluck('product_id')->all());
+    }
+
+    /** The default theme's quick view does not print its related products, so what a customer may see of them is what the view is handed. */
+    public function test_the_quick_view_is_handed_only_related_products_a_customer_may_see(): void
+    {
+        $relatedProductIds = null;
+        View::composer(VIEW_FILE_NAMES['product_quick_view_partials'], function ($view) use (&$relatedProductIds) {
+            $relatedProductIds = $this->idsOf($view->getData()['relatedProducts']);
+        });
+
+        $this->getJson('/quick-view?product_id=1')->assertOk()->assertJson(['success' => 1]);
+
+        $this->assertSame([3], $relatedProductIds);
     }
 
     public function test_the_search_hint_names_the_words_that_match_nothing(): void

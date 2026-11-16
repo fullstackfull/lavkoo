@@ -1631,7 +1631,7 @@ class ProductManager
                 ->whereDate('start_date', '<=', date('Y-m-d'))
                 ->whereDate('end_date', '>=', date('Y-m-d'))
                 ->with('seo')
-                ->withCount('products')
+                ->withCount('activeProducts as products_count')
                 ->first();
         });
 
