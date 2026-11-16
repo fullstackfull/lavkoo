@@ -79,10 +79,13 @@ class VendorDeliveryTeamOwnershipTest extends VendorPanelTestCase
     #[DataProvider('contactsThatAreNotTheSellers')]
     public function test_a_seller_cannot_open_the_edit_form_of_an_emergency_contact_that_is_not_theirs(int $contactId): void
     {
+        [$name, , $phone] = $this->contactRow($contactId);
+
         $response = $this->signInAs(self::SELLER)->getJson('/vendor/delivery-man/emergency-contact/update/' . $contactId);
 
         $response->assertNotFound();
-        $this->assertStringNotContainsString('contact', strtolower((string) $response->getContent()));
+        $this->assertStringNotContainsString(strtolower($name), strtolower((string) $response->getContent()));
+        $this->assertStringNotContainsString($phone, (string) $response->getContent());
     }
 
     #[DataProvider('contactsThatAreNotTheSellers')]
