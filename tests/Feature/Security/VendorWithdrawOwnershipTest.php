@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\Security;
 
+use App\Exports\VendorWithdrawRequest;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Maatwebsite\Excel\Facades\Excel;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -130,6 +133,54 @@ class VendorWithdrawOwnershipTest extends VendorPanelTestCase
         $this->assertSame(['success'], $this->toastTypes());
         $this->assertNull(DB::table('withdraw_requests')->where('id', self::OWN_PENDING_REQUEST)->first());
         $this->assertSame([600.0, 0.0], $this->walletOf(self::SELLER));
+    }
+
+    // ---- the lists ----
+
+    /** @return array<string, array{string, list<int>}> the status the list is asked for and the requests that are the seller's own, whoever they were asked by */
+    public static function statusesAndTheSellersOwnRequestsInThem(): array
+    {
+        return [
+            'pending' => ['pending', [self::OWN_PENDING_REQUEST]],
+            'approved' => ['approved', [self::OWN_PAID_REQUEST]],
+            'denied' => ['denied', []],
+            'all' => ['all', [self::OWN_PENDING_REQUEST, self::OWN_PAID_REQUEST]],
+        ];
+    }
+
+    /** @param list<int> $expected */
+    #[DataProvider('statusesAndTheSellersOwnRequestsInThem')]
+    public function test_the_status_filtered_list_shows_the_sellers_own_requests_and_not_a_delivery_mans_or_another_sellers(string $status, array $expected): void
+    {
+        $this->useTheDefaultCurrency();
+
+        $response = $this->signInAs(self::SELLER)->postJson('/vendor/business-settings/withdraw/index', ['status' => $status])->assertOk();
+
+        preg_match_all('#withdraw/close/(\d+)#', (string)$response->json('view'), $matches);
+        $this->assertEqualsCanonicalizing($expected, array_map('intval', $matches[1]));
+        $this->assertSame(count($expected), $response->json('count'));
+    }
+
+    /** @param list<int> $expected */
+    #[DataProvider('statusesAndTheSellersOwnRequestsInThem')]
+    public function test_the_export_lists_the_sellers_own_requests_and_not_a_delivery_mans_or_another_sellers(string $status, array $expected): void
+    {
+        Excel::fake();
+
+        $this->signInAs(self::SELLER)->get('/vendor/business-settings/withdraw/export?status=' . $status)->assertOk();
+
+        Excel::assertDownloaded('Vendor-Withdraw-Request.xlsx', function (VendorWithdrawRequest $export) use ($expected): bool {
+            $this->assertEqualsCanonicalizing($expected, $export->view()->getData()['data']['withdraw_request']->pluck('id')->map(static fn ($id): int => (int)$id)->all());
+
+            return true;
+        });
+    }
+
+    private function useTheDefaultCurrency(): void
+    {
+        DB::table('currencies')->insert(['id' => 1, 'name' => 'US Dollar', 'symbol' => '$', 'code' => 'USD', 'exchange_rate' => 1]);
+        DB::table('business_settings')->insert([['type' => 'system_default_currency', 'value' => '1'], ['type' => 'currency_model', 'value' => 'single_currency']]);
+        Cache::flush();
     }
 
     /** @return array<string, array<string, mixed>> */

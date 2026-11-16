@@ -156,7 +156,8 @@ class WithdrawController extends BaseController
         $withdrawRequests = $this->withdrawRequestRepo->getListWhere(
             filters: [
                 'vendorId' => $vendorId,
-                'status' => $request['status']
+                'status' => $request['status'],
+                'whereNull' => 'delivery_man_id',
             ],
             relations: ['seller'],
             dataLimit: getWebConfig('pagination_limit')
@@ -210,7 +211,8 @@ class WithdrawController extends BaseController
             searchValue: requestString('searchValue') ?: null,
             filters: [
                 'vendorId' => $vendorId,
-                'status' => $request['status']
+                'status' => $request['status'],
+                'whereNull' => 'delivery_man_id',
             ],
             relations: ['seller'],
             dataLimit: 'all'
