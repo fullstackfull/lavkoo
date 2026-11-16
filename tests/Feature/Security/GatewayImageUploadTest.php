@@ -110,6 +110,15 @@ class GatewayImageUploadTest extends TestCase
         $this->assertSame($this->png(), file_get_contents(storage_path('app/public/' . self::DIRECTORY . $name)));
     }
 
+    public function test_the_stored_extension_is_the_one_the_caller_asks_for_whatever_the_client_named_the_file(): void
+    {
+        foreach (['logo.php', 'logo.phtml', 'logo.html', 'logo', 'logo.png.php'] as $clientName) {
+            $name = $this->uploader()->file_uploader(self::DIRECTORY, 'png', $this->upload($this->png(), $clientName), '');
+
+            $this->assertStringEndsWith('.png', $name, $clientName);
+        }
+    }
+
     public function test_a_path_or_an_address_in_place_of_an_upload_is_no_image_and_nothing_is_read(): void
     {
         $secret = $this->temporaryFile('APP_KEY=base64:canary');

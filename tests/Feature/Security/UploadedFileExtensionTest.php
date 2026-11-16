@@ -5,6 +5,7 @@ namespace Tests\Feature\Security;
 use App\Http\Requests\API\v3\DigitalProductFileUploadAfterSell;
 use App\Utils\ImageManager;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -32,6 +33,12 @@ class UploadedFileExtensionTest extends TestCase
 
         $this->rememberLanguageFiles();
         $this->buildCoreSchema();
+        // A file under product/digital-product/ is deleted only when no product or variation holds it, so the replacement asks the variations.
+        Schema::create('digital_product_variations', static function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('file')->nullable();
+        });
     }
 
     protected function tearDown(): void

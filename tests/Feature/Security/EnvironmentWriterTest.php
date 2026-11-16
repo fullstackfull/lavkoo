@@ -120,7 +120,9 @@ class EnvironmentWriterTest extends TestCase
         }
 
         $read = $this->read();
-        $this->assertSame(['APP_NAME', 'APP_DEBUG', 'DB_PASSWORD', 'APP_MODE', 'FORCE_HTTPS'], array_values(array_unique(array_merge(array_keys($read)))), 'no line was lost or cut');
+        // the order in which the three writers added their keys is theirs to decide; every key must be there, once
+        $this->assertEqualsCanonicalizing(['APP_NAME', 'APP_DEBUG', 'DB_PASSWORD', 'APP_MODE', 'FORCE_HTTPS'], array_keys($read), 'no line was lost or cut');
+        $this->assertCount(5, file($this->directory . '/.env', FILE_IGNORE_NEW_LINES));
         $this->assertSame(['Shop', 'secret', '299', '299', '299'], [$read['APP_NAME'], $read['DB_PASSWORD'], $read['APP_DEBUG'], $read['APP_MODE'], $read['FORCE_HTTPS']]);
     }
 
