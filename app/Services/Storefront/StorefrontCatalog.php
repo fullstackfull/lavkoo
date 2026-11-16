@@ -3,6 +3,7 @@
 namespace App\Services\Storefront;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -27,22 +28,50 @@ final class StorefrontCatalog
 
     public static function restrict(Builder $query): Builder
     {
-        $resolver = StorefrontResolver::fromConfig();
-        if (!$resolver->isEnabled() || !app()->bound(StorefrontContext::class)) {
+        $country = self::boundCountry();
+        if ($country === null) {
             return $query;
         }
 
-        $country = StorefrontContext::current()->country;
         if (self::columnReady()) {
             return $query->where($query->qualifyColumn(self::COLUMN), $country);
         }
 
-        return $country === $resolver->defaultCountry() ? $query : $query->whereRaw('1 = 0');
+        return self::isDefaultCountry($country) ? $query : $query->whereRaw('1 = 0');
+    }
+
+    /** Whether the storefront of the request may sell this product: the cart asks before it takes a product, whatever route reached it. */
+    public static function offers(?Model $product): bool
+    {
+        $country = self::boundCountry();
+        if ($country === null || $product === null) {
+            return true;
+        }
+
+        if (self::columnReady()) {
+            return $product->getAttribute(self::COLUMN) === $country;
+        }
+
+        return self::isDefaultCountry($country);
     }
 
     public static function flush(): void
     {
         self::$columnAnswer = null;
+    }
+
+    private static function boundCountry(): ?string
+    {
+        if (!StorefrontResolver::fromConfig()->isEnabled() || !app()->bound(StorefrontContext::class)) {
+            return null;
+        }
+
+        return StorefrontContext::current()->country;
+    }
+
+    private static function isDefaultCountry(string $country): bool
+    {
+        return $country === StorefrontResolver::fromConfig()->defaultCountry();
     }
 
     private static function columnReady(): bool

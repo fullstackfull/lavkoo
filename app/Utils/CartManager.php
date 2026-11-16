@@ -3,6 +3,7 @@
 namespace App\Utils;
 
 use App\Services\Analytics\Analytics;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Models\DigitalProductVariation;
 use App\Models\ShippingMethod;
 use App\Models\Cart;
@@ -756,7 +757,7 @@ class CartManager
             return $query->active();
         }])->where(['id' => $request['id']])->first();
 
-        if($product['status'] == 0){
+        if($product['status'] == 0 || !StorefrontCatalog::offers($product)){
             return ['status' => 0, 'message' => translate('Product_is_unavailable')];
         }
 
