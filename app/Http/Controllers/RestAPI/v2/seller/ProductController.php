@@ -698,7 +698,7 @@ class ProductController extends Controller
         $quantity = $request->quantity ?? 30;
         if (isset($product->code)) {
             $pdf = app()->make(PDF::class);
-            $pdf->loadView('seller-views.product.barcode-pdf', compact('product', 'quantity'));
+            $pdf->loadView('vendor-views.product.barcode-pdf', compact('product', 'quantity'));
             $pdf->save(storage_path('app/public/product/barcode.pdf'));
             return response()->json(asset('storage/app/public/product/barcode.pdf'));
         } else {

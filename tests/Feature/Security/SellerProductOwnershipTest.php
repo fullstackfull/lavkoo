@@ -223,6 +223,15 @@ class SellerProductOwnershipTest extends TestCase
         $this->assertSame([self::OWN_PRODUCT_WITHOUT_CODE, self::OTHER_SELLERS_PRODUCT, self::IN_HOUSE_PRODUCT], $this->productIds());
     }
 
+    public function test_v2_the_seller_can_still_generate_the_barcodes_of_their_own_product(): void
+    {
+        $response = $this->attempt('v2 barcode', self::OWN_PRODUCT);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(asset('storage/app/public/product/barcode.pdf'), $response->json());
+        $this->assertFileExists(storage_path('app/public/product/barcode.pdf'));
+    }
+
     public function test_v2_the_seller_can_still_approve_a_review_of_their_own_product(): void
     {
         $response = $this->attempt('v2 review status', self::OWN_REVIEW);
