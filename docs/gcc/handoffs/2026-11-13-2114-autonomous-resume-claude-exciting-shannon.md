@@ -915,3 +915,36 @@ The map of every price and stock site (`wf_23eaef91-56d`, 404 agents, 84 million
 **Verification.** SQLite at `3fdd687f`: Storefront, Unit/Storefront, Address and Security suites, 1339 tests; the storefront, unit and security suites again at `6c40ff98`: 303. MySQL 8.0.46 at `6c40ff98`: Unit/Storefront, Feature/Storefront and `SearchVisibilityTest`, 288 tests, and the whole Address suite, 1045 tests (4956 assertions). #54: 12 tests on both engines. #56: Payments, MyFatoorah and the order callback suites, 156 tests on SQLite, and the payment tests, 29, on MySQL. MariaDB 11.4.2 (the pilot's engine) is not installed here; CI has it. The first CI run on it for the stack, at #47 `dde29397`, passed the storefront group and the fulfillment and security group; the rest of that run, and the run of the tip, were still queued when this was written.
 
 **Tooling note.** A fresh worktree needs `mkdir -p storage/logs` (the payment hook writes a debug file), and a MySQL test database name must contain "test". Do not push the stack branches one at a time while CI runs: each push cancels the run before it.
+
+### Addendum: the security findings of the review as draft PRs 57 to 62, follow-ups on PRs 44 to 46 and 58, the stack merged with #46 (2026-11-16, about 13:30Z)
+
+The fix workflow for the five-PR adversarial review (`wf_1b89b6db-9f0`) and the agent for the customer password reset delivered. Everything below is a draft PR; nothing was merged, deployed or run against production. When to deploy a security fix is the owner's decision, and `main` is exposed to every item in the first table until then.
+
+**New draft PRs (each branched from `main`, tests red on the old code and green after, SQLite and MySQL 8.0.46, leak guard clean).**
+
+| PR | Branch (head) | What it closes |
+|---|---|---|
+| #57 | `gcc/security-admin-profile-idor` (`8858800a`) | an admin edited the profile of any admin named in the URL |
+| #58 | `gcc/security-seller-password-reset` (`e19523df`) | unauthenticated takeover of every seller account (reset by `LIKE`, proof from a table anyone could write); the seller token store now keeps a note, not the caller's token |
+| #59 | `gcc/security-customer-web-account-takeover` (`1ea9db7e`) | the customer web sign-in pages acted for a phone or account this browser had not verified |
+| #60 | `gcc/security-rest-existing-account-check` (`75512094`) | the REST existing-account check needs the single-use token the social login issued; **customer app PR lavkooapp#4 must ship before #60** |
+| #61 | `gcc/security-vendor-shop-idor` (`c26ad9da`) | the vendor panel's shop pages acted on the shop named in the request, not the signed-in seller's |
+| #62 | `gcc/security-customer-password-reset` (`b01968ba`) | the customer's reset (app, website) changed every customer matching `%` and took anything an anonymous caller stored as proof; the order tracking page matched the phone by `LIKE`; the delivery man's reset needed no code. Three separable commits |
+
+**Follow-ups pushed on the existing PR branches (reviewed by reading the production diff, suites re-run here on SQLite, the agents' MySQL runs recorded in the PR bodies).** #44 (`5cf6a59b`): a seller who is not approved loses the v2 session, any change of status ends it, the web sign-in checks the row it authenticates, the master admin's e-mail is refused on v2 and v3. #45 (`3464582a`): a provider that shares no e-mail is refused with its own message, malformed input no longer answers 500, the pending social login is spent after the sign-in. #46 (`4686bd10`): the hide mode of the feature deal, the reviews list (no product row, no reviewer contact details), counter, rating, related products, share link, variant price, banners and the search hint answer only for products a shopper may see. #58: `630f87d9`.
+
+**The Torod fixture repair** (one line, `50e9037e`, a test that takes its purchase time from the clock and fails on `main` too) is now carried by #57 to #62 as it is by the earlier draft PRs, so the SQLite job is not red for a reason that is not theirs. The `Deployment overlay` check is red on every branch cut from `main` (baseline `698aa1e` against three files outside the overlay directories); a comment says so on #45, #47, #53, #54, #55 and #56.
+
+**The stack carries #46 from its bottom.** #46's follow-ups narrow the same five by-id reads as #47 (`Product::active()` against `Product::inCurrentStorefront()`). The merge takes `active()`, which ends with the storefront narrowing, and is committed at every level so no merge into `main` needs a resolution: #47 `89dff65f`, #48 `2b604987`, #49 `98f71610`, #50 `d5c148eb`, #53 `a76d3254` (the only other conflict is in `SearchVisibilityTest`, which now uses `BuildsProductCatalog` and `BuildsStorefrontCatalog` together). SQLite at `a76d3254`: Storefront, Unit/Storefront, Security, Address and MyFatoorah suites, 1522 tests OK; MySQL 8.0.46: Unit/Storefront, Feature/Storefront, Security and the order callback test, 345 OK. The pushes cancelled the CI runs of the stack heads; they restart from the queue.
+
+**For the owner, not changed.**
+
+- **`APP_MODE` must be `live` in production.** Outside it every customer code is `123456` and every delivery-man code is `1234`, so the proof of any reset or sign-in by code is public, and no code change can fix that.
+- The delivery man's app is not in the three repositories. #62's third commit (`e9352502`) needs it to call `verify-otp` before `reset-password`; confirm that before deploying it, or leave the commit out.
+- `SellerStaff.auth_token` (v3) is not rotated when the employer's status changes (#44): whether staff must sign in again after a re-approval is a product decision. A provider that shares no e-mail cannot sign in by social login (#45); keying by the social id would support phone-only providers.
+- `GET /api/v1/products/details/{slug}` still carries every reviewer's e-mail and phone for a visible product (#46 trimmed the reviews list only); the same whitelist fixes it, but it changes the most-used product payload.
+- `registrationWithOTP` creates a verified customer for any phone without a code and can create a second customer for a phone that already has one, which makes the real customer's reset refuse under the exactly-one rule (a denial, not a takeover).
+
+**Still running when this was written.** Clusters I (#51, review scope) and J3, J4, J5 (#52, seller API) of the same workflow, the adversarial reviewers of the account-takeover fixes A, B and C (#58 to #60), and an independent adversarial review of #62. Their results and pushes are in the next addendum.
+
+**Tooling.** `scratchpad/clustercheck.sh <name> <worktree> <upstream> <phpunit args>` runs a branch's suites and the leak guard and writes `scratchpad/check-<name>.txt`; `scratchpad/runtests.sh` runs one suite on SQLite or MySQL. Every worktree needs an `APP_KEY` in the environment (no `.env` exists) and `mkdir -p storage/logs`; a MySQL test database name must contain "test".
