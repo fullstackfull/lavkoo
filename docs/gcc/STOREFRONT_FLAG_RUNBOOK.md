@@ -64,7 +64,9 @@ Rolling the products migration back drops an index of that name if one exists.
 
 **Set the country inactive** (`gcc.storefronts.countries.<CC>.active` false). Every storefront stays narrowed: the Saudi storefront still
 shows none of that country's products, and a visitor who asks for it is served the default storefront. A payment that was started in that
-country is still finished there.
+country is still finished there, also if its entry was deleted from the configuration in the meantime (the recorded code is bound without
+the entry). Deactivate rather than delete while the country has products, so that its path and currency stay on record and the products it
+owns can still be told from a typo (the query under "What to watch" lists the codes that are not configured).
 
 **Do not turn the flag off once another country has products.** Without the flag nothing is narrowed, so every country's products appear in
 every list, the cart accepts them and they are priced in the wrong currency. A payment started in another country and finished after the flag
@@ -93,8 +95,9 @@ value outside the six codes can only come from a direct write or from the future
 The storefront comes from, in order: an explicit `?storefront=`, the `X-Storefront` header (exactly one value), the first path segment, the
 default country. The customer app sends the header on every API call while its own flag is on, including `POST /api/v1/digital-payment` and
 `/api/v1/add-to-fund`, so a payment records its storefront without any change to the WebView it opens afterwards. A gateway callback carries
-no storefront at all; the order is built in the storefront recorded with the payment (`PaymentStorefront`). Every API v1 answer says
-`Vary: X-Storefront` while the flag is on.
+no storefront at all; the order is built in the storefront recorded with the payment (`PaymentStorefront`). Every route of
+`routes/rest_api/v1/api.php` answers with `Vary: X-Storefront` while the flag is on (the module routes registered under the same prefix, the AI
+auction auto-fill and the tax module, read no catalog and say nothing).
 
 ## Known limits (not defects of the stack)
 

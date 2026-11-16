@@ -132,13 +132,25 @@ class PaymentStorefrontTest extends TestCase
         $this->assertFalse($answer);
     }
 
-    public function test_a_storefront_that_is_not_configured_binds_nothing(): void
+    public function test_a_storefront_that_was_removed_from_the_configuration_is_still_bound_for_the_payment_that_was_started_in_it(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->removeFromTheConfiguration('KW');
+
+        $country = PaymentStorefront::within(additionalData: ['storefront' => 'KW'], callback: fn () => StorefrontContext::current()->country);
+
+        $this->assertSame('KW', $country);
+    }
+
+    public function test_a_value_that_is_not_a_country_code_binds_nothing(): void
     {
         $this->switchStorefrontsOn();
 
-        $answer = PaymentStorefront::within(additionalData: ['storefront' => 'ZZ'], callback: fn () => app()->bound(StorefrontContext::class));
+        foreach (['', 'K', 'KWT', '1W', 'K W', null] as $recorded) {
+            $answer = PaymentStorefront::within(additionalData: ['storefront' => $recorded], callback: fn () => app()->bound(StorefrontContext::class));
 
-        $this->assertFalse($answer);
+            $this->assertFalse($answer, var_export($recorded, true));
+        }
     }
 
     public function test_the_resolver_names_a_recorded_country_whether_or_not_it_is_active(): void
@@ -147,8 +159,26 @@ class PaymentStorefrontTest extends TestCase
 
         $this->assertSame('KW', $resolver->contextOfRecordedCountry(' kw ')?->country);
         $this->assertSame('KWD', $resolver->contextOfRecordedCountry('KW')?->currency);
-        $this->assertNull($resolver->contextOfRecordedCountry('ZZ'));
         $this->assertNull($resolver->contextOfRecordedCountry(null));
         $this->assertNull($resolver->contextOfRecordedCountry(''));
+        $this->assertNull($resolver->contextOfRecordedCountry('ZZZ'));
+    }
+
+    public function test_a_recorded_country_that_is_no_longer_configured_keeps_its_code_and_takes_the_default_currency(): void
+    {
+        $this->removeFromTheConfiguration('KW');
+        $resolver = StorefrontResolver::fromConfig();
+
+        $context = $resolver->contextOfRecordedCountry('KW');
+
+        $this->assertSame(['KW', 'SAR'], [$context?->country, $context?->currency]);
+        $this->assertNotContains('KW', $resolver->configuredCountries());
+    }
+
+    private function removeFromTheConfiguration(string $country): void
+    {
+        $countries = config('gcc.storefronts.countries');
+        unset($countries[$country]);
+        config(['gcc.storefronts.countries' => $countries]);
     }
 }

@@ -157,17 +157,41 @@ class StorefrontPaymentCallbackTest extends ApiAddressTestCase
         $this->assertCount(1, $this->gatewayReportsBack($payer, []));
     }
 
-    public function test_a_recorded_storefront_that_is_not_configured_is_ignored(): void
+    #[DataProvider('callbackRequests')]
+    public function test_a_payment_started_in_a_country_that_was_removed_from_the_configuration_since_is_still_finished(string $serveTheCallback): void
     {
         $this->switchStorefrontsOn();
-        $payer = $this->makeCustomer();
-        $this->putOneProductInTheCart($payer->id);
-        $this->bindTheDefaultStorefront();
+        $payer = $this->payerWithAKuwaitCart();
+        $countries = config('gcc.storefronts.countries');
+        unset($countries['KW']);
+        config(['gcc.storefronts.countries' => $countries]);
+        $this->$serveTheCallback();
 
-        $orders = $this->gatewayReportsBack($payer, ['storefront' => 'ZZ']);
+        $orders = $this->gatewayReportsBack($payer, ['storefront' => 'KW']);
 
-        $this->assertCount(1, $orders);
-        $this->assertSame('SA', StorefrontContext::current()->country);
+        $this->assertCount(1, $orders, 'the customer paid in Kuwait, and has no Saudi cart to fall back on');
+        $this->assertSame(1, (int) DB::table('order_details')->value('product_id'));
+        $this->assertSame(0, DB::table('carts')->count());
+    }
+
+    public function test_a_payment_started_in_a_removed_country_does_not_take_the_customers_saudi_cart_instead(): void
+    {
+        $this->switchStorefrontsOn();
+        $payer = $this->payerWithAKuwaitCart();
+        DB::table('products')->insert(['id' => 2, 'name' => 'Saudi serum', 'added_by' => 'admin', 'user_id' => 1, 'unit_price' => 40, 'current_stock' => 5, 'storefront_country' => 'SA']);
+        DB::table('carts')->insert([
+            'customer_id' => $payer->id, 'is_guest' => 0, 'cart_group_id' => 'group-' . $payer->id . 's', 'product_id' => 2, 'quantity' => 1, 'price' => 40,
+            'seller_id' => 1, 'seller_is' => 'admin', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $countries = config('gcc.storefronts.countries');
+        unset($countries['KW']);
+        config(['gcc.storefronts.countries' => $countries]);
+        $this->serveAsAnUnboundWebRequest();
+
+        $this->gatewayReportsBack($payer, ['storefront' => 'KW']);
+
+        $this->assertSame([1], DB::table('order_details')->pluck('product_id')->map(fn ($id) => (int) $id)->all(), 'the order is the cart that was paid for');
+        $this->assertSame([2], DB::table('carts')->pluck('product_id')->map(fn ($id) => (int) $id)->all(), 'and the Saudi row is still in the cart');
     }
 
     public function test_while_storefronts_are_off_the_recorded_storefront_changes_nothing(): void
