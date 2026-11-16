@@ -58,7 +58,7 @@ final class SaudiPhone
         return $internationalFirst !== '' && $internationalFirst === self::withoutTrunkZero($second);
     }
 
-    /** The digits of an international number without the trunk zero some people keep after the country code (+971 0501234567). */
+    /** The digits of an international number without the trunk zero some people keep after the country code. */
     private static function withoutTrunkZero(string $raw): string
     {
         $digits = (string) preg_replace('/\D+/', '', $raw);
