@@ -6,6 +6,8 @@ use Exception;
 
 class PushNotificationService
 {
+    private const FIREBASE_CONFIG_KEYS = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId', 'measurementId'];
+
     public function getMessageKeyData(string $userType): array
     {
         $customer = [
@@ -189,32 +191,44 @@ class PushNotificationService
      */
     public function firebaseConfigFileGenerate(array $config): void
     {
-        $apiKey = $config['apiKey'] ?? '';
-        $authDomain = $config['authDomain'] ?? '';
-        $projectId = $config['projectId'] ?? '';
-        $storageBucket = $config['storageBucket'] ?? '';
-        $messagingSenderId = $config['messagingSenderId'] ?? '';
-        $appId = $config['appId'] ?? '';
-        $measurementId = $config['measurementId'] ?? '';
-
         $filePaths = [
             base_path('firebase-messaging-sw.js'),
             base_path('public/firebase-messaging-sw.js')
         ];
 
-        $fileContent = <<<JS
+        $fileContent = $this->firebaseServiceWorkerScript(config: $config);
+
+        foreach ($filePaths as $filePath) {
+            $this->writeToFile($filePath, $fileContent);
+        }
+    }
+
+    /**
+     * The script of the service worker the browsers register at the shop's origin. A service worker sits between the page and the network
+     * for the whole origin, so every value of the configuration is written as a JSON string (which is a JavaScript string): a value that
+     * carries a quote or a line break stays one string and is never code.
+     */
+    public function firebaseServiceWorkerScript(array $config): string
+    {
+        $values = [];
+        foreach (self::FIREBASE_CONFIG_KEYS as $key) {
+            $value = $config[$key] ?? '';
+            $values[$key] = json_encode(is_scalar($value) ? (string)$value : '', JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+        }
+
+        return <<<JS
             importScripts('https://www.gstatic.com/firebasejs/8.3.2/firebase-app.js');
             importScripts('https://www.gstatic.com/firebasejs/8.3.2/firebase-messaging.js');
             importScripts('https://www.gstatic.com/firebasejs/8.3.2/firebase-auth.js');
 
             firebase.initializeApp({
-                apiKey: "{$apiKey}",
-                authDomain: "{$authDomain}",
-                projectId: "{$projectId}",
-                storageBucket: "{$storageBucket}",
-                messagingSenderId: "{$messagingSenderId}",
-                appId: "{$appId}",
-                measurementId: "{$measurementId}"
+                apiKey: {$values['apiKey']},
+                authDomain: {$values['authDomain']},
+                projectId: {$values['projectId']},
+                storageBucket: {$values['storageBucket']},
+                messagingSenderId: {$values['messagingSenderId']},
+                appId: {$values['appId']},
+                measurementId: {$values['measurementId']}
             });
 
             const messaging = firebase.messaging();
@@ -225,11 +239,6 @@ class PushNotificationService
                 });
             });
             JS;
-
-
-        foreach ($filePaths as $filePath) {
-            $this->writeToFile($filePath, $fileContent);
-        }
     }
 
     /**
