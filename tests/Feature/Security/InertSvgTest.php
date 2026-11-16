@@ -203,6 +203,16 @@ class InertSvgTest extends TestCase
             'an entity that holds an import, used as a style' => [self::declaring(entities: '<!ENTITY css "@import \'https://evil.test/a.css\';">', body: '<style>&css;</style>')],
             'an entity that holds a script url, used as a link' => [self::declaring(entities: '<!ENTITY js "javascript:alert(1)">', body: '<a href="&js;"><rect width="1" height="1"/></a>')],
             'an entity that holds half of a script url, next to the other half' => [self::declaring(entities: '<!ENTITY a "java"><!ENTITY b "script:alert(1)">', body: '<a href="&a;&b;"><rect width="1" height="1"/></a>')],
+            // an entity is expanded now, so what the document type may declare is pinned character by character (libxml writes a literal that holds a
+            // double quote in single quotes, which is where the second alternative of the pattern applies)
+            'an entity that holds a double quote and markup' => [self::declaring(entities: "<!ENTITY e 'a\"b<g/>c'>", body: '<title>&e;</title>')],
+            'an entity that holds a double quote and a reference' => [self::declaring(entities: "<!ENTITY a 'x'><!ENTITY e 'a\"b&a;c'>", body: '<title>&e;</title>')],
+            'an entity that holds a double quote and a character reference that makes markup' => [self::declaring(entities: "<!ENTITY e 'a\"b&#60;script xmlns=&#34;http://www.w3.org/2000/svg&#34;>alert(1)&#60;/script>'>", body: '&e;')],
+            // a document type of a system id that only contains or resembles the standard ones
+            'a document type of a system id that holds the standard address after another' => ['<!DOCTYPE svg SYSTEM "http://evil.test/http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg ' . self::SVG . '/>'],
+            'a document type of a system id with other letters for the dots' => ['<!DOCTYPE svg SYSTEM "http://wwwxw3xorg/Graphics/SVG/1.1/DTD/svg11.dtd"><svg ' . self::SVG . '/>'],
+            'a document type of a system id whose directory only starts like the standard one' => ['<!DOCTYPE svg SYSTEM "http://www.w3.org/TRevil/svg11.dtd"><svg ' . self::SVG . '/>'],
+            'a document type of a system id whose graphics directory only starts like the standard one' => ['<!DOCTYPE svg SYSTEM "http://www.w3.org/Graphics/SVGevil/svg11.dtd"><svg ' . self::SVG . '/>'],
             // libxml stops an expansion that is far larger than the file, so a file cannot be made to fill the memory
             'an entity repeated until it expands to far more than the file holds' => [self::declaring(entities: '<!ENTITY a "' . str_repeat('a', 100000) . '">', body: '<title>' . str_repeat('&a;', 4000) . '</title>')],
             // only UTF-8 (and ASCII) is read: in another encoding a byte can stand for another character to libxml than to the browser, such as

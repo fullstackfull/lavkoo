@@ -130,6 +130,18 @@ class CssScannerTest extends TestCase
             'url and a parenthesis with a space between' => ['x:url (https://evil.test/p.png)', []],
             'a name that a comment cuts' => ['x:ur/**/l(https://evil.test/p.png)', []],
             'the word url in words' => ['curl C:\\Temp\\export', []],
+            'a fragment with tabs inside the quotes' => ["fill:url(\"\t#a\t\")", ['#a']],
+            'a name that ends in image' => ['x:bgimage(a.png)', []],
+            'a name with a hyphen before image' => ['x:my-image(a.png)', []],
+            'a name that ends in src' => ['x:data-src(a.png)', []],
+            'a name that ends in element' => ['x:pseudo-element(a)', []],
+            'a name that ends in attr' => ['x:data-attr(a)', []],
+            'a name that ends in cross-fade' => ['x:my-cross-fade(a.png)', []],
+            'a name that ends in image-set' => ['x:my-image-set(a.png)', []],
+            'an image set with a space before the parenthesis is no function' => ['x:image-set ("a.png" 1x)', []],
+            'a source with a space before the parenthesis is no function' => ['x:src ("a.png")', []],
+            'an attribute with a space before the parenthesis is no function' => ['x:attr (data-u url)', []],
+            'a prefixed image set with a space before the parenthesis is no function' => ['x:-webkit-image-set ("a.png" 1x)', []],
         ];
     }
 
