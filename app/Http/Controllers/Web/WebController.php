@@ -1596,9 +1596,10 @@ class WebController extends Controller
 
     public function review_list_product(Request $request): JsonResponse
     {
-        abort_unless(Product::active()->whereKey($request['product_id'])->exists(), 404);
-        $productReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', $request['offset'] + 1);
-        $checkReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', ($request['offset'] + 1));
+        $productId = $request['product_id'];
+        abort_unless(is_scalar($productId) && Product::active()->whereKey($productId)->exists(), 404);
+        $productReviews = Review::where('product_id', $productId)->latest()->paginate(2, ['*'], 'page', $request['offset'] + 1);
+        $checkReviews = Review::where('product_id', $productId)->latest()->paginate(2, ['*'], 'page', ($request['offset'] + 1));
         return response()->json([
             'productReview' => view(VIEW_FILE_NAMES['product_reviews_partials'], compact('productReviews'))->render(),
             'not_empty' => $productReviews->count(),
