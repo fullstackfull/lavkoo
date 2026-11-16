@@ -40,11 +40,30 @@ class ImageManager
         return $imageName;
     }
 
+    /**
+     * The extension a stored file gets. Callers pass the extension the client wrote (getClientOriginalExtension), and the file lands on a
+     * disk the web server serves: a name the server hands to a script engine (.php, .phtml, .pht, .phar, ...) would run what was uploaded.
+     * An extension that is not short letters and digits, or that is on the disallowed list or starts like a script handler's, is stored as
+     * `bin`, which no server runs.
+     */
+    private static function storedExtension(string $format): string
+    {
+        $extension = strtolower($format);
+
+        if (preg_match('/^[a-z0-9]{1,8}$/', $extension) !== 1
+            || in_array($extension, getDisallowedExtensionsListArray(), true)
+            || preg_match('/^(php|pht|phar|phps|inc)/', $extension) === 1) {
+            return 'bin';
+        }
+
+        return $extension;
+    }
+
     public static function file_upload(string $dir, string $format, $file = null): string
     {
         $storage = config('filesystems.disks.default') ?? 'public';
         if ($file != null) {
-            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
+            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . self::storedExtension(format: $format);
             if (!Storage::disk($storage)->exists($dir)) {
                 Storage::disk($storage)->makeDirectory($dir);
             }
