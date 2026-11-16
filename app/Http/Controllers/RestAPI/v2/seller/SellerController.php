@@ -20,10 +20,13 @@ use App\Models\WithdrawRequest;
 use App\Models\OrderTransaction;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
+use App\Traits\SellerOwnedRecords;
 use Illuminate\Support\Facades\Validator;
 
 class SellerController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function shop_info(Request $request):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -84,7 +87,10 @@ class SellerController extends Controller
         $data = Helpers::get_seller_by_token($request);
 
         if ($data['success'] == 1) {
-            $reviews = Review::find($request->id);
+            $reviews = Review::whereHas('product', fn ($query) => $query->ofSeller(sellerId: $data['data']['id']))->find($request->id);
+            if (!$reviews) {
+                return $this->recordNotFound(code: 'review', message: 'review_not_found');
+            }
             $reviews->status = $request->status;
             $reviews->save();
             return response()->json(['message'=>translate('status updated successfully!!')],200);

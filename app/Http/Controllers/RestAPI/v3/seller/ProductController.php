@@ -41,6 +41,7 @@ use App\Services\ProductService;
 use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Utils\ProductManager;
@@ -59,7 +60,7 @@ class ProductController extends Controller
         delete as deleteFile;
         update as updateFile;
     }
-    use CacheManagerTrait, ProductTrait;
+    use CacheManagerTrait, ProductTrait, SellerOwnedRecords;
     use VatTaxManagement;
 
     public function __construct(
@@ -1207,7 +1208,10 @@ class ProductController extends Controller
 
     public function edit(Request $request, $id)
     {
-        $product = Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews')->find($id);
+        $product = Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $product = Helpers::product_data_formatting($product);
 
         return response()->json($product, 200);
@@ -1217,7 +1221,10 @@ class ProductController extends Controller
     {
         $storage = config('filesystems.disks.default') ?? 'public';
         $seller = $request->seller;
-        $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->find($id);
+        $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->ofSeller(sellerId: $seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $oldProductData = $product;
         $validator = Validator::make($request->all(), [
             'name' => 'required',
@@ -1804,7 +1811,10 @@ class ProductController extends Controller
 
     public function delete(Request $request, $id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($id);
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         foreach (json_decode($product['images'], true) as $image) {
             $imageName = is_string($image) ? $image : $image['image_name'];
             $this->deleteFile('/product/' . $imageName);
@@ -1831,7 +1841,10 @@ class ProductController extends Controller
         if ($request['limit'] > 270) {
             return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
         }
-        $product = Product::withCount('reviews')->where('id', $request->id)->first();
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->where('id', $request->id)->first();
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $quantity = $request->quantity ?? 30;
 
         if (isset($product->code)) {
@@ -1936,7 +1949,10 @@ class ProductController extends Controller
 
     public function review_list(Request $request, $product_id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($product_id);
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($product_id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $average_rating = count($product->rating) > 0 ? number_format($product->rating[0]->average, 2, '.', ' ') : 0;
         $reviews = Review::with(['customer', 'product', 'reply'])->where(['product_id' => $product_id])
             ->latest('updated_at')

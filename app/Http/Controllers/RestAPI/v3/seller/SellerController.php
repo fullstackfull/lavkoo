@@ -25,6 +25,7 @@ use App\Models\User;
 use App\Repositories\OrderTransactionRepository;
 use App\Services\DashboardService;
 use App\Traits\FileManagerTrait;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\BackEndHelper;
 use App\Utils\Convert;
 use App\Utils\Helpers;
@@ -43,7 +44,7 @@ use phpDocumentor\Reflection\Types\Boolean;
 
 class SellerController extends Controller
 {
-    use FileManagerTrait;
+    use FileManagerTrait, SellerOwnedRecords;
 
     public function __construct(
         private readonly OrderTransactionRepository $orderTransactionRepo,
@@ -163,6 +164,10 @@ class SellerController extends Controller
     public function shopProductReviewReply(Request $request): JsonResponse
     {
         $seller = $request->seller;
+        if (!Review::whereHas('product', fn ($query) => $query->ofSeller(sellerId: $seller['id']))->whereKey($request['review_id'])->exists()) {
+            return $this->recordNotFound(code: 'review', message: 'review_not_found');
+        }
+
         $review = ReviewReply::where(['review_id' => $request['review_id'], 'added_by' => 'seller', 'added_by_id' => $seller['id']])->first();
         if (!$review) {
             ReviewReply::insert([
@@ -191,11 +196,9 @@ class SellerController extends Controller
     {
         // A review that has since been deleted used to fatal here rather than answer, so the app
         // received a 500 HTML page in place of a JSON error it could show.
-        $review = Review::find($request['id']);
+        $review = Review::whereHas('product', fn ($query) => $query->ofSeller(sellerId: $request->seller['id']))->find($request['id']);
         if (!$review) {
-            return response()->json(['errors' => [
-                ['code' => 'review', 'message' => translate('review_not_found')],
-            ]], 404);
+            return $this->recordNotFound(code: 'review', message: 'review_not_found');
         }
 
         $review->status = $request['status'];
