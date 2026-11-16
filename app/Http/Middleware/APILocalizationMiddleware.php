@@ -64,8 +64,12 @@ class APILocalizationMiddleware
             $languages
         )));
 
-        if (in_array($requested, $codes, true)) {
-            return $requested;
+        // The tag the store lists (`pt-br`), then the language the tag names whatever its region (`pt`).
+        $requestedLanguage = $this->primaryLanguage(tag: $requested);
+        foreach (array_unique([$requested, $requestedLanguage]) as $tag) {
+            if (in_array($tag, $codes, true)) {
+                return $tag;
+            }
         }
 
         // Same language, different code: match on the language's own name, then
@@ -74,13 +78,16 @@ class APILocalizationMiddleware
             'ar' => ['arabic', 'العربية'],
             'en' => ['english'],
         ];
-        $names = $families[$requested] ?? [];
+        $names = $families[$requestedLanguage] ?? [];
 
         foreach ($languages as $language) {
             $name = strtolower((string)($language['name'] ?? ''));
             $code = strtolower((string)($language['code'] ?? ''));
             if ($code === '' || $name === '') {
                 continue;
+            }
+            if ($name === $requestedLanguage) {
+                return $code;
             }
             foreach ($names as $candidate) {
                 if (str_contains($name, $candidate)) {
@@ -90,6 +97,12 @@ class APILocalizationMiddleware
         }
 
         return $this->storeDefaultLanguage(languages: $languages) ?? $requested;
+    }
+
+    /** The language of a language tag, whatever its region: `en-us` and `en_us` are `en`. */
+    private function primaryLanguage(string $tag): string
+    {
+        return preg_split('/[-_]/', $tag)[0];
     }
 
     /**

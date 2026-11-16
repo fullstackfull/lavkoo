@@ -117,4 +117,56 @@ class LanguageSelectionTest extends TestCase
     {
         $this->assertSame($locale, $this->localeOfApiRequest($header));
     }
+
+    // ---- which language a header names ------------------------------------------------------------------------------------------
+
+    /** @return array{id: int, name: string, code: string, direction: string, default: bool} */
+    private static function language(string $name, string $code, bool $default = false): array
+    {
+        return ['id' => 1, 'name' => $name, 'code' => $code, 'direction' => 'ltr', 'default' => $default];
+    }
+
+    /** @param list<array<string, mixed>> $languages */
+    private function theStoreLists(array $languages): void
+    {
+        DB::table('business_settings')->where('type', 'language')->delete();
+        DB::table('business_settings')->insert(['type' => 'language', 'value' => json_encode($languages)]);
+        Cache::flush();
+    }
+
+    /** @return array<string, array{0: list<array<string, mixed>>, 1: string, 2: string}> the languages of the store, the header, and the locale the API answers in */
+    public static function headersThatNameAListedLanguage(): array
+    {
+        $arabicDefault = [self::language('Arabic', 'sa', default: true), self::language('English', 'en')];
+        $englishDefault = [self::language('English', 'en', default: true), self::language('Arabic', 'sa')];
+        $arabicUnderAnotherCode = [self::language('English', 'en', default: true), self::language('Arabic', 'sy')];
+        $regionalCodes = [self::language('English', 'en', default: true), self::language('Portuguese (Brazil)', 'pt-br'), self::language('Portuguese', 'pt')];
+
+        return [
+            'English of the United States, the store answering in Arabic by default' => [$arabicDefault, 'en-US', 'en'],
+            'English of the United States written with an underscore' => [$arabicDefault, 'en_US', 'en'],
+            'English of Britain' => [$arabicDefault, 'en-GB', 'en'],
+            'the same in capitals' => [$arabicDefault, 'EN-GB', 'en'],
+            'the name of the language' => [$arabicDefault, 'English', 'en'],
+            'Arabic of Saudi Arabia, the store answering in English by default' => [$englishDefault, 'ar-SA', 'sa'],
+            'Arabic of Saudi Arabia written with an underscore' => [$englishDefault, 'ar_SA', 'sa'],
+            'Arabic of the Emirates' => [$englishDefault, 'ar-AE', 'sa'],
+            'the name of the language, Arabic' => [$englishDefault, 'Arabic', 'sa'],
+            'English of the United States, where English is the default' => [$englishDefault, 'en-US', 'en'],
+            'Arabic filed under another code' => [$arabicUnderAnotherCode, 'ar-SA', 'sy'],
+            'a regional code that the store lists as it is' => [$regionalCodes, 'pt-BR', 'pt-br'],
+            'a regional code that the store lists for the language only' => [$regionalCodes, 'pt-PT', 'pt'],
+            'a language the store does not list, with a region' => [$englishDefault, 'es-419', 'en'],
+            'English with a region, where the store lists no English' => [[self::language('Arabic', 'sa', default: true)], 'en-US', 'sa'],
+        ];
+    }
+
+    /** @param list<array<string, mixed>> $languages */
+    #[DataProvider('headersThatNameAListedLanguage')]
+    public function test_the_api_answers_in_the_language_a_header_names_whatever_its_region(array $languages, string $header, string $locale): void
+    {
+        $this->theStoreLists($languages);
+
+        $this->assertSame($locale, $this->localeOfApiRequest($header));
+    }
 }
