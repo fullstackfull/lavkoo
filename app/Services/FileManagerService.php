@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\FileManager\ArchiveReport;
 use App\Utils\PlainFileName;
 use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
@@ -28,7 +29,7 @@ class FileManagerService
         return $requested === 's3' && getWebConfig(name: 'storage_connection_type') === 's3' ? 's3' : 'public';
     }
 
-    public function uploadFileAndImages(object $request): bool
+    public function uploadFileAndImages(object $request, ArchiveReport $report = new ArchiveReport()): bool
     {
         $storage = $this->galleryDisk(requested: $request['storage']);
         $folder = $request['path'];
@@ -51,7 +52,7 @@ class FileManagerService
             }
         }
 
-        if ($request->hasfile('file') && !$this->storeArchive(archive: $request->file('file'), folder: $folder, disk: $storage)) {
+        if ($request->hasfile('file') && !$this->storeArchive(archive: $request->file('file'), folder: $folder, disk: $storage, report: $report)) {
             return false;
         }
 
@@ -63,14 +64,14 @@ class FileManagerService
      * archive that is a way to fill a disk writes nothing to the gallery or the bucket and a script in it never reaches either, and the
      * directory goes whatever happens to the copy.
      */
-    private function storeArchive(UploadedFile $archive, string $folder, string $disk): bool
+    private function storeArchive(UploadedFile $archive, string $folder, string $disk, ArchiveReport $report): bool
     {
         $zip = new ZipArchive();
         if ($zip->open($archive->getPathname()) !== true) {
             return false;
         }
 
-        $entries = $this->storableEntries(zip: $zip);
+        $entries = $this->storableEntries(zip: $zip, report: $report);
         if ($entries === null || $entries === []) {
             $zip->close();
             return false;
@@ -79,7 +80,7 @@ class FileManagerService
         $directory = storage_path('app/temp-zip-' . Str::random(10));
         File::makeDirectory($directory);
         try {
-            $names = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize());
+            $names = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize(), report: $report);
             $stored = match (true) {
                 $names === null => 0,
                 $disk === 's3' => $this->putOnBucket(directory: $directory, names: $names, folder: $folder),
@@ -94,19 +95,20 @@ class FileManagerService
         return $stored > 0;
     }
 
-    /** @return array<int, string>|null the names of the entries the gallery stores by their index, or nothing when the archive holds more entries than a gallery needs */
-    private function storableEntries(ZipArchive $zip): ?array
+    /** @return array<int, string>|null the names of the entries the gallery stores by their index, or nothing when there are more of them than a gallery needs */
+    private function storableEntries(ZipArchive $zip, ArchiveReport $report): ?array
     {
-        if ($zip->numFiles > self::MOST_ARCHIVE_ENTRIES) {
-            return null;
-        }
-
         $entries = [];
         for ($index = 0; $index < $zip->numFiles; $index++) {
             $name = (string)$zip->statIndex($index)['name'];
-            if ($this->isStorableEntry(name: $name)) {
-                $entries[$index] = $name;
+            if (!$this->isStorableEntry(name: $name)) {
+                continue;
             }
+            if (count($entries) === self::MOST_ARCHIVE_ENTRIES) {
+                $report->refuse(reason: ArchiveReport::TOO_MANY_FILES, limit: self::MOST_ARCHIVE_ENTRIES);
+                return null;
+            }
+            $entries[$index] = $name;
         }
 
         return $entries;
@@ -120,9 +122,10 @@ class FileManagerService
      * @param array<int, string> $entries
      * @return list<string>|null the names that were unpacked, or nothing when the archive unpacks to more than it may
      */
-    private function unpackEntries(ZipArchive $zip, array $entries, string $directory, int $archiveBytes): ?array
+    private function unpackEntries(ZipArchive $zip, array $entries, string $directory, int $archiveBytes, ArchiveReport $report): ?array
     {
-        $remainingBytes = $this->unpackingBudget(zip: $zip, entries: $entries, archiveBytes: $archiveBytes);
+        $budget = $this->unpackingBudget(zip: $zip, entries: $entries, archiveBytes: $archiveBytes);
+        $remainingBytes = $budget;
         $unpacked = [];
         foreach ($entries as $index => $name) {
             $written = $this->unpackEntry(zip: $zip, index: $index, target: $directory . '/' . $name, limit: $remainingBytes);
@@ -130,6 +133,7 @@ class FileManagerService
                 continue;
             }
             if ($written > $remainingBytes) {
+                $report->refuse(reason: ArchiveReport::TOO_LARGE, limit: intdiv($budget, 1024 * 1024));
                 return null;
             }
             $remainingBytes -= $written;

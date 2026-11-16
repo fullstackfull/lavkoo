@@ -8895,6 +8895,8 @@ return [
 	'the_path_is_not_valid' => 'The path is not valid',
 	'the_language_code_is_not_valid' => 'The language code is not valid',
 	'the_archive_holds_no_file_that_can_be_stored' => 'The archive holds no file that can be stored',
+	'the_archive_holds_more_than_n_files' => 'The archive holds more than :limit files that can be stored',
+	'the_archive_unpacks_to_more_than_n_mb' => 'The archive unpacks to more than :limit MB',
 	'provider_api_logs' => 'Provider API logs',
 	'provider_api_logs_redaction_note' => 'Passwords, tokens, secrets and customer contact details are removed before a call is logged.',
 	'provider_api_logs_subtitle' => 'Every call to a provider, newest first.',

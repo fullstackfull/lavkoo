@@ -15485,6 +15485,8 @@ return [
 	'the_path_is_not_valid' => 'المسار غير صالح',
 	'the_language_code_is_not_valid' => 'رمز اللغة غير صالح',
 	'the_archive_holds_no_file_that_can_be_stored' => 'لا يحتوي الأرشيف على ملف يمكن حفظه',
+	'the_archive_holds_more_than_n_files' => 'يحتوي الأرشيف على أكثر من :limit ملف يمكن حفظه',
+	'the_archive_unpacks_to_more_than_n_mb' => 'يتجاوز حجم الأرشيف بعد فك الضغط :limit ميغابايت',
 	'provider_api_logs' => 'سجلات واجهات المزوّدين',
 	'provider_api_logs_redaction_note' => 'تُزال كلمات المرور والرموز والأسرار وبيانات تواصل العملاء قبل تسجيل أي استدعاء.',
 	'provider_api_logs_subtitle' => 'كل استدعاء لأي مزوّد، الأحدث أولًا.',

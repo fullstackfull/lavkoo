@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\Settings;
 
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\FileManagerUploadRequest;
+use App\Services\FileManager\ArchiveReport;
 use App\Services\FileManagerService;
 use App\Utils\PlainFileName;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -87,11 +88,12 @@ class FileManagerController extends BaseController
             ToastMagic::info(translate('This_option_is_disabled_for_demo'));
             return back();
         }
-        $isStored = $fileManagerService->uploadFileAndImages(request: $request);
+        $report = new ArchiveReport();
+        $isStored = $fileManagerService->uploadFileAndImages(request: $request, report: $report);
         cacheRemoveByType(type: 'file_manager');
 
         if (!$isStored) {
-            ToastMagic::error(translate('the_archive_holds_no_file_that_can_be_stored'));
+            ToastMagic::error($report->refusalMessage());
         } elseif ($request->has('images')) {
             ToastMagic::success(translate('image_uploaded_successfully'));
         } else {

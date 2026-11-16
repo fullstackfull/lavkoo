@@ -119,6 +119,21 @@ class FileManagerUploadTest extends TestCase
         return app(FileManagerService::class);
     }
 
+    /**
+     * What the admin is told after posting to the real route of the form (without the panel's middleware): the newest toast, because the toast
+     * service keeps the ones of the posts before it for as long as the application lives.
+     *
+     * @param array<string, mixed> $files
+     * @return array{type: string, message: string}
+     */
+    private function toastAfterPosting(array $files): array
+    {
+        $this->withoutMiddleware()->call('POST', route('admin.system-setup.file-manager.image-upload'), ['storage' => 'public', 'path' => self::FOLDER], [], $files);
+        $toast = (array) last((array) session('laravel-toaster-magic::messages', []));
+
+        return ['type' => $toast['type'], 'message' => $toast['message']];
+    }
+
     /** A shop that keeps its files on S3 (a fake bucket), and the request that uploads into it. */
     private function bucketRequest(array $files): Request
     {
@@ -356,6 +371,98 @@ class FileManagerUploadTest extends TestCase
 
         $this->assertFalse($stored);
         $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+    }
+
+    /** @return array<string, string> */
+    private function manyImages(int $count): array
+    {
+        $images = [];
+        foreach (range(1, $count) as $number) {
+            $images["image-{$number}.jpg"] = 'x';
+        }
+
+        return $images;
+    }
+
+    public function test_the_folders_and_the_metadata_of_an_archive_do_not_count_toward_the_most_files(): void
+    {
+        // what Finder makes of 2600 images: a folder, and a hidden twin of every image under __MACOSX (5203 entries for 2600 files)
+        $entries = ['gallery/' => '', '__MACOSX/' => '', '__MACOSX/gallery/' => ''];
+        foreach (range(1, 2600) as $number) {
+            $entries["gallery/image-{$number}.jpg"] = 'x';
+            $entries["__MACOSX/gallery/._image-{$number}.jpg"] = 'metadata';
+        }
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+
+        $this->assertTrue($stored);
+        $this->assertCount(2600, File::allFiles(storage_path('app/public/' . self::FOLDER)));
+    }
+
+    public function test_an_archive_with_exactly_the_most_files_to_store_is_stored_whatever_else_it_holds(): void
+    {
+        $entries = $this->manyImages(5000) + ['shell.php' => '<?php', 'page.html' => '<p>', 'notes/' => '', 'thumbs/Thumbs.db' => 'db', 'photos/.DS_Store' => 'ds'];
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+
+        $this->assertTrue($stored);
+        $this->assertCount(5000, File::allFiles(storage_path('app/public/' . self::FOLDER)));
+    }
+
+    public function test_on_s3_an_archive_with_more_than_the_most_files_to_store_is_refused_before_anything_is_written(): void
+    {
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($this->manyImages(5001))]));
+
+        $this->assertFalse($stored);
+        $this->assertSame([], $this->storedOnTheBucket());
+    }
+
+    public function test_the_admin_is_told_that_an_archive_holds_too_many_files_and_nothing_else(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($this->manyImages(5001) + ['shell.php' => '<?php'])]);
+
+        $this->assertSame(['type' => 'error', 'message' => 'The archive holds more than 5000 files that can be stored'], $toast);
+    }
+
+    public function test_the_admin_is_told_how_much_an_archive_may_unpack_to(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['big.txt' => str_repeat("\0", 60 * 1024 * 1024)])]);
+
+        $this->assertSame(['type' => 'error', 'message' => 'The archive unpacks to more than 50 MB'], $toast);
+    }
+
+    public function test_the_admin_is_told_the_size_an_archive_may_unpack_to_when_what_it_stores_allows_more_than_50_MB(): void
+    {
+        // 0.5 MB that does not compress and 70 MB of zeros: a hundred times what they take compressed is about 57 MB, and the archive holds 70
+        $archive = $this->zipUpload(['noise.jpg' => random_bytes(520 * 1024), 'zeros.txt' => str_repeat("\0", 70 * 1024 * 1024)]);
+
+        $toast = $this->toastAfterPosting(['file' => $archive]);
+
+        $this->assertSame('error', $toast['type']);
+        $this->assertSame(1, preg_match('/^The archive unpacks to more than (\d+) MB$/', $toast['message'], $matches), $toast['message']);
+        $this->assertGreaterThan(55, (int) $matches[1]);
+        $this->assertLessThan(60, (int) $matches[1]);
+    }
+
+    public function test_the_admin_is_told_that_an_archive_holds_no_file_that_can_be_stored(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['icons/a.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>'])]);
+
+        $this->assertSame(['type' => 'error', 'message' => 'The archive holds no file that can be stored'], $toast);
+    }
+
+    public function test_the_admin_is_told_that_an_archive_was_stored(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['a.jpg' => $this->jpeg()])]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully'], $toast);
+    }
+
+    public function test_the_admin_is_told_that_images_were_stored(): void
+    {
+        $toast = $this->toastAfterPosting(['images' => [$this->imageUpload('photo.jpg')]]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'Image uploaded successfully'], $toast);
     }
 
     public function test_an_archive_that_lists_one_entry_many_times_is_judged_by_what_it_holds_and_not_by_what_it_lists(): void
