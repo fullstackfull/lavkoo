@@ -65,16 +65,14 @@ class ImageManager
 
     public static function update(string $dir, $old_image, string $format, $image, $file_type = 'image'): string
     {
-        if (self::checkFileExists(filePath: $dir.$old_image)['status']) {
-            Storage::disk(self::checkFileExists(filePath: $dir . $old_image)['disk'])->delete($dir . $old_image);
-        }
+        self::delete(full_path: $dir . $old_image);
 
         return $file_type == 'file' ? ImageManager::file_upload($dir, $format, $image) : ImageManager::upload($dir, $format, $image);
     }
 
     public static function delete($full_path): array
     {
-        if (self::checkFileExists(filePath: $full_path)['status']) {
+        if (PlainFileName::staysInside(path: (string) $full_path) && self::checkFileExists(filePath: $full_path)['status']) {
             Storage::disk(self::checkFileExists(filePath: $full_path)['disk'])->delete($full_path);
         }
         return [

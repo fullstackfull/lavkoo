@@ -4857,4 +4857,5 @@ ____________________________________________________on_search_engines_and_see_th
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
 	'the_file_is_not_a_supported_image' => 'الملف ليس صورة مدعومة',
+	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
 ];

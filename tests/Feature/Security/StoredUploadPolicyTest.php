@@ -238,4 +238,64 @@ class StoredUploadPolicyTest extends TestCase
 
         $this->assertStringEndsNotWith('.gif', $name);
     }
+
+    // ---- deleting ---------------------------------------------------------------------------------------------------------------
+
+    /** @return array<string, array{0: string}> a path in the disk that a name from a request would build */
+    public static function pathsThatGoUp(): array
+    {
+        return [
+            'one level up' => ['product/../shop/banner/victim.webp'],
+            'a name that starts with the way up' => ['../shop/banner/victim.webp'],
+            'a windows separator' => ['product\\..\\shop\\banner\\victim.webp'],
+        ];
+    }
+
+    #[DataProvider('pathsThatGoUp')]
+    public function test_a_stored_name_that_goes_up_does_not_delete_another_file(string $path): void
+    {
+        Storage::disk('public')->put('shop/banner/victim.webp', 'banner');
+
+        ImageManager::delete(full_path: $path);
+        $this->deleteViaTheTrait($path);
+
+        $this->assertTrue(Storage::disk('public')->exists('shop/banner/victim.webp'));
+    }
+
+    public function test_replacing_a_file_does_not_delete_the_file_a_name_that_goes_up_points_to(): void
+    {
+        Storage::disk('public')->put('shop/banner/victim.webp', 'banner');
+
+        ImageManager::update(dir: 'product/', old_image: '../shop/banner/victim.webp', format: 'png', image: $this->uploadOf('photo.png', $this->imageBytes('png')));
+        $writer = new class {
+            use FileManagerTrait {
+                update as public;
+            }
+        };
+        $writer->update(dir: 'product/', oldImage: '../shop/banner/victim.webp', format: 'png', image: $this->uploadOf('photo.png', $this->imageBytes('png')));
+
+        $this->assertTrue(Storage::disk('public')->exists('shop/banner/victim.webp'));
+    }
+
+    public function test_a_file_that_is_where_its_name_says_is_still_deleted(): void
+    {
+        Storage::disk('public')->put('product/thumbnail/photo.webp', 'image');
+        Storage::disk('public')->put('product/preview/old.pdf', 'preview');
+
+        ImageManager::delete(full_path: 'product/thumbnail/photo.webp');
+        $this->deleteViaTheTrait('product/preview/old.pdf');
+
+        $this->assertFalse(Storage::disk('public')->exists('product/thumbnail/photo.webp'));
+        $this->assertFalse(Storage::disk('public')->exists('product/preview/old.pdf'));
+    }
+
+    private function deleteViaTheTrait(string $path): void
+    {
+        $writer = new class {
+            use FileManagerTrait {
+                delete as public;
+            }
+        };
+        $writer->delete(filePath: $path);
+    }
 }

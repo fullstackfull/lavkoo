@@ -9,6 +9,7 @@ use App\Models\DealOfTheDay;
 use App\Models\FlashDealProduct;
 use App\Models\Product;
 use App\Models\Translation;
+use App\Rules\StoredFileNames;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
@@ -139,10 +140,11 @@ class ProductController extends Controller
             'category_id'           => 'required',
             'product_type'          => 'required',
             'digital_product_type'  => 'required_if:product_type,==,digital',
-            'digital_file_ready'    => 'required_if:digital_product_type,==,ready_product',
+            'digital_file_ready'    => ['required_if:digital_product_type,==,ready_product', new StoredFileNames()],
             'unit'                  => 'required_if:product_type,==,physical',
-            'images'                => 'required',
-            'thumbnail'             => 'required',
+            'images'                => ['required', new StoredFileNames()],
+            'thumbnail'             => ['required', new StoredFileNames()],
+            'meta_image'            => [new StoredFileNames()],
             'discount_type'         => 'required|in:percent,flat',
             'tax'                   => 'required|min:0',
             'lang'                  => 'required',
@@ -392,6 +394,10 @@ class ProductController extends Controller
             'shipping_cost'         => 'required_if:product_type,==,physical|gt:-1',
             'minimum_order_qty'     => 'required|numeric|min:1',
             'code'                  => 'required|numeric|min:1|digits_between:6,20|unique:products,code,'.$product->id,
+            'images'                => [new StoredFileNames()],
+            'thumbnail'             => [new StoredFileNames()],
+            'digital_file_ready'    => [new StoredFileNames()],
+            'meta_image'            => [new StoredFileNames()],
         ], [
             'name.required'                     => 'Product name is required!',
             'category_id.required'              => 'category  is required!',

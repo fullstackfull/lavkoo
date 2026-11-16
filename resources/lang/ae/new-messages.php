@@ -17739,4 +17739,5 @@ return [
 	'attention_outcome_still_unknown' => 'نظرتُ والقناة لا تقول',
 	'attention_outcome_no_longer_relevant' => 'لم يبقَ ذا صلة',
 	'the_file_is_not_a_supported_image' => 'الملف ليس صورة مدعومة',
+	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
 ];

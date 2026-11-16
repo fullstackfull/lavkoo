@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Utils\PlainFileName;
 use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -90,9 +91,10 @@ trait FileManagerTrait
      */
     public function update(string $dir, $oldImage, string $format, $image, string $fileType = 'image'): string
     {
-        if ($this->checkFileExists(filePath: $dir . $oldImage)['status']) {
+        if (PlainFileName::staysInside(path: $dir . $oldImage) && $this->checkFileExists(filePath: $dir . $oldImage)['status']) {
             Storage::disk($this->checkFileExists(filePath: $dir . $oldImage)['disk'])->delete($dir . $oldImage);
         }
+
         return $fileType == 'file' ? $this->fileUpload($dir, $format, $image) : $this->upload($dir, $format, $image);
     }
 
@@ -102,7 +104,7 @@ trait FileManagerTrait
      */
     protected function  delete(string $filePath): array
     {
-        if ($this->checkFileExists(filePath: $filePath)['status']) {
+        if (PlainFileName::staysInside(path: $filePath) && $this->checkFileExists(filePath: $filePath)['status']) {
             Storage::disk($this->checkFileExists(filePath: $filePath)['disk'])->delete($filePath);
         }
         cacheRemoveByType(type: 'file_manager');
