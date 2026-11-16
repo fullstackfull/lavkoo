@@ -354,12 +354,14 @@ class CartController extends Controller
                 foreach ($cartList as $cart) {
                     $databaseCart = Cart::where([
                         'customer_id' => $user->id,
+                        'is_guest' => 0,
                         'seller_id' => $cart['seller_id'],
                         'seller_is' => $cart['seller_is']
                     ])->first();
 
                     Cart::where([
                         'customer_id' => $user->id,
+                        'is_guest' => 0,
                         'product_id' => $cart['product_id'],
                         'variant' => $cart['variant'],
                         'seller_id' => $cart['seller_id'],
