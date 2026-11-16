@@ -9,7 +9,8 @@ use Tests\TestCase;
 /**
  * GET /image-proxy fetches a public image for a page and answers it from the shop's own origin. The upstream picks the Content-Type, and a
  * page or an SVG answered from that origin runs script there, so only raster images pass, and the answer carries headers that stop it
- * being read as anything else.
+ * being read as anything else. The requests ask for JSON: an error answer then needs no error page, and the error pages read the business
+ * settings, which this test has no table for (CI runs with APP_DEBUG=true, where that failure is a 500 instead of the answer under test).
  */
 class ImageProxyTest extends TestCase
 {
@@ -17,7 +18,7 @@ class ImageProxyTest extends TestCase
 
     private function proxy(string $url): \Illuminate\Testing\TestResponse
     {
-        return $this->withoutMiddleware()->get('/image-proxy?url=' . urlencode($url));
+        return $this->withoutMiddleware()->getJson('/image-proxy?url=' . urlencode($url));
     }
 
     /** @return array<string, array{0: string}> */
@@ -93,6 +94,6 @@ class ImageProxyTest extends TestCase
 
     public function test_a_missing_address_is_a_bad_request(): void
     {
-        $this->withoutMiddleware()->get('/image-proxy')->assertStatus(400);
+        $this->withoutMiddleware()->getJson('/image-proxy')->assertStatus(400);
     }
 }
