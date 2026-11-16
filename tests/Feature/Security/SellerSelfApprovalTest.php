@@ -4,15 +4,23 @@ namespace Tests\Feature\Security;
 
 use App\Events\VendorRegistrationEvent;
 use App\Http\Controllers\Admin\Vendor\VendorController;
+use App\Http\Controllers\Vendor\Auth\RegisterController as PublicVendorRegisterController;
 use App\Http\Requests\Admin\VendorAddRequest;
+use App\Http\Requests\Vendor\VendorAddRequest as PublicVendorAddRequest;
 use App\Models\Seller;
 use App\Services\VendorService;
+use FilesystemIterator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use RuntimeException;
+use Tests\Support\BuildsSellerSchema;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -21,84 +29,25 @@ use Tests\TestCase;
  */
 class SellerSelfApprovalTest extends TestCase
 {
+    use BuildsSellerSchema;
+    use RestoresLanguageFiles;
+
     private const PASSWORD = 'Aa1!aaaaaa';
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->rememberLanguageFiles();
         Storage::fake('public');
-        $this->buildSellerTables();
+        $this->buildSellerSchema();
     }
 
-    private function buildSellerTables(): void
+    protected function tearDown(): void
     {
-        foreach (['sellers', 'shops', 'seller_wallets', 'admins', 'storages', 'business_settings'] as $table) {
-            Schema::dropIfExists($table);
-        }
+        $this->restoreLanguageFiles();
 
-        Schema::create('sellers', function ($table) {
-            $table->id();
-            $table->string('f_name')->nullable();
-            $table->string('l_name')->nullable();
-            $table->string('phone')->nullable();
-            $table->string('email')->nullable();
-            $table->string('image')->nullable();
-            $table->string('password')->nullable();
-            $table->string('status')->default('pending');
-            $table->rememberToken();
-            $table->timestamps();
-            $table->softDeletes();
-        });
-        Schema::create('shops', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('seller_id');
-            $table->string('name')->nullable();
-            $table->string('slug')->nullable();
-            $table->string('address')->nullable();
-            $table->string('contact')->nullable();
-            $table->string('image')->nullable();
-            $table->string('banner')->nullable();
-            $table->string('bottom_banner')->nullable();
-            $table->string('image_storage_type')->nullable();
-            $table->string('banner_storage_type')->nullable();
-            $table->string('bottom_banner_storage_type')->nullable();
-            $table->string('tax_identification_number')->nullable();
-            $table->date('tin_expire_date')->nullable();
-            $table->string('tin_certificate')->nullable();
-            $table->string('tin_certificate_storage_type')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('seller_wallets', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('seller_id');
-            $table->decimal('withdrawn', 24, 2)->default(0);
-            $table->decimal('commission_given', 24, 2)->default(0);
-            $table->decimal('total_earning', 24, 2)->default(0);
-            $table->decimal('pending_withdraw', 24, 2)->default(0);
-            $table->decimal('delivery_charge_earned', 24, 2)->default(0);
-            $table->decimal('collected_cash', 24, 2)->default(0);
-            $table->timestamps();
-        });
-        Schema::create('admins', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('admin_role_id')->nullable();
-            $table->string('email')->nullable();
-        });
-        Schema::create('storages', function ($table) {
-            $table->id();
-            $table->string('data_type');
-            $table->unsignedBigInteger('data_id');
-            $table->string('key');
-            $table->string('value')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('business_settings', function ($table) {
-            $table->id();
-            $table->string('type');
-            $table->text('value')->nullable();
-            $table->timestamps();
-        });
+        parent::tearDown();
     }
 
     private function registrationFields(array $overrides = []): array
@@ -129,6 +78,14 @@ class SellerSelfApprovalTest extends TestCase
         ], $input));
     }
 
+    private function registrationFormRequest(string $requestClass, string $uri, array $overrides = []): FormRequest
+    {
+        $fields = $this->registrationFields($overrides);
+        $files = array_intersect_key($fields, array_flip(['image', 'logo', 'banner']));
+
+        return $requestClass::createFrom(Request::create($uri, 'POST', array_diff_key($fields, $files), [], $files));
+    }
+
     public function test_a_public_vendor_registration_stays_pending_when_the_request_asks_to_be_approved(): void
     {
         $data = app(VendorService::class)->getAddData(request: $this->vendorRequest(['status' => 'approved']));
@@ -156,9 +113,7 @@ class SellerSelfApprovalTest extends TestCase
     public function test_the_admin_add_vendor_form_still_creates_an_approved_vendor(): void
     {
         Event::fake([VendorRegistrationEvent::class]);
-        $fields = $this->registrationFields(['status' => 'approved']);
-        $files = array_intersect_key($fields, array_flip(['image', 'logo', 'banner']));
-        $request = VendorAddRequest::createFrom(Request::create('/admin/vendors/add', 'POST', array_diff_key($fields, $files), [], $files));
+        $request = $this->registrationFormRequest(VendorAddRequest::class, '/admin/vendors/add', ['status' => 'approved']);
 
         app(VendorController::class)->add($request);
 
@@ -181,5 +136,55 @@ class SellerSelfApprovalTest extends TestCase
 
         $this->assertSame(1, DB::table('sellers')->count());
         $this->assertSame('pending', DB::table('sellers')->where('email', 'sara.seller@example.test')->value('status'));
+    }
+
+    public function test_the_public_web_vendor_registration_stays_pending_when_the_request_asks_to_be_approved(): void
+    {
+        Event::fake([VendorRegistrationEvent::class]);
+        $request = $this->registrationFormRequest(PublicVendorAddRequest::class, '/vendor/auth/registration/add', ['status' => 'approved']);
+
+        $response = app(PublicVendorRegisterController::class)->add($request);
+
+        $this->assertSame(1, $response->getData(true)['status'] ?? null, $response->getContent());
+        $this->assertSame('pending', Seller::query()->where('email', 'sara.seller@example.test')->value('status'));
+    }
+
+    public function test_the_public_web_vendor_registration_creates_a_pending_vendor_with_a_shop_and_a_wallet(): void
+    {
+        Event::fake([VendorRegistrationEvent::class]);
+        $request = $this->registrationFormRequest(PublicVendorAddRequest::class, '/vendor/auth/registration/add');
+
+        $response = app(PublicVendorRegisterController::class)->add($request);
+
+        $sellerId = Seller::query()->where('email', 'sara.seller@example.test')->value('id');
+        $this->assertSame(1, $response->getData(true)['status'] ?? null, $response->getContent());
+        $this->assertSame('pending', Seller::query()->findOrFail($sellerId)->status);
+        $this->assertSame('Sara Shop', DB::table('shops')->where('seller_id', $sellerId)->value('name'));
+        $this->assertSame(1, DB::table('seller_wallets')->where('seller_id', $sellerId)->count());
+        Event::assertDispatched(VendorRegistrationEvent::class);
+    }
+
+    public function test_only_the_admin_add_vendor_form_asks_for_an_approved_vendor(): void
+    {
+        $files = [];
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file->isFile() && $file->getExtension() === 'php' && str_contains((string) file_get_contents($file->getPathname()), 'createdByAdmin')) {
+                $files[] = str_replace(base_path() . '/', '', $file->getPathname());
+            }
+        }
+        sort($files);
+
+        $this->assertSame(['app/Http/Controllers/Admin/Vendor/VendorController.php', 'app/Services/VendorService.php'], $files, 'Only the admin add-vendor form may pass createdByAdmin: true; a public registration must never.');
+    }
+
+    public function test_the_schema_builder_refuses_a_database_that_is_not_a_test_database(): void
+    {
+        config(['database.default' => 'mysql', 'database.connections.mysql.database' => 'lavkoo_production']);
+        DB::purge();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Refusing to drop every table of 'lavkoo_production'");
+
+        $this->buildSellerSchema();
     }
 }
