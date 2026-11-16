@@ -5,10 +5,10 @@ namespace App\Utils;
 /**
  * Which kind of request is running, decided on the segments of its path and nowhere else.
  *
- * A substring test on the address (the scheme and host included) takes a store installed in /vendor-store, a product called seller-bag or
- * a page such as /vendor-shop for a panel. Request::is() is anchored, but it matches a regular expression with the u flag against the
- * decoded path, which fails for a path that is not valid UTF-8 (/admin/search/caf%E9) and then matches nothing. Splitting the decoded path
- * into segments does neither.
+ * A substring test on the address (the scheme and host included) takes a store installed in /vendor-store, a host called api.example.com,
+ * a product called api-gadget or a page such as /vendor-shop for the panel or the API. Request::is() is anchored, but it matches a regular
+ * expression with the u flag against the decoded path, which fails for a path that is not valid UTF-8 (/admin/search/caf%E9) and then
+ * matches nothing. Splitting the decoded path into segments does neither.
  */
 class RequestArea
 {
@@ -34,5 +34,11 @@ class RequestArea
 
         return in_array(needle: $root, haystack: self::PANEL_ROOTS, strict: true)
             || ($root === 'api' && in_array(needle: $segments[1] ?? null, haystack: self::SELLER_API_VERSIONS, strict: true));
+    }
+
+    /** Every API request, whatever its version: it is asked for in the language the app sent, not in the shopper's. */
+    public static function isApi(): bool
+    {
+        return request()->segment(1) === 'api';
     }
 }

@@ -384,7 +384,7 @@ class Product extends Model
 
     public function tags(): BelongsToMany
     {
-        if (strpos(url()->current(), '/api')) {
+        if (RequestArea::isApi()) {
             return $this->belongsToMany(Tag::class)->limit(5);
         }
         return $this->belongsToMany(Tag::class);
@@ -506,7 +506,7 @@ class Product extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());

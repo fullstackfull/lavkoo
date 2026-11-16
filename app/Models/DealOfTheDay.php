@@ -68,7 +68,7 @@ class DealOfTheDay extends Model
         parent::boot();
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')){
+                if (RequestArea::isApi()){
                     return $query->where('locale', App::getLocale());
                 }else{
                     return $query->where('locale', Helpers::default_lang());

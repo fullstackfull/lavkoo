@@ -2,9 +2,16 @@
 
 namespace Tests\Feature\Security;
 
+use App\Models\Attribute;
+use App\Models\Brand;
+use App\Models\BusinessPage;
+use App\Models\Category;
 use App\Models\DealOfTheDay;
 use App\Models\FlashDeal;
+use App\Models\Product;
 use App\Models\Translation;
+use App\Utils\Helpers;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
@@ -15,9 +22,10 @@ use Tests\Support\BuildsFulfillmentSchema;
 use Tests\TestCase;
 
 /**
- * The panels and the seller APIs show a title as it was typed, every other page in the shopper's language. The decision is made on path
- * segments, so an address that merely contains /vendor, /seller or /admin (a product called seller-bag, a store installed in /vendor-store,
- * a host called vendor.example.com) is a storefront page like any other.
+ * The address of a request decides which language a page is shown in: the panels and the seller APIs show the text as it was typed, the
+ * APIs use the language the app asked for, every other page the shopper's own. The decision is made on path segments, so an address that
+ * merely contains /api, /vendor, /seller or /admin (a product called api-gadget, a store installed in /vendor-store, a host called
+ * api.example.com) is a storefront page like any other.
  */
 class LanguageChoiceByAddressTest extends TestCase
 {
@@ -28,6 +36,10 @@ class LanguageChoiceByAddressTest extends TestCase
     private const APP_LANGUAGE = 'en';
 
     private const INSTALLED_IN_VENDOR_STORE = ['SCRIPT_NAME' => '/vendor-store/index.php', 'SCRIPT_FILENAME' => '/var/www/html/vendor-store/index.php', 'PHP_SELF' => '/vendor-store/index.php'];
+
+    private const INSTALLED_IN_API_SHOP = ['SCRIPT_NAME' => '/api-shop/index.php', 'SCRIPT_FILENAME' => '/var/www/html/api-shop/index.php', 'PHP_SELF' => '/api-shop/index.php'];
+
+    private const MODELS_THAT_LOAD_TRANSLATIONS = [Product::class, Category::class, Brand::class, Attribute::class, FlashDeal::class, DealOfTheDay::class, Blog::class, BlogCategory::class];
 
     protected function setUp(): void
     {
@@ -42,7 +54,7 @@ class LanguageChoiceByAddressTest extends TestCase
         app()->instance('request', Request::create($url, 'GET', [], [], [], $server));
     }
 
-    /** Pages every shopper sees, including those whose address only contains the words the panels are recognised by. */
+    /** Pages every shopper sees, including those whose address only contains the words the panels and the APIs are recognised by. */
     public static function storefrontPages(): array
     {
         return [
@@ -53,9 +65,13 @@ class LanguageChoiceByAddressTest extends TestCase
             'a seller profile' => ['http://localhost/seller-profile/3', []],
             'an address that only looks like the admin one' => ['http://localhost/administrators', []],
             'a product named after a seller' => ['http://localhost/product/seller-bag', []],
+            'a product named after the API' => ['http://localhost/product/api-gadget', []],
             'a blog post named after a vendor' => ['http://localhost/blog/vendor-news', []],
+            'a blog post named after the API' => ['http://localhost/blog/api-news', []],
+            'a host that starts with api' => ['http://api.example.com/', []],
             'a host that starts with vendor' => ['http://vendor.example.com/', []],
             'a store installed in /vendor-store' => ['http://localhost/vendor-store/', self::INSTALLED_IN_VENDOR_STORE],
+            'a store installed in /api-shop' => ['http://localhost/api-shop/', self::INSTALLED_IN_API_SHOP],
         ];
     }
 
@@ -68,6 +84,18 @@ class LanguageChoiceByAddressTest extends TestCase
             'the seller API v2' => ['http://localhost/api/v2/seller/products/list', []],
             'the seller API v3' => ['http://localhost/api/v3/seller/products/list', []],
             'the admin panel of a store installed in /vendor-store' => ['http://localhost/vendor-store/admin/deal/flash', self::INSTALLED_IN_VENDOR_STORE],
+        ];
+    }
+
+    public static function apiRequests(): array
+    {
+        return [
+            'the customer API' => ['http://localhost/api/v1/products/latest', []],
+            'the customer API of a seller shop' => ['http://localhost/api/v1/seller/acme/products', []],
+            'the seller API v2' => ['http://localhost/api/v2/seller/products/list', []],
+            'the seller API v3' => ['http://localhost/api/v3/seller/products/list', []],
+            'the API root' => ['http://localhost/api', []],
+            'the API of a store installed in /vendor-store' => ['http://localhost/vendor-store/api/v1/products/latest', self::INSTALLED_IN_VENDOR_STORE],
         ];
     }
 
@@ -122,6 +150,76 @@ class LanguageChoiceByAddressTest extends TestCase
         $this->assertSame('RAW-name', $this->blogCategory()->name);
     }
 
+    #[DataProvider('storefrontPages')]
+    public function test_a_storefront_page_uses_the_shoppers_language_not_the_one_of_the_app(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertSame(self::SHOPPER_LANGUAGE, getDefaultLanguage());
+        $this->assertSame(self::SHOPPER_LANGUAGE, Helpers::default_lang());
+        foreach (self::MODELS_THAT_LOAD_TRANSLATIONS as $model) {
+            $this->assertSame(self::SHOPPER_LANGUAGE, $this->translationLanguageLoadedBy($model), "{$model} loads its translations in the shopper's language");
+        }
+    }
+
+    #[DataProvider('apiRequests')]
+    public function test_an_api_request_uses_the_language_the_app_asked_for(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertSame(self::APP_LANGUAGE, getDefaultLanguage());
+        $this->assertSame(self::APP_LANGUAGE, Helpers::default_lang());
+        foreach (self::MODELS_THAT_LOAD_TRANSLATIONS as $model) {
+            $this->assertSame(self::APP_LANGUAGE, $this->translationLanguageLoadedBy($model), "{$model} loads its translations in the language of the app");
+        }
+    }
+
+    #[DataProvider('storefrontPages')]
+    public function test_a_storefront_page_lists_all_the_tags_of_a_product(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertNull($this->tagsLimit());
+    }
+
+    #[DataProvider('apiRequests')]
+    public function test_an_api_request_lists_five_tags_of_a_product_at_most(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertSame(5, $this->tagsLimit());
+    }
+
+    #[DataProvider('storefrontPages')]
+    public function test_a_storefront_page_gets_no_placeholder_for_a_business_page_without_a_banner(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertSame(404, $this->bannerStatusOfABusinessPageWithoutABanner());
+    }
+
+    #[DataProvider('apiRequests')]
+    public function test_an_api_request_gets_a_placeholder_for_a_business_page_without_a_banner(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertSame(200, $this->bannerStatusOfABusinessPageWithoutABanner());
+    }
+
+    /** How many tags of a product a request loads per product: Laravel keeps the limit of a relation as a limit per parent. */
+    private function tagsLimit(): ?int
+    {
+        return (new Product)->tags()->getQuery()->getQuery()->groupLimit['value'] ?? null;
+    }
+
+    private function bannerStatusOfABusinessPageWithoutABanner(): int
+    {
+        $page = new BusinessPage();
+        $page->setRelation('banner', null);
+
+        return $page->banner_full_url['status'];
+    }
+
     private function flashDealTitle(): string
     {
         $deal = new FlashDeal(['title' => 'RAW']);
@@ -169,5 +267,15 @@ class LanguageChoiceByAddressTest extends TestCase
                 'is_draft' => 0,
             ]);
         }
+    }
+
+    /** The language the translate scope of the model asks its translations for, read off the constraint it puts on the relation. */
+    private function translationLanguageLoadedBy(string $model): string
+    {
+        $constraint = $model::query()->applyScopes()->getEagerLoads()['translations'];
+        $translations = Relation::noConstraints(fn () => (new $model)->translations());
+        $constraint($translations);
+
+        return collect($translations->getQuery()->getQuery()->wheres)->firstWhere('column', 'locale')['value'];
     }
 }

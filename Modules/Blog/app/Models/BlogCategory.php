@@ -41,10 +41,10 @@ class BlogCategory extends Model
             return $name;
         }
         $translation = $this->translations()->where(['key' => 'name'])
-            ->when(strpos(url()->current(), '/api'), function ($query) {
+            ->when(RequestArea::isApi(), function ($query) {
                 return $query->where('locale', App::getLocale());
             })
-            ->when(!strpos(url()->current(), '/api'), function ($query) {
+            ->when(!RequestArea::isApi(), function ($query) {
                 return $query->where('locale', getDefaultLanguage());
             })
             ->first();
@@ -58,7 +58,7 @@ class BlogCategory extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());

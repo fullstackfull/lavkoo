@@ -13,14 +13,15 @@ use Tests\TestCase;
 /**
  * The panels and the seller APIs are told from the storefront and the customer API by the segments of the path, whole segments only:
  * the panel words and every API version are matched exactly, so an address that merely starts with, ends with or contains them is a
- * storefront page, and an address that is not valid UTF-8 is classified like any other.
+ * storefront page, and an address that is not valid UTF-8 is classified like any other. The same holds for the API itself: only an address
+ * whose first segment is "api" is an API request.
  */
 class RequestAreaTest extends TestCase
 {
     private const INSTALLED_IN_VENDOR_STORE = ['SCRIPT_NAME' => '/vendor-store/index.php', 'SCRIPT_FILENAME' => '/var/www/html/vendor-store/index.php', 'PHP_SELF' => '/vendor-store/index.php'];
 
-    /** A test of the address by substring, which takes /vendor-store, /vendor-shop and /product/seller-bag for a panel. */
-    private const SUBSTRING_TEST_ON_THE_ADDRESS = '/\b(?:strpos|stripos|str_contains)\s*\(\s*(?:url\(\)->current\(\)|(?:request\(\)|\$request)->url\(\))\s*,\s*(?:url\(\s*[\'"]\/[\'"]\s*\)\s*\.\s*)?[\'"]\/(?:admin|vendor|seller)/';
+    /** A test of the address by substring, which takes /vendor-store, api.example.com and /product/api-gadget for the panel or the API. */
+    private const SUBSTRING_TEST_ON_THE_ADDRESS = '/\b(?:strpos|stripos|str_contains)\s*\(\s*(?:url\(\)->current\(\)|(?:request\(\)|\$request)->url\(\))\s*,\s*(?:url\(\s*[\'"]\/[\'"]\s*\)\s*\.\s*)?[\'"]\/(?:api|admin|vendor|seller)/';
 
     private function visit(string $uri, array $server = []): void
     {
@@ -175,10 +176,63 @@ class RequestAreaTest extends TestCase
         foreach (['http://vendor.example.com/', 'http://admin.example.com/product/gadget', 'http://api.example.com/', 'http://seller.example.com/vendors'] as $address) {
             $this->visit($address);
             $this->assertFalse(RequestArea::isPanel(), "{$address} is a storefront page");
+            $this->assertFalse(RequestArea::isApi(), "{$address} is not an API request");
         }
     }
 
-    public function test_no_model_tells_a_panel_by_a_substring_of_the_address(): void
+    public static function apiRequests(): array
+    {
+        return [
+            'the customer API' => ['/api/v1/products/latest'],
+            'the customer API of a seller shop' => ['/api/v1/seller/acme/products'],
+            'the seller API v2' => ['/api/v2/seller/products/list'],
+            'the seller API v3' => ['/api/v3/seller/products/list'],
+            'the API root' => ['/api'],
+            'an API of an outside provider' => ['/api/myfatoorah/webhook'],
+            'an API address that is not valid UTF-8' => ['/api/v1/products/%FF'],
+        ];
+    }
+
+    public static function pagesThatAreNotTheApi(): array
+    {
+        return [
+            'the home page' => ['/'],
+            'a product named after the API' => ['/product/api-gadget'],
+            'a store installed in /api-shop' => ['/api-shop/'],
+            'an address that only looks like the API' => ['/apis/v1/products'],
+            'an address with the API in the middle' => ['/shop/api/v1/products'],
+            'an address that names the API in its query' => ['/search?next=/api/v1/products'],
+            'the admin panel' => ['/admin/reviews'],
+            'the vendor panel' => ['/vendor/products/list'],
+        ];
+    }
+
+    #[DataProvider('apiRequests')]
+    public function test_everything_under_api_is_an_api_request(string $uri): void
+    {
+        $this->visit($uri);
+
+        $this->assertTrue(RequestArea::isApi());
+    }
+
+    #[DataProvider('pagesThatAreNotTheApi')]
+    public function test_any_other_address_is_not_an_api_request(string $uri): void
+    {
+        $this->visit($uri);
+
+        $this->assertFalse(RequestArea::isApi());
+    }
+
+    public function test_an_api_request_below_the_folder_a_store_is_installed_in_is_still_an_api_request(): void
+    {
+        $this->visit('http://localhost/vendor-store/api/v1/products/latest', self::INSTALLED_IN_VENDOR_STORE);
+        $this->assertTrue(RequestArea::isApi());
+
+        $this->visit('http://localhost/vendor-store/', self::INSTALLED_IN_VENDOR_STORE);
+        $this->assertFalse(RequestArea::isApi());
+    }
+
+    public function test_no_model_helper_or_middleware_tells_the_panel_or_the_api_by_a_substring_of_the_address(): void
     {
         $offences = [];
         foreach ($this->applicationSourceFiles() as $file) {
@@ -189,7 +243,7 @@ class RequestAreaTest extends TestCase
             }
         }
 
-        $this->assertSame([], $offences, 'Use RequestArea::isPanel(): it matches whole path segments.');
+        $this->assertSame([], $offences, 'Use RequestArea::isPanel() or RequestArea::isApi(): they match whole path segments.');
     }
 
     /** @return list<string> */

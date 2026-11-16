@@ -1,5 +1,6 @@
 <?php
 
+use App\Utils\RequestArea;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
@@ -103,7 +104,7 @@ if (!function_exists('removeSpecialCharacters')) {
 if (!function_exists('getDefaultLanguage')) {
     function getDefaultLanguage(): string
     {
-        if (strpos(url()->current(), '/api')) {
+        if (RequestArea::isApi()) {
             $lang = App::getLocale();
         } elseif (session()->has('local')) {
             $lang = session('local');

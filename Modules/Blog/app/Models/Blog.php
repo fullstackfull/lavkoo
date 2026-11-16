@@ -84,10 +84,10 @@ class Blog extends Model
             return $title;
         }
         $translation = $this->translations()->where(['key' => 'title', 'is_draft' => 0])
-            ->when(strpos(url()->current(), '/api'), function ($query) {
+            ->when(RequestArea::isApi(), function ($query) {
                 return $query->where('locale', App::getLocale());
             })
-            ->when(!strpos(url()->current(), '/api'), function ($query) {
+            ->when(!RequestArea::isApi(), function ($query) {
                 return $query->where('locale', getDefaultLanguage());
             })
             ->first();
@@ -101,10 +101,10 @@ class Blog extends Model
             return $description;
         }
         $translation = $this->translations()->where(['key' => 'description', 'is_draft' => 0])
-            ->when(strpos(url()->current(), '/api'), function ($query) {
+            ->when(RequestArea::isApi(), function ($query) {
                 return $query->where('locale', App::getLocale());
             })
-            ->when(!strpos(url()->current(), '/api'), function ($query) {
+            ->when(!RequestArea::isApi(), function ($query) {
                 return $query->where('locale', getDefaultLanguage());
             })
             ->first();
@@ -149,7 +149,7 @@ class Blog extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());
