@@ -326,4 +326,27 @@ class StoredUploadPolicyTest extends TestCase
     {
         return $this->uploadOf($clientName, $this->imageBytes($format));
     }
+
+    /** @return array<string, array{0: string, 1: string, 2: bool}> the file name, what it carries, and whether it is a raster image */
+    public static function whatIsARasterImage(): array
+    {
+        return [
+            'a jpeg' => ['a.jpg', 'jpeg', true],
+            'a png' => ['a.png', 'png', true],
+            'a gif' => ['a.gif', 'gif', true],
+            'a jpeg that carries code' => ['a.jpg', 'jpeg-with-code', true],
+            'an svg named .png' => ['a.png', 'svg', false],
+            'an svg that starts with a comment, which sniffs as text' => ['a.png', 'svg-with-comment', false],
+            'an html page named .jpg' => ['a.jpg', 'html', false],
+            'php source named .gif' => ['a.gif', 'php-source', false],
+        ];
+    }
+
+    #[DataProvider('whatIsARasterImage')]
+    public function test_a_raster_image_is_decided_by_the_content_and_not_by_the_name_or_the_image_driver(string $clientName, string $kind, bool $isRaster): void
+    {
+        $file = $kind === 'jpeg' || $kind === 'png' || $kind === 'gif' ? $this->uploadOf($clientName, $this->imageBytes($kind)) : $this->contentOf($kind, $clientName);
+
+        $this->assertSame($isRaster, StoredFileExtension::isRasterImage($file));
+    }
 }

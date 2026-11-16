@@ -44,6 +44,17 @@ final class StoredFileExtension
     }
 
     /**
+     * Whether a file is a raster image by its content (finfo, not its name): an SVG is a page and a comment-prefixed one reads as text, so
+     * neither is an image to store, whatever the image driver in use would make of them (Imagick reads SVG, GD does not).
+     */
+    public static function isRasterImage(File $image): bool
+    {
+        $type = (string) $image->getMimeType();
+
+        return str_starts_with($type, 'image/') && $type !== 'image/svg+xml';
+    }
+
+    /**
      * An animated image is the one image that is stored as it came, because encoding it again would keep only its first frame. It is a GIF
      * by its name and by its content; everything else is decoded and encoded again, which also keeps an SVG or a page out of an image field.
      */

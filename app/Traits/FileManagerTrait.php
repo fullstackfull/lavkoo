@@ -38,6 +38,9 @@ trait FileManagerTrait
                 if (in_array(request()->ip(), ['127.0.0.1', '::1']) && !(imagetypes() & IMG_WEBP) || env('APP_DEBUG') && !(imagetypes() & IMG_WEBP)) {
                     $format = 'png';
                 }
+                if (!StoredFileExtension::isRasterImage($image)) {
+                    throw ValidationException::withMessages(['image' => translate('the_file_is_not_a_supported_image')]);
+                }
                 try {
                     $imageWebp = Image::make($image)->encode($format);
                 } catch (NotReadableException) {
