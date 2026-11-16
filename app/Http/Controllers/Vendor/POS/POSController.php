@@ -89,7 +89,7 @@ class POSController extends BaseController
             ToastMagic::warning(translate('access_denied!!'));
         }
         $productType = $request->input('product_type', 'physical');
-        $shop = $this->shopRepo->getFirstWhere(params: ['id' => $vendorId]);
+        $shop = $this->shopRepo->getFirstWhere(params: ['seller_id' => $vendorId]);
         $filter = ProductManager::getPosSearchFilterArray(request: $request);
         $filter['added_by'] = 'seller';
         $filter['seller_id'] = $vendorId;
