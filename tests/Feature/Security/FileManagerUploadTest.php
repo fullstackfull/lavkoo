@@ -294,6 +294,38 @@ class FileManagerUploadTest extends TestCase
         return implode(str_repeat("\0", 31), str_split(random_bytes($bytesOfNoise)));
     }
 
+    /** What the entries of an archive take compressed, as the archive's own directory says. */
+    private function compressedSizeOfTheEntries(UploadedFile $upload): int
+    {
+        $archive = new ZipArchive();
+        $archive->open($upload->getPathname());
+        $compressed = 0;
+        for ($index = 0; $index < $archive->numFiles; $index++) {
+            $compressed += $archive->statIndex($index)['comp_size'];
+        }
+        $archive->close();
+
+        return $compressed;
+    }
+
+    /**
+     * An archive of 560 KiB of noise, which a zip keeps as it is, and as many zeros as make the entries unpack to `$ratio` times what they take
+     * compressed (the allowance is 100 times that, and at least 50 MB). The zeros are measured on a sample, and the archive is checked for the ratio.
+     */
+    private function zipUploadThatUnpacksToTimesItsCompressedSize(float $ratio): UploadedFile
+    {
+        $noiseBytes = 560 * 1024;
+        $sampleBytes = 16 * 1024 * 1024;
+        $zerosCompressTo = $this->statOfTheFirstEntry($this->zipUpload(['sample.txt' => str_repeat("\0", $sampleBytes)]))['comp_size'] / $sampleBytes;
+        $zerosBytes = (int) round($noiseBytes * ($ratio - 1) / (1 - $ratio * $zerosCompressTo));
+
+        $archive = $this->zipUpload(['noise.jpg' => random_bytes($noiseBytes), 'zeros.txt' => str_repeat("\0", $zerosBytes)], static fn (ZipArchive $zip): bool => $zip->setCompressionName('noise.jpg', ZipArchive::CM_STORE));
+
+        $this->assertEqualsWithDelta($ratio, ($noiseBytes + $zerosBytes) / $this->compressedSizeOfTheEntries($archive), 0.3, 'the archive unpacks to the ratio the test wants');
+
+        return $archive;
+    }
+
     public function test_a_zip_is_unpacked_into_the_folder_and_only_files_of_a_data_type_are_copied(): void
     {
         $entries = [
@@ -354,6 +386,19 @@ class FileManagerUploadTest extends TestCase
         $this->assertSame($isStored, in_array($name, $copied, true));
     }
 
+    public function test_a_folder_whose_name_carries_a_handler_word_hides_no_handler_from_the_files_in_it_on_either_disk(): void
+    {
+        $entries = ['v1.php.backup/photo.jpg' => $this->jpeg(), 'a.php/b.jpg' => $this->jpeg(), 'control.jpg' => $this->jpeg()];
+
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($entries)]));
+
+        $this->assertTrue($onTheDisk);
+        $this->assertTrue($onTheBucket);
+        $this->assertSame(['a.php/b.jpg', 'control.jpg', 'v1.php.backup/photo.jpg'], $this->copiedFiles());
+        $this->assertCount(3, $this->storedOnTheBucket());
+    }
+
     public function test_the_last_extension_of_a_name_is_its_type_and_hides_no_handler(): void
     {
         // `photo.php` is refused because `php` is no data type, not because a handler hides in front of the type
@@ -404,6 +449,24 @@ class FileManagerUploadTest extends TestCase
         $this->assertTrue($thrown, 'the bucket refuses with an exception');
         $this->assertSame(['1.jpg'], $unpackedFiles, 'only the image was unpacked, under a name of its own');
         $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: [], 'the directory is removed although the copy failed');
+    }
+
+    public function test_two_uploads_in_a_row_unpack_into_directories_of_their_own(): void
+    {
+        $directories = [];
+        $watch = static function () use (&$directories): bool {
+            $directories[] = glob(storage_path('app/temp-zip-*')) ?: [];
+
+            return true;
+        };
+
+        $this->service()->uploadFileAndImages($this->bucketThatWatches(storesObject: $watch, files: ['file' => $this->zipUpload(['a.jpg' => $this->jpeg()])]));
+        $this->service()->uploadFileAndImages($this->bucketThatWatches(storesObject: $watch, files: ['file' => $this->zipUpload(['a.jpg' => $this->jpeg()])]));
+
+        $this->assertCount(2, $directories);
+        $this->assertCount(1, $directories[0]);
+        $this->assertCount(1, $directories[1]);
+        $this->assertNotSame($directories[0], $directories[1], 'two uploads at once would share one directory');
     }
 
     public function test_an_archive_that_holds_nothing_the_gallery_stores_is_reported_as_not_stored(): void
@@ -508,6 +571,22 @@ class FileManagerUploadTest extends TestCase
         $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
     }
 
+    public function test_an_archive_that_unpacks_to_just_under_a_hundred_times_what_it_takes_compressed_is_stored(): void
+    {
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUploadThatUnpacksToTimesItsCompressedSize(ratio: 99.5)]));
+
+        $this->assertTrue($stored);
+        $this->assertCount(2, File::allFiles(storage_path('app/public/' . self::FOLDER)));
+    }
+
+    public function test_an_archive_that_unpacks_to_just_over_a_hundred_times_what_it_takes_compressed_is_refused(): void
+    {
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUploadThatUnpacksToTimesItsCompressedSize(ratio: 100.5)]));
+
+        $this->assertFalse($stored);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+    }
+
     /** @return array<string, string> */
     private function manyImages(int $count): array
     {
@@ -567,6 +646,16 @@ class FileManagerUploadTest extends TestCase
         $this->assertSame(['type' => 'error', 'message' => 'The archive unpacks to more than 50 MB'], $toast);
     }
 
+    public function test_the_admin_is_told_the_whole_allowance_when_a_later_entry_is_the_one_that_crosses_it(): void
+    {
+        // the first entry leaves 20 MB of the 50, the second crosses them: the sentence names the 50, not what was left
+        $archive = $this->zipUpload(['first.txt' => str_repeat("\0", 30 * 1024 * 1024), 'second.txt' => str_repeat("\0", 30 * 1024 * 1024)]);
+
+        $toast = $this->toastAfterPosting(['file' => $archive]);
+
+        $this->assertSame(['type' => 'error', 'message' => 'The archive unpacks to more than 50 MB'], $toast);
+    }
+
     public function test_the_admin_is_told_the_size_an_archive_may_unpack_to_when_what_it_stores_allows_more_than_50_MB(): void
     {
         // 0.5 MB that does not compress and 70 MB of zeros: a hundred times what they take compressed is about 57 MB, and the archive holds 70
@@ -585,6 +674,49 @@ class FileManagerUploadTest extends TestCase
         $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['photos/' => '', '__MACOSX/photos/' => ''])]);
 
         $this->assertSame(['type' => 'error', 'message' => 'The archive holds no file that can be stored'], $toast);
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function arabicLanguagesOfTheShop(): array
+    {
+        return ['Saudi Arabic' => ['sa'], 'Emirati Arabic' => ['ae']];
+    }
+
+    #[DataProvider('arabicLanguagesOfTheShop')]
+    public function test_the_admin_is_told_the_limits_in_arabic_with_their_numbers(string $language): void
+    {
+        session(['local' => $language]);
+
+        $tooMany = $this->toastAfterPosting(['file' => $this->zipUpload(['shell.php' => '<?php'] + $this->manyImages(5001))]);
+        $tooLarge = $this->toastAfterPosting(['file' => $this->zipUpload(['big.txt' => str_repeat("\0", 60 * 1024 * 1024)])]);
+
+        $this->assertSame('يحتوي الأرشيف على أكثر من 5000 ملف يمكن حفظه', $tooMany['message']);
+        $this->assertSame('يتجاوز حجم الأرشيف بعد فك الضغط 50 ميغابايت', $tooLarge['message']);
+    }
+
+    #[DataProvider('arabicLanguagesOfTheShop')]
+    public function test_the_admin_is_told_in_arabic_how_many_files_an_archive_left_out_and_which(string $language): void
+    {
+        session(['local' => $language]);
+
+        $several = $this->toastAfterPosting(['file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), 'shell.php' => '<?php', 'icons/a.svg' => '<svg/>', 'page.html' => '<p>'])]);
+        $one = $this->toastAfterPosting(['file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), 'shell.php' => '<?php'])]);
+
+        $this->assertStringEndsWith(': لم يُحفظ 3 من ملفات الأرشيف (shell.php, icons/a.svg, page.html)', $several['message']);
+        $this->assertStringEndsWith(': لم يُحفظ ملف واحد من الأرشيف (shell.php)', $one['message']);
+    }
+
+    public function test_the_admin_is_told_in_arabic_how_many_more_files_were_left_out_than_are_named(): void
+    {
+        session(['local' => 'sa']);
+        $entries = ['ok.jpg' => $this->jpeg()];
+        foreach (range(1, 8) as $number) {
+            $entries["script-{$number}.php"] = '<?php';
+        }
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertStringEndsWith(': لم يُحفظ 8 من ملفات الأرشيف (script-1.php, script-2.php, script-3.php, script-4.php, script-5.php, و3 أخرى)', $toast['message']);
     }
 
     public function test_the_admin_is_told_that_an_archive_was_stored(): void
@@ -673,6 +805,23 @@ class FileManagerUploadTest extends TestCase
         $this->assertSame('One file of the archive was not stored (damaged.jpg)', $reportOfTheDisk->skippedMessage());
         $this->assertSame('One file of the archive was not stored (damaged.jpg)', $reportOfTheBucket->skippedMessage());
         $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_the_partial_file_of_a_damaged_entry_is_gone_before_the_next_entry_is_unpacked(): void
+    {
+        $unpackedFiles = null;
+        $request = $this->bucketThatWatches(
+            storesObject: static function () use (&$unpackedFiles): bool {
+                $unpackedFiles ??= array_map('basename', glob(storage_path('app/temp-zip-*/*')) ?: []);
+
+                return true;
+            },
+            files: ['file' => $this->zipUploadWithADamagedEntry('damaged.jpg', ['first.jpg' => $this->jpeg(), 'damaged.jpg' => str_repeat('damaged ', 512), 'last.jpg' => $this->jpeg()], ZipArchive::CM_STORE)],
+        );
+
+        $this->service()->uploadFileAndImages($request);
+
+        $this->assertSame(['0.jpg', '2.jpg'], $unpackedFiles, 'what was unpacked when the bucket was first asked: the two whole entries, by the index of the entry');
     }
 
     public function test_the_admin_is_told_that_an_entry_with_damaged_data_was_left_out_and_not_given_a_server_error(): void
@@ -794,6 +943,9 @@ class FileManagerUploadTest extends TestCase
         foreach ($stored as $name) {
             $this->assertMatchesRegularExpression('#^' . self::FOLDER . '/\d{4}-\d{2}-\d{2}-[0-9a-f]+\.(jpg|pdf)$#', $name);
         }
+        $extensions = array_map(static fn (string $name): string => pathinfo($name, PATHINFO_EXTENSION), $stored);
+        sort($extensions);
+        $this->assertSame(['jpg', 'pdf'], $extensions, 'a document keeps its extension on the bucket');
     }
 
     public function test_on_s3_the_entries_of_the_local_disk_are_stored_and_no_others(): void
@@ -1066,12 +1218,13 @@ class FileManagerUploadTest extends TestCase
     {
         $entries = [
             'desktop.ini' => '[.ShellClassInfo]', 'photos/Desktop.INI' => '[.ShellClassInfo]', 'META-INF/MANIFEST.MF' => 'Manifest-Version: 1.0', '._a.jpg' => 'apple double',
-            'photos/._b.jpg' => 'apple double', 'THUMBS.DB' => 'metadata', 'photos/.ds_store' => 'metadata', 'photos/a.jpg' => $this->jpeg(),
+            'photos/._b.jpg' => 'apple double', 'THUMBS.DB' => 'metadata', 'photos/.ds_store' => 'metadata', '__MACOSX/photos/a.jpg' => 'metadata', 'photos/a.jpg' => $this->jpeg(),
         ];
 
         $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
 
         $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully'], $toast);
+        $this->assertSame(['photos/a.jpg'], $this->copiedFiles());
     }
 
     public function test_a_name_that_only_starts_like_a_system_file_is_an_ordinary_name_and_a_hidden_one_is_listed(): void
@@ -1135,6 +1288,14 @@ class FileManagerUploadTest extends TestCase
         $toast = $this->toastAfterPosting(['images' => [$this->imageUpload('photo.jpg')], 'file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), 'shell.php' => '<?php'])]);
 
         $this->assertSame(['type' => 'success', 'message' => 'Image uploaded successfully: One file of the archive was not stored (shell.php)'], $toast);
+    }
+
+    public function test_a_run_of_control_and_format_characters_in_a_name_is_shown_as_one_mark(): void
+    {
+        $report = new ArchiveReport();
+        $report->skip("a\u{200B}\u{200B}\u{202E}\u{200F}b.php");
+
+        $this->assertSame('One file of the archive was not stored (a?b.php)', $report->skippedMessage());
     }
 
     public function test_a_name_that_is_no_text_is_shown_as_text(): void
