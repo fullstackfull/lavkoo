@@ -495,4 +495,124 @@ class ProductSharedFileTest extends TestCase
         $this->assertFalse(SharedProductFile::isShared(path: 'product/meta/orphan-only.png'));
         $this->assertFalse(SharedProductFile::isShared(path: 'product/digital-product/orphan-only.zip'));
     }
+
+    /** @return array<string, array{0: array<string, mixed>, 1: array<string, mixed>, 2: string}> the rows of two products that hold one file, and the path of the file */
+    public static function twoHoldersOfOneFile(): array
+    {
+        $arabic = "\u{0635}\u{0648}\u{0631}\u{0629}-1.webp";
+        $list = static fn (array $names, int $flags = 0): string => json_encode($names, $flags);
+        $object = static fn (string $name, string $color): string => json_encode([['color' => $color, 'image_name' => $name, 'storage' => 'public']]);
+
+        return [
+            'a non-ASCII gallery name, which json_encode writes as \u escapes' => [['images' => $list([$arabic])], ['images' => $list([$arabic])], 'product/' . $arabic],
+            'a non-ASCII gallery name written unescaped' => [['images' => $list([$arabic], JSON_UNESCAPED_UNICODE)], ['images' => $list([$arabic], JSON_UNESCAPED_UNICODE)], 'product/' . $arabic],
+            'a non-ASCII gallery name written once escaped and once unescaped' => [['images' => $list([$arabic])], ['images' => $list([$arabic], JSON_UNESCAPED_UNICODE)], 'product/' . $arabic],
+            'a non-ASCII colour image name' => [['color_image' => $object($arabic, 'FF0000')], ['color_image' => $object($arabic, '00FF00')], 'product/' . $arabic],
+            'a non-ASCII thumbnail' => [['thumbnail' => $arabic], ['thumbnail' => $arabic], 'product/thumbnail/' . $arabic],
+            'a name with a double quote' => [['images' => $list(['q"1.webp'])], ['images' => $list(['q"1.webp'])], 'product/q"1.webp'],
+            'a name with a backslash, which the disk reads as a folder' => [['images' => $list(['b\\1.webp'])], ['images' => $list(['b\\1.webp'])], 'product/b\\1.webp'],
+            'a name with a percent sign' => [['images' => $list(['p%1.webp'])], ['images' => $list(['p%1.webp'])], 'product/p%1.webp'],
+            'a name with an underscore' => [['images' => $list(['u_1.webp'])], ['images' => $list(['u_1.webp'])], 'product/u_1.webp'],
+            'a name with the escape character of the search' => [['images' => $list(['e!1.webp'])], ['images' => $list(['e!1.webp'])], 'product/e!1.webp'],
+            'a name with an apostrophe and a space' => [['images' => $list(["a'1 b.webp"])], ['images' => $list(["a'1 b.webp"])], "product/a'1 b.webp"],
+            'a gallery entry written with a dot segment and one without' => [['images' => $list(['./ps2.webp'])], ['images' => $list(['ps2.webp'])], 'product/ps2.webp'],
+            'a gallery entry written with the folder and two slashes' => [['images' => $list(['thumbnail//ps3.webp'])], ['thumbnail' => 'ps3.webp'], 'product/thumbnail/ps3.webp'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $first
+     * @param array<string, mixed> $second
+     */
+    #[DataProvider('twoHoldersOfOneFile')]
+    public function test_two_products_that_hold_a_file_make_it_shared_however_its_name_is_written_in_their_rows(array $first, array $second, string $path): void
+    {
+        $this->insertProduct(81, $first);
+        $this->insertProduct(82, $second);
+
+        $this->assertTrue(SharedProductFile::isShared(path: $path), 'two products hold ' . $path);
+    }
+
+    /** @return array<string, array{0: string}> the paths that the disk reads as product/ps1.webp */
+    public static function pathsOfTheGalleryFile(): array
+    {
+        return [
+            'with a leading slash' => ['/product/ps1.webp'],
+            'with two slashes after product' => ['product//ps1.webp'],
+            'with a dot segment' => ['product/./ps1.webp'],
+            'with a leading dot segment' => ['./product/ps1.webp'],
+            'with two leading slashes' => ['//product/ps1.webp'],
+            'with a segment and a way up' => ['product/zz/../ps1.webp'],
+            'with a backslash as the separator' => ['product\\ps1.webp'],
+            'with a trailing slash' => ['product/ps1.webp/'],
+            'with a trailing dot segment' => ['product/ps1.webp/.'],
+        ];
+    }
+
+    #[DataProvider('pathsOfTheGalleryFile')]
+    public function test_every_spelling_of_the_path_of_a_gallery_file_that_two_products_hold_is_shared(string $path): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['ps1.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['ps1.webp'])]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: $path), $path);
+    }
+
+    /** @return array<string, array{0: string}> the paths that the disk reads as product/thumbnail/ts1.webp */
+    public static function pathsOfTheThumbnail(): array
+    {
+        return [
+            'with two slashes before the name' => ['product/thumbnail//ts1.webp'],
+            'with two slashes after product' => ['product//thumbnail/ts1.webp'],
+            'with a dot segment before the name' => ['product/thumbnail/./ts1.webp'],
+            'with a dot segment before the folder' => ['product/./thumbnail/ts1.webp'],
+            'with a trailing dot segment' => ['product/thumbnail/ts1.webp/.'],
+            'with backslashes as the separators' => ['product\\thumbnail\\ts1.webp'],
+        ];
+    }
+
+    #[DataProvider('pathsOfTheThumbnail')]
+    public function test_every_spelling_of_the_path_of_a_thumbnail_that_two_products_hold_keeps_the_file(string $path): void
+    {
+        $this->insertProduct(81, ['thumbnail' => 'ts1.webp']);
+        $this->insertProduct(82, ['thumbnail' => 'ts1.webp']);
+        $this->fileOnDisk($this->product('thumbnail/ts1.webp'), 'thumbnail');
+
+        ImageManager::delete($path);
+
+        $this->assertFileExists($this->product('thumbnail/ts1.webp'), $path);
+    }
+
+    public function test_a_meta_image_and_a_digital_file_are_found_under_every_spelling_of_their_paths_too(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'sm1.png', 'digital_file_ready' => 'sd1.zip']);
+        $this->insertProduct(82);
+        DB::table('product_seos')->insert(['product_id' => 82, 'image' => 'sm1.png']);
+        DB::table('digital_product_variations')->insert(['product_id' => 82, 'file' => 'sd1.zip']);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product//meta/./sm1.png'));
+        $this->assertTrue(SharedProductFile::isShared(path: './product/digital-product//sd1.zip'));
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function pathsThatAreNoProductFile(): array
+    {
+        return [
+            'the empty path' => [''],
+            'the root' => ['/'],
+            'the directory itself' => ['product'],
+            'a directory of the same name' => ['productx/ps1.webp'],
+            'another case' => ['Product/ps1.webp'],
+            'a file of another directory' => ['profile/ps1.webp'],
+        ];
+    }
+
+    #[DataProvider('pathsThatAreNoProductFile')]
+    public function test_a_path_that_is_no_file_of_the_product_directory_is_never_shared(string $path): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['ps1.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['ps1.webp'])]);
+
+        $this->assertFalse(SharedProductFile::isShared(path: $path), $path);
+    }
 }

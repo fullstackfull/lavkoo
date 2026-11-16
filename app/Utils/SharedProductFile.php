@@ -27,19 +27,31 @@ final class SharedProductFile
     /** Whether the file at a path of the disk (`product/x.webp`, `/product/thumbnail/x.webp`) is held by more than one product. */
     public static function isShared(string $path): bool
     {
-        $relative = ltrim($path, '/');
+        $relative = self::normalised(path: $path);
         if (!str_starts_with($relative, 'product/')) {
             return false;
         }
 
         $relative = substr($relative, strlen('product/'));
         $name = basename($relative);
-        if ($name === '' || str_ends_with($relative, '/')) {
-            return false;
-        }
         $folder = preg_match('#^(' . implode('|', array_keys(self::COLUMN_OF_FOLDER)) . ')/[^/]+$#D', $relative, $match) === 1 ? $match[1] : '';
 
         return count(self::holderIds(relative: $relative, folder: $folder, name: $name)) > 1;
+    }
+
+    /** A path the way the disk reads it: a backslash separates like a slash, and an empty segment or a `.` is nothing. */
+    private static function normalised(string $path): string
+    {
+        $segments = [];
+        foreach (explode('/', str_replace('\\', '/', $path)) as $segment) {
+            if ($segment === '..') {
+                array_pop($segments);
+            } elseif ($segment !== '' && $segment !== '.') {
+                $segments[] = $segment;
+            }
+        }
+
+        return implode('/', $segments);
     }
 
     /** @return list<int|string> */
@@ -49,7 +61,10 @@ final class SharedProductFile
         $column = self::COLUMN_OF_FOLDER[$folder] ?? null;
         $candidates = Product::withoutGlobalScopes()
             ->where(static function ($query) use ($name, $column) {
-                $query->where('images', 'like', '%' . $name . '%')->orWhere('color_image', 'like', '%' . $name . '%');
+                foreach (self::jsonSpellings(name: $name) as $spelling) {
+                    $pattern = self::likeContaining(text: $spelling);
+                    $query->orWhereRaw("images like ? escape '!'", [$pattern])->orWhereRaw("color_image like ? escape '!'", [$pattern]);
+                }
                 if ($column !== null) {
                     $query->orWhere($column, $name);
                 }
@@ -76,7 +91,8 @@ final class SharedProductFile
 
         foreach (['images', 'color_image'] as $list) {
             foreach ((array) json_decode((string) $product->getRawOriginal($list), true) as $image) {
-                if ((is_array($image) ? ($image['image_name'] ?? null) : $image) === $relative) {
+                $imageName = is_array($image) ? ($image['image_name'] ?? null) : $image;
+                if (is_string($imageName) && self::normalised(path: $imageName) === $relative) {
                     return true;
                 }
             }
@@ -98,5 +114,19 @@ final class SharedProductFile
     private static function existingProductIds(): Builder
     {
         return Product::withoutGlobalScopes()->select('id');
+    }
+
+    /** @return list<string> the name as a JSON text holds it: as it is, and as json_encode() escapes it (letters that are not ASCII, quotes, backslashes) */
+    private static function jsonSpellings(string $name): array
+    {
+        $escaped = substr((string) json_encode($name), 1, -1);
+
+        return array_values(array_unique(array_filter([$name, $escaped], static fn (string $spelling): bool => $spelling !== '')));
+    }
+
+    /** A pattern for `like ... escape '!'` that finds the text anywhere: the escape character, `%` and `_` stand for themselves, and a backslash is no escape. */
+    private static function likeContaining(string $text): string
+    {
+        return '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text) . '%';
     }
 }
