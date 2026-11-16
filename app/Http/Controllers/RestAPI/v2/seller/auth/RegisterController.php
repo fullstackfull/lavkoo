@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v2\seller\auth;
 use App\Http\Controllers\Controller;
 use App\Services\Platform\PasswordPolicy;
+use App\Models\Admin;
 use App\Models\Seller;
 use App\Models\Shop;
 use App\Utils\Helpers;
@@ -32,6 +33,10 @@ class RegisterController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
+        }
+
+        if (Admin::where('admin_role_id', 1)->where('email', $request['email'])->exists()) {
+            return response()->json(['errors' => [['code' => 'email', 'message' => translate('Email_already_exist_please_try_another_email')]]], 403);
         }
 
         DB::beginTransaction();

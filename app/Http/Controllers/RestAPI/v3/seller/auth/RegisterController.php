@@ -21,8 +21,7 @@ class RegisterController extends Controller
 
     public function store(SellerRegistrationRequest $request): JsonResponse
     {
-        $adminEmail = Admin::where('admin_role_id', 1)->select('email')->first();
-        if ($adminEmail && $request['email'] === $adminEmail) {
+        if (Admin::where('admin_role_id', 1)->where('email', $request['email'])->exists()) {
             return response()->json([
                 'message' => translate('Email_already_exist_please_try_another_email'),
                 'error' => translate('Email_already_exist_please_try_another_email'),

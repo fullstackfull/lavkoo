@@ -25,7 +25,8 @@ use Tests\TestCase;
 
 /**
  * Registering as a seller is public, so the account it creates must always wait for an admin. A seller app or a web form never sends a
- * status, which makes any status in the request a visitor trying to approve themselves.
+ * status, which makes any status in the request a visitor trying to approve themselves. For the same reason it may not take the master
+ * admin's e-mail address, on any of the three public registrations.
  */
 class SellerSelfApprovalTest extends TestCase
 {
@@ -34,6 +35,8 @@ class SellerSelfApprovalTest extends TestCase
 
     private const PASSWORD = 'Aa1!aaaaaa';
 
+    private const MASTER_ADMIN_EMAIL = 'master.admin@example.test';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -41,6 +44,7 @@ class SellerSelfApprovalTest extends TestCase
         $this->rememberLanguageFiles();
         Storage::fake('public');
         $this->buildSellerSchema();
+        DB::table('admins')->where('admin_role_id', 1)->update(['email' => self::MASTER_ADMIN_EMAIL]);
     }
 
     protected function tearDown(): void
@@ -175,6 +179,40 @@ class SellerSelfApprovalTest extends TestCase
         sort($files);
 
         $this->assertSame(['app/Http/Controllers/Admin/Vendor/VendorController.php', 'app/Services/VendorService.php'], $files, 'Only the admin add-vendor form may pass createdByAdmin: true; a public registration must never.');
+    }
+
+    public function test_the_v3_seller_registration_refuses_the_master_admin_email(): void
+    {
+        Event::fake([VendorRegistrationEvent::class]);
+
+        $response = $this->post('/api/v3/seller/registration', $this->registrationFields(['email' => self::MASTER_ADMIN_EMAIL]), ['Accept' => 'application/json']);
+
+        $response->assertForbidden();
+        $this->assertSame(0, DB::table('sellers')->count());
+    }
+
+    public function test_the_v2_seller_registration_refuses_the_master_admin_email(): void
+    {
+        $response = $this->post('/api/v2/seller/registration', $this->registrationFields(['email' => self::MASTER_ADMIN_EMAIL]), ['Accept' => 'application/json']);
+
+        $response->assertForbidden();
+        $this->assertSame(0, DB::table('sellers')->count());
+    }
+
+    public function test_the_v3_seller_registration_accepts_any_other_email_while_a_master_admin_exists(): void
+    {
+        Event::fake([VendorRegistrationEvent::class]);
+
+        $this->post('/api/v3/seller/registration', $this->registrationFields(), ['Accept' => 'application/json'])->assertOk();
+
+        $this->assertSame(1, DB::table('sellers')->where('email', 'sara.seller@example.test')->count());
+    }
+
+    public function test_the_v2_seller_registration_accepts_any_other_email_while_a_master_admin_exists(): void
+    {
+        $this->post('/api/v2/seller/registration', $this->registrationFields(), ['Accept' => 'application/json'])->assertOk();
+
+        $this->assertSame(1, DB::table('sellers')->where('email', 'sara.seller@example.test')->count());
     }
 
     public function test_the_schema_builder_refuses_a_database_that_is_not_a_test_database(): void
