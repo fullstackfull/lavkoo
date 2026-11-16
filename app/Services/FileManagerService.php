@@ -107,7 +107,7 @@ class FileManagerService
     {
         $files = File::allFiles($src);
         foreach ($files as $file) {
-            if (!StoredFileExtension::isDataType(extension: $file->getExtension())) {
+            if (!StoredFileExtension::isDataType(extension: $file->getExtension()) || StoredFileExtension::hidesHandler(fileName: $file->getFilename())) {
                 continue;
             }
             $relativePath = Str::after($file->getPathname(), $src);

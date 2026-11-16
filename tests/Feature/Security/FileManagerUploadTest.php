@@ -129,6 +129,23 @@ class FileManagerUploadTest extends TestCase
         $this->assertSame(['UPPER.JPG', 'a.jpg', 'doc.pdf', 'nested/b.png'], $copied);
     }
 
+    public function test_a_zip_entry_that_holds_a_script_extension_before_its_data_type_is_not_copied(): void
+    {
+        // Apache's AddHandler reads every extension of a name, so `evil.php.jpg` runs as PHP on a host that maps the handler.
+        $entries = [
+            'evil.php.jpg' => '<?php', 'evil.phtml.txt' => '<?php', 'evil.pht.png' => '<?php', 'sub/dir/evil.php.pdf' => '<?php', 'evil.PHP.jpg' => '<?php',
+            'evil.php;.jpg' => '<?php', 'evil.php .jpg' => '<?php', 'evil.php5.zip' => '<?php', 'evil.php.old.jpg' => '<?php', 'evil.shtml.csv' => '<!--#exec cmd="id"-->',
+            'evil.cgi.png' => '#!/bin/sh', 'evil.pl.txt' => '#!/usr/bin/perl',
+            'photo.jpg' => $this->jpeg(), 'my.holiday.photo.jpg' => $this->jpeg(), 'v1.2.pdf' => '%PDF-1.4', 'archive.tar.zip' => 'zip', 'phpinfo-notes.txt' => 'notes', 'php.jpg' => $this->jpeg(),
+        ];
+
+        $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+
+        $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
+        sort($copied);
+        $this->assertSame(['archive.tar.zip', 'my.holiday.photo.jpg', 'photo.jpg', 'php.jpg', 'phpinfo-notes.txt', 'v1.2.pdf'], $copied);
+    }
+
     /** @return array<string, array{0: string}> */
     public static function foldersThatLeaveThePublicDisk(): array
     {

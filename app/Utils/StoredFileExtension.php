@@ -28,12 +28,32 @@ final class StoredFileExtension
         'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mpeg', 'mpg', 'm4v', '3gp', 'ogv',
     ];
 
+    /** The extensions a server runs through a handler (`php` and `php3` to `php8` are matched apart). */
+    private const HANDLER_EXTENSIONS = ['phtml', 'pht', 'phar', 'phps', 'inc', 'shtml', 'shtm', 'stm', 'cgi', 'pl', 'py', 'rb', 'asp', 'aspx', 'jsp', 'jspx', 'cfm', 'sh'];
+
     public const UNKNOWN = 'bin';
 
     /** Whether an extension is one of the data types a stored file may carry, whoever wrote it (case does not matter). */
     public static function isDataType(string $extension): bool
     {
         return in_array(strtolower($extension), self::DATA_TYPES, true);
+    }
+
+    /**
+     * Whether a name holds an extension that a server runs before its last one. The last extension is the type, but Apache's AddHandler reads
+     * every extension of a name, so `evil.php.jpg` is PHP on a host that maps the handler for `.php` (what is not a letter or a digit around
+     * an extension is ignored: `evil.php;.jpg`, `evil.php .jpg`).
+     */
+    public static function hidesHandler(string $fileName): bool
+    {
+        foreach (array_slice(explode('.', $fileName), 1, -1) as $extension) {
+            $word = strtolower((string) preg_replace('/[^A-Za-z0-9]/', '', $extension));
+            if (in_array($word, self::HANDLER_EXTENSIONS, true) || preg_match('/^php\d?$/', $word) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param File|null $file the uploaded file, when the content can be asked */
