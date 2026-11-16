@@ -1613,7 +1613,7 @@ class ProductManager
 
     public static function getPriorityWiseFlashDealsProductsQuery($id = null, $userId = null, $dataLimit = 10): array
     {
-        $cacheKey = 'cache_flash_deal_' . ($id ?? 'default');
+        $cacheKey = storefrontCacheKey(key: 'cache_flash_deal_' . ($id ?? 'default'));
         $cacheKeys = Cache::get(CACHE_FLASH_DEAL_KEYS, []);
 
         if (!in_array($cacheKey, $cacheKeys)) {
@@ -2565,7 +2565,7 @@ class ProductManager
     {
         $user = Helpers::getCustomerInformation($request);
 
-        $cacheKey = 'cache_cart_list_for_' . ($user == 'offline' ? 'guest_' . session('guest_id') ?? ($request->guest_id ?? 0) : 'customer_' . $user->id);
+        $cacheKey = storefrontCacheKey(key: 'cache_cart_list_for_' . ($user == 'offline' ? 'guest_' . session('guest_id') ?? ($request->guest_id ?? 0) : 'customer_' . $user->id));
         self::cacheCartListAllUserKeys(cacheKey: $cacheKey);
 
         $cartItemsList = Cache::remember($cacheKey, CACHE_FOR_3_HOURS, function () use ($request, $user) {

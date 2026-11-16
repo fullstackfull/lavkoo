@@ -104,6 +104,31 @@ final class StorefrontCatalog
         return self::isDefaultCountry($country);
     }
 
+    /**
+     * The key a cache entry built from the catalog is written under. A storefront request writes under its storefront's key, which is the
+     * plain key for the Saudi storefront. A request that works across every country (the admin and vendor panels, the seller APIs, a queue,
+     * a console command) gets a key of its own, so it never fills the Saudi storefront's entry with other countries' products. While
+     * storefronts are off every key is the plain key and nothing about the resolver is read.
+     */
+    public static function cacheKey(string $key): string
+    {
+        if (!config('gcc.storefronts.enabled')) {
+            return $key;
+        }
+
+        return self::context()?->scopedCacheKey($key) ?? self::unboundKey($key);
+    }
+
+    /** @return list<string> every key the entry can be under: the plain key, and while storefronts are on, each storefront's and the unbound one. */
+    public static function cacheKeysForEveryStorefront(string $key): array
+    {
+        if (!config('gcc.storefronts.enabled')) {
+            return [$key];
+        }
+
+        return [...StorefrontContext::keysForEveryStorefront($key), self::unboundKey($key)];
+    }
+
     /** The country the products of a cart group belong to, for a link that must open the storefront the cart was made in. Null while storefronts are off. */
     public static function countryOfCartGroup(string $cartGroupId): ?string
     {
@@ -168,6 +193,11 @@ final class StorefrontCatalog
         }
 
         return StorefrontResolver::fromConfig()->contextForRequest(request: $request);
+    }
+
+    private static function unboundKey(string $key): string
+    {
+        return "storefront:*:{$key}";
     }
 
     private static function isDefaultCountry(string $country): bool
