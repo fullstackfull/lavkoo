@@ -454,4 +454,45 @@ class ProductSharedFileTest extends TestCase
 
         $this->assertFileExists($this->product('meta/' . $metaImageOfTheOriginal), 'the original still shows it');
     }
+
+    public function test_a_meta_image_whose_last_live_holder_lets_go_is_deleted_although_a_deleted_product_left_its_seo_row(): void
+    {
+        foreach ([81, 82] as $id) {
+            $this->insertProduct($id, ['thumbnail' => 'orphan-' . $id . '.webp', 'meta_image' => 'orphan-meta.png']);
+            DB::table('product_seos')->insert(['product_id' => $id, 'image' => 'orphan-meta.png']);
+        }
+        $this->fileOnDisk($this->product('meta/orphan-meta.png'), 'meta');
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+        DB::table('products')->where('id', 81)->delete();
+        $this->assertFileExists($this->product('meta/orphan-meta.png'), 'product 82 still holds it');
+
+        ImageManager::delete('/product/meta/orphan-meta.png');
+
+        $this->assertFileDoesNotExist($this->product('meta/orphan-meta.png'), 'product 82 was the last live holder; the SEO row of the deleted product 81 is no holder');
+    }
+
+    public function test_a_digital_file_whose_last_live_holder_lets_go_is_deleted_although_a_deleted_product_left_its_variation_row(): void
+    {
+        foreach ([81, 82] as $id) {
+            $this->insertProduct($id, ['product_type' => 'digital', 'digital_file_ready' => 'orphan-book.zip']);
+        }
+        DB::table('digital_product_variations')->insert(['product_id' => 81, 'file' => 'orphan-book.zip']);
+        $this->fileOnDisk($this->product('digital-product/orphan-book.zip'), 'zip');
+        DB::table('products')->where('id', 81)->delete();
+
+        ImageManager::delete('/product/digital-product/orphan-book.zip');
+
+        $this->assertFileDoesNotExist($this->product('digital-product/orphan-book.zip'));
+    }
+
+    public function test_the_rows_of_a_deleted_product_are_no_holders_of_the_file_a_live_product_holds(): void
+    {
+        $this->insertProduct(82, ['meta_image' => 'orphan-only.png', 'digital_file_ready' => 'orphan-only.zip']);
+        DB::table('product_seos')->insert(['product_id' => 81, 'image' => 'orphan-only.png']);
+        DB::table('digital_product_variations')->insert(['product_id' => 81, 'file' => 'orphan-only.zip']);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/meta/orphan-only.png'));
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/digital-product/orphan-only.zip'));
+    }
 }

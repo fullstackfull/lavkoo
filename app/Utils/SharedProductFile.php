@@ -5,6 +5,7 @@ namespace App\Utils;
 use App\Models\DigitalProductVariation;
 use App\Models\Product;
 use App\Models\ProductSeo;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * A product names its files in its own row (gallery, thumbnail, preview, meta image, digital file), and a name is only a claim: a copy of a
@@ -84,13 +85,18 @@ final class SharedProductFile
         return false;
     }
 
-    /** @return iterable<int|string> the products whose SEO row or digital variation holds the file */
+    /** @return iterable<int|string> the products whose SEO row or digital variation holds the file (a deleted product leaves both rows behind and holds nothing) */
     private static function otherTablesHolding(string $folder, string $name): iterable
     {
         return match ($folder) {
-            'meta' => ProductSeo::query()->where('image', $name)->pluck('product_id'),
-            'digital-product' => DigitalProductVariation::query()->where('file', $name)->pluck('product_id'),
+            'meta' => ProductSeo::query()->where('image', $name)->whereIn('product_id', self::existingProductIds())->pluck('product_id'),
+            'digital-product' => DigitalProductVariation::query()->where('file', $name)->whereIn('product_id', self::existingProductIds())->pluck('product_id'),
             default => [],
         };
+    }
+
+    private static function existingProductIds(): Builder
+    {
+        return Product::withoutGlobalScopes()->select('id');
     }
 }
