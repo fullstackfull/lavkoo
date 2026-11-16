@@ -252,7 +252,7 @@ class Product extends Model
 
     public function scopeInCurrentStorefront($query): void
     {
-        StorefrontCatalog::restrict($query);
+        StorefrontCatalog::restrict(query: $query);
     }
 
     public function scopeSellerApproved($query): void
