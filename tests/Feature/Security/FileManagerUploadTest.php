@@ -134,6 +134,55 @@ class FileManagerUploadTest extends TestCase
         return Storage::disk('s3')->allFiles(self::FOLDER);
     }
 
+    /** An archive that writes down a size it does not have: its headers say `$declaredSize` bytes, its data is what it is. */
+    private function zipUploadThatUnderstatesItsSize(string $name, string $content, int $declaredSize): UploadedFile
+    {
+        $upload = $this->zipUpload([$name => $content]);
+        $bytes = (string) file_get_contents($upload->getPathname());
+        $centralDirectory = (int) strrpos($bytes, "PK\x01\x02");
+        $bytes = substr_replace($bytes, pack('V', $declaredSize), 22, 4);
+        $bytes = substr_replace($bytes, pack('V', $declaredSize), $centralDirectory + 24, 4);
+        file_put_contents($upload->getPathname(), $bytes);
+
+        $this->assertSame($declaredSize, $this->statOfTheFirstEntry($upload)['size'], 'the archive says what the test wants it to say');
+
+        return $upload;
+    }
+
+    /** An archive whose directory lists one entry `$times` times: its data is there once, its headers promise it `$times` times. */
+    private function zipUploadThatListsAnEntryAgain(string $name, string $content, int $times): UploadedFile
+    {
+        $upload = $this->zipUpload([$name => $content]);
+        $bytes = (string) file_get_contents($upload->getPathname());
+        $directoryStart = (int) strrpos($bytes, "PK\x01\x02");
+        $endStart = (int) strrpos($bytes, "PK\x05\x06");
+        $directory = str_repeat(substr($bytes, $directoryStart, $endStart - $directoryStart), $times);
+        $end = substr($bytes, $endStart);
+        $end = substr_replace($end, pack('v', $times), 8, 2);
+        $end = substr_replace($end, pack('v', $times), 10, 2);
+        $end = substr_replace($end, pack('V', strlen($directory)), 12, 4);
+        file_put_contents($upload->getPathname(), substr($bytes, 0, $directoryStart) . $directory . $end);
+
+        return $upload;
+    }
+
+    /** @return array<string, mixed> */
+    private function statOfTheFirstEntry(UploadedFile $upload): array
+    {
+        $archive = new ZipArchive();
+        $archive->open($upload->getPathname());
+        $stat = $archive->statIndex(0);
+        $archive->close();
+
+        return $stat;
+    }
+
+    /** Noise with a zero run after every byte: a zip stores it in about a twentieth of its size, so the ratio is far below the one an archive of zeros has. */
+    private function noiseWithGaps(int $bytesOfNoise): string
+    {
+        return implode(str_repeat("\0", 31), str_split(random_bytes($bytesOfNoise)));
+    }
+
     public function test_a_zip_is_unpacked_into_the_folder_and_only_files_of_a_data_type_are_copied(): void
     {
         $entries = [
@@ -237,6 +286,125 @@ class FileManagerUploadTest extends TestCase
 
         $this->assertFalse($stored);
         $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+    }
+
+    public function test_an_archive_whose_headers_understate_its_size_is_refused_before_anything_is_written(): void
+    {
+        $archive = $this->zipUploadThatUnderstatesItsSize('big.txt', str_repeat("\0", 60 * 1024 * 1024), declaredSize: 100);
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $archive]));
+
+        $this->assertFalse($stored);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_on_s3_an_archive_whose_headers_understate_its_size_is_refused_before_anything_is_written(): void
+    {
+        $archive = $this->zipUploadThatUnderstatesItsSize('big.txt', str_repeat("\0", 60 * 1024 * 1024), declaredSize: 100);
+
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $archive]));
+
+        $this->assertFalse($stored);
+        $this->assertSame([], $this->storedOnTheBucket());
+    }
+
+    public function test_on_s3_an_archive_that_is_mostly_empty_space_is_refused_before_anything_is_written(): void
+    {
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload(['big.jpg' => str_repeat("\0", 60 * 1024 * 1024)])]));
+
+        $this->assertFalse($stored);
+        $this->assertSame([], $this->storedOnTheBucket());
+    }
+
+    public function test_the_ratio_is_taken_over_the_entries_the_gallery_stores_only(): void
+    {
+        // 60 MB of zeros, and 3 MB of noise that is no file of the gallery: the noise must not pay for the zeros
+        $archive = $this->zipUpload(['zeros.txt' => str_repeat("\0", 60 * 1024 * 1024), 'padding.php' => random_bytes(3 * 1024 * 1024)]);
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $archive]));
+
+        $this->assertFalse($stored);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+    }
+
+    public function test_an_archive_that_unpacks_to_more_than_the_most_is_stored_when_what_it_stores_is_not_mostly_empty_space(): void
+    {
+        // the same zeros, paid for by 3 MB of noise that is stored as well: the ratio is 20, far from a way to fill a disk
+        $archive = $this->zipUpload(['zeros.txt' => str_repeat("\0", 60 * 1024 * 1024), 'padding.jpg' => random_bytes(3 * 1024 * 1024)]);
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $archive]));
+
+        $this->assertTrue($stored);
+        $this->assertSame(60 * 1024 * 1024, filesize(storage_path('app/public/' . self::FOLDER . '/zeros.txt')));
+        $this->assertSame(3 * 1024 * 1024, filesize(storage_path('app/public/' . self::FOLDER . '/padding.jpg')));
+    }
+
+    public function test_an_archive_that_unpacks_to_exactly_the_most_is_stored(): void
+    {
+        $most = 50 * 1024 * 1024;
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['most.txt' => str_repeat("\0", $most)])]));
+
+        $this->assertTrue($stored);
+        $this->assertSame($most, filesize(storage_path('app/public/' . self::FOLDER . '/most.txt')));
+    }
+
+    public function test_an_archive_that_unpacks_to_one_byte_more_than_the_most_is_refused(): void
+    {
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['more.txt' => str_repeat("\0", 50 * 1024 * 1024 + 1)])]));
+
+        $this->assertFalse($stored);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+    }
+
+    public function test_an_archive_that_lists_one_entry_many_times_is_judged_by_what_it_holds_and_not_by_what_it_lists(): void
+    {
+        // 40 entries of 2 MB that compress twentyfold: the directory promises 4 MB of compressed data for 80 MB, the file holds 0.1 MB
+        $archive = $this->zipUploadThatListsAnEntryAgain('noise.txt', $this->noiseWithGaps(bytesOfNoise: 65536), times: 40);
+        $listed = 0;
+        $zip = new ZipArchive();
+        $zip->open($archive->getPathname());
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $listed += $zip->statIndex($index)['comp_size'];
+        }
+        $zip->close();
+        $this->assertGreaterThan(40 * 2 * 1024 * 1024, 100 * $listed, 'the listed sizes would allow the unpacking');
+        $this->assertLessThan(40 * 2 * 1024 * 1024, 100 * filesize($archive->getPathname()), 'the file does not');
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $archive]));
+
+        $this->assertFalse($stored);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+    }
+
+    public function test_on_s3_an_entry_is_streamed_and_never_read_into_memory_whole(): void
+    {
+        $archive = $this->zipUpload(['big.jpg' => random_bytes(24 * 1024 * 1024)]);
+        $request = $this->bucketRequest(['file' => $archive]);
+
+        memory_reset_peak_usage();
+        $before = memory_get_usage();
+        $this->service()->uploadFileAndImages($request);
+        $peak = memory_get_peak_usage() - $before;
+
+        $this->assertSame(24 * 1024 * 1024, Storage::disk('s3')->size($this->storedOnTheBucket()[0]));
+        $this->assertLessThan(8 * 1024 * 1024, $peak);
+    }
+
+    public function test_an_entry_that_cannot_be_read_does_not_stop_the_entries_after_it(): void
+    {
+        $encrypt = static fn (ZipArchive $zip): bool => $zip->setEncryptionName('locked.jpg', ZipArchive::EM_AES_256, 'a password nobody knows');
+        $entries = ['locked.jpg' => $this->jpeg(), 'open.jpg' => $this->jpeg()];
+
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries, $encrypt)]));
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($entries, $encrypt)]));
+
+        $this->assertTrue($onTheDisk);
+        $this->assertTrue($onTheBucket);
+        $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
+        $this->assertSame(['open.jpg'], $copied);
+        $this->assertCount(1, $this->storedOnTheBucket());
     }
 
     /** @return array<string, array{0: string}> */

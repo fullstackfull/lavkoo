@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Utils\PlainFileName;
 use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\File;
@@ -50,49 +51,22 @@ class FileManagerService
             }
         }
 
-        if ($request->hasfile('file')) {
-            $archive = $request->file('file');
-            $isStored = $storage === 's3'
-                ? $this->putArchiveOnBucket(archive: $archive, folder: $folder)
-                : $this->unpackArchive(archive: $archive, folder: $folder);
-            if (!$isStored) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** Stores the entries of an archive that the gallery stores on the bucket, each under a name of its own; whether anything was stored. */
-    private function putArchiveOnBucket(mixed $archive, string $folder): bool
-    {
-        $zip = new ZipArchive();
-        if ($zip->open($archive) !== true) {
+        if ($request->hasfile('file') && !$this->storeArchive(archive: $request->file('file'), folder: $folder, disk: $storage)) {
             return false;
         }
 
-        $stored = 0;
-        foreach ($this->storableEntries(zip: $zip) ?? [] as $index => $name) {
-            $content = $zip->getFromIndex($index);
-            if ($content === false) {
-                continue;
-            }
-            $imageName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION);
-            Storage::disk('s3')->put($folder . '/' . $imageName, $content, 'public');
-            $stored++;
-        }
-        $zip->close();
-
-        return $stored > 0;
+        return true;
     }
 
     /**
-     * Unpacks the entries of an archive that the gallery stores into a folder of the public disk. The entries are chosen before anything is
-     * written, so a script in the archive never reaches the disk, and the unpacking directory goes whatever happens to the copy.
+     * Stores the entries of an archive that the gallery stores. They are unpacked into a directory of their own first, under a budget, so an
+     * archive that is a way to fill a disk writes nothing to the gallery or the bucket and a script in it never reaches either, and the
+     * directory goes whatever happens to the copy.
      */
-    private function unpackArchive(mixed $archive, string $folder): bool
+    private function storeArchive(UploadedFile $archive, string $folder, string $disk): bool
     {
         $zip = new ZipArchive();
-        if ($zip->open($archive) !== true) {
+        if ($zip->open($archive->getPathname()) !== true) {
             return false;
         }
 
@@ -102,21 +76,25 @@ class FileManagerService
             return false;
         }
 
-        $tempPath = storage_path('app/temp-zip-' . Str::random(10));
-        File::makeDirectory($tempPath);
+        $directory = storage_path('app/temp-zip-' . Str::random(10));
+        File::makeDirectory($directory);
         try {
-            $zip->extractTo($tempPath, array_values($entries));
-            $zip->close();
-            $stored = $this->copyAndTouch($tempPath, $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder));
+            $names = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize());
+            $stored = match (true) {
+                $names === null => 0,
+                $disk === 's3' => $this->putOnBucket(directory: $directory, names: $names, folder: $folder),
+                default => $this->copyToGallery(directory: $directory, names: $names, folder: $folder),
+            };
         } finally {
-            File::deleteDirectory($tempPath);
+            $zip->close();
+            File::deleteDirectory($directory);
         }
         cacheRemoveByType(type: 'file_manager');
 
         return $stored > 0;
     }
 
-    /** @return array<int, string>|null the names of the entries the gallery stores by their index, or nothing when the archive is a way to fill the disk */
+    /** @return array<int, string>|null the names of the entries the gallery stores by their index, or nothing when the archive holds more entries than a gallery needs */
     private function storableEntries(ZipArchive $zip): ?array
     {
         if ($zip->numFiles > self::MOST_ARCHIVE_ENTRIES) {
@@ -124,23 +102,79 @@ class FileManagerService
         }
 
         $entries = [];
-        $size = 0;
-        $compressedSize = 0;
         for ($index = 0; $index < $zip->numFiles; $index++) {
-            $stat = $zip->statIndex($index);
-            $size += $stat['size'];
-            $compressedSize += $stat['comp_size'];
-            if ($this->isStorableEntry(name: (string)$stat['name'])) {
-                $entries[$index] = $stat['name'];
+            $name = (string)$zip->statIndex($index)['name'];
+            if ($this->isStorableEntry(name: $name)) {
+                $entries[$index] = $name;
             }
         }
 
-        return $size > self::LARGE_ARCHIVE_BYTES && $size > $compressedSize * self::MOST_COMPRESSION_RATIO ? null : $entries;
+        return $entries;
+    }
+
+    /**
+     * Streams the entries into the directory and counts the bytes that really arrive: the sizes an archive declares are what its maker wrote
+     * down, and a stream of zeros under a header that says 100 bytes unpacks to what it unpacks to. An entry that cannot be read (an encrypted
+     * one) is left out.
+     *
+     * @param array<int, string> $entries
+     * @return list<string>|null the names that were unpacked, or nothing when the archive unpacks to more than it may
+     */
+    private function unpackEntries(ZipArchive $zip, array $entries, string $directory, int $archiveBytes): ?array
+    {
+        $remainingBytes = $this->unpackingBudget(zip: $zip, entries: $entries, archiveBytes: $archiveBytes);
+        $unpacked = [];
+        foreach ($entries as $index => $name) {
+            $written = $this->unpackEntry(zip: $zip, index: $index, target: $directory . '/' . $name, limit: $remainingBytes);
+            if ($written === null) {
+                continue;
+            }
+            if ($written > $remainingBytes) {
+                return null;
+            }
+            $remainingBytes -= $written;
+            $unpacked[] = $name;
+        }
+
+        return $unpacked;
+    }
+
+    /**
+     * What an archive may unpack to: 50 MB, or 100 times what its stored entries take compressed. The compressed sizes are declared too (an
+     * entry listed again and again promises its data again and again), so they count for no more than the archive itself holds.
+     *
+     * @param array<int, string> $entries
+     */
+    private function unpackingBudget(ZipArchive $zip, array $entries, int $archiveBytes): int
+    {
+        $compressedBytes = 0;
+        foreach (array_keys($entries) as $index) {
+            $compressedBytes += $zip->statIndex($index)['comp_size'];
+        }
+
+        return max(self::LARGE_ARCHIVE_BYTES, self::MOST_COMPRESSION_RATIO * min($compressedBytes, $archiveBytes));
+    }
+
+    /** @return int|null the bytes written, one more than the limit at the most; nothing when the entry cannot be read */
+    private function unpackEntry(ZipArchive $zip, int $index, string $target, int $limit): ?int
+    {
+        $source = $zip->getStreamIndex($index);
+        if ($source === false) {
+            return null;
+        }
+
+        File::ensureDirectoryExists(dirname($target));
+        $destination = fopen($target, 'wb');
+        $written = stream_copy_to_stream($source, $destination, $limit + 1);
+        fclose($source);
+        fclose($destination);
+
+        return $written === false ? null : $written;
     }
 
     /**
      * A file of a data type, under a name the disk accepts, that holds no script extension and is no metadata of the system that made the archive.
-     * A name with a hidden segment (`.hidden/a.jpg`, `.thumb.png`) is none either: the unpacking never listed it, so it was never stored.
+     * A name with a hidden segment (`.hidden/a.jpg`, `.thumb.png`) is none either: the gallery never listed such a path, so it was never stored.
      */
     private function isStorableEntry(string $name): bool
     {
@@ -153,24 +187,37 @@ class FileManagerService
             && !StoredFileExtension::hidesHandler(fileName: basename($name));
     }
 
-    /** @return int how many files were copied */
-    private function copyAndTouch($src, $dst): int
+    /**
+     * Copies the unpacked files into the folder of the gallery.
+     *
+     * @param list<string> $names
+     */
+    private function copyToGallery(string $directory, array $names, string $folder): int
     {
-        $copied = 0;
-        $files = File::allFiles($src);
-        foreach ($files as $file) {
-            if (!StoredFileExtension::isDataType(extension: $file->getExtension()) || StoredFileExtension::hidesHandler(fileName: $file->getFilename())) {
-                continue;
-            }
-            $relativePath = Str::after($file->getPathname(), $src);
-            $destinationPath = $dst . $relativePath;
-            File::ensureDirectoryExists(dirname($destinationPath));
-            File::copy($file->getPathname(), $destinationPath);
-            touch($destinationPath);
-            $copied++;
+        $gallery = $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder);
+        foreach ($names as $name) {
+            $target = $gallery . '/' . $name;
+            File::ensureDirectoryExists(dirname($target));
+            File::copy($directory . '/' . $name, $target);
+            touch($target);
         }
 
-        return $copied;
+        return count($names);
+    }
+
+    /**
+     * Stores the unpacked files on the bucket, each under a name of its own.
+     *
+     * @param list<string> $names
+     */
+    private function putOnBucket(string $directory, array $names, string $folder): int
+    {
+        foreach ($names as $name) {
+            $imageName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION);
+            Storage::disk('s3')->putFileAs($folder, $directory . '/' . $name, $imageName, 'public');
+        }
+
+        return count($names);
     }
 
     public static function shouldSkip($filename): bool
