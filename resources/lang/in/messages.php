@@ -5238,6 +5238,7 @@ return [
 	"product_name_is_required_to_generate_seo_information" => "SEO जानकारी उत्पन्न करने के लिए उत्पाद का नाम आवश्यक है",
 	"product_name_not_found" => "उत्पाद का नाम नहीं मिला",
 	"product_not_found" => "उत्पाद नहीं मिला",
+	"delivery_man_not_found" => "डिलीवरी मैन नहीं मिला",
 	"product_not_uploaded_yet" => "उत्पाद अभी तक अपलोड नहीं किया गया है",
 	"product_of_this_year" => "इस वर्ष का उत्पाद",
 	"product_priority_Setup" => "उत्पाद प्राथमिकता सेटअप",

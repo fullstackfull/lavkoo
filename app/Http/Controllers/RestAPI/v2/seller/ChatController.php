@@ -9,6 +9,7 @@ use App\Models\DeliveryMan;
 use App\Models\Seller;
 use App\Models\Shop;
 use App\Models\User;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Helpers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\Validator;
 
 class ChatController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function list(Request $request, $type):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -207,6 +210,10 @@ class ChatController extends Controller
             return response()->json([
                 'auth-001' => translate('Your existing session token does not authorize you any more')
             ], 401);
+        }
+
+        if ($type == 'delivery-man' && !DeliveryMan::where(['id' => $request->id, 'seller_id' => $seller['id']])->exists()) {
+            return $this->recordNotFound(code: 'delivery_man', message: 'delivery_man_not_found');
         }
 
         $shop_id = Shop::where('seller_id', $seller['id'])->first()->id;

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RestAPI\v2\seller;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
+use App\Models\DeliveryMan;
 use App\Models\DeliveryManTransaction;
 use App\Models\DeliverymanWallet;
 use App\Models\Order;
@@ -92,7 +93,13 @@ class OrderController extends Controller
             ], 401);
         }
 
-        $order = Order::where(['seller_id' => $seller['id'], 'id' => $request['order_id']])->first();
+        $order = Order::where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['order_id']);
+        if (!$order) {
+            return response()->json(['success' => 0, 'message' => translate('Order_not_found')], 404);
+        }
+        if (!DeliveryMan::where(['id' => $request['delivery_man_id'], 'seller_id' => $seller['id']])->exists()) {
+            return response()->json(['success' => 0, 'message' => translate('delivery_man_not_found')], 404);
+        }
 
         $order->delivery_man_id = $request['delivery_man_id'];
         $order->delivery_type = 'self_delivery';

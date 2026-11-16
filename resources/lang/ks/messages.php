@@ -6639,6 +6639,7 @@ return [
 	"product_name_is_required_to_generate_seo_information" => "اسم المنتج مطلوب لإنشاء معلومات تحسين محركات البحث",
 	"product_name_not_found" => "لم يتم العثور على اسم المنتج",
 	"product_not_found" => "لم يتم العثور على المنتج",
+	"delivery_man_not_found" => "لم يتم العثور على مندوب التوصيل",
 	"product_not_uploaded_yet" => "لم يتم تحميل المنتج بعد",
 	"product_of_this_year" => "منتج هذا العام",
 	"product_priority_Setup" => "إعداد أولوية المنتج",

@@ -5238,6 +5238,7 @@ return [
 	"product_name_is_required_to_generate_seo_information" => "এসইও তথ্য তৈরি করতে পণ্যের নাম প্রয়োজন",
 	"product_name_not_found" => "পণ্যের নাম পাওয়া যায়নি",
 	"product_not_found" => "পণ্য পাওয়া যায়নি",
+	"delivery_man_not_found" => "ডেলিভারি ম্যান পাওয়া যায়নি",
 	"product_not_uploaded_yet" => "পণ্য এখনো আপলোড করা হয়নি",
 	"product_of_this_year" => "এই বছরের পণ্য",
 	"product_priority_Setup" => "পণ্য অগ্রাধিকার সেটআপ",

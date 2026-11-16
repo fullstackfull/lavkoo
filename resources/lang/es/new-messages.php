@@ -4238,6 +4238,7 @@ return [
 	'not_reviewed_yet' => 'Not reviewed yet',
 	'general_info' => 'General info',
 	'product_not_found' => 'Product not found',
+	'delivery_man_not_found' => 'Delivery man not found',
 	'The_phone_number_must_be_at_least_4_characters' => 'The phone number must be at least 4 characters',
 	'pay_via_online' => 'Pay via online',
 	'Payment_failed' => 'Payment failed',
