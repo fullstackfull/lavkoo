@@ -13,7 +13,7 @@ use DOMXPath;
  * character reference inside a link, a `<set>` that writes a handler. So the file is parsed as XML, and only a plain vector image passes:
  * an SVG root, no processing instruction, no entity that is more than text, no element that scripts, embeds or animates, no element of the
  * page languages (XHTML, MathML, XSLT), no event handler, and no link that leaves the file (a fragment of the same file, or a raster image
- * given as data).
+ * given as data). What a style, a paint, a filter or a mask loads is read by CssScanner, in every attribute and not only in `style`.
  */
 final class InertSvg
 {
@@ -130,7 +130,7 @@ final class InertSvg
             return false;
         }
 
-        if ($element->namespaceURI === self::SVG_NAMESPACE && strtolower($element->localName) === 'style' && !self::isInertStyle(css: $element->textContent)) {
+        if ($element->namespaceURI === self::SVG_NAMESPACE && strtolower($element->localName) === 'style' && !self::isInertStyleElement(style: $element)) {
             return false;
         }
 
@@ -146,21 +146,30 @@ final class InertSvg
     private static function isInertAttribute(DOMAttr $attribute): bool
     {
         $name = strtolower($attribute->localName);
-        $value = trim($attribute->value);
+        $value = $attribute->value;
 
         if (str_starts_with($name, 'on') || ($name === 'base' && $attribute->namespaceURI === 'http://www.w3.org/XML/1998/namespace')) {
             return false;
         }
 
         if ($name === 'style') {
-            return self::isInertStyle(css: $value);
+            return self::areInTheFile(addresses: CssScanner::addressesOfStyle(css: $value));
         }
 
         if (in_array($name, self::LINK_ATTRIBUTES, true)) {
-            return self::staysInTheFile(reference: $value);
+            return self::staysInTheFile(reference: trim($value));
         }
 
-        return !self::isScriptUrl(text: $value) && self::loadsOnlyFromTheFile(text: $value);
+        return !self::isScriptUrl(text: trim($value)) && self::areInTheFile(addresses: CssScanner::addressesOfValue(value: $value));
+    }
+
+    /**
+     * A browser reads a style sheet from the text nodes of the element and not from the text of the elements inside it, which is all that
+     * `textContent` adds: with an element inside, the file would be judged on a text that no browser reads.
+     */
+    private static function isInertStyleElement(DOMElement $style): bool
+    {
+        return $style->firstElementChild === null && self::areInTheFile(addresses: CssScanner::addressesOfStyle(css: $style->textContent));
     }
 
     private static function staysInTheFile(string $reference): bool
@@ -168,42 +177,15 @@ final class InertSvg
         return $reference === '' || str_starts_with($reference, '#') || self::isRasterDataUrl(address: $reference);
     }
 
-    /**
-     * Every `url(...)` of a value (a paint, a filter, a clip path, a style) points into the file or is a raster image given as data. A value
-     * that mentions `url` must be well formed for that to be read: a browser loads an address that is not closed (`url(http://x/p.png`) and one
-     * written with a CSS escape (`\75rl(`), and neither is a `url(...)` to the pattern below.
-     */
-    private static function loadsOnlyFromTheFile(string $text): bool
+    /** @param list<string>|null $addresses what a piece of CSS loads, or null when it cannot be told */
+    private static function areInTheFile(?array $addresses): bool
     {
-        if (stripos($text, 'url') !== false && (str_contains($text, '\\') || substr_count($text, '(') !== substr_count($text, ')'))) {
-            return false;
-        }
-
-        preg_match_all('/url\s*\(\s*([\'"]?)(.*?)\1\s*\)/is', $text, $matches);
-        foreach ($matches[2] as $address) {
-            if (!self::staysInTheFile(reference: trim($address))) {
-                return false;
-            }
-        }
-
-        return true;
+        return $addresses !== null && array_filter($addresses, static fn (string $address): bool => !self::staysInTheFile(reference: $address)) === [];
     }
 
     private static function isRasterDataUrl(string $address): bool
     {
         return preg_match(self::RASTER_DATA_URL, $address) === 1;
-    }
-
-    /**
-     * CSS cannot run script in a current browser, but it can import another sheet and load addresses; keep it to what draws inside the file.
-     * A CSS escape (`@\69mport`, `\75rl(`) writes a keyword the patterns do not see, `image-set()` and `src()` load an address from a string,
-     * and parentheses that do not match leave a `url(` open: any of them refuses the style.
-     */
-    private static function isInertStyle(string $css): bool
-    {
-        return preg_match('/@import|\\\\|image-set\s*\(|(?<![\w-])src\s*\(|expression\s*\(|behaviou?r\s*:|-moz-binding|javascript\s*:|vbscript\s*:/i', $css) !== 1
-            && substr_count($css, '(') === substr_count($css, ')')
-            && self::loadsOnlyFromTheFile(text: $css);
     }
 
     private static function isScriptUrl(string $text): bool

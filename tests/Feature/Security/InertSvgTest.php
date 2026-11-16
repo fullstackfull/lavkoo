@@ -62,6 +62,28 @@ class InertSvgTest extends TestCase
             'UTF-8 declared in mixed letters' => [self::declared(encoding: 'Utf-8', body: '<rect width="1" height="1"/>')],
             'US-ASCII declared' => [self::declared(encoding: 'US-ASCII', body: '<rect width="1" height="1"/>')],
             'ASCII declared in small letters' => [self::declared(encoding: 'ascii', body: '<rect width="1" height="1"/>')],
+            // ordinary CSS, and ordinary words, that were taken for something else
+            'a class written with an escape in a style' => [self::styleElement('.sm\\:fill-red{fill:red}')],
+            'an id written with a hex escape in a style' => [self::styleElement('#\\31 23{fill:red}')],
+            'a content written with a unicode escape in a style' => [self::styleElement('.q::before{content:"\\201C"}')],
+            'a comment with a parenthesis that is not closed' => [self::styleElement('/* palette (brand */ .a{fill:red}')],
+            'a comment with an emoticon' => [self::styleElement('/* made with love :) */ .a{fill:red}')],
+            'a comment with a parenthesis in a style attribute' => [self::styleAttribute('fill:red/* ) */')],
+            'a string with a parenthesis that is not closed' => [self::styleElement('.a{font-family:"Foo (Bold"}')],
+            'a comment that holds an address' => [self::styleElement('/* background: url(https://evil.test/old.png) */ .a{fill:red}')],
+            'a comment that holds an import' => [self::styleElement("/* @import 'https://evil.test/a.css'; */ .a{fill:red}")],
+            'a font that is a fragment of the file' => [self::styleElement('@font-face{font-family:"A";src:url("#FontID0") format(svg)} .a{font-family:"A"}')],
+            'a raster image given as data in a style' => [self::styleElement('.a{background-image:url(data:image/png;base64,iVBORw0KGgo=)}')],
+            'a large raster image given as data in a style' => [self::styleElement('.a{background-image:url("data:image/png;base64,' . str_repeat('AAAA', 150000) . '")}')],
+            'a name that ends in url, as a function' => [self::styleAttribute('--x:curl(http://example.com)')],
+            'a title with a Windows path and the letters url' => [self::attribute(name: 'title', value: 'curl C:\\Temp\\export')],
+            'a file name of a Windows path with a parenthesis and the letters url' => [self::attribute(name: 'data-name', value: 'C:\\Users\\Ali\\Purl (old\\logo.png')],
+            'the export file name that Inkscape writes' => [self::attribute(name: 'data-export', value: 'C:\\Users\\Ali\\Curly\\logo.png')],
+            'a label that mentions an import and a binding' => [self::attribute(name: 'aria-label', value: '@import and -moz-binding are old CSS')],
+            'a paint with a quoted fragment, spaces and a colour' => [self::attribute(name: 'fill', value: 'url( "#a" ) #000')],
+            'a paint in capitals' => [self::attribute(name: 'fill', value: 'URL(#a)')],
+            'a paint with an empty address' => [self::attribute(name: 'fill', value: 'url()')],
+            'a fragment whose mark is written with an escape' => [self::attribute(name: 'fill', value: 'url(\\23 a)')],
         ];
     }
 
@@ -197,6 +219,62 @@ class InertSvgTest extends TestCase
             'a UTF-32 document without a byte order mark' => [mb_convert_encoding("<svg $svg><rect width=\"1\" height=\"1\"/></svg>", 'UTF-32BE', 'UTF-8')],
             'a UTF-32 document with a byte order mark' => ["\xFF\xFE\x00\x00" . mb_convert_encoding("<svg $svg><rect width=\"1\" height=\"1\"/></svg>", 'UTF-32LE', 'UTF-8')],
             'markup after a NUL byte, which libxml does not read' => ["<svg $svg><rect width=\"1\" height=\"1\"/></svg>\0<script>alert(1)</script>"],
+            // a parenthesis that a comment, a string or an entity holds balances nothing: an address that is not closed is read where it stands
+            'a comment with a parenthesis, then an address that is not closed' => [self::styleElement('/* ) */ rect{mask-image:url(https://evil.test/p.png')],
+            'a comment with a parenthesis, then an address that is not closed, in a style attribute' => [self::styleAttribute('/* ) */mask-image:url(https://evil.test/p.png')],
+            'a comment with a parenthesis, then an address that is not closed, in a paint' => [self::attribute(name: 'mask', value: '/* ) */url(https://evil.test/p.png')],
+            'a comment with a parenthesis, then a quoted address that is not closed' => [self::styleElement('/* ) */ rect{mask-image:url("https://evil.test/p.png"')],
+            'a string with a parenthesis, then an address that is not closed' => [self::styleElement('.x{content:")"} rect{mask-image:url(https://evil.test/p.png')],
+            'an entity that holds a parenthesis in a string, then an address that is not closed' => [self::declaring(entities: '<!ENTITY c ")">', body: '<style>.x{content:"&c;"} rect{mask-image:url(https://evil.test/p.png</style>')],
+            'a filter with an address that is not closed' => [self::attribute(name: 'filter', value: 'url(https://evil.test/p.svg#f')],
+            // the rules for a style are the rules for every attribute that a browser reads as CSS
+            'an image set in a mask' => [self::attribute(name: 'mask', value: "image-set('https://evil.test/p.png' 1x)")],
+            'an image set in capitals in a mask' => [self::attribute(name: 'mask', value: "IMAGE-SET('https://evil.test/p.png' 1x)")],
+            'an image set with a prefix in a cursor' => [self::attribute(name: 'cursor', value: "-webkit-image-set('https://evil.test/p.png' 1x), auto")],
+            'an image set in a clip path' => [self::attribute(name: 'clip-path', value: "image-set('https://evil.test/p.png' 1x)")],
+            'an image set in a marker' => [self::attribute(name: 'marker-start', value: "image-set('https://evil.test/p.png' 1x)")],
+            'an image set in a filter' => [self::attribute(name: 'filter', value: "image-set('https://evil.test/p.png' 1x)")],
+            'an image set in a paint' => [self::attribute(name: 'fill', value: "image-set('https://evil.test/p.png' 1x)")],
+            'a cross fade in a cursor' => [self::attribute(name: 'cursor', value: 'cross-fade(url(#a), url(#b), 50%), auto')],
+            'a cross fade with a prefix in a mask' => [self::attribute(name: 'mask', value: '-webkit-cross-fade(url(#a), url(#b), 50%)')],
+            'a source function in a mask' => [self::attribute(name: 'mask', value: "src('https://evil.test/p.png')")],
+            'an element function in a mask' => [self::attribute(name: 'mask', value: 'element(#a)')],
+            'an element function with a prefix in a mask' => [self::attribute(name: 'mask', value: '-moz-element(#a)')],
+            'an image function in a mask' => [self::attribute(name: 'mask', value: 'image("https://evil.test/p.png")')],
+            'a function that reads an address from an attribute' => ['<svg ' . self::SVG . '><rect data-u="https://evil.test/p.png" style="mask-image:attr(data-u url)" width="1" height="1"/></svg>'],
+            'an address written with an escape in a mask' => [self::attribute(name: 'mask', value: '\\75rl(https://evil.test/p.png)')],
+            'an address written with an escape in the middle, in a mask' => [self::attribute(name: 'mask', value: 'u\\72l(https://evil.test/p.png)')],
+            'an address written with capitals and an escape, in a mask' => [self::attribute(name: 'mask', value: '\\55RL(https://evil.test/p.png)')],
+            'an address written with three escapes, in a mask' => [self::attribute(name: 'mask', value: '\\75\\72\\6c(https://evil.test/p.png)')],
+            'an address written with an escape of six digits, in a mask' => [self::attribute(name: 'mask', value: '\\000075rl(https://evil.test/p.png)')],
+            'an address written with an escape that a space ends, in a mask' => [self::attribute(name: 'mask', value: '\\75 rl(https://evil.test/p.png)')],
+            'an address written with an escape that a line break ends, in a mask' => [self::attribute(name: 'mask', value: "\\75\nrl(https://evil.test/p.png)")],
+            'an address written with an escape in a cursor' => [self::attribute(name: 'cursor', value: '\\75rl(https://evil.test/p.png), auto')],
+            'an address written with an escape in a clip path' => [self::attribute(name: 'clip-path', value: '\\75rl(https://evil.test/p.svg#c)')],
+            'an address written with an escape in a marker' => [self::attribute(name: 'marker-start', value: '\\75rl(https://evil.test/p.svg#m)')],
+            'an address written with an escape in a filter' => [self::attribute(name: 'filter', value: '\\75rl(https://evil.test/p.svg#f)')],
+            'an address written with an escape in a paint' => [self::attribute(name: 'fill', value: '\\75rl(https://evil.test/p.svg#a)')],
+            'an address written with an escape in a stroke' => [self::attribute(name: 'stroke', value: '\\75rl(https://evil.test/p.svg#a)')],
+            // what a backslash writes is part of an unquoted address and is never a parenthesis, a quote or a space of the syntax
+            'an address that starts with an escaped parenthesis, in a paint' => [self::attribute(name: 'mask', value: 'url(\\29 ../../../admin/logout)')],
+            'an address that starts with an escaped parenthesis, in a style attribute' => [self::styleAttribute('mask-image:url(\\29 ../../../admin/logout)')],
+            'an address that starts with an escaped parenthesis, in a style element' => [self::styleElement('rect{mask-image:url(\\29 ../../../admin/logout)}')],
+            'an address that is only an escaped parenthesis' => [self::attribute(name: 'fill', value: 'url(\\29 )')],
+            'a fragment between escaped quotes' => [self::attribute(name: 'fill', value: 'url(\\22 #a\\22 )')],
+            'a fragment between escaped single quotes' => [self::styleAttribute("fill:url(\\27 #a\\27 )")],
+            'an address that starts with an escaped space and goes to another site' => [self::attribute(name: 'mask', value: 'url(\\20 https://evil.test/p.png)')],
+            // where a comment, a string or an address ends is read as CSS reads it, so that nothing hides what a browser loads
+            'a comment marker in a string does not hide an address' => [self::styleElement('a{b:"/*"} rect{mask-image:url(https://evil.test/p.png)} c{d:"*/"}')],
+            'a comment marker in an address does not hide the next address' => [self::styleElement('rect{mask-image:url(#a/*)} rect{mask-image:url(https://evil.test/p.png)} /* */')],
+            'an escape that spells comment markers does not hide an address' => [self::styleElement('x{y:\\2f\\2a } rect{mask-image:url(https://evil.test/p.png)} z{w:\\2a\\2f }')],
+            'a string that ends at a line break does not hide an address' => [self::styleElement("a{b:\"\n} rect{mask-image:url(https://evil.test/p.png)}\"")],
+            'an address in a string that goes over two lines' => [self::styleElement("rect{mask-image:url(\"https://evil.test/p.p\\\nng\")}")],
+            'an address that a comment follows in a style attribute' => [self::styleAttribute('mask-image:url(https://evil.test/p.png)/* ) */')],
+            'an address that a bad address does not swallow' => [self::styleElement('rect{mask-image:url(a b)} rect{mask-image:url(https://evil.test/p.png)}')],
+            'an address that is a very long one' => [self::styleElement('rect{mask-image:url(https://evil.test/p.png?' . str_repeat('a', 600000) . ')}')],
+            // the browser reads a style from the text nodes of the element, and not from the text of the elements inside it
+            'a style whose address is split by an element' => ['<svg ' . self::SVG . '><style>rect{mask-image:url(<g>#a)</g>https://evil.test/p.png;}</style><rect width="1" height="1"/></svg>'],
+            'a style that holds an element' => ['<svg ' . self::SVG . '><style>.a{fill:red}<g/></style></svg>'],
         ];
     }
 
@@ -224,6 +302,24 @@ class InertSvgTest extends TestCase
     private static function declared(string $encoding, string $body): string
     {
         return '<?xml version="1.0" encoding="' . $encoding . '"?><svg ' . self::SVG . '>' . $body . '</svg>';
+    }
+
+    private static function styleElement(string $css): string
+    {
+        return '<svg ' . self::SVG . '><style>' . htmlspecialchars($css, ENT_QUOTES | ENT_XML1) . '</style><rect width="1" height="1"/></svg>';
+    }
+
+    private static function styleAttribute(string $css): string
+    {
+        return self::attribute(name: 'style', value: $css);
+    }
+
+    /** The value is kept as it is: a line break, a tab and a carriage return in an attribute are written as character references. */
+    private static function attribute(string $name, string $value): string
+    {
+        $written = strtr(htmlspecialchars($value, ENT_QUOTES | ENT_XML1), ["\n" => '&#10;', "\r" => '&#13;', "\t" => '&#9;']);
+
+        return '<svg ' . self::SVG . '><rect ' . $name . '="' . $written . '" width="1" height="1"/></svg>';
     }
 
     private function upload(string $content): UploadedFile
