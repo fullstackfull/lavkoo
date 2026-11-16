@@ -23,6 +23,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\OrderEditService;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
@@ -301,6 +302,10 @@ trait OrderEditManager
 
     public function generateEditOrderSummary(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
+        if (!app(OrderEditService::class)->areEditedLinesAllowedOnOrder(order: $order, editedLines: $editedOrder)) {
+            return ['status' => 'error', 'message' => translate('Product_is_unavailable')];
+        }
+
         $productList = Product::whereIn('id', collect($editedOrder)->pluck('product_id')->toArray())->get();
 
         foreach ($editedOrder as $details) {
@@ -481,15 +486,15 @@ trait OrderEditManager
 
         $editOrderSummary = $this->generateEditOrderSummary(request: $request, order: $order, editedOrder: $editedOrder, data: $data);
 
-        $orderData = $editOrderSummary['order_data'];
-        $couponSummary = $editOrderSummary['coupon_summary'];
-
         if ($editOrderSummary['status'] != 'success') {
             return [
                 'status' => $editOrderSummary['status'],
                 'message' => $editOrderSummary['message'],
             ];
         }
+
+        $orderData = $editOrderSummary['order_data'];
+        $couponSummary = $editOrderSummary['coupon_summary'];
 
         $minimumOrderAmount = $this->checkEditOrderMinimumOrderAmount(order: $order, totalCartAmount: $couponSummary['total_cart_amount'], data: $data);
         if ($minimumOrderAmount['status'] == 'error') {

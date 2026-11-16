@@ -217,6 +217,13 @@ class OrderEditService
 
     public function addOrUpdateProductInOrderSession(object|array $request, object|array $order = [], object|array|null $color = []): array
     {
+        if (!$this->isProductAllowedOnOrder(order: $order, productId: $request['product_id'])) {
+            return [
+                'status' => 'error',
+                'message' => translate('Product_is_unavailable'),
+            ];
+        }
+
         $product = $this->getProductWithAllDetails(id: $request['product_id']);
         $orderSession = $this->getOrderEditSession(order: $order);
         $productList = $orderSession['product_list'] ?? [];
@@ -452,8 +459,23 @@ class OrderEditService
             return false;
         }
 
-        $requestedIds = collect($requestProducts)
-            ->map(fn ($productItem) => filter_var(is_array($productItem) ? ($productItem['id'] ?? null) : null, FILTER_VALIDATE_INT));
+        return $this->areProductIdsAllowedOnOrder(order: $order, productIds: collect($requestProducts)
+            ->map(fn ($productItem) => is_array($productItem) ? ($productItem['id'] ?? null) : null));
+    }
+
+    public function areEditedLinesAllowedOnOrder(object $order, iterable $editedLines): bool
+    {
+        return $this->areProductIdsAllowedOnOrder(order: $order, productIds: collect($editedLines)->pluck('product_id'));
+    }
+
+    public function isProductAllowedOnOrder(object $order, mixed $productId): bool
+    {
+        return $this->areProductIdsAllowedOnOrder(order: $order, productIds: collect([$productId]));
+    }
+
+    private function areProductIdsAllowedOnOrder(object $order, Collection $productIds): bool
+    {
+        $requestedIds = $productIds->map(fn ($productId) => filter_var($productId, FILTER_VALIDATE_INT));
         if ($requestedIds->containsStrict(false)) {
             return false;
         }

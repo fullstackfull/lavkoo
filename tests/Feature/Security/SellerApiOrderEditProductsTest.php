@@ -4,6 +4,7 @@ namespace Tests\Feature\Security;
 
 use App\Models\Order;
 use App\Services\OrderEditService;
+use App\Traits\OrderEditManager;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -199,6 +200,55 @@ class SellerApiOrderEditProductsTest extends TestCase
         $this->assertTrue($this->isAllowedOnOrder(self::IN_HOUSE_PRODUCT, $inHouseOrder));
         $this->assertFalse($this->isAllowedOnOrder(self::OWN_PRODUCT, $inHouseOrder), 'a product of seller 1 on the order of the in-house shop, whose seller_id is also 1');
         $this->assertFalse($this->isAllowedOnOrder(self::OTHER_SELLERS_PRODUCT, $inHouseOrder));
+    }
+
+    // ---- the edit every caller goes through ----
+
+    /** @return iterable<string, array{0: int}> */
+    public static function productsOfOtherShops(): iterable
+    {
+        yield 'another seller product' => [self::OTHER_SELLERS_PRODUCT];
+        yield 'the in-house product sharing the seller id' => [self::IN_HOUSE_PRODUCT];
+    }
+
+    #[DataProvider('productsOfOtherShops')]
+    public function test_the_shared_edit_refuses_the_lines_it_is_given_for_another_shops_product_and_writes_nothing(int $productId): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+        $editedLines = app(OrderEditService::class)->getFormatAPIProductsForEditOrder(
+            request: ['products' => [$this->item(self::OWN_PRODUCT, quantity: 2), $this->item($productId, quantity: 3)]], order: $order, colors: collect(),
+        )['product_list'];
+
+        $summary = $editor->generateEditOrderSummary(order: $order, editedOrder: $editedLines);
+        $result = $editor->generateEditOrder(order: $order, editedOrder: $editedLines, data: ['edit_by' => 'seller', 'edited_user_id' => self::SELLER, 'edited_user_name' => 'Seller']);
+
+        $this->assertOrderUntouched();
+        $this->assertSame(['error', 'error'], [$summary['status'], $result['status']]);
+    }
+
+    public function test_the_shared_edit_takes_a_line_of_the_orders_own_product_and_no_line_without_a_known_product(): void
+    {
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+        $service = app(OrderEditService::class);
+
+        $this->assertTrue($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => self::OWN_PRODUCT], ['product_id' => '10']]));
+        $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => 999]]));
+        $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => null]]));
+        $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['qty' => 1]]));
+    }
+
+    public function test_the_shared_edit_of_an_in_house_order_takes_in_house_products_only(): void
+    {
+        DB::table('order_details')->where('id', self::IN_HOUSE_LINE)->update(['product_id' => self::IN_HOUSE_PRODUCT]);
+        $inHouseOrder = Order::with('details')->findOrFail(self::IN_HOUSE_ORDER);
+        $service = app(OrderEditService::class);
+
+        $this->assertTrue($service->areEditedLinesAllowedOnOrder(order: $inHouseOrder, editedLines: [['product_id' => self::IN_HOUSE_PRODUCT]]));
+        $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $inHouseOrder, editedLines: [['product_id' => self::OWN_PRODUCT]]), 'a product of seller 1 on the order of the in-house shop, whose seller_id is also 1');
+        $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $inHouseOrder, editedLines: [['product_id' => self::OTHER_SELLERS_PRODUCT]]));
     }
 
     // ---- helpers ----
