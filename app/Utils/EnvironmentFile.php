@@ -32,10 +32,17 @@ final class EnvironmentFile
         return $formattedValue;
     }
 
-    /** @param Closure(string): string $change what the file is to hold, given what it holds */
-    private static function rewrite(string $path, Closure $change): void
+    /**
+     * Replaces what the file holds by what $change makes of it, as one critical section: the writers that overlap are kept apart, and a reader
+     * sees the old file or the new one.
+     *
+     * @param Closure(string): string $change what the file is to hold, given what it holds
+     * @param bool $createWhenMissing whether a file that is not there is made (the installer writes the first one)
+     * @throws RuntimeException when the file cannot be opened, locked, read or written
+     */
+    public static function rewrite(string $path, Closure $change, bool $createWhenMissing = false): void
     {
-        $handle = self::openLocked(path: $path);
+        $handle = self::openLocked(path: $path, createWhenMissing: $createWhenMissing);
 
         try {
             $current = stream_get_contents($handle);
@@ -55,10 +62,10 @@ final class EnvironmentFile
      *
      * @return resource
      */
-    private static function openLocked(string $path)
+    private static function openLocked(string $path, bool $createWhenMissing)
     {
         while (true) {
-            $handle = @fopen($path, 'r+');
+            $handle = @fopen($path, $createWhenMissing ? 'c+' : 'r+');
             if ($handle === false) {
                 throw new RuntimeException("The environment file {$path} cannot be opened for writing.");
             }

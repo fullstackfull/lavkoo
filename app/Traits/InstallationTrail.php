@@ -8,6 +8,7 @@ use App\Models\EmailTemplate;
 use App\Models\NotificationMessage;
 use App\Models\ShippingType;
 use App\Models\Shop;
+use App\Utils\EnvironmentFile;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -345,9 +346,6 @@ trait InstallationTrail
             $adminEmail = '"' . str_replace('"', '\"', $adminEmail) . '"';
         }
 
-        $envPath = base_path('.env');
-        $existingEnv = file_exists($envPath) ? file_get_contents($envPath) : '';
-
         $updates = [
             'APP_NAME' => '6valley' . time(),
             'APP_ENV' => 'live',
@@ -374,6 +372,16 @@ trait InstallationTrail
             'SOFTWARE_VERSION' => SOFTWARE_VERSION,
         ];
 
+        EnvironmentFile::rewrite(
+            path: app()->environmentFilePath(),
+            change: fn (string $existingEnv): string => self::withEnvironmentValues(existingEnv: $existingEnv, updates: $updates),
+            createWhenMissing: true,
+        );
+    }
+
+    /** @param array<string, string|null> $updates */
+    private static function withEnvironmentValues(string $existingEnv, array $updates): string
+    {
         $lines = explode(PHP_EOL, $existingEnv);
         $newLines = [];
         $updatedKeys = [];
@@ -406,6 +414,6 @@ trait InstallationTrail
             }
         }
 
-        file_put_contents($envPath, implode(PHP_EOL, $newLines) . PHP_EOL);
+        return implode(PHP_EOL, $newLines) . PHP_EOL;
     }
 }
