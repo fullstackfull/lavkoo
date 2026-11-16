@@ -197,6 +197,50 @@ class HiddenProductExposureTest extends TestCase
         $this->assertStringNotContainsString('purchase_price', $response->getContent());
     }
 
+    /** Two customers who reviewed product 1, as the store holds them: with an address, a wallet and the contact details they signed up with. */
+    private function seedReviewersWithContactDetails(): void
+    {
+        DB::table('users')->insert([
+            ['id' => 1, 'name' => 'Rev Iewer', 'f_name' => 'Rev', 'l_name' => 'Iewer', 'email' => 'reviewer@example.test', 'phone' => '0500000001', 'street_address' => '12 Secret Street', 'city' => 'Riyadh', 'zip' => '11564', 'wallet_balance' => 321.5, 'referral_code' => 'REFCODE1', 'social_id' => 'social-1'],
+            ['id' => 2, 'name' => 'Sec Ond', 'f_name' => 'Sec', 'l_name' => 'Ond', 'email' => 'second@example.test', 'phone' => '0500000002', 'street_address' => '34 Hidden Road', 'city' => 'Jeddah', 'zip' => '21442', 'wallet_balance' => 12, 'referral_code' => 'REFCODE2', 'social_id' => 'social-2'],
+        ]);
+        DB::table('reviews')->insert([
+            ['product_id' => 1, 'customer_id' => 1, 'comment' => 'Great lamp', 'rating' => 5, 'status' => 1],
+            ['product_id' => 1, 'customer_id' => 2, 'comment' => 'Good lamp', 'rating' => 3, 'status' => 1],
+            ['product_id' => 1, 'customer_id' => 404, 'comment' => 'Review of a deleted customer', 'rating' => 4, 'status' => 1],
+        ]);
+    }
+
+    public function test_the_product_details_carry_the_reviews_with_the_reviewers_display_fields_only(): void
+    {
+        $this->seedReviewersWithContactDetails();
+
+        $response = $this->getJson('/api/v1/products/details/product-1')->assertOk();
+
+        $this->assertSame('Alpha lamp', $response->json('name'));
+        $this->assertSame(3, $response->json('reviews_count'));
+        $this->assertSame(4.0, (float) $response->json('average_review'));
+        $this->assertSame(['Great lamp', 'Good lamp', 'Review of a deleted customer'], $response->json('reviews.*.comment'));
+        $this->assertSame(['Rev', 'Iewer'], [$response->json('reviews.0.customer.f_name'), $response->json('reviews.0.customer.l_name')]);
+        $this->assertNull($response->json('reviews.2.customer'));
+        foreach ([0, 1] as $position) {
+            $customer = $response->json("reviews.{$position}.customer");
+
+            $this->assertSame(['f_name', 'id', 'image', 'image_full_url', 'l_name', 'name'], collect($customer)->keys()->sort()->values()->all());
+        }
+    }
+
+    public function test_the_product_details_do_not_hand_the_reviewers_contact_details_to_anyone_who_asks(): void
+    {
+        $this->seedReviewersWithContactDetails();
+
+        $content = $this->getJson('/api/v1/products/details/product-1')->assertOk()->getContent();
+
+        foreach (['reviewer@example.test', 'second@example.test', '0500000001', '0500000002', 'Secret Street', 'Hidden Road', 'REFCODE', 'social-1', '321.5'] as $detailOfAReviewer) {
+            $this->assertStringNotContainsString($detailOfAReviewer, $content, $detailOfAReviewer);
+        }
+    }
+
     public function test_the_reviews_of_a_hidden_product_are_not_found_like_those_of_an_unknown_one(): void
     {
         $this->seedActivityOnProductsOneAndTwo();

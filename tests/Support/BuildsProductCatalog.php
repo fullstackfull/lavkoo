@@ -33,7 +33,7 @@ trait BuildsProductCatalog
         'reviews', 'review_replies', 'users', 'storages', 'wishlists', 'stock_clearance_products', 'stock_clearance_setups', 'authors',
         'digital_product_authors', 'publishing_houses', 'digital_product_publishing_houses', 'digital_product_variations', 'flash_deals',
         'flash_deal_products', 'colors', 'carts', 'shipping_types', 'shipping_methods', 'category_shipping_costs', 'currencies', 'banners',
-        'product_search_index',
+        'product_search_index', 'restock_products', 'restock_product_customers',
     ];
 
     protected function buildCatalogTables(): void
@@ -345,6 +345,12 @@ trait BuildsProductCatalog
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
             $table->string('image')->nullable();
+            $table->string('street_address')->nullable();
+            $table->string('city')->nullable();
+            $table->string('zip')->nullable();
+            $table->decimal('wallet_balance', 24, 2)->default(0);
+            $table->string('referral_code')->nullable();
+            $table->string('social_id')->nullable();
             $table->timestamps();
         });
         Schema::create('order_details', function (Blueprint $table) {
@@ -370,6 +376,19 @@ trait BuildsProductCatalog
             $table->id();
             $table->unsignedBigInteger('review_id');
             $table->text('reply_text')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('restock_products', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->string('variant')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('restock_product_customers', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('restock_product_id')->nullable();
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->string('variant')->nullable();
             $table->timestamps();
         });
         Schema::create('wishlists', function (Blueprint $table) {
