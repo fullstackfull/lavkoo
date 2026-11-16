@@ -14,7 +14,7 @@ class BrandManager
     public static function getActiveBrandWithCountingAndPriorityWiseSorting()
     {
         $segment = str_replace('-', '_', Str::slug(request()->segment(1)));
-        $cacheKey = 'cache_priority_wise_brands_list_' . (getDefaultLanguage() ?? 'en') . '_' . (request('offer_type') ?? 'default') . (request('data_form') ?? 'default'). $segment;
+        $cacheKey = storefrontCacheKey('cache_priority_wise_brands_list_' . (getDefaultLanguage() ?? 'en') . '_' . (request('offer_type') ?? 'default') . (request('data_form') ?? 'default'). $segment);
         $cacheKeys = Cache::get(CACHE_CONTAINER_FOR_LANGUAGE_WISE_CACHE_KEYS, []);
 
         if (!in_array($cacheKey, $cacheKeys)) {

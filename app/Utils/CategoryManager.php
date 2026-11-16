@@ -143,12 +143,12 @@ class CategoryManager
         // 20+ identical heavy entries (one per section of the site, per language),
         // and glued the last two parts with no delimiter so distinct inputs could
         // collide.
-        $cacheKey = 'cache_main_categories_list_' . implode('_', [
+        $cacheKey = storefrontCacheKey('cache_main_categories_list_' . implode('_', [
             getDefaultLanguage() ?? 'en',
             request('offer_type') ?? 'default',
             $dataForm ?? 'default',
             request('data_from', 'default'),
-        ]);
+        ]));
         $cacheKeys = Cache::get(CACHE_CONTAINER_FOR_LANGUAGE_WISE_CACHE_KEYS, []);
 
         if (!in_array($cacheKey, $cacheKeys)) {

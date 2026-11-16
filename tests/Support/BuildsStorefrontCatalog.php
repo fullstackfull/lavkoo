@@ -47,6 +47,29 @@ trait BuildsStorefrontCatalog
         });
     }
 
+    /** The two relations every loaded Product brings along, for a test that reads products through the model. */
+    protected function buildProductRelationTables(): void
+    {
+        foreach (['translations', 'reviews'] as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        Schema::create('translations', function ($table) {
+            $table->id();
+            $table->string('translationable_type');
+            $table->unsignedBigInteger('translationable_id');
+            $table->string('locale');
+            $table->string('key');
+            $table->text('value')->nullable();
+        });
+        Schema::create('reviews', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('delivery_man_id')->nullable();
+            $table->boolean('status')->default(true);
+        });
+    }
+
     /** Adds the column the migration adds, the way the migration adds it. */
     protected function runStorefrontCountryMigration(): void
     {

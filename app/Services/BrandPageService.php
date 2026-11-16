@@ -54,7 +54,7 @@ class BrandPageService
      */
     private function getCategories(Brand $brand): Collection
     {
-        $cacheKey = 'brand_page_categories_' . $brand['id'] . '_' . app()->getLocale();
+        $cacheKey = storefrontCacheKey('brand_page_categories_' . $brand['id'] . '_' . app()->getLocale());
         $cacheKeys = Cache::get(CACHE_CONTAINER_FOR_LANGUAGE_WISE_CACHE_KEYS, []);
         if (!in_array($cacheKey, $cacheKeys)) {
             $cacheKeys[] = $cacheKey;
