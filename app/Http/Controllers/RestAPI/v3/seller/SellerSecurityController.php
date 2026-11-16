@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\SellerApiAuthMiddleware;
 use App\Services\Platform\PasswordPolicy;
 use App\Models\SellerRole;
 use App\Models\SellerStaff;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\Marketplace\SellerAuditTrailService;
 use App\Services\Marketplace\SellerPermissionService;
+use App\Services\Marketplace\SellerPrincipal;
 use App\Services\Marketplace\SellerTeamService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -212,7 +214,7 @@ class SellerSecurityController extends Controller
         }
 
         try {
-            $staff = $this->team->createStaff($request->seller->id, $validator->validated());
+            $staff = $this->team->createStaff($request->seller->id, $validator->validated(), $this->principal($request));
         } catch (ValidationException $exception) {
             return $this->refuse($exception->errors());
         }
@@ -255,7 +257,7 @@ class SellerSecurityController extends Controller
         }
 
         try {
-            $this->team->updateStaff($staff, $validator->validated());
+            $this->team->updateStaff($staff, $validator->validated(), $this->principal($request));
         } catch (ValidationException $exception) {
             return $this->refuse($exception->errors());
         }
