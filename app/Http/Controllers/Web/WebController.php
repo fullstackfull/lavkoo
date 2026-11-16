@@ -960,7 +960,7 @@ class WebController extends Controller
         $wishlist_status = Wishlist::where(['product_id' => $product->id, 'customer_id' => auth('customer')->id()])->count();
         $countOrder = count($order_details);
         $countWishlist = count($wishlists);
-        $relatedProducts = Product::with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
+        $relatedProducts = Product::active()->with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
         $currentDate = date('Y-m-d');
         $productAuthorsInfo = $this->productService->getProductAuthorsInfo(product: $product);
         $productPublishingHouseInfo = $this->productService->getProductPublishingHouseInfo(product: $product);
@@ -1596,6 +1596,7 @@ class WebController extends Controller
 
     public function review_list_product(Request $request): JsonResponse
     {
+        abort_unless(Product::active()->whereKey($request['product_id'])->exists(), 404);
         $productReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', $request['offset'] + 1);
         $checkReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', ($request['offset'] + 1));
         return response()->json([
