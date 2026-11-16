@@ -57,7 +57,8 @@ class ProductAddRequest extends Request
             'existing_thumbnail' => [new StoredFileNames()],
             'existing_images' => [new StoredFileNames()],
             'existing_preview_file' => [new StoredFileNames()],
-        ];
+            'existing_meta_image' => [new StoredFileNames()],
+        ] + StoredFileNames::forColorImages(fields: array_keys($this->all()));
 
         if (!isset($this['existing_thumbnail'])) {
             $rules['image'] = 'required';

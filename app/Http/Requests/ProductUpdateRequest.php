@@ -77,7 +77,8 @@ class ProductUpdateRequest extends FormRequest
             'existing_thumbnail' => [new StoredFileNames()],
             'existing_images' => [new StoredFileNames()],
             'existing_preview_file' => [new StoredFileNames()],
-        ];
+            'existing_meta_image' => [new StoredFileNames()],
+        ] + StoredFileNames::forColorImages(fields: array_keys($this->all()));
     }
 
     public function messages(): array

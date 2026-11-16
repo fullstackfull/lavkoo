@@ -75,7 +75,7 @@ class ImageManager
 
     public static function delete($full_path): array
     {
-        if (PlainFileName::staysInside(path: (string) $full_path) && self::checkFileExists(filePath: $full_path)['status']) {
+        if (PlainFileName::staysInside(path: (string) $full_path) && !SharedProductFile::isShared(path: (string) $full_path) && self::checkFileExists(filePath: $full_path)['status']) {
             Storage::disk(self::checkFileExists(filePath: $full_path)['disk'])->delete($full_path);
         }
         return [

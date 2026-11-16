@@ -17,6 +17,25 @@ use Illuminate\Http\UploadedFile;
  */
 class StoredFileNames implements ValidationRule
 {
+    /**
+     * The rules of the colour image fields of a product form (`color_image_<hex>`, one per colour): such a field holds an uploaded file or the
+     * name of an earlier one, and a name posted back is checked like the other names.
+     *
+     * @param list<mixed> $fields the names of the fields the request carries
+     * @return array<string, list<self>>
+     */
+    public static function forColorImages(array $fields): array
+    {
+        $rules = [];
+        foreach ($fields as $field) {
+            if (is_string($field) && str_starts_with($field, 'color_image_')) {
+                $rules[$field] = [new self()];
+            }
+        }
+
+        return $rules;
+    }
+
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (!self::areAllPlain($value)) {

@@ -7,6 +7,7 @@ use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Services\ProductService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -58,6 +59,7 @@ class PanelProductFileNamesTest extends TestCase
         $route = new Route('POST', '/vendor/products/update/{id}', []);
         $route->bind(Request::create('/vendor/products/update/5', 'POST'));
         $request = new ProductUpdateRequest(app(ProductRepositoryInterface::class));
+        $request->initialize();
         $request->setRouteResolver(fn () => $route);
 
         return $request;
@@ -78,6 +80,40 @@ class PanelProductFileNamesTest extends TestCase
     public function test_the_update_form_refuses_a_name_that_is_a_path(array $input): void
     {
         $this->assertTrue($this->fails($this->updateRequest()->rules(), $input), json_encode($input));
+    }
+
+    /** @return array<string, array<string, mixed>> the colour image fields, which hold a file or a name, and the meta image of a copy */
+    public static function colourAndMetaNamesThatArePaths(): array
+    {
+        return [
+            'a colour image that points into the digital files' => [['color_image_FF0000' => 'digital-product/victim.zip']],
+            'a colour image that points into the thumbnails' => [['color_image_00FF00' => 'thumbnail/victim.webp']],
+            'a colour image that goes up' => [['color_image_0000FF' => '../../company/logo.png']],
+            'a colour image written as a list with a path' => [['color_image_FF0000' => ['digital-product/victim.zip']]],
+            'the meta image of a copy' => [['existing_meta_image' => '../meta/victim.webp']],
+        ];
+    }
+
+    #[DataProvider('colourAndMetaNamesThatArePaths')]
+    public function test_the_add_form_refuses_a_colour_image_or_a_meta_image_that_is_a_path(array $input): void
+    {
+        $this->assertTrue($this->fails(ProductAddRequest::create('/', 'POST', $input)->rules(), $input), json_encode($input));
+    }
+
+    #[DataProvider('colourAndMetaNamesThatArePaths')]
+    public function test_the_update_form_refuses_a_colour_image_or_a_meta_image_that_is_a_path(array $input): void
+    {
+        $request = $this->updateRequest();
+        $request->merge($input);
+
+        $this->assertTrue($this->fails($request->rules(), $input), json_encode($input));
+    }
+
+    public function test_a_colour_image_that_is_a_file_or_a_plain_name_and_a_meta_image_name_are_accepted(): void
+    {
+        $input = ['color_image_FF0000' => '2026-11-16-red.webp', 'color_image_00FF00' => UploadedFile::fake()->image('green.webp'), 'existing_meta_image' => '2026-11-16-meta.webp'];
+
+        $this->assertFalse($this->fails(ProductAddRequest::create('/', 'POST', $input)->rules(), $input));
     }
 
     public function test_the_names_the_gallery_copy_posts_back_are_accepted(): void
