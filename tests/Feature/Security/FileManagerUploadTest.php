@@ -6,12 +6,18 @@ use App\Http\Requests\Admin\FileManagerUploadRequest;
 use App\Services\FileManager\ArchiveReport;
 use App\Services\FileManagerService;
 use App\Utils\StoredFileExtension;
+use Closure;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use League\Flysystem\Config;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
+use League\Flysystem\UnableToWriteFile;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
 use Tests\Support\RestoresLanguageFiles;
@@ -149,6 +155,37 @@ class FileManagerUploadTest extends TestCase
     private function storedOnTheBucket(): array
     {
         return Storage::disk('s3')->allFiles(self::FOLDER);
+    }
+
+    /**
+     * A shop whose bucket is no fake: it calls `$beforeEachObject` with the path of every object it is asked to store and then stores it, or
+     * refuses it when `$refuses` is set (the write answers false, as the s3 disk of the shop does, or throws when `$throws` is set).
+     *
+     * @return Request the request that uploads into it
+     */
+    private function bucketThatWatches(Closure $beforeEachObject, array $files, bool $refuses = false, bool $throws = false): Request
+    {
+        $root = storage_path('framework/testing/probe-bucket-' . uniqid());
+        $this->directoriesToRemove[] = $root;
+        $adapter = new class($root, $beforeEachObject, $refuses) extends LocalFilesystemAdapter {
+            public function __construct(string $root, private readonly Closure $beforeEachObject, private readonly bool $refuses)
+            {
+                parent::__construct($root);
+            }
+
+            public function writeStream(string $path, $contents, Config $config): void
+            {
+                ($this->beforeEachObject)($path);
+                if ($this->refuses) {
+                    throw UnableToWriteFile::atLocation($path, 'the bucket refuses every object');
+                }
+                parent::writeStream($path, $contents, $config);
+            }
+        };
+        Storage::set('s3', new FilesystemAdapter(new Filesystem($adapter), $adapter, ['throw' => $throws]));
+        Cache::put('storage_connection_type', 's3');
+
+        return Request::create('/', 'POST', ['storage' => 's3', 'path' => self::FOLDER], [], $files);
     }
 
     /** An archive that writes down a size it does not have: its headers say `$declaredSize` bytes, its data is what it is. */
@@ -334,26 +371,28 @@ class FileManagerUploadTest extends TestCase
         $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
     }
 
-    public function test_the_unpacking_directory_is_gone_after_a_copy_that_fails_and_no_script_was_ever_unpacked(): void
+    public function test_the_unpacking_directory_is_gone_after_a_copy_that_throws_and_no_script_was_ever_unpacked(): void
     {
-        File::ensureDirectoryExists(storage_path('app/public/' . self::FOLDER));
-        file_put_contents(storage_path('app/public/' . self::FOLDER . '/d.jpg'), 'a file where the zip wants a folder');
-        $archive = $this->zipUpload(['shell.php' => '<?php echo "LEFTOVER";', 'a.jpg' => $this->jpeg(), 'd.jpg/inner.jpg' => $this->jpeg()]);
-        $unpackedScripts = [];
-        $watch = static function () use (&$unpackedScripts): void {
-            foreach (glob(storage_path('app/temp-zip-*/shell.php')) ?: [] as $script) {
-                $unpackedScripts[] = $script;
-            }
-        };
+        $unpackedFiles = [];
+        $request = $this->bucketThatWatches(
+            beforeEachObject: static function () use (&$unpackedFiles): void {
+                $unpackedFiles = array_map('basename', glob(storage_path('app/temp-zip-*/*')) ?: []);
+            },
+            files: ['file' => $this->zipUpload(['shell.php' => '<?php echo "LEFTOVER";', 'a.jpg' => $this->jpeg()])],
+            refuses: true,
+            throws: true,
+        );
 
         try {
-            $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $archive]));
-        } catch (\Throwable) {
-            $watch();
+            $this->service()->uploadFileAndImages($request);
+            $thrown = false;
+        } catch (UnableToWriteFile) {
+            $thrown = true;
         }
 
+        $this->assertTrue($thrown, 'the bucket refuses with an exception');
+        $this->assertSame(['1.jpg'], $unpackedFiles, 'only the image was unpacked, under a name of its own');
         $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: [], 'the directory is removed although the copy failed');
-        $this->assertSame([], $unpackedScripts);
     }
 
     public function test_an_archive_that_holds_nothing_the_gallery_stores_is_reported_as_not_stored(): void
@@ -799,6 +838,81 @@ class FileManagerUploadTest extends TestCase
         $stored = $this->storedOnTheBucket();
         $this->assertCount(1, $stored);
         $this->assertGreaterThan(0, Storage::disk('s3')->size($stored[0]));
+    }
+
+    /** @return array<string, string> entries under names that the local file system cannot hold: a component of 260 bytes, a folder of 300 bytes, a path of over 4000 bytes */
+    private function entriesWithNamesTheLocalDiskCannotHold(): array
+    {
+        return [
+            str_repeat("\u{0635}", 128) . '.jpg' => $this->jpeg(),
+            str_repeat('d', 300) . '/inner.jpg' => $this->jpeg(),
+            implode('/', array_fill(0, 17, str_repeat('p', 250))) . '/deep.jpg' => $this->jpeg(),
+        ];
+    }
+
+    public function test_on_s3_an_entry_is_stored_whatever_the_local_disk_could_hold_under_its_name(): void
+    {
+        $entries = $this->entriesWithNamesTheLocalDiskCannotHold() + ['same.jpg' => $this->jpeg(), 'same.jpg/inner.jpg' => $this->jpeg(), 'control.jpg' => $this->jpeg()];
+
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($entries)]));
+
+        $this->assertTrue($stored);
+        $this->assertCount(6, $this->storedOnTheBucket());
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_on_the_local_disk_an_entry_whose_name_the_disk_cannot_hold_is_left_out_and_listed_and_the_others_are_stored(): void
+    {
+        $entries = $this->entriesWithNamesTheLocalDiskCannotHold() + ['control.jpg' => $this->jpeg(), 'same.jpg' => $this->jpeg(), 'same.jpg/inner.jpg' => $this->jpeg()];
+        $report = new ArchiveReport();
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]), $report);
+
+        $this->assertTrue($stored);
+        $this->assertSame(['control.jpg', 'same.jpg'], $this->copiedFiles());
+        $this->assertStringStartsWith('4 files of the archive were not stored (', (string) $report->skippedMessage());
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_on_the_local_disk_a_file_that_comes_after_a_folder_of_its_name_is_left_out_and_listed(): void
+    {
+        $report = new ArchiveReport();
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['dir.jpg/inner.jpg' => $this->jpeg(), 'dir.jpg' => $this->jpeg()])]), $report);
+
+        $this->assertTrue($stored);
+        $this->assertSame(['dir.jpg/inner.jpg'], $this->copiedFiles());
+        $this->assertSame('One file of the archive was not stored (dir.jpg)', $report->skippedMessage());
+    }
+
+    public function test_an_archive_none_of_whose_names_the_local_disk_can_hold_is_reported_as_not_stored_there_and_stored_on_s3(): void
+    {
+        $entries = $this->entriesWithNamesTheLocalDiskCannotHold();
+
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($entries)]));
+
+        $this->assertFalse($onTheDisk);
+        $this->assertTrue($onTheBucket);
+        $this->assertCount(3, $this->storedOnTheBucket());
+    }
+
+    public function test_an_upload_does_not_need_the_app_directory_of_the_storage_to_exist(): void
+    {
+        $storage = sys_get_temp_dir() . '/fm-storage-' . uniqid();
+        mkdir($storage);
+        $this->directoriesToRemove[] = $storage;
+        $this->app->useStoragePath($storage);
+        $entries = ['a.jpg' => $this->jpeg(), 'nested/b.jpg' => $this->jpeg()];
+
+        $onTheBucket = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUpload($entries)]));
+        $onTheDisk = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+
+        $this->assertTrue($onTheBucket);
+        $this->assertTrue($onTheDisk);
+        $this->assertCount(2, $this->storedOnTheBucket());
+        $this->assertFileExists($storage . '/app/public/' . self::FOLDER . '/nested/b.jpg');
+        $this->assertSame([], glob($storage . '/app/temp-zip-*') ?: []);
     }
 
     public function test_an_archive_whose_only_entry_cannot_be_read_is_reported_as_not_stored_on_either_disk(): void

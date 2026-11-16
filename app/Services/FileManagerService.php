@@ -78,13 +78,13 @@ class FileManagerService
         }
 
         $directory = storage_path('app/temp-zip-' . Str::random(10));
-        File::makeDirectory($directory);
+        File::ensureDirectoryExists($directory);
         try {
-            $names = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize(), report: $report);
+            $unpacked = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize(), report: $report);
             $stored = match (true) {
-                $names === null => 0,
-                $disk === 's3' => $this->putOnBucket(directory: $directory, names: $names, folder: $folder),
-                default => $this->copyToGallery(directory: $directory, names: $names, folder: $folder),
+                $unpacked === null => 0,
+                $disk === 's3' => $this->putOnBucket(unpacked: $unpacked, folder: $folder),
+                default => $this->copyToGallery(unpacked: $unpacked, folder: $folder, report: $report),
             };
         } finally {
             $zip->close();
@@ -124,7 +124,7 @@ class FileManagerService
      * encrypted one, one whose data is damaged) is left out and its partial file goes with it.
      *
      * @param array<int, string> $entries
-     * @return list<string>|null the names that were unpacked, or nothing when the archive unpacks to more than it may
+     * @return array<string, string>|null the name of the entry of every file that was unpacked, by the path of the file, or nothing when the archive unpacks to more than it may
      */
     private function unpackEntries(ZipArchive $zip, array $entries, string $directory, int $archiveBytes, ArchiveReport $report): ?array
     {
@@ -132,7 +132,8 @@ class FileManagerService
         $remainingBytes = $budget;
         $unpacked = [];
         foreach ($entries as $index => $name) {
-            $written = $this->unpackEntry(zip: $zip, index: $index, target: $directory . '/' . $name, limit: $remainingBytes);
+            $file = $directory . '/' . $index . '.' . pathinfo($name, PATHINFO_EXTENSION);
+            $written = $this->unpackEntry(zip: $zip, index: $index, target: $file, limit: $remainingBytes);
             if ($written === null) {
                 $report->skip(name: $name);
                 continue;
@@ -142,7 +143,7 @@ class FileManagerService
                 return null;
             }
             $remainingBytes -= $written;
-            $unpacked[] = $name;
+            $unpacked[$file] = $name;
         }
 
         return $unpacked;
@@ -172,7 +173,6 @@ class FileManagerService
             return null;
         }
 
-        File::ensureDirectoryExists(dirname($target));
         $destination = fopen($target, 'wb');
         $written = @stream_copy_to_stream($source, $destination, $limit + 1);
         fclose($source);
@@ -204,36 +204,47 @@ class FileManagerService
     }
 
     /**
-     * Copies the unpacked files into the folder of the gallery.
+     * Copies the unpacked files to the path of their entry in the folder of the gallery. An entry whose path the disk cannot hold (a name that is
+     * too long, a file where a folder is wanted, a folder where a file is wanted) is left out and listed.
      *
-     * @param list<string> $names
+     * @param array<string, string> $unpacked the name of the entry of every unpacked file, by the path of the file
      */
-    private function copyToGallery(string $directory, array $names, string $folder): int
+    private function copyToGallery(array $unpacked, string $folder, ArchiveReport $report): int
     {
         $gallery = $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder);
-        foreach ($names as $name) {
-            $target = $gallery . '/' . $name;
-            File::ensureDirectoryExists(dirname($target));
-            File::copy($directory . '/' . $name, $target);
-            touch($target);
+        $stored = 0;
+        foreach ($unpacked as $file => $name) {
+            if ($this->copyFile(file: $file, target: $gallery . '/' . $name)) {
+                $stored++;
+            } else {
+                $report->skip(name: $name);
+            }
         }
 
-        return count($names);
+        return $stored;
+    }
+
+    private function copyFile(string $file, string $target): bool
+    {
+        File::makeDirectory(path: dirname($target), recursive: true, force: true);
+
+        return @copy($file, $target);
     }
 
     /**
-     * Stores the unpacked files on the bucket, each under a name of its own.
+     * Stores the unpacked files on the bucket, each under a name of its own: what the local disk can hold under the name of an entry does not
+     * matter here.
      *
-     * @param list<string> $names
+     * @param array<string, string> $unpacked the name of the entry of every unpacked file, by the path of the file
      */
-    private function putOnBucket(string $directory, array $names, string $folder): int
+    private function putOnBucket(array $unpacked, string $folder): int
     {
-        foreach ($names as $name) {
+        foreach ($unpacked as $file => $name) {
             $imageName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION);
-            Storage::disk('s3')->putFileAs($folder, $directory . '/' . $name, $imageName, 'public');
+            Storage::disk('s3')->putFileAs($folder, $file, $imageName, 'public');
         }
 
-        return count($names);
+        return count($unpacked);
     }
 
     public static function shouldSkip($filename): bool
