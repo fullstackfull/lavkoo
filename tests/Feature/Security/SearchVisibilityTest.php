@@ -150,6 +150,10 @@ class SearchVisibilityTest extends TestCase
     /** The search orders its results with MySQL's LOCATE(), which SQLite does not have. */
     private function registerMySqlLocate(): void
     {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            return;
+        }
+
         DB::connection()->getPdo()->sqliteCreateFunction(
             'LOCATE',
             fn ($needle, $haystack) => ($position = mb_stripos((string) $haystack, (string) $needle)) === false ? 0 : $position + 1,
