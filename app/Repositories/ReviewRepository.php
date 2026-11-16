@@ -188,6 +188,13 @@ class ReviewRepository implements ReviewRepositoryInterface
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit)->appends($filters);
     }
 
+    public function getFirstWhereHas(array $params, ?string $whereHas = null, array $whereHasFilters = [], array $relations = []): ?Model
+    {
+        return $this->review->with($relations)->whereHas($whereHas, function ($query) use ($whereHasFilters) {
+            $query->where($whereHasFilters);
+        })->where($params)->first();
+    }
+
     public function getCount(array $params = [], array $whereInFilters = []): int|null
     {
         return $this->review->when(!empty($whereInFilters), function ($query) use ($whereInFilters) {
