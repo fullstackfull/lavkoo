@@ -654,7 +654,7 @@ class CartController extends Controller
     {
         $user = Helpers::getCustomerInformation();
         $product = $this->productRepo->getWebFirstWhereActive(params: ['id' => $request['id']]);
-        if (!$product) {
+        if (!$product && !StorefrontCatalog::offers(product: Product::find($request['id']))) {
             return response()->json(['status' => 'error', 'message' => translate('Product_is_unavailable')], 200);
         }
         $restockRequest = $this->restockProductRepo->updateOrCreate(params: ['product_id' => $request['id'], 'variant' => $request['product_variation_code']], value: [

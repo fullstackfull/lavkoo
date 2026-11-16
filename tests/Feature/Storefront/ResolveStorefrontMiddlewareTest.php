@@ -204,6 +204,25 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->assertContains('X-Storefront', array_map('trim', explode(',', implode(',', $response->headers->all('vary')))));
     }
 
+    public function test_a_route_with_both_storefront_middlewares_says_it_varies_by_storefront_once(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        Route::middleware(['storefront', 'storefront.vary'])->get('/__vary-twice-probe', fn () => response()->json([])->header('Vary', 'Accept-Encoding'));
+
+        $response = $this->getJson('/__vary-twice-probe')->assertOk();
+
+        $listed = array_map('trim', explode(',', implode(',', $response->headers->all('vary'))));
+        $this->assertSame(['Accept-Encoding', 'X-Storefront'], $listed);
+    }
+
+    public function test_an_answer_that_already_varies_on_everything_is_left_alone(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        Route::middleware(['storefront', 'storefront.vary'])->get('/__vary-star-probe', fn () => response()->json([])->header('Vary', '*'));
+
+        $this->getJson('/__vary-star-probe')->assertOk()->assertHeader('Vary', '*');
+    }
+
     public function test_while_switched_off_no_api_v1_answer_varies_by_storefront(): void
     {
         $response = $this->getJson('/api/v1/storefronts')->assertOk();
@@ -221,6 +240,11 @@ class ResolveStorefrontMiddlewareTest extends TestCase
             'no countries' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => []]],
             'an inactive default country' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => ['SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => false]]]],
             'only the flag' => ['storefronts' => ['enabled' => false]],
+            'a default country without a currency' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => ['SA' => ['path' => 'sa', 'active' => true]]]],
+            'a default country with a null currency' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => ['SA' => ['path' => 'sa', 'currency' => null, 'active' => true]]]],
+            'a default country with a blank currency' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => ['SA' => ['path' => 'sa', 'currency' => ' ', 'active' => true]]]],
+            'a default country without a path' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => ['SA' => ['currency' => 'SAR', 'active' => true]]]],
+            'a default country that is not an array' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => ['SA' => 'sa']]],
         ];
 
         foreach ($broken as $case => $gcc) {
@@ -236,6 +260,20 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         config(['gcc.storefronts.default_country' => 'AE', 'gcc.storefronts.countries.AE.active' => true]);
 
         $this->assertSame('AE', StorefrontResolver::fromConfig()->defaultCountry());
+    }
+
+    public function test_switched_on_a_country_without_a_path_or_a_usable_currency_fails_loudly(): void
+    {
+        foreach ([['path' => 'ae', 'active' => false], ['path' => 'ae', 'currency' => null, 'active' => false], ['path' => 'ae', 'currency' => '  ', 'active' => false], ['currency' => 'AED', 'active' => false], 'ae'] as $country) {
+            config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE' => $country]);
+
+            try {
+                StorefrontResolver::fromConfig();
+                $this->fail('a country that cannot be served was accepted: ' . json_encode($country));
+            } catch (InvalidArgumentException $refusal) {
+                $this->assertStringContainsString('[AE]', $refusal->getMessage());
+            }
+        }
     }
 
     public function test_switched_on_a_missing_configuration_still_fails_loudly(): void

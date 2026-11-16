@@ -99,12 +99,24 @@ class StorefrontBannerTest extends TestCase
         });
     }
 
-    private function bannerFor(int $productId): void
+    private function bannerFor(int $productId, string $type = 'Main Banner'): void
     {
         DB::table('banners')->insert([
-            'banner_type' => 'Main Banner', 'theme' => 'default', 'published' => 1, 'resource_type' => 'product', 'resource_id' => $productId,
+            'banner_type' => $type, 'theme' => 'default', 'published' => 1, 'resource_type' => 'product', 'resource_id' => $productId,
             'url' => '', 'title' => 'serum', 'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    /** @return list<int|null> the product each promo banner of the home screen points at */
+    private function homePromoProducts(string $storefront): array
+    {
+        Cache::flush();
+        $this->serveAsHttpRequest('/api/v1/banners/home-promos');
+
+        return collect($this->withHeader('X-Storefront', $storefront)->getJson('/api/v1/banners/home-promos')->assertOk()->json())
+            ->map(fn (array $banner) => (int) $banner['resource_id'])
+            ->values()
+            ->all();
     }
 
     /** @return list<int|null> the product each banner points at */
@@ -137,6 +149,24 @@ class StorefrontBannerTest extends TestCase
 
         $this->assertStringNotContainsString('Kuwaiti serum', $body);
         $this->assertStringContainsString('Saudi serum', $body);
+    }
+
+    public function test_the_promo_grid_of_the_home_screen_follows_the_storefront_too(): void
+    {
+        $this->bannerFor(productId: 2, type: 'Home Promo Banner');
+        $this->bannerFor(productId: 1, type: 'Home Promo Banner');
+        config(['gcc.storefronts.enabled' => true]);
+
+        $this->assertSame([1], $this->homePromoProducts('SA'), 'a promo that opens another country\'s product would lead nowhere');
+        $this->assertSame([2], $this->homePromoProducts('KW'));
+    }
+
+    public function test_while_storefronts_are_off_every_promo_banner_is_answered_as_before(): void
+    {
+        $this->bannerFor(productId: 2, type: 'Home Promo Banner');
+        $this->bannerFor(productId: 1, type: 'Home Promo Banner');
+
+        $this->assertSame([2, 1], $this->homePromoProducts('SA'));
     }
 
     public function test_while_storefronts_are_off_every_banner_is_answered_as_before(): void
