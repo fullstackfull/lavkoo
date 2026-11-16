@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
@@ -32,7 +33,7 @@ class Attribute extends Model
         parent::boot();
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());
