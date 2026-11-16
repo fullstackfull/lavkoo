@@ -184,6 +184,18 @@ class CustomerUpdateInfoTest extends CustomerAuthTestCase
         $this->assertDatabaseCount('users', 0);
     }
 
+    public function test_the_code_page_refuses_an_identity_that_is_not_a_string_without_a_server_error(): void
+    {
+        $this->get(route('customer.auth.login.verify-account', ['identity' => ['x']]))->assertRedirect(route('customer.auth.login'));
+    }
+
+    public function test_the_code_page_still_opens_for_the_identity_the_login_sent_it(): void
+    {
+        $this->asksForACode(phone: self::OWN_PHONE);
+
+        $this->get(route('customer.auth.login.verify-account', ['identity' => $this->identity(self::OWN_PHONE), 'type' => base64_encode('phone_verification')]))->assertOk();
+    }
+
     public function test_a_new_customer_registers_with_the_phone_whose_code_was_entered(): void
     {
         $this->asksForACode(phone: self::OWN_PHONE)->assertRedirect(route('customer.auth.login.verify-account', ['identity' => $this->identity(self::OWN_PHONE), 'type' => base64_encode('phone_verification')]));

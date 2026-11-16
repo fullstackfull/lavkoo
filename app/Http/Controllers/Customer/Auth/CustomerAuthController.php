@@ -343,8 +343,12 @@ class CustomerAuthController extends Controller
         return $response;
     }
 
-    public function loginVerifyPhone(Request $request): View|JsonResponse
+    public function loginVerifyPhone(Request $request): View|JsonResponse|RedirectResponse
     {
+        if (!is_string($request['identity'])) {
+            return redirect()->route('customer.auth.login');
+        }
+
         $token = $this->phoneOrEmailVerificationRepo->getFirstWhere(params: ['phone_or_email' => $this->identityFrom($request)]);
         $otpResendTime = getWebConfig(name: 'otp_resend_time') > 0 ? getWebConfig(name: 'otp_resend_time') : 0;
         if ($token) {
