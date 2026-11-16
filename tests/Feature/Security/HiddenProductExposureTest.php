@@ -268,6 +268,86 @@ class HiddenProductExposureTest extends TestCase
         }
     }
 
+    /** The reviews of product 1 and of every hidden product, each reading "Review of <product id>". */
+    private function seedOneReviewPerProduct(): void
+    {
+        DB::table('users')->insert(['id' => 1, 'name' => 'Rev Iewer', 'f_name' => 'Rev', 'l_name' => 'Iewer', 'email' => 'reviewer@example.test', 'phone' => '0500000001']);
+        foreach ([1, ...self::HIDDEN_PRODUCTS] as $productId) {
+            DB::table('reviews')->insert(['product_id' => $productId, 'customer_id' => 1, 'comment' => "Review of {$productId}", 'rating' => 5, 'status' => 1]);
+        }
+    }
+
+    /** What a browser, a script or an app can put in the product_id of a form: one number, or something that holds several. */
+    public static function productIdsThatHoldSeveralIds(): array
+    {
+        return [
+            'a list' => [fn (int $first, int $second) => [$first, $second]],
+            'a list with numbered keys' => [fn (int $first, int $second) => [3 => $first, 7 => $second]],
+            'a list with named keys' => [fn (int $first, int $second) => ['a' => $first, 'b' => $second]],
+            'a list of lists' => [fn (int $first, int $second) => [[$first], [$second]]],
+        ];
+    }
+
+    #[DataProvider('productIdsThatHoldSeveralIds')]
+    public function test_a_product_id_that_holds_several_ids_does_not_open_the_reviews_of_a_hidden_product_behind_a_visible_one(Closure $severalIds): void
+    {
+        $this->seedOneReviewPerProduct();
+        $unknown = $this->postJson('/review-list-product', ['product_id' => 999, 'offset' => 0]);
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            foreach ([[$hiddenId, 1], [1, $hiddenId]] as [$first, $second]) {
+                $response = $this->postJson('/review-list-product', ['product_id' => $severalIds($first, $second), 'offset' => 0]);
+
+                $this->assertStringNotContainsString("Review of {$hiddenId}", $response->getContent(), "ids {$first} and {$second}");
+                $this->assertSame($unknown->getStatusCode(), $response->getStatusCode(), "ids {$first} and {$second}");
+                $this->assertSame($unknown->getContent(), $response->getContent(), "ids {$first} and {$second}");
+            }
+        }
+    }
+
+    public function test_several_product_ids_sent_as_a_form_or_in_the_query_string_are_both_refused(): void
+    {
+        $this->seedOneReviewPerProduct();
+
+        $form = $this->post('/review-list-product', ['product_id' => [2, 1], 'offset' => 0], ['Accept' => 'application/json']);
+        $queryString = $this->post('/review-list-product?product_id[]=2&product_id[]=1', ['offset' => 0], ['Accept' => 'application/json']);
+
+        $form->assertNotFound();
+        $queryString->assertNotFound();
+        $this->assertStringNotContainsString('Review of 2', $form->getContent() . $queryString->getContent());
+    }
+
+    public static function visibleProductIds(): array
+    {
+        return [
+            'a number' => [1],
+            'a numeric string, the way a form carries it' => ['1'],
+        ];
+    }
+
+    #[DataProvider('visibleProductIds')]
+    public function test_a_form_post_of_a_single_visible_product_id_still_lists_its_reviews(int|string $productId): void
+    {
+        $this->seedOneReviewPerProduct();
+
+        $response = $this->post('/review-list-product', ['product_id' => $productId, 'offset' => 0], ['Accept' => 'application/json'])->assertOk();
+
+        $this->assertSame(1, $response->json('not_empty'));
+        $this->assertStringContainsString('Review of 1', $response->json('productReview'));
+    }
+
+    public function test_a_form_post_of_a_single_hidden_or_unknown_product_id_is_still_not_found_with_the_same_answer(): void
+    {
+        $this->seedOneReviewPerProduct();
+        $unknown = $this->post('/review-list-product', ['product_id' => 999, 'offset' => 0], ['Accept' => 'application/json'])->assertNotFound();
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $hidden = $this->post('/review-list-product', ['product_id' => (string) $hiddenId, 'offset' => 0], ['Accept' => 'application/json'])->assertNotFound();
+
+            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+        }
+    }
+
     public function test_the_search_hint_names_the_words_that_match_nothing(): void
     {
         $this->indexEveryProduct();
