@@ -351,10 +351,8 @@ class ShopViewController extends Controller
         if ($temporary_close || ($vacation_status && $current_date >= $vacation_start_date && $current_date <= $vacation_end_date)) {
             return response()->json(['status' => 'inactive']);
         } else {
-            $product_data = Product::find($request['id']);
-
             unset($request['added_by']);
-            $request['quantity'] = $product_data->minimum_order_qty;
+            $request['quantity'] = Product::active()->where('id', $request['id'])->value('minimum_order_qty');
 
             $cart = CartManager::add_to_cart($request);
             session()->forget('coupon_code');

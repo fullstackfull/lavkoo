@@ -62,7 +62,7 @@ class CartController extends Controller
         $discountedUnitPrice = 0;
         $color_name = '';
         $requestQuantity = $request['quantity'];
-        $product = Product::with(['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->where(['id' => $request['id']])->first();
         abort_if(!$product, 404);
@@ -591,7 +591,10 @@ class CartController extends Controller
 
     function update_variation(Request $request)
     {
-        $product = Product::where(['id' => $request['product_id']])->first();
+        $product = Product::active()->where(['id' => $request['product_id']])->first();
+        if (!$product) {
+            return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+        }
         if ($product['product_type'] == 'digital') {
             return self::addToCartDigitalProduct($request, $product);
         } else {
