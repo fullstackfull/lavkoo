@@ -230,7 +230,7 @@ class SocialLoginConfirmationTest extends TestCase
         ]);
 
         $notifications = json_encode(session('toastr::messages') ?? []);
-        $this->assertStringContainsString(translate('Invalid_Request'), $notifications);
+        $this->assertStringContainsString(translate('invalid_request'), $notifications);
         $this->assertStringNotContainsString(translate('Phone_Number_Already_Exist'), $notifications);
     }
 

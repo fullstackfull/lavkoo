@@ -208,7 +208,7 @@ class SocialAuthController extends Controller
     {
         $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: (string)$request['identity']);
         if (!$socialLoginNewCustomer) {
-            Toastr::error(translate('Invalid_Request'));
+            Toastr::error(translate('invalid_request'));
             return redirect()->route('customer.auth.login');
         }
 
@@ -245,7 +245,7 @@ class SocialAuthController extends Controller
 
         $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: (string)$request['identity']);
         if (!$socialLoginNewCustomer) {
-            Toastr::error(translate('Invalid_Request'));
+            Toastr::error(translate('invalid_request'));
             return back();
         }
 
