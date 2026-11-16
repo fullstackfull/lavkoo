@@ -20,9 +20,6 @@ class RequestAreaTest extends TestCase
 {
     private const INSTALLED_IN_VENDOR_STORE = ['SCRIPT_NAME' => '/vendor-store/index.php', 'SCRIPT_FILENAME' => '/var/www/html/vendor-store/index.php', 'PHP_SELF' => '/vendor-store/index.php'];
 
-    /** A test of the address by substring, which takes /vendor-store, api.example.com and /product/api-gadget for the panel or the API. */
-    private const SUBSTRING_TEST_ON_THE_ADDRESS = '/\b(?:strpos|stripos|str_contains)\s*\(\s*(?:url\(\)->current\(\)|(?:request\(\)|\$request)->url\(\))\s*,\s*(?:url\(\s*[\'"]\/[\'"]\s*\)\s*\.\s*)?[\'"]\/(?:api|admin|vendor|seller)/';
-
     private function visit(string $uri, array $server = []): void
     {
         app()->instance('request', Request::create($uri, 'GET', [], [], [], $server));
@@ -261,27 +258,117 @@ class RequestAreaTest extends TestCase
         $this->assertFalse(RequestArea::isApi());
     }
 
+    public static function substringTestsOnTheAddress(): array
+    {
+        return [
+            'strpos on the current url' => ["if (strpos(url()->current(), '/api')) {"],
+            'str_contains on the url of the request' => ["if (str_contains(request()->url(), '/admin')) {"],
+            'Str::contains on the current url' => ["if (Str::contains(url()->current(), '/api')) {"],
+            'str_contains on the full url' => ["if (str_contains(url()->full(), '/vendor')) {"],
+            'str_contains on the full url of the request' => ["if (str_contains(request()->fullUrl(), '/seller')) {"],
+            'strpos on the URL facade' => ["if (strpos(\\Illuminate\\Support\\Facades\\URL::current(), '/api')) {"],
+            'strpos on the path of the request' => ["if (strpos(request()->path(), 'api') !== false) {"],
+            'strpos on a variable that holds the url' => ["if (strpos(\$currentUrl, '/api')) {"],
+            'preg_match on the current url' => ["if (preg_match('#/admin#', url()->current())) {"],
+            'str_contains with a panel word that has no slash' => ["if (str_contains(url()->current(), 'api')) {"],
+            'str_contains against the url of the store with the panel word added' => ["if (str_contains(url()->current(), url('/') . '/admin')) {"],
+            'str_starts_with on the path of the request' => ["if (str_starts_with(\$request->path(), 'vendor')) {"],
+            'Str::of on the current url' => ["if (Str::of(url()->current())->contains('/api')) {"],
+            'a call that runs over several lines' => ["\$isSeller = str_contains(\n    request()->fullUrl(),\n    '/seller'\n);"],
+        ];
+    }
+
+    public static function searchesThatAreNotAboutTheAddressOfTheRequest(): array
+    {
+        return [
+            'a prefix test on a path that is already a path' => ["if (str_starts_with(\$path, 'api/')) {"],
+            'a test of the previous url for a page that is no panel' => ["if (str_contains(url()->previous(), 'checkout-complete')) {"],
+            'a test of the address for a page that is no panel' => ["if (str_contains(request()->url(), 'checkout-payment')) {"],
+            'a test of the uri of a route' => ["if (Str::startsWith(\$route->uri(), 'admin')) {"],
+            'a test of a file path' => ["if (str_contains(\$relativePath, 'admin-views/')) {"],
+            'a test of a url that is not the one of the request' => ["if (str_contains(\$url, '/vendor-shop')) {"],
+            'the whole segment test' => ['if (RequestArea::isPanel()) {'],
+            'the anchored test of the framework' => ["if (request()->is('vendor/*')) {"],
+        ];
+    }
+
+    #[DataProvider('substringTestsOnTheAddress')]
+    public function test_the_guard_flags_a_substring_test_on_the_address(string $code): void
+    {
+        $this->assertSame(1, preg_match(self::substringTestOnTheAddress(), $code), "the guard does not flag: {$code}");
+    }
+
+    #[DataProvider('searchesThatAreNotAboutTheAddressOfTheRequest')]
+    public function test_the_guard_leaves_a_test_that_is_not_about_the_address_of_the_request_alone(string $code): void
+    {
+        $this->assertSame(0, preg_match(self::substringTestOnTheAddress(), $code), "the guard flags: {$code}");
+    }
+
     public function test_no_model_helper_or_middleware_tells_the_panel_or_the_api_by_a_substring_of_the_address(): void
     {
+        $guard = self::substringTestOnTheAddress();
         $offences = [];
         foreach ($this->applicationSourceFiles() as $file) {
-            foreach (file($file) as $number => $line) {
-                if (preg_match(self::SUBSTRING_TEST_ON_THE_ADDRESS, $line) === 1) {
-                    $offences[] = str_replace(base_path() . '/', '', $file) . ':' . ($number + 1) . ' ' . trim($line);
-                }
+            $source = (string) file_get_contents($file);
+            $this->assertNotFalse(preg_match_all($guard, $source, $found, PREG_OFFSET_CAPTURE), "the guard cannot read {$file}: " . preg_last_error_msg());
+
+            foreach ($found[0] as [$code, $offset]) {
+                $offences[] = str_replace(base_path() . '/', '', $file) . ':' . (substr_count($source, "\n", 0, $offset) + 1) . ' ' . preg_replace('/\s+/', ' ', $code);
             }
         }
 
         $this->assertSame([], $offences, 'Use RequestArea::isPanel() or RequestArea::isApi(): they match whole path segments.');
     }
 
+    /**
+     * A search of the address of the request for a panel word or "api", which takes /vendor-store, api.example.com and /product/api-gadget for the
+     * panel or the API. It looks for the usual spellings: the address as the framework gives it or in a variable named after it, searched with a
+     * string function, a pattern or a Stringable, for a needle that starts with a panel word (with or without its slash). It is a guard, not a
+     * parser: a spelling it does not know is added here when one is found.
+     */
+    private static function substringTestOnTheAddress(): string
+    {
+        $address = <<<'REGEX'
+            (?:
+                url\(\)->(?:current|full)\(\)
+              | \\?(?:Illuminate\\Support\\Facades\\)?(?:URL|Request)::(?:current|full|url|fullUrl|path|decodedPath)\(\)
+              | (?:request\(\)|\$(?:this->)?request)->(?:url|fullUrl|path|decodedPath|getPathInfo|getRequestUri|getUri)\(\)
+              | \$_SERVER\[\s*['"](?:REQUEST_URI|PATH_INFO)['"]\s*\]
+              | \$(?:current|full|request)_?(?:url|uri|path)\b
+            )
+            REGEX;
+        $needle = <<<'REGEX'
+            (?:url\(\s*['"]/['"]\s*\)\s*\.\s*)?
+            ['"]/?(?:api|admin|vendor|seller)
+            REGEX;
+        $pattern = <<<'REGEX'
+            ['"][^'"]*(?:api|admin|vendor|seller)[^'"]*['"]
+            REGEX;
+        $searchFunction = <<<'REGEX'
+            (?<![\w$>:])\\?
+            (?:strpos|stripos|strrpos|strripos|strstr|stristr|str_contains|str_starts_with|str_ends_with|mb_strpos|mb_stripos|substr_count
+              |(?:Illuminate\\Support\\)?Str::(?:contains|containsAll|startsWith|endsWith))
+            REGEX;
+        $patternFunction = <<<'REGEX'
+            (?<![\w$>:])\\?(?:preg_match|preg_match_all|(?:Illuminate\\Support\\)?Str::is)
+            REGEX;
+        $stringable = <<<'REGEX'
+            (?<![\w$>:])\\?(?:(?:Illuminate\\Support\\)?Str::of|str)
+            REGEX;
+        $stringableSearch = '(?:contains|containsAll|startsWith|endsWith|is|test|match)';
+
+        return '~(?:'
+            . "{$searchFunction}\\s*\\(\\s*{$address}\\s*,\\s*{$needle}"
+            . "|{$patternFunction}\\s*\\(\\s*{$pattern}\\s*,\\s*{$address}"
+            . "|{$stringable}\\(\\s*{$address}\\s*\\)\\s*->\\s*{$stringableSearch}\\s*\\(\\s*{$needle}"
+            . ')~xi';
+    }
+
     /** @return list<string> */
     private function applicationSourceFiles(): array
     {
-        $directories = array_merge([base_path('app')], glob(base_path('Modules/*/app'), GLOB_ONLYDIR));
-
         $files = [];
-        foreach ($directories as $directory) {
+        foreach ([base_path('app'), base_path('Modules'), base_path('routes')] as $directory) {
             $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS));
             foreach ($iterator as $file) {
                 if ($file->isFile() && $file->getExtension() === 'php') {
@@ -289,6 +376,8 @@ class RequestAreaTest extends TestCase
                 }
             }
         }
+
+        $this->assertNotSame([], $files, 'no source file was found: the scan would pass on nothing');
 
         return $files;
     }
