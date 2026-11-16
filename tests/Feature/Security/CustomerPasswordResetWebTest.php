@@ -339,6 +339,7 @@ class CustomerPasswordResetWebTest extends CustomerPasswordResetTestCase
         return [
             'registered with the trunk zero' => ['+9660500000001', '+966500000001'],
             'registered the way Google writes it' => ['+966500000001', '+966500000001'],
+            'another Gulf number registered with the trunk zero' => ['+9710501234567', '+971501234567'],
         ];
     }
 

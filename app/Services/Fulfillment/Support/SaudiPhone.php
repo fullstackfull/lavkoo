@@ -9,6 +9,9 @@ namespace App\Services\Fulfillment\Support;
  */
 final class SaudiPhone
 {
+    /** Kuwait, Saudi Arabia, Oman, the Emirates, Bahrain and Qatar: where a national number is written with a leading zero that the international form drops. */
+    private const GULF_COUNTRY_CODES = ['965', '966', '968', '971', '973', '974'];
+
     public static function normalize(?string $raw): ?string
     {
         if ($raw === null) {
@@ -50,8 +53,25 @@ final class SaudiPhone
             return $firstSaudi === $secondSaudi;
         }
 
-        $digitsOfFirst = (string) preg_replace('/\D+/', '', $first);
+        $internationalFirst = self::withoutTrunkZero($first);
 
-        return $digitsOfFirst !== '' && $digitsOfFirst === (string) preg_replace('/\D+/', '', $second);
+        return $internationalFirst !== '' && $internationalFirst === self::withoutTrunkZero($second);
+    }
+
+    /** The digits of an international number without the trunk zero some people keep after the country code (+971 0501234567). */
+    private static function withoutTrunkZero(string $raw): string
+    {
+        $digits = (string) preg_replace('/\D+/', '', $raw);
+        if (str_starts_with($digits, '00')) {
+            $digits = substr($digits, 2);
+        }
+
+        foreach (self::GULF_COUNTRY_CODES as $countryCode) {
+            if (str_starts_with($digits, $countryCode . '0')) {
+                return $countryCode . substr($digits, strlen($countryCode) + 1);
+            }
+        }
+
+        return $digits;
     }
 }
