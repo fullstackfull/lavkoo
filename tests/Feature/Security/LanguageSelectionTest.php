@@ -7,6 +7,7 @@ use App\Http\Middleware\APILocalizationMiddleware;
 use App\Http\Requests\Request as StorefrontRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
@@ -34,6 +35,7 @@ class LanguageSelectionTest extends TestCase
             ['id' => 1, 'name' => 'English', 'code' => 'en', 'direction' => 'ltr', 'default' => true],
             ['id' => 2, 'name' => 'Arabic', 'code' => 'sa', 'direction' => 'rtl', 'default' => false],
         ])]);
+        Cache::flush(); // the application booted before this table was built
     }
 
     protected function tearDown(): void

@@ -6,7 +6,9 @@ use App\Traits\FileManagerTrait;
 use App\Utils\ImageManager;
 use App\Utils\StoredFileExtension;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -33,6 +35,12 @@ class StoredUploadPolicyTest extends TestCase
 
         $this->rememberLanguageFiles();
         $this->buildCoreSchema();
+        // A preview or a meta image is deleted only when no other product holds it, so the deletion reads these columns of `products`.
+        foreach (['preview_file', 'meta_image'] as $column) {
+            if (!Schema::hasColumn('products', $column)) {
+                Schema::table('products', static fn ($table) => $table->string($column)->nullable());
+            }
+        }
         Storage::fake('public');
     }
 
@@ -306,6 +314,7 @@ class StoredUploadPolicyTest extends TestCase
     {
         Storage::fake('s3');
         DB::table('business_settings')->insert(['type' => 'storage_connection_type', 'value' => json_encode('s3')]);
+        Cache::flush(); // the application booted before this table was built, and on a database that keeps its tables it cached the last test's settings
         $service = app(\Modules\AI\app\Services\AIContentGeneratorService::class);
 
         $storedNames = [
