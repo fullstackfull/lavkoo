@@ -6365,6 +6365,7 @@ return [
 	"payment_method" => "طريقة الدفع",
 	"payment_method_list" => "قائمة طرق الدفع",
 	"payment_method_name" => "اسم طريقة الدفع",
+	"payment_method_not_found" => "لم يتم العثور على طريقة الدفع",
 	"payment_methods" => "طرق الدفع",
 	"payment_methods_setup" => "إعداد طرق الدفع",
 	"payment_note" => "مذكرة الدفع",
