@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Support\RefusesNonTestDatabases;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 use Throwable;
 
@@ -25,6 +27,8 @@ use Throwable;
  */
 class SellerProductOwnershipTest extends TestCase
 {
+    use RefusesNonTestDatabases, RestoresLanguageFiles;
+
     private const SELLER = 1;
     private const OTHER_SELLER = 2;
     private const TOKEN = 'seller-a-token-that-is-longer-than-thirty-characters';
@@ -41,6 +45,7 @@ class SellerProductOwnershipTest extends TestCase
     {
         parent::setUp();
 
+        $this->rememberLanguageFiles();
         Storage::fake('public');
         $this->createTables();
 
@@ -54,6 +59,13 @@ class SellerProductOwnershipTest extends TestCase
         foreach ([[self::OWN_REVIEW, self::OWN_PRODUCT], [self::OTHER_SELLERS_REVIEW, self::OTHER_SELLERS_PRODUCT], [self::IN_HOUSE_REVIEW, self::IN_HOUSE_PRODUCT]] as [$reviewId, $productId]) {
             DB::table('reviews')->insert(['id' => $reviewId, 'product_id' => $productId, 'customer_id' => 7, 'rating' => 5, 'status' => 0]);
         }
+    }
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
     }
 
     // ---- API v3 (the seller app) ----
@@ -314,6 +326,8 @@ class SellerProductOwnershipTest extends TestCase
 
     private function createTables(): void
     {
+        $this->refuseUnlessDisposableTestDatabase();
+
         foreach (['business_settings', 'sellers', 'products', 'reviews', 'review_replies', 'translations', 'flash_deal_products', 'deal_of_the_days'] as $table) {
             Schema::dropIfExists($table);
         }

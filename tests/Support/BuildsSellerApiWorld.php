@@ -7,7 +7,6 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
-use RuntimeException;
 
 /**
  * Two sellers behind the real seller API (route, token middleware and permission middleware), on an INFERRED minimal schema: the
@@ -16,13 +15,12 @@ use RuntimeException;
  * Seller 1 is the caller, and its id is also the id the in-house shop's rows carry (added_by 'admin', user_id 1), so a handler that
  * scopes on the id alone shows up here as reaching the in-house shop. Seller 2 is the other seller.
  *
- * The drop that starts every test is guarded the way the other schema helpers guard theirs: a database whose name does not say "test",
- * or an environment that is not `testing`, is refused outright. translate() writes a placeholder for a key it does not know into the
- * tracked language files; they are put back after every test.
+ * The drop that starts every test is guarded the way the other schema helpers guard theirs (RefusesNonTestDatabases). translate() writes a
+ * placeholder for a key it does not know into the tracked language files; they are put back after every test.
  */
 trait BuildsSellerApiWorld
 {
-    use RestoresLanguageFiles;
+    use RefusesNonTestDatabases, RestoresLanguageFiles;
 
     protected const SELLER = 1;
     protected const OTHER_SELLER = 2;
@@ -86,17 +84,6 @@ trait BuildsSellerApiWorld
 
         if (DB::connection()->getDriverName() !== 'sqlite') {
             Schema::dropAllTables();
-        }
-    }
-
-    private function refuseUnlessDisposableTestDatabase(): void
-    {
-        $connection = DB::connection();
-        $database = (string) $connection->getDatabaseName();
-        $inMemory = $connection->getDriverName() === 'sqlite' && $database === ':memory:';
-
-        if (!app()->environment('testing') || (!$inMemory && !preg_match('/(^|_)test(s|ing)?($|_)/i', $database))) {
-            throw new RuntimeException("Refusing to drop tables of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
         }
     }
 }
