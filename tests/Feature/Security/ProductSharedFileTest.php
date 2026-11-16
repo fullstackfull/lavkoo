@@ -711,6 +711,78 @@ class ProductSharedFileTest extends TestCase
         $this->assertSame([], SharedProductFile::sharedAmong(paths: []));
     }
 
+    public function test_a_list_of_files_whose_second_holders_are_in_different_later_rows_names_every_shared_file(): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['stag-a.webp', 'stag-b.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['stag-a.webp'])]);
+        $this->insertProduct(83, ['images' => json_encode(['stag-b.webp'])]);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/stag-a.webp', 'product/stag-b.webp']);
+
+        $this->assertSame(['product/stag-a.webp', 'product/stag-b.webp'], $shared, 'the search goes on until every file has a second holder');
+    }
+
+    public function test_a_product_that_deletes_its_files_keeps_every_file_that_another_product_holds_although_each_of_them_has_a_different_other_holder(): void
+    {
+        $this->insertProduct(81, ['thumbnail' => 'stag-thumb.webp', 'images' => json_encode(['stag-ga.webp', 'stag-gb.webp', 'stag-gc.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['stag-ga.webp'])]);
+        $this->insertProduct(83, ['images' => json_encode(['stag-gb.webp'])]);
+        $this->insertProduct(84, ['thumbnail' => 'stag-thumb.webp']);
+        foreach (['stag-ga.webp', 'stag-gb.webp', 'stag-gc.webp', 'thumbnail/stag-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+
+        $this->assertFileExists($this->product('stag-ga.webp'), 'product 82 holds it');
+        $this->assertFileExists($this->product('stag-gb.webp'), 'product 83 holds it');
+        $this->assertFileDoesNotExist($this->product('stag-gc.webp'), 'nobody else holds it');
+        $this->assertFileExists($this->product('thumbnail/stag-thumb.webp'), 'product 84 holds it');
+    }
+
+    public function test_holders_on_both_sides_of_the_boundary_between_two_statements_of_the_search_are_counted(): void
+    {
+        // 260 products whose names only contain the searched ones: all of them are candidates, the search reads a hundred of them at a time
+        DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'ED' . $number, 'name' => 'Edge ' . $number, 'images' => json_encode(['x-edge-a.webp', 'x-edge-b.webp']), 'colors' => '[]', 'color_image' => '[]'], range(1, 260)));
+        // edge-a: the last row of the first statement and the first of the second; edge-b: the first of the second and a row of the third
+        DB::table('products')->where('id', 1100)->update(['images' => json_encode(['edge-a.webp'])]);
+        DB::table('products')->where('id', 1101)->update(['images' => json_encode(['edge-a.webp', 'edge-b.webp'])]);
+        DB::table('products')->where('id', 1250)->update(['images' => json_encode(['edge-b.webp'])]);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/edge-a.webp', 'product/edge-b.webp', 'product/edge-c.webp']);
+
+        $this->assertSame(['product/edge-a.webp', 'product/edge-b.webp'], $shared, 'the products that only hold a longer name are no holders');
+    }
+
+    public function test_a_file_that_one_product_holds_in_each_statement_of_the_search_is_still_held_by_each_of_them_alone(): void
+    {
+        DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'SG' . $number, 'name' => 'Single ' . $number, 'images' => json_encode(['single-' . $number . '.webp']), 'colors' => '[]', 'color_image' => '[]'], range(1, 300)));
+
+        $this->assertSame([], SharedProductFile::sharedAmong(paths: ['product/single-1.webp', 'product/single-150.webp', 'product/single-300.webp']));
+    }
+
+    public function test_the_same_file_under_two_spellings_in_one_list_is_answered_for_both_spellings(): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['spelled.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['spelled.webp'])]);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/spelled.webp', '/product/./spelled.webp', 'product//spelled.webp']);
+
+        $this->assertSame(['product/spelled.webp', '/product/./spelled.webp', 'product//spelled.webp'], $shared);
+    }
+
+    public function test_a_file_in_the_seo_table_counts_as_the_second_holder_when_the_first_is_a_product_of_the_same_list(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'seo-listed.png', 'images' => json_encode(['seo-listed-gallery.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['seo-listed-gallery.webp'])]);
+        $this->insertProduct(83);
+        DB::table('product_seos')->insert(['product_id' => 83, 'image' => 'seo-listed.png']);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/meta/seo-listed.png', 'product/seo-listed-gallery.webp']);
+
+        $this->assertSame(['product/meta/seo-listed.png', 'product/seo-listed-gallery.webp'], $shared);
+    }
+
     public function test_a_file_that_hundreds_of_products_hold_is_answered_from_plain_rows_and_one_statement(): void
     {
         DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'PH' . $number, 'name' => 'Imported ' . $number, 'thumbnail' => 'placeholder.png', 'images' => json_encode(['placeholder.png']), 'colors' => '[]', 'color_image' => '[]'], range(1, 250)));
