@@ -83,7 +83,7 @@ class FileManagerService
             $unpacked = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize(), report: $report);
             $stored = match (true) {
                 $unpacked === null => 0,
-                $disk === 's3' => $this->putOnBucket(unpacked: $unpacked, folder: $folder),
+                $disk === 's3' => $this->putOnBucket(unpacked: $unpacked, folder: $folder, report: $report),
                 default => $this->copyToGallery(unpacked: $unpacked, folder: $folder, report: $report),
             };
         } finally {
@@ -233,18 +233,23 @@ class FileManagerService
 
     /**
      * Stores the unpacked files on the bucket, each under a name of its own: what the local disk can hold under the name of an entry does not
-     * matter here.
+     * matter here. An object the bucket refuses (the disk answers false and does not throw) is left out and listed.
      *
      * @param array<string, string> $unpacked the name of the entry of every unpacked file, by the path of the file
      */
-    private function putOnBucket(array $unpacked, string $folder): int
+    private function putOnBucket(array $unpacked, string $folder, ArchiveReport $report): int
     {
+        $stored = 0;
         foreach ($unpacked as $file => $name) {
             $imageName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION);
-            Storage::disk('s3')->putFileAs($folder, $file, $imageName, 'public');
+            if (Storage::disk('s3')->putFileAs($folder, $file, $imageName, 'public') === false) {
+                $report->skip(name: $name);
+            } else {
+                $stored++;
+            }
         }
 
-        return count($unpacked);
+        return $stored;
     }
 
     public static function shouldSkip($filename): bool

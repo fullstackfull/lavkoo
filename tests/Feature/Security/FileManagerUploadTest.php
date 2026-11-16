@@ -158,26 +158,26 @@ class FileManagerUploadTest extends TestCase
     }
 
     /**
-     * A shop whose bucket is no fake: it calls `$beforeEachObject` with the path of every object it is asked to store and then stores it, or
-     * refuses it when `$refuses` is set (the write answers false, as the s3 disk of the shop does, or throws when `$throws` is set).
+     * A shop whose bucket is no fake: `$storesObject` is asked about the path of every object the bucket is told to store, and the bucket stores it
+     * when the answer is yes and refuses it when it is no (the write answers false, as the s3 disk of the shop does, or throws when `$throws` is set).
      *
+     * @param array<string, mixed> $files
      * @return Request the request that uploads into it
      */
-    private function bucketThatWatches(Closure $beforeEachObject, array $files, bool $refuses = false, bool $throws = false): Request
+    private function bucketThatWatches(Closure $storesObject, array $files, bool $throws = false): Request
     {
         $root = storage_path('framework/testing/probe-bucket-' . uniqid());
         $this->directoriesToRemove[] = $root;
-        $adapter = new class($root, $beforeEachObject, $refuses) extends LocalFilesystemAdapter {
-            public function __construct(string $root, private readonly Closure $beforeEachObject, private readonly bool $refuses)
+        $adapter = new class($root, $storesObject) extends LocalFilesystemAdapter {
+            public function __construct(string $root, private readonly Closure $storesObject)
             {
                 parent::__construct($root);
             }
 
             public function writeStream(string $path, $contents, Config $config): void
             {
-                ($this->beforeEachObject)($path);
-                if ($this->refuses) {
-                    throw UnableToWriteFile::atLocation($path, 'the bucket refuses every object');
+                if (!($this->storesObject)($path)) {
+                    throw UnableToWriteFile::atLocation($path, 'the bucket refuses the object');
                 }
                 parent::writeStream($path, $contents, $config);
             }
@@ -375,11 +375,12 @@ class FileManagerUploadTest extends TestCase
     {
         $unpackedFiles = [];
         $request = $this->bucketThatWatches(
-            beforeEachObject: static function () use (&$unpackedFiles): void {
+            storesObject: static function () use (&$unpackedFiles): bool {
                 $unpackedFiles = array_map('basename', glob(storage_path('app/temp-zip-*/*')) ?: []);
+
+                return false;
             },
             files: ['file' => $this->zipUpload(['shell.php' => '<?php echo "LEFTOVER";', 'a.jpg' => $this->jpeg()])],
-            refuses: true,
             throws: true,
         );
 
@@ -913,6 +914,36 @@ class FileManagerUploadTest extends TestCase
         $this->assertCount(2, $this->storedOnTheBucket());
         $this->assertFileExists($storage . '/app/public/' . self::FOLDER . '/nested/b.jpg');
         $this->assertSame([], glob($storage . '/app/temp-zip-*') ?: []);
+    }
+
+    public function test_on_s3_an_archive_that_the_bucket_refuses_entirely_is_reported_as_not_stored(): void
+    {
+        $request = $this->bucketThatWatches(storesObject: static fn (): bool => false, files: ['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'b.jpg' => $this->jpeg()])]);
+        $report = new ArchiveReport();
+
+        $stored = $this->service()->uploadFileAndImages($request, $report);
+
+        $this->assertFalse($stored);
+        $this->assertSame([], $this->storedOnTheBucket());
+        $this->assertSame('2 files of the archive were not stored (a.jpg, b.jpg)', $report->skippedMessage());
+    }
+
+    public function test_on_s3_an_object_that_the_bucket_refuses_is_listed_and_the_others_are_stored(): void
+    {
+        $objects = 0;
+        $request = $this->bucketThatWatches(
+            storesObject: static function () use (&$objects): bool {
+                return ++$objects !== 2;
+            },
+            files: ['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'b.jpg' => $this->jpeg(), 'c.jpg' => $this->jpeg()])],
+        );
+        $report = new ArchiveReport();
+
+        $stored = $this->service()->uploadFileAndImages($request, $report);
+
+        $this->assertTrue($stored);
+        $this->assertCount(2, $this->storedOnTheBucket());
+        $this->assertSame('One file of the archive was not stored (b.jpg)', $report->skippedMessage());
     }
 
     public function test_an_archive_whose_only_entry_cannot_be_read_is_reported_as_not_stored_on_either_disk(): void
