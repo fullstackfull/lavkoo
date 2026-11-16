@@ -31,4 +31,11 @@ class StockMovement extends Model
         'reference_id' => 'integer',
         'created_by' => 'integer',
     ];
+
+    /** The in-house shop's products carry user_id 1 too, so the movement's own seller_id is not enough: its product must be a product of that seller. */
+    public function scopeOfSeller($query, int|string $sellerId): void
+    {
+        $query->where('seller_id', $sellerId)
+            ->whereIn('product_id', Product::ofSeller(sellerId: $sellerId)->select('id'));
+    }
 }
