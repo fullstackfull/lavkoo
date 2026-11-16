@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DeliveryMan;
 use App\Models\PasswordReset;
 use App\Utils\Helpers;
+use App\Utils\RequestText;
 use App\Utils\SMSModule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -70,9 +71,9 @@ class LoginController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $identity = (string)$request['identity'];
+        $identity = RequestText::of($request['identity']);
         PasswordReset::where(['user_type' => 'delivery_man', 'identity' => $identity])->delete();
-        $deliveryMan = DeliveryMan::where(['phone' => $identity])->orWhere(['email' => $identity])->first();
+        $deliveryMan = $identity === '' ? null : DeliveryMan::where(['phone' => $identity])->orWhere(['email' => $identity])->first();
         $verificationBy = getWebConfig(name: 'deliveryman_forgot_password_method') ?? 'phone';
 
         if (isset($deliveryMan)) {
@@ -133,8 +134,9 @@ class LoginController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $identity = (string)$request['identity'];
-        $data = PasswordReset::where(['token' => (string)$request['otp'], 'identity' => $identity, 'user_type' => 'delivery_man'])->first();
+        $identity = RequestText::of($request['identity']);
+        $code = RequestText::of($request['otp']);
+        $data = $identity === '' || $code === '' ? null : PasswordReset::where(['token' => $code, 'identity' => $identity, 'user_type' => 'delivery_man'])->first();
         if (!$data) {
             return response()->json(['message' => translate('Invalid_OTP')], 403);
         }
@@ -168,7 +170,8 @@ class LoginController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $deliveryMen = DeliveryMan::where(['phone' => (string)$request['phone']])->limit(2)->get();
+        $phone = RequestText::of($request['phone']);
+        $deliveryMen = $phone === '' ? collect() : DeliveryMan::where(['phone' => $phone])->limit(2)->get();
         $deliveryMan = $deliveryMen->count() === 1 ? $deliveryMen->first() : null;
         $identities = $deliveryMan ? $this->identitiesOf(deliveryMan: $deliveryMan) : [];
         if (!PasswordReset::where('user_type', 'delivery_man')->whereIn('identity', $identities)->where('expires_at', '>', now())->exists()) {

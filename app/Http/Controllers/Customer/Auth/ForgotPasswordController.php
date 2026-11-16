@@ -6,6 +6,7 @@ use App\Enums\SessionKey;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Utils\Helpers;
+use App\Utils\RequestText;
 use App\Utils\SMSModule;
 use Carbon\CarbonInterval;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -68,7 +69,7 @@ class ForgotPasswordController extends Controller
             return back();
         }
 
-        $customer = $this->customerPasswordResetService->findCustomer(identity: (string)$request['identity'], kind: CustomerPasswordResetService::PHONE);
+        $customer = $this->customerPasswordResetService->findCustomer(identity: RequestText::of($request['identity']), kind: CustomerPasswordResetService::PHONE);
         if (!$customer) {
             Toastr::error(translate('No_such_user_found'));
             return back();
@@ -187,7 +188,7 @@ class ForgotPasswordController extends Controller
             return back();
         }
 
-        $customer = $this->customerPasswordResetService->findCustomer(identity: base64_decode((string)$request['identity']));
+        $customer = $this->customerPasswordResetService->findCustomer(identity: base64_decode(RequestText::of($request['identity'])));
         if ($customer) {
             $tokenInfo = $this->phoneOrEmailVerificationRepo->getFirstWhere(params: ['phone_or_email' => $customer['phone']]);
             $otpIntervalTime = getWebConfig(name: 'otp_resend_time') ?? 1;
@@ -281,7 +282,7 @@ class ForgotPasswordController extends Controller
         $temp_block_time = getWebConfig(name: 'temporary_block_time') ?? 5; // minute
         $id = session('forgot_password_identity');
 
-        $password_reset_token = PasswordReset::where(['token' => (string)$request['otp'], 'user_type' => 'customer', 'identity' => (string)$id])
+        $password_reset_token = PasswordReset::where(['token' => RequestText::of($request['otp']), 'user_type' => 'customer', 'identity' => (string)$id])
             ->latest()
             ->first();
 
@@ -338,7 +339,7 @@ class ForgotPasswordController extends Controller
 
     public function resetPasswordView(Request $request): View|RedirectResponse
     {
-        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: base64_decode((string)$request['identity']), code: (string)$request['token']);
+        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: base64_decode(RequestText::of($request['identity'])), code: RequestText::of($request['token']));
         if (isset($customer)) {
             $token = $request['token'];
             return view(VIEW_FILE_NAMES['reset_password'], compact('token'));
@@ -359,7 +360,7 @@ class ForgotPasswordController extends Controller
             return view(VIEW_FILE_NAMES['reset_password'], compact('token'));
         }
 
-        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: base64_decode((string)$request['identity']), code: (string)$token);
+        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: base64_decode(RequestText::of($request['identity'])), code: (string)$token);
 
         if (isset($customer)) {
             $this->customerPasswordResetService->resetPassword(customer: $customer, password: $request['password'], alsoSet: ['is_email_verified' => 1]);
@@ -397,7 +398,7 @@ class ForgotPasswordController extends Controller
 
         $firebaseOTPVerification = getWebConfig(name: 'firebase_otp_verification') ?? [];
         $phoneVerification = base64_decode($request['type']) == 'phone_verification';
-        $identity = base64_decode((string)$request['identity']);
+        $identity = base64_decode(RequestText::of($request['identity']));
 
         $maxOTPHit = getWebConfig(name: 'maximum_otp_hit') ?? 5;
         $maxOTPHitTime = getWebConfig(name: 'otp_resend_time') ?? 60; // seconds
@@ -448,7 +449,7 @@ class ForgotPasswordController extends Controller
         }
 
         $tokenVerifyStatus = false;
-        $proof = (string)$request['token'];
+        $proof = RequestText::of($request['token']);
         if ($verificationData && $phoneVerification && $firebaseOTPVerification && $firebaseOTPVerification['status']) {
             $firebaseVerify = $this->firebaseService->verifyOtp($verificationData['token'], $verificationData['phone_or_email'], $request['token']);
             $tokenVerifyStatus = (bool)($firebaseVerify['status'] == 'success');

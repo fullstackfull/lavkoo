@@ -11,6 +11,7 @@ use App\Models\PasswordReset;
 use App\Services\CustomerPasswordResetService;
 use App\Traits\CustomerTrait;
 use App\Utils\Helpers;
+use App\Utils\RequestText;
 use App\Utils\SMSModule;
 use Carbon\Carbon;
 use Carbon\CarbonInterval;
@@ -45,7 +46,7 @@ class ForgotPasswordController extends Controller
         $verification_by = 'phone';
         $otp_interval_time = getWebConfig(name: 'otp_resend_time') ?? 1; //second
 
-        $identity = (string)$request['identity'];
+        $identity = RequestText::of($request['identity']);
         $password_verification_data = PasswordReset::where(['user_type' => 'customer', 'identity' => $identity])->latest()->first();
         if ($verification_by == 'email') {
             $customer = $this->customerPasswordResetService->findCustomer(identity: $identity, kind: CustomerPasswordResetService::EMAIL);
@@ -146,7 +147,7 @@ if ($zender && $zender->enabled) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $identity = (string)$request['email_or_phone'];
+        $identity = RequestText::of($request['email_or_phone']);
         $verificationData = $this->passwordResetRepo->getFirstWhere(params: ['user_type' => 'customer', 'identity' => $identity]);
         $verifyStatus = $this->checkPasswordResetOTPBlockTimeOrInvalid(verificationData: $verificationData, identity: $identity);
         if ($verifyStatus['status'] == 1) {
@@ -157,7 +158,7 @@ if ($zender && $zender->enabled) {
             ], 403);
         }
 
-        $verify = $this->customerPasswordResetService->findCustomerHoldingCode(identity: $identity, code: (string)$request['reset_token']);
+        $verify = $this->customerPasswordResetService->findCustomerHoldingCode(identity: $identity, code: RequestText::of($request['reset_token']));
         if ($verify) {
             return response()->json(['message' => translate('otp_verified')], 200);
         }
@@ -180,7 +181,7 @@ if ($zender && $zender->enabled) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: (string)$request['identity'], code: (string)$request['otp']);
+        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: RequestText::of($request['identity']), code: RequestText::of($request['otp']));
         if (isset($customer)) {
             $this->customerPasswordResetService->resetPassword(customer: $customer, password: $request['password']);
 

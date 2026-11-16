@@ -16,6 +16,7 @@ use App\Services\ReferByEarnCustomerService;
 use App\Services\Web\CustomerAuthService;
 use App\Traits\CustomerTrait;
 use App\Utils\Helpers;
+use App\Utils\RequestText;
 use App\Utils\SMSModule;
 use Carbon\CarbonInterval;
 use Firebase\JWT\JWT;
@@ -572,11 +573,11 @@ class CustomerAPIAuthController extends Controller
         }
 
         if ($request['is_reset_token'] == 1) {
-            $customer = $this->customerPasswordResetService->findCustomer(identity: (string)$request['phoneNumber'], kind: CustomerPasswordResetService::PHONE);
+            $customer = $this->customerPasswordResetService->findCustomer(identity: RequestText::of($request['phoneNumber']), kind: CustomerPasswordResetService::PHONE);
             if (isset($customer)) {
                 $this->customerPasswordResetService->acceptVerifiedProof(
                     customer: $customer,
-                    proof: (string)$request['code'],
+                    proof: RequestText::of($request['code']),
                     verifiedPhone: (string)($responseData['phoneNumber'] ?? ''),
                 );
             }
@@ -872,7 +873,7 @@ class CustomerAPIAuthController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $identity = (string)$request['email_or_phone'];
+        $identity = RequestText::of($request['email_or_phone']);
         $customer = $this->customerPasswordResetService->findCustomer(identity: $identity, kind: $request['type']);
 
         if (isset($customer)) {
@@ -1044,7 +1045,7 @@ class CustomerAPIAuthController extends Controller
 
     public function firebaseAuthTokenStore(Request $request): JsonResponse
     {
-        $this->customerPasswordResetService->noteFirebaseSessionRequested(phone: (string)$request['identity']);
+        $this->customerPasswordResetService->noteFirebaseSessionRequested(phone: RequestText::of($request['identity']));
         return response()->json(['message' => translate('Token_is_successfully_Saved')], 200);
     }
 
