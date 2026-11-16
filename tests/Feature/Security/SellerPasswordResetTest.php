@@ -176,6 +176,12 @@ class SellerPasswordResetTest extends TestCase
         }
     }
 
+    /** @return array<int, ?string> */
+    private function tokensKeptFor(string $phone): array
+    {
+        return DB::table('phone_or_email_verifications')->where('phone_or_email', $phone)->pluck('token')->all();
+    }
+
     private function assertTookPassword(int $sellerId): void
     {
         $this->assertTrue($this->passwordIs($sellerId, self::NEW_PASSWORD), "seller {$sellerId} must have the new password");
@@ -507,6 +513,43 @@ class SellerPasswordResetTest extends TestCase
         $this->storeFirebaseSession('+966511111111', 'attacker-chosen')->assertNotFound();
 
         $this->assertSame(0, DB::table('phone_or_email_verifications')->count());
+    }
+
+    public function test_the_token_store_keeps_a_note_that_a_session_was_asked_for_and_not_what_the_caller_sent(): void
+    {
+        $this->seller(self::OWNER_PHONE, 'owner@example.test');
+
+        $this->storeFirebaseSession(self::OWNER_PHONE, 'attacker-chosen')->assertOk();
+
+        $this->assertSame([null], $this->tokensKeptFor(self::OWNER_PHONE));
+    }
+
+    public function test_the_token_store_leaves_a_code_the_server_sent_to_a_customer_with_that_phone_as_it_is(): void
+    {
+        $this->seller(self::OWNER_PHONE, 'owner@example.test');
+        DB::table('phone_or_email_verifications')->insert(['phone_or_email' => self::OWNER_PHONE, 'token' => '654321', 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->storeFirebaseSession(self::OWNER_PHONE, 'attacker-chosen')->assertOk();
+
+        $this->assertSame(['654321'], $this->tokensKeptFor(self::OWNER_PHONE));
+    }
+
+    public function test_a_reset_removes_the_note_of_the_session_and_keeps_a_code_the_server_sent_to_a_customer(): void
+    {
+        $owner = $this->seller(self::OWNER_PHONE, 'owner@example.test');
+        $this->firebaseKnows([self::SESSION => ['phone' => self::OWNER_PHONE, 'code' => '482915']]);
+        $this->storeFirebaseSession(self::OWNER_PHONE, self::SESSION)->assertOk();
+        $this->verifyFirebaseCode(self::OWNER_PHONE, self::SESSION, '482915')->assertOk();
+        $this->resetPasswordTheWayTheAppDoes(self::OWNER_PHONE, self::SESSION)->assertOk();
+        $this->assertTookPassword($owner);
+        $this->assertSame([], $this->tokensKeptFor(self::OWNER_PHONE));
+
+        DB::table('phone_or_email_verifications')->insert(['phone_or_email' => self::OWNER_PHONE, 'token' => '654321', 'created_at' => now(), 'updated_at' => now()]);
+        $this->storeFirebaseSession(self::OWNER_PHONE, self::SESSION)->assertOk();
+        $this->verifyFirebaseCode(self::OWNER_PHONE, self::SESSION, '482915')->assertOk();
+        $this->resetPasswordTheWayTheAppDoes(self::OWNER_PHONE, self::SESSION)->assertOk();
+
+        $this->assertSame(['654321'], $this->tokensKeptFor(self::OWNER_PHONE));
     }
 
     public function test_the_firebase_flow_the_app_runs_still_resets_the_password(): void

@@ -70,12 +70,14 @@ class VendorPasswordResetService
         return $verified?->created_at?->greaterThan(now()->subMinutes(self::VERIFIED_SESSION_MINUTES)) ? $this->findSeller(identity: $verified['identity'], method: self::PHONE) : null;
     }
 
-    public function rememberSession(string $phone, string $session): void
+    /**
+     * Keeps the note firebase-auth-verify counts its attempts on, and nothing the caller sent: the table is shared with the customer
+     * sign-in by code, so a token kept here for a phone that a customer also holds would be a code for that customer, and a row that
+     * already exists (a code the server sent) is left as it is.
+     */
+    public function noteSessionRequested(string $phone): void
     {
-        $this->phoneOrEmailVerificationRepo->updateOrCreate(
-            params: ['phone_or_email' => $phone],
-            value: ['phone_or_email' => $phone, 'token' => $session],
-        );
+        $this->phoneOrEmailVerificationRepo->updateOrCreate(params: ['phone_or_email' => $phone], value: []);
     }
 
     public function acceptSession(Seller $seller, string $session, string $verifiedPhone): bool
@@ -111,6 +113,7 @@ class VendorPasswordResetService
             Seller::whereKey($seller->getKey())->update($changes);
             $this->passwordResetRepo->delete(params: ['user_type' => self::USER_TYPE, 'identity' => $identity]);
             $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $identity, 'token' => $proof]);
+            $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $identity, 'token' => null]);
         });
     }
 

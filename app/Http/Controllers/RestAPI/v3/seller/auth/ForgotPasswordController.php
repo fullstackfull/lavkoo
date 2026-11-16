@@ -196,7 +196,7 @@ if ($zender && $zender->enabled) {
             ]], 404);
         }
 
-        $this->vendorPasswordResetService->rememberSession(phone: $identity, session: (string)$request['token']);
+        $this->vendorPasswordResetService->noteSessionRequested(phone: $identity);
         return response()->json(['message' => translate('Token_is_successfully_Saved')], 200);
     }
 
