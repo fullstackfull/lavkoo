@@ -1491,20 +1491,7 @@ class ProductManager
 
         if ($featureDealSortBy && ($featureDealSortBy['custom_sorting_status'] == 1)) {
 
-            $query = $query->when(isset($featureDealSortBy['temporary_close_sorting']) && $featureDealSortBy['temporary_close_sorting'] == 'hide', function ($query) use ($featureDealSortBy) {
-                return $query->where(function ($query) {
-                    return $query->where(['added_by' => 'seller'])->whereHas('seller.shop', function ($query) {
-                        return $query->where(['temporary_close' => 0]);
-                    });
-                })->orWhere(function ($query) use ($featureDealSortBy) {
-                    $inHouseShopInTemporaryClose = Cache::get(IN_HOUSE_SHOP_TEMPORARY_CLOSE_STATUS);
-                    if (!$inHouseShopInTemporaryClose && $featureDealSortBy['temporary_close_sorting'] == 'hide') {
-                        return $query->where(['added_by' => 'admin']);
-                    } else {
-                        return $query;
-                    }
-                });
-            });
+            $query = self::getSortingProductByTemporaryClose(query: $query, temporaryCloseStatus: $featureDealSortBy['temporary_close_sorting'] ?? null);
 
             if ($featureDealSortBy['out_of_stock_product'] == 'hide') {
                 $query = $query->where(function ($query) {
