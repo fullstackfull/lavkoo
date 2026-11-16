@@ -150,6 +150,60 @@ class SellerApiPayoutOwnershipTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    // ---- withdraw requests: closing, API v2 ----
+
+    public function test_v2_closing_a_withdraw_request_of_another_seller_is_refused_and_credits_nobody(): void
+    {
+        $response = $this->sellerApiV2('DELETE', 'close-withdraw-request', ['id' => self::OTHER_SELLERS_PENDING_REQUEST, 'amount' => 0]);
+
+        $this->assertTrue(DB::table('withdraw_requests')->where('id', self::OTHER_SELLERS_PENDING_REQUEST)->exists());
+        $this->assertSame([500.0, 100.0], $this->wallet(self::SELLER));
+        $this->assertSame([0.0, 1000.0], $this->wallet(self::OTHER_SELLER));
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function test_v2_the_seller_can_still_close_their_own_pending_withdraw_request(): void
+    {
+        $response = $this->sellerApiV2('DELETE', 'close-withdraw-request', ['id' => self::OWN_PENDING_REQUEST, 'amount' => 100]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertFalse(DB::table('withdraw_requests')->where('id', self::OWN_PENDING_REQUEST)->exists());
+        $this->assertSame([600.0, 0.0], $this->wallet(self::SELLER));
+        $this->assertTrue(DB::table('withdraw_requests')->where('id', self::OTHER_SELLERS_PENDING_REQUEST)->exists());
+    }
+
+    public function test_v2_closing_a_withdraw_request_gives_back_the_stored_amount_whatever_amount_the_app_sends(): void
+    {
+        $this->sellerApiV2('DELETE', 'close-withdraw-request', ['id' => self::OWN_PENDING_REQUEST, 'amount' => 5]);
+
+        $this->assertSame([600.0, 0.0], $this->wallet(self::SELLER));
+    }
+
+    public function test_v2_an_amount_larger_than_the_pending_withdraw_does_not_push_it_below_zero(): void
+    {
+        $this->sellerApiV2('DELETE', 'close-withdraw-request', ['id' => self::OWN_PENDING_REQUEST, 'amount' => 100000]);
+
+        $this->assertSame([600.0, 0.0], $this->wallet(self::SELLER));
+    }
+
+    public function test_v2_an_approved_withdraw_request_of_the_seller_still_cannot_be_closed(): void
+    {
+        $response = $this->sellerApiV2('DELETE', 'close-withdraw-request', ['id' => self::OWN_APPROVED_REQUEST, 'amount' => 80]);
+
+        $this->assertTrue(DB::table('withdraw_requests')->where('id', self::OWN_APPROVED_REQUEST)->exists());
+        $this->assertSame([500.0, 100.0], $this->wallet(self::SELLER));
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function test_v2_a_delivery_mans_withdraw_request_is_not_the_sellers_to_close_and_does_not_credit_the_sellers_wallet(): void
+    {
+        $response = $this->sellerApiV2('DELETE', 'close-withdraw-request', ['id' => self::OWN_DELIVERY_MAN_REQUEST, 'amount' => 30]);
+
+        $this->assertTrue(DB::table('withdraw_requests')->where('id', self::OWN_DELIVERY_MAN_REQUEST)->exists());
+        $this->assertSame([500.0, 100.0], $this->wallet(self::SELLER));
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
     // ---- withdraw requests: editing ----
 
     public function test_a_pending_withdraw_request_of_another_seller_cannot_be_taken_over(): void

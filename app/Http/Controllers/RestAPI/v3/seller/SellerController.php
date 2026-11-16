@@ -496,7 +496,7 @@ class SellerController extends Controller
         $seller = $request->seller;
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
-        $withdrawRequest = $this->ownWithdrawRequest(request: $request, id: $request['withdraw_request_id']);
+        $withdrawRequest = WithdrawRequest::ofSeller(sellerId: $seller['id'])->find($request['withdraw_request_id']);
         if ($withdrawRequest && $withdrawRequest['approved'] == 0) {
             $totalEarning = $wallet->total_earning + $withdrawRequest['amount'];
             $pendingWithdraw = $wallet->pending_withdraw - $withdrawRequest['amount'];
@@ -525,7 +525,7 @@ class SellerController extends Controller
     {
         $seller = $request->seller;
 
-        $withdraw_request = $this->ownWithdrawRequest(request: $request, id: $request['id']);
+        $withdraw_request = WithdrawRequest::ofSeller(sellerId: $seller['id'])->find($request['id']);
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {
@@ -537,12 +537,6 @@ class SellerController extends Controller
         }
 
         return response()->json(translate('Withdraw request is invalid'), 403);
-    }
-
-    /** A delivery man's request carries the seller's id too, but it is paid out of the delivery man's wallet, not the seller's. */
-    private function ownWithdrawRequest(Request $request, mixed $id): ?WithdrawRequest
-    {
-        return WithdrawRequest::where(['id' => $id, 'seller_id' => $request->seller['id']])->whereNull('delivery_man_id')->first();
     }
 
     public function transaction(Request $request): JsonResponse

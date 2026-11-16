@@ -242,12 +242,12 @@ class SellerController extends Controller
             ], 401);
         }
 
-        $withdraw_request = WithdrawRequest::find($request['id']);
+        $withdraw_request = WithdrawRequest::ofSeller(sellerId: $seller['id'])->find($request['id']);
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {
-            $wallet->total_earning += BackEndHelper::currency_to_usd($withdraw_request['amount']);
-            $wallet->pending_withdraw -= BackEndHelper::currency_to_usd($request['amount']);
+            $wallet->total_earning += $withdraw_request['amount'];
+            $wallet->pending_withdraw -= $withdraw_request['amount'];
             $wallet->save();
             $withdraw_request->delete();
             return response()->json(translate('Withdraw request has been closed successfully!'), 200);
