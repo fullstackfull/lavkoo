@@ -32,6 +32,14 @@ final class StorefrontResolver
         if (!$this->isActive($this->defaultCountry)) {
             throw new InvalidArgumentException("Default storefront country [{$defaultCountry}] is not active.");
         }
+
+        if ($this->enabled) {
+            foreach ($this->countries as $code => $country) {
+                if (!self::isComplete($country)) {
+                    throw new InvalidArgumentException("Storefront country [{$code}] needs a path and a currency.");
+                }
+            }
+        }
     }
 
     public static function fromConfig(): self
@@ -56,7 +64,15 @@ final class StorefrontResolver
     {
         $code = strtoupper(trim($defaultCountry));
 
-        return isset($countries[$code]) && ($countries[$code]['active'] ?? false) === true;
+        return isset($countries[$code]) && self::isComplete($countries[$code]) && ($countries[$code]['active'] ?? false) === true;
+    }
+
+    /** A country that can be served has a path and a currency. Without them the first request that reads the context fails. */
+    private static function isComplete(mixed $country): bool
+    {
+        return is_array($country)
+            && is_string($country['path'] ?? null) && trim($country['path']) !== ''
+            && is_string($country['currency'] ?? null) && trim($country['currency']) !== '';
     }
 
     public function resolve(?string $explicitChoice = null, ?string $path = null, ?string $headerChoice = null): string
