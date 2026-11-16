@@ -20,11 +20,15 @@ trait BuildsSellerSchema
     {
         $this->buildCoreSchema();
 
-        Schema::table('shops', function (Blueprint $table) {
-            foreach (['slug', 'address', 'contact', 'image', 'banner', 'bottom_banner', 'image_storage_type', 'banner_storage_type', 'bottom_banner_storage_type', 'tax_identification_number', 'tin_certificate', 'tin_certificate_storage_type'] as $column) {
-                $table->string($column)->nullable();
+        $registrationShopColumns = array_fill_keys(
+            ['slug', 'address', 'contact', 'image', 'banner', 'bottom_banner', 'image_storage_type', 'banner_storage_type', 'bottom_banner_storage_type', 'tax_identification_number', 'tin_certificate', 'tin_certificate_storage_type'],
+            'string',
+        ) + ['tin_expire_date' => 'date'];
+        $missingShopColumns = array_filter($registrationShopColumns, static fn (string $type, string $column): bool => !Schema::hasColumn('shops', $column), ARRAY_FILTER_USE_BOTH);
+        Schema::table('shops', function (Blueprint $table) use ($missingShopColumns) {
+            foreach ($missingShopColumns as $column => $type) {
+                $table->{$type}($column)->nullable();
             }
-            $table->date('tin_expire_date')->nullable();
         });
 
         Schema::create('sellers', function (Blueprint $table) {
