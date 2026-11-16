@@ -209,7 +209,7 @@ class SellerController extends Controller
         $seller = $request->seller;
         $data = Seller::with(['wallet'])->withCount(['product', 'orders' => function ($query) use ($seller) {
             $query->where(['seller_id' => $seller['id'], 'seller_is' => ($seller['id'] == 0 ? 'admin' : 'seller')]);
-        }])->find($seller['id']);
+        }])->find($seller['id'])->makeVisible(Seller::OWNER_ONLY_ATTRIBUTES);
 
         $data['free_delivery_features_status'] = getWebConfig(name: 'free_delivery_status');
         $data['free_delivery_responsibility'] = getWebConfig(name: 'free_delivery_responsibility');

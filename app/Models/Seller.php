@@ -80,13 +80,24 @@ class Seller extends Authenticatable
         'cm_firebase_token_web'  => 'string',
     ];
 
+    /** What only the seller's own profile shows: where the payouts go, and the commission the shop pays. */
+    public const OWNER_ONLY_ATTRIBUTES = ['bank_name', 'branch', 'account_no', 'holder_name', 'sales_commission_percentage'];
+
+    /**
+     * A seller is serialized into public responses (a product's `seller`, an order's `seller`), so the model carries no credential and none of
+     * the owner's finances unless the owner's own endpoint asks for them (`makeVisible(self::OWNER_ONLY_ATTRIBUTES)`).
+     *
+     * `auth_token` is a live bearer credential. `remember_token` is one too: the session guard authenticates a cookie made of a seller id and
+     * that token, so a public product response that carried it opened the vendor panel as that seller. The push tokens are device
+     * identifiers no client reads back. The delivery-man model has always hidden its own.
+     */
     protected $hidden = [
         'password',
-        // A live bearer credential. `seller-info` returns this model whole, so
-        // every response to that endpoint carried a working session token —
-        // into logs, crash reports, proxies and any response cache along the
-        // way. The delivery-man model has always hidden its own.
         'auth_token',
+        'remember_token',
+        'cm_firebase_token',
+        'cm_firebase_token_web',
+        ...self::OWNER_ONLY_ATTRIBUTES,
     ];
 
     public function scopeApproved($query)
@@ -148,6 +159,9 @@ class Seller extends Authenticatable
         static::updating(function ($model) {
             if ($model->isDirty('status')) {
                 $model->auth_token = Str::random(80);
+                // The web panel's remember-me cookie is a session too: without this, a cookie issued (or stolen) before a suspension works
+                // again after the seller is approved, whether or not the seller made a request while suspended.
+                $model->remember_token = Str::random(60);
             }
         });
         static::saved(function ($model) {
