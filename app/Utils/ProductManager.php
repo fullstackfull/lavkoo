@@ -461,6 +461,15 @@ class ProductManager
         }
     }
 
+    private static function whereInCategory($query, $category)
+    {
+        return $query->where(function ($categoryQuery) use ($category) {
+            $categoryQuery->where(['category_id' => $category])
+                ->orWhere(['sub_category_id' => $category])
+                ->orWhere(['sub_sub_category_id' => $category]);
+        });
+    }
+
     public static function search_products($request, $name, $category = 'all', $limit = 10, $offset = 1): array
     {
         $key = explode(' ', $name);;
@@ -496,9 +505,7 @@ class ProductManager
             });
 
         if (isset($category) && $category != 'all') {
-            $categoryWiseProduct = $productListData->where(['category_id' => $category])
-                ->orWhere(['sub_category_id' => $category])
-                ->orWhere(['sub_sub_category_id' => $category]);
+            $categoryWiseProduct = self::whereInCategory(query: $productListData, category: $category);
             $productListData = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $categoryWiseProduct, dataLimit: $limit, offset: $offset);
         } else {
             $productListData = ProductManager::getPriorityWiseSearchedProductQuery(query: $productListData, keyword: $name, dataLimit: $limit, offset: $offset, type: 'searched');
@@ -557,9 +564,7 @@ class ProductManager
         });
 
         if (isset($category) && $category != 'all') {
-            $categoryWiseProduct = $productListData->where(['category_id' => $category])
-                ->orWhere(['sub_category_id' => $category])
-                ->orWhere(['sub_sub_category_id' => $category]);
+            $categoryWiseProduct = self::whereInCategory(query: $productListData, category: $category);
             $productListData = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $categoryWiseProduct, dataLimit: $limit, offset: $offset);
         } else {
             $productListData = ProductManager::getPriorityWiseSearchedProductQuery(query: $productListData, keyword: $name, dataLimit: $limit, offset: $offset, type: 'searched');
@@ -585,13 +590,11 @@ class ProductManager
         $tagProductIds = ProductTag::whereIn('tag_id', ($tagsId ?? [0]))->pluck('product_id')->toArray() ?? [];
         $productIds = array_merge($productIds, $tagProductIds);
 
-        $productListData = Product::with(['tags', 'clearanceSale' => function ($query) {
+        $productListData = Product::active()->with(['tags', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->whereIn('id', $productIds);
         if ($category != 'all') {
-            $categoryWiseProduct = $productListData->where(['category_id' => $category])
-                ->orWhere(['sub_category_id' => $category])
-                ->orWhere(['sub_sub_category_id' => $category]);
+            $categoryWiseProduct = self::whereInCategory(query: $productListData, category: $category);
             $productListData = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $categoryWiseProduct, dataLimit: $limit, offset: $offset);
         } else {
             $productListData = ProductManager::getPriorityWiseSearchedProductQuery(query: $productListData, keyword: $name, dataLimit: $limit, offset: $offset, type: 'translated');
@@ -612,7 +615,7 @@ class ProductManager
             ->where('value', 'like', "%{$name}%")
             ->pluck('translationable_id');
 
-        $productListData = Product::with(['tags', 'translations'])
+        $productListData = Product::active()->with(['tags', 'translations'])
             ->whereIn('id', $translationIds);
 
         if ($category !== 'all') {
@@ -2178,13 +2181,7 @@ class ProductManager
                 return $query->whereIn('brand_id', $request['brand_ids']);
             })
             ->when($request->has('search_category_value') && !empty($request['search_category_value']) && $request['search_category_value'] != 'all', function ($query) use ($request) {
-                return $query->where(['category_id' => $request['search_category_value']])
-                    ->orWhere(function ($query) use ($request) {
-                        $query->where('sub_category_id', $request['search_category_value']);
-                    })
-                    ->orWhere(function ($query) use ($request) {
-                        $query->where('sub_sub_category_id', $request['search_category_value']);
-                    });
+                return self::whereInCategory(query: $query, category: $request['search_category_value']);
             })
             ->when($request['offer_type'] == 'clearance_sale', function ($query) {
                 $stockClearanceProductIds = StockClearanceProduct::active()->pluck('product_id')->toArray();

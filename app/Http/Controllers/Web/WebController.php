@@ -960,7 +960,7 @@ class WebController extends Controller
         $wishlist_status = Wishlist::where(['product_id' => $product->id, 'customer_id' => auth('customer')->id()])->count();
         $countOrder = count($order_details);
         $countWishlist = count($wishlists);
-        $relatedProducts = Product::with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
+        $relatedProducts = Product::active()->with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
         $currentDate = date('Y-m-d');
         $productAuthorsInfo = $this->productService->getProductAuthorsInfo(product: $product);
         $productPublishingHouseInfo = $this->productService->getProductPublishingHouseInfo(product: $product);
