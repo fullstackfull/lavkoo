@@ -35,7 +35,7 @@ class ProductController extends Controller
             ], 401);
         }
 
-        return response()->json(Product::where(['added_by' => 'seller', 'id' => $seller['id']])->orderBy('id', 'DESC')->get(), 200);
+        return response()->json(Product::ofSeller(sellerId: $seller['id'])->orderBy('id', 'DESC')->get(), 200);
     }
 
     public function stock_out_list(Request $request):JsonResponse
