@@ -369,4 +369,6 @@ return [
 	"cdn" => "CDN",
 	"shoppers" => "Shoppers",
 	"unavailable" => "Unavailable",
+	"review_not_found" => "समीक्षा नहीं मिली",
+	"order_not_found" => "ऑर्डर नहीं मिला",
 ];

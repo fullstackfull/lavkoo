@@ -530,4 +530,6 @@ return [
 	"cdn" => "CDN",
 	"shoppers" => "Shoppers",
 	"unavailable" => "Unavailable",
+	"review_not_found" => "পর্যালোচনা পাওয়া যায়নি",
+	"order_not_found" => "অর্ডার পাওয়া যায়নি",
 ];

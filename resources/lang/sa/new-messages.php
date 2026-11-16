@@ -4856,4 +4856,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'_this_page_will_be_unavailable_throughout_the_user_section.' => ' this page will be unavailable throughout the user section.',
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
+	'review_not_found' => 'لم يتم العثور على المراجعة',
+	'order_not_found' => 'لم يتم العثور على الطلب',
 ];
