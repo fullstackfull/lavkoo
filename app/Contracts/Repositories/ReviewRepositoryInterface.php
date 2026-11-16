@@ -3,6 +3,7 @@
 namespace App\Contracts\Repositories;
 
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 interface ReviewRepositoryInterface extends RepositoryInterface
@@ -38,6 +39,15 @@ interface ReviewRepositoryInterface extends RepositoryInterface
      */
     public function getListWhereHas(string $whereHas, array $whereHasFilter, array $orderBy = [], ?string $searchValue = null, array $filters = [], array $whereInFilters = [],  array $relations = [], array $nullFields = [], bool $globalScope = true, int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator;
 
+
+    /**
+     * @param array $params
+     * @param string|null $whereHas
+     * @param array $whereHasFilters
+     * @param array $relations
+     * @return Model|null
+     */
+    public function getFirstWhereHas(array $params, ?string $whereHas = null, array $whereHasFilters = [], array $relations = []): ?Model;
 
     /**
      * @param array $params
