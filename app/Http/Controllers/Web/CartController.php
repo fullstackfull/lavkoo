@@ -63,7 +63,7 @@ class CartController extends Controller
         $discountedUnitPrice = 0;
         $color_name = '';
         $requestQuantity = $request['quantity'];
-        $product = Product::with(['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::inCurrentStorefront()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->where(['id' => $request['id']])->first();
         abort_if(!$product, 404);
@@ -654,6 +654,9 @@ class CartController extends Controller
     {
         $user = Helpers::getCustomerInformation();
         $product = $this->productRepo->getWebFirstWhereActive(params: ['id' => $request['id']]);
+        if (!$product) {
+            return response()->json(['status' => 'error', 'message' => translate('Product_is_unavailable')], 200);
+        }
         $restockRequest = $this->restockProductRepo->updateOrCreate(params: ['product_id' => $request['id'], 'variant' => $request['product_variation_code']], value: [
             'product_id' => $request['id'],
             'variant' => $request['product_variation_code'],

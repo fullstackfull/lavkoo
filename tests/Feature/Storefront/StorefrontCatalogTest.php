@@ -8,6 +8,7 @@ use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\TestCase;
 
@@ -58,6 +59,7 @@ class StorefrontCatalogTest extends TestCase
 
     public function test_the_migration_can_run_twice_and_be_rolled_back(): void
     {
+        DB::table('products')->where('storefront_country', '<>', 'SA')->delete();
         $migration = require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php');
 
         $migration->up();
@@ -68,6 +70,38 @@ class StorefrontCatalogTest extends TestCase
 
         $migration->down();
         $this->assertFalse(Schema::hasColumn('products', 'storefront_country'));
+    }
+
+    public function test_the_rollback_is_refused_while_a_product_of_another_country_exists(): void
+    {
+        $migration = require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php');
+
+        try {
+            $migration->down();
+            $this->fail('the rollback would have merged the catalogues');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('another country', $refusal->getMessage());
+        }
+
+        $this->assertTrue(Schema::hasColumn('products', 'storefront_country'));
+        $this->assertSame('AE', DB::table('products')->where('id', 2)->value('storefront_country'));
+    }
+
+    public function test_the_index_serves_the_lists_ordered_by_id_inside_one_country(): void
+    {
+        $index = collect(Schema::getIndexes('products'))->firstWhere('name', 'products_storefront_id_idx');
+
+        $this->assertNotNull($index);
+        $this->assertSame(['storefront_country', 'id'], $index['columns']);
+    }
+
+    public function test_a_country_code_is_compared_byte_for_byte_in_sql(): void
+    {
+        $this->switchStorefrontsOn();
+        DB::table('products')->insert(['id' => 4, 'name' => 'Lower case serum', 'added_by' => 'admin', 'status' => 1, 'request_status' => 1, 'storefront_country' => 'sa']);
+        $this->serveRequestFrom('SA');
+
+        $this->assertSame([1], $this->visibleProductIds());
     }
 
     public function test_while_storefronts_are_off_every_product_is_visible_whatever_its_country(): void
@@ -137,12 +171,12 @@ class StorefrontCatalogTest extends TestCase
     public function test_the_migration_can_finish_after_it_stopped_between_the_column_and_the_index(): void
     {
         $migration = require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php');
-        Schema::table('products', fn ($table) => $table->dropIndex('products_storefront_active_idx'));
-        $this->assertFalse(Schema::hasIndex('products', 'products_storefront_active_idx'));
+        Schema::table('products', fn ($table) => $table->dropIndex('products_storefront_id_idx'));
+        $this->assertFalse(Schema::hasIndex('products', 'products_storefront_id_idx'));
 
         $migration->up();
 
-        $this->assertTrue(Schema::hasIndex('products', 'products_storefront_active_idx'));
+        $this->assertTrue(Schema::hasIndex('products', 'products_storefront_id_idx'));
         $this->assertSame('SA', DB::table('products')->where('id', 1)->value('storefront_country'));
     }
 
