@@ -72,6 +72,21 @@ final class StorefrontResolver
         );
     }
 
+    /**
+     * The context of a country this platform recorded itself, active or not. A visitor can only reach an active storefront, but a payment
+     * that was taken there has to be finished there, even if the storefront was switched off in the meantime. Null for a code that is not configured.
+     */
+    public function contextOfRecordedCountry(?string $countryCode): ?StorefrontContext
+    {
+        $code = strtoupper(trim((string) $countryCode));
+
+        if (!isset($this->countries[$code])) {
+            return null;
+        }
+
+        return new StorefrontContext(country: $code, currency: $this->currencyOf($code), storefrontsEnabled: $this->enabled);
+    }
+
     public function isEnabled(): bool
     {
         return $this->enabled;
