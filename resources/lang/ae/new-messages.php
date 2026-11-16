@@ -15480,6 +15480,8 @@ return [
 	'products_pushed' => 'تم إرسال المنتجات',
 	'profit_margin' => 'هامش الربح',
 	'provider' => 'المزوّد',
+	'the_file_is_not_a_supported_image' => 'الملف ليس صورة مدعومة',
+	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
 	'provider_api_logs' => 'سجلات واجهات المزوّدين',
 	'provider_api_logs_redaction_note' => 'تُزال كلمات المرور والرموز والأسرار وبيانات تواصل العملاء قبل تسجيل أي استدعاء.',
 	'provider_api_logs_subtitle' => 'كل استدعاء لأي مزوّد، الأحدث أولًا.',
@@ -17738,6 +17740,4 @@ return [
 	'attention_outcome_not_done_at_channel' => 'القناة تُظهر أنه لم يحدث',
 	'attention_outcome_still_unknown' => 'نظرتُ والقناة لا تقول',
 	'attention_outcome_no_longer_relevant' => 'لم يبقَ ذا صلة',
-	'the_file_is_not_a_supported_image' => 'الملف ليس صورة مدعومة',
-	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
 ];

@@ -8890,6 +8890,8 @@ return [
 	'products_pushed' => 'Products pushed',
 	'profit_margin' => 'Profit margin',
 	'provider' => 'Provider',
+	'the_file_is_not_a_supported_image' => 'The file is not a supported image',
+	'the_file_name_is_not_valid' => 'The file name is not valid',
 	'provider_api_logs' => 'Provider API logs',
 	'provider_api_logs_redaction_note' => 'Passwords, tokens, secrets and customer contact details are removed before a call is logged.',
 	'provider_api_logs_subtitle' => 'Every call to a provider, newest first.',
@@ -11239,6 +11241,4 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
-	'the_file_is_not_a_supported_image' => 'The file is not a supported image',
-	'the_file_name_is_not_valid' => 'The file name is not valid',
 ];

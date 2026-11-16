@@ -2423,6 +2423,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'products_pushed' => 'تم إرسال المنتجات',
 	'profit_margin' => 'هامش الربح',
 	'provider' => 'المزوّد',
+	'the_file_is_not_a_supported_image' => 'الملف ليس صورة مدعومة',
+	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
 	'provider_api_logs' => 'سجلات واجهات المزوّدين',
 	'provider_api_logs_redaction_note' => 'تُزال كلمات المرور والرموز والأسرار وبيانات تواصل العملاء قبل تسجيل أي استدعاء.',
 	'provider_api_logs_subtitle' => 'كل استدعاء لأي مزوّد، الأحدث أولًا.',
@@ -4856,6 +4858,4 @@ ____________________________________________________on_search_engines_and_see_th
 	'_this_page_will_be_unavailable_throughout_the_user_section.' => ' this page will be unavailable throughout the user section.',
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
-	'the_file_is_not_a_supported_image' => 'الملف ليس صورة مدعومة',
-	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
 ];
