@@ -5,27 +5,26 @@ namespace Tests\Feature\Security;
 use App\Models\Review;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
+use Tests\Support\BuildsFulfillmentSchema;
 use Tests\TestCase;
 
 /**
  * Only the panels, and the seller APIs they use, see reviews that have not been approved. A storefront page whose address merely starts
  * with the same letters (the shop pages of a vendor, the vendor list, a seller profile) shows approved reviews only.
+ *
+ * The tables are built by the guarded schema helper: on a real MySQL server it refuses unless the database name says "test".
  */
 class ReviewVisibilityTest extends TestCase
 {
+    use BuildsFulfillmentSchema;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        Schema::dropIfExists('reviews');
-        Schema::create('reviews', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('product_id')->nullable();
-            $table->unsignedBigInteger('delivery_man_id')->nullable();
-            $table->boolean('status')->default(true);
-        });
+        $this->buildCoreSchema();
         DB::table('reviews')->insert([['status' => 1], ['status' => 1], ['status' => 0]]);
     }
 
@@ -75,5 +74,31 @@ class ReviewVisibilityTest extends TestCase
     public function test_a_command_line_run_sees_approved_reviews_only(): void
     {
         $this->assertSame(2, Review::query()->count());
+    }
+
+    #[DataProvider('databasesThatAreNotForTests')]
+    public function test_the_review_tables_are_never_rebuilt_outside_a_test_database(string $database, string $environment): void
+    {
+        config([
+            'database.default' => 'mysql',
+            'database.connections.mysql.host' => '127.0.0.1',
+            'database.connections.mysql.port' => '1',
+            'database.connections.mysql.database' => $database,
+        ]);
+        DB::purge();
+        $this->app['env'] = $environment;
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Refusing to drop every table of '{$database}'");
+
+        $this->buildCoreSchema();
+    }
+
+    public static function databasesThatAreNotForTests(): array
+    {
+        return [
+            'a production name' => ['pharmacy', 'testing'],
+            'a test database name outside the testing environment' => ['pharmacy_testing', 'production'],
+        ];
     }
 }
