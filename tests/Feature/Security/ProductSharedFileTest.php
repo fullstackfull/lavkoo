@@ -9,6 +9,7 @@ use App\Models\Seller;
 use App\Services\ProductService;
 use App\Traits\FileManagerTrait;
 use App\Utils\ImageManager;
+use App\Utils\SharedProductFile;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -79,11 +80,12 @@ class ProductSharedFileTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['thumbnail', 'preview', 'meta'] as $folder) {
+        foreach (['thumbnail', 'preview', 'meta', 'digital-product'] as $folder) {
             File::deleteDirectory(base_path(self::DIRECTORY . '/' . $folder));
         }
         File::deleteDirectory(base_path('storage/app/public/category'));
         array_map('unlink', array_filter($this->created, 'file_exists'));
+        @rmdir(base_path('storage/app/public/profile'));
         $this->restoreLanguageFiles();
 
         parent::tearDown();
@@ -247,5 +249,103 @@ class ProductSharedFileTest extends TestCase
         ImageManager::delete('/category/probe-category.png');
 
         $this->assertFileDoesNotExist(base_path('storage/app/public/category/probe-category.png'));
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function insertProduct(int $id, array $attributes = []): void
+    {
+        DB::table('products')->insert(array_merge(['id' => $id, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'T' . $id, 'name' => 'Product ' . $id, 'images' => '[]', 'colors' => '[]', 'color_image' => '[]'], $attributes));
+    }
+
+    public function test_a_product_that_names_a_file_in_its_thumbnail_its_gallery_and_its_colour_images_is_one_holder_and_deletes_it(): void
+    {
+        $entry = ['image_name' => 'triple.webp', 'storage' => 'public'];
+        $this->insertProduct(81, ['thumbnail' => 'triple.webp', 'images' => json_encode([$entry]), 'colors' => json_encode(['FF0000']), 'color_image' => json_encode([['color' => 'FF0000'] + $entry])]);
+        $this->fileOnDisk($this->product('triple.webp'), 'gallery');
+        $this->fileOnDisk($this->product('thumbnail/triple.webp'), 'thumbnail');
+
+        ImageManager::delete('/product/triple.webp');
+        ImageManager::delete('/product/thumbnail/triple.webp');
+
+        $this->assertFileDoesNotExist($this->product('triple.webp'));
+        $this->assertFileDoesNotExist($this->product('thumbnail/triple.webp'));
+    }
+
+    public function test_a_file_that_one_product_holds_only_as_a_colour_image_and_another_in_its_gallery_is_shared(): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['other.webp']), 'colors' => json_encode(['FF0000']), 'color_image' => json_encode([['color' => 'FF0000', 'image_name' => 'colour-only.webp', 'storage' => 'public']])]);
+        $this->insertProduct(82, ['images' => json_encode(['colour-only.webp'])]);
+        $this->fileOnDisk($this->product('colour-only.webp'), 'colour');
+
+        ImageManager::delete('/product/colour-only.webp');
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/colour-only.webp'));
+        $this->assertFileExists($this->product('colour-only.webp'));
+    }
+
+    public function test_a_gallery_entry_with_the_folder_in_front_counts_although_the_product_has_another_thumbnail(): void
+    {
+        $this->insertProduct(81, ['thumbnail' => 'own-thumb.webp', 'images' => json_encode(['thumbnail/claimed-thumb.webp'])]);
+        $this->insertProduct(82, ['thumbnail' => 'claimed-thumb.webp']);
+        $this->fileOnDisk($this->product('thumbnail/claimed-thumb.webp'), 'thumbnail');
+
+        ImageManager::delete('/product/thumbnail/claimed-thumb.webp');
+
+        $this->assertFileExists($this->product('thumbnail/claimed-thumb.webp'), 'product 81 claims the thumbnail of product 82 in its gallery: both hold it');
+    }
+
+    public function test_a_meta_image_that_one_product_holds_and_the_seo_row_of_another_names_is_shared(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'seo-shared.png']);
+        $this->insertProduct(82);
+        DB::table('product_seos')->insert(['product_id' => 82, 'image' => 'seo-shared.png']);
+        $this->fileOnDisk($this->product('meta/seo-shared.png'), 'meta');
+
+        ImageManager::delete('/product/meta/seo-shared.png');
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/meta/seo-shared.png'));
+        $this->assertFileExists($this->product('meta/seo-shared.png'));
+    }
+
+    public function test_a_meta_image_that_a_product_holds_in_its_row_and_in_its_seo_row_is_one_holder_and_goes_with_it(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'seo-own.png']);
+        DB::table('product_seos')->insert(['product_id' => 81, 'image' => 'seo-own.png']);
+        $this->fileOnDisk($this->product('meta/seo-own.png'), 'meta');
+
+        ImageManager::delete('/product/meta/seo-own.png');
+
+        $this->assertFileDoesNotExist($this->product('meta/seo-own.png'));
+    }
+
+    public function test_a_digital_file_that_a_product_holds_in_its_row_and_in_a_variation_is_one_holder_and_goes_with_it(): void
+    {
+        $this->insertProduct(81, ['digital_file_ready' => 'own-book.zip']);
+        DB::table('digital_product_variations')->insert(['product_id' => 81, 'file' => 'own-book.zip']);
+        $this->fileOnDisk($this->product('digital-product/own-book.zip'), 'zip');
+
+        ImageManager::delete('/product/digital-product/own-book.zip');
+
+        $this->assertFileDoesNotExist($this->product('digital-product/own-book.zip'));
+    }
+
+    public function test_a_file_outside_the_product_directory_is_deleted_although_two_products_name_it(): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['profile-like.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['profile-like.webp'])]);
+        $this->fileOnDisk(base_path('storage/app/public/profile/profile-like.webp'), 'profile');
+
+        ImageManager::delete('profile/profile-like.webp');
+
+        $this->assertFileDoesNotExist(base_path('storage/app/public/profile/profile-like.webp'), 'a profile picture is no product file');
+    }
+
+    public function test_a_path_with_a_second_folder_level_is_no_thumbnail_even_when_two_products_hold_that_name_as_thumbnail(): void
+    {
+        $this->insertProduct(81, ['thumbnail' => 'deep.webp']);
+        $this->insertProduct(82, ['thumbnail' => 'deep.webp']);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/thumbnail/deeper/deep.webp'));
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/thumbnail/deep.webp'));
     }
 }
