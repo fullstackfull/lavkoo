@@ -15484,6 +15484,7 @@ return [
 	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
 	'the_path_is_not_valid' => 'المسار غير صالح',
 	'the_language_code_is_not_valid' => 'رمز اللغة غير صالح',
+	'the_archive_holds_no_file_that_can_be_stored' => 'لا يحتوي الأرشيف على ملف يمكن حفظه',
 	'provider_api_logs' => 'سجلات واجهات المزوّدين',
 	'provider_api_logs_redaction_note' => 'تُزال كلمات المرور والرموز والأسرار وبيانات تواصل العملاء قبل تسجيل أي استدعاء.',
 	'provider_api_logs_subtitle' => 'كل استدعاء لأي مزوّد، الأحدث أولًا.',

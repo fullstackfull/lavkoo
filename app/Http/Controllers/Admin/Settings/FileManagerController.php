@@ -87,10 +87,12 @@ class FileManagerController extends BaseController
             ToastMagic::info(translate('This_option_is_disabled_for_demo'));
             return back();
         }
-        $fileManagerService->uploadFileAndImages(request: $request);
+        $isStored = $fileManagerService->uploadFileAndImages(request: $request);
         cacheRemoveByType(type: 'file_manager');
 
-        if ($request->has('images')) {
+        if (!$isStored) {
+            ToastMagic::error(translate('the_archive_holds_no_file_that_can_be_stored'));
+        } elseif ($request->has('images')) {
             ToastMagic::success(translate('image_uploaded_successfully'));
         } else {
             ToastMagic::success(translate('File_uploaded_successfully'));

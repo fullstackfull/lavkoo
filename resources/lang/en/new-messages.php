@@ -8894,6 +8894,7 @@ return [
 	'the_file_name_is_not_valid' => 'The file name is not valid',
 	'the_path_is_not_valid' => 'The path is not valid',
 	'the_language_code_is_not_valid' => 'The language code is not valid',
+	'the_archive_holds_no_file_that_can_be_stored' => 'The archive holds no file that can be stored',
 	'provider_api_logs' => 'Provider API logs',
 	'provider_api_logs_redaction_note' => 'Passwords, tokens, secrets and customer contact details are removed before a call is logged.',
 	'provider_api_logs_subtitle' => 'Every call to a provider, newest first.',

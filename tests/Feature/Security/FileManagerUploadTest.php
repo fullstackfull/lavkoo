@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
@@ -146,6 +147,77 @@ class FileManagerUploadTest extends TestCase
         $this->assertSame(['archive.tar.zip', 'my.holiday.photo.jpg', 'photo.jpg', 'php.jpg', 'phpinfo-notes.txt', 'v1.2.pdf'], $copied);
     }
 
+    public function test_a_zip_entry_that_the_disk_would_refuse_is_not_copied(): void
+    {
+        $entries = ["line\nbreak.png" => $this->jpeg(), "zero\u{200B}width.png" => $this->jpeg(), "right\u{202E}left.png" => $this->jpeg(), "delete\x7F.png" => $this->jpeg(), 'ok.jpg' => $this->jpeg()];
+
+        $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+
+        $copied = array_map(static fn ($file): string => $file->getRelativePathname(), File::allFiles(storage_path('app/public/' . self::FOLDER), true));
+        $this->assertSame(['ok.jpg'], $copied);
+    }
+
+    public function test_the_unpacking_directory_is_gone_after_a_copy(): void
+    {
+        $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'shell.php' => '<?php'])]));
+
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_the_unpacking_directory_is_gone_after_a_copy_that_fails_and_no_script_was_ever_unpacked(): void
+    {
+        File::ensureDirectoryExists(storage_path('app/public/' . self::FOLDER));
+        file_put_contents(storage_path('app/public/' . self::FOLDER . '/d.jpg'), 'a file where the zip wants a folder');
+        $archive = $this->zipUpload(['shell.php' => '<?php echo "LEFTOVER";', 'a.jpg' => $this->jpeg(), 'd.jpg/inner.jpg' => $this->jpeg()]);
+        $unpackedScripts = [];
+        $watch = static function () use (&$unpackedScripts): void {
+            foreach (glob(storage_path('app/temp-zip-*/shell.php')) ?: [] as $script) {
+                $unpackedScripts[] = $script;
+            }
+        };
+
+        try {
+            $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $archive]));
+        } catch (\Throwable) {
+            $watch();
+        }
+
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: [], 'the directory is removed although the copy failed');
+        $this->assertSame([], $unpackedScripts);
+    }
+
+    public function test_an_archive_that_holds_nothing_the_gallery_stores_is_reported_as_not_stored(): void
+    {
+        $nothing = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['icons/a.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>', 'b.php' => '<?php', 'c.php.jpg' => '<?php'])]));
+        $something = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'b.php' => '<?php'])]));
+
+        $this->assertFalse($nothing);
+        $this->assertTrue($something);
+    }
+
+    public function test_an_archive_with_more_entries_than_a_gallery_needs_is_refused_before_anything_is_written(): void
+    {
+        $entries = [];
+        foreach (range(1, 5001) as $number) {
+            $entries["image-{$number}.txt"] = 'x';
+        }
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
+
+        $this->assertFalse($stored);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_an_archive_that_is_mostly_empty_space_is_refused_before_anything_is_written(): void
+    {
+        // about 60 MB of zeros that a zip stores in about 60 KB
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['big.jpg' => str_repeat("\0", 60 * 1024 * 1024)])]));
+
+        $this->assertFalse($stored);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+    }
+
     /** @return array<string, array{0: string}> */
     public static function foldersThatLeaveThePublicDisk(): array
     {
@@ -219,6 +291,33 @@ class FileManagerUploadTest extends TestCase
 
         $this->assertSame([], is_dir($bucket) ? File::allFiles($bucket) : []);
         $this->assertFileExists(storage_path('app/public/' . self::FOLDER . '/photo.jpg'));
+    }
+
+    public function test_on_s3_an_image_keeps_its_name_but_gets_an_extension_of_a_data_type(): void
+    {
+        Storage::fake('s3');
+        Cache::put('storage_connection_type', 's3');
+
+        $this->service()->uploadFileAndImages(Request::create('/', 'POST', ['storage' => 's3', 'path' => self::FOLDER], [], ['images' => [$this->imageUpload('photo.php'), $this->imageUpload('holiday.html'), $this->imageUpload('fine.png')]]));
+
+        $stored = Storage::disk('s3')->allFiles(self::FOLDER);
+        sort($stored);
+        $this->assertSame([self::FOLDER . '/fine.png', self::FOLDER . '/holiday.jpg', self::FOLDER . '/photo.jpg'], $stored);
+    }
+
+    public function test_on_s3_a_zip_stores_only_files_of_a_data_type_under_generated_names(): void
+    {
+        Storage::fake('s3');
+        Cache::put('storage_connection_type', 's3');
+
+        $this->service()->uploadFileAndImages(Request::create('/', 'POST', ['storage' => 's3', 'path' => self::FOLDER], [], ['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'b.pdf' => '%PDF-1.4', 'shell.php' => '<?php', 'page.html' => '<script>alert(1)</script>', 'c.php.jpg' => '<?php'])]));
+
+        // the name is generated, so the script extension inside `c.php.jpg` is not in what is stored
+        $stored = Storage::disk('s3')->allFiles(self::FOLDER);
+        $this->assertCount(3, $stored);
+        foreach ($stored as $name) {
+            $this->assertMatchesRegularExpression('#^' . self::FOLDER . '/\d{4}-\d{2}-\d{2}-[0-9a-f]+\.(jpg|pdf)$#', $name);
+        }
     }
 
     // ---- the form ---------------------------------------------------------------------------------------------------------------

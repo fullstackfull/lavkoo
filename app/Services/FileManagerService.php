@@ -14,6 +14,12 @@ use ZipArchive;
 
 class FileManagerService
 {
+    /** An archive with more entries than a gallery needs, or one that is mostly empty space (a 200 KB zip that holds 100 MB), is a way to fill a disk. */
+    private const MOST_ARCHIVE_ENTRIES = 5000;
+
+    private const LARGE_ARCHIVE_BYTES = 50 * 1024 * 1024;
+
+    private const MOST_COMPRESSION_RATIO = 100;
 
     /** The disk the gallery works on: S3 only when the shop keeps its files there, whatever disk the request names. */
     public function galleryDisk(mixed $requested): string
@@ -49,6 +55,10 @@ class FileManagerService
             if ($storage === 's3') {
                 $zip = new ZipArchive;
                 if ($zip->open($file->path()) === true) {
+                    if ($this->storableEntries(zip: $zip) === null) {
+                        $zip->close();
+                        return false;
+                    }
                     for ($i = 0; $i < $zip->numFiles; $i++) {
                         $stat = $zip->statIndex($i);
 
@@ -68,39 +78,75 @@ class FileManagerService
                     }
                     $zip->close();
                 }
-            } else {
-                $zip = new ZipArchive();
-                if ($zip->open($request->file('file')) === TRUE) {
-                    $genFolderName = explode('/', $zip->getNameIndex(0))[0];
-                    if ($genFolderName === "__MACOSX") {
-                        for ($i = 0; $i < $zip->numFiles; $i++) {
-                            if (!str_contains($zip->getNameIndex($i), "__MACOSX")) {
-                                break;
-                            }
-                        }
-                    }
-
-                    $tempPath = storage_path('app/temp-zip-' . Str::random(10));
-                    File::makeDirectory($tempPath);
-                    $zip->extractTo($tempPath);
-                    $zip->close();
-                    if (File::exists($tempPath . '/__MACOSX')) {
-                        File::deleteDirectory($tempPath . '/__MACOSX');
-                    }
-
-                    $destination = $folder === 'public'
-                        ? storage_path('app/public')
-                        : storage_path('app/public/' . $folder);
-                    $this->copyAndTouch($tempPath, $destination);
-
-                    File::deleteDirectory($tempPath);
-                    cacheRemoveByType(type: 'file_manager');
-                } else {
-                    return false;
-                }
+            } elseif (!$this->unpackArchive(archive: $request->file('file'), folder: $folder)) {
+                return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Unpacks the entries of an archive that the gallery stores into a folder of the public disk. The entries are chosen before anything is
+     * written, so a script in the archive never reaches the disk, and the unpacking directory goes whatever happens to the copy.
+     */
+    private function unpackArchive(mixed $archive, string $folder): bool
+    {
+        $zip = new ZipArchive();
+        if ($zip->open($archive) !== true) {
+            return false;
+        }
+
+        $entries = $this->storableEntries(zip: $zip);
+        if ($entries === null || $entries === []) {
+            $zip->close();
+            return false;
+        }
+
+        $tempPath = storage_path('app/temp-zip-' . Str::random(10));
+        File::makeDirectory($tempPath);
+        try {
+            $zip->extractTo($tempPath, $entries);
+            $zip->close();
+            $this->copyAndTouch($tempPath, $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder));
+        } finally {
+            File::deleteDirectory($tempPath);
+        }
+        cacheRemoveByType(type: 'file_manager');
+
+        return true;
+    }
+
+    /** @return list<string>|null the names of the entries the gallery stores, or nothing when the archive is a way to fill the disk */
+    private function storableEntries(ZipArchive $zip): ?array
+    {
+        if ($zip->numFiles > self::MOST_ARCHIVE_ENTRIES) {
+            return null;
+        }
+
+        $entries = [];
+        $size = 0;
+        $compressedSize = 0;
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $stat = $zip->statIndex($index);
+            $size += $stat['size'];
+            $compressedSize += $stat['comp_size'];
+            if ($this->isStorableEntry(name: (string)$stat['name'])) {
+                $entries[] = $stat['name'];
+            }
+        }
+
+        return $size > self::LARGE_ARCHIVE_BYTES && $size > $compressedSize * self::MOST_COMPRESSION_RATIO ? null : $entries;
+    }
+
+    /** A file of a data type, under a name the disk accepts, that holds no script extension and is no metadata of the system that made the archive. */
+    private function isStorableEntry(string $name): bool
+    {
+        return $name !== ''
+            && !str_ends_with($name, '/')
+            && !self::shouldSkip($name)
+            && PlainFileName::staysInside(path: $name)
+            && StoredFileExtension::isDataType(extension: pathinfo($name, PATHINFO_EXTENSION))
+            && !StoredFileExtension::hidesHandler(fileName: basename($name));
     }
 
     private function copyAndTouch($src, $dst): void
