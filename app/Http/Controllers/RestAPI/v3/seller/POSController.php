@@ -308,6 +308,10 @@ class POSController extends Controller
             ]);
         }
 
+        if ($unavailableProductResponse = $this->unavailableProductResponse(modifiedCart: $request['modified_cart'], sellerId: $seller->id)) {
+            return $unavailableProductResponse;
+        }
+
         $deliveryShippingAddress = $fulfillment == 'delivery' ? $this->orderAddresses->latestSavedAddress(customerId: $customerId) : null;
         if ($deliveryShippingAddress) {
             try {
@@ -333,18 +337,6 @@ class POSController extends Controller
         $generateOrderID = self::getOrderNewId();
 
         if ($request['modified_cart']) {
-            foreach ($request['modified_cart'] as $cartItem) {
-                if (is_array($cartItem)) {
-                    $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $seller->id);
-                    if (!$product || $cartItem['quantity'] > $product['current_stock']) {
-                        return response()->json([
-                            'product_not_available' => true,
-                            'message' => trim(($product['name'] ?? '') . ' ' . translate('not_available_for_order_place'))
-                        ]);
-                    }
-                }
-            }
-
             foreach ($request['modified_cart'] as $cartItem) {
                 if (is_array($cartItem)) {
                     $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $seller->id);
@@ -428,6 +420,25 @@ class POSController extends Controller
             event(new DigitalProductDownloadEvent(email: $order->customer['email'], data: $data));
         }
         return response()->json(['order_id' => $generateOrderID], 200);
+    }
+
+    private function unavailableProductResponse(mixed $modifiedCart, int|string $sellerId): ?JsonResponse
+    {
+        foreach ($modifiedCart ?: [] as $cartItem) {
+            if (!is_array($cartItem)) {
+                continue;
+            }
+
+            $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $sellerId);
+            if (!$product || $cartItem['quantity'] > $product['current_stock']) {
+                return response()->json([
+                    'product_not_available' => true,
+                    'message' => trim(($product['name'] ?? '') . ' ' . translate('not_available_for_order_place'))
+                ]);
+            }
+        }
+
+        return null;
     }
 
     private function ownedCartProduct(array $cartItem, int|string $sellerId): ?Product

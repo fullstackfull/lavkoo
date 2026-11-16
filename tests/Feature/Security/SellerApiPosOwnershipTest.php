@@ -12,7 +12,8 @@ use Tests\TestCase;
 /**
  * The seller app's point of sale prices a cart and then sells it. Both steps take product ids from the app, so each must sell only the
  * caller's own products: another seller's product, and the in-house shop's product whose user_id equals this seller's id, are neither
- * priced nor sold, and no stock is taken from them. A sale that names one product that is not the caller's is refused as a whole.
+ * priced nor sold, and no stock is taken from them. A sale that names one product that is not the caller's is refused as a whole, and a
+ * refused sale writes nothing: a customer whose wallet pays for it is not charged.
  */
 class SellerApiPosOwnershipTest extends TestCase
 {
@@ -21,6 +22,7 @@ class SellerApiPosOwnershipTest extends TestCase
     private const OWN_PRODUCT = 10;
     private const OTHER_SELLERS_PRODUCT = 20;
     private const IN_HOUSE_PRODUCT = 30;
+    private const CUSTOMER = 7;
 
     protected function setUp(): void
     {
@@ -29,6 +31,7 @@ class SellerApiPosOwnershipTest extends TestCase
         $this->buildSellerApiWorld();
         $this->createPosTables();
         $this->seedProducts();
+        $this->seedCustomerWithWallet();
 
         Cache::put('tax_system_type_vendor_with_vat', [
             'SystemTaxVat' => null, 'SystemTaxVatType' => 'order_wise', 'is_included' => 1, 'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([]),
@@ -86,6 +89,79 @@ class SellerApiPosOwnershipTest extends TestCase
         $this->assertSame([self::OWN_PRODUCT, self::SELLER, 3], [(int) $line->product_id, (int) $line->seller_id, (int) $line->qty]);
     }
 
+    // ---- a sale paid from the customer's wallet ----
+
+    public function test_a_wallet_sale_naming_another_sellers_product_is_refused_before_the_customer_is_charged(): void
+    {
+        $response = $this->placeWalletOrder([$this->line(self::OTHER_SELLERS_PRODUCT, quantity: 2)]);
+
+        $this->assertWalletUntouched();
+        $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame([0, 0], $this->orderAndLineCounts());
+        $this->assertTrue($response->json('product_not_available'));
+    }
+
+    public function test_a_wallet_sale_naming_the_in_house_product_sharing_the_sellers_id_is_refused_before_the_customer_is_charged(): void
+    {
+        $response = $this->placeWalletOrder([$this->line(self::IN_HOUSE_PRODUCT, quantity: 2)]);
+
+        $this->assertWalletUntouched();
+        $this->assertSame([0, 0], $this->orderAndLineCounts());
+        $this->assertTrue($response->json('product_not_available'));
+    }
+
+    public function test_a_wallet_sale_naming_an_own_and_another_sellers_product_is_refused_before_the_customer_is_charged(): void
+    {
+        $response = $this->placeWalletOrder([$this->line(self::OWN_PRODUCT, quantity: 2), $this->line(self::OTHER_SELLERS_PRODUCT, quantity: 2)], paidAmount: 400);
+
+        $this->assertWalletUntouched();
+        $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame([0, 0], $this->orderAndLineCounts());
+        $this->assertTrue($response->json('product_not_available'));
+    }
+
+    public function test_a_wallet_sale_of_more_than_the_stock_is_refused_before_the_customer_is_charged(): void
+    {
+        DB::table('products')->where('id', self::OWN_PRODUCT)->update(['current_stock' => 1]);
+
+        $response = $this->placeWalletOrder([$this->line(self::OWN_PRODUCT, quantity: 2)]);
+
+        $this->assertWalletUntouched();
+        $this->assertSame([1, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame([0, 0], $this->orderAndLineCounts());
+        $this->assertTrue($response->json('product_not_available'));
+    }
+
+    public function test_the_seller_can_still_sell_their_own_product_for_the_customers_wallet_which_is_debited_once(): void
+    {
+        $response = $this->placeWalletOrder([$this->line(self::OWN_PRODUCT, quantity: 2)]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $orderId = $response->json('order_id');
+        $this->assertNotNull($orderId);
+        $this->assertEqualsWithDelta(800.0, $this->walletBalanceOfTheCustomer(), 0.001);
+        $transactions = DB::table('wallet_transactions')->get();
+        $this->assertCount(1, $transactions);
+        $this->assertSame([self::CUSTOMER, 'order_place_in_pos'], [(int) $transactions[0]->user_id, $transactions[0]->reference]);
+        $this->assertEqualsWithDelta(200.0, (float) $transactions[0]->debit, 0.001);
+        $order = DB::table('orders')->where('id', $orderId)->first();
+        $this->assertSame([self::SELLER, self::CUSTOMER, 'wallet', 'POS'], [(int) $order->seller_id, (int) $order->customer_id, $order->payment_method, $order->order_type]);
+        $this->assertSame([48, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame([1, 1], $this->orderAndLineCounts());
+    }
+
+    public function test_a_wallet_sale_the_balance_cannot_pay_still_asks_for_balance_and_writes_nothing(): void
+    {
+        DB::table('users')->where('id', self::CUSTOMER)->update(['wallet_balance' => 100]);
+
+        $response = $this->placeWalletOrder([$this->line(self::OWN_PRODUCT, quantity: 2)]);
+
+        $this->assertTrue($response->json('need_balance'));
+        $this->assertEqualsWithDelta(100.0, $this->walletBalanceOfTheCustomer(), 0.001);
+        $this->assertSame(0, DB::table('wallet_transactions')->count());
+        $this->assertSame([0, 0], $this->orderAndLineCounts());
+    }
+
     // ---- pricing the cart ----
 
     public function test_the_cart_of_another_sellers_product_is_not_priced(): void
@@ -125,6 +201,23 @@ class SellerApiPosOwnershipTest extends TestCase
     private function placeOrder(array $lines): TestResponse
     {
         return $this->sellerApi('POST', 'pos/place-order', ['customer_id' => 0, 'payment_method' => 'cash', 'paid_amount' => 500, 'cart' => $lines, 'modified_cart' => $lines]);
+    }
+
+    /** @param list<array<string, mixed>> $lines */
+    private function placeWalletOrder(array $lines, float $paidAmount = 200): TestResponse
+    {
+        return $this->sellerApi('POST', 'pos/place-order', ['customer_id' => self::CUSTOMER, 'payment_method' => 'wallet', 'paid_amount' => $paidAmount, 'cart' => $lines, 'modified_cart' => $lines]);
+    }
+
+    private function assertWalletUntouched(): void
+    {
+        $this->assertEqualsWithDelta(1000.0, $this->walletBalanceOfTheCustomer(), 0.001, 'the customer was charged');
+        $this->assertSame(0, DB::table('wallet_transactions')->count(), 'a wallet debit was recorded');
+    }
+
+    private function walletBalanceOfTheCustomer(): float
+    {
+        return (float) DB::table('users')->where('id', self::CUSTOMER)->value('wallet_balance');
     }
 
     /** @return array<string, mixed> */
@@ -267,6 +360,24 @@ class SellerApiPosOwnershipTest extends TestCase
             $table->string('code')->nullable();
             $table->timestamps();
         });
+        $this->createSellerApiTable('users', function (Blueprint $table) {
+            $table->string('f_name')->nullable();
+            $table->string('l_name')->nullable();
+            $table->decimal('wallet_balance', 16, 2)->default(0);
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('wallet_transactions', function (Blueprint $table) {
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('transaction_id')->nullable();
+            $table->string('reference')->nullable();
+            $table->string('transaction_type')->nullable();
+            $table->string('payment_method')->nullable();
+            $table->decimal('credit', 16, 2)->default(0);
+            $table->decimal('debit', 16, 2)->default(0);
+            $table->decimal('balance', 16, 2)->default(0);
+            $table->decimal('admin_bonus', 16, 2)->default(0);
+            $table->timestamps();
+        });
         $this->createSellerApiTable('orders', function (Blueprint $table) {
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->unsignedBigInteger('seller_id')->nullable();
@@ -298,6 +409,12 @@ class SellerApiPosOwnershipTest extends TestCase
             $table->text('variation')->nullable();
             $table->timestamps();
         });
+    }
+
+    private function seedCustomerWithWallet(): void
+    {
+        DB::table('users')->insert(['id' => self::CUSTOMER, 'f_name' => 'Customer', 'l_name' => 'Wallet', 'wallet_balance' => 1000]);
+        DB::table('business_settings')->insert(['type' => 'wallet_status', 'value' => '1']);
     }
 
     private function seedProducts(): void
