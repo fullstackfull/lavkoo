@@ -26,6 +26,11 @@ class SellerStaffAccessMiddleware
     private const ALLOW = '__allow__';
     private const DENY = '__deny__';
 
+    /** GET routes of the vendor panel that change something: the map asks for the write permission of their domain, as it does for a POST. */
+    private const STATE_CHANGING_GET_ROUTES = [
+        'vendor.orders.add-delivery-man', 'vendor.products.delete-image', 'vendor.reviews.update-status', 'vendor.coupon.update-status',
+    ];
+
     public function __construct(private readonly SellerPermissionService $permissions)
     {
     }
@@ -75,19 +80,24 @@ class SellerStaffAccessMiddleware
         }
 
         $area = $request->segment(2);          // the part after /vendor/
-        $isWrite = !$request->isMethod('get') && !$request->isMethod('head');
+        $isWrite = (!$request->isMethod('get') && !$request->isMethod('head')) || in_array($request->route()->getName(), self::STATE_CHANGING_GET_ROUTES, true);
 
         return match ($area) {
             // Navigation, self-service and read-only cockpit — any active staff member.
-            'auth', 'staff-auth', 'dashboard', 'notification', 'messages', 'v2', 'system', 'seller-center'
+            'auth', 'staff-auth', 'dashboard', 'notification', 'messages', 'v2', 'seller-center'
                 => self::ALLOW,
+
+            // The signed-in seller's web push token. A staff member signs in as the owner, so their browser's token would replace the
+            // owner's (one column of the seller's row) and redirect the shop's order and chat alerts to it: saving it is the owner's alone.
+            'system' => self::DENY,
 
             // The owner's profile and the shop's page. Reading them is how a staff member sees which shop they work for. Changing the
             // account itself (password, name, phone, photo) is refused to every staff member, whatever their role: a role that could
             // change the owner's password could take the shop, so no permission grants it, exactly as the seller app's `seller_owner`
             // gate. Changing the shop (details, vacation, temporary close, order settings) takes shop_settings.manage, as its
-            // `seller_can` gate does.
-            'profile' => $isWrite ? self::DENY : self::ALLOW,
+            // `seller_can` gate does. The profile index is the bank information card (holder, bank, branch, account number), so it asks for
+            // payouts.request, as the bank information page beside it does.
+            'profile' => $isWrite ? self::DENY : ($request->segment(3) === 'index' ? 'payouts.request' : self::ALLOW),
             'shop' => $isWrite ? 'shop_settings.manage' : self::ALLOW,
 
             // The Seller Center's own screens. They sit on the same `/vendor` prefix as the classic
