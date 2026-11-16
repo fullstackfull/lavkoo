@@ -206,4 +206,18 @@ class SellerPublicSerializationTest extends TestCase
         $this->assertNotSame(self::REMEMBER_TOKEN, Seller::findOrFail(7)->remember_token);
         $this->assertNotSame(str_repeat('t', 80), Seller::findOrFail(7)->auth_token);
     }
+
+    public function test_the_deploy_cleanup_clears_every_stored_remember_me_token_and_nothing_else(): void
+    {
+        $this->sellerWithEverything();
+        DB::table('sellers')->insert(['id' => 8, 'f_name' => 'Other', 'email' => 'other@example.test', 'status' => 'approved', 'remember_token' => 'ANOTHER-TOKEN', 'auth_token' => 'keep-me']);
+        DB::table('sellers')->insert(['id' => 9, 'f_name' => 'Never ticked it', 'email' => 'never@example.test', 'status' => 'pending', 'remember_token' => null]);
+
+        (require database_path('migrations/2026_11_26_100200_clear_seller_remember_tokens.php'))->up();
+
+        $this->assertSame(0, DB::table('sellers')->whereNotNull('remember_token')->count());
+        $this->assertSame(3, DB::table('sellers')->count());
+        $this->assertSame('keep-me', DB::table('sellers')->where('id', 8)->value('auth_token'));
+        $this->assertSame('approved', DB::table('sellers')->where('id', 7)->value('status'));
+    }
 }
