@@ -344,28 +344,7 @@ class CartController extends Controller
         $user = Helpers::getCustomerInformation($request);
         if ($user != 'offline') {
             if (isset($request['cart_guest_id']) && !is_null($request['cart_guest_id'])) {
-                $cartList = Cart::where(['is_guest' => 1, 'customer_id' => $request['cart_guest_id']])->get();
-                foreach ($cartList as $cart) {
-                    $databaseCart = Cart::where([
-                        'customer_id' => $user->id,
-                        'seller_id' => $cart['seller_id'],
-                        'seller_is' => $cart['seller_is']
-                    ])->first();
-
-                    Cart::where([
-                        'customer_id' => $user->id,
-                        'product_id' => $cart['product_id'],
-                        'variant' => $cart['variant'],
-                        'seller_id' => $cart['seller_id'],
-                        'seller_is' => $cart['seller_is']
-                    ])->delete();
-
-                    Cart::where(['id' => $cart['id']])->update([
-                        'cart_group_id' => isset($databaseCart) ? $databaseCart['cart_group_id'] : str_replace('guest', $user['id'], $cart['cart_group_id']),
-                        'customer_id' => $user['id'],
-                        'is_guest' => 0,
-                    ]);
-                }
+                CartManager::moveGuestCartToCustomer(guestId: $request['cart_guest_id'], customerId: $user->id);
             }
             return response()->json(['message' => translate('Cart_update_successfully')], 200);
         }
