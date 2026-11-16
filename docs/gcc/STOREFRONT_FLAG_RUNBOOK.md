@@ -1,7 +1,7 @@
 # Storefront flag runbook (GCC-02/03, GCC-11)
 
 What an operator needs to know before `GCC_STOREFRONTS_ENABLED` is turned on, and how a country is switched off afterwards. Written from the
-code of the draft stack #47, #48, #49, #50 and #53, and from the second independent review of it (37 agents, every finding reproduced by
+code of the draft stack #47, #48, #49, #50 and #53, and from the second and third independent reviews of it (every finding reproduced by
 running it). Nothing here has been run on the pilot server or on production.
 
 ## What the flag is
@@ -17,13 +17,11 @@ seller APIs (`api/v2`, `api/v3`), queues and the console are never narrowed and 
 
 ## Before turning it on
 
-1. **Migrations have run**: #38, #43 and #47. The products migration adds `storefront_country CHAR(2) CHARACTER SET ascii COLLATE ascii_bin NOT
-   NULL DEFAULT 'SA'` and the index `products_storefront_id_idx (storefront_country, id)`. Measured on MySQL 8.0.46 with 200,000 products
-   (62 columns, 15 indexes): both statements about 1 s together, the column added instantly, the index online (`ALGORITHM=INPLACE,
-   LOCK=NONE` accepted), a concurrent writer saw no error and a worst stall of 83 ms. **MariaDB 11.4.2 (the pilot's engine) has not been run
-   with this migration.** The storefront tests now run on it in CI. Before scheduling the ALTER on the pilot, read `@@version`,
-   `@@lock_wait_timeout`, `@@alter_algorithm`, `@@old_alter_table` and `@@innodb_online_alter_log_max_size`, and rehearse it on a staging
-   copy.
+1. **Migrations have run**: #38, #43 and #47. The products migration adds one column, `storefront_country CHAR(2) CHARACTER SET ascii
+   COLLATE ascii_bin NOT NULL DEFAULT 'SA'`, and no index (see "The column has no index" below). Measured on MySQL 8.0.46 with 200,000
+   products (62 columns, 15 indexes): the column was added instantly. **MariaDB 11.4.2 (the pilot's engine) has not been run with this
+   migration.** The storefront tests now run on it in CI. Before scheduling the ALTER on the pilot, read `@@version`, `@@lock_wait_timeout`
+   and `@@alter_algorithm`, and rehearse it on a staging copy.
 2. **The stack and the search fix are merged in order**: #46 first (translated-name searches and the search category filter must go through
    `Product::active()`, which is what narrows them), then #28, #37, #38, #39, #42, #43, #47, #48, #49, #50, #53. The independent fixes #54
    (cart row ownership), #55 (referral first order) and #56 (payment hook state) do not depend on the stack.
@@ -40,6 +38,27 @@ seller APIs (`api/v2`, `api/v3`), queues and the console are never narrowed and 
    Products cached by the previous release do not hide the new column from JSON (`$hidden` is part of the cached object), and the
    per-storefront copies written while the flag was on are not cleared by a product edit made while it was off, so they would be served again
    after the next flip.
+
+## The column has no index
+
+The first versions of #47 added an index on the column. The third review measured the one that was kept, `(storefront_country, id)`, on
+MySQL 8.0.46 with 200,000 products: with the flag on the optimizer merged it with the selective seller and category indexes, even while every
+product was Saudi, so a vendor's product list went from 7 ms to 102 ms, a category list became 5 to 6 times slower, and every count behind a
+paginated list 1.6 times slower. With `index_merge_intersection=off` the plans were the flag-off plans again, which is why it was the index
+and not the filter. MariaDB 11.4.2 was not measured. The migration therefore adds the column only.
+
+What that leaves: an id-ordered public list (`ORDER BY id DESC LIMIT 20`) of a storefront whose products are older than another country's
+import steps over the newer foreign rows before it finds its own. Measured earlier on the same table: 1.9 ms became 281 ms, and page 100 of the
+list 8 ms became 337 ms, when most of the newer rows were another country's. Nothing is lost while every product is Saudi.
+
+When the first non-Saudi catalogue is about to be imported, read the plans on a copy of the real data (the shop page, a vendor page, a
+category page, the search page, and the count behind each). Add an index only if a list is slow, and read the plans again afterwards:
+
+```sql
+ALTER TABLE products ADD INDEX products_storefront_id_idx (storefront_country, id), ALGORITHM=INPLACE, LOCK=NONE;
+```
+
+Rolling the products migration back drops an index of that name if one exists.
 
 ## Switching a country off
 
@@ -88,6 +107,8 @@ no storefront at all; the order is built in the storefront recorded with the pay
 - Currency display, an order's own currency, tax by country and three-decimal currencies (KWD, BHD, OMR) are separate work (GCC-05); see the
   first step above. A product row is not converted from one country's price to another's, but nothing yet makes a country's amount display in
   that country's currency.
+- The link in an abandoned-cart email carries the storefront the cart was made in, and the first page it opens is served from it. The website
+  has no storefront picker yet, so the next click goes back to the default storefront.
 - The auction module's products carry no country.
 - `storage/logs/order_generate_test.txt` is written by the payment hook on every paid order (customer id, guest id, address id, order ids).
   It is debugging that was never removed and should be.

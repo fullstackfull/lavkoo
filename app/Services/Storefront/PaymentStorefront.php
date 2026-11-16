@@ -43,19 +43,6 @@ final class PaymentStorefront
             ? StorefrontResolver::fromConfig()->contextOfRecordedCountry($additionalData[self::KEY] ?? null)
             : null;
 
-        if ($context === null) {
-            return $callback();
-        }
-
-        $requestContext = app()->bound(StorefrontContext::class) ? app(StorefrontContext::class) : null;
-        app()->instance(StorefrontContext::class, $context);
-
-        try {
-            return $callback();
-        } finally {
-            $requestContext === null
-                ? app()->forgetInstance(StorefrontContext::class)
-                : app()->instance(StorefrontContext::class, $requestContext);
-        }
+        return $context === null ? $callback() : $context->serve(callback: $callback);
     }
 }
