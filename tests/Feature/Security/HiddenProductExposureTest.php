@@ -562,6 +562,28 @@ class HiddenProductExposureTest extends TestCase
         $this->assertSame(0, DB::table('carts')->count());
     }
 
+    private function updateVariation(int $productId, int $cartRowId = 987654): TestResponse
+    {
+        return $this->withSession(['guest_id' => 'guest-1'])->postJson('/cart/update-variation', ['product_id' => $productId, 'id' => $cartRowId, 'quantity' => 1, 'variant_key' => null, 'current_variant_key' => null], self::AJAX);
+    }
+
+    /** The route that re-prices a cart line (it has no caller in this repository) answered for a hidden product with its price, and put a row in the cart for a hidden digital product. */
+    public function test_the_update_variation_route_refuses_a_hidden_product_like_an_unknown_one_and_stores_no_row(): void
+    {
+        $this->openTheShopForTheCart();
+        $this->insertProduct(id: 21, name: 'Hidden digital download', status: 0, extra: ['product_type' => 'digital']);
+        $unknown = $this->updateVariation(999);
+
+        $this->assertSame(['status' => 0, 'message' => translate('Product_is_unavailable')], $unknown->json());
+        foreach ([...self::HIDDEN_PRODUCTS, 21] as $hiddenId) {
+            $hidden = $this->updateVariation($hiddenId);
+
+            $this->assertSame($unknown->getStatusCode(), $hidden->getStatusCode(), "product {$hiddenId}");
+            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+        }
+        $this->assertSame(0, DB::table('carts')->count());
+    }
+
     public function test_the_wishlist_adds_the_visible_products_to_the_cart_and_passes_over_those_a_customer_may_not_see(): void
     {
         $this->openTheShopForTheCart();
