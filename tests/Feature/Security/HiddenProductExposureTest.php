@@ -509,6 +509,19 @@ class HiddenProductExposureTest extends TestCase
         $this->assertEquals([1, 3], DB::table('carts')->orderBy('product_id')->pluck('product_id')->all());
     }
 
+    /** The default theme's quick view does not print its related products, so what a customer may see of them is what the view is handed. */
+    public function test_the_quick_view_is_handed_only_related_products_a_customer_may_see(): void
+    {
+        $relatedProductIds = null;
+        View::composer(VIEW_FILE_NAMES['product_quick_view_partials'], function ($view) use (&$relatedProductIds) {
+            $relatedProductIds = $this->idsOf($view->getData()['relatedProducts']);
+        });
+
+        $this->getJson('/quick-view?product_id=1')->assertOk()->assertJson(['success' => 1]);
+
+        $this->assertSame([3], $relatedProductIds);
+    }
+
     public function test_the_search_hint_names_the_words_that_match_nothing(): void
     {
         $this->indexEveryProduct();

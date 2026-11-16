@@ -33,7 +33,7 @@ trait BuildsProductCatalog
         'reviews', 'review_replies', 'users', 'storages', 'wishlists', 'stock_clearance_products', 'stock_clearance_setups', 'authors',
         'digital_product_authors', 'publishing_houses', 'digital_product_publishing_houses', 'digital_product_variations', 'flash_deals',
         'flash_deal_products', 'colors', 'carts', 'shipping_types', 'shipping_methods', 'category_shipping_costs', 'currencies', 'banners',
-        'product_search_index', 'restock_products', 'restock_product_customers',
+        'product_search_index', 'restock_products', 'restock_product_customers', 'product_seos', 'product_compares',
     ];
 
     protected function buildCatalogTables(): void
@@ -325,6 +325,13 @@ trait BuildsProductCatalog
             $table->string('name')->nullable();
             $table->string('code')->nullable();
         });
+        Schema::create('product_seos', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
+            $table->timestamps();
+        });
         Schema::create('product_search_index', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('product_id');
@@ -389,6 +396,12 @@ trait BuildsProductCatalog
             $table->unsignedBigInteger('restock_product_id')->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->string('variant')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('product_compares', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('product_id');
             $table->timestamps();
         });
         Schema::create('wishlists', function (Blueprint $table) {
