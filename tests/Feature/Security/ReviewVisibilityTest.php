@@ -4,8 +4,11 @@ namespace Tests\Feature\Security;
 
 use App\Models\Product;
 use App\Models\Review;
+use App\Traits\CacheManagerTrait;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Support\BuildsFulfillmentSchema;
@@ -31,12 +34,13 @@ class ReviewVisibilityTest extends TestCase
         parent::setUp();
 
         $this->buildCoreSchema();
+        Schema::table('reviews', fn (Blueprint $table) => $table->unsignedTinyInteger('rating')->default(5));
 
         DB::table('products')->insert(['id' => 1, 'name' => 'Aspirin', 'slug' => 'aspirin']);
         DB::table('reviews')->insert([
-            ['product_id' => 1, 'status' => 1],
-            ['product_id' => 1, 'status' => 1],
-            ['product_id' => 1, 'status' => 0],
+            ['product_id' => 1, 'status' => 1, 'rating' => 5],
+            ['product_id' => 1, 'status' => 1, 'rating' => 4],
+            ['product_id' => 1, 'status' => 0, 'rating' => 1],
         ]);
     }
 
@@ -126,6 +130,38 @@ class ReviewVisibilityTest extends TestCase
         $this->assertSame(self::APPROVED_REVIEWS, Product::query()->findOrFail(1)->reviews->count());
     }
 
+    public function test_the_home_page_top_rated_list_is_ordered_by_the_approved_ratings_only(): void
+    {
+        $this->createTablesTheHomePageProductListsRead();
+        DB::table('products')->delete();
+        DB::table('reviews')->delete();
+        DB::table('products')->insert([
+            ['id' => 11, 'name' => 'Approved 3 and hidden 5', 'slug' => 'p11'],
+            ['id' => 12, 'name' => 'Approved 4 and 3', 'slug' => 'p12'],
+            ['id' => 13, 'name' => 'Hidden 5 only', 'slug' => 'p13'],
+            ['id' => 14, 'name' => 'Approved 5', 'slug' => 'p14'],
+        ]);
+        DB::table('reviews')->insert([
+            ['product_id' => 11, 'status' => 1, 'rating' => 3],
+            ['product_id' => 11, 'status' => 0, 'rating' => 5],
+            ['product_id' => 12, 'status' => 1, 'rating' => 4],
+            ['product_id' => 12, 'status' => 1, 'rating' => 3],
+            ['product_id' => 13, 'status' => 0, 'rating' => 5],
+            ['product_id' => 14, 'status' => 1, 'rating' => 5],
+        ]);
+        $this->visit('/');
+
+        $topRated = (new class {
+            use CacheManagerTrait;
+        })->cacheTopRatedProductList();
+
+        $this->assertSame(
+            ['Approved 5', 'Approved 4 and 3', 'Approved 3 and hidden 5'],
+            $topRated->getCollection()->pluck('name')->all(),
+            'an approved average of 3.5 beats 3.0 even though the hidden 5-star row lifts the raw average of the other product to 4.0; a product with hidden reviews only is not listed',
+        );
+    }
+
     #[DataProvider('databasesThatAreNotForTests')]
     public function test_the_review_tables_are_never_rebuilt_outside_a_test_database(string $database, string $environment): void
     {
@@ -150,5 +186,38 @@ class ReviewVisibilityTest extends TestCase
             'a production name' => ['pharmacy', 'testing'],
             'a test database name outside the testing environment' => ['pharmacy_testing', 'production'],
         ];
+    }
+
+    /** What Product::active() and the home page rails join in: sellers, and the clearance sale each product may carry. */
+    private function createTablesTheHomePageProductListsRead(): void
+    {
+        Schema::create('sellers', function (Blueprint $table) {
+            $table->id();
+            $table->string('status')->default('approved');
+            $table->timestamps();
+            $table->softDeletes();
+        });
+        Schema::create('stock_clearance_setups', function (Blueprint $table) {
+            $table->id();
+            $table->boolean('is_active')->default(false);
+            $table->date('duration_start_date')->nullable();
+            $table->date('duration_end_date')->nullable();
+            $table->string('offer_active_time')->nullable();
+            $table->time('offer_active_range_start')->nullable();
+            $table->time('offer_active_range_end')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('stock_clearance_products', function (Blueprint $table) {
+            $table->id();
+            $table->string('added_by')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->boolean('is_active')->default(false);
+            $table->string('discount_type')->nullable();
+            $table->decimal('discount_amount', 16, 2)->default(0);
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('setup_id')->nullable();
+            $table->unsignedBigInteger('shop_id')->nullable();
+            $table->timestamps();
+        });
     }
 }
