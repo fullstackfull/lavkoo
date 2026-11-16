@@ -136,4 +136,22 @@ class CustomerAuthService
         session()->forget(SessionKey::CUSTOMER_OTP_VERIFIED_PHONE);
     }
 
+    /** A code was just sent for this account to this browser by its own sign-up or sign-in: show its verification page. */
+    public function rememberPendingVerification(int $userId): void
+    {
+        $userIds = session(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, []);
+        session()->put(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, array_values(array_unique([...$userIds, $userId])));
+    }
+
+    public function hasPendingVerification(int $userId): bool
+    {
+        return in_array(needle: $userId, haystack: session(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, []), strict: true);
+    }
+
+    public function forgetPendingVerification(int $userId): void
+    {
+        $userIds = session(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, []);
+        session()->put(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, array_values(array_diff($userIds, [$userId])));
+    }
+
 }

@@ -215,6 +215,7 @@ class CustomerAuthController extends Controller
             $this->getCustomerVerificationCheck($request, $user, $phoneVerification, $emailVerification);
             $verifyType = ($phoneVerification && !$user['is_phone_verified']) ? 'phone_verification' : 'email_verification';
             $verifyIdentity = ($phoneVerification && !$user['is_phone_verified']) ? $user['phone'] : $user['email'];
+            $this->customerAuthService->rememberPendingVerification(userId: $user['id']);
             if ($request->ajax()) {
                 return response()->json([
                     'status' => 'success',
