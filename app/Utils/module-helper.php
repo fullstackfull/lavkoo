@@ -54,6 +54,9 @@ if (!function_exists('digital_payment_success')) {
 
             session()->put('payment_mode', $additionalData['payment_mode'] ?? 'web');
 
+            // A scheduled recovery settles one payment after another in one process, on one request. Who the payer is
+            // must come from this payment alone, never from the registered customer the previous settlement merged in.
+            request()->offsetUnset('user');
             if (isset($additionalData['is_guest']) && $additionalData['is_guest'] == 0) {
                 $user = User::where(['id' => $additionalData['customer_id']])->first();
                 request()->merge(['user' => $user]);
