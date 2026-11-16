@@ -44,7 +44,9 @@ class VendorService
 
     public function logout(): void
     {
-        auth()->guard('seller')->user()?->update(['cm_firebase_token_web' => null]);
+        if (!session('seller_staff_id')) {
+            auth()->guard('seller')->user()?->update(['cm_firebase_token_web' => null]);
+        }
         auth()->guard('seller')->logout();
         session()->invalidate();
     }

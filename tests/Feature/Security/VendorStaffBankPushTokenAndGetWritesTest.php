@@ -137,6 +137,21 @@ class VendorStaffBankPushTokenAndGetWritesTest extends VendorPanelTestCase
         $this->assertSame('OWNER-NEW-BROWSER-TOKEN', DB::table('sellers')->where('id', self::SELLER)->value('cm_firebase_token_web'));
     }
 
+    #[DataProvider('everyKindOfStaff')]
+    public function test_a_staff_member_who_signs_out_leaves_the_owners_web_push_token_alone(string $staff): void
+    {
+        $this->signInAsStaff($this->staff[$staff])->get('/vendor/auth/logout')->assertRedirect();
+
+        $this->assertSame(self::OWNER_TOKEN, DB::table('sellers')->where('id', self::SELLER)->value('cm_firebase_token_web'));
+    }
+
+    public function test_the_owner_who_signs_out_still_clears_their_own_web_push_token(): void
+    {
+        $this->signInAs(self::SELLER)->get('/vendor/auth/logout')->assertRedirect();
+
+        $this->assertNull(DB::table('sellers')->where('id', self::SELLER)->value('cm_firebase_token_web'));
+    }
+
     // ---- GET routes that change something ----
 
     public function test_a_staff_member_who_only_views_orders_cannot_hand_an_order_to_a_driver(): void
