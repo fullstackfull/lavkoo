@@ -145,11 +145,11 @@ final class AtomicFile
     }
 
     /**
-     * Writes the content beside the file and renames it over the file the path leads to (a link stays a link), with the permissions and, for
-     * root, the owner of the old one. False where that is impossible (a file a container mounts, a directory the web user cannot write to,
-     * another file system, a disk with no room for a second copy, a PHP that has disabled the functions that set the permissions): the caller
-     * writes in place, and the old file is as it was. The temporary file has one fixed name, which the lock makes safe, so a killed write leaves
-     * nothing the next one does not replace.
+     * Writes the content beside the file and renames it over the file the path leads to (a link stays a link), with the owner, the group and the
+     * permissions of the old one. False where that is impossible (a file a container mounts, a directory the web user cannot write to, another
+     * file system, a disk with no room for a second copy, an owner that the writer cannot give to a file, a PHP that has disabled the functions
+     * that set it): the caller writes in place, and the old file is as it was. The temporary file has one fixed name, which the lock makes safe,
+     * so a killed write leaves nothing the next one does not replace.
      *
      * @param resource $handle
      */
@@ -168,7 +168,7 @@ final class AtomicFile
 
         $replaced = false;
         try {
-            $replaced = self::copyAttributes(from: $handle, temporaryPath: $temporaryPath)
+            $replaced = self::copyAttributes(from: $handle, to: $temporary, temporaryPath: $temporaryPath)
                 && self::writeAll(handle: $temporary, content: $content)
                 && @rename($temporaryPath, $realPath);
         } finally {
@@ -182,19 +182,37 @@ final class AtomicFile
     }
 
     /**
-     * The permissions and the owner of the old file, so that the new one is not more readable than it was. False where the permissions cannot
-     * be set (a file system without them, a PHP without chmod): the old file is then written in place.
+     * The owner, the group and the permissions of the old file on the new one, so that the new one is not more readable than the old one was and
+     * the user who owned the old one (a deploy account that owns a .env which the web user may write) still owns it. What the new file has
+     * already is left alone; the rest is set, and False where it cannot be (chown is root's, a user may only pass a file to a group they are
+     * in, a PHP may have disabled the functions): the old file is then written in place, which keeps everything about it.
      *
      * @param resource $from
+     * @param resource $to
      */
-    private static function copyAttributes($from, string $temporaryPath): bool
+    private static function copyAttributes($from, $to, string $temporaryPath): bool
     {
-        $attributes = fstat($from);
-        // only root may give a file to another user; for anyone else the new file stays with the user who made it
-        self::attempt('chown', $temporaryPath, $attributes['uid']);
-        self::attempt('chgrp', $temporaryPath, $attributes['gid']);
+        $wanted = self::attributesOf(handle: $from);
 
-        return self::attempt('chmod', $temporaryPath, $attributes['mode'] & 07777);
+        // the permissions last: a change of owner or group takes the setuid and setgid bits off the file
+        foreach (['chown' => 'uid', 'chgrp' => 'gid', 'chmod' => 'mode'] as $function => $attribute) {
+            if (self::attributesOf(handle: $to)[$attribute] !== $wanted[$attribute]) {
+                self::attempt($function, $temporaryPath, $wanted[$attribute]);
+            }
+        }
+
+        return self::attributesOf(handle: $to) === $wanted;
+    }
+
+    /**
+     * @param resource $handle
+     * @return array{uid: int, gid: int, mode: int}
+     */
+    private static function attributesOf($handle): array
+    {
+        $statistics = fstat($handle);
+
+        return ['uid' => $statistics['uid'], 'gid' => $statistics['gid'], 'mode' => $statistics['mode'] & 07777];
     }
 
     /** @param resource $handle */

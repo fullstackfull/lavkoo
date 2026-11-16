@@ -20,6 +20,9 @@ use Throwable;
  */
 class AtomicFileTest extends TestCase
 {
+    /** The user and the group `nobody`. */
+    private const UNPRIVILEGED = 65534;
+
     private string $directory;
 
     /** @var list<string> */
@@ -58,6 +61,21 @@ class AtomicFileTest extends TestCase
         array_map('fclose', $pipes);
 
         return ['status' => proc_close($process), 'output' => $output, 'error' => $error];
+    }
+
+    /**
+     * Like runPhp(), as the user and the group `nobody` (a process that starts as root gives up its rights after it has loaded the classes it
+     * needs, which `nobody` could not read from this checkout).
+     *
+     * @return array{status: int, output: string, error: string}
+     */
+    private function runPhpAsAnUnprivilegedUser(string $code, array $arguments): array
+    {
+        if (!function_exists('posix_geteuid') || posix_geteuid() !== 0) {
+            $this->markTestSkipped('only root can run a process as another user');
+        }
+
+        return $this->runPhp('class_exists(App\\Utils\\AtomicFile::class); posix_setgid(' . self::UNPRIVILEGED . '); posix_setuid(' . self::UNPRIVILEGED . ');' . $code, $arguments);
     }
 
     /** A file system with the room for one small file only: the file that is there leaves none for a second copy of itself. */
@@ -132,6 +150,58 @@ class AtomicFileTest extends TestCase
 
         $this->assertSame("RuntimeException: The file {$path} cannot be locked.", $run['output'], $run['error']);
         $this->assertSame("first\n", file_get_contents($path));
+    }
+
+    public function test_a_file_is_still_replaced_where_chmod_is_disabled_and_the_new_file_has_the_mode_of_the_old_one_anyway(): void
+    {
+        $path = $this->directory . '/settings.txt';
+        file_put_contents($path, "first\n");
+        chmod($path, 0644);
+        $inodeBefore = fileinode($path);
+
+        $run = $this->runPhp('umask(022); App\\Utils\\AtomicFile::rewrite($argv[1], fn (string $content): string => $content . "second\n");', [$path], ['disable_functions' => 'chmod']);
+
+        $this->assertSame(0, $run['status'], $run['output'] . $run['error']);
+        $this->assertSame("first\nsecond\n", file_get_contents($path));
+        clearstatcache();
+        $this->assertNotSame($inodeBefore, fileinode($path), 'the file was written in place although there was no permission to set');
+    }
+
+    // ---- a file that belongs to someone else ------------------------------------------------------------------------------------
+
+    /** @return array<string, array{0: int, 1: int, 2: int, 3: int|null, 4: bool}> the owner, the group and the mode of the file, the group that the directory gives to the files made in it (it is a directory that does), and whether the file is replaced by a new one */
+    public static function filesWithAnotherOwner(): array
+    {
+        return [
+            'another user, in the group of the writer' => [12345, self::UNPRIVILEGED, 0664, null, false],
+            'the writer, in a group that it is not in' => [self::UNPRIVILEGED, 23456, 0660, null, false],
+            'the writer, in a group that the directory gives to every new file' => [self::UNPRIVILEGED, 23456, 0640, 23456, true],
+            'the writer, in its own group' => [self::UNPRIVILEGED, self::UNPRIVILEGED, 0600, null, true],
+        ];
+    }
+
+    #[DataProvider('filesWithAnotherOwner')]
+    public function test_a_file_is_replaced_only_where_the_writer_can_give_the_new_file_to_the_owner_of_the_old_one(int $owner, int $group, int $mode, ?int $directoryGroup, bool $isReplaced): void
+    {
+        $path = $this->directory . '/settings.txt';
+        file_put_contents($path, "first\n");
+        chown($path, $owner);
+        chgrp($path, $group);
+        chmod($path, $mode);
+        if ($directoryGroup !== null) {
+            chgrp($this->directory, $directoryGroup);
+        }
+        chmod($this->directory, $directoryGroup === null ? 0777 : 02777);
+        $inodeBefore = fileinode($path);
+
+        $run = $this->runPhpAsAnUnprivilegedUser('App\\Utils\\AtomicFile::rewrite($argv[1], fn (string $content): string => $content . "second\n");', [$path]);
+
+        $this->assertSame(0, $run['status'], $run['output'] . $run['error']);
+        $this->assertSame("first\nsecond\n", file_get_contents($path));
+        clearstatcache();
+        $this->assertSame([$owner, $group, $mode], [fileowner($path), filegroup($path), fileperms($path) & 07777], 'the file changed hands or permissions');
+        $this->assertSame($isReplaced, fileinode($path) !== $inodeBefore, $isReplaced ? 'the file was not replaced although its owner could be kept' : 'the file was replaced by one that its owner no longer owns');
+        $this->assertSame(['settings.txt'], $this->filesIn($this->directory));
     }
 
     // ---- a disk without room for a second copy ----------------------------------------------------------------------------------
