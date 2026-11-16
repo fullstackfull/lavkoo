@@ -591,7 +591,10 @@ class CartController extends Controller
 
     function update_variation(Request $request)
     {
-        $product = Product::where(['id' => $request['product_id']])->first();
+        $product = Product::active()->where(['id' => $request['product_id']])->first();
+        if (!$product) {
+            return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+        }
         if ($product['product_type'] == 'digital') {
             return self::addToCartDigitalProduct($request, $product);
         } else {
