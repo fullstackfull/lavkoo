@@ -4,6 +4,7 @@ namespace Tests\Feature\Security;
 
 use App\Enums\SessionKey;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -12,6 +13,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
  * The vendor panel's point of sale looks a product up by the id the page sends and puts it in the session cart, and the order that follows sells
  * it and takes its stock. The lookup had no owner in it: a seller could add another seller's product, or the in-house shop's (whose admin
  * user_id equals seller 1's id), to the cart, read its price and variations, and sell it at their own till.
+ *
+ * The cart is also read back from the session by id, to price it and to place the order: that lookup is the seller's own products too, so a cart that
+ * still holds another seller's product (one put there before the cart routes were scoped) sells no line of it and takes none of its stock.
  */
 class VendorPosOwnershipTest extends VendorPanelTestCase
 {
@@ -28,6 +32,32 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
         DB::table('products')->update(['discount_type' => 'percent', 'discount' => 0, 'tax' => 0]);
         DB::table('currencies')->insert(['id' => 1, 'name' => 'US Dollar', 'symbol' => '$', 'code' => 'USD', 'exchange_rate' => 1]);
         DB::table('business_settings')->insert([['type' => 'system_default_currency', 'value' => '1'], ['type' => 'currency_model', 'value' => 'single_currency']]);
+        // The prices of the fixture include their tax, so the sale needs no tax setup.
+        foreach (['with_vat', 'no_vat'] as $variant) {
+            Cache::put("tax_system_type_vendor_{$variant}", [
+                'SystemTaxVat' => ['is_active' => 0, 'tax_ids' => [], 'additionalData' => []], 'SystemTaxVatType' => 'order_wise', 'is_included' => 1,
+                'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([]),
+            ], 3600);
+        }
+        $this->addTheColumnsAPosSaleWrites();
+    }
+
+    private const CART = 'walk-in-customer-1';
+
+    private function addTheColumnsAPosSaleWrites(): void
+    {
+        Schema::table('order_details', static function (Blueprint $table): void {
+            $table->string('discount_type')->nullable();
+        });
+        Schema::table('orders', static function (Blueprint $table): void {
+            foreach (['customer_type', 'shipping_address', 'billing_address', 'billing_address_data', 'shipping_responsibility', 'verification_code', 'tax_type', 'tax_model',
+                         'extra_discount_type', 'coupon_code', 'discount_type', 'coupon_discount_bearer'] as $column) {
+                $table->string($column)->nullable();
+            }
+            foreach (['checked', 'total_tax_amount', 'extra_discount', 'discount_amount', 'init_order_amount'] as $column) {
+                $table->decimal($column, 16, 2)->default(0);
+            }
+        });
     }
 
     /** @return array<string, array{int}> */
@@ -75,5 +105,56 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
         $response = $this->postToPos('/vendor/pos/get-variant-price', ['quantity' => 1], self::OWN_PRODUCT);
 
         $response->assertOk()->assertJson(['price' => '100$', 'quantity' => 5]);
+    }
+
+    // ---- the cart read back from the session ----
+
+    #[DataProvider('productsThatAreNotTheSellers')]
+    public function test_a_cart_holding_a_product_that_is_not_the_sellers_sells_no_line_of_it_and_takes_none_of_its_stock(int $productId): void
+    {
+        $stockBefore = DB::table('products')->orderBy('id')->pluck('current_stock', 'id')->all();
+
+        $this->signInAs(self::SELLER)->withSession($this->cartHolding(productIds: [$productId]))->postJson('/vendor/pos/order-place', ['amount' => 200, 'type' => 'cash', 'paid_amount' => 200])->assertOk();
+
+        $this->assertSame([], DB::table('order_details')->where('product_id', $productId)->get()->all(), 'a line of the product was sold');
+        $this->assertSame($stockBefore, DB::table('products')->orderBy('id')->pluck('current_stock', 'id')->all());
+    }
+
+    public function test_a_cart_holding_the_sellers_own_product_is_still_sold_and_takes_its_stock(): void
+    {
+        $this->signInAs(self::SELLER)->withSession($this->cartHolding(productIds: [self::OWN_PRODUCT]))->postJson('/vendor/pos/order-place', ['amount' => 200, 'type' => 'cash', 'paid_amount' => 200])->assertOk();
+
+        $line = DB::table('order_details')->where('product_id', self::OWN_PRODUCT)->first();
+        $this->assertSame([self::SELLER, 2], [(int)$line->seller_id, (int)$line->qty]);
+        $this->assertSame(3, (int)DB::table('products')->where('id', self::OWN_PRODUCT)->value('current_stock'));
+    }
+
+    public function test_the_cart_summary_leaves_out_a_product_that_is_not_the_sellers(): void
+    {
+        $session = $this->cartHolding(productIds: [self::OWN_PRODUCT, self::OTHER_SELLERS_PRODUCT, self::IN_HOUSE_PRODUCT]);
+
+        $summary = $this->signInAs(self::SELLER)->withSession($session)->postJson('/vendor/pos/quantity-update', ['key' => self::OWN_PRODUCT, 'quantity' => 0])->assertOk()->json('view');
+
+        $this->assertStringContainsString('Own product', $summary);
+        $this->assertStringNotContainsString('Other seller', $summary);
+        $this->assertStringNotContainsString('In-house pro', $summary);
+    }
+
+    /**
+     * @param list<int> $productIds
+     * @return array<string, mixed> a walk-in customer's session cart with two of each product, the way the add to cart route puts them there
+     */
+    private function cartHolding(array $productIds): array
+    {
+        $names = [self::OWN_PRODUCT => 'Own product', self::OTHER_SELLERS_PRODUCT => 'Other sellers product', self::IN_HOUSE_PRODUCT => 'In-house product'];
+
+        return [
+            SessionKey::CURRENT_USER => self::CART,
+            'cart_name' => [self::CART],
+            self::CART => array_map(static fn (int $productId): array => [
+                'id' => $productId, 'customerId' => 0, 'customerOnHold' => false, 'quantity' => 2, 'price' => 100, 'name' => $names[$productId] ?? 'Unknown product',
+                'productType' => 'physical', 'image' => 'thumbnail.png', 'discount' => 0, 'variant' => '', 'variations' => ['color' => null],
+            ], $productIds),
+        ];
     }
 }

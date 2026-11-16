@@ -437,7 +437,7 @@ class POSController extends BaseController
         $cartListSession = $this->cartService->filterSessionCartList(cart: session($cartName));
 
         if (count($cartListSession) > 0) {
-            $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+            $products = $this->productRepo->getListWithScope(filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()], whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartName), $products, $customerCartData[$cartName]['customerId']);
