@@ -2049,14 +2049,14 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 $getOrder = Order::where('id', $orderPlacedId)->first();
                 $referralUser = ReferralCustomer::where('user_id', $user['id'])->first();
                 if ($referralUser && $referralUser->is_used != 1 && $referralUser->ordered_notify != 1) {
-                    $orderPlacedNotificationEvents[] = [
+                    $orderPlacedNotificationEvents[] = [[
                         'notification' => true,
                         'notificationData' => (object)[
                             'key' => 'your_referred_customer_has_been_place_order',
                             'type' => 'promoter',
                             'order' => $getOrder,
                         ],
-                    ];
+                    ]];
                 }
                 $notificationSent = true;
             }
