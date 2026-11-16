@@ -6,6 +6,7 @@ use App\Traits\FileManagerTrait;
 use App\Utils\ImageManager;
 use App\Utils\StoredFileExtension;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -297,5 +298,32 @@ class StoredUploadPolicyTest extends TestCase
             }
         };
         $writer->delete(filePath: $path);
+    }
+
+    // ---- the AI image analysis ------------------------------------------------------------------------------------------------------
+
+    public function test_the_ai_image_service_stores_under_a_data_extension_on_object_storage_too(): void
+    {
+        Storage::fake('s3');
+        DB::table('business_settings')->insert(['type' => 'storage_connection_type', 'value' => json_encode('s3')]);
+        $service = app(\Modules\AI\app\Services\AIContentGeneratorService::class);
+
+        $storedNames = [
+            $service->getAiImagePath($this->jpegWithCode('photo.pht'), 'product')['imageName'],
+            $service->getAiImagePath($this->contentOf('svg', 'photo.svg'), 'product')['imageName'],
+            $service->getAiImagePath($this->imageUpload('photo.png', 'png'), 'product')['imageName'],
+        ];
+
+        $this->assertStringEndsWith('.jpg', $storedNames[0]);
+        $this->assertStringEndsWith('.bin', $storedNames[1]);
+        $this->assertStringEndsWith('.png', $storedNames[2]);
+        foreach ($storedNames as $name) {
+            $this->assertTrue(Storage::disk('s3')->exists($name), $name);
+        }
+    }
+
+    private function imageUpload(string $clientName, string $format): UploadedFile
+    {
+        return $this->uploadOf($clientName, $this->imageBytes($format));
     }
 }
