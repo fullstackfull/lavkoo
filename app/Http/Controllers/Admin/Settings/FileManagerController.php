@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Settings;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\FileManagerUploadRequest;
 use App\Services\FileManagerService;
+use App\Utils\PlainFileName;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -29,8 +30,8 @@ class FileManagerController extends BaseController
      */
     public function index(Request|null $request, ?string $type = null): View
     {
-        $targetFolder = $request['targetFolder'] ?? "cHVibGlj";
-        $storage = $request['storage'] ?? 'public';
+        $targetFolder = $this->galleryFolder(request: $request);
+        $storage = $this->galleryDisk(request: $request);
 
         try {
             $cacheKey = "cache_all_files_for_{$storage}_storage";
@@ -99,6 +100,29 @@ class FileManagerController extends BaseController
 
     public function download(Request $request, $fileName): StreamedResponse
     {
-        return Storage::disk($request['storage'] == 'public' ? 'local' : $request['storage'])->download(base64_decode($fileName));
+        $disk = $this->galleryDisk(request: $request);
+        $path = (string)base64_decode(string: (string)$fileName);
+        $path = $disk === 'public' ? preg_replace('#^public/#', '', $path) : $path;
+
+        abort_unless(
+            $path !== '' && PlainFileName::staysInside(path: $path) && Storage::disk($disk)->exists($path) && !Storage::disk($disk)->directoryExists($path),
+            404
+        );
+
+        return Storage::disk($disk)->download($path);
+    }
+
+    /** The gallery shows the public disk, or S3 when the shop keeps its files there: a disk name from the request is never taken as it comes (`local` is the private tree of storage/app). */
+    private function galleryDisk(Request $request): string
+    {
+        return $request['storage'] === 's3' ? 's3' : 'public';
+    }
+
+    /** The folder the page opens, base64-encoded: the main folder unless the request names a folder inside the disk. */
+    private function galleryFolder(Request $request): string
+    {
+        $targetFolder = $request['targetFolder'];
+
+        return is_string($targetFolder) && PlainFileName::staysInside(path: (string)base64_decode($targetFolder)) ? $targetFolder : 'cHVibGlj';
     }
 }
