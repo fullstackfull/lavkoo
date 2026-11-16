@@ -11239,4 +11239,5 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'the_file_is_not_a_supported_image' => 'The file is not a supported image',
 ];

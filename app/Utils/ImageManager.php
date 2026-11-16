@@ -4,7 +4,10 @@ namespace App\Utils;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Intervention\Image\Exception\NotReadableException;
 use Intervention\Image\Facades\Image;
+use Symfony\Component\HttpFoundation\File\File;
 
 class ImageManager
 {
@@ -22,14 +25,18 @@ class ImageManager
             // and never even used. That made every upload path an arbitrary-file-write primitive.
             // Removed: each branch below writes the file it actually returns.
 
-            if (in_array($image->getClientOriginalExtension(), ['gif', 'svg'])) {
-                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $image->getClientOriginalExtension();
+            if (StoredFileExtension::isGifToKeep($image)) {
+                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . ".gif";
                 Storage::disk($storage)->put($dir . $imageName, file_get_contents($image));
             } else {
                 if (in_array(request()->ip(), ['127.0.0.1', '::1']) && !(imagetypes() & IMG_WEBP) || env('APP_DEBUG') && !(imagetypes() & IMG_WEBP)) {
                     $format = 'png';
                 }
-                $imageWebp = Image::make($image)->encode($format, 85);
+                try {
+                    $imageWebp = Image::make($image)->encode($format, 85);
+                } catch (NotReadableException) {
+                    throw ValidationException::withMessages(['image' => translate('the_file_is_not_a_supported_image')]);
+                }
                 $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
                 Storage::disk($storage)->put($dir . $imageName, $imageWebp);
                 $imageWebp->destroy();
@@ -40,30 +47,11 @@ class ImageManager
         return $imageName;
     }
 
-    /**
-     * The extension a stored file gets. Callers pass the extension the client wrote (getClientOriginalExtension), and the file lands on a
-     * disk the web server serves: a name the server hands to a script engine (.php, .phtml, .pht, .phar, ...) would run what was uploaded.
-     * An extension that is not short letters and digits, or that is on the disallowed list or starts like a script handler's, is stored as
-     * `bin`, which no server runs.
-     */
-    private static function storedExtension(string $format): string
-    {
-        $extension = strtolower($format);
-
-        if (preg_match('/^[a-z0-9]{1,8}$/', $extension) !== 1
-            || in_array($extension, getDisallowedExtensionsListArray(), true)
-            || preg_match('/^(php|pht|phar|phps|inc)/', $extension) === 1) {
-            return 'bin';
-        }
-
-        return $extension;
-    }
-
     public static function file_upload(string $dir, string $format, $file = null): string
     {
         $storage = config('filesystems.disks.default') ?? 'public';
         if ($file != null) {
-            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . self::storedExtension(format: $format);
+            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . StoredFileExtension::of(clientExtension: $format, file: $file instanceof File ? $file : null);
             if (!Storage::disk($storage)->exists($dir)) {
                 Storage::disk($storage)->makeDirectory($dir);
             }

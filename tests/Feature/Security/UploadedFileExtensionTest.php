@@ -108,7 +108,7 @@ class UploadedFileExtensionTest extends TestCase
     {
         Storage::fake('public');
 
-        $name = ImageManager::file_upload(dir: 'product/digital-product/', format: $callersExtension, file: UploadedFile::fake()->create('delivered.pdf', 10, 'application/pdf'));
+        $name = ImageManager::file_upload(dir: 'product/digital-product/', format: $callersExtension, file: UploadedFile::fake()->create('delivered.dat', 10, 'application/octet-stream'));
 
         $this->assertStringEndsWith('.' . $storedExtension, $name);
         $this->assertTrue(Storage::disk('public')->exists('product/digital-product/' . $name));
@@ -118,7 +118,7 @@ class UploadedFileExtensionTest extends TestCase
     {
         Storage::fake('public');
 
-        $name = ImageManager::update(dir: 'product/digital-product/', old_image: 'old.pdf', format: 'phtml', image: UploadedFile::fake()->create('delivered.pdf', 10, 'application/pdf'), file_type: 'file');
+        $name = ImageManager::update(dir: 'product/digital-product/', old_image: 'old.pdf', format: 'phtml', image: UploadedFile::fake()->create('delivered.dat', 10, 'application/octet-stream'), file_type: 'file');
 
         $this->assertStringEndsWith('.bin', $name);
     }

@@ -2,11 +2,15 @@
 
 namespace App\Traits;
 
+use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Intervention\Image\Exception\NotReadableException;
 use Intervention\Image\Facades\Image;
+use Symfony\Component\HttpFoundation\File\File;
 
 trait FileManagerTrait
 {
@@ -26,15 +30,18 @@ trait FileManagerTrait
                 Storage::disk($storage)->makeDirectory($dir);
             }
 
-            $isOriginalImage = in_array($image->getClientOriginalExtension(), ['gif', 'svg']);
-            if ($isOriginalImage) {
-                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $image->getClientOriginalExtension();
+            if (StoredFileExtension::isGifToKeep($image)) {
+                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . ".gif";
                 Storage::disk($storage)->put($dir . $imageName, file_get_contents($image));
             } else {
                 if (in_array(request()->ip(), ['127.0.0.1', '::1']) && !(imagetypes() & IMG_WEBP) || env('APP_DEBUG') && !(imagetypes() & IMG_WEBP)) {
                     $format = 'png';
                 }
-                $imageWebp = Image::make($image)->encode($format);
+                try {
+                    $imageWebp = Image::make($image)->encode($format);
+                } catch (NotReadableException) {
+                    throw ValidationException::withMessages(['image' => translate('the_file_is_not_a_supported_image')]);
+                }
                 $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
                 Storage::disk($storage)->put($dir . $imageName, $imageWebp);
                 $imageWebp->destroy();
@@ -59,7 +66,7 @@ trait FileManagerTrait
         Cache::forget("cache_all_files_for_public_storage");
 
         if (!is_null($file)) {
-            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
+            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . StoredFileExtension::of(clientExtension: $format, file: $file instanceof File ? $file : null);
             if (!$this->checkFileExists($dir)['status']) {
                 Storage::disk($storage)->makeDirectory($dir);
             }
