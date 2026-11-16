@@ -453,14 +453,12 @@ class OrderEditService
         }
 
         $requestedIds = collect($requestProducts)
-            ->map(fn ($productItem) => filter_var(is_array($productItem) ? ($productItem['id'] ?? null) : null, FILTER_VALIDATE_INT))
-            ->unique()
-            ->values();
-        if ($requestedIds->contains(false)) {
+            ->map(fn ($productItem) => filter_var(is_array($productItem) ? ($productItem['id'] ?? null) : null, FILTER_VALIDATE_INT));
+        if ($requestedIds->containsStrict(false)) {
             return false;
         }
 
-        $newIds = $requestedIds->diff($order->details->pluck('product_id'));
+        $newIds = $requestedIds->unique()->diff($order->details->pluck('product_id'));
 
         return $newIds->diff($this->getOrderShopProductIds(order: $order, ids: $newIds->all()))->isEmpty();
     }
