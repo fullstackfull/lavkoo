@@ -417,11 +417,7 @@ class Product extends Model
 
     public function getNameAttribute($name): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[0]->value ?? $name;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $name;
         }
         return $this->translations[0]->value ?? $name;
@@ -429,11 +425,7 @@ class Product extends Model
 
     public function getDetailsAttribute($detail): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[1]->value ?? $detail;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $detail;
         }
         return $this->translations[1]->value ?? $detail;

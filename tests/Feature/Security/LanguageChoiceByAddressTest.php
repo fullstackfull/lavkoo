@@ -12,9 +12,11 @@ use App\Models\Product;
 use App\Models\Translation;
 use App\Utils\Helpers;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Modules\Blog\app\Models\Blog;
 use Modules\Blog\app\Models\BlogCategory;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -72,18 +74,43 @@ class LanguageChoiceByAddressTest extends TestCase
             'a host that starts with vendor' => ['http://vendor.example.com/', []],
             'a store installed in /vendor-store' => ['http://localhost/vendor-store/', self::INSTALLED_IN_VENDOR_STORE],
             'a store installed in /api-shop' => ['http://localhost/api-shop/', self::INSTALLED_IN_API_SHOP],
+            'the public vendor registration page' => ['http://localhost/vendor/auth/registration/index', []],
+            'the public vendor registration form' => ['http://localhost/vendor/auth/registration/add', []],
         ];
     }
 
-    public static function panelPages(): array
+    public static function webPanelPages(): array
     {
         return [
             'the admin panel' => ['http://localhost/admin/deal/flash', []],
             'the vendor panel' => ['http://localhost/vendor/deal/list', []],
             'the seller area' => ['http://localhost/seller/deals', []],
+            'the admin panel of a store installed in /vendor-store' => ['http://localhost/vendor-store/admin/deal/flash', self::INSTALLED_IN_VENDOR_STORE],
+        ];
+    }
+
+    public static function sellerApiRequests(): array
+    {
+        return [
             'the seller API v2' => ['http://localhost/api/v2/seller/products/list', []],
             'the seller API v3' => ['http://localhost/api/v3/seller/products/list', []],
-            'the admin panel of a store installed in /vendor-store' => ['http://localhost/vendor-store/admin/deal/flash', self::INSTALLED_IN_VENDOR_STORE],
+        ];
+    }
+
+    public static function panelPages(): array
+    {
+        return array_merge(self::webPanelPages(), self::sellerApiRequests());
+    }
+
+    public static function languageOfTheName(): array
+    {
+        return [
+            'the vendor registration page, in the language of the shopper' => ['http://localhost/vendor/auth/registration/index', [], 'ar-name'],
+            'the home page, in the language of the shopper' => ['http://localhost/', [], 'ar-name'],
+            'the admin panel, as it was typed' => ['http://localhost/admin/products/list', [], 'raw-name'],
+            'the vendor panel, as it was typed' => ['http://localhost/vendor/products/list', [], 'raw-name'],
+            'the seller API v3, in the language of the app' => ['http://localhost/api/v3/seller/products/list', [], 'en-name'],
+            'the customer API, in the language of the app' => ['http://localhost/api/v1/products/latest', [], 'en-name'],
         ];
     }
 
@@ -148,6 +175,41 @@ class LanguageChoiceByAddressTest extends TestCase
         $this->assertSame('RAW-title', $blog->title);
         $this->assertSame('RAW-description', $blog->description);
         $this->assertSame('RAW-name', $this->blogCategory()->name);
+    }
+
+    #[DataProvider('storefrontPages')]
+    #[DataProvider('customerApiRequests')]
+    #[DataProvider('sellerApiRequests')]
+    public function test_the_names_of_a_product_a_category_and_a_brand_are_translated_everywhere_but_in_a_web_panel(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertSame('TRANSLATED-name', $this->product()->name);
+        $this->assertSame('TRANSLATED-details', $this->product()->details);
+        $this->assertSame('TRANSLATED-name', $this->category()->name);
+        $this->assertSame('TRANSLATED-name', $this->brand()->name);
+    }
+
+    #[DataProvider('webPanelPages')]
+    public function test_a_web_panel_shows_the_names_of_a_product_a_category_and_a_brand_as_they_were_typed(string $url, array $server): void
+    {
+        $this->visit($url, $server);
+
+        $this->assertSame('RAW-name', $this->product()->name);
+        $this->assertSame('RAW-details', $this->product()->details);
+        $this->assertSame('RAW-name', $this->category()->name);
+        $this->assertSame('RAW-name', $this->brand()->name);
+    }
+
+    #[DataProvider('languageOfTheName')]
+    public function test_a_product_a_category_and_a_brand_are_read_from_the_database_in_the_language_of_the_address(string $url, array $server, string $name): void
+    {
+        $this->createNamesWithTranslations();
+        $this->visit($url, $server);
+
+        $this->assertSame($name, Product::query()->findOrFail(1)->name);
+        $this->assertSame($name, Category::query()->findOrFail(1)->name);
+        $this->assertSame($name, Brand::query()->findOrFail(1)->name);
     }
 
     #[DataProvider('storefrontPages')]
@@ -236,6 +298,30 @@ class LanguageChoiceByAddressTest extends TestCase
         return $deal->title;
     }
 
+    private function product(): Product
+    {
+        $product = new Product(['name' => 'RAW-name', 'details' => 'RAW-details']);
+        $product->setRelation('translations', collect([new Translation(['value' => 'TRANSLATED-name']), new Translation(['value' => 'TRANSLATED-details'])]));
+
+        return $product;
+    }
+
+    private function category(): Category
+    {
+        $category = new Category(['name' => 'RAW-name']);
+        $category->setRelation('translations', collect([new Translation(['value' => 'TRANSLATED-name'])]));
+
+        return $category;
+    }
+
+    private function brand(): Brand
+    {
+        $brand = new Brand(['name' => 'RAW-name']);
+        $brand->setRelation('translations', collect([new Translation(['value' => 'TRANSLATED-name'])]));
+
+        return $brand;
+    }
+
     private function blog(): Blog
     {
         $blog = new Blog(['title' => 'RAW-title', 'description' => 'RAW-description']);
@@ -250,6 +336,31 @@ class LanguageChoiceByAddressTest extends TestCase
         $category->id = 1;
 
         return $category;
+    }
+
+    /** A product, a category and a brand named "raw-name" as typed, "ar-name" in the language of the shopper and "en-name" in the one of the app. */
+    private function createNamesWithTranslations(): void
+    {
+        $this->buildCoreSchema();
+        Schema::create('brands', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->integer('status')->default(1);
+            $table->timestamps();
+        });
+
+        foreach ([Product::class, Category::class, Brand::class] as $model) {
+            DB::table((new $model)->getTable())->insert(['id' => 1, 'name' => 'raw-name']);
+            foreach ([self::SHOPPER_LANGUAGE, self::APP_LANGUAGE] as $language) {
+                DB::table('translations')->insert([
+                    'translationable_type' => (new $model)->getMorphClass(),
+                    'translationable_id' => 1,
+                    'locale' => $language,
+                    'key' => 'name',
+                    'value' => "{$language}-name",
+                ]);
+            }
+        }
     }
 
     private function createBlogTranslations(): void

@@ -28,7 +28,7 @@ class RequestAreaTest extends TestCase
         app()->instance('request', Request::create($uri, 'GET', [], [], [], $server));
     }
 
-    public static function panelAddresses(): array
+    public static function webPanelAddresses(): array
     {
         return [
             'admin panel' => ['/admin/reviews'],
@@ -40,19 +40,30 @@ class RequestAreaTest extends TestCase
             'vendor password reset' => ['/vendor/auth/forgot-password/index'],
             'seller area' => ['/seller/dashboard'],
             'seller root' => ['/seller'],
-            'seller API v2' => ['/api/v2/seller/products/list'],
-            'API v2 root' => ['/api/v2'],
-            'seller API v3' => ['/api/v3/seller/products/review-list/5'],
-            'API v3 root' => ['/api/v3'],
             'a panel address with a query that names a storefront page' => ['/admin/reviews?back=/vendor-shop/acme'],
             'a search in the admin panel for Arabic text' => ['/admin/products/search/%D8%AF%D9%88%D8%A7%D8%A1'],
             'an admin address with a Latin-1 letter' => ['/admin/search/caf%E9'],
             'an admin address that is not valid UTF-8' => ['/admin/products/search/%FF%FE'],
             'a vendor address that is not valid UTF-8' => ['/vendor/products/list/%E9'],
-            'a seller API v2 address that is not valid UTF-8' => ['/api/v2/seller/products/list/%FF'],
-            'a seller API v3 address that is not valid UTF-8' => ['/api/v3/seller/products/list/%C0%AF'],
             'a panel address whose first segment is encoded' => ['/%61dmin/reviews'],
         ];
+    }
+
+    public static function sellerApiAddresses(): array
+    {
+        return [
+            'seller API v2' => ['/api/v2/seller/products/list'],
+            'API v2 root' => ['/api/v2'],
+            'seller API v3' => ['/api/v3/seller/products/review-list/5'],
+            'API v3 root' => ['/api/v3'],
+            'a seller API v2 address that is not valid UTF-8' => ['/api/v2/seller/products/list/%FF'],
+            'a seller API v3 address that is not valid UTF-8' => ['/api/v3/seller/products/list/%C0%AF'],
+        ];
+    }
+
+    public static function panelAddresses(): array
+    {
+        return array_merge(self::webPanelAddresses(), self::sellerApiAddresses());
     }
 
     public static function storefrontAddresses(): array
@@ -110,6 +121,24 @@ class RequestAreaTest extends TestCase
     public function test_a_command_line_run_is_not_a_panel(): void
     {
         $this->assertFalse(RequestArea::isPanel());
+        $this->assertFalse(RequestArea::isWebPanel());
+    }
+
+    #[DataProvider('webPanelAddresses')]
+    public function test_a_panel_opened_in_a_browser_is_a_web_panel(string $uri): void
+    {
+        $this->visit($uri);
+
+        $this->assertTrue(RequestArea::isWebPanel());
+    }
+
+    #[DataProvider('sellerApiAddresses')]
+    #[DataProvider('storefrontAddresses')]
+    public function test_a_seller_api_and_any_other_address_are_not_a_web_panel(string $uri): void
+    {
+        $this->visit($uri);
+
+        $this->assertFalse(RequestArea::isWebPanel());
     }
 
     #[DataProvider('panelRoots')]

@@ -36,6 +36,12 @@ class RequestArea
             || ($root === 'api' && in_array(needle: $segments[1] ?? null, haystack: self::SELLER_API_VERSIONS, strict: true));
     }
 
+    /** The panels opened in a browser, not the seller apps' APIs: they show a name or a text exactly as the staff typed it, never translated. */
+    public static function isWebPanel(): bool
+    {
+        return self::isPanel() && !self::isApi();
+    }
+
     /** Every API request, whatever its version: it is asked for in the language the app sent, not in the shopper's. */
     public static function isApi(): bool
     {
