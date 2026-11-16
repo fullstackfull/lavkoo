@@ -206,8 +206,13 @@ class SocialAuthController extends Controller
 
     public function socialLoginConfirmation(Request $request): View|RedirectResponse
     {
+        $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: (string)$request['identity']);
+        if (!$socialLoginNewCustomer) {
+            Toastr::error(translate('Invalid_Request'));
+            return redirect()->route('customer.auth.login');
+        }
+
         $user = $this->customerRepo->getFirstWhere(params: ['email' => base64_decode($request['identity'])]);
-        $socialLoginNewCustomer = session('social_login_new_customer');
         if ($request['status'] == 'approve' && $user) {
             $this->customerRepo->updateWhere(params: ['email' => $user['email']], data: [
                 'is_email_verified' => 1,
@@ -238,7 +243,12 @@ class SocialAuthController extends Controller
             return back();
         }
 
-        $socialLoginNewCustomer = session('social_login_new_customer');
+        $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: (string)$request['identity']);
+        if (!$socialLoginNewCustomer) {
+            Toastr::error(translate('Invalid_Request'));
+            return back();
+        }
+
         $phoneCheck = $this->customerRepo->getFirstWhere(params: ['phone' => $request['phone']]);
         if ($phoneCheck && $phoneCheck['email'] != base64_decode($request['identity'])) {
             Toastr::error(translate('Phone_Number_Already_Exist'));
@@ -250,34 +260,37 @@ class SocialAuthController extends Controller
             session()->put('socialLoginEmailRemovedForOldUser', 1);
         }
 
-        if ($socialLoginNewCustomer) {
-            session()->put('social_login_new_customer', [
-                'name' => $request['name'],
-                'f_name' => $request['name'],
-                'l_name' => '',
-                'email' => $socialLoginNewCustomer['email'],
-                'phone' => $request['phone'],
-                'social_id' => $socialLoginNewCustomer['social_id'],
-                'is_email_verified' => 1,
-                'is_phone_verified' => 0,
-                'password' => bcrypt(rand(11111111, 99999999)),
-                'temporary_token' => Str::random(40),
-                'app_language' => 'en',
-                'email_verified_at' => now(),
-                'referral_code' => Helpers::generate_referer_code(),
-                'login_medium' => $socialLoginNewCustomer['login_medium'] ?? null,
-            ]);
-            $this->customerRepo->updateOrCreate(params: ['email' => $socialLoginNewCustomer['email']], data: session('social_login_new_customer'));
-            $user = $this->customerRepo->getFirstWhere(params: ['email' => $socialLoginNewCustomer['email']]);
-            if (getLoginConfig(key: 'phone_verification') == 1) {
-                return $this->loginByOTP(request: $request);
-            } else {
-                return self::actionCustomerLoginProcess($request, $user, $user['email']);
-            }
-        } else {
-            Toastr::error(translate('Invalid_Request'));
-            return back();
+        session()->put('social_login_new_customer', [
+            'name' => $request['name'],
+            'f_name' => $request['name'],
+            'l_name' => '',
+            'email' => $socialLoginNewCustomer['email'],
+            'phone' => $request['phone'],
+            'social_id' => $socialLoginNewCustomer['social_id'],
+            'is_email_verified' => 1,
+            'is_phone_verified' => 0,
+            'password' => bcrypt(rand(11111111, 99999999)),
+            'temporary_token' => Str::random(40),
+            'app_language' => 'en',
+            'email_verified_at' => now(),
+            'referral_code' => Helpers::generate_referer_code(),
+            'login_medium' => $socialLoginNewCustomer['login_medium'] ?? null,
+        ]);
+        $this->customerRepo->updateOrCreate(params: ['email' => $socialLoginNewCustomer['email']], data: session('social_login_new_customer'));
+        $user = $this->customerRepo->getFirstWhere(params: ['email' => $socialLoginNewCustomer['email']]);
+        if (getLoginConfig(key: 'phone_verification') == 1) {
+            return $this->loginByOTP(request: $request);
         }
+        return self::actionCustomerLoginProcess($request, $user, $user['email']);
+    }
+
+    private function getPendingSocialLogin(string $identity): ?array
+    {
+        $socialLoginNewCustomer = session('social_login_new_customer');
+        $pendingEmail = $socialLoginNewCustomer['email'] ?? null;
+        $identityEmail = base64_decode($identity, true);
+
+        return $pendingEmail && $identityEmail && strcasecmp($pendingEmail, $identityEmail) === 0 ? $socialLoginNewCustomer : null;
     }
 
     public function loginByOTP(Request $request): JsonResponse|RedirectResponse
