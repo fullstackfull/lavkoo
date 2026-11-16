@@ -97,6 +97,17 @@ class SellerApiInventoryMovementsScopeTest extends TestCase
         $this->assertSame(1, $overview->json('movements_recorded'));
     }
 
+    public function test_a_movement_that_carries_no_seller_is_not_in_a_sellers_log_even_for_the_sellers_own_product(): void
+    {
+        DB::table('stock_movements')->insert([
+            ['product_id' => self::OWN_PRODUCT, 'seller_id' => null, 'type' => 'adjustment', 'qty_change' => -1, 'note' => 'recorded for nobody'],
+            ['product_id' => self::OWN_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'adjustment', 'qty_change' => 2, 'note' => 'own'],
+        ]);
+
+        $this->assertSame([self::OWN_PRODUCT], $this->movementsOf(self::SELLER));
+        $this->assertSame(1, $this->sellerApi('GET', 'seller-center/inventory/movements')->json('total_size'));
+    }
+
     private function adjust(int $productId, string $note): void
     {
         $result = app(InventoryService::class)->adjust(productId: $productId, delta: -1, reason: 'loss', note: $note, by: 1, byType: 'admin');

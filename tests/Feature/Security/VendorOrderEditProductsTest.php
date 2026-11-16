@@ -88,6 +88,18 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         }
     }
 
+    public function test_the_modal_and_the_variant_price_of_a_product_the_order_already_holds_still_open_even_if_it_is_no_longer_the_sellers(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+
+        foreach (['edit-order-product-modal-view' => 'htmlView', 'edit-order-product-variant-price' => 'product_quick_view_details'] as $route => $key) {
+            $response = $this->signInAs(self::SELLER)->postJson('/vendor/orders/' . $route, ['order_id' => self::ORDER, 'product_id' => self::OTHER_SELLERS_PRODUCT]);
+
+            $response->assertOk();
+            $this->assertStringContainsString('Other sellers product', (string) $response->json($key));
+        }
+    }
+
     // ---- the saved edit, whatever put the product in it ----
 
     #[DataProvider('productsThatAreNotTheOrdersShops')]
