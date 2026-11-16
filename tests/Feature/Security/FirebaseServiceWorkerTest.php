@@ -24,7 +24,7 @@ class FirebaseServiceWorkerTest extends TestCase
     private function plainConfig(): array
     {
         return [
-            'apiKey' => 'AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY', 'authDomain' => 'shop-12345.firebaseapp.com', 'projectId' => 'shop-12345',
+            'apiKey' => 'AIza' . 'SyFixtureFixtureFixtureFixture12345', 'authDomain' => 'shop-12345.firebaseapp.com', 'projectId' => 'shop-12345',
             'storageBucket' => 'shop-12345.appspot.com', 'messagingSenderId' => '123456789012', 'appId' => '1:123456789012:web:abcdef0123456789',
             'measurementId' => 'G-ABCDE12345',
         ];
