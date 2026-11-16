@@ -42,8 +42,11 @@ class ProductImageDeleteTest extends TestCase
             ['id' => 5, 'added_by' => 'admin', 'user_id' => 1, 'code' => 'ADM1', 'name' => 'Admin product', 'thumbnail' => 'thumb-admin.webp', 'images' => json_encode(['own-a.webp', 'own-b.webp']), 'colors' => '[]', 'color_image' => '[]'],
             ['id' => 6, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'SEL1', 'name' => 'Seller product', 'thumbnail' => 'thumb-seller.webp', 'images' => json_encode(['seller-a.webp', 'seller-b.webp']), 'colors' => '[]', 'color_image' => '[]'],
             ['id' => 8, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'SEL2', 'name' => 'Seller product with colours', 'thumbnail' => 'thumb-colours.webp', 'images' => json_encode([['image_name' => 'colour-red.webp', 'storage' => 'public'], ['image_name' => 'colour-blue.webp', 'storage' => 'public']]), 'colors' => json_encode(['#FF0000', '#0000FF']), 'color_image' => json_encode([['color' => '#FF0000', 'image_name' => 'colour-red.webp', 'storage' => 'public'], ['color' => '#0000FF', 'image_name' => 'colour-blue.webp', 'storage' => 'public']])],
+            // What the seller app writes for a product with colours: the extra gallery images are colour images with no colour.
+            ['id' => 9, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'SEL3', 'name' => 'Seller product with colours and extras', 'thumbnail' => 'thumb-extras.webp', 'images' => json_encode(['extras-red.webp', 'extras-blue.webp', 'extras-1.webp', 'extras-2.webp', 'extras-3.webp']), 'colors' => json_encode(['#FF0000', '#0000FF']), 'color_image' => json_encode([['color' => '#FF0000', 'image_name' => 'extras-red.webp', 'storage' => 'public'], ['color' => '#0000FF', 'image_name' => 'extras-blue.webp', 'storage' => 'public'], ['color' => null, 'image_name' => 'extras-1.webp', 'storage' => 'public'], ['color' => null, 'image_name' => 'extras-2.webp', 'storage' => 'public'], ['color' => null, 'image_name' => 'extras-3.webp', 'storage' => 'public']])],
+            ['id' => 11, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'SEL4', 'name' => 'Seller product with numeric names', 'thumbnail' => 'thumb-numeric.webp', 'images' => json_encode(['10', 'numeric-own.webp']), 'colors' => '[]', 'color_image' => '[]'],
         ]);
-        foreach (['own-a.webp', 'own-b.webp', 'seller-a.webp', 'seller-b.webp', 'colour-red.webp', 'colour-blue.webp', 'victim-other-seller.webp', 'thumbnail/victim-thumb.webp', 'digital-product/victim.zip'] as $name) {
+        foreach (['own-a.webp', 'own-b.webp', 'seller-a.webp', 'seller-b.webp', 'colour-red.webp', 'colour-blue.webp', 'extras-red.webp', 'extras-blue.webp', 'extras-1.webp', 'extras-2.webp', 'extras-3.webp', '10', '1e1', 'numeric-own.webp', 'victim-other-seller.webp', 'thumbnail/victim-thumb.webp', 'digital-product/victim.zip'] as $name) {
             $this->fileOnDisk(base_path(self::DIRECTORY . '/' . $name), $name);
         }
         $this->fileOnDisk(base_path('storage/app/public/company/victim-logo.png'), 'logo');
@@ -179,6 +182,52 @@ class ProductImageDeleteTest extends TestCase
         $this->assertSame(200, $response->status());
         $this->assertFileDoesNotExist($this->product('seller-b.webp'));
         $this->assertFileExists($this->product('seller-a.webp'));
+    }
+
+    /** @return array<string, array{0: array<string, string>}> */
+    public static function removalsOfOneExtraImage(): array
+    {
+        return [
+            'by its name' => [['name' => 'extras-1.webp']],
+            'by its name with an empty colour' => [['name' => 'extras-1.webp', 'color' => '']],
+        ];
+    }
+
+    #[DataProvider('removalsOfOneExtraImage')]
+    public function test_the_seller_app_removes_one_extra_image_of_a_product_with_colours_and_keeps_the_others(array $query): void
+    {
+        $response = app(SellerApiProductController::class)->deleteImage(Request::create('/', 'GET', ['id' => 9, 'seller' => $this->seller()] + $query));
+
+        $this->assertSame(200, $response->status());
+        $this->assertFileDoesNotExist($this->product('extras-1.webp'));
+        foreach (['extras-red.webp', 'extras-blue.webp', 'extras-2.webp', 'extras-3.webp'] as $kept) {
+            $this->assertFileExists($this->product($kept), $kept);
+        }
+        $product = DB::table('products')->where('id', 9)->first();
+        $this->assertSame(['extras-red.webp', 'extras-blue.webp', 'extras-2.webp', 'extras-3.webp'], json_decode($product->images, true));
+        $this->assertSame(['extras-red.webp', 'extras-blue.webp', 'extras-2.webp', 'extras-3.webp'], array_column(json_decode($product->color_image, true), 'image_name'));
+    }
+
+    public function test_the_seller_app_removes_the_image_of_a_colour_of_a_product_with_extras_and_keeps_the_extras(): void
+    {
+        $response = app(SellerApiProductController::class)->deleteImage(Request::create('/', 'GET', ['id' => 9, 'color' => '#FF0000', 'name' => 'extras-red.webp', 'seller' => $this->seller()]));
+
+        $this->assertSame(200, $response->status());
+        $this->assertFileDoesNotExist($this->product('extras-red.webp'));
+        foreach (['extras-blue.webp', 'extras-1.webp', 'extras-2.webp', 'extras-3.webp'] as $kept) {
+            $this->assertFileExists($this->product($kept), $kept);
+        }
+        $this->assertSame(['extras-1.webp', 'extras-2.webp', 'extras-3.webp'], array_values(array_filter(array_column(json_decode(DB::table('products')->where('id', 9)->value('color_image'), true), 'image_name'), static fn (?string $name): bool => str_starts_with((string) $name, 'extras-') && $name !== 'extras-red.webp' && $name !== 'extras-blue.webp')));
+    }
+
+    public function test_the_seller_app_compares_names_as_text_so_a_number_written_another_way_deletes_another_file(): void
+    {
+        $response = app(SellerApiProductController::class)->deleteImage(Request::create('/', 'GET', ['id' => 11, 'name' => '1e1', 'seller' => $this->seller()]));
+
+        $this->assertSame(200, $response->status());
+        $this->assertFileExists($this->product('1e1'));
+        $this->assertFileExists($this->product('10'));
+        $this->assertSame(['10', 'numeric-own.webp'], json_decode(DB::table('products')->where('id', 11)->value('images'), true));
     }
 
     public function test_the_service_knows_the_image_names_a_product_holds(): void
