@@ -504,10 +504,12 @@ class ProductService
 
     public function deleteImages(object $product): bool
     {
+        $filePaths = [];
         foreach (json_decode($product['images'], true) as $image) {
-            $this->delete(filePath: '/product/' . (isset($image['image_name']) ? $image['image_name'] : $image));
+            $filePaths[] = '/product/' . (isset($image['image_name']) ? $image['image_name'] : $image);
         }
-        $this->delete(filePath: '/product/thumbnail/' . $product['thumbnail']);
+        $filePaths[] = '/product/thumbnail/' . $product['thumbnail'];
+        $this->deleteAll(filePaths: $filePaths);
 
         return true;
     }

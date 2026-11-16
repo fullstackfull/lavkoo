@@ -15,6 +15,7 @@ use App\Utils\SharedProductFile;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -614,5 +615,134 @@ class ProductSharedFileTest extends TestCase
         $this->insertProduct(82, ['images' => json_encode(['ps1.webp'])]);
 
         $this->assertFalse(SharedProductFile::isShared(path: $path), $path);
+    }
+
+    /** @return list<string> the statements that read the products table while the work runs */
+    private function productQueriesDuring(callable $work): array
+    {
+        $statements = [];
+        DB::listen(static function ($query) use (&$statements): void {
+            if (preg_match('/\bfrom [`"]?products[`"]?\b/i', $query->sql) === 1) {
+                $statements[] = $query->sql;
+            }
+        });
+        $work();
+
+        return $statements;
+    }
+
+    private function fileWriter(): object
+    {
+        return new class {
+            use FileManagerTrait;
+
+            public function remove(string $filePath): array
+            {
+                return $this->delete($filePath);
+            }
+
+            /** @param list<string> $filePaths */
+            public function removeAll(array $filePaths): array
+            {
+                return $this->deleteAll($filePaths);
+            }
+        };
+    }
+
+    public function test_a_file_that_is_not_on_the_disk_costs_no_query_on_the_products_table_in_any_of_the_three_deletes(): void
+    {
+        $writer = $this->fileWriter();
+        $upload = new UploadedFile($this->temporaryImage(), 'new.webp', null, null, true);
+
+        $statements = $this->productQueriesDuring(function () use ($writer, $upload): void {
+            ImageManager::delete('/product/thumbnail/ghost.webp');
+            $writer->remove('/product/ghost.webp');
+            $writer->update(dir: 'product/thumbnail/', oldImage: 'ghost.webp', format: 'webp', image: $upload);
+            app(ProductService::class)->deleteImages(product: (new Product())->forceFill(['images' => json_encode(['ghost-a.webp', 'ghost-b.webp']), 'thumbnail' => 'ghost-thumb.webp']));
+        });
+
+        $this->assertSame([], $statements);
+    }
+
+    public function test_a_file_on_the_disk_is_one_query_on_the_products_table_and_the_files_of_a_product_are_one_query_together(): void
+    {
+        $images = ['batch-1.webp', 'batch-2.webp', 'batch-3.webp', 'batch-4.webp', 'batch-5.webp', 'batch-6.webp'];
+        $this->insertProduct(81, ['thumbnail' => 'batch-thumb.webp', 'images' => json_encode($images)]);
+        foreach ([...$images, 'thumbnail/batch-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        $product = Product::withoutGlobalScopes()->find(81);
+
+        $single = $this->productQueriesDuring(static fn () => ImageManager::delete('/product/batch-1.webp'));
+        $all = $this->productQueriesDuring(fn () => app(ProductService::class)->deleteImages(product: $product));
+
+        $this->assertCount(1, $single);
+        $this->assertCount(1, $all, 'the six images and the thumbnail are asked for together');
+        foreach ([...$images, 'thumbnail/batch-thumb.webp'] as $name) {
+            $this->assertFileDoesNotExist($this->product($name), $name);
+        }
+    }
+
+    public function test_a_product_that_deletes_its_files_keeps_the_ones_another_product_holds_when_they_are_asked_for_together(): void
+    {
+        $this->insertProduct(81, ['thumbnail' => 'mixed-thumb.webp', 'images' => json_encode(['mixed-own.webp', 'mixed-shared.webp', 'mixed-colour.webp'])]);
+        $this->insertProduct(82, ['thumbnail' => 'mixed-thumb.webp', 'images' => json_encode(['mixed-shared.webp']), 'colors' => json_encode(['FF0000']), 'color_image' => json_encode([['color' => 'FF0000', 'image_name' => 'mixed-colour.webp', 'storage' => 'public']])]);
+        foreach (['mixed-own.webp', 'mixed-shared.webp', 'mixed-colour.webp', 'thumbnail/mixed-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+
+        $this->assertFileDoesNotExist($this->product('mixed-own.webp'));
+        foreach (['mixed-shared.webp', 'mixed-colour.webp', 'thumbnail/mixed-thumb.webp'] as $name) {
+            $this->assertFileExists($this->product($name), $name);
+        }
+    }
+
+    public function test_the_answer_for_a_list_of_paths_names_the_shared_ones_and_only_those(): void
+    {
+        $this->insertProduct(81, ['thumbnail' => 'list-thumb.webp', 'images' => json_encode(['list-shared.webp', 'list-own.webp'])]);
+        $this->insertProduct(82, ['thumbnail' => 'list-thumb.webp', 'images' => json_encode(['list-shared.webp'])]);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['/product/list-shared.webp', 'product/list-own.webp', '/product/thumbnail/list-thumb.webp', '/category/list-shared.webp', 'product/not-held.webp']);
+
+        $this->assertSame(['/product/list-shared.webp', '/product/thumbnail/list-thumb.webp'], $shared);
+        $this->assertSame([], SharedProductFile::sharedAmong(paths: []));
+    }
+
+    public function test_a_file_that_hundreds_of_products_hold_is_answered_from_plain_rows_and_one_statement(): void
+    {
+        DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'PH' . $number, 'name' => 'Imported ' . $number, 'thumbnail' => 'placeholder.png', 'images' => json_encode(['placeholder.png']), 'colors' => '[]', 'color_image' => '[]'], range(1, 250)));
+        $hydrated = 0;
+        Event::listen('eloquent.retrieved: ' . Product::class, static function () use (&$hydrated): void {
+            $hydrated++;
+        });
+
+        $answers = [];
+        $statements = $this->productQueriesDuring(function () use (&$answers): void {
+            $answers = [SharedProductFile::isShared(path: 'product/placeholder.png'), SharedProductFile::isShared(path: 'product/thumbnail/placeholder.png')];
+        });
+
+        $this->assertSame([true, true], $answers);
+        $this->assertSame(0, $hydrated, 'the rows are read as plain rows, not as products');
+        $this->assertCount(2, $statements, 'one statement for each question: the search stops at the second holder');
+        foreach ($statements as $statement) {
+            $this->assertStringNotContainsString('*', $statement, 'only the columns the check reads');
+        }
+    }
+
+    public function test_the_folder_of_a_kind_of_product_file_is_no_file_and_costs_no_query(): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['thumbnail'])]);
+        $this->insertProduct(82, ['images' => json_encode(['thumbnail'])]);
+        $answers = [];
+
+        $statements = $this->productQueriesDuring(function () use (&$answers): void {
+            $answers = array_map(static fn (string $path): bool => SharedProductFile::isShared(path: $path), ['product/thumbnail', '/product/thumbnail/', 'product/preview/', 'product/meta', 'product/digital-product/']);
+        });
+
+        $this->assertSame([false, false, false, false, false], $answers);
+        $this->assertSame([], $statements);
     }
 }

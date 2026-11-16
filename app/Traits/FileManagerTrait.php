@@ -95,9 +95,7 @@ trait FileManagerTrait
      */
     public function update(string $dir, $oldImage, string $format, $image, string $fileType = 'image'): string
     {
-        if (PlainFileName::staysInside(path: $dir . $oldImage) && !SharedProductFile::isShared(path: $dir . $oldImage) && $this->checkFileExists(filePath: $dir . $oldImage)['status']) {
-            Storage::disk($this->checkFileExists(filePath: $dir . $oldImage)['disk'])->delete($dir . $oldImage);
-        }
+        $this->deleteUnsharedFiles(filePaths: [$dir . $oldImage]);
 
         return $fileType == 'file' ? $this->fileUpload($dir, $format, $image) : $this->upload($dir, $format, $image);
     }
@@ -108,15 +106,35 @@ trait FileManagerTrait
      */
     protected function  delete(string $filePath): array
     {
-        if (PlainFileName::staysInside(path: $filePath) && !SharedProductFile::isShared(path: $filePath) && $this->checkFileExists(filePath: $filePath)['status']) {
-            Storage::disk($this->checkFileExists(filePath: $filePath)['disk'])->delete($filePath);
-        }
+        return $this->deleteAll(filePaths: [$filePath]);
+    }
+
+    /**
+     * @param list<string> $filePaths
+     * @return array
+     */
+    protected function deleteAll(array $filePaths): array
+    {
+        $this->deleteUnsharedFiles(filePaths: $filePaths);
         cacheRemoveByType(type: 'file_manager');
         Cache::forget("cache_all_files_for_public_storage");
         return [
             'success' => 1,
             'message' => translate('Removed_successfully')
         ];
+    }
+
+    /**
+     * Deletes the files that are on a disk and that no other product holds; a file that is not there costs no search of the products.
+     *
+     * @param list<string> $filePaths
+     */
+    private function deleteUnsharedFiles(array $filePaths): void
+    {
+        $stored = array_filter($filePaths, fn (string $filePath): bool => PlainFileName::staysInside(path: $filePath) && $this->checkFileExists(filePath: $filePath)['status']);
+        foreach (array_diff($stored, SharedProductFile::sharedAmong(paths: $stored)) as $filePath) {
+            Storage::disk($this->checkFileExists(filePath: $filePath)['disk'])->delete($filePath);
+        }
     }
 
     public function setStorageConnectionEnvironment(): void
