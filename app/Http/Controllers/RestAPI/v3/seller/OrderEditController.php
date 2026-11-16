@@ -79,6 +79,9 @@ class OrderEditController extends Controller
         if (!$order) {
             return $this->recordNotFound(code: 'order', message: 'order_not_found');
         }
+        if (!$this->orderEditService->areRequestedProductsAllowedOnOrder(request: $request, order: $order)) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
 
         $colors = $this->colorRepo->getListWhereIn(whereIn: ['code' => (collect($request['products'])?->pluck('color')?->toArray() ?? [])]);
         $orderCombination = $this->orderEditService->getFormatAPIProductsForEditOrder(request: $request, order: $order, colors: $colors);
@@ -99,6 +102,9 @@ class OrderEditController extends Controller
         ]);
         if (!$order) {
             return $this->recordNotFound(code: 'order', message: 'order_not_found');
+        }
+        if (!$this->orderEditService->areRequestedProductsAllowedOnOrder(request: $request, order: $order)) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
         }
 
         $colors = $this->colorRepo->getListWhereIn(whereIn: ['code' => (collect($request['products'])?->pluck('color')?->toArray() ?? [])]);

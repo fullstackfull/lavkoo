@@ -37,6 +37,7 @@ class SellerApiOrderOwnershipTest extends TestCase
         $this->buildSellerApiWorld();
         $this->createOrderTables();
         $this->seedOrders();
+        DB::table('products')->insert(['id' => 10, 'user_id' => self::SELLER, 'added_by' => 'seller']);
         $this->replaceTheOrderWriters();
     }
 
@@ -189,6 +190,11 @@ class SellerApiOrderOwnershipTest extends TestCase
             $table->unsignedBigInteger('seller_id')->nullable();
             $table->integer('qty')->default(1);
             $table->decimal('price', 16, 2)->default(0);
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('products', function (Blueprint $table) {
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('added_by')->nullable();
             $table->timestamps();
         });
 

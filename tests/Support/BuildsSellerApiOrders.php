@@ -3,6 +3,7 @@
 namespace Tests\Support;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -122,5 +123,101 @@ trait BuildsSellerApiOrders
         $line(self::OWN_LINE, self::OWN_ORDER, self::SELLER, 'Own item', 100);
         $line(self::IN_HOUSE_LINE, self::IN_HOUSE_ORDER, self::IN_HOUSE_ID, 'In-house secret item', 500);
         $line(self::OTHER_SELLERS_LINE, self::OTHER_SELLERS_ORDER, self::OTHER_SELLER, 'Other sellers item', 480);
+    }
+
+    /** Users, products, reviews, clearance sales and the other tables an order line's relations are read from, with the three products of the three shops. */
+    protected function createTablesTheOrderDetailsRelationsReadFrom(): void
+    {
+        $this->createSellerApiTable('users', fn (Blueprint $table) => $table->string('f_name')->nullable());
+        $this->createSellerApiTable('offline_payments', function (Blueprint $table) {
+            $table->unsignedBigInteger('order_id');
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('order_delivery_verifications', function (Blueprint $table) {
+            $table->unsignedBigInteger('order_id');
+            $table->string('image')->nullable();
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('order_edit_histories', function (Blueprint $table) {
+            $table->unsignedBigInteger('order_id');
+            $table->string('order_due_payment_status')->nullable();
+            $table->string('order_return_payment_status')->nullable();
+            $table->decimal('order_due_amount', 16, 2)->default(0);
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('products', function (Blueprint $table) {
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('added_by')->nullable();
+            $table->string('name')->nullable();
+            $table->string('product_type')->default('physical');
+            $table->text('images')->nullable();
+            $table->string('thumbnail')->nullable();
+            $table->decimal('unit_price', 16, 2)->default(0);
+            $table->integer('current_stock')->default(0);
+            $table->text('category_ids')->nullable();
+            $table->text('colors')->nullable();
+            $table->text('attributes')->nullable();
+            $table->text('choice_options')->nullable();
+            $table->text('variation')->nullable();
+            $table->unsignedBigInteger('brand_id')->nullable();
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('reviews', function (Blueprint $table) {
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('delivery_man_id')->nullable();
+            $table->integer('rating')->default(5);
+            $table->boolean('status')->default(true);
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('digital_product_variations', function (Blueprint $table) {
+            $table->unsignedBigInteger('product_id');
+            $table->string('variant_key')->nullable();
+            $table->string('file')->nullable();
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('product_seos', function (Blueprint $table) {
+            $table->unsignedBigInteger('product_id');
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('stock_clearance_products', function (Blueprint $table) {
+            $table->string('added_by')->nullable();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('setup_id')->nullable();
+            $table->integer('is_active')->default(1);
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('stock_clearance_setups', function (Blueprint $table) {
+            $table->integer('is_active')->default(1);
+            $table->dateTime('duration_start_date')->nullable();
+            $table->dateTime('duration_end_date')->nullable();
+            $table->string('offer_active_time')->nullable();
+            $table->string('offer_active_range_start')->nullable();
+            $table->string('offer_active_range_end')->nullable();
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('translations', function (Blueprint $table) {
+            $table->string('translationable_type');
+            $table->unsignedBigInteger('translationable_id');
+            $table->string('locale');
+            $table->string('key');
+            $table->text('value')->nullable();
+        });
+        $this->createSellerApiTable('shops', function (Blueprint $table) {
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('name')->nullable();
+            $table->timestamps();
+        });
+        $this->createSellerApiTable('categories', fn (Blueprint $table) => $table->string('name')->nullable());
+        $this->createSellerApiTable('brands', fn (Blueprint $table) => $table->string('name')->nullable());
+
+        foreach ([[10, self::SELLER, 'seller'], [20, self::OTHER_SELLER, 'seller'], [30, self::IN_HOUSE_ID, 'admin']] as [$productId, $userId, $addedBy]) {
+            DB::table('products')->insert([
+                'id' => $productId, 'user_id' => $userId, 'added_by' => $addedBy, 'name' => 'Product ' . $productId, 'images' => '[]', 'thumbnail' => 'thumb.png', 'unit_price' => 100,
+                'current_stock' => 50, 'category_ids' => '[]', 'colors' => '[]', 'attributes' => '[]', 'choice_options' => '[]', 'variation' => '[]',
+            ]);
+        }
+        Cache::put('tax_system_type_vendor_with_vat', [
+            'SystemTaxVat' => null, 'SystemTaxVatType' => 'order_wise', 'is_included' => 1, 'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([]),
+        ], 3600);
     }
 }

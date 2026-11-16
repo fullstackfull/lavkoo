@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\Product;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Traits\ProductTrait;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
@@ -442,9 +444,44 @@ class OrderEditService
     }
 
 
+    /** An edit writes each product it names as a line of the order, reprices the order from it and moves its stock: only products of the order's own shop, or ones the order already holds, may be named. */
+    public function areRequestedProductsAllowedOnOrder(object|array $request, object $order): bool
+    {
+        $requestProducts = $this->getRequestProducts(request: $request);
+        if (!is_array($requestProducts)) {
+            return false;
+        }
+
+        $requestedIds = collect($requestProducts)
+            ->map(fn ($productItem) => filter_var(is_array($productItem) ? ($productItem['id'] ?? null) : null, FILTER_VALIDATE_INT))
+            ->unique()
+            ->values();
+        if ($requestedIds->contains(false)) {
+            return false;
+        }
+
+        $newIds = $requestedIds->diff($order->details->pluck('product_id'));
+
+        return $newIds->diff($this->getOrderShopProductIds(order: $order, ids: $newIds->all()))->isEmpty();
+    }
+
+    private function getRequestProducts(object|array $request): mixed
+    {
+        return isset($request['products']) && is_array($request['products']) ? $request['products'] : json_decode($request['products'] ?? '', true);
+    }
+
+    private function getOrderShopProductIds(object $order, array $ids): Collection
+    {
+        return Product::when(
+            $order['seller_is'] == 'seller',
+            fn ($query) => $query->ofSeller(sellerId: $order['seller_id']),
+            fn ($query) => $query->where('added_by', 'admin'),
+        )->whereIn('id', $ids)->pluck('id');
+    }
+
     public function getFormatAPIProductsForEditOrder(object|array $request, object|array $order = [], object|array|null $colors = []): array
     {
-        $requestProducts = isset($request['products']) && is_array($request['products']) ? $request['products'] : json_decode($request['products'] ?? '', true);
+        $requestProducts = $this->getRequestProducts(request: $request);
         $products = $this->getProductListWithAllDetails(ids: collect($requestProducts)->pluck('id')->toArray());
 
         $productList = [];
