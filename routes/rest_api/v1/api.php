@@ -52,7 +52,7 @@ use App\Http\Controllers\Customer\PaymentController;
 |
  */
 
-Route::group(['prefix' => 'v1', 'middleware' => ['api_lang']], function () {
+Route::group(['prefix' => 'v1', 'middleware' => ['api_lang', 'storefront.vary']], function () {
 
 
 

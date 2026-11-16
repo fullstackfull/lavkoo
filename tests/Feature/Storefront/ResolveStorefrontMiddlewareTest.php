@@ -4,6 +4,7 @@ namespace Tests\Feature\Storefront;
 
 use App\Http\Middleware\ResolveStorefront;
 use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Route;
@@ -193,9 +194,61 @@ class ResolveStorefrontMiddlewareTest extends TestCase
             ->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
     }
 
-    public function test_an_inactive_default_country_fails_the_request_instead_of_serving_another_storefront(): void
+    public function test_while_switched_on_every_api_v1_answer_says_it_varies_by_storefront_even_where_the_storefront_middleware_is_not_bound(): void
     {
-        config(['gcc.storefronts.countries.SA.active' => false]);
+        config(['gcc.storefronts.enabled' => true]);
+
+        $response = $this->getJson('/api/v1/storefronts')->assertOk();
+
+        $this->assertContains('X-Storefront', array_map('trim', explode(',', implode(',', $response->headers->all('vary')))));
+    }
+
+    public function test_while_switched_off_no_api_v1_answer_varies_by_storefront(): void
+    {
+        $response = $this->getJson('/api/v1/storefronts')->assertOk();
+
+        $this->assertNotContains('X-Storefront', array_map('trim', explode(',', implode(',', $response->headers->all('vary')))));
+    }
+
+    public function test_while_switched_off_a_missing_or_broken_configuration_still_serves_saudi(): void
+    {
+        $this->registerProbeRoutes();
+
+        $broken = [
+            'no gcc configuration at all (a cached config that predates it)' => null,
+            'an unknown default country' => ['storefronts' => ['enabled' => false, 'default_country' => 'XX', 'countries' => ['SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true]]]],
+            'no countries' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => []]],
+            'an inactive default country' => ['storefronts' => ['enabled' => false, 'default_country' => 'SA', 'countries' => ['SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => false]]]],
+            'only the flag' => ['storefronts' => ['enabled' => false]],
+        ];
+
+        foreach ($broken as $case => $gcc) {
+            config(['gcc' => $gcc]);
+
+            $this->probe('/__storefront-probe')->assertExactJson(['country' => 'SA', 'currency' => 'SAR']);
+            $this->assertSame('SA', StorefrontResolver::fromConfig()->defaultCountry(), $case);
+        }
+    }
+
+    public function test_while_switched_off_a_valid_configuration_keeps_its_own_default_country(): void
+    {
+        config(['gcc.storefronts.default_country' => 'AE', 'gcc.storefronts.countries.AE.active' => true]);
+
+        $this->assertSame('AE', StorefrontResolver::fromConfig()->defaultCountry());
+    }
+
+    public function test_switched_on_a_missing_configuration_still_fails_loudly(): void
+    {
+        config(['gcc' => ['storefronts' => ['enabled' => true]]]);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        StorefrontResolver::fromConfig();
+    }
+
+    public function test_switched_on_an_inactive_default_country_fails_the_request_instead_of_serving_another_storefront(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.SA.active' => false]);
         $this->registerProbeRoutes();
 
         $this->expectException(InvalidArgumentException::class);
