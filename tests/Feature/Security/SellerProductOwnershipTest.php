@@ -350,6 +350,7 @@ class SellerProductOwnershipTest extends TestCase
 
     private function seedCatalogue(): void
     {
+        Cache::flush();
         Cache::put('tax_system_type_vendor_with_vat', [
             'SystemTaxVat' => null, 'SystemTaxVatType' => 'order_wise', 'is_included' => 1, 'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([]),
         ], 3600);
