@@ -132,6 +132,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'detectMobile' => \App\Http\Middleware\DetectMobile::class,
             // Adopted only by the new-sale routes the storefront legal gate covers (GCC-11). Elsewhere the Saudi storefront is untouched.
             'storefront' => \App\Http\Middleware\ResolveStorefront::class,
+            'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
             'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
         ]);
     })

@@ -426,7 +426,7 @@ class ProductController extends Controller
 
     public function get_related_products(Request $request, $slug)
     {
-        $product = Product::where('slug', $slug)->first();
+        $product = Product::inCurrentStorefront()->where('slug', $slug)->first();
         if ($product) {
             $products = ProductManager::get_related_products($product->id, $request);
             $products = Helpers::product_data_formatting($products, true);
@@ -439,7 +439,7 @@ class ProductController extends Controller
 
     public function get_product_reviews(Request $request, $slug)
     {
-        $product = Product::withCount('reviews')->where('slug', $slug)->first();
+        $product = Product::inCurrentStorefront()->withCount('reviews')->where('slug', $slug)->first();
         if (!$product) {
             return response()->json([
                 'errors' => ['code' => 'product-001', 'message' => translate('product_not_found')]
@@ -509,7 +509,7 @@ class ProductController extends Controller
     public function get_product_rating($id):JsonResponse
     {
         try {
-            $product = Product::find($id);
+            $product = Product::inCurrentStorefront()->find($id);
             $overallRating = getOverallRating($product?->reviews);
             return response()->json(floatval($overallRating[0]), 200);
         } catch (\Exception $e) {
@@ -520,7 +520,7 @@ class ProductController extends Controller
     public function counter($slug)
     {
         try {
-            $product = Product::where('slug', $slug)->first();
+            $product = Product::inCurrentStorefront()->where('slug', $slug)->first();
             $countOrder = OrderDetail::where('product_id', $product->id)->count();
             $countWishlist = Wishlist::where('product_id', $product->id)->count();
             return response()->json(['order_count' => $countOrder, 'wishlist_count' => $countWishlist], 200);
@@ -531,7 +531,7 @@ class ProductController extends Controller
 
     public function socialShareLink($product_id): JsonResponse
     {
-        $product = Product::where('slug', $product_id)->first();
+        $product = Product::inCurrentStorefront()->where('slug', $product_id)->first();
         try {
             $link = route('product', $product->slug);
             return response()->json($link, 200);
