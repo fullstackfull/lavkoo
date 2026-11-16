@@ -30,6 +30,12 @@ final class StoredFileExtension
 
     public const UNKNOWN = 'bin';
 
+    /** Whether an extension is one of the data types a stored file may carry, whoever wrote it (case does not matter). */
+    public static function isDataType(string $extension): bool
+    {
+        return in_array(strtolower($extension), self::DATA_TYPES, true);
+    }
+
     /** @param File|null $file the uploaded file, when the content can be asked */
     public static function of(string $clientExtension, ?File $file = null): string
     {

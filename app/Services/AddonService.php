@@ -16,6 +16,9 @@ use ZipArchive;
 
 class AddonService
 {
+    /** The modules that ship with the platform: they are in the Modules directory but are not add-ons, and are never published, activated or deleted here. */
+    private const CORE_MODULES = ['Blog', 'TaxModule', 'AI'];
+
     use SettingsTrait;
     use FileManagerTrait;
     use ActivationClass;
@@ -101,10 +104,27 @@ class AddonService
         ];
     }
 
+    /**
+     * The path of an installed add-on exactly as the add-on list shows it ("Modules/Name"), or nothing. The request names the add-on, and the
+     * path was then joined to the application root to include its info.php, to rewrite it and to delete the directory, so a path the list
+     * never offered (`storage`, `app`, `../other-site`) was a way to run, overwrite or delete anything the web user can reach.
+     */
+    public function installedAddonPath(mixed $path): ?string
+    {
+        if (!is_string($path) || preg_match('#^Modules/([A-Za-z0-9_]+)$#D', $path, $match) !== 1 || in_array($match[1], self::CORE_MODULES, true)) {
+            return null;
+        }
+
+        return is_file(base_path($path . '/Addon/info.php')) ? $path : null;
+    }
+
     public function getPublishData(object $request): array
     {
-        $fullData = include(base_path($request['path'] . '/Addon/info.php'));
-        $path = $request['path'];
+        $path = $this->installedAddonPath($request['path']);
+        if ($path === null) {
+            return ['status' => 'error', 'message' => translate('invalid_request')];
+        }
+        $fullData = include(base_path($path . '/Addon/info.php'));
         $addonName = $fullData['name'];
 
         if (isset($getAddonFolder) && $getAddonFolder === 'Auction') {
@@ -125,7 +145,7 @@ class AddonService
         }
         $fullData['is_published'] = $fullData['is_published'] ? 0 : 1;
         $str = "<?php return " . var_export($fullData, true) . ";";
-        file_put_contents(base_path($request['path'] . '/Addon/info.php'), $str);
+        file_put_contents(base_path($path . '/Addon/info.php'), $str);
 
         Artisan::call('optimize:clear');
         Artisan::call('view:clear');
@@ -138,8 +158,12 @@ class AddonService
 
     public function getActivationData(object $request): array
     {
+        $path = $this->installedAddonPath($request['path']);
+        if ($path === null) {
+            return ['status' => 0, 'activationUrl' => url('/')];
+        }
         $url = $this->getCurrentDomain();
-        $full_data = include(base_path($request['path'] . '/Addon/info.php'));
+        $full_data = include(base_path($path . '/Addon/info.php'));
 
         $post = [
             base64_decode('dXNlcm5hbWU=') => $request['username'],
@@ -156,7 +180,7 @@ class AddonService
             $full_data['username'] = $request['username'];
             $full_data['purchase_code'] = $request['purchase_code'];
             $str = "<?php return " . var_export($full_data, true) . ";";
-            file_put_contents(base_path($request['path'] . '/Addon/info.php'), $str);
+            file_put_contents(base_path($path . '/Addon/info.php'), $str);
         }
 
         $activationUrl = base64_decode('aHR0cHM6Ly9hY3RpdmF0aW9uLjZhbXRlY2guY29t');
@@ -173,7 +197,10 @@ class AddonService
 
     public function deleteAddon(object $request): array
     {
-        $path = $request['path'];
+        $path = $this->installedAddonPath($request['path']);
+        if ($path === null) {
+            return ['status' => 'error', 'message' => translate('file_delete_fail')];
+        }
         $full_path = base_path($path);
         if (basename($path) === 'Gateways') {
             $old = base_path('app/Traits/Payment.php');

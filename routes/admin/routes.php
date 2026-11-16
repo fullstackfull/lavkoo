@@ -1198,7 +1198,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'addon', 'as' => 'addon.'], function () {
+    // The same screens as system-setup/addon below, and the same permission: an add-on is PHP that is installed, run and deleted.
+    Route::group(['prefix' => 'addon', 'as' => 'addon.', 'middleware' => ['module:themes_and_addons']], function () {
         Route::controller(AddonController::class)->group(function () {
             Route::get('', 'index')->name('index');
             Route::post('publish', 'publish')->name('publish');
