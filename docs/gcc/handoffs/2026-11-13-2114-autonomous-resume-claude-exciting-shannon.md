@@ -752,3 +752,11 @@ Section 34 and PR 42 listed "web checkout is not gated, bind the storefront to t
 - PR 46's full SQLite suite at `52a61295`: 6208 tests, one failure, the same Torod fixture. The repair is carried as `50e9037e`.
 - PRs 42, 47 and 48 had said the web is unbound. Their descriptions are corrected.
 - The checkout-path sweep (294 entries: 120 to gate, 114 exempt, 60 out of scope) matches this split. The routes it still lists as to gate and that no PR covers are the seller POS (v3 API `pos/place-order`, vendor and admin POS), the four API due payments on placed orders (left open on purpose), the marketplace order materializer and its scheduled dispatch, and the seller order edit routes. Those need the seller storefront context.
+
+### Addendum: a paid digital file can leave through the product JSON (owner decision)
+
+`Product::$appends` includes `digital_file_ready_full_url`, and its accessor (`getDigitalFileReadyFullUrlAttribute`) returns the public-storage URL of the "ready after sale" file whenever one is set and the file exists. Every serialization of a `Product`, which includes the product details and lists of API v1, can therefore carry the direct URL of the file, and the file sits on the public disk. That makes the OTP and purchase checks of the download route moot for anyone who has seen the product JSON. I read it in the code and did not run it. Whether it matters depends on whether the store sells digital products at all (`digital_product` business setting). Options for the owner: hide the attribute from public serialization, or move the files to a private disk and serve them through the download route only. The 4-digit OTP in section 35 is the same feature.
+
+The sweep also asked to test the media routes around it, and the product-copy tool of the admin panel when it exists: a copy to another country must not copy the file URL or share the file.
+
+Also not done, by decision: orders do not get a `storefront_country` column for now. An order's country follows from its lines (`order_details` to `products.storefront_country`), and a product never changes country, so adding the column before something reads it would be dead weight. Add it, with the stamp in `OrderManager::getOrderAddData`, when per-country accounting needs it.
