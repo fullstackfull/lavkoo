@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Builder;
@@ -245,7 +246,13 @@ class Product extends Model
             ->where(['status' => 1])
             ->where(['request_status' => 1])
             ->SellerApproved()
-            ->whereIn('product_type', $productType);
+            ->whereIn('product_type', $productType)
+            ->inCurrentStorefront();
+    }
+
+    public function scopeInCurrentStorefront($query): void
+    {
+        StorefrontCatalog::restrict($query);
     }
 
     public function scopeSellerApproved($query): void

@@ -1,0 +1,169 @@
+<?php
+
+namespace Tests\Feature\Storefront;
+
+use App\Models\Product;
+use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontResolver;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Tests\Support\BuildsStorefrontCatalog;
+use Tests\TestCase;
+
+/**
+ * Every product belongs to one country. A request bound to a storefront sees that country's products only, so a price or a stock level
+ * is never shared with another country. While storefronts are off, and for anything that was not bound to a storefront, the catalog is
+ * exactly what it was.
+ */
+class StorefrontCatalogTest extends TestCase
+{
+    use BuildsStorefrontCatalog;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->buildStorefrontCatalogTables();
+        $this->runStorefrontCountryMigration();
+
+        $this->insertCatalogProduct(id: 1, name: 'Saudi serum', price: 40, stock: 12);
+        $this->insertCatalogProduct(id: 2, name: 'Emirati serum', price: 55, stock: 3, country: 'AE');
+        $this->insertCatalogProduct(id: 3, name: 'Kuwaiti serum', price: 9, stock: 7, country: 'KW');
+    }
+
+    private function switchStorefrontsOn(): void
+    {
+        config([
+            'gcc.storefronts.enabled' => true,
+            'gcc.storefronts.countries.AE.active' => true,
+            'gcc.storefronts.countries.KW.active' => true,
+        ]);
+    }
+
+    private function serveRequestFrom(string $country): void
+    {
+        app()->instance(StorefrontContext::class, StorefrontResolver::fromConfig()->context(explicitChoice: $country));
+    }
+
+    private function visibleProductIds(): array
+    {
+        return Product::query()->active()->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    public function test_a_product_added_without_a_country_is_a_saudi_product(): void
+    {
+        $this->assertSame('SA', DB::table('products')->where('id', 1)->value('storefront_country'));
+    }
+
+    public function test_the_migration_can_run_twice_and_be_rolled_back(): void
+    {
+        $migration = require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php');
+
+        $migration->up();
+        $this->assertTrue(Schema::hasColumn('products', 'storefront_country'));
+
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('products', 'storefront_country'));
+
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('products', 'storefront_country'));
+    }
+
+    public function test_while_storefronts_are_off_every_product_is_visible_whatever_its_country(): void
+    {
+        $this->serveRequestFrom('AE');
+
+        $this->assertSame([1, 2, 3], $this->visibleProductIds());
+    }
+
+    public function test_a_request_that_was_not_bound_to_a_storefront_is_not_narrowed(): void
+    {
+        $this->switchStorefrontsOn();
+
+        $this->assertSame([1, 2, 3], $this->visibleProductIds());
+    }
+
+    public function test_the_visibility_query_is_unchanged_while_storefronts_are_off_or_the_request_is_not_bound(): void
+    {
+        $this->serveRequestFrom('AE');
+        $this->assertStringNotContainsString('storefront_country', Product::query()->active()->toSql());
+
+        app()->forgetInstance(StorefrontContext::class);
+        $this->switchStorefrontsOn();
+        $this->assertStringNotContainsString('storefront_country', Product::query()->active()->toSql());
+    }
+
+    public function test_the_saudi_storefront_shows_the_products_that_exist_today(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('SA');
+
+        $this->assertSame([1], $this->visibleProductIds());
+    }
+
+    public function test_another_storefront_shows_only_its_own_products(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('AE');
+
+        $this->assertSame([2], $this->visibleProductIds());
+    }
+
+    public function test_each_country_keeps_its_own_price_and_stock_for_the_same_product(): void
+    {
+        $this->insertCatalogProduct(id: 4, name: 'Shared serum', price: 100, stock: 20);
+        $this->insertCatalogProduct(id: 5, name: 'Shared serum', price: 120, stock: 2, country: 'AE');
+        $this->switchStorefrontsOn();
+
+        $this->serveRequestFrom('SA');
+        $saudiCopy = Product::query()->active()->where('name', 'Shared serum')->toBase()->sole();
+
+        $this->serveRequestFrom('AE');
+        $emiratiCopy = Product::query()->active()->where('name', 'Shared serum')->toBase()->sole();
+
+        $this->assertSame([4, 100.0, 20], [$saudiCopy->id, (float) $saudiCopy->unit_price, (int) $saudiCopy->current_stock]);
+        $this->assertSame([5, 120.0, 2], [$emiratiCopy->id, (float) $emiratiCopy->unit_price, (int) $emiratiCopy->current_stock]);
+    }
+
+    public function test_the_other_visibility_rules_still_apply_inside_a_storefront(): void
+    {
+        DB::table('products')->where('id', 2)->update(['status' => 0]);
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('AE');
+
+        $this->assertSame([], $this->visibleProductIds());
+    }
+
+    public function test_before_the_migration_runs_the_saudi_storefront_serves_what_it_always_served(): void
+    {
+        $this->removeStorefrontCountryColumn();
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('SA');
+
+        $this->assertSame([1, 2, 3], $this->visibleProductIds());
+    }
+
+    public function test_before_the_migration_runs_another_storefront_shows_nothing(): void
+    {
+        $this->removeStorefrontCountryColumn();
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('AE');
+
+        $this->assertSame([], $this->visibleProductIds());
+    }
+
+    public function test_a_late_migration_is_noticed_without_restarting_the_process(): void
+    {
+        $this->removeStorefrontCountryColumn();
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('AE');
+        $this->assertSame([], $this->visibleProductIds());
+
+        $this->runStorefrontCountryMigration();
+        DB::table('products')->where('id', 2)->update(['storefront_country' => 'AE']);
+        StorefrontCatalog::flush();
+
+        $this->assertSame([2], $this->visibleProductIds());
+    }
+}

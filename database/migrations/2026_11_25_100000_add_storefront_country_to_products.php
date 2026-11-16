@@ -1,0 +1,35 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Every product belongs to one storefront country (GCC-02/03), so its price, stock and availability are that country's own. Additive:
+ * every product that exists today is a Saudi product, and nothing reads the column until storefronts are switched on.
+ */
+return new class extends Migration {
+    public function up(): void
+    {
+        if (Schema::hasColumn('products', 'storefront_country')) {
+            return;
+        }
+
+        Schema::table('products', function (Blueprint $table) {
+            $table->char('storefront_country', 2)->default('SA');
+            $table->index('storefront_country', 'products_storefront_country_idx');
+        });
+    }
+
+    public function down(): void
+    {
+        if (!Schema::hasColumn('products', 'storefront_country')) {
+            return;
+        }
+
+        Schema::table('products', function (Blueprint $table) {
+            $table->dropIndex('products_storefront_country_idx');
+            $table->dropColumn('storefront_country');
+        });
+    }
+};
