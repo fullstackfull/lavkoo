@@ -31,7 +31,7 @@ class FileManagerController extends BaseController
     public function index(Request|null $request, ?string $type = null): View
     {
         $targetFolder = $this->galleryFolder(request: $request);
-        $storage = $this->galleryDisk(request: $request);
+        $storage = $this->fileManagerService->galleryDisk(requested: $request['storage']);
 
         try {
             $cacheKey = "cache_all_files_for_{$storage}_storage";
@@ -100,7 +100,7 @@ class FileManagerController extends BaseController
 
     public function download(Request $request, $fileName): StreamedResponse
     {
-        $disk = $this->galleryDisk(request: $request);
+        $disk = $this->fileManagerService->galleryDisk(requested: $request['storage']);
         $path = (string)base64_decode(string: (string)$fileName);
         $path = $disk === 'public' ? preg_replace('#^public/#', '', $path) : $path;
 
@@ -110,12 +110,6 @@ class FileManagerController extends BaseController
         );
 
         return Storage::disk($disk)->download($path);
-    }
-
-    /** The gallery shows the public disk, or S3 when the shop keeps its files there: a disk name from the request is never taken as it comes (`local` is the private tree of storage/app). */
-    private function galleryDisk(Request $request): string
-    {
-        return $request['storage'] === 's3' ? 's3' : 'public';
     }
 
     /** The folder the page opens, base64-encoded: the main folder unless the request names a folder inside the disk. */

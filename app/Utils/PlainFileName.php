@@ -28,9 +28,13 @@ final class PlainFileName
         return self::isPlain($name) ? $name : null;
     }
 
-    /** Whether a path on a storage disk stays below its starting directory: no segment goes up, and nothing is hidden behind a control character. */
+    /**
+     * Whether a path on a storage disk stays below its starting directory: no segment goes up, and nothing is hidden behind a control or format
+     * character (a null byte, a delete character, a zero width space, a right-to-left override). The disks refuse such a path with an exception,
+     * so a request that carries one is answered as a missing file instead of a server error.
+     */
     public static function staysInside(string $path): bool
     {
-        return preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $path) !== 1 && preg_match('/[\x00-\x1f]/', $path) !== 1;
+        return preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $path) !== 1 && preg_match('/[\x00-\x1f]/', $path) !== 1 && preg_match('/\p{C}/u', $path) !== 1;
     }
 }

@@ -6,6 +6,7 @@ use App\Http\Requests\Admin\FileManagerUploadRequest;
 use App\Services\FileManagerService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Validator;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -188,6 +189,19 @@ class FileManagerUploadTest extends TestCase
         $this->assertFileExists(storage_path('app/public/probe-root-photo.jpg'));
         $this->assertFileExists(storage_path('app/public/probe-root-zipped.png'));
         $this->assertFileDoesNotExist(storage_path('app/public/probe-root-run.php'));
+    }
+
+    public function test_a_request_that_names_s3_stores_on_the_public_disk_when_the_shop_keeps_its_files_locally(): void
+    {
+        $bucket = storage_path('framework/testing/probe-bucket-' . uniqid());
+        $this->directoriesToRemove[] = $bucket;
+        config(['filesystems.disks.s3' => ['driver' => 'local', 'root' => $bucket]]);
+        Cache::put('storage_connection_type', 'local');
+
+        $this->service()->uploadFileAndImages(Request::create('/', 'POST', ['storage' => 's3', 'path' => self::FOLDER], [], ['images' => [$this->imageUpload('photo.jpg')]]));
+
+        $this->assertSame([], is_dir($bucket) ? File::allFiles($bucket) : []);
+        $this->assertFileExists(storage_path('app/public/' . self::FOLDER . '/photo.jpg'));
     }
 
     // ---- the form ---------------------------------------------------------------------------------------------------------------

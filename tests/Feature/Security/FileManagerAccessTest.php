@@ -4,6 +4,7 @@ namespace Tests\Feature\Security;
 
 use App\Http\Controllers\Admin\Settings\FileManagerController;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -126,6 +127,73 @@ class FileManagerAccessTest extends TestCase
         } catch (HttpException $exception) {
             $this->assertSame(404, $exception->getStatusCode());
         }
+    }
+
+    /** @return array<string, array{0: string}> paths that Flysystem refuses (it throws on any control or format character), which the route answers as a missing file */
+    public static function pathsThatHoldAControlOrFormatCharacter(): array
+    {
+        return [
+            'a delete character' => ["probe-gallery/a.txt\x7F"],
+            'a zero width space' => ["probe-gallery/a\u{200B}.txt"],
+            'a soft hyphen' => ["probe-gallery/a\u{00AD}.txt"],
+            'a byte order mark' => ["probe-gallery/\u{FEFF}a.txt"],
+            'a next line character' => ["probe-gallery/a\u{0085}.txt"],
+            'a right-to-left override' => ["probe-gallery/a\u{202E}txt.exe"],
+        ];
+    }
+
+    #[DataProvider('pathsThatHoldAControlOrFormatCharacter')]
+    public function test_a_path_that_holds_a_control_or_format_character_is_a_missing_file_and_no_server_error(string $path): void
+    {
+        $this->fileOnDisk(storage_path('app/public/probe-gallery/a.txt'), 'GALLERY');
+
+        try {
+            $this->download($path, ['storage' => 'public']);
+            $this->fail('a path with a control or format character was served');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
+    }
+
+    #[DataProvider('pathsThatHoldAControlOrFormatCharacter')]
+    public function test_a_folder_that_holds_a_control_or_format_character_opens_the_main_folder(string $folder): void
+    {
+        $view = $this->controller()->index(Request::create('/', 'GET', ['targetFolder' => base64_encode($folder)]));
+
+        $this->assertSame('cHVibGlj', $view->getData()['targetFolder']);
+    }
+
+    private function bucketHolding(string $path, string $content, string $shopStorage): void
+    {
+        $bucket = storage_path('framework/testing/probe-bucket-' . uniqid());
+        File::ensureDirectoryExists(dirname($bucket . '/' . $path));
+        file_put_contents($bucket . '/' . $path, $content);
+        $this->created[] = $bucket;
+        config(['filesystems.disks.s3' => ['driver' => 'local', 'root' => $bucket]]);
+        Cache::put('storage_connection_type', $shopStorage);
+    }
+
+    public function test_the_bucket_is_not_read_when_the_shop_keeps_its_files_locally(): void
+    {
+        $this->bucketHolding('secret-backups/db.sql', 'DUMP', shopStorage: 'local');
+
+        try {
+            $this->download('secret-backups/db.sql', ['storage' => 's3']);
+            $this->fail('a file of the bucket was served although the shop does not use it');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
+
+        $view = $this->controller()->index(Request::create('/', 'GET', ['storage' => 's3', 'targetFolder' => base64_encode('secret-backups')]));
+        $this->assertSame('public', $view->getData()['storage']);
+        $this->assertNotContains('db.sql', array_column($view->getData()['allItemList']->items(), 'name'));
+    }
+
+    public function test_the_bucket_is_read_when_the_shop_keeps_its_files_there(): void
+    {
+        $this->bucketHolding('secret-backups/db.sql', 'DUMP', shopStorage: 's3');
+
+        $this->assertSame('DUMP', $this->body($this->download('secret-backups/db.sql', ['storage' => 's3'])));
     }
 
     public function test_the_page_lists_the_public_disk_whatever_disk_the_request_names(): void

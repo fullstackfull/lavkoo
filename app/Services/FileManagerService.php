@@ -15,9 +15,15 @@ use ZipArchive;
 class FileManagerService
 {
 
+    /** The disk the gallery works on: S3 only when the shop keeps its files there, whatever disk the request names. */
+    public function galleryDisk(mixed $requested): string
+    {
+        return $requested === 's3' && getWebConfig(name: 'storage_connection_type') === 's3' ? 's3' : 'public';
+    }
+
     public function uploadFileAndImages(object $request): bool
     {
-        $storage = $request['storage'];
+        $storage = $this->galleryDisk(requested: $request['storage']);
         $folder = $request['path'];
         if (!is_string($folder) || !PlainFileName::staysInside(path: $folder)) {
             return false;
