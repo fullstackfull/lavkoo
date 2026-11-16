@@ -84,6 +84,68 @@ class StorefrontCatalogTest extends TestCase
         $this->assertSame([1, 2, 3], $this->visibleProductIds());
     }
 
+    public function test_a_storefront_request_the_middleware_has_not_reached_yet_is_narrowed_to_the_storefront_it_asks_for(): void
+    {
+        $this->switchStorefrontsOn();
+
+        $this->serveAsHttpRequest('/products?storefront=AE');
+        $this->assertSame([2], $this->visibleProductIds());
+
+        $this->serveAsHttpRequest('/products', ['X-Storefront' => 'KW']);
+        $this->assertSame([3], $this->visibleProductIds());
+
+        $this->serveAsHttpRequest('/products');
+        $this->assertSame([1], $this->visibleProductIds());
+    }
+
+    public function test_an_unbound_request_for_a_panel_or_a_seller_api_still_sees_every_country(): void
+    {
+        $this->switchStorefrontsOn();
+
+        foreach (['/admin/products/list', '/vendor/products/list', '/seller/dashboard', '/api/v2/seller/products/list', '/api/v3/seller/products/list'] as $uri) {
+            $this->serveAsHttpRequest($uri . '?storefront=AE');
+            $this->assertSame([1, 2, 3], $this->visibleProductIds(), $uri);
+        }
+    }
+
+    public function test_the_bound_storefront_wins_over_what_the_address_says(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->serveAsHttpRequest('/products?storefront=AE');
+        $this->serveRequestFrom('KW');
+
+        $this->assertSame([3], $this->visibleProductIds());
+    }
+
+    public function test_while_storefronts_are_off_a_missing_or_broken_storefront_configuration_does_not_reach_the_catalog(): void
+    {
+        foreach ([null, ['storefronts' => ['enabled' => false, 'default_country' => 'XX', 'countries' => []]], ['storefronts' => ['enabled' => false]]] as $gcc) {
+            config(['gcc' => $gcc]);
+
+            $this->assertSame([1, 2, 3], $this->visibleProductIds());
+        }
+    }
+
+    public function test_a_serialized_product_does_not_carry_its_country(): void
+    {
+        $this->buildProductRelationTables();
+
+        $this->assertArrayNotHasKey('storefront_country', Product::query()->findOrFail(2)->toArray());
+        $this->assertSame('AE', Product::query()->findOrFail(2)->storefront_country);
+    }
+
+    public function test_the_migration_can_finish_after_it_stopped_between_the_column_and_the_index(): void
+    {
+        $migration = require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php');
+        Schema::table('products', fn ($table) => $table->dropIndex('products_storefront_active_idx'));
+        $this->assertFalse(Schema::hasIndex('products', 'products_storefront_active_idx'));
+
+        $migration->up();
+
+        $this->assertTrue(Schema::hasIndex('products', 'products_storefront_active_idx'));
+        $this->assertSame('SA', DB::table('products')->where('id', 1)->value('storefront_country'));
+    }
+
     public function test_the_visibility_query_is_unchanged_while_storefronts_are_off_or_the_request_is_not_bound(): void
     {
         $this->serveRequestFrom('AE');

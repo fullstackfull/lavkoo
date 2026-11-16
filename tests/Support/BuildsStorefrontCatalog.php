@@ -2,8 +2,10 @@
 
 namespace Tests\Support;
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use ReflectionProperty;
 
 /** The few tables the product visibility scope reads, and a helper that adds a product to them. */
 trait BuildsStorefrontCatalog
@@ -45,6 +47,44 @@ trait BuildsStorefrontCatalog
             $table->id();
             $table->boolean('status')->default(true);
         });
+    }
+
+    /** The two relations every loaded Product brings along, for a test that reads products through the model. */
+    protected function buildProductRelationTables(): void
+    {
+        foreach (['translations', 'reviews'] as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        Schema::create('translations', function ($table) {
+            $table->id();
+            $table->string('translationable_type');
+            $table->unsignedBigInteger('translationable_id');
+            $table->string('locale');
+            $table->string('key');
+            $table->text('value')->nullable();
+        });
+        Schema::create('reviews', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('delivery_man_id')->nullable();
+            $table->boolean('status')->default(true);
+        });
+    }
+
+    /**
+     * A web request that no storefront middleware has reached yet, as when the providers boot: the container holds the request and no
+     * StorefrontContext. The test process is a console, so the console flag is turned off for this application.
+     */
+    protected function serveAsHttpRequest(string $uri, array $headers = []): void
+    {
+        $server = [];
+        foreach ($headers as $name => $value) {
+            $server['HTTP_' . strtoupper(str_replace('-', '_', $name))] = $value;
+        }
+
+        $this->app->instance('request', Request::create($uri, 'GET', [], [], [], $server));
+        (new ReflectionProperty($this->app, 'isRunningInConsole'))->setValue($this->app, false);
     }
 
     /** Adds the column the migration adds, the way the migration adds it. */
