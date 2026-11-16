@@ -3,11 +3,13 @@
 namespace Tests\Feature\Security;
 
 use App\Http\Controllers\Admin\Settings\AddonActivationController;
+use App\Http\Controllers\Admin\Settings\AddonController;
 use App\Http\Requests\AddonPurchaseCodeRequest;
 use App\Services\AddonService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ZipArchive;
@@ -271,6 +273,100 @@ class AdminAddonSurfaceTest extends TestCase
 
         $this->assertSame('error', $result['status']);
         $this->assertSame($published, file_get_contents($target . '/Addon/info.php'));
+    }
+
+    // ---- a link inside the add-on -----------------------------------------------------------------------------------------------
+
+    private const ACTIVATED_INFO = "<?php return ['name' => 'Probe', 'module_name' => 'ProbeLinkedInfo', 'is_published' => 0, 'purchase_code' => 'code', 'username' => 'user'];";
+
+    /** @return array<string, array{0: string}> where the link that leads the info file of an add-on to another place is put */
+    public static function placesForALinkThatLeavesTheAddon(): array
+    {
+        return [
+            'the info file is a link' => ['info'],
+            'the Addon directory is a link' => ['addon'],
+            'the Addon directory is a link to the directory of an add-on whose name starts with this one\'s' => ['sibling'],
+        ];
+    }
+
+    #[DataProvider('placesForALinkThatLeavesTheAddon')]
+    public function test_an_addon_whose_info_file_is_reached_through_a_link_to_another_place_is_not_an_addon(string $place): void
+    {
+        $elsewhere = $this->makeDirectory($place === 'sibling' ? 'Modules/ProbeLinkedInfoSibling' : 'storage/probe-linked-info', ['info.php' => self::ACTIVATED_INFO, 'Addon/info.php' => self::ACTIVATED_INFO]);
+        $module = $this->makeDirectory('Modules/ProbeLinkedInfo', ['Http/Thing.php' => '<?php']);
+        if ($place === 'info') {
+            File::ensureDirectoryExists($module . '/Addon');
+            symlink($elsewhere . '/info.php', $this->links[] = $module . '/Addon/info.php');
+        } else {
+            symlink($elsewhere . '/Addon', $this->links[] = $module . '/Addon');
+        }
+        Http::fake(['*' => Http::response(['active' => base64_encode('1')])]);
+        $request = static fn (array $input = []): Request => Request::create('/', 'POST', ['path' => 'Modules/ProbeLinkedInfo'] + $input);
+        $service = app(AddonService::class);
+
+        $this->assertNull($service->installedAddonPath('Modules/ProbeLinkedInfo'));
+        $this->assertSame('error', $service->getPublishData($request())['status']);
+        $this->assertSame(0, $service->getActivationData($request(['username' => 'u', 'purchase_code' => 'c']))['status']);
+        $this->assertSame('error', $service->deleteAddon($request())['status']);
+
+        Http::assertNothingSent();
+        $this->assertSame(self::ACTIVATED_INFO, file_get_contents($elsewhere . '/info.php'), 'the file behind the link was rewritten');
+        $this->assertSame(self::ACTIVATED_INFO, file_get_contents($elsewhere . '/Addon/info.php'));
+        $this->assertFileExists($module . '/Http/Thing.php');
+    }
+
+    public function test_a_directory_in_place_of_the_info_file_is_not_an_addon(): void
+    {
+        $this->makeDirectory('Modules/ProbeLinkedInfo', ['Addon/info.php/placeholder.txt' => 'x']);
+
+        $this->assertNull(app(AddonService::class)->installedAddonPath('Modules/ProbeLinkedInfo'));
+    }
+
+    public function test_the_addon_list_offers_the_addons_the_service_manages_and_not_a_link_that_leads_out_of_one(): void
+    {
+        $this->makeDirectory('Modules/ProbeAddon', ['Addon/info.php' => self::INFO]);
+        $elsewhere = $this->makeDirectory('storage/probe-linked-info', ['Addon/info.php' => self::ACTIVATED_INFO]);
+        $this->linkedAddon();
+        $linkedInfo = $this->makeDirectory('Modules/ProbeLinkedInfo');
+        symlink($elsewhere . '/Addon', $this->links[] = $linkedInfo . '/Addon');
+        $linkedFile = $this->makeDirectory('Modules/ProbeLinkedFile', ['Addon/placeholder.txt' => 'x']);
+        symlink($elsewhere . '/Addon/info.php', $this->links[] = $linkedFile . '/Addon/info.php');
+
+        $addons = app(AddonController::class)->index(null)->getData()['addons'];
+
+        $this->assertContains('Modules/ProbeAddon', $addons);
+        $this->assertSame([], array_values(array_intersect($addons, ['Modules/ProbeLinkAddon', 'Modules/ProbeLinkedInfo', 'Modules/ProbeLinkedFile', 'Modules/Blog', 'Modules/TaxModule', 'Modules/AI'])));
+    }
+
+    public function test_a_link_that_stays_inside_the_addon_is_still_an_addon(): void
+    {
+        $module = $this->makeDirectory('Modules/ProbeLinkedInfo', ['Addon/real-info.php' => self::ACTIVATED_INFO]);
+        symlink('real-info.php', $this->links[] = $module . '/Addon/info.php');
+
+        $this->assertSame('Modules/ProbeLinkedInfo', app(AddonService::class)->installedAddonPath('Modules/ProbeLinkedInfo'));
+        $this->assertSame('success', app(AddonService::class)->getPublishData(Request::create('/', 'POST', ['path' => 'Modules/ProbeLinkedInfo']))['status']);
+        $this->assertSame(1, (include $module . '/Addon/real-info.php')['is_published']);
+    }
+
+    public function test_an_addon_is_still_managed_when_the_modules_directory_itself_is_a_link(): void
+    {
+        $shared = sys_get_temp_dir() . '/addon-shared-' . uniqid();
+        $release = sys_get_temp_dir() . '/addon-release-' . uniqid();
+        File::ensureDirectoryExists($shared . '/Modules/ProbeShared/Addon');
+        file_put_contents($shared . '/Modules/ProbeShared/Addon/info.php', self::INFO);
+        File::ensureDirectoryExists($release);
+        symlink($shared . '/Modules', $this->links[] = $release . '/Modules');
+        $this->created[] = $shared;
+        $this->created[] = $release;
+        $basePath = $this->app->basePath();
+
+        $this->app->setBasePath($release);
+        try {
+            $this->assertSame('Modules/ProbeShared', app(AddonService::class)->installedAddonPath('Modules/ProbeShared'));
+            $this->assertSame(['Modules/ProbeShared'], app(AddonController::class)->index(null)->getData()['addons']);
+        } finally {
+            $this->app->setBasePath($basePath);
+        }
     }
 
     public function test_the_deletion_of_a_real_addon_still_works(): void
