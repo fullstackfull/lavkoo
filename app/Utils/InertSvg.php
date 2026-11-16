@@ -11,8 +11,9 @@ use DOMXPath;
  * An SVG is served from the shop's own origin and opened as a page when someone navigates to it, and then it is a document that runs script
  * there. A list of forbidden words in the bytes does not hold: a prefixed element (`<s:script>`), an entity that expands to markup, a
  * character reference inside a link, a `<set>` that writes a handler. So the file is parsed as XML, and only a plain vector image passes:
- * an SVG root, no processing instruction, no entity, no element that scripts, embeds or animates, no element of the page languages (XHTML,
- * MathML, XSLT), no event handler, and no link that leaves the file (a fragment of the same file, or a raster image given as data).
+ * an SVG root, no processing instruction, no entity that is more than text, no element that scripts, embeds or animates, no element of the
+ * page languages (XHTML, MathML, XSLT), no event handler, and no link that leaves the file (a fragment of the same file, or a raster image
+ * given as data).
  */
 final class InertSvg
 {
@@ -38,7 +39,7 @@ final class InertSvg
     public static function isInert(string $svg): bool
     {
         $document = self::parse(xml: $svg);
-        if ($document === null || !self::hasOnlyAPlainDocumentType(document: $document)) {
+        if ($document === null) {
             return false;
         }
 
@@ -60,11 +61,26 @@ final class InertSvg
         return true;
     }
 
+    /**
+     * The document with its entities expanded, so that every decision is made on the text and the namespaces the browser sees: an entity can
+     * name a namespace (`<script xmlns="&h;">`), and without the expansion the element carries the name `&h;` and passes for a stranger. The
+     * expansion comes second, once the document type is known to declare nothing but text, so that no entity is ever read from a file.
+     */
     private static function parse(string $xml): ?DOMDocument
+    {
+        $document = self::load(xml: $xml, options: LIBXML_NONET);
+        if ($document === null || !self::hasOnlyAPlainDocumentType(document: $document)) {
+            return null;
+        }
+
+        return $document->doctype === null ? $document : self::load(xml: $xml, options: LIBXML_NONET | LIBXML_NOENT);
+    }
+
+    private static function load(string $xml, int $options): ?DOMDocument
     {
         $reportErrorsAsExceptions = libxml_use_internal_errors(true);
         $document = new DOMDocument();
-        $isWellFormed = $xml !== '' && $document->loadXML($xml, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $isWellFormed = $xml !== '' && $document->loadXML($xml, $options | LIBXML_NOERROR | LIBXML_NOWARNING);
         libxml_clear_errors();
         libxml_use_internal_errors($reportErrorsAsExceptions);
 
@@ -74,8 +90,8 @@ final class InertSvg
     /**
      * The document type that editors write (`<!DOCTYPE svg PUBLIC ... "http://www.w3.org/Graphics/SVG/...">`, the SVG 1.0 one under
      * `http://www.w3.org/TR/`) is fine. An internal subset is fine when it only names text, as Illustrator's does for its namespaces
-     * (`<!ENTITY ns_extend "http://ns.adobe.com/Extensibility/1.0/">`): a literal with no markup, no reference and no parameter entity can
-     * expand to nothing a browser acts on.
+     * (`<!ENTITY ns_extend "http://ns.adobe.com/Extensibility/1.0/">`): a literal with no markup, no reference and no parameter entity expands
+     * to text and to nothing else, and libxml refuses an expansion far larger than the file.
      */
     private static function hasOnlyAPlainDocumentType(DOMDocument $document): bool
     {

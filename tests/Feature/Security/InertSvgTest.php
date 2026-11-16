@@ -19,6 +19,10 @@ class InertSvgTest extends TestCase
 
     private const XLINK = 'xmlns:xlink="http://www.w3.org/1999/xlink"';
 
+    private const XHTML_ENTITY = '<!ENTITY h "http://www.w3.org/1999/xhtml">';
+
+    private const SVG_ENTITY = '<!ENTITY s "http://www.w3.org/2000/svg">';
+
     /** @return array<string, array{0: string}> */
     public static function imagesThatAreFine(): array
     {
@@ -48,6 +52,9 @@ class InertSvgTest extends TestCase
             'the SVG 1.0 document type' => ['<?xml version="1.0" standalone="no"?>' . "\n" . '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">' . "\n<svg $svg width=\"1\" height=\"1\"><rect width=\"1\" height=\"1\"/></svg>"],
             'the SVG 1.1 Tiny document type' => ['<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1 Tiny//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11-tiny.dtd">' . "<svg $svg><rect width=\"1\" height=\"1\"/></svg>"],
             'what Illustrator writes with its editing capabilities (entities for namespaces)' => ['<?xml version="1.0" encoding="utf-8"?>' . "\n" . '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [' . "\n\t" . '<!ENTITY ns_extend "http://ns.adobe.com/Extensibility/1.0/">' . "\n\t" . '<!ENTITY ns_ai "http://ns.adobe.com/AdobeIllustrator/10.0/">' . "\n\t" . '<!ENTITY ns_graphs "http://ns.adobe.com/Graphs/1.0/">' . "\n]>\n" . "<svg $svg xmlns:x=\"&ns_extend;\" xmlns:i=\"&ns_ai;\" xmlns:graph=\"&ns_graphs;\" viewBox=\"0 0 1 1\"><rect width=\"1\" height=\"1\"/></svg>"],
+            'what older Illustrator writes (the namespaces of the document itself as entities)' => ['<?xml version="1.0" encoding="utf-8"?>' . "\n" . '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd" [' . "\n\t" . '<!ENTITY ns_svg "http://www.w3.org/2000/svg">' . "\n\t" . '<!ENTITY ns_xlink "http://www.w3.org/1999/xlink">' . "\n]>\n" . '<svg xmlns="&ns_svg;" xmlns:xlink="&ns_xlink;" width="1" height="1"><defs><path id="a" d="M0 0"/></defs><use xlink:href="#a"/></svg>'],
+            'an entity that holds a word, used as the text of a title' => [self::declaring(entities: '<!ENTITY shop "Lavkoo">', body: '<title>&shop;</title><rect width="1" height="1"/>')],
+            'an entity that holds a colour, used as the value of an attribute' => [self::declaring(entities: '<!ENTITY red "#f00">', body: '<rect width="1" height="1" fill="&red;" style="stroke:&red;"/>')],
         ];
     }
 
@@ -147,6 +154,28 @@ class InertSvgTest extends TestCase
             'a document type that declares a parameter entity' => ["<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY % p \"x\">]><svg $svg/>"],
             'a document type that declares an entity read from a file' => ["<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY f SYSTEM \"file:///etc/passwd\">]><svg $svg>&f;</svg>"],
             'a document type of a system id outside the standard' => ["<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org.evil.test/Graphics/SVG/1.1/DTD/svg11.dtd\"><svg $svg/>"],
+            // an entity that names a namespace: the browser reads the namespace the entity stands for, so the element is judged by that one
+            'an xhtml script whose namespace is an entity' => [self::declaring(entities: self::XHTML_ENTITY, body: '<script xmlns="&h;">alert(1)</script>')],
+            'an xhtml script behind a prefix that an entity names' => [self::declaring(entities: self::XHTML_ENTITY, body: '<g xmlns:h="&h;"><h:script>alert(1)</h:script></g>')],
+            'an xhtml script in a nested default namespace written with an entity' => [self::declaring(entities: self::XHTML_ENTITY, body: '<g><g><script xmlns="&h;"><![CDATA[alert(1)]]></script></g></g>')],
+            'an svg script whose namespace is an entity' => [self::declaring(entities: self::SVG_ENTITY, body: '<script xmlns="&s;">alert(1)</script>')],
+            'an svg script behind a prefix that an entity names' => [self::declaring(entities: self::SVG_ENTITY, body: '<g xmlns:v="&s;"><v:script>alert(1)</v:script></g>')],
+            'a style element whose namespace is an entity, with an import' => [self::declaring(entities: self::SVG_ENTITY, body: '<style xmlns="&s;">@import \'https://evil.test/a.css\';</style>')],
+            'a handler element whose namespace is an entity' => [self::declaring(entities: self::SVG_ENTITY, body: '<handler xmlns="&s;" type="application/ecmascript">alert(1)</handler>')],
+            'an animate element whose namespace is an entity' => [self::declaring(entities: self::SVG_ENTITY, body: '<rect width="1" height="1"><animate xmlns="&s;" attributeName="x" from="0" to="1" dur="1s"/></rect>')],
+            'a set element whose namespace is an entity' => [self::declaring(entities: self::SVG_ENTITY, body: '<rect width="1" height="1"><set xmlns="&s;" attributeName="x" to="1"/></rect>')],
+            'a foreign object whose namespace is an entity' => [self::declaring(entities: self::SVG_ENTITY, body: '<foreignObject xmlns="&s;" width="1" height="1"/>')],
+            'an xhtml element in a foreign object, both namespaces entities' => [self::declaring(entities: self::SVG_ENTITY . self::XHTML_ENTITY, body: '<foreignObject xmlns="&s;" width="1" height="1"><body xmlns="&h;">text</body></foreignObject>')],
+            'a mathml element whose namespace is an entity' => [self::declaring(entities: '<!ENTITY m "http://www.w3.org/1998/Math/MathML">', body: '<math xmlns="&m;"><mtext>x</mtext></math>')],
+            'an xslt element whose namespace is an entity' => [self::declaring(entities: '<!ENTITY x "http://www.w3.org/1999/XSL/Transform">', body: '<xsl:value-of xmlns:xsl="&x;" select="1"/>')],
+            // an entity that stands for the text of an attribute or of a style is read as that text
+            'an entity that holds an address, used as a style attribute' => [self::declaring(entities: '<!ENTITY u "mask-image:url(https://evil.test/p.png)">', body: '<rect style="&u;" width="1" height="1"/>')],
+            'an entity that holds an address, used as a paint' => [self::declaring(entities: '<!ENTITY u "url(https://evil.test/p.svg#a)">', body: '<rect fill="&u;" width="1" height="1"/>')],
+            'an entity that holds an import, used as a style' => [self::declaring(entities: '<!ENTITY css "@import \'https://evil.test/a.css\';">', body: '<style>&css;</style>')],
+            'an entity that holds a script url, used as a link' => [self::declaring(entities: '<!ENTITY js "javascript:alert(1)">', body: '<a href="&js;"><rect width="1" height="1"/></a>')],
+            'an entity that holds half of a script url, next to the other half' => [self::declaring(entities: '<!ENTITY a "java"><!ENTITY b "script:alert(1)">', body: '<a href="&a;&b;"><rect width="1" height="1"/></a>')],
+            // libxml stops an expansion that is far larger than the file, so a file cannot be made to fill the memory
+            'an entity repeated until it expands to far more than the file holds' => [self::declaring(entities: '<!ENTITY a "' . str_repeat('a', 100000) . '">', body: '<title>' . str_repeat('&a;', 4000) . '</title>')],
         ];
     }
 
@@ -164,6 +193,11 @@ class InertSvgTest extends TestCase
 
         $this->assertTrue($service->isSafeSvg($fine));
         $this->assertFalse($service->isSafeSvg($hostile));
+    }
+
+    private static function declaring(string $entities, string $body): string
+    {
+        return '<?xml version="1.0"?><!DOCTYPE svg [' . $entities . ']><svg ' . self::SVG . ' ' . self::XLINK . '>' . $body . '</svg>';
     }
 
     private function upload(string $content): UploadedFile
