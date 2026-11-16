@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\StoredFileNames;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -52,6 +53,10 @@ class ProductAddRequest extends Request
             'barcode' => 'nullable|regex:/^[a-zA-Z0-9\-]+$/|max:64|unique:products,barcode',
             'minimum_order_qty' => 'required' . '|' . 'numeric' . '|' . 'min' . ':1',
             'video_url' => 'nullable|url',
+            // The names of files that were uploaded earlier (a copy from the product gallery posts them back): each is one plain name.
+            'existing_thumbnail' => [new StoredFileNames()],
+            'existing_images' => [new StoredFileNames()],
+            'existing_preview_file' => [new StoredFileNames()],
         ];
 
         if (!isset($this['existing_thumbnail'])) {

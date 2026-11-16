@@ -6,6 +6,7 @@ namespace App\Services;
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
 use App\Traits\FileManagerTrait;
+use App\Utils\PlainFileName;
 use Illuminate\Support\Str;
 use Rap2hpoutre\FastExcel\FastExcel;
 class ProductService
@@ -762,6 +763,17 @@ class ProductService
         return $dataArray;
     }
 
+    /**
+     * The file name a bulk import sheet's thumbnail cell holds: the name after the folder ("thumbnail/photo.png" is photo.png), split on a
+     * slash or a backslash, and only when it is one plain name; a cell that is anything else (a way up, a path) is the default image.
+     */
+    public static function importedFileName(mixed $cell): string
+    {
+        $parts = preg_split('/[\/\\\\]/', trim((string) $cell)) ?: [];
+
+        return PlainFileName::of($parts[1] ?? $parts[0] ?? null) ?? 'def.png';
+    }
+
     public function getUniqueProductSKUCode(): string
     {
         $code = strtoupper(Str::random('6'));
@@ -831,7 +843,7 @@ class ProductService
                     ];
                 }
             }
-            $thumbnail = explode('/', $collection['thumbnail']);
+            $thumbnail = self::importedFileName(cell: $collection['thumbnail']);
 
             $productCode = self::getUniqueProductSKUCode();
 
@@ -859,7 +871,7 @@ class ProductService
                 'video_provider' => 'youtube',
                 'video_url' => $collection['youtube_video_url'],
                 'images' => json_encode(['def.png']),
-                'thumbnail' => $thumbnail[1] ?? $thumbnail[0],
+                'thumbnail' => $thumbnail,
                 'status' => $addedBy == 'admin' && $collection['status'] == 1 ? 1 : 0,
                 'request_status' => $addedBy == 'admin' ? 1 : (getWebConfig(name: 'new_product_approval') == 1 ? 0 : 1),
                 'colors' => json_encode([]),
