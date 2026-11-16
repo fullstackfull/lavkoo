@@ -72,22 +72,23 @@ trait BuildsSellerApiWorld
     }
 
     /** @param array<string, mixed> $data */
-    protected function sellerApi(string $method, string $uri, array $data = [], int $as = self::SELLER): TestResponse
+    protected function sellerApi(string $method, string $uri, array $data = [], ?int $as = self::SELLER): TestResponse
     {
         return $this->callSellerApi(version: 'v3', method: $method, uri: $uri, data: $data, as: $as);
     }
 
-    /** The older seller app builds: same token, no permission middleware, every handler authenticates for itself. @param array<string, mixed> $data */
-    protected function sellerApiV2(string $method, string $uri, array $data = [], int $as = self::SELLER): TestResponse
+    /** The older seller app builds: same token, no permission middleware, every handler authenticates for itself. A null $as sends no token. @param array<string, mixed> $data */
+    protected function sellerApiV2(string $method, string $uri, array $data = [], ?int $as = self::SELLER): TestResponse
     {
         return $this->callSellerApi(version: 'v2', method: $method, uri: $uri, data: $data, as: $as);
     }
 
     /** @param array<string, mixed> $data */
-    private function callSellerApi(string $version, string $method, string $uri, array $data, int $as): TestResponse
+    private function callSellerApi(string $version, string $method, string $uri, array $data, ?int $as): TestResponse
     {
-        return $this->withHeaders(['Authorization' => 'Bearer ' . self::SELLER_TOKENS[$as], 'Accept' => 'application/json'])
-            ->json($method, '/api/' . $version . '/seller/' . $uri, $data);
+        $headers = ['Accept' => 'application/json'] + ($as === null ? [] : ['Authorization' => 'Bearer ' . self::SELLER_TOKENS[$as]]);
+
+        return $this->withHeaders($headers)->json($method, '/api/' . $version . '/seller/' . $uri, $data);
     }
 
     private function startFromAnEmptySellerApiDatabase(): void
