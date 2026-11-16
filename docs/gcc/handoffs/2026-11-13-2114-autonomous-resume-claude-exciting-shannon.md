@@ -767,3 +767,8 @@ Also not done, by decision: orders do not get a `storefront_country` column for 
 - A second trap found on the way and fixed in the same PR: with storefronts on, a request bound to no storefront (admin panel, queue, console) reads every country and would have written the plain key, which is the Saudi storefront's key. It now writes `storefront:*:<key>`.
 - **Before the flag is turned on anywhere with a non-Saudi product**, these must be true, in this order: the migrations of #38, #43 and #47 have run; #47 to #50 are merged; the admin and vendor tools list products per country (GCC-14), because they are unbound and see every country; the legal texts of the new country are approved (#42, #49). The checklist is also the reason the flag stays off.
 - Not done on purpose: caches whose content does not depend on which country owns a product (settings, currencies, banners, help topics, tags, business pages, the reviews list).
+
+### Addendum: one more audit item fixed, PR 51 (reviews)
+
+- **PR 51, review scope** (`gcc/security-review-scope-segments`, base `main`, head `682255ce`, Torod repair carried as `a2635a1d`). The `Review` global scope hid unapproved reviews with a prefix test on the address (`/admin`, `/seller`, `/vendor`, `/api/v2`, `/api/v3`), so the public `/vendor-shop/...`, `/vendors` and `/seller-profile/...` pages and anything that merely starts with those letters skipped it. The panels are now matched by path segment. Run, not read: 4 of the 13 cases are red on the old code. On those public pages, ratings and review lists now count approved reviews only.
+- Section 35 listed this as a static finding. It is now confirmed by running it and fixed. The other low-severity items of section 35 are unchanged.
