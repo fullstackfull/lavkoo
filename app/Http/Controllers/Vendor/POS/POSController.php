@@ -358,12 +358,13 @@ class POSController extends BaseController
     public function getQuickView(Request $request): JsonResponse
     {
         $product = $this->productRepo->getFirstWhereWithCount(
-            params: ['id' => $request['product_id']],
+            params: ['id' => $request['product_id'], 'added_by' => 'seller', 'user_id' => auth('seller')->id()],
             withCount: ['reviews'],
             relations: ['brand', 'category', 'rating', 'tags', 'digitalVariation', 'digitalProductAuthors.author', 'clearanceSale' => function ($query) {
                 return $query->active();
             }],
         );
+        abort_if(boolean: !$product, code: 404);
         $cartId = $this->cartService->ensureCartSession();
         $cartItems = $this->getCartData(cartName: $cartId);
         $productSubtotal = $cartItems['productSubtotal'] ?? 0;

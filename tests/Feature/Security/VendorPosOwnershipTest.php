@@ -140,6 +140,57 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
         $this->assertStringNotContainsString('In-house pro', $summary);
     }
 
+    // ---- the quick view of a product ----
+
+    #[DataProvider('productsThatAreNotTheSellers')]
+    public function test_the_quick_view_of_a_product_that_is_not_the_sellers_is_not_found(int $productId): void
+    {
+        $this->createTheTablesTheQuickViewReads();
+
+        $response = $this->signInAs(self::SELLER)->getJson('/vendor/pos/quick-view?product_id=' . $productId);
+
+        $response->assertNotFound();
+        $this->assertStringNotContainsString('Other sellers product', (string) $response->getContent());
+        $this->assertStringNotContainsString('In-house product', (string) $response->getContent());
+    }
+
+    public function test_the_quick_view_of_the_sellers_own_product_still_opens(): void
+    {
+        $this->createTheTablesTheQuickViewReads();
+
+        $response = $this->signInAs(self::SELLER)->getJson('/vendor/pos/quick-view?product_id=' . self::OWN_PRODUCT);
+
+        $response->assertOk()->assertJson(['success' => 1]);
+        $this->assertStringContainsString('Own product', $response->json('view'));
+    }
+
+    private function createTheTablesTheQuickViewReads(): void
+    {
+        foreach (['tags' => 'tag', 'authors' => 'name', 'publishing_houses' => 'name'] as $tableName => $column) {
+            Schema::create($tableName, static function (Blueprint $table) use ($column): void {
+                $table->id();
+                $table->string($column)->nullable();
+                $table->timestamps();
+            });
+        }
+        Schema::create('product_tag', static function (Blueprint $table): void {
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('tag_id');
+        });
+        Schema::create('digital_product_authors', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('author_id');
+            $table->timestamps();
+        });
+        Schema::create('digital_product_publishing_houses', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('publishing_house_id');
+            $table->timestamps();
+        });
+    }
+
     /**
      * @param list<int> $productIds
      * @return array<string, mixed> a walk-in customer's session cart with two of each product, the way the add to cart route puts them there
