@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\SoftDeletes;  // أضف هذا في الأعلى
 
 /**
@@ -143,6 +144,12 @@ class Seller extends Authenticatable
     protected static function boot(): void
     {
         parent::boot();
+        // A session token is only good for the status it was issued under, so any change of status ends it, whoever changes it.
+        static::updating(function ($model) {
+            if ($model->isDirty('status')) {
+                $model->auth_token = Str::random(80);
+            }
+        });
         static::saved(function ($model) {
             if ($model->isDirty('image')) {
                 $storage = config('filesystems.disks.default') ?? 'public';
