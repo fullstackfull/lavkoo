@@ -6,7 +6,8 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Every product belongs to one storefront country (GCC-02/03), so its price, stock and availability are that country's own. Additive:
- * every product that exists today is a Saudi product, and nothing reads the column until storefronts are switched on.
+ * every product that exists today is a Saudi product, and nothing reads the column until storefronts are switched on. The index leads with
+ * the country and then follows the columns Product::scopeActive() always filters together (see idx_products_type_status_request).
  */
 return new class extends Migration {
     public function up(): void
@@ -17,7 +18,7 @@ return new class extends Migration {
 
         Schema::table('products', function (Blueprint $table) {
             $table->char('storefront_country', 2)->default('SA');
-            $table->index('storefront_country', 'products_storefront_country_idx');
+            $table->index(['storefront_country', 'product_type', 'status', 'request_status'], 'products_storefront_active_idx');
         });
     }
 
@@ -28,7 +29,7 @@ return new class extends Migration {
         }
 
         Schema::table('products', function (Blueprint $table) {
-            $table->dropIndex('products_storefront_country_idx');
+            $table->dropIndex('products_storefront_active_idx');
             $table->dropColumn('storefront_country');
         });
     }
