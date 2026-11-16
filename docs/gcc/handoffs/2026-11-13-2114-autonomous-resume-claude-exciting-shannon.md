@@ -792,3 +792,30 @@ What is still an owner decision: the guest id (`APIGuestMiddleware` passes any t
 - The critic's other gaps are not checkout: admin and vendor `payment_status` writes on any order, seller API v3 `update-payment-status`, the admin wallet credit, and scheduled marketplace settlement. They are money movements by staff, listed for the money review, not changed.
 
 **Stack order for merging.** One chain: #28, #37, #38, #39, #42, #43, #47, #48, #49, #50 (each on the previous one). Independent, on `main`: #40, #41, #44, #45, #46, #51, #52 and the older fixes #16 to #36. The price and stock map (399 sites) is still verifying; its sweep phase is done and its design conclusion (a product row belongs to one country) does not depend on the verification.
+
+### Addendum: independent review of the GCC-02/03 stack, PR 46 follow-ups, PR 53 (payment callbacks), 2026-11-16
+
+**Independent adversarial review of #47 to #50.** A reviewer who had not written the code ran it against the stack. Six things were wrong in the first versions and are fixed in the heads of the PRs, with a test each:
+
+- With storefronts off, the catalog scope still built the resolver, so a missing or broken storefront configuration could have broken the catalog while the feature is meant to be dormant. The scope now reads the flag first and reads nothing else while it is off (#47).
+- A storefront request the middleware had not reached yet (the providers boot before any middleware, and `/api/v1/config` runs without it) was not narrowed. It is now narrowed to the storefront it asks for, by the same rules as the middleware (`StorefrontResolver::contextForRequest`: explicit `?storefront=`, then the `X-Storefront` header, then the path prefix). Panels (`admin`, `vendor`, `seller`), the seller APIs (`api/v2`, `api/v3`), queues and the console stay unbound and see every country, as before (#47, and the same rule for cache keys in #50).
+- `storefront_country` appeared in product JSON, which the Flutter models parse. `Product::$hidden` now lists it (#47).
+- The migration could not finish after it stopped between the column and the index. The two are checked separately now (#47).
+- `CartController::update_variation` read a product by id with no storefront guard, the second cart entry besides `add_to_cart` (#48).
+- The cache registries of dynamic keys (flash deals, cart lists, category and brand keys) hold the key that was written, so clearing a group clears the scoped key too (#50).
+
+**PR 46 follow-ups** (`0c370141`). The same top-level `orWhere` chain existed in the web product list (`ProductManager::getProductListData`, the `search_category_value` filter), and the quick view's related products skipped `Product::active()`. A list request with a main category in `category_ids[]` and a sub category in `search_category_value` returned all five seeded rows, hidden ones included, on the old code; it returns the two visible ones now. `SearchVisibilityTest` has 9 tests, `tests/Feature/Security` 19.
+
+**PR 53, payment callbacks keep the storefront** (`gcc/p1-payment-callback-storefront`, base #50, head `fb8e983d`). Found by reasoning about the order of events, then reproduced by running it: a gateway reports back in a request that names no storefront, so it is served as the default storefront. The order is built from the cart through `active()`, which is narrowed to the storefront's country since #47. A customer who paid in Kuwait would have had an empty cart and no order, with the money taken. The storefront is now recorded in the payment's `additional_data` when the payment starts (`Payment::generate_link`, the choke point every gateway passes) and bound again while `digital_payment_success` builds the order, then restored, so a queue worker does not carry it into the next job. A storefront switched off since the payment started is still the one it is finished in. A payment with no recorded storefront is finished as before. Nothing is recorded or bound while storefronts are off.
+
+- The hook `digital_payment_success` keeps its name and is now a wrapper. The old body is `digital_payment_place_orders`, unchanged.
+- The Flutter app opens the payment in a WebView at `/customer/web-payment-request`, which cannot send the `X-Storefront` header. For the storefront to be recorded there, the app has to add `?storefront=<code>` to that URL. That belongs to the Flutter wiring that is still to do.
+- Found, not changed: `digital_payment_place_orders` writes `storage/logs/order_generate_test.txt` on every paid order (customer id, guest id, address id, order ids), debugging that was never removed. It should be removed, and it is outside the storefront work.
+
+**Checklist before the flag is turned on, additions.** Run `php artisan cache:clear` once at the moment of turning it on (#50). Payments that started before the deploy carry no storefront and finish as before (#53). The Flutter WebView URL carries `?storefront=<code>` (#53).
+
+**Stack order for merging.** One chain: #28, #37, #38, #39, #42, #43, #47, #48, #49, #50, #53. Independent, on `main`: #40, #41, #44, #45, #46, #51, #52 and the older fixes #16 to #36.
+
+**MySQL.** The private MySQL 8.0.46 on 127.0.0.1:3308 passes the Storefront feature suite at the tip of the stack (152 tests, 669 assertions) and the Address payment callback and initiation tests (15). Two cart guard tests failed on MySQL only, because they created the `carts` table inside the test and MySQL keeps it between tests; the table is now part of the shared fixture (`457900e5`, merged up the chain). A tooling trap: `ss` is not installed in this container, so "nothing listens on 3308" was a false answer; check with `mysql -uroot -h127.0.0.1 -P3308 -e 'select 1'`. Do not start a second `mysqld` on the same data directory.
+
+**Still running.** The adversarial execution review of #44, #45, #46, #51 and #52 and the integration merge check was started as a workflow. The machine has four CPUs, so it runs two agents at a time and is slow. Its findings are not in yet. The first reviewer, on #44, found no regression for a legitimate caller.
