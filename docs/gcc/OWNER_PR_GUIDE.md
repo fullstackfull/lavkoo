@@ -1,6 +1,6 @@
 # Owner guide to the open draft pull requests (2026-11-16)
 
-Sixty-two draft PRs are open against `fullstackfull/lavkoo` and nothing is merged or deployed. This page says which to read first, which go together, and what to do at deploy. Each PR body repeats its own rule at the top; if this page and a PR body disagree, the PR body is newer.
+Sixty-three draft PRs are open against `fullstackfull/lavkoo` and nothing is merged or deployed. This page says which to read first, which go together, and what to do at deploy. Each PR body repeats its own rule at the top; if this page and a PR body disagree, the PR body is newer.
 
 ## 1. The security set: merge and deploy together
 
@@ -29,6 +29,7 @@ What people will notice: a reset signs the customer out of the app; two accounts
 |---|---|
 | #44 | public seller registration approving itself; a seller who is not approved kept working on the v2 API; the web sign-in checked a different row |
 | #52 | the seller APIs and the vendor panel acting on any seller's rows (payouts, orders, products, reviews, promotions, shop, point of sale); staff with no role changing the owner's profile |
+| #63 | a seller (or a chat attachment, or the **unauthenticated** seller registration's tax certificate) could store a script on the public disk; the seller app's after-sale file validated the wrong field. **Check the web server never runs PHP under `public/storage`, and list `storage/app/public` for `*.php`, `*.phtml`, `*.pht`, `*.phar`.** A wider upload audit is adding commits to it |
 | #57 | an admin editing any admin's profile |
 | #61 | the vendor panel's shop pages acting on a shop named in the request (the same change is inside #52, byte for byte) |
 | #46 | searches, reviews, counters, banners and hints answering for products a customer may not see |

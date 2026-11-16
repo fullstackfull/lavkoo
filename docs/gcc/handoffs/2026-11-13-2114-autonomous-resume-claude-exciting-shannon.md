@@ -986,7 +986,7 @@ Not started. It is the work that must exist before the storefront flag is turned
 - **Tests to write first (red on today's code):** a Kuwait product with the code of a Saudi product is accepted while the flag is on and refused while it is off; the admin list filtered by country; the add form refuses a country that is not configured; nothing changes with the flag off (a snapshot of the SQL and the rendered form).
 - **Decisions needed before building:** may a seller list in more than one country; who may copy a product between countries (admin only is the current rule); whether the barcode, which is not unique in the fulfilment tables, follows the SKU rule.
 
-### Addendum: the seller API follow-ups are all in, and an upload hole found by their review (2026-11-16, about 16:15Z)
+### Addendum: the seller API follow-ups are all in, and an upload hole found by their review (2026-11-16, about 15:20Z)
 
 The security-fix workflow finished (15 agents, no failures). The last cluster, J4 (the seller APIs, v2 and shared), is merged into #52 and pushed (`432a2d16`): order lines and the in-house collision (`OrderDetail::ofSeller`), delivery men and the seller chat, shipping methods, v2 `set-category-cost`, v2 `products/list`, v2 `close-withdraw-request` (it debited an amount taken from the request body), the barcode route. 590 tests OK on the merged tree; the #52 body lists the three batches and the behaviour changes.
 
