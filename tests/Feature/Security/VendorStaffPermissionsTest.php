@@ -19,6 +19,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
  *
  * Reading the profile and the shop page stays open to every staff member (it is how they see which shop they work for); changing the owner's
  * profile or password takes the account holder, and changing the shop takes shop_settings.manage.
+ *
+ * Those handlers ignore the {id} of their address, so what it says must not matter either: the money rule of the middleware used to read the whole
+ * path, and a role that only requests payouts (or holds every permission) passed the profile and shop writes by putting `payout` in the id.
  */
 class VendorStaffPermissionsTest extends VendorPanelTestCase
 {
@@ -26,6 +29,7 @@ class VendorStaffPermissionsTest extends VendorPanelTestCase
     private const STAFF_WHO_MANAGES_PRODUCTS = 6;
     private const STAFF_WHO_MANAGES_THE_SHOP = 7;
     private const STAFF_WITH_EVERY_PERMISSION = 8;
+    private const STAFF_WHO_ONLY_REQUESTS_PAYOUTS = 9;
 
     private const NEW_PASSWORD = 'Staff-Chosen-9!x';
 
@@ -39,35 +43,17 @@ class VendorStaffPermissionsTest extends VendorPanelTestCase
             $table->string('tin_certificate')->nullable();
             $table->string('tin_certificate_storage_type')->nullable();
         });
-        Schema::create('seller_roles', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('seller_id');
-            $table->string('name')->nullable();
-            $table->text('permissions')->nullable();
-            $table->string('status')->default('active');
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('seller_staff', static function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('seller_id');
-            $table->unsignedBigInteger('seller_role_id')->nullable();
-            $table->string('name')->nullable();
-            $table->string('email')->nullable();
-            $table->string('password')->nullable();
-            $table->string('auth_token')->nullable();
-            $table->string('status')->default('active');
-            $table->dateTime('last_login_at')->nullable();
-            $table->timestamps();
-        });
+        $this->buildStaffTables();
 
         $this->insertRole(roleId: 1, permissions: ['products.view', 'products.manage']);
         $this->insertRole(roleId: 2, permissions: ['shop_settings.manage']);
         $this->insertRole(roleId: 3, permissions: app(SellerPermissionService::class)->allKeys());
+        $this->insertRole(roleId: 4, permissions: ['payouts.request']);
         $this->insertStaff(staffId: self::STAFF_WITHOUT_ROLE, roleId: null);
         $this->insertStaff(staffId: self::STAFF_WHO_MANAGES_PRODUCTS, roleId: 1);
         $this->insertStaff(staffId: self::STAFF_WHO_MANAGES_THE_SHOP, roleId: 2);
         $this->insertStaff(staffId: self::STAFF_WITH_EVERY_PERMISSION, roleId: 3);
+        $this->insertStaff(staffId: self::STAFF_WHO_ONLY_REQUESTS_PAYOUTS, roleId: 4);
     }
 
     /** @return array<string, array{int}> every kind of staff member, including the one whose role grants every permission there is */
@@ -78,6 +64,7 @@ class VendorStaffPermissionsTest extends VendorPanelTestCase
             'staff who manage products' => [self::STAFF_WHO_MANAGES_PRODUCTS],
             'staff who manage the shop' => [self::STAFF_WHO_MANAGES_THE_SHOP],
             'staff with every permission' => [self::STAFF_WITH_EVERY_PERMISSION],
+            'staff who only request payouts' => [self::STAFF_WHO_ONLY_REQUESTS_PAYOUTS],
         ];
     }
 
@@ -87,6 +74,7 @@ class VendorStaffPermissionsTest extends VendorPanelTestCase
         return [
             'staff with no role' => [self::STAFF_WITHOUT_ROLE],
             'staff who manage products' => [self::STAFF_WHO_MANAGES_PRODUCTS],
+            'staff who only request payouts' => [self::STAFF_WHO_ONLY_REQUESTS_PAYOUTS],
         ];
     }
 
@@ -96,6 +84,22 @@ class VendorStaffPermissionsTest extends VendorPanelTestCase
         return [
             'staff who manage the shop' => [self::STAFF_WHO_MANAGES_THE_SHOP],
             'staff with every permission' => [self::STAFF_WITH_EVERY_PERMISSION],
+        ];
+    }
+
+    /**
+     * @return array<string, array{string}> what the {id} of profile/update/{id} and shop/update/{id} can say: those handlers ignore it and act on
+     *                                       the signed-in seller, so no word in it may change which rule the middleware applies
+     */
+    public static function idsOfTheProfileAndShopForms(): array
+    {
+        return [
+            'a plain id' => ['1'],
+            'payout' => ['payout'],
+            'withdraw' => ['withdraw'],
+            'payment-information' => ['payment-information'],
+            'bank-info' => ['bank-info'],
+            'money-withdraw' => ['money-withdraw'],
         ];
     }
 
@@ -176,6 +180,64 @@ class VendorStaffPermissionsTest extends VendorPanelTestCase
         $this->assertShopWasChanged();
     }
 
+    // ---- a word in the id of the profile and shop forms ----
+
+    #[DataProvider('idsOfTheProfileAndShopForms')]
+    public function test_a_staff_member_who_only_requests_payouts_cannot_change_the_owners_account_whatever_the_id_says(string $id): void
+    {
+        $before = $this->ownerPasswordHash();
+
+        $this->signInAsStaff(self::STAFF_WHO_ONLY_REQUESTS_PAYOUTS);
+        $this->patchJson('/vendor/profile/update/' . $id, $this->passwordForm())->assertForbidden();
+        $this->postJson('/vendor/profile/update/' . $id, $this->profileForm())->assertForbidden();
+
+        $this->assertSame($before, $this->ownerPasswordHash());
+        $this->assertSame(['Alpha', 'Pharmacy', '050000001'], $this->ownerProfile());
+    }
+
+    #[DataProvider('idsOfTheProfileAndShopForms')]
+    public function test_a_staff_member_with_every_permission_cannot_change_the_owners_account_whatever_the_id_says(string $id): void
+    {
+        $before = $this->ownerPasswordHash();
+
+        $this->signInAsStaff(self::STAFF_WITH_EVERY_PERMISSION);
+        $this->patchJson('/vendor/profile/update/' . $id, $this->passwordForm())->assertForbidden();
+        $this->postJson('/vendor/profile/update/' . $id, $this->profileForm())->assertForbidden();
+
+        $this->assertSame($before, $this->ownerPasswordHash());
+        $this->assertSame(['Alpha', 'Pharmacy', '050000001'], $this->ownerProfile());
+    }
+
+    #[DataProvider('idsOfTheProfileAndShopForms')]
+    public function test_a_staff_member_who_only_requests_payouts_cannot_change_the_shop_whatever_the_id_says(string $id): void
+    {
+        $before = $this->shopAndSettings();
+
+        $this->signInAsStaff(self::STAFF_WHO_ONLY_REQUESTS_PAYOUTS)->post('/vendor/shop/update/' . $id, $this->shopForm())->assertForbidden();
+
+        $this->assertSame($before, $this->shopAndSettings());
+    }
+
+    #[DataProvider('idsOfTheProfileAndShopForms')]
+    public function test_the_owner_still_changes_their_account_whatever_the_id_says(string $id): void
+    {
+        $this->signInAs(self::SELLER);
+
+        $this->patchJson('/vendor/profile/update/' . $id, $this->passwordForm())->assertOk();
+        $this->postJson('/vendor/profile/update/' . $id, $this->profileForm())->assertOk();
+
+        $this->assertTrue(Hash::check(self::NEW_PASSWORD, $this->ownerPasswordHash()));
+        $this->assertSame(['Renamed', 'Owner', '0509998888'], $this->ownerProfile());
+    }
+
+    #[DataProvider('idsOfTheProfileAndShopForms')]
+    public function test_a_staff_member_with_shop_settings_still_changes_the_shop_whatever_the_id_says(string $id): void
+    {
+        $this->signInAsStaff(self::STAFF_WHO_MANAGES_THE_SHOP)->post('/vendor/shop/update/' . $id, $this->shopForm())->assertRedirect(route('vendor.shop.index'));
+
+        $this->assertSame('Alpha Renamed', $this->shopAndSettings()['shop']['name']);
+    }
+
     // ---- what stays open to every staff member ----
 
     #[DataProvider('everyStaffMember')]
@@ -190,11 +252,6 @@ class VendorStaffPermissionsTest extends VendorPanelTestCase
     public function test_a_staff_member_is_still_refused_what_their_role_does_not_grant(): void
     {
         $this->signInAsStaff(self::STAFF_WITHOUT_ROLE)->get('/vendor/products/list/all')->assertForbidden();
-    }
-
-    private function signInAsStaff(int $staffId): static
-    {
-        return $this->signInAs(self::SELLER)->withSession(['seller_staff_id' => $staffId]);
     }
 
     /** @param list<string> $permissions */

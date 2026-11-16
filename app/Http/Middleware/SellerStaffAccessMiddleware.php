@@ -68,8 +68,9 @@ class SellerStaffAccessMiddleware
         // the finance permission regardless of the segment it otherwise falls under. Without this these
         // paths (e.g. dashboard/withdraw-request, shop/payment-information, business-settings/payouts)
         // would inherit their segment's ALLOW / shop_settings mapping and let a staffer with no finance
-        // rights move funds or redirect payouts.
-        if ($this->isMoneyMovementPath($request->path())) {
+        // rights move funds or redirect payouts. It reads the route's own address, never the request's path: a value the client puts
+        // in a parameter ({id}, {status}) that the handler ignores must not decide which rule applies.
+        if ($this->isMoneyMovementPath($request->route()->uri())) {
             return 'payouts.request';
         }
 
