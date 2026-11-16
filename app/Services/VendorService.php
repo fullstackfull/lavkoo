@@ -128,7 +128,7 @@ class VendorService
         ];
     }
 
-    public function getAddData(object $request): array
+    public function getAddData(object $request, bool $createdByAdmin = false): array
     {
         return [
             'f_name' => $request['f_name'],
@@ -137,7 +137,7 @@ class VendorService
             'email' => $request['email'],
             'image' => $request->file('image') ? $this->upload(dir: 'seller/', format: 'webp', image: $request->file('image')) : 'def.png',
             'password' => bcrypt($request['password']),
-            'status' => $request['status'] === 'approved' ? 'approved' : 'pending',
+            'status' => $createdByAdmin && $request['status'] === 'approved' ? 'approved' : 'pending',
         ];
     }
 }

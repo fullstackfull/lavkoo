@@ -134,7 +134,7 @@ class VendorController extends BaseController
                 'message' => translate('Email_already_exist_please_try_another_email'),
             ]);
         }
-        $vendor = $this->vendorRepo->add(data: $this->vendorService->getAddData($request));
+        $vendor = $this->vendorRepo->add(data: $this->vendorService->getAddData(request: $request, createdByAdmin: true));
         $this->shopRepo->add($this->shopService->getAddShopDataForRegistration(request: $request, vendorId: $vendor['id']));
         $this->vendorWalletRepo->add($this->vendorService->getInitialWalletData(vendorId: $vendor['id']));
         $data = [
