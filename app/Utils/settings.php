@@ -5,7 +5,7 @@ use App\Models\Color;
 use App\Models\LoginSetup;
 use App\Models\Shop;
 use App\Models\User;
-use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -434,18 +434,18 @@ if (!function_exists('cacheGroupRemoveByType')) {
 if (!function_exists('storefrontCacheKey')) {
     /**
      * The key a cache entry built from the storefront's own products is written under. It is the key itself for the Saudi storefront and
-     * while storefronts are off, so nothing that exists today moves.
+     * while storefronts are off, so nothing that exists today moves. A request bound to no storefront has a key of its own while they are on.
      */
     function storefrontCacheKey(string $key): string
     {
-        return StorefrontContext::current()->scopedCacheKey($key);
+        return StorefrontCatalog::cacheKey($key);
     }
 }
 
 if (!function_exists('cacheForgetInEveryStorefront')) {
     function cacheForgetInEveryStorefront(string $key): void
     {
-        foreach (StorefrontContext::keysForEveryStorefront($key) as $storefrontKey) {
+        foreach (StorefrontCatalog::cacheKeysForEveryStorefront($key) as $storefrontKey) {
             Cache::forget($storefrontKey);
         }
     }

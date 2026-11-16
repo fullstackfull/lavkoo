@@ -66,13 +66,36 @@ class StorefrontProductCachesTest extends TestCase
         $this->assertSame('some_key', storefrontCacheKey('some_key'));
     }
 
-    public function test_the_key_is_unchanged_for_the_saudi_storefront_and_for_a_request_that_was_not_bound(): void
+    public function test_the_key_is_unchanged_for_the_saudi_storefront(): void
     {
         $this->switchStorefrontsOn();
-        $this->assertSame('some_key', storefrontCacheKey('some_key'));
-
         $this->serveRequestFrom('SA');
+
         $this->assertSame('some_key', storefrontCacheKey('some_key'));
+    }
+
+    /** The admin panel, a queue or a console command reads every country, so it must not fill the Saudi storefront's entry. */
+    public function test_a_request_that_was_not_bound_to_a_storefront_has_a_key_of_its_own(): void
+    {
+        $this->switchStorefrontsOn();
+
+        $this->assertSame('storefront:*:some_key', storefrontCacheKey('some_key'));
+    }
+
+    public function test_an_unbound_request_never_fills_the_saudi_storefronts_price_range(): void
+    {
+        $this->buildStorefrontCatalogTables();
+        $this->buildProductRelationTables();
+        $this->runStorefrontCountryMigration();
+        $this->insertCatalogProduct(id: 1, name: 'Saudi serum', price: 40);
+        $this->insertCatalogProduct(id: 2, name: 'Emirati serum', price: 5000, country: 'AE');
+        $this->switchStorefrontsOn();
+
+        $rangeSeenByTheAdminPanel = getProductMaxUnitPriceRange();
+        $this->serveRequestFrom('SA');
+
+        $this->assertSame(5000, $rangeSeenByTheAdminPanel);
+        $this->assertSame(500, getProductMaxUnitPriceRange());
     }
 
     public function test_another_storefront_writes_under_its_own_key(): void
@@ -86,7 +109,7 @@ class StorefrontProductCachesTest extends TestCase
     public function test_forgetting_a_key_forgets_it_in_every_storefront(): void
     {
         $this->switchStorefrontsOn();
-        foreach (['some_key', 'storefront:AE:some_key', 'storefront:KW:some_key', 'storefront:AE:other_key'] as $key) {
+        foreach (['some_key', 'storefront:AE:some_key', 'storefront:KW:some_key', 'storefront:*:some_key', 'storefront:AE:other_key'] as $key) {
             Cache::put($key, 'cached', 60);
         }
 
@@ -95,6 +118,7 @@ class StorefrontProductCachesTest extends TestCase
         $this->assertFalse(Cache::has('some_key'));
         $this->assertFalse(Cache::has('storefront:AE:some_key'));
         $this->assertFalse(Cache::has('storefront:KW:some_key'));
+        $this->assertFalse(Cache::has('storefront:*:some_key'));
         $this->assertTrue(Cache::has('storefront:AE:other_key'));
     }
 
@@ -127,6 +151,7 @@ class StorefrontProductCachesTest extends TestCase
         foreach (self::PRODUCT_CACHE_KEYS as $name) {
             Cache::put(constant($name), 'saudi', 60);
             Cache::put('storefront:AE:' . constant($name), 'emirati', 60);
+            Cache::put('storefront:*:' . constant($name), 'every country', 60);
         }
 
         cacheRemoveByType(type: 'products');
@@ -135,6 +160,7 @@ class StorefrontProductCachesTest extends TestCase
         foreach (self::PRODUCT_CACHE_KEYS as $name) {
             $this->assertFalse(Cache::has(constant($name)), "{$name} must be cleared for the Saudi storefront.");
             $this->assertFalse(Cache::has('storefront:AE:' . constant($name)), "{$name} must be cleared for another storefront.");
+            $this->assertFalse(Cache::has('storefront:*:' . constant($name)), "{$name} must be cleared for a request bound to none.");
         }
     }
 

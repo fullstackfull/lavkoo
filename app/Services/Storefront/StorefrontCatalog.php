@@ -40,9 +40,35 @@ final class StorefrontCatalog
         return $country === $resolver->defaultCountry() ? $query : $query->whereRaw('1 = 0');
     }
 
+    /**
+     * The key a cache entry built from the catalog is written under. A request bound to a storefront writes under that storefront's key,
+     * which is the plain key for the Saudi storefront. A request bound to none (the admin panel, a queue, a console command) reads every
+     * country's products, so it gets a key of its own and never fills the Saudi storefront's entry with other countries' products.
+     * While storefronts are off every key is the plain key.
+     */
+    public static function cacheKey(string $key): string
+    {
+        if (!StorefrontResolver::fromConfig()->isEnabled()) {
+            return $key;
+        }
+
+        return app()->bound(StorefrontContext::class) ? StorefrontContext::current()->scopedCacheKey($key) : self::unboundKey($key);
+    }
+
+    /** @return list<string> the plain key, the key of every other storefront and the key of a request bound to none. */
+    public static function cacheKeysForEveryStorefront(string $key): array
+    {
+        return [...StorefrontContext::keysForEveryStorefront($key), self::unboundKey($key)];
+    }
+
     public static function flush(): void
     {
         self::$columnAnswer = null;
+    }
+
+    private static function unboundKey(string $key): string
+    {
+        return "storefront:*:{$key}";
     }
 
     private static function columnReady(): bool
