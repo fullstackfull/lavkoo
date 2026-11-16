@@ -31,6 +31,12 @@ final class SharedProductFile
     /** The products read from the database for each statement: the search stops at the second holder of every file, so it rarely needs a second one. */
     private const CANDIDATES_PER_STATEMENT = 100;
 
+    /**
+     * The files one search asks about. A search holds a few predicates for every file and the database refuses one that holds too many (SQLite
+     * from about 450 files, MySQL from about 33,000 placeholders), and the gallery of a product is a list its seller makes.
+     */
+    private const FILES_PER_STATEMENT = 50;
+
     /** Whether the file at a path of the disk (`product/x.webp`, `/product/thumbnail/x.webp`) is held by more than one product. */
     public static function isShared(string $path): bool
     {
@@ -38,7 +44,7 @@ final class SharedProductFile
     }
 
     /**
-     * The same question for several files, answered with one search of the products instead of one for each file.
+     * The same question for several files, answered with one search of the products for every fifty of them instead of one for each file.
      *
      * @param array<int, string> $paths
      * @return list<string> the paths of the list whose file more than one product holds
@@ -91,11 +97,21 @@ final class SharedProductFile
      */
     private static function holdersOf(array $files): array
     {
-        $holders = array_fill_keys(array_keys($files), []);
-        if ($files === []) {
-            return $holders;
+        $holders = [];
+        foreach (array_chunk($files, self::FILES_PER_STATEMENT, preserve_keys: true) as $someFiles) {
+            $holders += self::holdersInOneSearch(files: $someFiles);
         }
 
+        return $holders;
+    }
+
+    /**
+     * @param array<string, File> $files by path, no more than one search asks about
+     * @return array<string, array<int|string, true>> the products that hold each file, by path
+     */
+    private static function holdersInOneSearch(array $files): array
+    {
+        $holders = array_fill_keys(array_keys($files), []);
         foreach (self::candidates(files: $files) as $row) {
             $entries = self::entriesOf(row: $row);
             foreach ($files as $path => $file) {

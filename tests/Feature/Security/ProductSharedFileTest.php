@@ -783,6 +783,60 @@ class ProductSharedFileTest extends TestCase
         $this->assertSame(['product/meta/seo-listed.png', 'product/seo-listed-gallery.webp'], $shared);
     }
 
+    public function test_a_long_list_of_files_is_answered_for_every_file_whichever_statement_of_the_search_it_was_in(): void
+    {
+        $names = [];
+        foreach (range(1, 120) as $number) {
+            $names[$number] = 'chunk-' . $number . '.webp';
+        }
+        $isHeldTwice = static fn (int $number): bool => $number % 3 === 0 || $number >= 100;
+        $this->insertProduct(81, ['images' => json_encode(array_values($names))]);
+        $this->insertProduct(82, ['images' => json_encode(array_values(array_filter($names, static fn (int $number): bool => $number % 3 === 0, ARRAY_FILTER_USE_KEY)))]);
+        $this->insertProduct(83, ['images' => json_encode(array_values(array_filter($names, static fn (int $number): bool => $number >= 100, ARRAY_FILTER_USE_KEY)))]);
+
+        $shared = SharedProductFile::sharedAmong(paths: array_map(static fn (string $name): string => 'product/' . $name, array_values($names)));
+
+        $expected = array_map(static fn (string $name): string => 'product/' . $name, array_values(array_filter($names, $isHeldTwice, ARRAY_FILTER_USE_KEY)));
+        $this->assertSame($expected, $shared);
+    }
+
+    /** @return array<string, array{0: int, 1: int}> the number of files asked about, and the statements on the products table that answer it */
+    public static function sizesOfAList(): array
+    {
+        return ['one file' => [1, 1], 'fifty files' => [50, 1], 'fifty-one files' => [51, 2], 'a hundred files' => [100, 2], 'a hundred and one files' => [101, 3]];
+    }
+
+    #[DataProvider('sizesOfAList')]
+    public function test_a_list_of_files_is_asked_for_fifty_at_a_time(int $count, int $statementsNeeded): void
+    {
+        $paths = array_map(static fn (int $number): string => 'product/asked-' . $number . '.webp', range(1, $count));
+        $answer = [];
+
+        $statements = $this->productQueriesDuring(function () use ($paths, &$answer): void {
+            $answer = SharedProductFile::sharedAmong(paths: $paths);
+        });
+
+        $this->assertSame([], $answer);
+        $this->assertCount($statementsNeeded, $statements);
+    }
+
+    public function test_a_product_with_a_gallery_of_hundreds_of_files_can_be_deleted_and_keeps_the_files_another_product_holds(): void
+    {
+        $names = array_map(static fn (int $number): string => 'long-gallery-' . $number . '.webp', range(1, 600));
+        $this->insertProduct(81, ['thumbnail' => 'long-gallery-thumb.webp', 'images' => json_encode($names)]);
+        $this->insertProduct(82, ['images' => json_encode([$names[0], $names[299], $names[599]])]);
+        foreach ([...$names, 'thumbnail/long-gallery-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+
+        $left = array_map('basename', glob($this->product('long-gallery-*.webp')) ?: []);
+        sort($left);
+        $this->assertSame(['long-gallery-1.webp', 'long-gallery-300.webp', 'long-gallery-600.webp'], $left, 'the three files that product 82 holds stay, the others go');
+        $this->assertFileDoesNotExist($this->product('thumbnail/long-gallery-thumb.webp'));
+    }
+
     public function test_a_file_that_hundreds_of_products_hold_is_answered_from_plain_rows_and_one_statement(): void
     {
         DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'PH' . $number, 'name' => 'Imported ' . $number, 'thumbnail' => 'placeholder.png', 'images' => json_encode(['placeholder.png']), 'colors' => '[]', 'color_image' => '[]'], range(1, 250)));
