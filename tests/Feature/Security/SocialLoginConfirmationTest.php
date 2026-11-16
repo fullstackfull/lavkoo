@@ -524,6 +524,40 @@ class SocialLoginConfirmationTest extends TestCase
         $this->assertSame(2, User::query()->count());
     }
 
+    public function test_an_identity_that_is_not_a_string_is_refused_like_any_other_malformed_identity(): void
+    {
+        $response = $this->get(route('customer.auth.social-login-confirmation', ['identity' => ['x', 'y'], 'status' => 'approve']));
+
+        $response->assertRedirect(route('customer.auth.login'));
+        $this->assertSame([translate('invalid_request')], $this->toastedMessages());
+    }
+
+    #[DataProvider('fieldsOfTheUpdateForm')]
+    public function test_a_field_of_the_update_that_is_not_a_string_is_refused_before_anything_is_written(string $field): void
+    {
+        $accountBefore = $this->customerRow(id: self::VICTIM_ID);
+        $form = ['identity' => $this->identityFor(self::VICTIM_EMAIL), 'phone' => '0500000077', 'name' => 'Layla New'];
+        $form[$field] = ['0500000099'];
+
+        $response = $this->withSession($this->pendingSocialLogin(self::VICTIM_EMAIL))->post($this->updateUrl(), $form);
+
+        $response->assertRedirect();
+        $this->assertSame([translate('invalid_request')], $this->toastedMessages());
+        $this->assertGuest('customer');
+        $this->assertSame($accountBefore, $this->customerRow(id: self::VICTIM_ID));
+        $this->assertSame(1, User::query()->count());
+    }
+
+    /** @return array<string, array{string}> */
+    public static function fieldsOfTheUpdateForm(): array
+    {
+        return [
+            'identity' => ['identity'],
+            'phone' => ['phone'],
+            'name' => ['name'],
+        ];
+    }
+
     public function test_on_mysql_the_schema_is_not_rebuilt_outside_the_testing_environment(): void
     {
         if (!$this->isRunningOnMySql()) {

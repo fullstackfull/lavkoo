@@ -211,7 +211,7 @@ class SocialAuthController extends Controller
 
     public function socialLoginConfirmation(Request $request): View|RedirectResponse
     {
-        $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: (string)$request['identity']);
+        $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: $request['identity']);
         if (!$socialLoginNewCustomer) {
             Toastr::error(translate('invalid_request'));
             return redirect()->route('customer.auth.login');
@@ -239,8 +239,9 @@ class SocialAuthController extends Controller
     public function updateSocialLoginConfirmation(Request $request): View|RedirectResponse
     {
         $validator = Validator::make($request->all(), [
-            'identity' => 'required',
-            'phone' => 'required',
+            'identity' => 'required|string',
+            'phone' => 'required|string',
+            'name' => 'nullable|string',
         ]);
 
         if (!$request['phone']) {
@@ -248,8 +249,8 @@ class SocialAuthController extends Controller
             return back();
         }
 
-        $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: (string)$request['identity']);
-        if (!$socialLoginNewCustomer) {
+        $socialLoginNewCustomer = $this->getPendingSocialLogin(identity: $request['identity']);
+        if ($validator->fails() || !$socialLoginNewCustomer) {
             Toastr::error(translate('invalid_request'));
             return back();
         }
@@ -289,11 +290,11 @@ class SocialAuthController extends Controller
         return self::actionCustomerLoginProcess($request, $user, $user['email']);
     }
 
-    private function getPendingSocialLogin(string $identity): ?array
+    private function getPendingSocialLogin(mixed $identity): ?array
     {
         $socialLoginNewCustomer = session('social_login_new_customer');
         $pendingEmail = $socialLoginNewCustomer['email'] ?? null;
-        $identityEmail = base64_decode($identity, true);
+        $identityEmail = is_string($identity) ? base64_decode($identity, true) : false;
 
         return $pendingEmail && $identityEmail && strcasecmp($pendingEmail, $identityEmail) === 0 ? $socialLoginNewCustomer : null;
     }
