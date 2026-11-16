@@ -97,7 +97,7 @@ class SellerTeamService
     /**
      * @throws ValidationException
      */
-    public function createStaff(int|string $sellerId, array $input): SellerStaff
+    public function createStaff(int|string $sellerId, array $input, ?SellerPrincipal $by = null): SellerStaff
     {
         if (SellerStaff::where(['seller_id' => $sellerId, 'email' => $input['email']])->exists()) {
             throw ValidationException::withMessages([
@@ -106,6 +106,7 @@ class SellerTeamService
         }
 
         $this->assertRoleBelongsToShop($input['seller_role_id'] ?? null, $sellerId);
+        $this->assertRoleIsWithinWhatTheWriterHolds($input['seller_role_id'] ?? null, $by);
 
         $staff = SellerStaff::create([
             'seller_id' => $sellerId,
@@ -129,9 +130,10 @@ class SellerTeamService
     /**
      * @throws ValidationException
      */
-    public function updateStaff(SellerStaff $staff, array $input): SellerStaff
+    public function updateStaff(SellerStaff $staff, array $input, ?SellerPrincipal $by = null): SellerStaff
     {
         $this->assertRoleBelongsToShop($input['seller_role_id'] ?? null, $staff->seller_id);
+        $this->assertRoleIsWithinWhatTheWriterHolds($input['seller_role_id'] ?? null, $by);
 
         $before = ['name' => $staff->name, 'seller_role_id' => $staff->seller_role_id, 'status' => $staff->status];
 
@@ -251,6 +253,28 @@ class SellerTeamService
         }
 
         return array_values(array_filter($valid, fn (string $permission) => $by->can($permission)));
+    }
+
+    /**
+     * Giving somebody a role is handing out its permissions, so it is held to the same rule as writing one: a writer who is not the owner may
+     * only give a role that grants nothing they do not hold themselves, or a `staff.manage` credential would put itself in the owner's
+     * finance role.
+     *
+     * @throws ValidationException
+     */
+    private function assertRoleIsWithinWhatTheWriterHolds(int|string|null $roleId, ?SellerPrincipal $by): void
+    {
+        if (!$roleId || $by === null || $by->isOwner()) {
+            return;
+        }
+
+        $granted = $this->permissions->sanitize(SellerRole::find($roleId)?->permissions ?? []);
+
+        if (array_diff($granted, $this->grantable($granted, $by)) !== []) {
+            throw ValidationException::withMessages([
+                'seller_role_id' => translate('you_do_not_have_permission_for_this_action'),
+            ]);
+        }
     }
 
     /**

@@ -89,7 +89,7 @@ class POSController extends BaseController
             ToastMagic::warning(translate('access_denied!!'));
         }
         $productType = $request->input('product_type', 'physical');
-        $shop = $this->shopRepo->getFirstWhere(params: ['id' => $vendorId]);
+        $shop = $this->shopRepo->getFirstWhere(params: ['seller_id' => $vendorId]);
         $filter = ProductManager::getPosSearchFilterArray(request: $request);
         $filter['added_by'] = 'seller';
         $filter['seller_id'] = $vendorId;
@@ -437,7 +437,7 @@ class POSController extends BaseController
         $cartListSession = $this->cartService->filterSessionCartList(cart: session($cartName));
 
         if (count($cartListSession) > 0) {
-            $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+            $products = $this->productRepo->getListWithScope(filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()], whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartName), $products, $customerCartData[$cartName]['customerId']);

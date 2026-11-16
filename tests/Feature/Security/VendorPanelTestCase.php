@@ -252,6 +252,58 @@ abstract class VendorPanelTestCase extends TestCase
         return $this->actingAs(Seller::findOrFail($sellerId), 'seller');
     }
 
+    /** What the staff login does: the seller guard is the owner's, the session says which staff member is behind it. */
+    protected function signInAsStaff(int $staffId): static
+    {
+        return $this->signInAs(self::SELLER)->withSession(['seller_staff_id' => $staffId]);
+    }
+
+    protected function buildStaffTables(): void
+    {
+        Schema::create('seller_roles', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->string('name')->nullable();
+            $table->text('permissions')->nullable();
+            $table->string('status')->default('active');
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('seller_staff', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->unsignedBigInteger('seller_role_id')->nullable();
+            $table->string('name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('password')->nullable();
+            $table->string('auth_token')->nullable();
+            $table->string('status')->default('active');
+            $table->dateTime('last_login_at')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    /** @param list<string> $permissions */
+    protected function insertSellerRole(string $name, array $permissions): int
+    {
+        return DB::table('seller_roles')->insertGetId([
+            'seller_id' => self::SELLER, 'name' => $name, 'permissions' => json_encode($permissions), 'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * A staff member of seller 1 whose role grants exactly $permissions (null: no role at all).
+     *
+     * @param list<string>|null $permissions
+     */
+    protected function insertStaffMember(string $name, ?array $permissions): int
+    {
+        return DB::table('seller_staff')->insertGetId([
+            'seller_id' => self::SELLER, 'seller_role_id' => $permissions === null ? null : $this->insertSellerRole(name: 'Role of ' . $name, permissions: $permissions),
+            'name' => $name, 'email' => $name . '@alpha.test', 'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     /** @return list<string> the kinds of toast (success, error...) the last response asked the next page to show */
     protected function toastTypes(): array
     {

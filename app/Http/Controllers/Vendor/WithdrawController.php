@@ -175,8 +175,9 @@ class WithdrawController extends BaseController
     public function closeWithdrawRequest(string|int $id): RedirectResponse
     {
         // Scope the lookup to the signed-in seller: without it, passing another seller's request id
-        // credited THIS seller's wallet with that request's amount (cross-vendor wallet theft).
-        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $id, 'seller_id' => auth('seller')->id()]);
+        // credited THIS seller's wallet with that request's amount (cross-vendor wallet theft). A delivery man's request carries the
+        // seller's id too, but it is paid out of the driver's wallet, so it is not the seller's to close.
+        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $id, 'seller_id' => auth('seller')->id(), 'delivery_man_id' => null]);
         if (!$withdrawRequest) {
             ToastMagic::error(message: translate('invalid_withdraw_request'));
             return redirect()->back();
