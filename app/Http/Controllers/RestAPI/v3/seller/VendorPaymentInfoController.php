@@ -7,11 +7,14 @@ use App\Contracts\Repositories\WithdrawalMethodRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\API\v3\PaymentInfoApiRequest;
 use App\Services\VendorPaymentInformationService;
+use App\Traits\SellerOwnedRecords;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class VendorPaymentInfoController extends Controller
 {
+    use SellerOwnedRecords;
 
     public function __construct(
         private readonly VendorWithdrawMethodInfoRepositoryInterface $vendorWithdrawMethodInfoRepo,
@@ -68,17 +71,25 @@ class VendorPaymentInfoController extends Controller
 
     public function update(PaymentInfoApiRequest $request): JsonResponse
     {
+        if (!$this->ownedPaymentMethod(request: $request)) {
+            return $this->recordNotFound(code: 'payment_method', message: 'payment_method_not_found');
+        }
+
         $fields = $this->withdrawalMethodRepo->getFirstWhere(params: ['id' => $request['withdraw_method_id']]);
         $data = $this->vendorPaymentInformationService->getApiAddData(sellerID: $request['seller']?->id, request: $request, fields: $fields['method_fields']);
-         $this->vendorWithdrawMethodInfoRepo->updateOrInsert(params: ['id' => $request['id']], data: $data);
+        $this->vendorWithdrawMethodInfoRepo->updateOrInsert(params: ['id' => $request['id'], 'user_id' => $request['seller']['id']], data: $data);
         return response()->json(['status' => true], 200);
     }
 
     public function updateDefault(Request $request): JsonResponse
     {
+        if (!$this->ownedPaymentMethod(request: $request)) {
+            return $this->recordNotFound(code: 'payment_method', message: 'payment_method_not_found');
+        }
+
         $this->vendorWithdrawMethodInfoRepo->updateWhere(params: ['user_id' => $request['seller']?->id], data: ['is_default' => 0]);
         $this->vendorWithdrawMethodInfoRepo->updateWhere(
-            params: ['id' => $request['id']],
+            params: ['id' => $request['id'], 'user_id' => $request['seller']['id']],
             data: ['is_default' => 1, 'is_active' => 1]
         );
         return response()->json(['status' => true], 200);
@@ -87,7 +98,11 @@ class VendorPaymentInfoController extends Controller
 
     public function updateStatus(Request $request): JsonResponse
     {
-        $this->vendorWithdrawMethodInfoRepo->updateWhere(params: ['id' => $request['id']], data: ['is_active' => $request['status'] ?? 0]);
+        if (!$this->ownedPaymentMethod(request: $request)) {
+            return $this->recordNotFound(code: 'payment_method', message: 'payment_method_not_found');
+        }
+
+        $this->vendorWithdrawMethodInfoRepo->updateWhere(params: ['id' => $request['id'], 'user_id' => $request['seller']['id']], data: ['is_active' => $request['status'] ?? 0]);
         return response()->json(['status' => true], 200);
     }
 
@@ -96,5 +111,10 @@ class VendorPaymentInfoController extends Controller
         $seller = $request['seller'];
         $this->vendorWithdrawMethodInfoRepo->delete(params: ['id' => $request['id'], 'user_id' => $seller['id']]);
         return response()->json(['status' => true], 200);
+    }
+
+    private function ownedPaymentMethod(Request $request): ?Model
+    {
+        return $this->vendorWithdrawMethodInfoRepo->getFirstWhere(params: ['id' => $request['id'], 'user_id' => $request['seller']['id']]);
     }
 }

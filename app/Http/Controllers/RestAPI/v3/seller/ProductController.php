@@ -766,6 +766,10 @@ class ProductController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
+        if (!$this->ownsProduct(request: $request, productId: $request['product_id'])) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
+
         $variation = DigitalProductVariation::where(['product_id' => $request['product_id'], 'variant_key' => $request['variant_key']])->first();
         if ($variation) {
             DigitalProductVariation::where(['id' => $variation['id']])->update(['file' => null]);
@@ -1932,10 +1936,12 @@ class ProductController extends Controller
             ->where(['seller_id' => $seller['id']])
             ->when(!empty($request['search']), function ($query) use ($request) {
                 $key = searchTerms($request['search']);
-                foreach ($key as $value) {
-                    $query->where('f_name', 'like', "%{$value}%")
-                        ->orWhere('l_name', 'like', "%{$value}%");
-                }
+                $query->where(function ($query) use ($key) {
+                    foreach ($key as $value) {
+                        $query->orWhere('f_name', 'like', "%{$value}%")
+                            ->orWhere('l_name', 'like', "%{$value}%");
+                    }
+                });
             })
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 
@@ -2150,8 +2156,14 @@ class ProductController extends Controller
 
     public function deleteRestockRequest(Request $request): JsonResponse
     {
-        $this->restockProductRepo->delete(params: ['id' => $request['id']]);
-        $this->restockProductCustomerRepo->delete(params: ['restock_product_id' => $request['id']]);
+        // restock_products has no seller column: the request is the seller's when its product is.
+        $restockProduct = $this->restockProductRepo->getFirstWhere(params: ['id' => $request['id']]);
+        if (!$restockProduct || !$this->ownsProduct(request: $request, productId: $restockProduct['product_id'])) {
+            return $this->recordNotFound(code: 'restock_request', message: 'restock_request_not_found');
+        }
+
+        $this->restockProductRepo->delete(params: ['id' => $restockProduct['id']]);
+        $this->restockProductCustomerRepo->delete(params: ['restock_product_id' => $restockProduct['id']]);
         return response()->json([
             'message' => translate('product_restock_removed_successfully')
         ], 200);
@@ -2218,6 +2230,11 @@ class ProductController extends Controller
         return response()->json([
             'brands' => $brands,
         ], 200);
+    }
+
+    private function ownsProduct(Request $request, mixed $productId): bool
+    {
+        return Product::ofSeller(sellerId: $request->seller->id)->whereKey($productId)->exists();
     }
 
     /**
