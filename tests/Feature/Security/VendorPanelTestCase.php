@@ -13,6 +13,7 @@ use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Seller;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -59,6 +60,11 @@ abstract class VendorPanelTestCase extends TestCase
         $this->buildCoreSchema();
         $this->buildVendorPanelTables();
         $this->seedSellersShopsAndProducts();
+
+        // getTaxSystemType() reads the tax module's tables unless its answer is cached: the cached answer is the one of a shop with no tax set up.
+        Cache::put('tax_system_type_vendor_with_vat', [
+            'SystemTaxVat' => null, 'SystemTaxVatType' => 'order_wise', 'is_included' => 0, 'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([]),
+        ], 3600);
 
         View::getFinder()->prependLocation(base_path('tests/Support/panel-views'));
         View::getFinder()->prependLocation(base_path('tests/Support/vendor-panel-views'));
@@ -146,6 +152,51 @@ abstract class VendorPanelTestCase extends TestCase
             $table->timestamps();
         });
 
+        Schema::create('brands', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('product_seos', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('title')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('stock_clearance_setups', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('setup_by');
+            $table->integer('user_id')->nullable();
+            $table->integer('shop_id')->nullable();
+            $table->boolean('is_active')->default(0);
+            $table->string('discount_type')->default('percentage')->nullable();
+            $table->decimal('discount_amount', 18, 12)->default(0);
+            $table->string('offer_active_time')->nullable();
+            $table->time('offer_active_range_start')->nullable();
+            $table->time('offer_active_range_end')->nullable();
+            $table->boolean('show_in_homepage')->default(0);
+            $table->boolean('show_in_homepage_once')->default(0);
+            $table->boolean('show_in_shop')->default(1);
+            $table->timestamp('duration_start_date')->nullable();
+            $table->timestamp('duration_end_date')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('stock_clearance_products', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('added_by');
+            $table->integer('product_id')->nullable();
+            $table->integer('setup_id')->nullable();
+            $table->integer('user_id')->nullable();
+            $table->integer('shop_id')->nullable();
+            $table->boolean('is_active')->default(0);
+            $table->string('discount_type')->default('percentage')->nullable();
+            $table->decimal('discount_amount', 18, 12)->default(0);
+            $table->timestamps();
+        });
+
         foreach (['wishlists', 'flash_deal_products', 'deal_of_the_days'] as $tableName) {
             Schema::create($tableName, static function (Blueprint $table): void {
                 $table->id();
@@ -164,6 +215,8 @@ abstract class VendorPanelTestCase extends TestCase
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
+
+        DB::table('business_settings')->insert(['type' => 'pagination_limit', 'value' => '25', 'created_at' => now(), 'updated_at' => now()]);
 
         DB::table('shops')->where('id', self::IN_HOUSE_SHOP)->update([
             'seller_id' => 0, 'name' => 'Marketplace In-house', 'address' => 'Marketplace HQ, Riyadh', 'contact' => '0111111111',
