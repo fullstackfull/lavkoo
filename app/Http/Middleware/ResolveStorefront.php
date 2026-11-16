@@ -27,9 +27,19 @@ class ResolveStorefront
 
         // While storefronts are on, one URL can answer differently per storefront, so a shared cache must key on the header.
         if ($resolver->isEnabled()) {
-            $response->setVary(self::HEADER, false);
+            self::varyByHeader(response: $response);
         }
 
         return $response;
+    }
+
+    /** Says once, whichever middleware gets there first, that the answer depends on the storefront header. */
+    public static function varyByHeader(Response $response): void
+    {
+        $listed = array_map(strtolower(...), array_map(trim(...), explode(',', implode(',', $response->headers->all('vary')))));
+
+        if (!in_array(strtolower(self::HEADER), $listed, true) && !in_array('*', $listed, true)) {
+            $response->setVary(self::HEADER, false);
+        }
     }
 }

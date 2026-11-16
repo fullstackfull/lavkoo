@@ -87,12 +87,23 @@ class StorefrontCatalogTest extends TestCase
         $this->assertSame('AE', DB::table('products')->where('id', 2)->value('storefront_country'));
     }
 
-    public function test_the_index_serves_the_lists_ordered_by_id_inside_one_country(): void
+    public function test_the_column_carries_no_index_because_the_optimizer_merges_it_with_the_selective_ones(): void
     {
-        $index = collect(Schema::getIndexes('products'))->firstWhere('name', 'products_storefront_id_idx');
+        $indexesOfTheColumn = collect(Schema::getIndexes('products'))->filter(fn (array $index) => in_array('storefront_country', $index['columns'], true));
 
-        $this->assertNotNull($index);
-        $this->assertSame(['storefront_country', 'id'], $index['columns']);
+        $this->assertCount(0, $indexesOfTheColumn);
+    }
+
+    public function test_a_rollback_also_removes_the_index_an_operator_added_by_the_runbook(): void
+    {
+        DB::table('products')->where('storefront_country', '<>', 'SA')->delete();
+        Schema::table('products', fn ($table) => $table->index(['storefront_country', 'id'], 'products_storefront_id_idx'));
+        $migration = require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php');
+
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('products', 'storefront_country'));
+        $this->assertFalse(Schema::hasIndex('products', 'products_storefront_id_idx'));
     }
 
     public function test_a_country_code_is_compared_byte_for_byte_in_sql(): void
@@ -168,16 +179,14 @@ class StorefrontCatalogTest extends TestCase
         $this->assertSame('AE', Product::query()->findOrFail(2)->storefront_country);
     }
 
-    public function test_the_migration_can_finish_after_it_stopped_between_the_column_and_the_index(): void
+    public function test_the_migration_run_again_changes_nothing(): void
     {
         $migration = require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php');
-        Schema::table('products', fn ($table) => $table->dropIndex('products_storefront_id_idx'));
-        $this->assertFalse(Schema::hasIndex('products', 'products_storefront_id_idx'));
 
         $migration->up();
 
-        $this->assertTrue(Schema::hasIndex('products', 'products_storefront_id_idx'));
         $this->assertSame('SA', DB::table('products')->where('id', 1)->value('storefront_country'));
+        $this->assertSame('AE', DB::table('products')->where('id', 2)->value('storefront_country'));
     }
 
     public function test_the_visibility_query_is_unchanged_while_storefronts_are_off_or_the_request_is_not_bound(): void
