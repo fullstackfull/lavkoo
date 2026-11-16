@@ -33,7 +33,7 @@ trait BuildsProductCatalog
         'reviews', 'review_replies', 'users', 'storages', 'wishlists', 'stock_clearance_products', 'stock_clearance_setups', 'authors',
         'digital_product_authors', 'publishing_houses', 'digital_product_publishing_houses', 'digital_product_variations', 'flash_deals',
         'flash_deal_products', 'colors', 'carts', 'shipping_types', 'shipping_methods', 'category_shipping_costs', 'currencies', 'banners',
-        'product_search_index',
+        'product_search_index', 'restock_products', 'restock_product_customers', 'product_seos', 'product_compares', 'seo_meta_info',
     ];
 
     protected function buildCatalogTables(): void
@@ -161,6 +161,21 @@ trait BuildsProductCatalog
         return array_map('intval', $ids);
     }
 
+    /** @var array{private: string, public: string}|null generated once per run: making a key pair is the slowest step of a test */
+    private static ?array $passportKeys = null;
+
+    /** A throwaway RSA key pair: auth('api') builds Passport's token guard, which refuses to exist without one. */
+    protected function useThrowawayPassportKeys(): void
+    {
+        if (self::$passportKeys === null) {
+            $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+            openssl_pkey_export($key, $private);
+            self::$passportKeys = ['private' => $private, 'public' => openssl_pkey_get_details($key)['key']];
+        }
+
+        config(['passport.private_key' => self::$passportKeys['private'], 'passport.public_key' => self::$passportKeys['public']]);
+    }
+
     protected function setBusinessSetting(string $type, string|array $value): void
     {
         DB::table('business_settings')->where('type', $type)->delete();
@@ -221,6 +236,8 @@ trait BuildsProductCatalog
             $table->decimal('purchase_price', 24, 2)->default(4);
             $table->decimal('discount', 24, 2)->default(0);
             $table->string('discount_type')->default('flat');
+            $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->boolean('multiply_qty')->default(false);
             $table->text('colors')->nullable();
             $table->text('attributes')->nullable();
             $table->text('choice_options')->nullable();
@@ -308,6 +325,13 @@ trait BuildsProductCatalog
             $table->string('name')->nullable();
             $table->string('code')->nullable();
         });
+        Schema::create('product_seos', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
+            $table->timestamps();
+        });
         Schema::create('product_search_index', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('product_id');
@@ -328,6 +352,12 @@ trait BuildsProductCatalog
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
             $table->string('image')->nullable();
+            $table->string('street_address')->nullable();
+            $table->string('city')->nullable();
+            $table->string('zip')->nullable();
+            $table->decimal('wallet_balance', 24, 2)->default(0);
+            $table->string('referral_code')->nullable();
+            $table->string('social_id')->nullable();
             $table->timestamps();
         });
         Schema::create('order_details', function (Blueprint $table) {
@@ -355,6 +385,25 @@ trait BuildsProductCatalog
             $table->text('reply_text')->nullable();
             $table->timestamps();
         });
+        Schema::create('restock_products', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->string('variant')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('restock_product_customers', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('restock_product_id')->nullable();
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->string('variant')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('product_compares', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('product_id');
+            $table->timestamps();
+        });
         Schema::create('wishlists', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('product_id');
@@ -366,12 +415,27 @@ trait BuildsProductCatalog
             $table->unsignedBigInteger('product_id')->nullable();
             $table->string('cart_group_id')->nullable();
             $table->string('product_type')->nullable();
+            $table->string('digital_product_type')->nullable();
+            $table->string('color')->nullable();
+            $table->text('choices')->nullable();
+            $table->text('variations')->nullable();
             $table->decimal('price', 24, 2)->default(0);
             $table->decimal('tax', 24, 2)->default(0);
+            $table->decimal('discount', 24, 2)->default(0);
+            $table->string('tax_model')->nullable();
             $table->string('variant')->nullable();
             $table->integer('quantity')->default(1);
+            $table->string('slug')->nullable();
+            $table->string('name')->nullable();
+            $table->string('thumbnail')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('seller_is')->nullable();
+            $table->text('shop_info')->nullable();
+            $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->string('shipping_type')->nullable();
             $table->boolean('is_guest')->default(false);
             $table->boolean('is_checked')->default(true);
+            $table->timestamps();
         });
         Schema::create('shipping_types', function (Blueprint $table) {
             $table->id();
@@ -422,6 +486,14 @@ trait BuildsProductCatalog
             $table->boolean('status')->default(true);
             $table->date('start_date')->nullable();
             $table->date('end_date')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('seo_meta_info', function (Blueprint $table) {
+            $table->id();
+            $table->string('seoable_type');
+            $table->unsignedBigInteger('seoable_id');
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
             $table->timestamps();
         });
         Schema::create('flash_deal_products', function (Blueprint $table) {
