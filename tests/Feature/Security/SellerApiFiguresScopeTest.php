@@ -3,6 +3,9 @@
 namespace Tests\Feature\Security;
 
 use App\Services\SellerCenter\Revenue;
+use App\Services\SellerIntelligence\InsightDraft;
+use App\Services\SellerIntelligence\Producers\FinanceIntegrityProducer;
+use App\Services\SellerIntelligence\SellerInsightEngine;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -131,7 +134,105 @@ class SellerApiFiguresScopeTest extends TestCase
         $this->assertSame(1, $response->json('orders_count'));
     }
 
+    // ---- the finance check ----
+
+    public function test_the_finance_check_counts_only_the_sellers_own_delivered_lines_that_have_no_earning(): void
+    {
+        $this->createTheFinanceCheckTables();
+        $this->deliverTheLinesLongAgo();
+
+        $drafts = $this->financeFindings(sellerId: self::SELLER);
+
+        $this->assertCount(1, $drafts);
+        $this->assertSame(1.0, $drafts[0]->metric);
+        $this->assertSame([self::OWN_ORDER], $drafts[0]->actionParams['order_ids']);
+        $this->assertEqualsWithDelta(200.0, $drafts[0]->impact, 0.001);
+    }
+
+    public function test_the_finance_check_finds_nothing_for_a_seller_whose_only_delivered_lines_are_the_in_house_shops(): void
+    {
+        $this->createTheFinanceCheckTables();
+        $this->deliverTheLinesLongAgo();
+        DB::table('order_details')->where('id', self::OWN_LINE)->delete();
+
+        $this->assertSame([], $this->financeFindings(sellerId: self::SELLER));
+    }
+
+    public function test_the_finance_check_of_the_other_seller_still_finds_that_sellers_own_line(): void
+    {
+        $this->createTheFinanceCheckTables();
+        $this->deliverTheLinesLongAgo();
+
+        $drafts = $this->financeFindings(sellerId: self::OTHER_SELLER);
+
+        $this->assertCount(1, $drafts);
+        $this->assertSame([self::OTHER_SELLERS_ORDER], $drafts[0]->actionParams['order_ids']);
+    }
+
+    public function test_the_action_center_of_a_seller_does_not_show_the_in_house_shops_orders_as_money_owed_to_them(): void
+    {
+        $this->createTheFinanceCheckTables();
+        $this->createSellerApiTable('seller_insights', function (Blueprint $table) {
+            $table->unsignedBigInteger('seller_id');
+            foreach (['type', 'category', 'severity', 'status', 'title', 'entity_type', 'entity_id', 'action_key', 'fingerprint', 'resolution_type', 'resolution_message'] as $column) {
+                $table->string($column)->nullable();
+            }
+            $table->text('body')->nullable();
+            foreach (['metric', 'impact'] as $column) {
+                $table->decimal($column, 16, 2)->nullable();
+            }
+            foreach (['impact_score', 'affected_count'] as $column) {
+                $table->integer($column)->nullable();
+            }
+            $table->integer('detection_count')->default(0);
+            $table->integer('escalation_level')->default(0);
+            $table->text('action_params')->nullable();
+            $table->text('metadata')->nullable();
+            $table->unsignedBigInteger('assigned_staff_id')->nullable();
+            foreach (['expires_at', 'due_at', 'first_detected_at', 'last_detected_at', 'dismissed_at', 'resolved_at'] as $column) {
+                $table->dateTime($column)->nullable();
+            }
+            $table->timestamps();
+        });
+        $this->deliverTheLinesLongAgo();
+        DB::table('order_details')->where('id', self::OWN_LINE)->delete();
+
+        app(SellerInsightEngine::class)->refresh(self::SELLER, ['FINANCE_INTEGRITY']);
+        $response = $this->sellerApi('GET', 'seller-center/action-center');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $response->json('insights'));
+        $this->assertSame(0, $response->json('counts.total'));
+    }
+
     // ---- helpers ----
+
+    /** @return list<InsightDraft> */
+    private function financeFindings(int $sellerId): array
+    {
+        return iterator_to_array(app(FinanceIntegrityProducer::class)->produce($sellerId), preserve_keys: false);
+    }
+
+    /** The finance check only looks at lines older than its grace window, and at the ledger. */
+    private function createTheFinanceCheckTables(): void
+    {
+        $this->createSellerApiTable('vendor_ledger_entries', function (Blueprint $table) {
+            $table->unsignedBigInteger('seller_id')->nullable();
+            foreach (['seller_is', 'entry_type', 'reference_type', 'status', 'currency', 'description'] as $column) {
+                $table->string($column)->nullable();
+            }
+            $table->unsignedBigInteger('reference_id')->nullable();
+            foreach (['debit', 'credit', 'balance_after'] as $column) {
+                $table->decimal($column, 16, 2)->default(0);
+            }
+            $table->timestamps();
+        });
+    }
+
+    private function deliverTheLinesLongAgo(): void
+    {
+        DB::table('order_details')->update(['created_at' => now()->subDays(5), 'updated_at' => now()->subDays(5)]);
+    }
 
     /** Seller 1 owns product 10 and its delivered line; the in-house shop owns product 30, a refunded delivered line, a 1-star review and a suspension. */
     private function seedProductsReviewsAndStrikes(): void
