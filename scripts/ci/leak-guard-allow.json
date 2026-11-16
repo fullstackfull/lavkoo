@@ -107,6 +107,12 @@
             "path": "tests/Feature/SalesChannels/SecretRedactorCoversEveryStoredSecretTest.php",
             "line": 102,
             "reason": "Two made-up AWS key ids, one per prefix AWS documents (AKIA and ASIA), in the test that the shape is masked whatever the field is called, in commit d958ac8; the next commit (8db9a92) builds both at run time. Neither was ever a real credential."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "docs/gcc/handoffs/2026-11-13-2114-autonomous-resume-claude-exciting-shannon.md",
+            "line": 962,
+            "reason": "Two made-up example numbers in the handoff of the independent reviews, in one commit; the next commit rewords the sentence without the digits. They show how a foreign number can read as a Saudi mobile and are not anyone's numbers."
         }
     ]
 }
