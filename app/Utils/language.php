@@ -42,7 +42,7 @@ if (!function_exists('translate')) {
                 //     __('new-messages.<key>') against the copy read before the write, printing the
                 //     raw key — "New-messages.free_delivery" instead of "Free delivery".
                 if (function_exists('opcache_invalidate')) {
-                    opcache_invalidate($targetPath, true);
+                    @opcache_invalidate($targetPath, true);
                 }
                 $translator = app('translator');
                 $translator->load('*', 'new-messages', $local);
@@ -73,18 +73,20 @@ if (!function_exists('addNewTranslationMessage')) {
     /**
      * Adds a message to a language file. Every request that renders a page with a key the file does not know does it at the same moment, so the
      * file is read again once the lock is held (a key that another request added meanwhile stays, with its text) and replaced in one step.
+     * Where the file system has no locks the key is added without one, as it was before the lock: a key that a concurrent add loses is added again
+     * by the next request that renders it, and there is no screen that could tell anyone the page could not store it.
      */
     function addNewTranslationMessage(string $path, string $key, string $message): void
     {
         AtomicFile::rewrite(path: $path, change: function () use ($path, $key, $message): string {
             if (function_exists('opcache_invalidate')) {
-                opcache_invalidate($path, true);
+                @opcache_invalidate($path, true);
             }
             $messages = include $path;
             $messages[$key] ??= $message;
 
             return getLanguageFileContents(messages: $messages);
-        });
+        }, lockIsRequired: false);
     }
 }
 

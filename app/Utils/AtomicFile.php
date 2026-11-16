@@ -3,6 +3,7 @@
 namespace App\Utils;
 
 use Closure;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -17,7 +18,8 @@ use RuntimeException;
  * chown or chgrp, a disk with no room for a second copy of the file, a file a container mounts) the file is written in place under the lock, and
  * fsync, which only asks the disk to make the bytes durable, is asked for where PHP has it and never decides whether a write succeeded.
  *
- * A file that cannot be opened, locked, read or written is an error, never a success.
+ * A file that cannot be opened, locked, read or written is an error, never a success. Only a caller whose change is better made without the
+ * lock than not made (translate() adds a key that the next request adds again if it is lost) may ask for it to go on where no lock can be had.
  */
 final class AtomicFile
 {
@@ -29,16 +31,21 @@ final class AtomicFile
      */
     private const MOST_REPLACEMENTS_WAITED_OUT = 1000;
 
+    /** @var array<string, true> the files that were changed without a lock, so that the log says it once for each and not for each change */
+    private static array $pathsChangedWithoutLock = [];
+
     /**
      * Replaces what the file holds by what $change makes of it.
      *
      * @param Closure(string): string $change what the file is to hold, given what it holds
      * @param bool $createWhenMissing whether a file that is not there is made (the installer writes the first .env)
-     * @throws RuntimeException when the file cannot be opened, locked, read or written
+     * @param bool $lockIsRequired whether a file that cannot be locked (a file system without locks) is an error; if it is not, the file is
+     *                             changed without the lock and the log says so once
+     * @throws RuntimeException when the file cannot be opened, locked (if the lock is required), read or written
      */
-    public static function rewrite(string $path, Closure $change, bool $createWhenMissing = false): void
+    public static function rewrite(string $path, Closure $change, bool $createWhenMissing = false, bool $lockIsRequired = true): void
     {
-        $handle = self::openLocked(path: $path, createWhenMissing: $createWhenMissing);
+        $handle = self::openLocked(path: $path, createWhenMissing: $createWhenMissing, lockIsRequired: $lockIsRequired);
 
         try {
             $current = stream_get_contents($handle);
@@ -57,26 +64,27 @@ final class AtomicFile
      * it replaced: what it would read there is out of date, so it locks the file the path names now.
      *
      * @return resource
-     * @throws RuntimeException when the file cannot be opened or locked
+     * @throws RuntimeException when the file cannot be opened, or locked (if the lock is required)
      */
-    private static function openLocked(string $path, bool $createWhenMissing)
+    private static function openLocked(string $path, bool $createWhenMissing, bool $lockIsRequired)
     {
         $handle = self::lockedHandle(path: $path, createWhenMissing: $createWhenMissing);
-        if ($handle === null) {
+        if ($handle !== null) {
+            return $handle;
+        }
+        if ($lockIsRequired) {
             throw new RuntimeException("The file {$path} cannot be locked.");
         }
+        self::reportChangeWithoutLock(path: $path);
 
-        return $handle;
+        return self::open(path: $path, createWhenMissing: $createWhenMissing);
     }
 
     /** @return resource|null the locked file, or nothing where no lock can be had (a file system that refuses it, a file replaced again and again) */
     private static function lockedHandle(string $path, bool $createWhenMissing)
     {
         for ($round = 0; $round < self::MOST_REPLACEMENTS_WAITED_OUT; $round++) {
-            $handle = @fopen($path, $createWhenMissing ? 'c+' : 'r+');
-            if ($handle === false) {
-                throw new RuntimeException("The file {$path} cannot be opened for writing.");
-            }
+            $handle = self::open(path: $path, createWhenMissing: $createWhenMissing);
             if (!self::attempt('flock', $handle, LOCK_EX)) {
                 fclose($handle);
 
@@ -89,6 +97,28 @@ final class AtomicFile
         }
 
         return null;
+    }
+
+    /**
+     * @return resource
+     * @throws RuntimeException when the file cannot be opened
+     */
+    private static function open(string $path, bool $createWhenMissing)
+    {
+        $handle = @fopen($path, $createWhenMissing ? 'c+' : 'r+');
+        if ($handle === false) {
+            throw new RuntimeException("The file {$path} cannot be opened for writing.");
+        }
+
+        return $handle;
+    }
+
+    private static function reportChangeWithoutLock(string $path): void
+    {
+        if (!isset(self::$pathsChangedWithoutLock[$path])) {
+            self::$pathsChangedWithoutLock[$path] = true;
+            Log::warning("The file {$path} cannot be locked, so it is changed without a lock.");
+        }
     }
 
     /** @param resource $handle */

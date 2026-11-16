@@ -44,15 +44,22 @@ class TranslationWriterTest extends TestCase
         parent::tearDown();
     }
 
-    /** @return array{process: resource, pipes: array<int, resource>} a process that boots the application and adds its own keys through the real translate() writer */
-    private function startWriter(int $worker): array
+    /**
+     * @param array<string, string> $settings php.ini settings of the process
+     * @return array{process: resource, pipes: array<int, resource>} a process that boots the application and adds its own keys through the real translate() writer; what it logs goes to its error output
+     */
+    private function startWriter(int $worker, array $settings = [], int $keys = self::KEYS_PER_WRITER): array
     {
+        $options = [];
+        foreach ($settings as $name => $value) {
+            array_push($options, '-d', "{$name}={$value}");
+        }
         $script = 'require ' . var_export(base_path('vendor/autoload.php'), true) . ';'
             . '$app = require ' . var_export(base_path('bootstrap/app.php'), true) . ';'
             . '$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();'
-            . 'for ($i = 0; $i < ' . self::KEYS_PER_WRITER . '; $i++) { getOrPutTranslateMessageValueByKey(local: ' . var_export(self::LOCALE, true) . ', key: "worker{$argv[1]}_key{$i}"); }';
-        $environment = ['APP_ENV' => 'testing', 'APP_KEY' => (string) config('app.key'), 'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => ':memory:', 'CACHE_DRIVER' => 'array', 'SESSION_DRIVER' => 'array', 'QUEUE_CONNECTION' => 'sync'];
-        $process = proc_open([PHP_BINARY, '-r', $script, '--', (string) $worker], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, base_path(), $environment);
+            . 'for ($i = 0; $i < ' . $keys . '; $i++) { getOrPutTranslateMessageValueByKey(local: ' . var_export(self::LOCALE, true) . ', key: "worker{$argv[1]}_key{$i}"); }';
+        $environment = ['APP_ENV' => 'testing', 'APP_KEY' => (string) config('app.key'), 'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => ':memory:', 'CACHE_DRIVER' => 'array', 'SESSION_DRIVER' => 'array', 'QUEUE_CONNECTION' => 'sync', 'LOG_CHANNEL' => 'stderr'];
+        $process = proc_open([PHP_BINARY, ...$options, '-r', $script, '--', (string) $worker], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, base_path(), $environment);
 
         return ['process' => $process, 'pipes' => $pipes];
     }
@@ -112,6 +119,31 @@ class TranslationWriterTest extends TestCase
             $this->assertSame(ucfirst(str_replace('_', ' ', removeSpecialCharacters($key))), $stored[$key]);
         }
         $this->assertFileDoesNotExist(base_path('1'));
+    }
+
+    public function test_keys_are_stored_where_opcache_restricts_its_api(): void
+    {
+        // opcache.restrict_api names the paths that may call opcache_invalidate(): any other path raises a warning, which the framework turns into an exception
+        $writer = $this->startWriter(worker: 1, settings: ['opcache.enable_cli' => '1', 'opcache.restrict_api' => '/nonexistent'], keys: 5);
+        $error = stream_get_contents($writer['pipes'][2]);
+
+        $this->assertSame(0, proc_close($writer['process']), $error);
+        $stored = include $this->directory . '/new-messages.php';
+        $this->assertCount(self::SEEDED_KEYS + 5, $stored, 'the keys were not stored');
+        $this->assertSame('Worker1 key4', $stored['worker1_key4']);
+        $this->assertStringNotContainsString('opcache_invalidate', $error, 'the refused call of opcache_invalidate() was logged as a failure');
+    }
+
+    public function test_keys_are_stored_without_the_lock_where_php_cannot_lock_a_file_and_the_lack_is_logged_once(): void
+    {
+        $writer = $this->startWriter(worker: 1, settings: ['disable_functions' => 'flock'], keys: 5);
+        $error = stream_get_contents($writer['pipes'][2]);
+
+        $this->assertSame(0, proc_close($writer['process']), $error);
+        $stored = include $this->directory . '/new-messages.php';
+        $this->assertCount(self::SEEDED_KEYS + 5, $stored, 'the keys were not stored');
+        $this->assertSame(1, substr_count($error, 'cannot be locked'), 'the lack of a lock is logged once, not once for each key');
+        $this->assertSame([], array_values(array_diff(scandir($this->directory), ['.', '..', 'messages.php', 'new-messages.php'])), 'a temporary file stayed');
     }
 
     public function test_a_language_file_that_does_not_parse_raises_and_is_left_as_it_is(): void

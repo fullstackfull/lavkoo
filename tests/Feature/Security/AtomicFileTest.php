@@ -5,6 +5,7 @@ namespace Tests\Feature\Security;
 use App\Utils\AtomicFile;
 use Closure;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Support\ScriptedFileStream;
@@ -199,5 +200,47 @@ class AtomicFileTest extends TestCase
         $this->assertStringContainsString('cannot be locked', $failure->getMessage());
         $this->assertGreaterThan(1, ScriptedFileStream::$opens, 'the writer did not try again');
         $this->assertSame("first\n", ScriptedFileStream::$contents['scripted://settings']);
+    }
+
+    // ---- a change that is better made without the lock than not made ---------------------------------------------------------------
+
+    public function test_a_change_that_may_do_without_the_lock_is_made_where_the_file_system_refuses_it_and_the_lack_is_logged_once(): void
+    {
+        $name = 'scripted://unlockable-' . uniqid();
+        ScriptedFileStream::register();
+        ScriptedFileStream::$contents[$name] = "first\n";
+        ScriptedFileStream::$locksAreRefused = true;
+        Log::shouldReceive('warning')->once()->withArgs(static fn (string $message): bool => str_contains($message, $name) && str_contains($message, 'cannot be locked'));
+
+        AtomicFile::rewrite(path: $name, change: static fn (string $content): string => $content . "second\n", lockIsRequired: false);
+        AtomicFile::rewrite(path: $name, change: static fn (string $content): string => $content . "third\n", lockIsRequired: false);
+
+        $this->assertSame("first\nsecond\nthird\n", ScriptedFileStream::$contents[$name]);
+    }
+
+    public function test_a_change_that_may_do_without_the_lock_is_made_where_the_file_is_replaced_again_and_again(): void
+    {
+        $name = 'scripted://replaced-' . uniqid();
+        ScriptedFileStream::register();
+        ScriptedFileStream::$contents[$name] = "first\n";
+        ScriptedFileStream::$everyOpenIsAnotherFile = true;
+        Log::shouldReceive('warning')->once();
+
+        AtomicFile::rewrite(path: $name, change: static fn (string $content): string => $content . "second\n", lockIsRequired: false);
+
+        $this->assertSame("first\nsecond\n", ScriptedFileStream::$contents[$name]);
+    }
+
+    public function test_a_change_that_needs_the_lock_is_not_made_without_it(): void
+    {
+        $name = 'scripted://needs-the-lock-' . uniqid();
+        ScriptedFileStream::register();
+        ScriptedFileStream::$contents[$name] = "first\n";
+        ScriptedFileStream::$locksAreRefused = true;
+
+        $failure = $this->failureOf(static fn () => AtomicFile::rewrite(path: $name, change: static fn (string $content): string => $content . "second\n", lockIsRequired: true));
+
+        $this->assertInstanceOf(RuntimeException::class, $failure);
+        $this->assertSame("first\n", ScriptedFileStream::$contents[$name]);
     }
 }
