@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Requests\Admin\LanguageRequest;
 use App\Utils\Helpers;
 use Closure;
 use Illuminate\Http\Request;
@@ -21,6 +22,9 @@ class APILocalizationMiddleware
     public function handle(Request $request, Closure $next): mixed
     {
         $requested = strtolower((string) $request->header('lang'));
+        if (preg_match('/^' . LanguageRequest::CODE_PATTERN . '$/D', $requested) !== 1) {
+            $requested = '';
+        }
         // Customer-app builds in the field sent the COUNTRY code here ('sa'/'us'); everything
         // localized keys on the language code, so those aliases are folded in rather than
         // letting an installed app fall out of its own language.
@@ -85,6 +89,21 @@ class APILocalizationMiddleware
             }
         }
 
-        return $requested;
+        return $this->storeDefaultLanguage(languages: $languages) ?? $requested;
+    }
+
+    /**
+     * A code the store does not list is no locale: translate() includes the files of resources/lang/<code> and writes the keys it did not
+     * know, so a visitor's header must never name a directory of its own choosing. The store's default language answers instead.
+     */
+    private function storeDefaultLanguage(array $languages): ?string
+    {
+        foreach ($languages as $language) {
+            if (!empty($language['default']) && isset($language['code'])) {
+                return strtolower((string)$language['code']);
+            }
+        }
+
+        return isset($languages[0]['code']) ? strtolower((string)$languages[0]['code']) : null;
     }
 }
