@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Security;
 
+use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\Contracts\Repositories\ProductSeoRepositoryInterface;
 use App\Http\Controllers\RestAPI\v3\seller\ProductController as SellerApiProductController;
 use App\Http\Controllers\Vendor\Product\ProductController as VendorProductController;
 use App\Models\Product;
@@ -42,14 +44,8 @@ class ProductSharedFileTest extends TestCase
 
         $this->rememberLanguageFiles();
         $this->buildCoreSchema();
-        foreach (['product_seos' => 'image', 'digital_product_variations' => 'file'] as $table => $column) {
-            if (!Schema::hasTable($table)) {
-                Schema::create($table, static function ($blueprint) use ($column) {
-                    $blueprint->id();
-                    $blueprint->unsignedBigInteger('product_id');
-                    $blueprint->string($column)->nullable();
-                });
-            }
+        foreach (['2024_05_26_152339_create_product_seos_table.php', '2024_05_26_152030_create_digital_product_variations_table.php'] as $migration) {
+            (require database_path('migrations/' . $migration))->up();
         }
         foreach (['preview_file', 'meta_image'] as $column) {
             if (!Schema::hasColumn('products', $column)) {
@@ -347,5 +343,115 @@ class ProductSharedFileTest extends TestCase
 
         $this->assertFalse(SharedProductFile::isShared(path: 'product/thumbnail/deeper/deep.webp'));
         $this->assertTrue(SharedProductFile::isShared(path: 'product/thumbnail/deep.webp'));
+    }
+
+    private function giveTheProductsTableItsFillableColumns(): void
+    {
+        foreach ((new Product())->getFillable() as $column) {
+            if (!Schema::hasColumn('products', $column)) {
+                Schema::table('products', static fn ($table) => $table->text($column)->nullable());
+            }
+        }
+    }
+
+    /**
+     * @param array<string, UploadedFile> $files
+     * @param array<string, mixed> $fields
+     */
+    private function panelRequest(string $name, array $files = [], array $fields = []): Request
+    {
+        return Request::create('/', 'POST', $fields + [
+            'lang' => ['en'], 'name' => [$name], 'description' => ['<p>d</p>'], 'code' => strtoupper(substr(md5($name), 0, 8)), 'product_type' => 'physical',
+            'category_id' => 1, 'unit' => 'pc', 'unit_price' => 10, 'tax' => 0, 'tax_type' => 'percent', 'tax_model' => 'exclude', 'discount' => 0,
+            'discount_type' => 'flat', 'current_stock' => 5, 'minimum_order_qty' => 1, 'shipping_cost' => 0, 'meta_title' => 't', 'meta_description' => 'd',
+            'meta_index' => 'index',
+        ], [], $files);
+    }
+
+    private function newImage(string $name): UploadedFile
+    {
+        return UploadedFile::fake()->image($name, 40, 40);
+    }
+
+    /** The order of Vendor\Product\ProductController::add and of the admin panel's: the data of the form, the row, then the SEO row. */
+    private function addAsThePanelDoes(Request $request, int $sellerId): Product
+    {
+        $service = app(ProductService::class);
+        $data = array_merge($service->getAddProductData(request: $request, addedBy: 'seller', shopId: 1), ['user_id' => $sellerId]);
+        $saved = Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->add(data: $data));
+        app(ProductSeoRepositoryInterface::class)->add(data: $service->getProductSEOData(request: $request, product: $saved, action: 'add'));
+
+        return $saved;
+    }
+
+    /** The order of Vendor\Product\ProductController::update and of the admin panel's: the data of the form, the row, and only then the SEO row. */
+    private function updateAsThePanelDoes(int $productId, Request $request): void
+    {
+        $service = app(ProductService::class);
+        $product = app(ProductRepositoryInterface::class)->getFirstWhereWithoutGlobalScope(params: ['id' => $productId], relations: ['seoInfo']);
+        $dataArray = $service->getUpdateProductData(request: $request, product: $product, updateBy: 'seller');
+        Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->update(id: (string) $productId, data: $dataArray));
+        app(ProductSeoRepositoryInterface::class)->updateOrInsert(params: ['product_id' => $product['id']], data: $service->getProductSEOData(request: $request, product: $product, action: 'update'));
+    }
+
+    public function test_editing_a_copy_with_a_new_meta_image_keeps_the_meta_image_that_the_original_shows_as_its_seo_image(): void
+    {
+        $this->giveTheProductsTableItsFillableColumns();
+        $this->insertProduct(81, ['name' => 'Original', 'meta_image' => 'stale-original.png']);
+        $this->insertProduct(82, ['name' => 'Copy', 'meta_image' => 'shown-meta.png']);
+        DB::table('product_seos')->insert([['product_id' => 81, 'image' => 'shown-meta.png'], ['product_id' => 82, 'image' => 'copy-own-seo.webp']]);
+        $this->fileOnDisk($this->product('meta/shown-meta.png'), 'meta');
+
+        $this->updateAsThePanelDoes(productId: 82, request: $this->panelRequest(name: 'Copy', files: ['meta_image' => $this->newImage('new-meta.png')]));
+
+        $this->assertFileExists($this->product('meta/shown-meta.png'), 'the original still shows it');
+        $newMetaImage = DB::table('products')->where('id', 82)->value('meta_image');
+        $this->assertNotSame('shown-meta.png', $newMetaImage);
+        $this->assertFileExists($this->product('meta/' . $newMetaImage));
+        $this->assertFileExists($this->product('meta/' . DB::table('product_seos')->where('product_id', 82)->value('image')));
+    }
+
+    public function test_a_seller_who_wrote_the_meta_image_of_another_sellers_product_into_his_own_cannot_delete_it_by_editing_his_product(): void
+    {
+        $this->giveTheProductsTableItsFillableColumns();
+        $this->insertProduct(90 + 20, ['user_id' => 99, 'name' => 'Victim', 'meta_image' => 'stale-victim.png']);
+        DB::table('product_seos')->insert(['product_id' => 110, 'image' => 'victim-seo.png']);
+        $this->fileOnDisk($this->product('meta/victim-seo.png'), 'meta');
+
+        $added = $this->addAsThePanelDoes(request: $this->panelRequest(name: 'Mine', files: ['image' => $this->newImage('thumbnail.png')], fields: ['existing_meta_image' => 'victim-seo.png']), sellerId: 7);
+        $this->assertFileExists($this->product('meta/victim-seo.png'), 'adding the product does not delete it');
+
+        $this->updateAsThePanelDoes(productId: $added->id, request: $this->panelRequest(name: 'Mine', files: ['meta_image' => $this->newImage('meta.png')]));
+
+        $this->assertFileExists($this->product('meta/victim-seo.png'), 'the seller deleted the meta image that the product of another seller shows');
+    }
+
+    public function test_editing_a_product_with_a_new_meta_image_deletes_the_old_one_when_no_other_product_holds_it(): void
+    {
+        $this->giveTheProductsTableItsFillableColumns();
+        $this->insertProduct(81, ['name' => 'Alone', 'meta_image' => 'old-meta.png']);
+        DB::table('product_seos')->insert(['product_id' => 81, 'image' => 'old-meta.png']);
+        $this->fileOnDisk($this->product('meta/old-meta.png'), 'meta');
+
+        $this->updateAsThePanelDoes(productId: 81, request: $this->panelRequest(name: 'Alone', files: ['meta_image' => $this->newImage('new-meta.png')]));
+
+        $this->assertFileDoesNotExist($this->product('meta/old-meta.png'));
+        $this->assertFileExists($this->product('meta/' . DB::table('products')->where('id', 81)->value('meta_image')));
+        $this->assertFileExists($this->product('meta/' . DB::table('product_seos')->where('product_id', 81)->value('image')));
+    }
+
+    public function test_a_copy_made_from_the_gallery_and_edited_with_a_new_meta_image_leaves_the_meta_image_of_its_original(): void
+    {
+        $this->giveTheProductsTableItsFillableColumns();
+        $original = $this->addAsThePanelDoes(request: $this->panelRequest(name: 'Original', files: ['image' => $this->newImage('original.png'), 'meta_image' => $this->newImage('original-meta.png')]), sellerId: 7);
+        $original = Product::withoutGlobalScopes()->with('seoInfo')->find($original->id);
+        $metaImageOfTheOriginal = $original->seoInfo->image;
+        $this->assertFileExists($this->product('meta/' . $metaImageOfTheOriginal));
+
+        $copyForm = ['existing_thumbnail' => $original->thumbnail, 'existing_meta_image' => $metaImageOfTheOriginal, 'existing_images' => []];
+        $copy = $this->addAsThePanelDoes(request: $this->panelRequest(name: 'Copy', files: ['image' => $this->newImage('copy.png')], fields: $copyForm), sellerId: 7);
+        $this->updateAsThePanelDoes(productId: $copy->id, request: $this->panelRequest(name: 'Copy', files: ['meta_image' => $this->newImage('copy-meta.png')]));
+
+        $this->assertFileExists($this->product('meta/' . $metaImageOfTheOriginal), 'the original still shows it');
     }
 }
