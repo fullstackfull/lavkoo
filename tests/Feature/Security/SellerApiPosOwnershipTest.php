@@ -6,6 +6,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsSellerApiWorld;
 use Tests\TestCase;
 
@@ -87,6 +88,67 @@ class SellerApiPosOwnershipTest extends TestCase
         $this->assertSame([self::SELLER, 'seller', 'POS'], [(int) $order->seller_id, $order->seller_is, $order->order_type]);
         $line = DB::table('order_details')->where('order_id', $orderId)->first();
         $this->assertSame([self::OWN_PRODUCT, self::SELLER, 3], [(int) $line->product_id, (int) $line->seller_id, (int) $line->qty]);
+    }
+
+    // ---- the quantity the stock allows ----
+
+    /** @return iterable<string, array{string}> */
+    public static function paymentMethods(): iterable
+    {
+        yield 'cash' => ['cash'];
+        yield 'the customer\'s wallet' => ['wallet'];
+    }
+
+    #[DataProvider('paymentMethods')]
+    public function test_a_sale_of_exactly_the_stock_on_hand_is_sold_and_one_more_is_refused(string $paymentMethod): void
+    {
+        DB::table('products')->where('id', self::OWN_PRODUCT)->update(['current_stock' => 3]);
+
+        $refused = $this->placeOrderPaidBy($paymentMethod, [$this->line(self::OWN_PRODUCT, quantity: 4)]);
+
+        $this->assertTrue($refused->json('product_not_available'));
+        $this->assertSame([3, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame([0, 0], $this->orderAndLineCounts());
+        $this->assertSame(0, DB::table('wallet_transactions')->count(), 'a wallet debit was recorded');
+
+        $sold = $this->placeOrderPaidBy($paymentMethod, [$this->line(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame(200, $sold->getStatusCode());
+        $this->assertNotNull($sold->json('order_id'));
+        $this->assertSame([0, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame([1, 1], $this->orderAndLineCounts());
+    }
+
+    // ---- the shapes of the cart the app sends ----
+
+    /** @return iterable<string, array{array<string, mixed>}> a sale with no cart the app has priced */
+    public static function salesWithoutAPricedCart(): iterable
+    {
+        yield 'no modified_cart' => [[]];
+        yield 'a null modified_cart' => [['modified_cart' => null]];
+        yield 'an empty modified_cart' => [['modified_cart' => []]];
+    }
+
+    /** @param array<string, mixed> $cart */
+    #[DataProvider('salesWithoutAPricedCart')]
+    public function test_a_cash_sale_without_a_priced_cart_is_answered_and_writes_no_line_and_takes_no_stock(array $cart): void
+    {
+        $response = $this->sellerApi('POST', 'pos/place-order', ['customer_id' => 0, 'payment_method' => 'cash', 'paid_amount' => 500, 'cart' => [$this->line(self::OWN_PRODUCT, quantity: 2)]] + $cart);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertNotNull($response->json('order_id'));
+        $this->assertSame([1, 0], $this->orderAndLineCounts());
+        $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
+    }
+
+    public function test_an_element_of_the_priced_cart_that_is_not_a_line_is_skipped(): void
+    {
+        $response = $this->placeOrder(['not a line', $this->line(self::OWN_PRODUCT, quantity: 2)]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertNotNull($response->json('order_id'));
+        $this->assertSame([1, 1], $this->orderAndLineCounts());
+        $this->assertSame([48, 50, 50], $this->stockOfEachProduct());
     }
 
     // ---- a sale paid from the customer's wallet ----
@@ -197,10 +259,16 @@ class SellerApiPosOwnershipTest extends TestCase
         $this->assertSame($code, $response->json('errors.0.code'));
     }
 
-    /** @param list<array<string, mixed>> $lines */
+    /** @param list<array<string, mixed>|string> $lines */
     private function placeOrder(array $lines): TestResponse
     {
         return $this->sellerApi('POST', 'pos/place-order', ['customer_id' => 0, 'payment_method' => 'cash', 'paid_amount' => 500, 'cart' => $lines, 'modified_cart' => $lines]);
+    }
+
+    /** @param list<array<string, mixed>> $lines */
+    private function placeOrderPaidBy(string $paymentMethod, array $lines): TestResponse
+    {
+        return $paymentMethod === 'wallet' ? $this->placeWalletOrder($lines) : $this->placeOrder($lines);
     }
 
     /** @param list<array<string, mixed>> $lines */
