@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * The vendor panel's withdraw handlers read a withdraw request by the id in the request. A request is the seller's own, and open to change,
+ * The vendor panel's withdraw handlers (the dashboard's update and the close action) read a withdraw request by the id in the request. A request is the seller's own, and open to change,
  * only when it carries the seller's id, belongs to no delivery man (a driver's request carries the seller's id too, but it is paid out of the
  * driver's wallet) and is still pending. Without that, a seller took over another seller's pending request (its amount and its payout fields
  * became the caller's, and the caller's wallet was credited with it), reopened a request that was already paid, and rewrote a driver's.
@@ -78,7 +78,7 @@ class VendorWithdrawOwnershipTest extends VendorPanelTestCase
         $this->insertWithdrawRequest(id: self::OWN_DELIVERY_MANS_REQUEST, sellerId: self::SELLER, amount: 30, approved: 0, iban: 'SA-DRIVER-IBAN', deliveryManId: 9);
     }
 
-    /** @return array<string, array{int}> the requests the seller may not rewrite: not theirs, not pending, a driver's, or no request at all */
+    /** @return array<string, array{int}> the requests the seller may not rewrite or close: not theirs, not pending, a driver's, or no request at all */
     public static function requestsThatAreNotTheSellersToChange(): array
     {
         return [
@@ -110,6 +110,26 @@ class VendorWithdrawOwnershipTest extends VendorPanelTestCase
         $this->assertSame([self::SELLER, 50.0, 0], [(int)$request->seller_id, (float)$request->amount, (int)$request->approved]);
         $this->assertSame('SA-NEW-IBAN', json_decode($request->withdrawal_method_fields, true)['iban']);
         $this->assertSame([550.0, 50.0], $this->walletOf(self::SELLER), 'the 100 held for the request went back and the new 50 was taken');
+    }
+
+    #[DataProvider('requestsThatAreNotTheSellersToChange')]
+    public function test_a_withdraw_request_that_is_not_the_sellers_pending_own_is_not_closed_and_the_wallet_is_not_credited(int $requestId): void
+    {
+        $before = $this->requestsAndWallets();
+
+        $this->signInAs(self::SELLER)->get('/vendor/business-settings/withdraw/close/' . $requestId)->assertRedirect();
+
+        $this->assertSame(['error'], $this->toastTypes());
+        $this->assertSame($before, $this->requestsAndWallets());
+    }
+
+    public function test_the_sellers_own_pending_request_is_still_closed_and_its_amount_goes_back_to_the_earning(): void
+    {
+        $this->signInAs(self::SELLER)->get('/vendor/business-settings/withdraw/close/' . self::OWN_PENDING_REQUEST)->assertRedirect();
+
+        $this->assertSame(['success'], $this->toastTypes());
+        $this->assertNull(DB::table('withdraw_requests')->where('id', self::OWN_PENDING_REQUEST)->first());
+        $this->assertSame([600.0, 0.0], $this->walletOf(self::SELLER));
     }
 
     /** @return array<string, array<string, mixed>> */
