@@ -16,8 +16,8 @@ use DOMXPath;
  *
  * The encoding is read before the markup, so it decides what the checks above looked at. libxml2 knows encodings through ICU (HZ, UTF-7,
  * ISO-2022-KR, SCSU, UTF-16 ...) that a browser does not, and bytes the validator reads as text there are markup to the browser. The file
- * is therefore refused unless it is read as ASCII-compatible text everywhere: no null byte, and no declared encoding but UTF-8, ASCII or
- * ISO-8859-1.
+ * is therefore refused unless it is read as ASCII-compatible text everywhere: no null byte, and no declared encoding but UTF-8, ASCII,
+ * ISO-8859-1 and the single-byte code pages of the Windows and Arabic tools, under the names the tools write them (`utf8`, `latin1` ...).
  */
 final class SitemapXml
 {
@@ -38,7 +38,16 @@ final class SitemapXml
 
     private const ROOT_NAMES = ['urlset', 'sitemapindex'];
 
-    private const PLAIN_ENCODINGS = ['utf-8', 'us-ascii', 'iso-8859-1'];
+    private const PLAIN_ENCODINGS = ['utf-8', 'us-ascii', 'iso-8859-1', 'windows-1252', 'windows-1256', 'iso-8859-6', 'iso-8859-15'];
+
+    /** The other names of the encodings above that the tools write, and that libxml2 and the browsers both resolve to the same encoding. */
+    private const ENCODING_ALIASES = [
+        'utf8' => 'utf-8',
+        'ascii' => 'us-ascii',
+        'ansi_x3.4-1968' => 'us-ascii',
+        'latin1' => 'iso-8859-1',
+        'iso_8859-1' => 'iso-8859-1',
+    ];
 
     private const ALTERNATE_LINK_ATTRIBUTES = ['rel', 'hreflang', 'href', 'media'];
 
@@ -84,7 +93,12 @@ final class SitemapXml
 
     private static function declaresPlainEncoding(DOMDocument $document): bool
     {
-        return $document->xmlEncoding === null || in_array(strtolower($document->xmlEncoding), self::PLAIN_ENCODINGS, true);
+        if ($document->xmlEncoding === null) {
+            return true;
+        }
+        $name = strtolower($document->xmlEncoding);
+
+        return in_array(self::ENCODING_ALIASES[$name] ?? $name, self::PLAIN_ENCODINGS, true);
     }
 
     private static function isAllowedElement(DOMElement $element): bool
