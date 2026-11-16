@@ -30,6 +30,12 @@ class AdminAddonSurfaceTest extends TestCase
     /** @var list<string> */
     private array $created = [];
 
+    /** @var list<string> */
+    private array $links = [];
+
+    /** @var list<array{file: string, directory: string|null}> */
+    private array $plantedInfoFiles = [];
+
     private string $publicModulesBackup;
 
     protected function setUp(): void
@@ -46,6 +52,18 @@ class AdminAddonSurfaceTest extends TestCase
 
     protected function tearDown(): void
     {
+        // A link goes first: deleting a directory through its link empties what the link points at and leaves the link.
+        foreach ($this->links as $link) {
+            if (is_link($link)) {
+                unlink($link);
+            }
+        }
+        foreach ($this->plantedInfoFiles as $planted) {
+            File::delete($planted['file']);
+            if ($planted['directory'] !== null) {
+                @rmdir($planted['directory']);
+            }
+        }
         foreach ($this->created as $directory) {
             File::deleteDirectory($directory);
         }
@@ -69,6 +87,31 @@ class AdminAddonSurfaceTest extends TestCase
         $this->created[] = $directory;
 
         return $directory;
+    }
+
+    /** The info file a module that ships with the platform does not hold, so that the only thing which keeps it from being an add-on is its name. */
+    private function plantInfoFileIn(string $module): void
+    {
+        $file = base_path("Modules/{$module}/Addon/info.php");
+        if (is_file($file)) {
+            return;
+        }
+        $directory = dirname($file);
+        $createdDirectory = !is_dir($directory);
+        File::ensureDirectoryExists($directory);
+        file_put_contents($file, self::INFO);
+        $this->plantedInfoFiles[] = ['file' => $file, 'directory' => $createdDirectory ? $directory : null];
+    }
+
+    /** @return array{target: string, link: string} */
+    private function linkedAddon(): array
+    {
+        $target = $this->makeDirectory('storage/probe-link-target', ['keep.txt' => 'keep', 'Http/Thing.php' => '<?php', 'Addon/info.php' => self::INFO]);
+        $link = base_path('Modules/ProbeLinkAddon');
+        symlink($target, $link);
+        $this->links[] = $link;
+
+        return ['target' => $target, 'link' => $link];
     }
 
     public function test_every_addon_screen_sits_behind_the_themes_and_addons_permission_under_both_prefixes(): void
@@ -104,6 +147,7 @@ class AdminAddonSurfaceTest extends TestCase
             'a trailing line break' => ["Modules/ProbeAddon\n"],
             'a module that ships with the platform' => ['Modules/Blog'],
             'another module that ships with the platform' => ['Modules/AI'],
+            'a third module that ships with the platform' => ['Modules/TaxModule'],
             'an add-on that is not installed' => ['Modules/NoSuchAddon'],
             'an empty path' => [''],
             'nothing' => [null],
@@ -163,6 +207,62 @@ class AdminAddonSurfaceTest extends TestCase
         $this->assertFileExists(base_path('Modules/ProbeAddon/Http/Thing.php'));
         $this->assertSame(self::INFO, file_get_contents($sacrificial . '/Addon/info.php'), 'the file of a path that is no add-on is not rewritten');
         $this->assertSame(self::INFO, file_get_contents(base_path('Modules/ProbeAddon/Addon/info.php')));
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function modulesThatShipWithThePlatform(): array
+    {
+        return ['the blog' => ['Blog'], 'the tax module' => ['TaxModule'], 'the AI module' => ['AI']];
+    }
+
+    #[DataProvider('modulesThatShipWithThePlatform')]
+    public function test_a_module_that_ships_with_the_platform_is_not_an_addon_even_when_it_holds_an_info_file(string $module): void
+    {
+        $this->plantInfoFileIn($module);
+
+        $service = app(AddonService::class);
+        $this->assertNull($service->installedAddonPath("Modules/{$module}"));
+        $this->assertSame('error', $service->deleteAddon(Request::create('/', 'POST', ['path' => "Modules/{$module}"]))['status']);
+        $this->assertDirectoryExists(base_path("Modules/{$module}"));
+    }
+
+    public function test_a_directory_whose_name_ends_in_a_line_break_is_not_the_addon_of_the_name_before_it(): void
+    {
+        $this->makeDirectory("Modules/ProbeBreak\n", ['Addon/info.php' => self::INFO]);
+
+        $this->assertNull(app(AddonService::class)->installedAddonPath("Modules/ProbeBreak\n"));
+    }
+
+    public function test_a_link_in_the_modules_directory_is_not_an_addon(): void
+    {
+        $this->linkedAddon();
+
+        $this->assertNull(app(AddonService::class)->installedAddonPath('Modules/ProbeLinkAddon'));
+    }
+
+    public function test_deleting_a_link_in_the_modules_directory_deletes_nothing_behind_it(): void
+    {
+        ['target' => $target, 'link' => $link] = $this->linkedAddon();
+
+        $result = app(AddonService::class)->deleteAddon(Request::create('/', 'POST', ['path' => 'Modules/ProbeLinkAddon']));
+
+        $this->assertSame('error', $result['status']);
+        $this->assertFileExists($target . '/keep.txt');
+        $this->assertFileExists($target . '/Http/Thing.php');
+        $this->assertFileExists($target . '/Addon/info.php');
+        $this->assertTrue(is_link($link));
+    }
+
+    public function test_publishing_a_link_in_the_modules_directory_changes_nothing_behind_it(): void
+    {
+        ['target' => $target] = $this->linkedAddon();
+        $published = "<?php return ['name' => 'Probe', 'module_name' => 'ProbeLinkAddon', 'is_published' => 0, 'purchase_code' => 'code', 'username' => 'user'];";
+        file_put_contents($target . '/Addon/info.php', $published);
+
+        $result = app(AddonService::class)->getPublishData(Request::create('/', 'POST', ['path' => 'Modules/ProbeLinkAddon']));
+
+        $this->assertSame('error', $result['status']);
+        $this->assertSame($published, file_get_contents($target . '/Addon/info.php'));
     }
 
     public function test_the_deletion_of_a_real_addon_still_works(): void

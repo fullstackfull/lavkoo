@@ -107,7 +107,8 @@ class AddonService
     /**
      * The path of an installed add-on exactly as the add-on list shows it ("Modules/Name"), or nothing. The request names the add-on, and the
      * path was then joined to the application root to include its info.php, to rewrite it and to delete the directory, so a path the list
-     * never offered (`storage`, `app`, `../other-site`) was a way to run, overwrite or delete anything the web user can reach.
+     * never offered (`storage`, `app`, `../other-site`) was a way to run, overwrite or delete anything the web user can reach. A link in the
+     * Modules directory is no add-on either: deleting through it empties the directory it points at and leaves the link.
      */
     public function installedAddonPath(mixed $path): ?string
     {
@@ -115,7 +116,9 @@ class AddonService
             return null;
         }
 
-        return is_file(base_path($path . '/Addon/info.php')) ? $path : null;
+        $directory = base_path($path);
+
+        return !is_link($directory) && is_file($directory . '/Addon/info.php') ? $path : null;
     }
 
     public function getPublishData(object $request): array
