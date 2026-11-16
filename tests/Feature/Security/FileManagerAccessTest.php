@@ -129,7 +129,7 @@ class FileManagerAccessTest extends TestCase
         }
     }
 
-    /** @return array<string, array{0: string}> paths that Flysystem refuses (it throws on any control or format character), which the route answers as a missing file */
+    /** @return array<string, array{0: string}> paths that Flysystem refuses (it throws on any control, format, private use or unassigned character), which the route answers as a missing file */
     public static function pathsThatHoldAControlOrFormatCharacter(): array
     {
         return [
@@ -139,6 +139,8 @@ class FileManagerAccessTest extends TestCase
             'a byte order mark' => ["probe-gallery/\u{FEFF}a.txt"],
             'a next line character' => ["probe-gallery/a\u{0085}.txt"],
             'a right-to-left override' => ["probe-gallery/a\u{202E}txt.exe"],
+            'a private use character' => ["probe-gallery/a\u{E000}.txt"],
+            'an unassigned code point' => ["probe-gallery/a\u{0378}.txt"],
         ];
     }
 
@@ -159,6 +161,14 @@ class FileManagerAccessTest extends TestCase
     public function test_a_folder_that_holds_a_control_or_format_character_opens_the_main_folder(string $folder): void
     {
         $view = $this->controller()->index(Request::create('/', 'GET', ['targetFolder' => base64_encode($folder)]));
+
+        $this->assertSame('cHVibGlj', $view->getData()['targetFolder']);
+    }
+
+    public function test_a_folder_with_a_control_character_beside_bytes_that_are_no_text_opens_the_main_folder(): void
+    {
+        // a rule that reads Unicode cannot read such a name, so the rule for the plain control characters has to refuse it
+        $view = $this->controller()->index(Request::create('/', 'GET', ['targetFolder' => base64_encode("probe-gallery/a\xFF\n")]));
 
         $this->assertSame('cHVibGlj', $view->getData()['targetFolder']);
     }
