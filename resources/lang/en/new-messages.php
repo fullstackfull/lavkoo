@@ -8892,6 +8892,7 @@ return [
 	'provider' => 'Provider',
 	'the_file_is_not_a_supported_image' => 'The file is not a supported image',
 	'the_file_name_is_not_valid' => 'The file name is not valid',
+	'the_path_is_not_valid' => 'The path is not valid',
 	'provider_api_logs' => 'Provider API logs',
 	'provider_api_logs_redaction_note' => 'Passwords, tokens, secrets and customer contact details are removed before a call is logged.',
 	'provider_api_logs_subtitle' => 'Every call to a provider, newest first.',

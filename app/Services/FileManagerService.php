@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Utils\PlainFileName;
+use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -16,15 +18,21 @@ class FileManagerService
     public function uploadFileAndImages(object $request): bool
     {
         $storage = $request['storage'];
+        $folder = $request['path'];
+        if (!is_string($folder) || !PlainFileName::staysInside(path: $folder)) {
+            return false;
+        }
+
         if ($request->hasfile('images')) {
             $images = $request->file('images');
             foreach ($images as $image) {
-                $name = $image->getClientOriginalName();
+                $baseName = pathinfo($image->getClientOriginalName(), PATHINFO_FILENAME);
+                $extension = StoredFileExtension::of(clientExtension: $image->getClientOriginalExtension(), file: $image);
                 if ($storage == 's3') {
-                    Storage::disk($storage)->putFileAs($request->path, $image, $name);
+                    Storage::disk($storage)->putFileAs($folder, $image, $baseName . '.' . $extension);
                 } else {
-                    $name = Str::slug(pathinfo($image->getClientOriginalName(), PATHINFO_FILENAME)) . '.' . $image->getClientOriginalExtension();
-                    $path = $request['path'] == 'public' ? $name : ($request['path'] . '/' . $name);
+                    $name = Str::slug($baseName) . '.' . $extension;
+                    $path = $folder == 'public' ? $name : ($folder . '/' . $name);
                     Storage::disk('public')->put($path, file_get_contents($image));
                 }
             }
@@ -42,11 +50,14 @@ class FileManagerService
                             continue;
                         }
                         $filename = $stat['name'];
-                        $fileContent = $zip->getFromIndex($i);
                         $format = pathinfo($filename, PATHINFO_EXTENSION);
+                        if (!StoredFileExtension::isDataType(extension: $format)) {
+                            continue;
+                        }
+                        $fileContent = $zip->getFromIndex($i);
                         $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
                         $s3 = Storage::disk('s3');
-                        $s3Path = $request->path . '/' . $imageName;
+                        $s3Path = $folder . '/' . $imageName;
                         $s3->put($s3Path, $fileContent, 'public');
                     }
                     $zip->close();
@@ -71,9 +82,9 @@ class FileManagerService
                         File::deleteDirectory($tempPath . '/__MACOSX');
                     }
 
-                    $destination = $request['path'] === 'public'
+                    $destination = $folder === 'public'
                         ? storage_path('app/public')
-                        : storage_path('app/public/' . $request['path']);
+                        : storage_path('app/public/' . $folder);
                     $this->copyAndTouch($tempPath, $destination);
 
                     File::deleteDirectory($tempPath);
@@ -90,6 +101,9 @@ class FileManagerService
     {
         $files = File::allFiles($src);
         foreach ($files as $file) {
+            if (!StoredFileExtension::isDataType(extension: $file->getExtension())) {
+                continue;
+            }
             $relativePath = Str::after($file->getPathname(), $src);
             $destinationPath = $dst . $relativePath;
             File::ensureDirectoryExists(dirname($destinationPath));

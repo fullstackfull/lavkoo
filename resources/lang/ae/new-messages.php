@@ -15482,6 +15482,7 @@ return [
 	'provider' => 'المزوّد',
 	'the_file_is_not_a_supported_image' => 'الملف ليس صورة مدعومة',
 	'the_file_name_is_not_valid' => 'اسم الملف غير صالح',
+	'the_path_is_not_valid' => 'المسار غير صالح',
 	'provider_api_logs' => 'سجلات واجهات المزوّدين',
 	'provider_api_logs_redaction_note' => 'تُزال كلمات المرور والرموز والأسرار وبيانات تواصل العملاء قبل تسجيل أي استدعاء.',
 	'provider_api_logs_subtitle' => 'كل استدعاء لأي مزوّد، الأحدث أولًا.',
