@@ -20,6 +20,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Cache;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class ShopController extends BaseController
@@ -91,7 +92,7 @@ class ShopController extends BaseController
      */
     public function getUpdateView(string|int $id): View
     {
-        $shop = $this->shopRepo->getFirstWhere(['id' => $id]);
+        $shop = $this->getAuthenticatedVendorShop();
         return view('vendor-views.shop.update-view', compact('shop'));
     }
 
@@ -102,8 +103,8 @@ class ShopController extends BaseController
      */
     public function update(ShopRequest $request, string|int $id): RedirectResponse
     {
-        $shop = $this->shopRepo->getFirstWhere(['id' => $id]);
-        $this->shopRepo->update(id: $id, data: $this->shopService->getShopDataForUpdate(request: $request, shop: $shop));
+        $shop = $this->getAuthenticatedVendorShop();
+        $this->shopRepo->update(id: $shop['id'], data: $this->shopService->getShopDataForUpdate(request: $request, shop: $shop));
         updateSetupGuideCacheKey(key: 'shop_setup', panel: 'vendor');
         ToastMagic::info(translate('Shop_updated_successfully'));
         return redirect()->route('vendor.shop.index');
@@ -115,7 +116,7 @@ class ShopController extends BaseController
      */
     public function updateVacation(ShopVacationRequest $request): RedirectResponse
     {
-        $this->shopRepo->update(id: $request['id'], data: $this->shopService->getVacationData(request: $request));
+        $this->shopRepo->update(id: $this->getAuthenticatedVendorShop()['id'], data: $this->shopService->getVacationData(request: $request));
         updateSetupGuideCacheKey(key: 'shop_setup', panel: 'vendor');
         ToastMagic::success(translate('Vacation_mode_updated_successfully'));
         return back();
@@ -127,7 +128,7 @@ class ShopController extends BaseController
      */
     public function closeShopTemporary(Request $request): RedirectResponse
     {
-        $this->shopRepo->update(id: $request['id'], data: ['temporary_close' => !$request->get(key: 'status', default: 0)]);
+        $this->shopRepo->update(id: $this->getAuthenticatedVendorShop()['id'], data: ['temporary_close' => !$request->get(key: 'status', default: 0)]);
         Cache::clear();
         updateSetupGuideCacheKey(key: 'shop_setup', panel: 'vendor');
         ToastMagic::success(translate('Status_updated_successfully'));
@@ -177,5 +178,16 @@ class ShopController extends BaseController
         updateSetupGuideCacheKey(key: 'order_setup', panel: 'vendor');
         ToastMagic::success(translate('updated_successfully'));
         return back();
+    }
+
+    /**
+     * The shop of the signed-in seller. The shop pages never read a shop id from the URL or the form: an id taken from the request let
+     * any seller view, rewrite, close or put on vacation another seller's shop, or the in-house shop (seller_id 0).
+     */
+    private function getAuthenticatedVendorShop(): Model
+    {
+        $shop = $this->shopRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
+        abort_if(boolean: !$shop, code: 404);
+        return $shop;
     }
 }
