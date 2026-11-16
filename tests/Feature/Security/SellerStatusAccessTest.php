@@ -105,6 +105,11 @@ class SellerStatusAccessTest extends TestCase
         return $this->putJson('/api/v2/seller/cm-firebase-token', ['cm_firebase_token' => 'a-device'], ['Authorization' => 'Bearer ' . $token])->getStatusCode();
     }
 
+    private function requestWithdrawalOnV2(string $token): int
+    {
+        return $this->postJson('/api/v2/seller/balance-withdraw', ['amount' => 10], ['Authorization' => 'Bearer ' . $token])->getStatusCode();
+    }
+
     private function adminSetsStatus(int $sellerId, string $status): void
     {
         app(VendorController::class)->updateStatus(new Request(['id' => $sellerId, 'status' => $status]));
@@ -137,6 +142,21 @@ class SellerStatusAccessTest extends TestCase
         $this->assertSame(200, $this->useTokenOnV2(self::TOKEN));
 
         $this->assertSame('a-device', $this->column($sellerId, 'cm_firebase_token'));
+    }
+
+    #[DataProvider('statusesThatAreNotApproved')]
+    public function test_a_v2_withdrawal_request_is_refused_once_the_seller_is_not_approved(string $status): void
+    {
+        $this->seller(['status' => $status, 'auth_token' => self::TOKEN]);
+
+        $this->assertSame(401, $this->requestWithdrawalOnV2(self::TOKEN));
+    }
+
+    public function test_an_approved_seller_gets_past_the_v2_withdrawal_authentication(): void
+    {
+        $this->seller(['auth_token' => self::TOKEN]);
+
+        $this->assertSame(202, $this->requestWithdrawalOnV2(self::TOKEN), 'with no bank details the route answers 202, which is only reached after the token was accepted');
     }
 
     public function test_the_token_helpers_resolve_an_approved_seller_and_nobody_else(): void
