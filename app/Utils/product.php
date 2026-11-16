@@ -221,7 +221,7 @@ if (!function_exists('isProductInCompareList')) {
 if (!function_exists('getProductMaxUnitPriceRange')) {
     function getProductMaxUnitPriceRange($type = null): int
     {
-        $maxUnitPrice = Cache::remember(storefrontCacheKey(CACHE_FOR_PRODUCTS_MAX_UNIT_PRICE), CACHE_FOR_3_HOURS, function () {
+        $maxUnitPrice = Cache::remember(storefrontCacheKey(key: CACHE_FOR_PRODUCTS_MAX_UNIT_PRICE), CACHE_FOR_3_HOURS, function () {
             return Product::inCurrentStorefront()->get()->max('unit_price');
         });
 
@@ -249,7 +249,7 @@ if (!function_exists('getProductMaxUnitPriceRange')) {
 if (!function_exists('getProductMinUnitPriceRange')) {
     function getProductMinUnitPriceRange($type = null): int
     {
-        $minUnitPrice = Cache::remember(storefrontCacheKey(CACHE_FOR_PRODUCTS_MIN_UNIT_PRICE), CACHE_FOR_3_HOURS, function () {
+        $minUnitPrice = Cache::remember(storefrontCacheKey(key: CACHE_FOR_PRODUCTS_MIN_UNIT_PRICE), CACHE_FOR_3_HOURS, function () {
             return Product::inCurrentStorefront()->get()->min('unit_price');
         });
 
@@ -282,7 +282,7 @@ if (!function_exists('getProductMinUnitPriceRange')) {
 if (!function_exists('getFeaturedDealsProductList')) {
     function getFeaturedDealsProductList()
     {
-        $cacheKey = storefrontCacheKey('cache_for_Featured_deals_products_list_' . getDefaultLanguage());
+        $cacheKey = storefrontCacheKey(key: 'cache_for_Featured_deals_products_list_' . getDefaultLanguage());
         $cacheKeys = Cache::get(CACHE_FOR_FEATURED_DEAL_PRODUCTS_LIST, []);
         if (!in_array($cacheKey, $cacheKeys)) {
             $cacheKeys[] = $cacheKey;

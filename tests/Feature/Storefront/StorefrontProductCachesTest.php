@@ -63,7 +63,7 @@ class StorefrontProductCachesTest extends TestCase
     {
         $this->serveRequestFrom('AE');
 
-        $this->assertSame('some_key', storefrontCacheKey('some_key'));
+        $this->assertSame('some_key', storefrontCacheKey(key: 'some_key'));
     }
 
     public function test_the_key_is_unchanged_for_the_saudi_storefront(): void
@@ -71,7 +71,7 @@ class StorefrontProductCachesTest extends TestCase
         $this->switchStorefrontsOn();
         $this->serveRequestFrom('SA');
 
-        $this->assertSame('some_key', storefrontCacheKey('some_key'));
+        $this->assertSame('some_key', storefrontCacheKey(key: 'some_key'));
     }
 
     /** The admin panel, a queue or a console command reads every country, so it must not fill the Saudi storefront's entry. */
@@ -79,7 +79,7 @@ class StorefrontProductCachesTest extends TestCase
     {
         $this->switchStorefrontsOn();
 
-        $this->assertSame('storefront:*:some_key', storefrontCacheKey('some_key'));
+        $this->assertSame('storefront:*:some_key', storefrontCacheKey(key: 'some_key'));
     }
 
     public function test_an_unbound_request_never_fills_the_saudi_storefronts_price_range(): void
@@ -103,7 +103,49 @@ class StorefrontProductCachesTest extends TestCase
         $this->switchStorefrontsOn();
         $this->serveRequestFrom('AE');
 
-        $this->assertSame('storefront:AE:some_key', storefrontCacheKey('some_key'));
+        $this->assertSame('storefront:AE:some_key', storefrontCacheKey(key: 'some_key'));
+    }
+
+    public function test_a_storefront_request_the_middleware_has_not_reached_writes_under_the_key_of_the_storefront_it_asks_for(): void
+    {
+        $this->switchStorefrontsOn();
+
+        $this->serveAsHttpRequest('/products?storefront=AE');
+        $this->assertSame('storefront:AE:some_key', storefrontCacheKey(key: 'some_key'));
+
+        $this->serveAsHttpRequest('/products');
+        $this->assertSame('some_key', storefrontCacheKey(key: 'some_key'));
+    }
+
+    public function test_a_panel_or_a_seller_api_request_has_the_key_of_its_own_whatever_the_address_says(): void
+    {
+        $this->switchStorefrontsOn();
+
+        foreach (['/admin/dashboard', '/vendor/products/list', '/api/v3/seller/products/list'] as $uri) {
+            $this->serveAsHttpRequest($uri . '?storefront=AE');
+            $this->assertSame('storefront:*:some_key', storefrontCacheKey(key: 'some_key'), $uri);
+        }
+    }
+
+    public function test_while_storefronts_are_off_forgetting_a_key_forgets_only_that_key(): void
+    {
+        Cache::put('some_key', 'cached', 60);
+        Cache::put('storefront:AE:some_key', 'cached', 60);
+
+        cacheForgetInEveryStorefront(key: 'some_key');
+
+        $this->assertFalse(Cache::has('some_key'));
+        $this->assertTrue(Cache::has('storefront:AE:some_key'));
+    }
+
+    public function test_while_storefronts_are_off_a_missing_or_broken_storefront_configuration_does_not_reach_the_caches(): void
+    {
+        foreach ([null, ['storefronts' => ['enabled' => false, 'default_country' => 'XX', 'countries' => []]]] as $gcc) {
+            config(['gcc' => $gcc]);
+
+            $this->assertSame('some_key', storefrontCacheKey(key: 'some_key'));
+            cacheRemoveByType(type: 'products');
+        }
     }
 
     public function test_forgetting_a_key_forgets_it_in_every_storefront(): void
@@ -113,7 +155,7 @@ class StorefrontProductCachesTest extends TestCase
             Cache::put($key, 'cached', 60);
         }
 
-        cacheForgetInEveryStorefront('some_key');
+        cacheForgetInEveryStorefront(key: 'some_key');
 
         $this->assertFalse(Cache::has('some_key'));
         $this->assertFalse(Cache::has('storefront:AE:some_key'));
@@ -168,7 +210,7 @@ class StorefrontProductCachesTest extends TestCase
     {
         $this->switchStorefrontsOn();
         $this->serveRequestFrom('AE');
-        $scopedKey = storefrontCacheKey('cache_flash_deal_default');
+        $scopedKey = storefrontCacheKey(key: 'cache_flash_deal_default');
         Cache::put(CACHE_FLASH_DEAL_KEYS, [$scopedKey], 60);
         Cache::put($scopedKey, 'emirati', 60);
 
@@ -195,6 +237,6 @@ class StorefrontProductCachesTest extends TestCase
             }
         }
 
-        $this->assertSame([], $unwrapped, "These cache keys are used without storefrontCacheKey() or cacheForgetInEveryStorefront():\n" . implode("\n", $unwrapped));
+        $this->assertSame([], $unwrapped, "These cache keys are used without storefrontCacheKey(key: ) or cacheForgetInEveryStorefront(key: ):\n" . implode("\n", $unwrapped));
     }
 }

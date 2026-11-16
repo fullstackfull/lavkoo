@@ -2,8 +2,10 @@
 
 namespace Tests\Support;
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use ReflectionProperty;
 
 /** The few tables the product visibility scope reads, and a helper that adds a product to them. */
 trait BuildsStorefrontCatalog
@@ -68,6 +70,21 @@ trait BuildsStorefrontCatalog
             $table->unsignedBigInteger('delivery_man_id')->nullable();
             $table->boolean('status')->default(true);
         });
+    }
+
+    /**
+     * A web request that no storefront middleware has reached yet, as when the providers boot: the container holds the request and no
+     * StorefrontContext. The test process is a console, so the console flag is turned off for this application.
+     */
+    protected function serveAsHttpRequest(string $uri, array $headers = []): void
+    {
+        $server = [];
+        foreach ($headers as $name => $value) {
+            $server['HTTP_' . strtoupper(str_replace('-', '_', $name))] = $value;
+        }
+
+        $this->app->instance('request', Request::create($uri, 'GET', [], [], [], $server));
+        (new ReflectionProperty($this->app, 'isRunningInConsole'))->setValue($this->app, false);
     }
 
     /** Adds the column the migration adds, the way the migration adds it. */

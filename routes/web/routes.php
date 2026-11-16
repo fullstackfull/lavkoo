@@ -368,7 +368,7 @@ Route::group(['prefix' => 'cart', 'as' => 'cart.', 'namespace' => 'Web'], functi
         Route::post('floating-nav-cart-items', 'update_floating_nav')->name('floating-nav-cart-items'); // theme fashion floating nav
         Route::post('updateQuantity', 'updateQuantity')->name('updateQuantity');
         Route::post('updateQuantity-guest', 'updateQuantity_guest')->name('updateQuantity.guest');
-        Route::post('order-again', 'orderAgain')->name('order-again')->middleware('customer');
+        Route::post('order-again', 'orderAgain')->name('order-again')->middleware(['customer', 'storefront.sellable']);
         Route::post('select-cart-items', 'updateCheckedCartItems')->name('select-cart-items');
         Route::post('product-restock-request', 'addProductRestockRequest')->name('product-restock-request');
     });

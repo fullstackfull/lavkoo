@@ -143,7 +143,7 @@ class CategoryManager
         // 20+ identical heavy entries (one per section of the site, per language),
         // and glued the last two parts with no delimiter so distinct inputs could
         // collide.
-        $cacheKey = storefrontCacheKey('cache_main_categories_list_' . implode('_', [
+        $cacheKey = storefrontCacheKey(key: 'cache_main_categories_list_' . implode('_', [
             getDefaultLanguage() ?? 'en',
             request('offer_type') ?? 'default',
             $dataForm ?? 'default',

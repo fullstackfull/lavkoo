@@ -14,19 +14,12 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ResolveStorefront
 {
-    public const HEADER = 'X-Storefront';
+    public const HEADER = StorefrontResolver::HEADER;
 
     public function handle(Request $request, Closure $next): Response
     {
-        $explicitChoice = $request->query('storefront');
-        $headerValues = $request->headers->all(self::HEADER);
         $resolver = StorefrontResolver::fromConfig();
-
-        $context = $resolver->context(
-            explicitChoice: is_string($explicitChoice) ? $explicitChoice : null,
-            path: $request->path(),
-            headerChoice: count($headerValues) === 1 && is_string($headerValues[0]) ? $headerValues[0] : null,
-        );
+        $context = $resolver->contextForRequest(request: $request);
 
         app()->instance(StorefrontContext::class, $context);
 

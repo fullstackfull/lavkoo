@@ -182,6 +182,9 @@ class Product extends Model
         'digital_file_ready_storage_type' => 'string',
     ];
 
+    /** The owning country is a storefront rule, not part of what the apps read: no payload changes when the column appears. */
+    protected $hidden = ['storefront_country'];
+
     protected $appends = ['scan_code', 'is_shop_temporary_close', 'thumbnail_full_url', 'preview_file_full_url', 'color_images_full_url', 'meta_image_full_url', 'images_full_url', 'digital_file_ready_full_url'];
 
     /**
@@ -252,7 +255,7 @@ class Product extends Model
 
     public function scopeInCurrentStorefront($query): void
     {
-        StorefrontCatalog::restrict($query);
+        StorefrontCatalog::restrict(query: $query);
     }
 
     public function scopeSellerApproved($query): void

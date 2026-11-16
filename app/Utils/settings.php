@@ -468,9 +468,9 @@ if (!function_exists('cacheRemoveByType')) {
         } else if ($type == 'currencies') {
             Cache::forget(CACHE_FOR_CURRENCY_TABLE);
         } else if ($type == 'categories') {
-            cacheForgetInEveryStorefront(CACHE_MAIN_CATEGORIES_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_MAIN_CATEGORIES_LIST);
             Cache::forget(FIND_WHAT_YOU_NEED_CATEGORIES_LIST);
-            cacheForgetInEveryStorefront(CACHE_HOME_CATEGORIES_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_HOME_CATEGORIES_LIST);
             foreach ((array) Cache::get(CACHE_HOME_CATEGORIES_API_LIST, []) as $homeCategoriesKey) {
                 Cache::forget($homeCategoriesKey);
             }
@@ -493,26 +493,26 @@ if (!function_exists('cacheRemoveByType')) {
             cacheRemoveByType(type: 'shops');
             cacheRemoveByType(type: 'order_details');
 
-            cacheForgetInEveryStorefront(CACHE_FOR_MOST_DEMANDED_PRODUCT_ITEM);
-            cacheForgetInEveryStorefront(CACHE_FOR_BEST_SELLING_PRODUCT_ITEM);
-            cacheForgetInEveryStorefront(CACHE_FOR_FEATURED_PRODUCTS_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_MOST_SEARCHING_PRODUCTS_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_ALL_PRODUCTS_COLOR_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_PRODUCTS_MAX_UNIT_PRICE);
-            cacheForgetInEveryStorefront(CACHE_FOR_PRODUCTS_MIN_UNIT_PRICE);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_MOST_DEMANDED_PRODUCT_ITEM);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_BEST_SELLING_PRODUCT_ITEM);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_FEATURED_PRODUCTS_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_MOST_SEARCHING_PRODUCTS_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_ALL_PRODUCTS_COLOR_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_PRODUCTS_MAX_UNIT_PRICE);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_PRODUCTS_MIN_UNIT_PRICE);
             Cache::forget(CACHE_FOR_ALL_PRODUCTS_REVIEW_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_RANDOM_SINGLE_PRODUCT);
-            cacheForgetInEveryStorefront(CACHE_FOR_HOME_PAGE_JUST_FOR_YOU_PRODUCT_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_HOME_PAGE_LATEST_PRODUCT_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_HOME_PAGE_TOP_RATED_PRODUCT_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_HOME_PAGE_BEST_SELL_PRODUCT_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_CLEARANCE_SALE_PRODUCTS_COUNT);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_RANDOM_SINGLE_PRODUCT);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_HOME_PAGE_JUST_FOR_YOU_PRODUCT_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_HOME_PAGE_LATEST_PRODUCT_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_HOME_PAGE_TOP_RATED_PRODUCT_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_HOME_PAGE_BEST_SELL_PRODUCT_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_CLEARANCE_SALE_PRODUCTS_COUNT);
             Cache::forget(CACHE_FOR_VENDOR_ALL_PRODUCT_LIST);
             Cache::forget(CACHE_FOR_IN_HOUSE_ALL_PRODUCT_LIST);
             Cache::forget(CACHE_FOR_ADMIN_SIDEBAR_ALL_PRODUCT_LIST);
 
             // Brands
-            cacheForgetInEveryStorefront(CACHE_PRIORITY_WISE_BRANDS_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_PRIORITY_WISE_BRANDS_LIST);
             Cache::forget(CACHE_ACTIVE_BRANDS_WITH_COUNTING_AND_PRIORITY);
             Cache::forget(CACHE_CONTAINER_FOR_LANGUAGE_WISE_CACHE_KEYS);
 
@@ -520,15 +520,15 @@ if (!function_exists('cacheRemoveByType')) {
 
             Cache::forget(CACHE_FOR_VENDOR_WISE_PRODUCTS_COUNT);
 
-            cacheForgetInEveryStorefront(CACHE_PROVIDER_PUBLISHING_HOUSES_LIST);
-            cacheForgetInEveryStorefront(CACHE_PROVIDER_PUBLISHING_HOUSES_COUNT);
+            cacheForgetInEveryStorefront(key: CACHE_PROVIDER_PUBLISHING_HOUSES_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_PROVIDER_PUBLISHING_HOUSES_COUNT);
         } else if ($type == 'shipping_types') {
             Cache::forget(CACHE_FOR_IN_HOUSE_SHIPPING_TYPE);
         } else if ($type == 'sellers' || $type == 'shops') {
-            cacheForgetInEveryStorefront(CACHE_FOR_IN_HOUSE_ALL_PRODUCTS);
-            cacheForgetInEveryStorefront(CACHE_FOR_HOME_PAGE_TOP_VENDORS_LIST);
-            cacheForgetInEveryStorefront(CACHE_FOR_HOME_PAGE_MORE_VENDORS_LIST);
-            cacheForgetInEveryStorefront(CACHE_SHOP_TABLE);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_IN_HOUSE_ALL_PRODUCTS);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_HOME_PAGE_TOP_VENDORS_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_FOR_HOME_PAGE_MORE_VENDORS_LIST);
+            cacheForgetInEveryStorefront(key: CACHE_SHOP_TABLE);
             cacheRemoveByType(type: 'flash_deals');
         } else if ($type == 'reviews') {
             cacheRemoveByType(type: 'products');

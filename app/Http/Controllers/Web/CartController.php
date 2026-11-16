@@ -14,6 +14,7 @@ use App\Models\RestockProductCustomer;
 use App\Models\Shop;
 use App\Models\Wishlist;
 use App\Services\RestockProductService;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
@@ -592,6 +593,9 @@ class CartController extends Controller
     function update_variation(Request $request)
     {
         $product = Product::where(['id' => $request['product_id']])->first();
+        if (!StorefrontCatalog::offers(product: $product)) {
+            return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+        }
         if ($product['product_type'] == 'digital') {
             return self::addToCartDigitalProduct($request, $product);
         } else {

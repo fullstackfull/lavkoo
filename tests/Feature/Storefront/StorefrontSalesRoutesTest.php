@@ -28,6 +28,7 @@ class StorefrontSalesRoutesTest extends TestCase
         '\\WebController@getCashOnDeliveryCheckoutComplete',
         '\\WebController@getOfflinePaymentCheckoutComplete',
         '\\WebController@checkout_complete_wallet',
+        '\\Web\\CartController@orderAgain',
     ];
 
     private const OPEN_ACTIONS = [

@@ -757,7 +757,7 @@ class CartManager
             return $query->active();
         }])->where(['id' => $request['id']])->first();
 
-        if($product['status'] == 0 || !StorefrontCatalog::offers($product)){
+        if($product['status'] == 0 || !StorefrontCatalog::offers(product: $product)){
             return ['status' => 0, 'message' => translate('Product_is_unavailable')];
         }
 
