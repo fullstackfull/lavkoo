@@ -504,10 +504,12 @@ class ProductService
 
     public function deleteImages(object $product): bool
     {
+        $filePaths = [];
         foreach (json_decode($product['images'], true) as $image) {
-            $this->delete(filePath: '/product/' . (isset($image['image_name']) ? $image['image_name'] : $image));
+            $filePaths[] = '/product/' . (isset($image['image_name']) ? $image['image_name'] : $image);
         }
-        $this->delete(filePath: '/product/thumbnail/' . $product['thumbnail']);
+        $filePaths[] = '/product/thumbnail/' . $product['thumbnail'];
+        $this->deleteAll(filePaths: $filePaths);
 
         return true;
     }
@@ -1100,7 +1102,10 @@ class ProductService
     {
         if ($product) {
             if ($request->file('meta_image')) {
-                $metaImage = $this->update(dir: 'product/meta/', oldImage: $product['meta_image'], format: 'png', image: $request['meta_image']);
+                // getUpdateProductData replaced the product's meta image and deleted the old file before the row changed; a second delete would run after the row let go of it.
+                $metaImage = $action == 'update'
+                    ? $this->upload(dir: 'product/meta/', format: 'png', image: $request['meta_image'])
+                    : $this->update(dir: 'product/meta/', oldImage: $product['meta_image'], format: 'png', image: $request['meta_image']);
             } elseif (!$request->file('meta_image') && $request->file('image') && $action == 'add') {
                 $metaImage = $this->upload(dir: 'product/meta/', format: 'webp', image: $request['image']);
             } else {
