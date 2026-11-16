@@ -108,18 +108,22 @@ final class StorefrontResolver
     }
 
     /**
-     * The context of a country this platform recorded itself, active or not. A visitor can only reach an active storefront, but a payment
-     * that was taken there has to be finished there, even if the storefront was switched off in the meantime. Null for a code that is not configured.
+     * The context of a country this platform recorded itself, active or not, or no longer configured at all. A visitor can only reach an
+     * active storefront, but a payment that was taken there has to be finished there, even if the storefront was switched off, or its entry
+     * was deleted, in the meantime. Narrowing needs only the code, so a country that is gone from the configuration takes the default
+     * storefront's currency. Null for a value that is not a two-letter country code.
      */
     public function contextOfRecordedCountry(?string $countryCode): ?StorefrontContext
     {
         $code = strtoupper(trim((string) $countryCode));
 
-        if (!isset($this->countries[$code])) {
+        if (preg_match('/^[A-Z]{2}$/', $code) !== 1) {
             return null;
         }
 
-        return new StorefrontContext(country: $code, currency: $this->currencyOf($code), storefrontsEnabled: $this->enabled);
+        $currency = $this->currencyOf(isset($this->countries[$code]) ? $code : $this->defaultCountry);
+
+        return new StorefrontContext(country: $code, currency: $currency, storefrontsEnabled: $this->enabled);
     }
 
     public function isEnabled(): bool

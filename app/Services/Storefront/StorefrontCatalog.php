@@ -148,7 +148,7 @@ final class StorefrontCatalog
         self::$columnAnswer = null;
     }
 
-    /** The country this request is narrowed to, or null while storefronts are off and for a request that is not a storefront request. */
+    /** The country this request is narrowed to, or null when nothing is narrowed: storefronts off, a panel, a seller API, a queue or a console command. */
     public static function country(): ?string
     {
         return self::context()?->country;

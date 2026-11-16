@@ -3,6 +3,8 @@
 namespace Tests\Feature\Security;
 
 use App\Services\Search\ProductSearchService;
+use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontResolver;
 use App\Utils\ProductManager;
 use Closure;
 use Illuminate\Http\Request;
@@ -10,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsProductCatalog;
+use Tests\Support\BuildsStorefrontCatalog;
 use Tests\TestCase;
 
 /**
@@ -20,6 +23,7 @@ use Tests\TestCase;
 class SearchVisibilityTest extends TestCase
 {
     use BuildsProductCatalog;
+    use BuildsStorefrontCatalog;
 
     protected function setUp(): void
     {
@@ -82,6 +86,44 @@ class SearchVisibilityTest extends TestCase
         $listed = ProductManager::getProductListData(request: $request);
 
         $this->assertSame([1, 3], $this->idsOf($listed));
+    }
+
+    /** Product 6 is an Emirati copy of the Saudi lamp: the same name, the same category, its own storefront. */
+    private function switchStorefrontsOnWithAnEmiratiLamp(): void
+    {
+        $this->runStorefrontCountryMigration();
+        $this->insertProduct(id: 6, name: 'Alpha lamp');
+        DB::table('products')->where('id', 6)->update(['storefront_country' => 'AE']);
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+    }
+
+    private function serveRequestFrom(string $country): void
+    {
+        app()->instance(StorefrontContext::class, StorefrontResolver::fromConfig()->context(explicitChoice: $country));
+    }
+
+    #[DataProvider('nameSearches')]
+    public function test_a_translated_name_search_finds_only_the_products_of_its_storefront(Closure $search): void
+    {
+        $this->switchStorefrontsOnWithAnEmiratiLamp();
+
+        $this->serveRequestFrom('SA');
+        $this->assertSame([1], $this->idsOf($search('Alpha')));
+
+        $this->serveRequestFrom('AE');
+        $this->assertSame([6], $this->idsOf($search('Alpha')));
+    }
+
+    #[DataProvider('categorySearches')]
+    public function test_a_search_inside_a_category_finds_only_the_products_of_its_storefront(Closure $search): void
+    {
+        $this->switchStorefrontsOnWithAnEmiratiLamp();
+
+        $this->serveRequestFrom('SA');
+        $this->assertSame([1], $this->idsOf($search('Alpha', self::SUB_CATEGORY)));
+
+        $this->serveRequestFrom('AE');
+        $this->assertSame([6], $this->idsOf($search('Alpha', self::SUB_CATEGORY)));
     }
 
     #[DataProvider('nameSearches')]
