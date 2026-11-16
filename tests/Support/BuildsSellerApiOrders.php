@@ -123,12 +123,4 @@ trait BuildsSellerApiOrders
         $line(self::IN_HOUSE_LINE, self::IN_HOUSE_ORDER, self::IN_HOUSE_ID, 'In-house secret item', 500);
         $line(self::OTHER_SELLERS_LINE, self::OTHER_SELLERS_ORDER, self::OTHER_SELLER, 'Other sellers item', 480);
     }
-
-    /** @return array{0: int|null, 1: string|null} who delivers the order and how */
-    protected function deliveryOf(int $orderId): array
-    {
-        $order = DB::table('orders')->where('id', $orderId)->first();
-
-        return [$order->delivery_man_id === null ? null : (int) $order->delivery_man_id, $order->delivery_type];
-    }
 }

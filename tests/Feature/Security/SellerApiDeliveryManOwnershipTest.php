@@ -210,6 +210,14 @@ class SellerApiDeliveryManOwnershipTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
+    /** @return array{0: int|null, 1: string|null} who delivers the order and how */
+    private function deliveryOf(int $orderId): array
+    {
+        $order = DB::table('orders')->where('id', $orderId)->first();
+
+        return [$order->delivery_man_id === null ? null : (int) $order->delivery_man_id, $order->delivery_type];
+    }
+
     private function sendMessage(string $version, int $deliveryManId): TestResponse
     {
         $data = ['id' => $deliveryManId, 'message' => 'Come to the shop'];
