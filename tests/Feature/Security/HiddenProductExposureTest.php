@@ -267,4 +267,41 @@ class HiddenProductExposureTest extends TestCase
             $this->assertStringNotContainsString('Great hidden lamp', $response->getContent());
         }
     }
+
+    public function test_a_banner_of_a_visible_product_carries_the_product(): void
+    {
+        $this->insertBanner(id: 1, productId: 1);
+
+        $banners = $this->getJson('/api/v1/banners')->assertOk()->json();
+
+        $this->assertSame([1], collect($banners)->pluck('id')->all());
+        $this->assertSame('Alpha lamp', $banners[0]['product']['name']);
+    }
+
+    public function test_a_banner_of_a_product_a_customer_may_not_see_is_left_out_and_embeds_nothing(): void
+    {
+        $this->insertBanner(id: 1, productId: 1);
+        foreach (self::HIDDEN_PRODUCTS as $position => $hiddenId) {
+            $this->insertBanner(id: 10 + $position, productId: $hiddenId);
+        }
+        $this->insertBanner(id: 20, productId: 2);
+        DB::table('banners')->insert(['id' => 30, 'theme' => 'default', 'title' => 'Lamps', 'resource_type' => 'category', 'resource_id' => self::CATEGORY, 'banner_type' => 'Main Banner', 'published' => 1]);
+        Cache::flush();
+
+        $response = $this->getJson('/api/v1/banners')->assertOk();
+
+        $this->assertSame([1, 30], collect($response->json())->pluck('id')->sort()->values()->all());
+        foreach (['Alpha hidden lamp', 'Alpha draft lamp', 'Alpha pending seller lamp', 'Beta branded lamp'] as $hiddenName) {
+            $this->assertStringNotContainsString($hiddenName, $response->getContent());
+        }
+    }
+
+    private function insertBanner(int $id, int $productId): void
+    {
+        DB::table('banners')->insert([
+            'id' => $id, 'theme' => 'default', 'title' => "Promo {$id}", 'resource_type' => 'product', 'resource_id' => $productId,
+            'banner_type' => 'Main Banner', 'published' => 1,
+        ]);
+        Cache::flush();
+    }
 }
