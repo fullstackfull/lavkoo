@@ -11,6 +11,7 @@ use App\Services\SellerIntelligence\Severity\SellerBaselineProvider;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsSellerApiOrders;
 use Tests\TestCase;
 
@@ -63,6 +64,23 @@ class SellerApiFiguresScopeTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertEqualsWithDelta(200.0, (float) $response->json('today.revenue'), 0.001);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function linesThatAreNotDelivered(): iterable
+    {
+        yield 'a pending line' => ['pending'];
+        yield 'a cancelled line' => ['canceled'];
+    }
+
+    #[DataProvider('linesThatAreNotDelivered')]
+    public function test_the_revenue_and_the_size_of_the_business_do_not_count_the_sellers_own_lines_that_are_not_delivered(string $deliveryStatus): void
+    {
+        DB::table('order_details')->insert(['order_id' => self::OWN_ORDER, 'seller_id' => self::SELLER, 'product_id' => self::OWN_PRODUCT, 'qty' => 5, 'price' => 100, 'delivery_status' => $deliveryStatus, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->assertEqualsWithDelta(200.0, Revenue::total(sellerId: self::SELLER), 0.001);
+        $this->assertSame(2, Revenue::units(sellerId: self::SELLER));
+        $this->assertEqualsWithDelta(200.0, app(SellerBaselineProvider::class)->for(self::SELLER)->recentRevenue, 0.001);
     }
 
     public function test_the_revenue_of_the_other_seller_is_still_counted(): void
