@@ -69,6 +69,7 @@ class CustomerAuthController extends Controller
 
         $loginOptions = json_decode($this->loginSetupRepo->getFirstWhere(params: ['key' => 'login_options'])?->value ?? [], true);
         session()->forget('tempCustomerInfo');
+        $this->customerAuthService->forgetVerifiedPhone();
         if (isset($loginOptions['otp_login']) && $loginOptions['otp_login'] && $request['login_type'] == 'otp-login') {
             return $this->loginByOTP(request: $request);
         } elseif (isset($loginOptions['manual_login']) && $loginOptions['manual_login'] && $request['login_type'] == 'manual-login') {
@@ -484,6 +485,8 @@ class CustomerAuthController extends Controller
                     CustomerManager::updateCustomerSessionData(userId: auth('customer')->id());
                     return redirect($authAttemptRedirectUrl);
                 } elseif ($user && ($user['name'] == null)) {
+                    session()->forget('tempCustomerInfo');
+                    $this->customerAuthService->rememberVerifiedPhone(phone: $identity);
                     return redirect()->route('customer.auth.login.update-info', ['identity' => base64_encode($identity)]);
                 } elseif ($user && $user['name']) {
                     auth('customer')->login($user);
@@ -495,6 +498,7 @@ class CustomerAuthController extends Controller
                         'password' => bcrypt(rand(11111111, 99999999)),
                         'referral_code' => Helpers::generate_referer_code(),
                     ]);
+                    $this->customerAuthService->rememberVerifiedPhone(phone: $identity);
                     return redirect()->route('customer.auth.login.update-info', ['identity' => base64_encode($identity)]);
                 }
             }
@@ -513,7 +517,13 @@ class CustomerAuthController extends Controller
 
     public function updateInfo(Request $request): View|RedirectResponse
     {
-        $user = $this->customerRepo->getFirstWhere(params: ['phone' => $this->identityFrom($request)]);
+        $identity = $this->identityFrom($request);
+        if (!$this->customerAuthService->isVerifiedPhone(phone: $identity)) {
+            Toastr::error(translate('invalid_request'));
+            return redirect()->route('customer.auth.login');
+        }
+
+        $user = $this->customerRepo->getFirstWhere(params: ['phone' => $identity]);
         return view(VIEW_FILE_NAMES['customer_auth_verify_otp_update_info'], [
             'user' => $user,
             'tempUser' => session('tempCustomerInfo'),
@@ -530,6 +540,12 @@ class CustomerAuthController extends Controller
             return back();
         }
 
+        $identity = $this->identityFrom($request);
+        if (!$this->customerAuthService->isVerifiedPhone(phone: $identity)) {
+            Toastr::error(translate('invalid_request'));
+            return redirect()->route('customer.auth.login');
+        }
+
         $checkEmail = $this->customerRepo->getFirstWhere(params: ['email' => $request['email']]);
         if (!empty($request['email']) && $checkEmail) {
             Toastr::error(translate('Email_already_exists'));
@@ -543,7 +559,7 @@ class CustomerAuthController extends Controller
         }
         $authAttemptRedirectUrl = $this->customerAuthService->getCustomerAuthReturnURL();
 
-        $user = $this->customerRepo->getFirstWhere(params: ['phone' => $this->identityFrom($request)]);
+        $user = $this->customerRepo->getFirstWhere(params: ['phone' => $identity]);
         if ($user || session()->has('tempCustomerInfo')) {
             // trim() and explode() both reject an array, and this is a public registration flow —
             // a name that is not a string is a name that was not given.
@@ -561,13 +577,11 @@ class CustomerAuthController extends Controller
             if (session()->has('tempCustomerInfo')) {
                 $data = array_merge($data, session('tempCustomerInfo'));
             }
-            $this->customerRepo->updateOrCreate(params: ['phone' => $this->identityFrom($request)], data: $data);
-            if (!empty($request['email'])) {
-                $user = $this->customerRepo->getFirstWhere(params: ['email' => $request['email']]);
-            } else {
-                $user = $this->customerRepo->getFirstWhere(params: ['phone' => $data['phone']]);
-            }
+            $this->customerRepo->updateOrCreate(params: ['phone' => $identity], data: $data);
+            $user = $this->customerRepo->getFirstWhere(params: ['phone' => $identity]);
 
+            $this->customerAuthService->forgetVerifiedPhone();
+            session()->forget('tempCustomerInfo');
             auth('customer')->login($user);
             CustomerManager::updateCustomerSessionData(userId: auth('customer')->id());
             Toastr::success(translate('Update_successfully'));
@@ -715,18 +729,9 @@ class CustomerAuthController extends Controller
             return redirect()->route('customer.auth.login.update-info', ['identity' => base64_encode($responseData['phoneNumber'])]);
         }
     }
-    /**
-     * The phone or email this request is about, decoded.
-     *
-     * Six methods on this controller carry the identity through the OTP flow as base64 in the
-     * request, and every one of them decoded it inline. base64_decode's parameter is typed, so
-     * `?identity[]=x` was a 500 on a PUBLIC registration and password-reset path — six times over,
-     * which is exactly why it is read in one place now.
-     *
-     * An identity that is not a string decodes to nothing, and nothing matches no account.
-     */
+
     private function identityFrom(Request $request): string
     {
-        return is_string($request['identity']) ? base64_decode($request['identity']) : '';
+        return $this->customerAuthService->decodeIdentity(encodedIdentity: $request['identity']);
     }
 }

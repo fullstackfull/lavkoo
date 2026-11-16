@@ -2,6 +2,7 @@
 
 namespace App\Services\Web;
 
+use App\Enums\SessionKey;
 use App\Utils\Helpers;
 use App\Utils\SMSModule;
 use App\Events\EmailVerificationEvent;
@@ -105,6 +106,34 @@ class CustomerAuthService
             $keepReturnUrl = session('keep_customer_login_redirect_url');
         }
         return $keepReturnUrl;
+    }
+
+    /**
+     * The phone or email a request is about, decoded.
+     *
+     * The OTP flow carries the identity through its pages as base64 in the request. base64_decode's parameter is
+     * typed, so `?identity[]=x` was a 500 on a PUBLIC registration and password-reset path. An identity that is
+     * not a string decodes to nothing, and nothing matches no account.
+     */
+    public function decodeIdentity(mixed $encodedIdentity): string
+    {
+        return is_string($encodedIdentity) ? base64_decode($encodedIdentity) : '';
+    }
+
+    /** The code of the phone login was just entered for this phone: this browser may now finish its profile. */
+    public function rememberVerifiedPhone(string $phone): void
+    {
+        session()->put(SessionKey::CUSTOMER_OTP_VERIFIED_PHONE, $phone);
+    }
+
+    public function isVerifiedPhone(string $phone): bool
+    {
+        return $phone !== '' && session(SessionKey::CUSTOMER_OTP_VERIFIED_PHONE) === $phone;
+    }
+
+    public function forgetVerifiedPhone(): void
+    {
+        session()->forget(SessionKey::CUSTOMER_OTP_VERIFIED_PHONE);
     }
 
 }
