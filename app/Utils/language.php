@@ -25,7 +25,9 @@ if (!function_exists('translate')) {
             $key = str_replace(' ', '_', $key);
             $processedKey = ucfirst(str_replace('_', ' ', removeSpecialCharacters($key)));
 
-            if (!array_key_exists($key, $translatedMessagesArray) && !array_key_exists($key, $newMessagesArray)) {
+            $isKnown = array_key_exists($key, $translatedMessagesArray) || array_key_exists($key, $newMessagesArray);
+
+            if (!$isKnown && !isTranslationKeyWithMarkup(key: $key)) {
                 $newMessagesArray[$key] = $processedKey;
 
                 // var_export, not string concatenation: a translation carrying a quote, a
@@ -59,6 +61,8 @@ if (!function_exists('translate')) {
                 $translator->addLines(['new-messages.' . $key => $processedKey], $local);
 
                 $message = $processedKey;
+            } elseif (!$isKnown) {
+                $message = $processedKey;
             } elseif (array_key_exists($key, $translatedMessagesArray)) {
                 $message = __('messages.' . $key);
             } elseif (array_key_exists($key, $newMessagesArray)) {
@@ -74,6 +78,18 @@ if (!function_exists('translate')) {
             $message = ucfirst(str_replace('_', ' ', removeSpecialCharacters(str_replace("\'", "'", $key))));
         }
         return $local == 'en' ? ucfirst($message) : $message;
+    }
+}
+
+if (!function_exists('isTranslationKeyWithMarkup')) {
+    /**
+     * A page may hand translate() a value a visitor chose (`translate(request('type'))`), and a key that was not known is written into the
+     * language file, which the admin's translation screen lists. A key that holds a tag or a control character is never stored: its text is
+     * shown with the characters removed, and nothing a visitor typed becomes a row of the admin's screen.
+     */
+    function isTranslationKeyWithMarkup(string $key): bool
+    {
+        return preg_match('/[<>\x00-\x1F\x7F]/', $key) === 1;
     }
 }
 
