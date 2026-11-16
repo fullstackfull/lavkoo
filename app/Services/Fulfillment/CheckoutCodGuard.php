@@ -2,6 +2,7 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -31,10 +32,10 @@ class CheckoutCodGuard
             return null;
         }
 
-        $providersByGroup = DB::table('carts')
+        $providersByGroup = StorefrontCatalog::restrictJoinedProducts(query: DB::table('carts')
             ->join('products', 'products.id', '=', 'carts.product_id')
             ->whereIn('carts.cart_group_id', $cartGroupIds)
-            ->where('carts.is_checked', 1)
+            ->where('carts.is_checked', 1))
             ->get(['carts.cart_group_id', 'products.fulfillment_provider'])
             ->groupBy('cart_group_id');
 
