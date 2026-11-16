@@ -109,15 +109,17 @@ class Review extends Model
     }
     protected $appends = ['attachment_full_url'];
 
+    /** The panels and their APIs see every review. A storefront page that merely starts with the same letters, such as /vendor-shop, does not. */
+    private static function isPanelRequest(): bool
+    {
+        return request()->is('admin', 'admin/*', 'seller', 'seller/*', 'vendor', 'vendor/*', 'api/v2', 'api/v2/*', 'api/v3', 'api/v3/*');
+    }
+
     protected static function boot()
     {
         parent::boot();
         static::addGlobalScope('active', function (Builder $builder) {
-            if (str_contains(url()->current(), url('/') . '/admin') || str_contains(url()->current(), url('/') . '/seller') || str_contains(url()->current(), url('/') . '/vendor') || str_contains(url()->current(), url('/') . '/api/v2') || str_contains(url()->current(), url('/') . '/api/v3')) {
-                return $builder;
-            } else {
-                return $builder->where('status', 1);
-            }
+            return self::isPanelRequest() ? $builder : $builder->where('status', 1);
         });
 
         static::saved(function ($model) {
