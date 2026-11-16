@@ -868,3 +868,50 @@ The map of every price and stock site (`wf_23eaef91-56d`, 404 agents, 84 million
 - **Orders carry no currency of their own** (no migration in the repository adds one; the base table comes from the installation dump), and invoices, the order and abandoned-cart emails, the PDF and Excel exports and the reports re-compute totals from base amounts in the default currency.
 - **The cost price is sent to customers.** `Product::$hidden` lists only `storefront_country` and nothing strips `purchase_price`; the reviews endpoint returned `"purchase_price": 17.5` in the embedded product (run by hand), the customer app declares the field, and `order_details.product_details` is `json_encode($product)`, so a customer's own order details carry it too. It cannot be hidden on the model because the seller apps read it through API v2 and v3. Owner decision: strip it from customer-facing serialization only.
 - The writers that touch the base value (bulk price, seller automation, product save, seller v2 and v3, AI suggestions, the price-history observer) act on one row, which is right in the row-per-country design; the price history records no country or currency.
+
+### Addendum: third independent review of the GCC-02/03 stack and PRs 54 to 56, what it found, what was fixed (2026-11-16, about 11:00Z)
+
+**The review.** Five reviewers (`wf_650a02d8-e7e`: the Cart scope, the data layer, search and by-id reads, PRs 54 to 56, and integration and truth) attacked the fixes of the second review by execution, with the flag on and off, on SQLite and MySQL 8.0.46. They reported 23 findings; each carries a reproduction, and the first verifiers (re-running from a clean checkout) confirmed the first three they looked at (low severity, as the reviewers rated them). **All 23 are fixed, with a test that was red on the old code.** The verifier agents were still running when the fixes were pushed; a verdict that refutes a finding would mean the fix was not needed, not that something broke.
+
+| Finding | Where it is fixed |
+|---|---|
+| **Blocker, pre-existing.** A callback with `user[id]=<customer>` in the **query string** (form or JSON post) made a guest's payment settle that customer's cart, mark it paid and delete their cart rows. PR 56's first version only closed the JSON body and GET variants | #56: the stored payment alone names the payer (`PaymentSettlementScope`, read first by `Helpers::getCustomerInformation`) |
+| A callback delivered in the browser of another logged-in customer settled that customer's cart | #56, same |
+| A registered or app payer settled after a guest kept the guest's address and name; a new customer settled after a failed settlement was built from the failed guest's cart and address | #56: the session keys the order builder reads are pinned to the payment and handed back as found, also on a throw |
+| The coupon of a failed settlement was applied to the next payer who entered none | #56 |
+| A registered web payer settled without a browser session was read as offline by the coupon and referral code (coupon dropped, order larger than the payment) | #56 |
+| A new customer settled without a browser session created the account and built no order, and the hook reported success | #56 (the guest id is the cart owner for every guest payment; a paid payment that builds no order is logged as critical) |
+| The same paid callback delivered again after the cart was refilled built a second paid order with the same transaction reference (#55 only stops it while the cart stays empty) | #56: a payment whose order exists is not settled again |
+| `PUT /api/v1/cart/update` and buy-now named the owner by a bare number: an anonymous `guest_id` equal to a customer's id changed that customer's quantity | #54 |
+| Merging a guest cart into a customer's deleted the row of another guest who shares the customer's number | #54 (and #48, in one shared function) |
+| A guest who held rows in two countries kept only the country that served the login | #48: one `moveGuestCartToCustomer`, run once in every storefront |
+| A cart row whose product no longer exists could not be removed by remove-one, remove-all or a checkout with the flag on | #48 |
+| A shipping method could be chosen for any cart group id, another storefront's or another customer's (already so at base); a checkout deleted the shipping choice of a legacy group that still held another country's rows | #48 |
+| The abandoned-cart link opened the default storefront and an empty cart for any other country | #48: the signed link names the storefront |
+| The restock refusal was not behind the flag | #48: refused only for a product another storefront sells |
+| The promo grid of the home screen carried a banner that opened another country's product (404) | #48: `BannerPlacementService`, after the banner cache |
+| The `(storefront_country, id)` index made the optimizer merge it with the selective seller and category indexes: vendor lists 15 times and category lists 5 to 6 times slower with the flag on, even while every product was Saudi; counts 1.6 times slower | #47: **the migration adds the column only.** See the correction below |
+| A default country entry without a currency or a path made 258 of 271 storefront routes answer 500 with the flag off; an empty currency was published with the flag on | #47: such an entry counts as broken (fallback while off, loud while on) |
+| `Vary: X-Storefront` was listed twice on storefront-bound routes | #47: one shared method, once |
+| A payment started in a country whose entry was **deleted** from the configuration since fell through to the default storefront (250 paid, an order of 100 from the Saudi cart, or no order) | #53: the recorded code is bound whether or not it is configured |
+| The runbook said every API v1 answer carries `Vary`; thirteen module routes under the same prefix do not | the runbook and PR texts now say "every route of `routes/rest_api/v1/api.php`" |
+| PR 56's new commit conflicts with the tip in `digital_payment_success` | not a defect; the resolution is in the PR 56 and PR 53 descriptions (keep `digital_payment_success()` the `PaymentStorefront::within` wrapper, put #56's body in `digital_payment_place_orders()`); a scratch merge of the two heads passes 50 tests |
+
+**Corrections to my own earlier statements.**
+
+- Section 35's second-review table said the index is "now (country, id), 2.0 ms". That fix measured only the query it was built for. It made the incumbent worse (above). The remaining cost without the index is the id-ordered public list of a storefront whose rows are older than another country's import (1.9 ms became 281 ms at 200,000 products when most newer rows were foreign); the runbook says to read the plans on real data before the first import, and gives the statement to add an index then.
+- The PR 55 description said a second delivery of the same callback builds no second order. That held only while the cart stayed empty; #56 closes the rest.
+- "Every API v1 answer says `Vary`" was too wide, see the table.
+
+**For the owner, not changed.**
+
+- The success hook does not compare the order total with the amount paid. A payment is settled into the cart as it is, so a cart that grew after the payment started gives a larger order (reproduced earlier: paid 275, order 375). Refusing or flagging a difference is a financial decision. With #56 the cart that is read is at least the paying customer's own.
+- A paid payment that builds no order is logged as critical and the hook returns normally. Throwing would make a recovery visible but would also turn a duplicate callback of a gateway that stores no transaction id into an error page.
+- The idempotency boundary is `orders.transaction_ref`, as for MyFatoorah. A gateway that reuses one transaction id for different payments would have its second payment skipped; every gateway in the repository stores a per-payment id.
+- `storage/logs/order_generate_test.txt` is still written by the hook on every paid order.
+
+**Heads now.** #47 `dde29397`, #48 `63619b18`, #49 `7e80573a`, #50 `a3de8f1a`, #53 `6c40ff98`; #54 `54a0be56`, #55 `cbd976a6` (unchanged), #56 `f2e6f2c7`. Merge order is as before (#46 first, then the stack), and PRs 54 and 56 now conflict with #48 and #53 in the places named above.
+
+**Verification.** SQLite at `3fdd687f`: Storefront, Unit/Storefront, Address and Security suites, 1339 tests; the storefront, unit and security suites again at `6c40ff98`: 303. MySQL 8.0.46 at `6c40ff98`: Unit/Storefront, Feature/Storefront and `SearchVisibilityTest`, 288 tests. #54: 12 tests on both engines. #56: Payments, MyFatoorah and the order callback suites, 156 tests on SQLite, and the payment tests, 29, on MySQL. MariaDB 11.4.2 (the pilot's engine) is not installed here; CI has it, and nothing has run the stack on it yet.
+
+**Tooling note.** A fresh worktree needs `mkdir -p storage/logs` (the payment hook writes a debug file), and a MySQL test database name must contain "test". Do not push the stack branches one at a time while CI runs: each push cancels the run before it.
