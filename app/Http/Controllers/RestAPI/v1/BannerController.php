@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\Shop;
 use App\Services\BannerPlacementService;
 use App\Services\DeveloperPortal\ApiDoc;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Theme\ActionResolver;
 use App\Traits\CacheManagerTrait;
 use App\Utils\Helpers;
@@ -134,14 +135,23 @@ class BannerController extends Controller
         // reads its own from /categories/page-header/{id}.
         $banners = $this->cacheBannerTable()->whereNotIn('banner_type', self::SCREEN_SCOPED_TYPES);
         $productIds = [];
+        $notOfferedProductIds = [];
         $shopIds = [];
         $brandIds = [];
         $categoryIds = [];
         $bannerData = [];
         foreach ($banners as $banner) {
+            if ($banner['resource_type'] == 'product' && in_array($banner['resource_id'], $notOfferedProductIds)) {
+                continue;
+            }
             if ($banner['resource_type'] == 'product' && !in_array($banner['resource_id'], $productIds)) {
                 $productIds[] = $banner['resource_id'];
                 $product = Product::find($banner['resource_id']);
+                // A banner belongs to no country, but the product it points at does: another storefront's product is neither shown nor opened.
+                if (!StorefrontCatalog::offers(product: $product)) {
+                    $notOfferedProductIds[] = $banner['resource_id'];
+                    continue;
+                }
                 $banner['product'] = Helpers::product_data_formatting($product);
             }
             if ($banner['resource_type'] == 'shop' && !in_array($banner['resource_id'], $shopIds)) {

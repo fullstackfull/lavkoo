@@ -2,6 +2,7 @@
 
 namespace App\Services\Search;
 
+use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -181,7 +182,9 @@ class ProductSearchService
 
     private function baseQuery(?string $locale)
     {
-        $query = DB::table('product_search_index');
+        // The storefront narrows the pool BEFORE the cap on how many ids a search resolves: the largest catalogue would otherwise fill all
+        // of it and leave a later storefront with a fraction of its matches.
+        $query = StorefrontCatalog::restrictProductIds(query: DB::table('product_search_index'), column: 'product_id');
 
         // A locale filter narrows the scan, but only when that locale is actually indexed —
         // otherwise a customer browsing in a language with no translations would get nothing.
