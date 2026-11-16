@@ -76,6 +76,36 @@ class InputNormalisersTest extends TestCase
         ];
     }
 
+    #[DataProvider('spellingsOfOneNumber')]
+    public function test_two_spellings_are_one_number_only_when_they_name_the_same_subscriber(string $first, string $second, bool $same): void
+    {
+        $this->assertSame($same, SaudiPhone::isSameNumber(first: $first, second: $second));
+        $this->assertSame($same, SaudiPhone::isSameNumber(first: $second, second: $first));
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: bool}> */
+    public static function spellingsOfOneNumber(): array
+    {
+        return [
+            'international and national' => ['+966551234567', '0551234567', true],
+            'the trunk zero kept after the country code' => ['+9660551234567', '+966551234567', true],
+            'double zero and spaces' => ['00966 55 123 4567', '+966551234567', true],
+            'without the plus' => ['966551234567', '+966551234567', true],
+            'arabic-indic digits' => ['٠٥٥١٢٣٤٥٦٧', '+966551234567', true],
+            'another subscriber' => ['+966551234568', '+966551234567', false],
+            'the same digits under another country code' => ['+971551234567', '+966551234567', false],
+            'a number that only ends like the other' => ['+9661234567', '+966551234567', false],
+            'a piece of a Saudi number' => ['551234', '+966551234567', false],
+            'a landline is not a mobile' => ['0112345678', '+966551234567', false],
+            'other countries by their digits' => ['+1 (500) 555-0006', '+15005550006', true],
+            'other countries are not matched by a piece' => ['5550006', '+15005550006', false],
+            'a pattern' => ['%', '+15005550006', false],
+            'nothing against a number' => ['', '+15005550006', false],
+            'nothing against nothing' => ['', '', false],
+            'punctuation against punctuation' => ['+-()', '+-()', false],
+        ];
+    }
+
     #[DataProvider('spellingsOfOnePlace')]
     public function test_one_place_has_one_key_whatever_the_keyboard(string $standard, string $variant): void
     {

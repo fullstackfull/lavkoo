@@ -37,4 +37,21 @@ final class SaudiPhone
 
         return preg_match('/^5\d{8}$/', $digits) === 1 ? '0' . $digits : null;
     }
+
+    /**
+     * Whether two spellings are one phone number: a Saudi number by its national form (so +966 5..., 05... and 009665... agree, and
+     * nothing else agrees with them), any other number by its digits.
+     */
+    public static function isSameNumber(string $first, string $second): bool
+    {
+        $firstSaudi = self::normalize($first);
+        $secondSaudi = self::normalize($second);
+        if ($firstSaudi !== null || $secondSaudi !== null) {
+            return $firstSaudi === $secondSaudi;
+        }
+
+        $digitsOfFirst = (string) preg_replace('/\D+/', '', $first);
+
+        return $digitsOfFirst !== '' && $digitsOfFirst === (string) preg_replace('/\D+/', '', $second);
+    }
 }
