@@ -227,4 +227,44 @@ class HiddenProductExposureTest extends TestCase
         $this->assertSame([3], $this->idsOf($this->getJson('/api/v1/products/related-products/product-1')->assertOk()->json()));
         $this->assertSame(url('/product/product-1'), $this->getJson('/api/v1/products/social-share-link/product-1')->assertOk()->json());
     }
+
+    public function test_the_variant_price_of_a_visible_product_is_answered(): void
+    {
+        $response = $this->postJson('/cart/variant_price', ['id' => 1, 'quantity' => 2])->assertOk();
+
+        $this->assertSame('$20.00', $response->json('price'));
+        $this->assertSame(5, $response->json('quantity'));
+        $this->assertSame('physical', $response->json('product_type'));
+    }
+
+    public function test_the_variant_price_of_a_hidden_product_is_not_found_like_that_of_an_unknown_one(): void
+    {
+        $this->postJson('/cart/variant_price', ['id' => 999, 'quantity' => 1])->assertNotFound();
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $this->postJson('/cart/variant_price', ['id' => $hiddenId, 'quantity' => 1])->assertNotFound();
+        }
+    }
+
+    public function test_the_review_list_of_a_visible_product_is_answered(): void
+    {
+        $this->seedActivityOnProductsOneAndTwo();
+
+        $response = $this->postJson('/review-list-product', ['product_id' => 1, 'offset' => 0])->assertOk();
+
+        $this->assertSame(1, $response->json('not_empty'));
+        $this->assertStringContainsString('Great lamp', $response->json('productReview'));
+    }
+
+    public function test_the_review_list_of_a_hidden_product_is_not_found_like_that_of_an_unknown_one(): void
+    {
+        $this->seedActivityOnProductsOneAndTwo();
+        $this->postJson('/review-list-product', ['product_id' => 999, 'offset' => 0])->assertNotFound();
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $response = $this->postJson('/review-list-product', ['product_id' => $hiddenId, 'offset' => 0])->assertNotFound();
+
+            $this->assertStringNotContainsString('Great hidden lamp', $response->getContent());
+        }
+    }
 }
