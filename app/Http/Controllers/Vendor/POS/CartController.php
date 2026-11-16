@@ -15,6 +15,7 @@ use App\Traits\CalculatorTrait;
 use App\Traits\CustomerTrait;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -62,9 +63,12 @@ class CartController extends BaseController
      */
     public function getVariantPrice(Request $request): JsonResponse
     {
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['id']], relations: ['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = $this->sellerProduct(productId: $request['id'], relations: ['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }]);
+        if (!$product) {
+            return $this->productNotFound();
+        }
         $colorName = $this->colorRepo->getFirstWhere(['code' => $request['color']])->name ?? null;
         $data = $this->cartService->getVariantData(
             request: $request, product: $product, colorName: $colorName
@@ -80,9 +84,12 @@ class CartController extends BaseController
     {
         $cartId = session(SessionKey::CURRENT_USER);
         if ($request['quantity'] > 0) {
-            $product = $this->productRepo->getFirstWhere(params: ['id' => $request['key']], relations: ['clearanceSale' => function ($query) {
+            $product = $this->sellerProduct(productId: $request['key'], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }]);
+            if (!$product) {
+                return $this->productNotFound();
+            }
             $quantity = $this->cartService->getQuantityAndUpdateTime(request: $request, product: $product);
             $cartItems = $this->getCartData(cartName: $cartId);
             if ($product['product_type'] == 'physical' && $quantity < 0) {
@@ -116,9 +123,12 @@ class CartController extends BaseController
     public function addToCart(Request $request): JsonResponse
     {
         $cartId = session(SessionKey::CURRENT_USER);
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['id']], relations: ['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = $this->sellerProduct(productId: $request['id'], relations: ['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }]);
+        if (!$product) {
+            return $this->productNotFound();
+        }
         $colorName = $this->colorRepo->getFirstWhere(['code' => $request['color']])->name ?? null;
         $variations['color'] = $colorName;
         $variant = $this->cartService->makeVariation(
@@ -472,5 +482,16 @@ class CartController extends BaseController
         $customerCartData = $this->getCustomerCartData(cartName: $cartName);
         $cartItemData = $this->calculateCartItemsData(cartName: $cartName, customerCartData: $customerCartData);
         return array_merge($customerCartData[$cartName], $cartItemData);
+    }
+
+    /** The vendor panel's point of sale sells the signed-in seller's own products: another seller's and the in-house shop's are not found. */
+    private function sellerProduct(mixed $productId, array $relations): ?Model
+    {
+        return $this->productRepo->getFirstWhere(params: ['id' => $productId, 'added_by' => 'seller', 'user_id' => auth('seller')->id()], relations: $relations);
+    }
+
+    private function productNotFound(): JsonResponse
+    {
+        return response()->json(['message' => translate('product_not_found')], 404);
     }
 }
