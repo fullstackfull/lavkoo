@@ -166,17 +166,34 @@ class EnvironmentWriterTest extends TestCase
     /** @return array<string, array{0: string, 1: string, 2: string, 3: string}> the file, the key written, the value written, and the file after */
     public static function filesThatAreChangedLineByLine(): array
     {
+        $key = "PRIVATE_KEY=\"-----BEGIN KEY-----\nAAAA\n\nBBBB\n-----END KEY-----\"\n";
+
         return [
-            'lines that end in CRLF' => ["APP_NAME=Shop\r\nAPP_DEBUG=false\r\nDB_PASSWORD=secret\r\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\nDB_PASSWORD=secret\n"],
+            'lines that end in CRLF' => ["APP_NAME=Shop\r\nAPP_DEBUG=false\r\nDB_PASSWORD=secret\r\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\r\nAPP_DEBUG=true\r\nDB_PASSWORD=secret\r\n"],
+            'a key that is added to a file of CRLF lines' => ["APP_NAME=Shop\r\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\r\nAPP_DEBUG=true\r\n"],
             'a key with a character that a pattern reads as its own' => ["AXB=keep\nA.B=old\n", 'A.B', 'new', "AXB=keep\nA.B=new\n"],
             'a key with a parenthesis' => ["A=keep\nA(B=old\n", 'A(B', 'new', "A=keep\nA(B=new\n"],
             'the key in lower case in the file' => ["app_debug=false\nAPP_NAME=Shop\n", 'APP_DEBUG', 'true', "APP_DEBUG=true\nAPP_NAME=Shop\n"],
             'a key that is the start of another key' => ["APP_NAME=Shop\n", 'APP', 'x', "APP_NAME=Shop\nAPP=x\n"],
             'a key that is the end of another key' => ["OTHER_APP_DEBUG=1\n", 'APP_DEBUG', 'true', "OTHER_APP_DEBUG=1\nAPP_DEBUG=true\n"],
             'spaces around the equals sign' => ["APP_DEBUG = false\n", 'APP_DEBUG', 'true', "APP_DEBUG=true\n"],
-            'a comment and blank lines' => ["# the shop\n\nAPP_NAME=Shop\n\n", 'APP_DEBUG', 'true', "# the shop\nAPP_NAME=Shop\nAPP_DEBUG=true\n"],
+            'a comment and blank lines' => ["# the shop\n\nAPP_NAME=Shop\n\n", 'APP_DEBUG', 'true', "# the shop\n\nAPP_NAME=Shop\n\nAPP_DEBUG=true\n"],
+            'a blank line between two variables' => ["APP_NAME=Shop\n\nAPP_DEBUG=false\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\n\nAPP_DEBUG=true\n"],
+            'the indentation and the trailing spaces of another line' => ["  APP_NAME=Shop  \nAPP_DEBUG=false\n", 'APP_DEBUG', 'true', "  APP_NAME=Shop  \nAPP_DEBUG=true\n"],
             'a file without a final line break' => ['APP_NAME=Shop', 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\n"],
+            'a last line that is the key, without a final line break' => ["APP_NAME=Shop\nAPP_DEBUG=false", 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\n"],
             'an empty file' => ['', 'APP_DEBUG', 'true', "APP_DEBUG=true\n"],
+            // the value of another variable that goes on over several lines is not the writer's to touch
+            'a blank line inside the value of another variable' => ["APP_NAME=Shop\n" . $key, 'APP_MODE', 'live', "APP_NAME=Shop\n" . $key . "APP_MODE=live\n"],
+            'a blank line inside the value of another variable, before the key' => [$key . "APP_MODE=dev\n", 'APP_MODE', 'live', $key . "APP_MODE=live\n"],
+            'a line inside the value of another variable that starts with the key' => ["PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\n", 'APP_MODE', 'live', "PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\nAPP_MODE=live\n"],
+            'a line inside the value of another variable that starts with the key, before the key' => ["PRIVATE_KEY=\"first\napp_mode = inside\nlast\"\nAPP_MODE=dev\n", 'APP_MODE', 'live', "PRIVATE_KEY=\"first\napp_mode = inside\nlast\"\nAPP_MODE=live\n"],
+            'a value whose closing quote is alone on its line' => ["CERT=\"line one\nline two\n\"\nAPP_MODE=dev\n", 'APP_MODE', 'live', "CERT=\"line one\nline two\n\"\nAPP_MODE=live\n"],
+            'a value with an escaped quote that goes on' => ["NOTE=\"say \\\"hi\\\"\n\nAPP_MODE=inside\"\nAPP_NAME=Shop\n", 'APP_MODE', 'live', "NOTE=\"say \\\"hi\\\"\n\nAPP_MODE=inside\"\nAPP_NAME=Shop\nAPP_MODE=live\n"],
+            'lines of CRLF inside a value' => ["CERT=\"one\r\n\r\ntwo\"\r\nAPP_MODE=dev\r\n", 'APP_MODE', 'live', "CERT=\"one\r\n\r\ntwo\"\r\nAPP_MODE=live\r\n"],
+            'a value in quotes that closes on its own line' => ["NAME=\"My Shop\"\n\nAPP_MODE=dev\n", 'APP_MODE', 'live', "NAME=\"My Shop\"\n\nAPP_MODE=live\n"],
+            'a comment that holds a quoted word' => ["# the value is =\"x\" here\n\nAPP_MODE=dev\n", 'APP_MODE', 'live', "# the value is =\"x\" here\n\nAPP_MODE=live\n"],
+            'the key itself holds a value over several lines' => ["APP_MODE=\"one\ntwo\n\nthree\"\nAPP_NAME=Shop\n", 'APP_MODE', 'live', "APP_MODE=live\nAPP_NAME=Shop\n"],
         ];
     }
 
@@ -188,6 +205,34 @@ class EnvironmentWriterTest extends TestCase
         $this->write($key, $value);
 
         $this->assertSame($after, file_get_contents($this->directory . '/.env'));
+    }
+
+    /** @return array<string, array{0: string}> files that the framework reads, with a value that goes on over several lines or lines that look as if one did */
+    public static function filesWhoseVariablesTheFrameworkReads(): array
+    {
+        return [
+            'a value with a blank line inside' => ["APP_NAME=Shop\nPRIVATE_KEY=\"-----BEGIN KEY-----\nAAAA\n\nBBBB\n-----END KEY-----\"\nDB_PASSWORD=secret\n"],
+            'a value with a line that starts with the key' => ["PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\nAPP_MODE=dev\n"],
+            'a value with a line that starts with the key, and no variable of that key' => ["PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\nAPP_NAME=Shop\n"],
+            'a value closed by a line that holds only a quote' => ["CERT=\"line one\n\nline two\n\"\nAPP_MODE=dev\n"],
+            'a value with an escaped quote that goes on' => ["NOTE=\"say \\\"hi\\\"\n\nAPP_MODE=inside\"\nAPP_NAME=Shop\n"],
+            'a value with an escaped backslash before its closing quote' => ["NOTE=\"path\\\\\"\n\nAPP_MODE=dev\n"],
+            'a value in single quotes' => ["JSON='{\"type\": \"service_account\"}'\n\nAPP_MODE=dev\n"],
+            'lines of CRLF with a value that goes on' => ["APP_NAME=Shop\r\nCERT=\"one\r\n\r\ntwo\"\r\nAPP_MODE=dev\r\n"],
+            'comments, blank lines and a variable of the key' => ["# the shop\n\nAPP_NAME=Shop\n\n# the mode\nAPP_MODE=dev\n\n"],
+            'the key itself with a value over several lines' => ["APP_MODE=\"one\ntwo\n\nthree\"\nAPP_NAME=Shop\n"],
+        ];
+    }
+
+    #[DataProvider('filesWhoseVariablesTheFrameworkReads')]
+    public function test_every_variable_but_the_one_written_is_read_back_exactly_as_it_was(string $before): void
+    {
+        file_put_contents($this->directory . '/.env', $before);
+        $readBefore = $this->read();
+
+        $this->write('APP_MODE', 'live');
+
+        $this->assertSame(array_merge($readBefore, ['APP_MODE' => 'live']), $this->read());
     }
 
     // ---- a file the writer cannot write is an error, never a success -------------------------------------------------------------
