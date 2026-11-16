@@ -6025,6 +6025,7 @@ return [
     "if_you_switch_back_to_default_again, you_will_see_the_saved_data." => "If you switch back to default again, you will see the saved data.",
     "search_by_Product" => "Search by Product",
     "stock_clearance_product_removed_successfully" => "Stock clearance product removed successfully",
+    "clearance_product_not_found" => "Stock clearance product not found",
     "add_product_show_in_the_clearance_offer_section_in_customer_app_and_website" => "Add product show in the clearance offer section in customer app and website",
     "Discount_amount_can_not_be_empty" => "Discount amount can not be empty",
     "Visit_Vendor" => "Visit Vendor",

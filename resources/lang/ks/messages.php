@@ -4154,6 +4154,7 @@ return [
 	"clear_filter" => "مرشح واضح",
 	"clearance_Sale" => "بيع التخليص",
 	"clearance_offer_in_homepage" => "عرض التخليص في الصفحة الرئيسية",
+	"clearance_product_not_found" => "لم يتم العثور على منتج تخليص المخزون",
 	"clearance_sale" => "بيع التخليص",
 	"clearance_sale_duration_is_required" => "مطلوب مدة بيع التخليص",
 	"clearance_sale_products" => "منتجات بيع التخليص",
