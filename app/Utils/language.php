@@ -1,5 +1,6 @@
 <?php
 
+use App\Utils\AtomicFile;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
@@ -28,21 +29,8 @@ if (!function_exists('translate')) {
             $isKnown = array_key_exists($key, $translatedMessagesArray) || array_key_exists($key, $newMessagesArray);
 
             if (!$isKnown && !isTranslationKeyWithMarkup(key: $key)) {
-                $newMessagesArray[$key] = $processedKey;
-
-                // var_export, not string concatenation: a translation carrying a quote, a
-                // backslash or a $ used to be written into a double-quoted PHP string as-is, which
-                // made the file unparsable — and this file is included on EVERY translate() call,
-                // so one such value took the whole site down with a fatal on every request.
-                $languageFileContents = "<?php\n\nreturn [\n";
-                foreach ($newMessagesArray as $languageKey => $value) {
-                    $languageFileContents .= "\t" . var_export((string) $languageKey, true)
-                        . ' => ' . var_export((string) $value, true) . ",\n";
-                }
-                $languageFileContents .= "];\n";
-
                 $targetPath = base_path('resources/lang/' . $local . '/new-messages.php');
-                file_put_contents($targetPath, $languageFileContents);
+                addNewTranslationMessage(path: $targetPath, key: $key, message: $processedKey);
 
                 // Two caches still hold the PRE-write copy of the file we just rewrote, and both
                 // answer the next translate() call in this same request with stale data:
@@ -78,6 +66,42 @@ if (!function_exists('translate')) {
             $message = ucfirst(str_replace('_', ' ', removeSpecialCharacters(str_replace("\'", "'", $key))));
         }
         return $local == 'en' ? ucfirst($message) : $message;
+    }
+}
+
+if (!function_exists('addNewTranslationMessage')) {
+    /**
+     * Adds a message to a language file. Every request that renders a page with a key the file does not know does it at the same moment, so the
+     * file is read again once the lock is held (a key that another request added meanwhile stays, with its text) and replaced in one step.
+     */
+    function addNewTranslationMessage(string $path, string $key, string $message): void
+    {
+        AtomicFile::rewrite(path: $path, change: function () use ($path, $key, $message): string {
+            if (function_exists('opcache_invalidate')) {
+                opcache_invalidate($path, true);
+            }
+            $messages = include $path;
+            $messages[$key] ??= $message;
+
+            return getLanguageFileContents(messages: $messages);
+        });
+    }
+}
+
+if (!function_exists('getLanguageFileContents')) {
+    /**
+     * The text of a language file. var_export, not string concatenation: a translation carrying a quote, a backslash or a $ used to be written
+     * into a double-quoted PHP string as-is, which made the file unparsable (or ran it) — and this file is included on EVERY translate() call,
+     * so one such value took the whole site down with a fatal on every request.
+     */
+    function getLanguageFileContents(array $messages): string
+    {
+        $contents = "<?php\n\nreturn [\n";
+        foreach ($messages as $key => $value) {
+            $contents .= "\t" . var_export((string) $key, true) . ' => ' . var_export((string) $value, true) . ",\n";
+        }
+
+        return $contents . "];\n";
     }
 }
 

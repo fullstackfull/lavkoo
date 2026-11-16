@@ -2,30 +2,40 @@
 
 namespace App\Utils;
 
+use RuntimeException;
+
 /**
  * One variable of the .env file. The file is read, changed line by line and written back, and two writes that overlap (two admin tabs, a double
- * click, the licence form's five calls beside a settings save) used to truncate each other's file: APP_KEY and DB_PASSWORD gone. The whole
- * read and write is one critical section under an exclusive lock on the file, and the value cannot add a line, end its own string or be expanded
- * when the file is read: control characters are dropped, and a quote, a backslash and a dollar sign are escaped inside double quotes.
+ * click, the licence form's five calls beside a settings save) used to truncate each other's file: APP_KEY and DB_PASSWORD gone. The change is
+ * one critical section on a file that is locked and replaced in one step (see AtomicFile), and the value cannot add a line, end its own string
+ * or be expanded when the file is read: control characters are dropped, and a quote, a backslash and a dollar sign are escaped inside double
+ * quotes.
+ *
+ * A file that cannot be opened, locked, read or written is an error, never a success: the screens that call this tell the admin whether the
+ * setting was saved, and a hardened install keeps the file read-only.
  */
 final class EnvironmentFile
 {
-    /** Sets a variable, adds the line when the file has none, and returns the value as it is written. */
+    /**
+     * Sets a variable, adds the line when the file has none, and returns the value as it is written.
+     *
+     * @throws RuntimeException when the file does not exist or cannot be opened, locked, read or written
+     */
     public static function set(string $path, string $key, mixed $value): string
     {
         $formattedValue = self::format(value: $value);
-        $handle = @fopen($path, 'c+');
-        if ($handle === false) {
-            return $formattedValue;
-        }
+        AtomicFile::rewrite(path: $path, change: fn (string $content): string => self::withVariable(content: $content, key: $key, formattedValue: $formattedValue));
 
-        flock($handle, LOCK_EX);
-        $lines = preg_split('/\r?\n/', (string) stream_get_contents($handle)) ?: [];
+        return $formattedValue;
+    }
+
+    private static function withVariable(string $content, string $key, string $formattedValue): string
+    {
         $replacement = "{$key}={$formattedValue}";
         $keyFound = false;
         $newLines = [];
 
-        foreach ($lines as $line) {
+        foreach (preg_split('/\r?\n/', $content) ?: [] as $line) {
             if (trim($line) === '') {
                 continue;
             }
@@ -40,14 +50,7 @@ final class EnvironmentFile
             $newLines[] = $replacement;
         }
 
-        ftruncate($handle, 0);
-        rewind($handle);
-        fwrite($handle, implode(PHP_EOL, $newLines) . PHP_EOL);
-        fflush($handle);
-        flock($handle, LOCK_UN);
-        fclose($handle);
-
-        return $formattedValue;
+        return implode(PHP_EOL, $newLines) . PHP_EOL;
     }
 
     private static function format(mixed $value): string

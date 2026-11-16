@@ -93,6 +93,27 @@ class StoredFileNamesRuleTest extends TestCase
         $this->assertFalse($this->passes($value), json_encode($value));
     }
 
+    /** @return array<string, array{0: mixed}> */
+    public static function valuesThatHoldNoName(): array
+    {
+        return [
+            'a list that holds a list' => [[['2026-11-16-a.webp']]],
+            'the json text of a list that holds a list' => [json_encode([['2026-11-16-a.webp']])],
+            'the json text of an object that holds an object' => [json_encode(['a' => ['b' => 1]])],
+            'an empty entry in a list' => [[[]]],
+            'the json text of a list that holds an empty list' => ['[[]]'],
+            'an entry that has a colour and no image name' => [[['color' => '#ff0000', 'storage' => 'public']]],
+            'the json text of an entry that has a colour and no image name' => [json_encode([['color' => '#ff0000']])],
+            'an entry whose image name is a list' => [[['image_name' => ['2026-11-16-a.webp']]]],
+        ];
+    }
+
+    #[DataProvider('valuesThatHoldNoName')]
+    public function test_a_list_or_an_entry_that_holds_no_image_name_is_refused_and_not_stored_as_it_is(mixed $value): void
+    {
+        $this->assertFalse($this->passes($value), json_encode($value));
+    }
+
     public function test_the_refusal_is_a_validation_error_on_the_field_with_a_message(): void
     {
         $validator = Validator::make(['thumbnail' => '../../../../../.env'], ['thumbnail' => [new StoredFileNames()]]);

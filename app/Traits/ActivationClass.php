@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Utils\AtomicFile;
 use Exception;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -131,7 +132,13 @@ trait ActivationClass
             return false;
         }
 
-        $contents = file_get_contents($envPath);
+        AtomicFile::rewrite(path: $envPath, change: fn (string $contents): string => $this->withoutRepeatedKeys(contents: $contents));
+
+        return true;
+    }
+
+    private function withoutRepeatedKeys(string $contents): string
+    {
         $lines = explode(PHP_EOL, $contents);
         $cleanedLines = [];
         $seenKeys = [];
@@ -159,8 +166,7 @@ trait ActivationClass
                 $cleanedLines[] = $trimmedLine;
             }
         }
-        $cleanedContent = implode(PHP_EOL, $cleanedLines) . PHP_EOL;
-        file_put_contents($envPath, $cleanedContent);
-        return true;
+
+        return implode(PHP_EOL, $cleanedLines) . PHP_EOL;
     }
 }

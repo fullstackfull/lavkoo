@@ -51,6 +51,8 @@ class PanelProductFileNamesTest extends TestCase
             'a list of images' => [['existing_images' => ['2026-11-16-a.webp', '../company/logo2.png']]],
             'the preview file' => [['existing_preview_file' => '../../company/logo3.png']],
             'a backslash path' => [['existing_thumbnail' => '..\\..\\company\\logo.png']],
+            'a thumbnail that is a list that holds a list' => [['existing_thumbnail' => [['2026-11-16-a.webp']]]],
+            'images that are a list of lists' => [['existing_images' => [['2026-11-16-a.webp']]]],
         ];
     }
 

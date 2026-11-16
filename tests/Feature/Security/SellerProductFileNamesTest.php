@@ -74,7 +74,7 @@ class SellerProductFileNamesTest extends TestCase
         return $request;
     }
 
-    /** @return array<string, array{0: string, 1: mixed}> the field that carries a name, and a name that is a path */
+    /** @return array<string, array{0: string, 1: mixed}> the field that carries a name, and what it holds instead: a path, or a list or an object that holds no name */
     public static function fieldsThatCarryAName(): array
     {
         return [
@@ -83,6 +83,9 @@ class SellerProductFileNamesTest extends TestCase
             'the digital file' => ['digital_file_ready', '../../../../../.env'],
             'the meta image' => ['meta_image', '../../.env'],
             'the colour images' => ['color_image', json_encode([['color' => '#ff0000', 'image_name' => '../../.env', 'storage' => 'public']])],
+            'the thumbnail as a list that holds a list' => ['thumbnail', json_encode([['2026-11-16-a.webp']])],
+            'the digital file as an object that holds an object' => ['digital_file_ready', json_encode(['a' => ['b' => 1]])],
+            'the meta image as an entry that has no image name' => ['meta_image', json_encode([['color' => '#ff0000']])],
         ];
     }
 
@@ -120,6 +123,8 @@ class SellerProductFileNamesTest extends TestCase
             'the images' => ['images', ['x.webp', '../shop/banner/victim-banner.webp']],
             'the digital file' => ['digital_file_ready', '../../../../../.env'],
             'the meta image' => ['meta_image', '../../.env'],
+            'the thumbnail as a list that holds a list' => ['thumbnail', [['2026-11-16-a.webp']]],
+            'the digital file as an entry that has no image name' => ['digital_file_ready', [['color' => '#ff0000']]],
         ];
     }
 

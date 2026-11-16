@@ -126,8 +126,9 @@ class AddonService
     /**
      * The path of an installed add-on exactly as the add-on list shows it ("Modules/Name"), or nothing. The request names the add-on, and the
      * path was then joined to the application root to include its info.php, to rewrite it and to delete the directory, so a path the list
-     * never offered (`storage`, `app`, `../other-site`) was a way to run, overwrite or delete anything the web user can reach. A link in the
-     * Modules directory is no add-on either: deleting through it empties the directory it points at and leaves the link.
+     * never offered (`storage`, `app`, `../other-site`) was a way to run, overwrite or delete anything the web user can reach. A link is no
+     * add-on either: deleting through a link in the Modules directory empties the directory it points at, and a link at `Addon` or at
+     * `Addon/info.php` makes the include and the rewrite reach a file that is not the add-on's.
      */
     public function installedAddonPath(mixed $path): ?string
     {
@@ -135,9 +136,35 @@ class AddonService
             return null;
         }
 
-        $directory = base_path($path);
+        return $this->holdsItsOwnInfoFile(directory: base_path($path)) ? $path : null;
+    }
 
-        return !is_link($directory) && is_file($directory . '/Addon/info.php') ? $path : null;
+    /**
+     * The add-ons of the Modules directory as the add-on list shows them: the paths that installedAddonPath() accepts.
+     *
+     * @return list<string>
+     */
+    public function installedAddonPaths(): array
+    {
+        $paths = [];
+        foreach (scandir(base_path('Modules')) ?: [] as $name) {
+            $path = $this->installedAddonPath('Modules/' . $name);
+            if ($path !== null) {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
+    /** Whether the directory is no link and its `Addon/info.php` is a file that lies inside it, wherever the Modules directory itself is. */
+    private function holdsItsOwnInfoFile(string $directory): bool
+    {
+        clearstatcache(clear_realpath_cache: true);
+        $module = realpath($directory);
+        $info = realpath($directory . '/Addon/info.php');
+
+        return !is_link($directory) && $module !== false && $info !== false && is_file($info) && str_starts_with($info, $module . DIRECTORY_SEPARATOR);
     }
 
     public function getPublishData(object $request): array

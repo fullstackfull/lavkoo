@@ -13,7 +13,8 @@ use Illuminate\Http\UploadedFile;
  * The seller apps upload a file first and send its name with the product, and the platform stores the name and later reads or deletes the
  * file it names. A name is one path segment the platform wrote, so ../../../../.env, an absolute path or a list holding one is refused.
  * A value may be a name, a list of names, a list of objects that hold an `image_name` (the colour images of a product), or the JSON text of
- * any of those, which is how the seller app v3 sends lists. A file sent in the same field is not a name and is left to the file rules.
+ * any of those, which is how the seller app v3 sends lists. A list or an object that holds no `image_name` (a list of lists, an object of
+ * objects) names no file and is refused, not stored as it is. A file sent in the same field is not a name and is left to the file rules.
  */
 class StoredFileNames implements ValidationRule
 {
@@ -60,7 +61,10 @@ class StoredFileNames implements ValidationRule
         }
 
         foreach ($value as $item) {
-            $name = is_array($item) ? ($item['image_name'] ?? null) : $item;
+            if (is_array($item) && !array_key_exists('image_name', $item)) {
+                return false;
+            }
+            $name = is_array($item) ? $item['image_name'] : $item;
             if ($name !== null && $name !== '' && !($name instanceof UploadedFile) && !PlainFileName::isPlain($name)) {
                 return false;
             }

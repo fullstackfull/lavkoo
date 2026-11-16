@@ -360,11 +360,7 @@ class LanguageService
      */
     private function writeMessagesFile(string $path, array $messages): void
     {
-        $contents = "<?php\n\nreturn [\n";
-        foreach ($messages as $key => $value) {
-            $contents .= "\t" . var_export((string)$key, true) . ' => ' . var_export((string)$value, true) . ",\n";
-        }
-        file_put_contents($path, $contents . "];\n");
+        file_put_contents($path, getLanguageFileContents(messages: $messages));
         if (function_exists('opcache_invalidate')) {
             opcache_invalidate($path, true);
         }
