@@ -18,15 +18,7 @@ final class SaudiPhone
             return null;
         }
 
-        $digits = strtr($raw, [
-            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
-            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
-            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
-            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
-            '０' => '0', '１' => '1', '２' => '2', '３' => '3', '４' => '4',
-            '５' => '5', '６' => '6', '７' => '7', '８' => '8', '９' => '9',
-        ]);
-        $digits = preg_replace('/\D+/', '', $digits) ?? '';
+        $digits = self::asciiDigits($raw);
 
         if (str_starts_with($digits, '00')) {
             $digits = substr($digits, 2);
@@ -47,8 +39,8 @@ final class SaudiPhone
      */
     public static function isSameNumber(string $first, string $second): bool
     {
-        $firstSaudi = self::normalize($first);
-        $secondSaudi = self::normalize($second);
+        $firstSaudi = self::saudiNumberOf($first);
+        $secondSaudi = self::saudiNumberOf($second);
         if ($firstSaudi !== null || $secondSaudi !== null) {
             return $firstSaudi === $secondSaudi;
         }
@@ -56,6 +48,31 @@ final class SaudiPhone
         $internationalFirst = self::withoutTrunkZero($first);
 
         return $internationalFirst !== '' && $internationalFirst === self::withoutTrunkZero($second);
+    }
+
+    /** The national form of a Saudi spelling. A number written with another country's international prefix is not Saudi, whatever its digits read as. */
+    private static function saudiNumberOf(string $raw): ?string
+    {
+        $digits = self::asciiDigits($raw);
+        $international = str_starts_with(ltrim($raw), '+') || str_starts_with($digits, '00');
+        $afterPrefix = str_starts_with($digits, '00') ? substr($digits, 2) : $digits;
+
+        return $international && !str_starts_with($afterPrefix, '966') ? null : self::normalize($raw);
+    }
+
+    /** Only the digits of a spelling, Arabic-Indic, Persian and full-width ones included, as ASCII digits. */
+    private static function asciiDigits(string $raw): string
+    {
+        $digits = strtr($raw, [
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+            '０' => '0', '１' => '1', '２' => '2', '３' => '3', '４' => '4',
+            '５' => '5', '６' => '6', '７' => '7', '８' => '8', '９' => '9',
+        ]);
+
+        return preg_replace('/\D+/', '', $digits) ?? '';
     }
 
     /** The digits of an international number without the trunk zero some people keep after the country code. */
