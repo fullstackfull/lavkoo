@@ -2,11 +2,15 @@
 
 namespace Tests\Feature\Security;
 
+use App\Http\Controllers\Admin\Settings\AddonActivationController;
+use App\Http\Requests\AddonPurchaseCodeRequest;
 use App\Services\AddonService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ZipArchive;
 use Tests\Support\BuildsFulfillmentSchema;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -32,6 +36,9 @@ class AdminAddonSurfaceTest extends TestCase
 
     /** @var list<string> */
     private array $links = [];
+
+    /** @var list<string> */
+    private array $files = [];
 
     /** @var list<array{file: string, directory: string|null}> */
     private array $plantedInfoFiles = [];
@@ -67,6 +74,7 @@ class AdminAddonSurfaceTest extends TestCase
         foreach ($this->created as $directory) {
             File::deleteDirectory($directory);
         }
+        array_map('unlink', array_filter($this->files, 'file_exists'));
         File::deleteDirectory(public_path('Modules'));
         File::copyDirectory($this->publicModulesBackup, public_path('Modules'));
         File::deleteDirectory($this->publicModulesBackup);
@@ -284,5 +292,95 @@ class AdminAddonSurfaceTest extends TestCase
 
         $this->assertSame('success', $result['status']);
         $this->assertSame(1, (include base_path('Modules/ProbeAddon/Addon/info.php'))['is_published']);
+    }
+
+    // ---- the archive an add-on is installed from ---------------------------------------------------------------------------------
+
+    /** @param array<string, string> $entries */
+    private function uploadOf(array $entries): Request
+    {
+        $path = tempnam(sys_get_temp_dir(), 'addon');
+        $zip = new ZipArchive();
+        $zip->open($path, ZipArchive::OVERWRITE);
+        foreach ($entries as $name => $content) {
+            $zip->addFromString($name, $content);
+        }
+        $zip->close();
+        if ($entries === []) {
+            file_put_contents($path, "PK\x05\x06" . str_repeat("\0", 18)); // ZipArchive writes no file for an empty archive: this is the one that has no entry
+        }
+        $this->files[] = $path;
+        $this->created[] = base_path('Modules/ProbeZipAddon');
+
+        return Request::create('/', 'POST', [], [], ['file_upload' => new UploadedFile($path, 'ProbeZipAddon.zip', 'application/zip', null, true)]);
+    }
+
+    public function test_an_archive_installs_the_folder_it_names_and_nothing_else(): void
+    {
+        $result = app(AddonService::class)->getUploadData($this->uploadOf([
+            'ProbeZipAddon/Addon/info.php' => self::INFO,
+            'ProbeZipAddon/Http/Thing.php' => '<?php',
+            '__MACOSX/ProbeZipAddon/._info.php' => 'metadata',
+        ]));
+
+        $this->assertSame('success', $result['status']);
+        $this->assertFileExists(base_path('Modules/ProbeZipAddon/Addon/info.php'));
+        $this->assertFileExists(base_path('Modules/ProbeZipAddon/Http/Thing.php'));
+        $this->assertDirectoryDoesNotExist(base_path('Modules/__MACOSX'));
+    }
+
+    /** @return array<string, array{0: array<string, string>}> */
+    public static function archivesThatAreNotAnAddonOfOneFolder(): array
+    {
+        $info = self::INFO;
+
+        return [
+            'an entry in a core module' => [['ProbeZipAddon/Addon/info.php' => $info, 'Blog/Probe.txt' => 'overwrites a core module']],
+            'an entry in another folder' => [['ProbeZipAddon/Addon/info.php' => $info, 'OtherFolder/Probe.txt' => 'x']],
+            'a way up' => [['ProbeZipAddon/Addon/info.php' => $info, 'ProbeZipAddon/../../probe-escape.txt' => 'x']],
+            'a way up first' => [['../probe-escape.txt' => 'x', 'ProbeZipAddon/Addon/info.php' => $info]],
+            'an absolute path' => [['ProbeZipAddon/Addon/info.php' => $info, '/tmp/probe-escape.txt' => 'x']],
+            'a backslash' => [['ProbeZipAddon/Addon/info.php' => $info, 'ProbeZipAddon\\..\\..\\probe-escape.txt' => 'x']],
+            'a file beside the folder' => [['ProbeZipAddon/Addon/info.php' => $info, 'README.txt' => 'x']],
+            'a core module as the folder' => [['Blog/Addon/info.php' => $info]],
+            'the AI module as the folder' => [['AI/Addon/info.php' => $info]],
+            'a folder name with a dot' => [['ProbeZipAddon.v2/Addon/info.php' => $info]],
+            'a folder name with a space' => [['Probe Zip/Addon/info.php' => $info]],
+            'a folder without an info file' => [['ProbeZipAddon/Http/Thing.php' => '<?php']],
+            'an empty archive' => [[]],
+        ];
+    }
+
+    /** @param array<string, string> $entries */
+    #[DataProvider('archivesThatAreNotAnAddonOfOneFolder')]
+    public function test_an_archive_that_is_not_an_addon_of_one_folder_extracts_nothing(array $entries): void
+    {
+        $this->files[] = base_path('Modules/Blog/Probe.txt');
+        $this->files[] = base_path('Modules/OtherFolder/Probe.txt');
+        $this->created[] = base_path('Modules/OtherFolder');
+        $escape = dirname(base_path()) . '/probe-escape.txt';
+        $this->files[] = $escape;
+
+        $result = app(AddonService::class)->getUploadData($this->uploadOf($entries));
+
+        $this->assertSame('error', $result['status']);
+        $this->assertFileDoesNotExist(base_path('Modules/Blog/Probe.txt'));
+        $this->assertDirectoryDoesNotExist(base_path('Modules/OtherFolder'));
+        $this->assertDirectoryDoesNotExist(base_path('Modules/ProbeZipAddon'));
+        $this->assertFileDoesNotExist($escape);
+    }
+
+    public function test_the_activation_from_the_list_includes_and_rewrites_only_an_installed_addon(): void
+    {
+        $marker = storage_path('probe-activation-marker.txt');
+        $this->files[] = $marker;
+        $directory = $this->makeDirectory('storage/probe-activate', ['Addon/info.php' => "<?php file_put_contents(" . var_export($marker, true) . ", 'ran'); return ['name' => 'x', 'module_name' => 'x', 'is_published' => 0];"]);
+        $request = AddonPurchaseCodeRequest::create('/', 'POST', ['path' => 'storage/probe-activate', 'name' => 'n', 'email' => 'a@b.test', 'username' => 'u', 'purchase_key' => 'k'], server: ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']);
+
+        $response = app(AddonActivationController::class)->activateFromList($request);
+
+        $this->assertSame(0, $response->getData(true)['status']);
+        $this->assertFileDoesNotExist($marker, 'a file outside the Modules directory was included');
+        $this->assertStringNotContainsString("'username'", file_get_contents($directory . '/Addon/info.php'), 'a file outside the Modules directory was rewritten');
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Traits\ActivationClass;
+use App\Utils\PlainFileName;
 use App\Traits\AddonHelper;
 use App\Traits\FileManagerTrait;
 use App\Traits\SettingsTrait;
@@ -38,21 +39,10 @@ class AddonService
         $zip = new ZipArchive();
         if ($zip->open(storage_path('app/' . $tempPath)) === TRUE) {
 
-            $genFolderName = explode('/', $zip->getNameIndex(0))[0];
-            if ($genFolderName === "__MACOSX") {
-                for ($i = 0; $i < $zip->numFiles; $i++) {
-                    if (strpos($zip->getNameIndex($i), "__MACOSX") === false) {
-                        $getAddonFolder = explode('/', $zip->getNameIndex($i))[0];
-                        break;
-                    }
-                }
-            }
-            $getAddonFolder = explode('.', $genFolderName)[0];
+            $addon = $this->addonEntries(zip: $zip);
 
-            $zip->extractTo(storage_path('app/temp'));
-            $infoPath = storage_path('app/temp/' . $getAddonFolder . '/Addon/info.php');
-
-            if (File::exists($infoPath)) {
+            if ($addon !== null) {
+                ['folder' => $getAddonFolder, 'entries' => $entries] = $addon;
                 $extractPath = base_path('Modules');
                 if (!File::exists($extractPath)) {
                     File::makeDirectory($extractPath, 0775, true);
@@ -64,7 +54,7 @@ class AddonService
                     if (!is_writable($extractPath)) {
                         @chmod($extractPath, 0775);
                     }
-                    if (!is_writable($extractPath) || !@$zip->extractTo($extractPath)) {
+                    if (!is_writable($extractPath) || !@$zip->extractTo($extractPath, $entries)) {
                         $zip->close();
                         return [
                             'status' => 'error',
@@ -102,6 +92,35 @@ class AddonService
             'status' => $status,
             'message' => $message
         ];
+    }
+
+    /**
+     * The folder an add-on archive installs and the entries it extracts, or nothing when the archive is not an add-on of one folder: the folder
+     * is a plain module name that is not a module that ships with the platform, it holds `Addon/info.php`, and every entry lies inside it (the
+     * archive was extracted whole into the Modules directory, so an entry of another folder overwrote a core module or a file outside it).
+     *
+     * @return array{folder: string, entries: list<string>}|null
+     */
+    private function addonEntries(ZipArchive $zip): ?array
+    {
+        $folder = explode('.', explode('/', (string)$zip->getNameIndex(0))[0])[0];
+        if (preg_match('/^[A-Za-z0-9_]+$/D', $folder) !== 1 || in_array($folder, self::CORE_MODULES, true)) {
+            return null;
+        }
+
+        $entries = [];
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $name = (string)$zip->getNameIndex($index);
+            if (str_starts_with($name, '__MACOSX/')) {
+                continue;
+            }
+            if (!str_starts_with($name, $folder . '/') || str_contains($name, '\\') || !PlainFileName::staysInside(path: $name)) {
+                return null;
+            }
+            $entries[] = $name;
+        }
+
+        return in_array($folder . '/Addon/info.php', $entries, true) ? ['folder' => $folder, 'entries' => $entries] : null;
     }
 
     /**

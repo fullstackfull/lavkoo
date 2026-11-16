@@ -61,8 +61,9 @@ class AddonActivationController extends BaseController
 
     public function activateFromList(AddonPurchaseCodeRequest $request): Redirector|RedirectResponse|Application|JsonResponse
     {
-        $infoPath = base_path($request['path'] . '/Addon/info.php');
-        if (!file_exists($infoPath)) {
+        $addonPath = $this->addonService->installedAddonPath($request['path']);
+        $infoPath = $addonPath === null ? null : base_path($addonPath . '/Addon/info.php');
+        if ($infoPath === null) {
             $message = translate('invalid_addon');
             if ($request->ajax()) {
                 return response()->json(['status' => 0, 'message' => $message]);
