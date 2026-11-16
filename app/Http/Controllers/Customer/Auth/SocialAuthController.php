@@ -149,6 +149,7 @@ class SocialAuthController extends Controller
         $message = translate('credentials_are_not_matched_or_your_account_is_not_active') . '!';
         if ($user->is_active) {
             auth('customer')->login($user);
+            $this->customerAuthService->forgetPendingSocialLogin();
             CustomerManager::updateCustomerSessionData(userId: $user->id);
             CartManager::cartListSessionToDatabase();
             $message = translate('welcome_to') . ' ' . getWebConfig(name: 'company_name') . '!';
@@ -471,6 +472,7 @@ class SocialAuthController extends Controller
                 $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $identity]);
 
                 auth('customer')->login($user);
+                $this->customerAuthService->forgetPendingSocialLogin();
                 CustomerManager::updateCustomerSessionData(userId: auth('customer')->id());
                 return redirect($authAttemptRedirectUrl);
             }

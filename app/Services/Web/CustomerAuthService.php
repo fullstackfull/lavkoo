@@ -107,4 +107,9 @@ class CustomerAuthService
         return $keepReturnUrl;
     }
 
+    public function forgetPendingSocialLogin(): void
+    {
+        session()->forget(['social_login_new_customer', 'socialLoginEmailRemovedForOldUser']);
+    }
+
 }

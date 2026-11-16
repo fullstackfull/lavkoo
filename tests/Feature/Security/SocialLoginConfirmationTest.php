@@ -32,6 +32,7 @@ class SocialLoginConfirmationTest extends TestCase
     private const VICTIM_EMAIL = 'victim@example.test';
     private const PHONE_ONLY_ID = 6;
     private const PENDING_LOGIN_KEY = 'social_login_new_customer';
+    private const EMAIL_REMOVED_KEY = 'socialLoginEmailRemovedForOldUser';
     private const NO_EMAIL_MESSAGE_KEY = 'this_social_account_shared_no_email_please_use_another_login_method';
     private const MESSAGE_KEYS = [
         'invalid_request',
@@ -190,6 +191,11 @@ class SocialLoginConfirmationTest extends TestCase
             'is_phone_verified' => 1,
             'is_email_verified' => 0,
         ]);
+    }
+
+    private function requirePhoneVerification(): void
+    {
+        DB::table('login_setups')->insert(['key' => 'phone_verification', 'value' => '1']);
     }
 
     private function identityFor(string $email): string
@@ -556,6 +562,100 @@ class SocialLoginConfirmationTest extends TestCase
             'phone' => ['phone'],
             'name' => ['name'],
         ];
+    }
+
+    public function test_the_approval_spends_the_pending_social_login(): void
+    {
+        $callback = $this->returnFromGoogle(email: self::VICTIM_EMAIL);
+
+        $this->get($this->approvalUrlOf($callback))->assertSessionMissing(self::PENDING_LOGIN_KEY);
+
+        $this->assertAuthenticated('customer');
+    }
+
+    public function test_an_approval_cannot_be_replayed_after_the_customer_logs_out(): void
+    {
+        $approvalUrl = $this->approvalUrlOf($this->returnFromGoogle(email: self::VICTIM_EMAIL));
+        $this->get($approvalUrl);
+        $this->get(route('customer.auth.logout'));
+        $this->assertGuest('customer');
+
+        $this->get($approvalUrl)->assertRedirect(route('customer.auth.login'));
+
+        $this->assertGuest('customer');
+    }
+
+    public function test_an_update_cannot_be_replayed_after_the_customer_logs_out(): void
+    {
+        $callback = $this->returnFromGoogle(email: self::VICTIM_EMAIL);
+        $this->get($this->approvalUrlOf($callback));
+        $this->get(route('customer.auth.logout'));
+        $accountBefore = $this->customerRow(id: self::VICTIM_ID);
+
+        $this->post($this->updateUrl(), [
+            'identity' => $this->identityOfTheRedirect($callback),
+            'phone' => '0509999999',
+            'name' => 'Replay',
+        ])->assertRedirect();
+
+        $this->assertGuest('customer');
+        $this->assertSame(1, User::query()->count());
+        $this->assertSame($accountBefore, $this->customerRow(id: self::VICTIM_ID));
+    }
+
+    public function test_logging_out_forgets_a_pending_social_login(): void
+    {
+        $this->returnFromGoogle(email: self::VICTIM_EMAIL)->assertSessionHas(self::PENDING_LOGIN_KEY);
+
+        $this->get(route('customer.auth.logout'))
+            ->assertSessionMissing(self::PENDING_LOGIN_KEY)
+            ->assertSessionMissing(self::EMAIL_REMOVED_KEY);
+    }
+
+    public function test_an_update_refused_for_a_phone_number_in_use_keeps_the_pending_social_login_for_a_retry(): void
+    {
+        DB::table('users')->insert(['id' => 7, 'email' => 'other@example.test', 'phone' => '0500000007', 'password' => bcrypt('irrelevant'), 'is_active' => 1]);
+        $callback = $this->returnFromGoogle(email: 'new.person@example.test', name: 'New Person');
+        $identity = $this->identityOfTheRedirect($callback);
+
+        $this->post($this->updateUrl(), ['identity' => $identity, 'phone' => '0500000007', 'name' => 'New Person'])
+            ->assertRedirect()
+            ->assertSessionHas(self::PENDING_LOGIN_KEY);
+
+        $this->assertSame([translate('Phone_Number_Already_Exist')], $this->toastedMessages());
+        $this->assertGuest('customer');
+
+        $this->post($this->updateUrl(), ['identity' => $identity, 'phone' => '0555000666', 'name' => 'New Person']);
+
+        $this->assertAuthenticated('customer');
+        $this->assertDatabaseHas('users', ['email' => 'new.person@example.test', 'phone' => '0555000666', 'login_medium' => 'google']);
+    }
+
+    public function test_the_pending_social_login_is_kept_until_the_phone_is_verified_and_then_spent(): void
+    {
+        $phone = '0555000111';
+        $this->requirePhoneVerification();
+        $callback = $this->returnFromGoogle(email: 'new.person@example.test', name: 'New Person');
+
+        $this->post($this->updateUrl(), [
+            'identity' => $this->identityOfTheRedirect($callback),
+            'phone' => $phone,
+            'name' => 'New Person',
+        ])
+            ->assertRedirectToRoute('customer.auth.login.verify-account', [
+                'identity' => base64_encode($phone),
+                'action' => base64_encode('social-login-verify'),
+            ])
+            ->assertSessionHas(self::PENDING_LOGIN_KEY)
+            ->assertSessionHas(self::EMAIL_REMOVED_KEY);
+        $this->assertGuest('customer');
+
+        $codeSentBySms = DB::table('phone_or_email_verifications')->where('phone_or_email', $phone)->value('token');
+        $this->post(route('customer.auth.login.social.verify-account'), ['identity' => base64_encode($phone), 'token' => $codeSentBySms])
+            ->assertSessionMissing(self::PENDING_LOGIN_KEY)
+            ->assertSessionMissing(self::EMAIL_REMOVED_KEY);
+
+        $this->assertAuthenticated('customer');
     }
 
     public function test_on_mysql_the_schema_is_not_rebuilt_outside_the_testing_environment(): void
