@@ -31,7 +31,12 @@ seller APIs (`api/v2`, `api/v3`), queues and the console are never narrowed and 
    product's country yet. Do not enable the flag with a non-Saudi product present before that work exists.
 4. **The legal texts of every country that will sell are approved** (#42, #49). The sale routes refuse a storefront whose texts are not
    approved; the Saudi storefront is grandfathered.
-5. **Run `php artisan cache:clear` once**, after the migration is deployed and again every time the flag is flipped, in either direction.
+5. **Currency is decided (GCC-05).** This stack separates products, prices and stock by country; it does not change how an amount is shown.
+   Prices are stored in a base currency and converted for display with the session's currency, which is the system default currency unless the
+   visitor picks another one, and no price code reads the storefront's currency. Until GCC-05 decides how a storefront's currency reaches the
+   converters, a Kuwaiti product shows the system default currency's symbol and rate, and an amount handed to the converters twice would be
+   converted twice. Orders, invoices, emails and exports carry no currency of their own either (see `docs/gcc/audits/2026-11-16-price-stock-map/`).
+6. **Run `php artisan cache:clear` once**, after the migration is deployed and again every time the flag is flipped, in either direction.
    Products cached by the previous release do not hide the new column from JSON (`$hidden` is part of the cached object), and the
    per-storefront copies written while the flag was on are not cleared by a product edit made while it was off, so they would be served again
    after the next flip.
@@ -80,7 +85,9 @@ no storefront at all; the order is built in the storefront recorded with the pay
   storefront. The quick view answers HTTP 500 for an id the storefront cannot see (it did so for hidden products already).
 - The seller and admin POS, the marketplace order materializer and the sales-channel webhooks are not behind the sale gate. Whether a
   point-of-sale sale is a storefront sale is an owner decision.
-- Currency display, tax and three-decimal currencies (KWD, BHD, OMR) are separate work (GCC-05).
+- Currency display, an order's own currency, tax by country and three-decimal currencies (KWD, BHD, OMR) are separate work (GCC-05); see the
+  first step above. A product row is not converted from one country's price to another's, but nothing yet makes a country's amount display in
+  that country's currency.
 - The auction module's products carry no country.
 - `storage/logs/order_generate_test.txt` is written by the payment hook on every paid order (customer id, guest id, address id, order ids).
   It is debugging that was never removed and should be.
