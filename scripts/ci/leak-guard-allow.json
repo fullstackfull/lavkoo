@@ -107,6 +107,12 @@
             "path": "tests/Feature/SalesChannels/SecretRedactorCoversEveryStoredSecretTest.php",
             "line": 102,
             "reason": "Two made-up AWS key ids, one per prefix AWS documents (AKIA and ASIA), in the test that the shape is masked whatever the field is called, in commit d958ac8; the next commit (8db9a92) builds both at run time. Neither was ever a real credential."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "app/Services/Fulfillment/Support/SaudiPhone.php",
+            "line": 61,
+            "reason": "A made-up example in a comment of the customer password reset pull request, in one commit; the next commit rewords the comment without the digits. It shows the zero some people keep after a country code and is not anyone's number."
         }
     ]
 }
