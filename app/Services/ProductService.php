@@ -520,6 +520,20 @@ class ProductService
         return true;
     }
 
+    /** The names of the image files a product holds: its gallery and its colour images. */
+    public function imageNames(object $product): array
+    {
+        $names = [];
+        foreach ((array)json_decode($product['images'] ?? '[]', true) as $image) {
+            $names[] = is_array($image) ? ($image['image_name'] ?? null) : $image;
+        }
+        foreach ((array)json_decode($product['color_image'] ?? '[]', true) as $image) {
+            $names[] = is_array($image) ? ($image['image_name'] ?? null) : null;
+        }
+
+        return array_values(array_filter($names, 'is_string'));
+    }
+
     public function deleteImage(object $request, object $product): array
     {
         $colors = json_decode($product['colors']);

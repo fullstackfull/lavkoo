@@ -2012,7 +2012,9 @@ class ProductController extends Controller
                         'storage' => $img?->storage ?? 'public',
                     ];
                 } else {
-                    $this->deleteFile('/product/' . $request['name']);
+                    if (is_string($img->image_name ?? null)) {
+                        $this->deleteFile('/product/' . $img->image_name);
+                    }
                     if ($img->color != null) {
                         $color_image_arr[] = [
                             'color' => $img->color,
