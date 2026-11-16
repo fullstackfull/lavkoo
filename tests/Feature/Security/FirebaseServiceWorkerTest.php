@@ -140,4 +140,64 @@ class FirebaseServiceWorkerTest extends TestCase
         $this->assertSame($expected, $result['received']['measurementId']);
         $this->assertSame($this->plainConfig()['projectId'], $result['received']['projectId']);
     }
+
+    public function test_the_settings_are_stored_as_the_text_the_file_is_built_from(): void
+    {
+        $credentials = (new PushNotificationService())->getFCMCredentialsArray(request: ['apiKey' => ['x'], 'authDomain' => "a\xffb", 'projectId' => 5, 'storageBucket' => true, 'messagingSenderId' => null, 'appId' => 'plain']);
+
+        $this->assertSame(self::KEYS, array_keys($credentials));
+        $this->assertSame('', $credentials['apiKey'], 'a list is not a setting');
+        $this->assertTrue(mb_check_encoding($credentials['authDomain'], 'UTF-8'), 'what is stored is valid UTF-8');
+        $this->assertSame(['5', '1', '', 'plain', ''], [$credentials['projectId'], $credentials['storageBucket'], $credentials['messagingSenderId'], $credentials['appId'], $credentials['measurementId']]);
+        $this->assertSame(json_encode($credentials), json_encode(array_map('strval', $credentials)), 'every value is a string');
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function valuesThatAreNotValidUtf8(): array
+    {
+        return [
+            'a lone continuation byte' => ["\xff"],
+            'an overlong sequence' => ["\xc0\xaf"],
+            'a broken two-byte sequence' => ["a\xc3\x28b"],
+            'a broken three-byte sequence' => ["a\xe2\x28\xa1b"],
+            'a surrogate' => ["\xed\xa0\x80"],
+        ];
+    }
+
+    #[DataProvider('valuesThatAreNotValidUtf8')]
+    public function test_a_value_that_is_not_valid_utf8_leaves_a_file_that_parses(string $value): void
+    {
+        $script = $this->script(['apiKey' => $value, 'authDomain' => $value, 'measurementId' => $value] + $this->plainConfig());
+
+        $this->assertStringNotContainsString('apiKey: ,', $script);
+        $this->assertSame(1, preg_match('/^\s+apiKey: ("(?:[^"\\\\]|\\\\.)*")(,?)$/m', $script, $match));
+        $this->assertTrue(mb_check_encoding((string)json_decode($match[1]), 'UTF-8'));
+
+        $node = trim((string)shell_exec('command -v node'));
+        if ($node !== '') {
+            $file = tempnam(sys_get_temp_dir(), 'sw');
+            file_put_contents($file, $script);
+            exec(escapeshellarg($node) . ' --check ' . escapeshellarg($file) . ' 2>&1', $output, $status);
+            unlink($file);
+            $this->assertSame(0, $status, implode("\n", $output));
+        }
+    }
+
+    public function test_both_copies_of_the_worker_are_the_generated_script(): void
+    {
+        $paths = [base_path('firebase-messaging-sw.js'), base_path('public/firebase-messaging-sw.js')];
+        $before = array_map(static fn (string $path): ?string => is_file($path) ? file_get_contents($path) : null, $paths);
+
+        try {
+            (new PushNotificationService())->firebaseConfigFileGenerate(config: ['apiKey' => '"});fetch("//evil.test/");//'] + $this->plainConfig());
+
+            foreach ($paths as $path) {
+                $this->assertSame($this->script(['apiKey' => '"});fetch("//evil.test/");//'] + $this->plainConfig()), file_get_contents($path), $path);
+            }
+        } finally {
+            foreach ($paths as $index => $path) {
+                $before[$index] === null ? @unlink($path) : file_put_contents($path, $before[$index]);
+            }
+        }
+    }
 }

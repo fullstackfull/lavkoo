@@ -173,17 +173,16 @@ class PushNotificationService
     }
 
 
+    /** The seven settings as text: what is stored and what the service worker is built from are then the same strings (a list or invalid UTF-8 is never stored). */
     public function getFCMCredentialsArray(object|array $request): array
     {
-        return [
-            'apiKey' => $request['apiKey'],
-            'authDomain' => $request['authDomain'],
-            'projectId' => $request['projectId'],
-            'storageBucket' => $request['storageBucket'],
-            'messagingSenderId' => $request['messagingSenderId'],
-            'appId' => $request['appId'],
-            'measurementId' => $request['measurementId'],
-        ];
+        $credentials = [];
+        foreach (self::FIREBASE_CONFIG_KEYS as $key) {
+            $value = $request[$key] ?? null;
+            $credentials[$key] = is_scalar($value) ? mb_scrub((string)$value, 'UTF-8') : '';
+        }
+
+        return $credentials;
     }
 
     /**
@@ -213,7 +212,7 @@ class PushNotificationService
         $values = [];
         foreach (self::FIREBASE_CONFIG_KEYS as $key) {
             $value = $config[$key] ?? '';
-            $values[$key] = json_encode(is_scalar($value) ? (string)$value : '', JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+            $values[$key] = json_encode(is_scalar($value) ? (string)$value : '', JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE);
         }
 
         return <<<JS
