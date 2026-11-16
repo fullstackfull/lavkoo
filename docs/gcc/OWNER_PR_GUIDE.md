@@ -1,6 +1,6 @@
 # Owner guide to the open draft pull requests (2026-11-16)
 
-Sixty-three draft PRs are open against `fullstackfull/lavkoo` and nothing is merged or deployed. This page says which to read first, which go together, and what to do at deploy. Each PR body repeats its own rule at the top; if this page and a PR body disagree, the PR body is newer.
+Sixty-four draft PRs are open against `fullstackfull/lavkoo` and nothing is merged or deployed. This page says which to read first, which go together, and what to do at deploy. Each PR body repeats its own rule at the top; if this page and a PR body disagree, the PR body is newer.
 
 ## 1. The security set: merge and deploy together
 
@@ -47,7 +47,7 @@ Behaviour changes to know about (each is in the PR body): a staff member can no 
 
 ## 4. Storefronts (GCC), off by default
 
-A chain, merge bottom to top: `#8`, `#19`, `#28`, `#37`, `#38`, `#39`, `#42`, `#43`, `#47`, `#48`, `#49`, `#50`, `#53` (`#46` is carried inside `#47` and everything above it). Nothing changes while `gcc.storefronts.enabled` is false. Read `docs/gcc/STOREFRONT_FLAG_RUNBOOK.md` (in `#53`) before turning it on: the kill switch is to **deactivate the country, not to turn the flag off**. The legal and financial decisions for a non-Saudi launch stay with the owner; the code only refuses to sell where a storefront is not marked sellable.
+A chain, merge bottom to top: `#8`, `#19`, `#28`, `#37`, `#38`, `#39`, `#42`, `#43`, `#47`, `#48`, `#49`, `#50`, `#53`, `#64` (`#46` is carried inside `#47` and everything above it). `#64` is the admin side: the admin chooses a product's country when adding it, and the admin list shows and filters it; it must exist before the flag is turned on with a non-Saudi product. It keeps SKU and barcode unique across countries on purpose: `docs/gcc/audits/2026-11-16-sku-barcode-lookup-map.md` lists the 35 places that find a product by its code, none of them country-aware yet (GCC-14b). Nothing changes while `gcc.storefronts.enabled` is false. Read `docs/gcc/STOREFRONT_FLAG_RUNBOOK.md` (in `#53`) before turning it on: the kill switch is to **deactivate the country, not to turn the flag off**. The legal and financial decisions for a non-Saudi launch stay with the owner; the code only refuses to sell where a storefront is not marked sellable.
 
 ## 5. Tests and small fixes
 
