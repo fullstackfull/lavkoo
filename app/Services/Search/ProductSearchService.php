@@ -2,6 +2,7 @@
 
 namespace App\Services\Search;
 
+use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -71,6 +72,10 @@ class ProductSearchService
      * Terms of a query that match nothing, so the UI can say WHICH word failed rather than
      * "no results" — the difference between a dead end and a correction the customer can make.
      *
+     * Only products a customer may see count as a match. The index holds every saved product, and a
+     * word found only in a draft or disabled one is reported like a word found nowhere, so the hint
+     * never tells which words an unreleased product contains.
+     *
      * @return array<int, string>
      */
     public function unmatchedTerms(?string $query, ?string $locale = null): array
@@ -83,6 +88,7 @@ class ProductSearchService
 
         foreach ($this->normalizer->terms($query) as $term) {
             $exists = $this->baseQuery($locale)
+                ->whereIn('product_id', Product::active()->select('id'))
                 ->where(function ($q) use ($term) {
                     $this->whereTermMatches($q, 'name_normalized', $term);
                     $q->orWhere(fn ($sub) => $this->whereTermMatches($sub, 'text_normalized', $term));

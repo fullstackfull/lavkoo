@@ -348,7 +348,7 @@ class ProductController extends Controller
     {
         $user = Helpers::getCustomerInformation($request);
 
-        $product = Product::active()->with(['reviews.customer', 'seller.shop', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['reviews.customer:id,name,f_name,l_name,image', 'seller.shop', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])
             ->withCount(['wishList' => function ($query) use ($user) {
@@ -426,7 +426,7 @@ class ProductController extends Controller
 
     public function get_related_products(Request $request, $slug)
     {
-        $product = Product::where('slug', $slug)->first();
+        $product = Product::active()->where('slug', $slug)->first();
         if ($product) {
             $products = ProductManager::get_related_products($product->id, $request);
             $products = Helpers::product_data_formatting($products, true);
@@ -439,7 +439,7 @@ class ProductController extends Controller
 
     public function get_product_reviews(Request $request, $slug)
     {
-        $product = Product::withCount('reviews')->where('slug', $slug)->first();
+        $product = Product::active()->withCount('reviews')->where('slug', $slug)->first();
         if (!$product) {
             return response()->json([
                 'errors' => ['code' => 'product-001', 'message' => translate('product_not_found')]
@@ -447,7 +447,7 @@ class ProductController extends Controller
         }
 
         $averageRating = count($product->rating) > 0 ? number_format($product->rating[0]->average, 2, '.', ' ') : 0;
-        $reviews = Review::with(['customer', 'product', 'reply'])->where(['product_id' => $product['id']])
+        $reviews = Review::with(['customer:id,f_name,l_name,image', 'reply'])->where(['product_id' => $product['id']])
             ->latest('updated_at')
             ->paginate(($request['limit'] ?? 10), ['*'], 'page', ($request['offset'] ?? 1));
 
@@ -509,7 +509,7 @@ class ProductController extends Controller
     public function get_product_rating($id):JsonResponse
     {
         try {
-            $product = Product::find($id);
+            $product = Product::active()->find($id);
             $overallRating = getOverallRating($product?->reviews);
             return response()->json(floatval($overallRating[0]), 200);
         } catch (\Exception $e) {
@@ -520,7 +520,7 @@ class ProductController extends Controller
     public function counter($slug)
     {
         try {
-            $product = Product::where('slug', $slug)->first();
+            $product = Product::active()->where('slug', $slug)->first();
             $countOrder = OrderDetail::where('product_id', $product->id)->count();
             $countWishlist = Wishlist::where('product_id', $product->id)->count();
             return response()->json(['order_count' => $countOrder, 'wishlist_count' => $countWishlist], 200);
@@ -531,7 +531,7 @@ class ProductController extends Controller
 
     public function socialShareLink($product_id): JsonResponse
     {
-        $product = Product::where('slug', $product_id)->first();
+        $product = Product::active()->where('slug', $product_id)->first();
         try {
             $link = route('product', $product->slug);
             return response()->json($link, 200);

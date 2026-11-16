@@ -14,19 +14,12 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ResolveStorefront
 {
-    public const HEADER = 'X-Storefront';
+    public const HEADER = StorefrontResolver::HEADER;
 
     public function handle(Request $request, Closure $next): Response
     {
-        $explicitChoice = $request->query('storefront');
-        $headerValues = $request->headers->all(self::HEADER);
         $resolver = StorefrontResolver::fromConfig();
-
-        $context = $resolver->context(
-            explicitChoice: is_string($explicitChoice) ? $explicitChoice : null,
-            path: $request->path(),
-            headerChoice: count($headerValues) === 1 && is_string($headerValues[0]) ? $headerValues[0] : null,
-        );
+        $context = $resolver->contextForRequest(request: $request);
 
         app()->instance(StorefrontContext::class, $context);
 
@@ -34,9 +27,19 @@ class ResolveStorefront
 
         // While storefronts are on, one URL can answer differently per storefront, so a shared cache must key on the header.
         if ($resolver->isEnabled()) {
-            $response->setVary(self::HEADER, false);
+            self::varyByHeader(response: $response);
         }
 
         return $response;
+    }
+
+    /** Says once, whichever middleware gets there first, that the answer depends on the storefront header. */
+    public static function varyByHeader(Response $response): void
+    {
+        $listed = array_map(strtolower(...), array_map(trim(...), explode(',', implode(',', $response->headers->all('vary')))));
+
+        if (!in_array(strtolower(self::HEADER), $listed, true) && !in_array('*', $listed, true)) {
+            $response->setVary(self::HEADER, false);
+        }
     }
 }

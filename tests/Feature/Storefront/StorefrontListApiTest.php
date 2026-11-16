@@ -108,7 +108,7 @@ class StorefrontListApiTest extends TestCase
 
         $this->assertSame(StorefrontController::class . '@index', $route->getActionName());
         $this->assertSame(['GET', 'HEAD'], $route->methods());
-        $this->assertSame(['api', 'api_lang', 'throttle:60,1'], $route->middleware());
+        $this->assertSame(['api', 'api_lang', 'storefront.vary', 'throttle:60,1'], $route->middleware(), 'the only storefront middleware is the one that adds a header');
         $this->assertNotContains('storefront', $route->gatherMiddleware());
         $this->assertNotContains(ResolveStorefront::class, $route->gatherMiddleware());
 
@@ -122,7 +122,7 @@ class StorefrontListApiTest extends TestCase
         $route = $this->apiRoute(uri: 'api/v1/config');
 
         $this->assertSame(ConfigController::class . '@configuration', $route->getActionName());
-        $this->assertSame(['api', 'api_lang'], $route->middleware());
+        $this->assertSame(['api', 'api_lang', 'storefront.vary'], $route->middleware(), 'the only storefront middleware is the one that adds a header');
 
         $configControllerSource = (string) file_get_contents(base_path('app/Http/Controllers/RestAPI/v1/ConfigController.php'));
         $this->assertStringNotContainsStringIgnoringCase('storefront', $configControllerSource);

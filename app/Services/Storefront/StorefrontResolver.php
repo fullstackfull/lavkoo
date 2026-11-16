@@ -2,6 +2,7 @@
 
 namespace App\Services\Storefront;
 
+use Illuminate\Http\Request;
 use InvalidArgumentException;
 
 /**
@@ -11,6 +12,11 @@ use InvalidArgumentException;
  */
 final class StorefrontResolver
 {
+    public const HEADER = 'X-Storefront';
+
+    /** The country the platform has always served: it stands in for a missing or broken configuration while storefronts are off. */
+    private const BUILT_IN_COUNTRY = 'SA';
+
     private readonly string $defaultCountry;
 
     /**
@@ -26,15 +32,47 @@ final class StorefrontResolver
         if (!$this->isActive($this->defaultCountry)) {
             throw new InvalidArgumentException("Default storefront country [{$defaultCountry}] is not active.");
         }
+
+        if ($this->enabled) {
+            foreach ($this->countries as $code => $country) {
+                if (!self::isComplete($country)) {
+                    throw new InvalidArgumentException("Storefront country [{$code}] needs a path and a currency.");
+                }
+            }
+        }
     }
 
     public static function fromConfig(): self
     {
-        return new self(
-            enabled: (bool) config('gcc.storefronts.enabled'),
-            defaultCountry: (string) config('gcc.storefronts.default_country'),
-            countries: (array) config('gcc.storefronts.countries'),
-        );
+        $enabled = (bool) config('gcc.storefronts.enabled');
+        $defaultCountry = (string) config('gcc.storefronts.default_country');
+        $countries = (array) config('gcc.storefronts.countries');
+
+        // While storefronts are off nothing depends on the configuration, so a cached config that predates it, or a typo in it, must not take the site down.
+        if (!$enabled && !self::servesDefaultCountry(countries: $countries, defaultCountry: $defaultCountry)) {
+            return new self(
+                enabled: false,
+                defaultCountry: self::BUILT_IN_COUNTRY,
+                countries: [self::BUILT_IN_COUNTRY => ['path' => 'sa', 'currency' => 'SAR', 'active' => true]],
+            );
+        }
+
+        return new self(enabled: $enabled, defaultCountry: $defaultCountry, countries: $countries);
+    }
+
+    private static function servesDefaultCountry(array $countries, string $defaultCountry): bool
+    {
+        $code = strtoupper(trim($defaultCountry));
+
+        return isset($countries[$code]) && self::isComplete($countries[$code]) && ($countries[$code]['active'] ?? false) === true;
+    }
+
+    /** A country that can be served has a path and a currency. Without them the first request that reads the context fails. */
+    private static function isComplete(mixed $country): bool
+    {
+        return is_array($country)
+            && is_string($country['path'] ?? null) && trim($country['path']) !== ''
+            && is_string($country['currency'] ?? null) && trim($country['currency']) !== '';
     }
 
     public function resolve(?string $explicitChoice = null, ?string $path = null, ?string $headerChoice = null): string
@@ -54,6 +92,19 @@ final class StorefrontResolver
         $country = $this->resolve(explicitChoice: $explicitChoice, path: $path, headerChoice: $headerChoice);
 
         return new StorefrontContext(country: $country, currency: $this->currencyOf($country), storefrontsEnabled: $this->enabled);
+    }
+
+    /** The storefront a request asks for: its explicit choice, then its header, then its path, then the default. */
+    public function contextForRequest(Request $request): StorefrontContext
+    {
+        $explicitChoice = $request->query('storefront');
+        $headerValues = $request->headers->all(self::HEADER);
+
+        return $this->context(
+            explicitChoice: is_string($explicitChoice) ? $explicitChoice : null,
+            path: $request->path(),
+            headerChoice: count($headerValues) === 1 && is_string($headerValues[0]) ? $headerValues[0] : null,
+        );
     }
 
     public function isEnabled(): bool
