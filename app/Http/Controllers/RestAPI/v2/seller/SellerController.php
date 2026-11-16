@@ -113,7 +113,7 @@ class SellerController extends Controller
             ], 401);
         }
 
-        return response()->json(Seller::with(['wallet'])->withCount(['product', 'orders'])->where(['id' => $seller['id']])->first(), 200);
+        return response()->json(Seller::with(['wallet'])->withCount(['product', 'orders' => fn ($query) => $query->where('seller_is', 'seller')])->where(['id' => $seller['id']])->first(), 200);
     }
 
     public function shop_info_update(Request $request):JsonResponse
