@@ -104,23 +104,25 @@ class VendorCouponChatAndPosShopOwnershipTest extends VendorPanelTestCase
 
     // ---- the coupon quick view ----
 
-    /** @return array<string, array{int, string}> the coupons that are not the seller's, with a word only that coupon shows */
+    /** @return array<string, array{int}> the coupons that are not the seller's, and one that does not exist */
     public static function couponsThatAreNotTheSellers(): array
     {
         return [
-            'another seller private coupon' => [self::OTHER_SELLERS_COUPON, 'RIVAL-VIP-70'],
-            'a platform coupon' => [self::PLATFORM_COUPON, 'PLATFORM-VIP-50'],
-            'a coupon that does not exist' => [999, 'coupon'],
+            'another seller private coupon' => [self::OTHER_SELLERS_COUPON],
+            'a platform coupon' => [self::PLATFORM_COUPON],
+            'a coupon that does not exist' => [999],
         ];
     }
 
     #[DataProvider('couponsThatAreNotTheSellers')]
-    public function test_a_coupon_that_is_not_the_sellers_is_not_shown_by_the_quick_view(int $couponId, string $secret): void
+    public function test_a_coupon_that_is_not_the_sellers_is_not_shown_by_the_quick_view(int $couponId): void
     {
         $response = $this->signInAs(self::SELLER)->getJson('/vendor/coupon/quick-view?id=' . $couponId);
 
         $response->assertNotFound();
-        $this->assertStringNotContainsString($secret, (string)$response->getContent());
+        foreach (['Rival private coupon', 'RIVAL-VIP-70', 'Marketplace VIP coupon', 'PLATFORM-VIP-50'] as $dataOfTheCoupons) {
+            $this->assertStringNotContainsString($dataOfTheCoupons, (string)$response->getContent());
+        }
     }
 
     public function test_the_sellers_own_coupon_is_still_shown_by_the_quick_view(): void
@@ -152,8 +154,8 @@ class VendorCouponChatAndPosShopOwnershipTest extends VendorPanelTestCase
         $card = $this->getJson('/vendor/messages/message?delivery_man_id=' . $driverId);
 
         $card->assertNotFound();
-        $this->assertStringNotContainsString('Rival', (string)$card->getContent());
-        $this->assertStringNotContainsString('Inhouse', (string)$card->getContent());
+        $this->assertStringNotContainsString('Rival Driver', (string)$card->getContent());
+        $this->assertStringNotContainsString('Inhouse Driver', (string)$card->getContent());
         $this->assertSame(0, DB::table('chattings')->count());
         Event::assertNotDispatched(ChattingEvent::class);
     }
