@@ -2,7 +2,7 @@
 
 namespace App\Traits;
 
-use App\Utils\EnvironmentFile;
+use App\Utils\AtomicFile;
 use Exception;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -132,7 +132,7 @@ trait ActivationClass
             return false;
         }
 
-        EnvironmentFile::rewrite(path: $envPath, change: fn (string $contents): string => $this->withoutRepeatedKeys(contents: $contents));
+        AtomicFile::rewrite(path: $envPath, change: fn (string $contents): string => $this->withoutRepeatedKeys(contents: $contents));
 
         return true;
     }

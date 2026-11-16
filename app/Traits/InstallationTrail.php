@@ -8,7 +8,7 @@ use App\Models\EmailTemplate;
 use App\Models\NotificationMessage;
 use App\Models\ShippingType;
 use App\Models\Shop;
-use App\Utils\EnvironmentFile;
+use App\Utils\AtomicFile;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -372,7 +372,7 @@ trait InstallationTrail
             'SOFTWARE_VERSION' => SOFTWARE_VERSION,
         ];
 
-        EnvironmentFile::rewrite(
+        AtomicFile::rewrite(
             path: app()->environmentFilePath(),
             change: fn (string $existingEnv): string => self::withEnvironmentValues(existingEnv: $existingEnv, updates: $updates),
             createWhenMissing: true,
