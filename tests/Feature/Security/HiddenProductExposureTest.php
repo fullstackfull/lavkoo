@@ -35,6 +35,9 @@ class HiddenProductExposureTest extends TestCase
 {
     use BuildsProductCatalog;
 
+    /** Disabled, never approved, owned by a pending seller, and of a brand that is switched off. */
+    private const HIDDEN_PRODUCTS = [2, 4, 5, 6];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -67,6 +70,17 @@ class HiddenProductExposureTest extends TestCase
         }
         $this->setBusinessSetting('language', [['id' => 1, 'name' => 'english', 'code' => 'en', 'status' => 1, 'default' => true]]);
         Cache::flush();
+    }
+
+    /** Products 1 and 2 were both bought twice, wished for once and reviewed by the same customer; product 2 has since been disabled. */
+    private function seedActivityOnProductsOneAndTwo(): void
+    {
+        DB::table('users')->insert(['id' => 1, 'name' => 'Rev Iewer', 'f_name' => 'Rev', 'l_name' => 'Iewer', 'email' => 'reviewer@example.test', 'phone' => '0500000001']);
+        foreach ([1 => 'Great lamp', 2 => 'Great hidden lamp'] as $productId => $comment) {
+            DB::table('reviews')->insert(['product_id' => $productId, 'customer_id' => 1, 'comment' => $comment, 'rating' => 5, 'status' => 1]);
+            DB::table('order_details')->insert([['product_id' => $productId, 'qty' => 3, 'delivery_status' => 'delivered'], ['product_id' => $productId, 'qty' => 1, 'delivery_status' => 'delivered']]);
+            DB::table('wishlists')->insert(['product_id' => $productId, 'customer_id' => 1]);
+        }
     }
 
     private function seedFeatureDeal(array $priority, array $memberIds): void
@@ -137,5 +151,80 @@ class HiddenProductExposureTest extends TestCase
         $listed = ProductManager::getPriorityWiseFeatureDealQuery(query: Product::active()->whereIn('id', [1, 2, 3]), dataLimit: 'all');
 
         $this->assertSame([1, 3], $this->idsOf($listed));
+    }
+
+    public function test_the_reviews_of_a_visible_product_are_listed_with_the_reviewers_name_and_rating(): void
+    {
+        $this->seedActivityOnProductsOneAndTwo();
+
+        $response = $this->getJson('/api/v1/products/reviews/product-1')->assertOk();
+
+        $this->assertSame(1, $response->json('total_size'));
+        $this->assertSame('5.00', $response->json('average_rating'));
+        $this->assertSame('Great lamp', $response->json('reviews.0.comment'));
+        $this->assertSame(5, $response->json('reviews.0.rating'));
+        $this->assertSame('Rev', $response->json('reviews.0.customer.f_name'));
+        $this->assertSame('Iewer', $response->json('reviews.0.customer.l_name'));
+        $this->assertArrayHasKey('image_full_url', $response->json('reviews.0.customer'));
+    }
+
+    public function test_the_reviews_of_a_visible_product_do_not_carry_the_reviewers_contact_details_or_the_products_cost(): void
+    {
+        $this->seedActivityOnProductsOneAndTwo();
+
+        $response = $this->getJson('/api/v1/products/reviews/product-1')->assertOk();
+
+        $this->assertArrayNotHasKey('email', $response->json('reviews.0.customer'));
+        $this->assertArrayNotHasKey('phone', $response->json('reviews.0.customer'));
+        $this->assertArrayNotHasKey('product', $response->json('reviews.0'));
+        $this->assertStringNotContainsString('reviewer@example.test', $response->getContent());
+        $this->assertStringNotContainsString('purchase_price', $response->getContent());
+    }
+
+    public function test_the_reviews_of_a_hidden_product_are_not_found_like_those_of_an_unknown_one(): void
+    {
+        $this->seedActivityOnProductsOneAndTwo();
+        $unknown = $this->getJson('/api/v1/products/reviews/product-999')->assertNotFound();
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $hidden = $this->getJson("/api/v1/products/reviews/product-{$hiddenId}");
+
+            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+            $this->assertSame(404, $hidden->getStatusCode(), "product {$hiddenId}");
+        }
+    }
+
+    public static function productLookups(): array
+    {
+        return [
+            'sales and wishlist counter' => [fn (int $id) => "/api/v1/products/counter/product-{$id}"],
+            'rating' => [fn (int $id) => "/api/v1/products/rating/{$id}"],
+            'related products' => [fn (int $id) => "/api/v1/products/related-products/product-{$id}"],
+            'social share link' => [fn (int $id) => "/api/v1/products/social-share-link/product-{$id}"],
+        ];
+    }
+
+    #[DataProvider('productLookups')]
+    public function test_a_lookup_of_a_hidden_product_is_answered_like_a_lookup_of_an_unknown_one(Closure $lookup): void
+    {
+        $this->seedActivityOnProductsOneAndTwo();
+        $unknown = $this->getJson($lookup(999));
+
+        foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
+            $hidden = $this->getJson($lookup($hiddenId));
+
+            $this->assertSame($unknown->getStatusCode(), $hidden->getStatusCode(), "product {$hiddenId}");
+            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+        }
+    }
+
+    public function test_the_counter_rating_related_products_and_share_link_of_a_visible_product_are_answered(): void
+    {
+        $this->seedActivityOnProductsOneAndTwo();
+
+        $this->getJson('/api/v1/products/counter/product-1')->assertOk()->assertExactJson(['order_count' => 2, 'wishlist_count' => 1]);
+        $this->assertEquals(5, $this->getJson('/api/v1/products/rating/1')->assertOk()->json());
+        $this->assertSame([3], $this->idsOf($this->getJson('/api/v1/products/related-products/product-1')->assertOk()->json()));
+        $this->assertSame(url('/product/product-1'), $this->getJson('/api/v1/products/social-share-link/product-1')->assertOk()->json());
     }
 }
