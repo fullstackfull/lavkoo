@@ -17,6 +17,7 @@ use App\Http\Middleware\RecordApiResponseShape;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Theme\SectionDataResolver;
 use App\Utils\ProductManager;
 use Closure;
 use Illuminate\Http\Request;
@@ -326,6 +327,69 @@ class HiddenProductExposureTest extends TestCase
 
             $this->assertStringNotContainsString('Great hidden lamp', $response->getContent());
         }
+    }
+
+    /** Flash deal 2 holds eleven products: the five a customer may see (1, 3, 11, 14, 15) and six that are not (2, 4, 5, 6, 12, 13). */
+    private function seedFlashDealOfVisibleAndHiddenProducts(): void
+    {
+        $this->approvedSellerWithProduct(sellerId: 10, productId: 11, shopClosed: false);
+        $this->insertProduct(id: 12, name: 'Seller ten disabled lamp', status: 0, userId: 10, addedBy: 'seller');
+        $this->insertProduct(id: 13, name: 'Seller ten draft lamp', requestStatus: 0, userId: 10, addedBy: 'seller');
+        DB::table('brands')->insert(['id' => 8, 'name' => 'Live brand', 'status' => 1]);
+        $this->insertProduct(id: 14, name: 'Live brand lamp', extra: ['brand_id' => 8]);
+        $this->insertProduct(id: 15, name: 'Plain lamp');
+        $this->insertFlashDeal(id: 2, memberIds: [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15]);
+    }
+
+    private function insertFlashDeal(int $id, array $memberIds): void
+    {
+        DB::table('flash_deals')->insert([
+            'id' => $id, 'title' => "Flash deal {$id}", 'deal_type' => 'flash_deal', 'status' => 1,
+            'start_date' => date('Y-m-d', strtotime('-1 day')), 'end_date' => date('Y-m-d', strtotime('+1 day')),
+        ]);
+        foreach ($memberIds as $productId) {
+            DB::table('flash_deal_products')->insert(['flash_deal_id' => $id, 'product_id' => $productId]);
+        }
+        Cache::flush();
+    }
+
+    public function test_the_flash_deal_counts_the_products_a_customer_may_see_and_not_those_it_holds_unseen(): void
+    {
+        $this->seedFlashDealOfVisibleAndHiddenProducts();
+
+        $deal = $this->getJson('/api/v1/flash-deals')->assertOk();
+        $products = $this->getJson('/api/v1/flash-deals/products/2?limit=20&offset=1')->assertOk();
+
+        $this->assertSame([1, 3, 11, 14, 15], $this->idsOf($products->json('products')));
+        $this->assertSame(5, $products->json('total_size'));
+        $this->assertSame(5, $deal->json('products_count'));
+    }
+
+    public function test_the_storefront_flash_deal_counts_the_same_products_as_the_api(): void
+    {
+        $this->seedFlashDealOfVisibleAndHiddenProducts();
+
+        $flashDeal = ProductManager::getPriorityWiseFlashDealsProductsQuery()['flashDeal'];
+
+        $this->assertSame(5, $flashDeal->products_count);
+    }
+
+    public function test_a_flash_deal_of_products_none_of_which_a_customer_may_see_counts_none(): void
+    {
+        $this->insertFlashDeal(id: 2, memberIds: self::HIDDEN_PRODUCTS);
+
+        $this->assertSame(0, $this->getJson('/api/v1/flash-deals')->assertOk()->json('products_count'));
+        $this->assertSame(0, $this->getJson('/api/v1/flash-deals/products/2')->assertOk()->json('total_size'));
+    }
+
+    public function test_the_flash_deal_section_of_a_theme_counts_the_products_a_customer_may_see(): void
+    {
+        $this->seedFlashDealOfVisibleAndHiddenProducts();
+
+        $section = (new SectionDataResolver())->flashDeal(dealId: 2);
+
+        $this->assertSame(5, $section['products_count']);
+        $this->assertSame([1, 3, 11, 14, 15], $this->idsOf((new SectionDataResolver())->flashDealProducts(dealId: 2, limit: 24)));
     }
 
     /** The reviews of product 1 and of every hidden product, each reading "Review of <product id>". */

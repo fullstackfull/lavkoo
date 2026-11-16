@@ -33,7 +33,7 @@ trait BuildsProductCatalog
         'reviews', 'review_replies', 'users', 'storages', 'wishlists', 'stock_clearance_products', 'stock_clearance_setups', 'authors',
         'digital_product_authors', 'publishing_houses', 'digital_product_publishing_houses', 'digital_product_variations', 'flash_deals',
         'flash_deal_products', 'colors', 'carts', 'shipping_types', 'shipping_methods', 'category_shipping_costs', 'currencies', 'banners',
-        'product_search_index', 'restock_products', 'restock_product_customers', 'product_seos', 'product_compares',
+        'product_search_index', 'restock_products', 'restock_product_customers', 'product_seos', 'product_compares', 'seo_meta_info',
     ];
 
     protected function buildCatalogTables(): void
@@ -486,6 +486,14 @@ trait BuildsProductCatalog
             $table->boolean('status')->default(true);
             $table->date('start_date')->nullable();
             $table->date('end_date')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('seo_meta_info', function (Blueprint $table) {
+            $table->id();
+            $table->string('seoable_type');
+            $table->unsignedBigInteger('seoable_id');
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
             $table->timestamps();
         });
         Schema::create('flash_deal_products', function (Blueprint $table) {
