@@ -11,8 +11,9 @@ trait SettingsTrait
         $envFile = app()->environmentFilePath();
         $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 
+        $envValue = preg_replace('/[\x00-\x1F\x7F]/', '', (string)$envValue);
         if (preg_match('/[^a-zA-Z0-9]/', $envValue)) {
-            $formattedValue = "\"{$envValue}\"";
+            $formattedValue = '"' . addcslashes($envValue, '"\\$') . '"';
         } else {
             $formattedValue = $envValue;
         }
