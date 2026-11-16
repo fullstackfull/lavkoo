@@ -183,8 +183,8 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::get('checkout-payment', 'checkout_payment')->name('checkout-payment');
         // POST, not GET: these two place orders. As GETs they were CSRF-exposed
         // and a link prefetch could create an order.
-        Route::post('checkout-complete', 'getCashOnDeliveryCheckoutComplete')->name('checkout-complete');
-        Route::post('offline-payment-checkout-complete', 'getOfflinePaymentCheckoutComplete')->name('offline-payment-checkout-complete');
+        Route::post('checkout-complete', 'getCashOnDeliveryCheckoutComplete')->name('checkout-complete')->middleware('storefront.sellable');
+        Route::post('offline-payment-checkout-complete', 'getOfflinePaymentCheckoutComplete')->name('offline-payment-checkout-complete')->middleware('storefront.sellable');
         Route::get('order-placed', 'order_placed')->name('order-placed');
         Route::get('order-placed-success', 'getOrderPlaceView')->name('order-placed-success');
         Route::get('shop-cart', 'shop_cart')->name('shop-cart');
@@ -193,7 +193,7 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::post('digital-product-download-otp-verify', 'getDigitalProductDownloadOtpVerify')->name('digital-product-download-otp-verify');
         Route::post('digital-product-download-otp-reset', 'getDigitalProductDownloadOtpReset')->name('digital-product-download-otp-reset');
         Route::get('pay-offline-method-list', 'pay_offline_method_list')->name('pay-offline-method-list')->middleware('guestCheck');
-        Route::post('checkout-complete-wallet', 'checkout_complete_wallet')->name('checkout-complete-wallet');
+        Route::post('checkout-complete-wallet', 'checkout_complete_wallet')->name('checkout-complete-wallet')->middleware('storefront.sellable');
 
         Route::post('subscription', 'subscription')->name('subscription');
         // The all-vendors action, which already filters on shop_name. It used to point at a
@@ -457,8 +457,8 @@ Route::group(['namespace' => 'Customer', 'prefix' => 'customer', 'as' => 'custom
 
 Route::group(['namespace' => 'Customer', 'prefix' => 'customer', 'as' => 'customer.'], function () {
     Route::controller(PaymentController::class)->group(function () {
-        Route::post('web-payment-request', 'payment')->name('web-payment-request');
-        Route::post('customer-add-fund-request', 'customer_add_to_fund_request')->name('add-fund-request');
+        Route::post('web-payment-request', 'payment')->name('web-payment-request')->middleware('storefront.sellable');
+        Route::post('customer-add-fund-request', 'customer_add_to_fund_request')->name('add-fund-request')->middleware('storefront.sellable');
         Route::post('customer-order-edit-pay-amount', 'customerOrderEditPayDueAmount')->name('customer-order-edit-pay-amount');
     });
 });
