@@ -528,21 +528,11 @@ class Helpers
 
     public static function get_seller_by_token($request)
     {
-        $data = '';
-        $success = 0;
-
-        $token = explode(' ', $request->header('authorization'));
-        if (count($token) > 1 && strlen($token[1]) > 30) {
-            $seller = Seller::where(['auth_token' => $token['1']])->first();
-            if (isset($seller)) {
-                $data = $seller;
-                $success = 1;
-            }
-        }
+        $seller = self::getSellerByToken($request);
 
         return [
-            'success' => $success,
-            'data' => $data
+            'success' => $seller ? 1 : 0,
+            'data' => $seller ?? ''
         ];
     }
 
@@ -551,7 +541,7 @@ class Helpers
     {
         $token = explode(' ', $request->header('authorization'));
         if (count($token) > 1 && strlen($token[1]) > 30) {
-            return Seller::where(['auth_token' => $token['1']])->first();
+            return Seller::approved()->where(['auth_token' => $token['1']])->first();
         }
         return null;
     }

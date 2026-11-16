@@ -107,7 +107,9 @@ class SellerController extends Controller
             ], 401);
         }
 
-        return response()->json(Seller::with(['wallet'])->withCount(['product', 'orders'])->where(['id' => $seller['id']])->first(), 200);
+        $profile = Seller::with(['wallet'])->withCount(['product', 'orders'])->where(['id' => $seller['id']])->first();
+
+        return response()->json($profile?->makeVisible(Seller::OWNER_ONLY_ATTRIBUTES), 200);
     }
 
     public function shop_info_update(Request $request):JsonResponse
