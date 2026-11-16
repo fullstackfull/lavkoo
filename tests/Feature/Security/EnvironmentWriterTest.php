@@ -394,14 +394,15 @@ class EnvironmentWriterTest extends TestCase
         return $status === 0;
     }
 
-    public function test_the_web_server_hides_the_temporary_file_as_it_hides_the_environment_file(): void
+    public function test_the_web_server_hides_the_temporary_files_as_it_hides_the_environment_file(): void
     {
         $this->assertSame(1, preg_match('/<FilesMatch "([^"]+)">\s*Order allow,deny\s*Deny from all\s*<\/FilesMatch>/', (string) file_get_contents(base_path('.htaccess')), $rule), 'no rule hides a pattern of files');
 
-        foreach (['.env', '.env.tmp'] as $hidden) {
+        // the files that are written beside a PHP file every request includes (the licence configuration, an add-on's info file) are plain text to the web server
+        foreach (['.env', '.env.tmp', 'system-addons.php.tmp', 'info.php.tmp', 'new-messages.php.tmp'] as $hidden) {
             $this->assertSame(1, preg_match('/' . $rule[1] . '/', $hidden), $hidden);
         }
-        foreach (['index.php', '.htaccess', 'sitemap.xml'] as $served) {
+        foreach (['index.php', '.htaccess', 'sitemap.xml', 'system-addons.php', 'info.php', 'archive.tmp'] as $served) {
             $this->assertSame(0, preg_match('/' . $rule[1] . '/', $served), $served);
         }
     }

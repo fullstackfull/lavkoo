@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Traits\ActivationClass;
+use App\Utils\AtomicFile;
 use App\Utils\PlainFileName;
 use App\Traits\AddonHelper;
 use App\Traits\FileManagerTrait;
@@ -194,7 +195,7 @@ class AddonService
         }
         $fullData['is_published'] = $fullData['is_published'] ? 0 : 1;
         $str = "<?php return " . var_export($fullData, true) . ";";
-        file_put_contents(base_path($path . '/Addon/info.php'), $str);
+        AtomicFile::rewrite(path: base_path($path . '/Addon/info.php'), change: fn (): string => $str, lockIsRequired: false);
 
         Artisan::call('optimize:clear');
         Artisan::call('view:clear');
@@ -229,7 +230,7 @@ class AddonService
             $full_data['username'] = $request['username'];
             $full_data['purchase_code'] = $request['purchase_code'];
             $str = "<?php return " . var_export($full_data, true) . ";";
-            file_put_contents(base_path($path . '/Addon/info.php'), $str);
+            AtomicFile::rewrite(path: base_path($path . '/Addon/info.php'), change: fn (): string => $str, lockIsRequired: false);
         }
 
         $activationUrl = base64_decode('aHR0cHM6Ly9hY3RpdmF0aW9uLjZhbXRlY2guY29t');

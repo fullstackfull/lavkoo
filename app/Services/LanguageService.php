@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Utils\AtomicFile;
 use Exception;
 use stdClass;
 use RecursiveIteratorIterator;
@@ -356,13 +357,19 @@ class LanguageService
 
     /**
      * A language file is PHP that every request in that language includes, and a translation is text an admin (or a translation service)
-     * wrote: it is written with var_export so that a `${...}`, a quote or a backslash in a value stays a string and is never code.
+     * wrote: it is written with var_export so that a `${...}`, a quote or a backslash in a value stays a string and is never code, and in one
+     * step (see AtomicFile) so that a request which includes the file meanwhile never reads it empty.
      */
-    private function writeMessagesFile(string $path, array $messages): void
+    public function writeMessagesFile(string $path, array $messages): void
     {
-        file_put_contents($path, getLanguageFileContents(messages: $messages));
+        AtomicFile::rewrite(
+            path: $path,
+            change: static fn (): string => getLanguageFileContents(messages: $messages),
+            createWhenMissing: true,
+            lockIsRequired: false,
+        );
         if (function_exists('opcache_invalidate')) {
-            opcache_invalidate($path, true);
+            @opcache_invalidate($path, true);
         }
     }
 

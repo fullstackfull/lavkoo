@@ -47,12 +47,15 @@ class AdminAddonSurfaceTest extends TestCase
 
     private string $publicModulesBackup;
 
+    private string $licenceConfigurationBefore;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->rememberLanguageFiles();
         $this->buildCoreSchema();
+        $this->licenceConfigurationBefore = (string) file_get_contents(base_path('config/system-addons.php'));
 
         // Deleting an add-on re-syncs public/Modules with Modules/, which drops the public copy of every module this checkout does not hold.
         $this->publicModulesBackup = storage_path('framework/testing/public-modules-' . uniqid());
@@ -80,6 +83,7 @@ class AdminAddonSurfaceTest extends TestCase
         File::deleteDirectory(public_path('Modules'));
         File::copyDirectory($this->publicModulesBackup, public_path('Modules'));
         File::deleteDirectory($this->publicModulesBackup);
+        file_put_contents(base_path('config/system-addons.php'), $this->licenceConfigurationBefore);
         $this->restoreLanguageFiles();
 
         parent::tearDown();
@@ -388,6 +392,63 @@ class AdminAddonSurfaceTest extends TestCase
 
         $this->assertSame('success', $result['status']);
         $this->assertSame(1, (include base_path('Modules/ProbeAddon/Addon/info.php'))['is_published']);
+    }
+
+    // ---- the info file is replaced in one step ----------------------------------------------------------------------------------
+    //
+    // Every request that lists the add-ons includes the info files, so a write that truncates one first gives such a request an empty file.
+
+    private function activatedAddon(): string
+    {
+        $activated = "<?php return ['name' => 'Probe', 'module_name' => 'ProbeAddon', 'software_id' => 'probe', 'is_published' => 0, 'purchase_code' => 'code', 'username' => 'user'];";
+        $this->makeDirectory('Modules/ProbeAddon', ['Addon/info.php' => $activated]);
+
+        return base_path('Modules/ProbeAddon/Addon/info.php');
+    }
+
+    private function assertInfoFileWasReplaced(string $info, int $inodeBefore): void
+    {
+        clearstatcache();
+        $this->assertNotSame($inodeBefore, fileinode($info), 'the info file was rewritten in place');
+        $this->assertSame(['info.php'], array_values(array_diff(scandir(dirname($info)), ['.', '..'])), 'a temporary file stayed');
+        $this->assertSame(1, (include $info)['is_published']);
+    }
+
+    public function test_publishing_an_addon_replaces_its_info_file_in_one_step(): void
+    {
+        $info = $this->activatedAddon();
+        $inodeBefore = fileinode($info);
+
+        $result = app(AddonService::class)->getPublishData(Request::create('/', 'POST', ['path' => 'Modules/ProbeAddon']));
+
+        $this->assertSame('success', $result['status']);
+        $this->assertInfoFileWasReplaced($info, $inodeBefore);
+    }
+
+    public function test_activating_an_addon_replaces_its_info_file_in_one_step(): void
+    {
+        $info = $this->activatedAddon();
+        $inodeBefore = fileinode($info);
+        Http::fake(['*' => Http::response(['active' => base64_encode('1')])]);
+
+        $result = app(AddonService::class)->getActivationData(Request::create('/', 'POST', ['path' => 'Modules/ProbeAddon', 'username' => 'u2', 'purchase_code' => 'c2']));
+
+        $this->assertSame(1, $result['status']);
+        $this->assertInfoFileWasReplaced($info, $inodeBefore);
+        $this->assertSame(['u2', 'c2'], [(include $info)['username'], (include $info)['purchase_code']]);
+    }
+
+    public function test_activating_from_the_list_replaces_the_info_file_in_one_step(): void
+    {
+        $info = $this->activatedAddon();
+        $inodeBefore = fileinode($info);
+        $request = AddonPurchaseCodeRequest::create('/', 'POST', ['path' => 'Modules/ProbeAddon', 'addon_name' => 'ProbeAddon', 'name' => 'n', 'email' => 'a@b.test', 'username' => 'u2', 'purchase_key' => 'c2'], server: ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']);
+
+        $response = app(AddonActivationController::class)->activateFromList($request);
+
+        $this->assertSame(1, $response->getData(true)['status']);
+        $this->assertInfoFileWasReplaced($info, $inodeBefore);
+        $this->assertSame(['u2', 'c2'], [(include $info)['username'], (include $info)['purchase_code']]);
     }
 
     // ---- the archive an add-on is installed from ---------------------------------------------------------------------------------

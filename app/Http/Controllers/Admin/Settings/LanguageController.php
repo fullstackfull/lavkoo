@@ -175,8 +175,7 @@ class LanguageController extends BaseController
     {
         $fullData = include(base_path('resources/lang/' . $lang . '/messages.php'));
         unset($fullData[$request['key']]);
-        $string = "<?php return " . var_export($fullData, true) . ";";
-        file_put_contents(base_path('resources/lang/' . $lang . '/messages.php'), $string);
+        $this->languageService->writeMessagesFile(path: base_path('resources/lang/' . $lang . '/messages.php'), messages: $fullData);
     }
 
     public function updateTranslate(Request $request, $lang): JsonResponse
@@ -192,16 +191,14 @@ class LanguageController extends BaseController
             }
             $dataFiltered[base64_decode($request['key'])] = removeSpecialCharacters($request['value']);
             $this->languageService->updateAdvancedSearchKeyWords($lang, $textKey, removeSpecialCharacters($request['value']));
-            $string = "<?php return " . var_export($dataFiltered, true) . ";";
-            file_put_contents(base_path('resources/lang/' . $lang . '/messages.php'), $string);
+            $this->languageService->writeMessagesFile(path: base_path('resources/lang/' . $lang . '/messages.php'), messages: $dataFiltered);
         } elseif (array_key_exists($textKey, $newMessagesArray)) {
             foreach ($newMessagesArray as $key => $data) {
                 $dataFiltered[removeSpecialCharacters(text: $key)] = $data;
             }
             $dataFiltered[base64_decode($request['key'])] = removeSpecialCharacters($request['value']);
             $this->languageService->updateAdvancedSearchKeyWords($lang, $textKey, removeSpecialCharacters($request['value']));
-            $string = "<?php return " . var_export($dataFiltered, true) . ";";
-            file_put_contents(base_path('resources/lang/' . $lang . '/new-messages.php'), $string);
+            $this->languageService->writeMessagesFile(path: base_path('resources/lang/' . $lang . '/new-messages.php'), messages: $dataFiltered);
         }
         return response()->json(['message' => translate('Message_Updated')]);
     }
@@ -225,8 +222,7 @@ class LanguageController extends BaseController
                 $this->languageService->updateAdvancedSearchKeyWords($lang,$textKey, removeSpecialCharacters($translated));
                 $dataFiltered[$textKey] = removeSpecialCharacters($translated);
 
-                $string = "<?php return " . var_export($dataFiltered, true) . ";";
-                file_put_contents(base_path('resources/lang/' . $lang . '/messages.php'), $string);
+                $this->languageService->writeMessagesFile(path: base_path('resources/lang/' . $lang . '/messages.php'), messages: $dataFiltered);
                 return response()->json(['translated_data' => $translated]);
             } elseif (array_key_exists($textKey, $newMessagesArray)) {
                 foreach ($newMessagesArray as $key => $data) {
@@ -237,8 +233,7 @@ class LanguageController extends BaseController
                 $this->languageService->updateAdvancedSearchKeyWords($lang, $textKey, removeSpecialCharacters($translated));
                 $dataFiltered[$textKey] = removeSpecialCharacters($translated);
 
-                $string = "<?php return " . var_export($dataFiltered, true) . ";";
-                file_put_contents(base_path('resources/lang/' . $lang . '/new-messages.php'), $string);
+                $this->languageService->writeMessagesFile(path: base_path('resources/lang/' . $lang . '/new-messages.php'), messages: $dataFiltered);
                 return response()->json(['translated_data' => $translated]);
             }
         }
