@@ -2,6 +2,7 @@
 
 namespace Modules\Blog\app\Models;
 
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -36,7 +37,7 @@ class BlogCategory extends Model
 
     public function getNameAttribute($name): string|null
     {
-        if (strpos(url()->current(), '/admin') || strpos(url()->current(), '/vendor') || strpos(url()->current(), '/seller')) {
+        if (RequestArea::isPanel()) {
             return $name;
         }
         $translation = $this->translations()->where(['key' => 'name'])

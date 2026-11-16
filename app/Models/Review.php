@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -109,17 +110,11 @@ class Review extends Model
     }
     protected $appends = ['attachment_full_url'];
 
-    /** The panels and their APIs see every review. A storefront page that merely starts with the same letters, such as /vendor-shop, does not. */
-    private static function isPanelRequest(): bool
-    {
-        return request()->is('admin', 'admin/*', 'seller', 'seller/*', 'vendor', 'vendor/*', 'api/v2', 'api/v2/*', 'api/v3', 'api/v3/*');
-    }
-
     protected static function boot()
     {
         parent::boot();
         static::addGlobalScope('active', function (Builder $builder) {
-            return self::isPanelRequest() ? $builder : $builder->where('status', 1);
+            return RequestArea::isPanel() ? $builder : $builder->where('status', 1);
         });
 
         static::saved(function ($model) {

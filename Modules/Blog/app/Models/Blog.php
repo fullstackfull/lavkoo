@@ -3,6 +3,7 @@
 namespace Modules\Blog\app\Models;
 
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -79,7 +80,7 @@ class Blog extends Model
 
     public function getTitleAttribute($title): string|null
     {
-        if (strpos(url()->current(), '/admin') || strpos(url()->current(), '/vendor') || strpos(url()->current(), '/seller')) {
+        if (RequestArea::isPanel()) {
             return $title;
         }
         $translation = $this->translations()->where(['key' => 'title', 'is_draft' => 0])
@@ -96,7 +97,7 @@ class Blog extends Model
 
     public function getDescriptionAttribute($description): string|null
     {
-        if (strpos(url()->current(), '/admin') || strpos(url()->current(), '/vendor') || strpos(url()->current(), '/seller')) {
+        if (RequestArea::isPanel()) {
             return $description;
         }
         $translation = $this->translations()->where(['key' => 'description', 'is_draft' => 0])

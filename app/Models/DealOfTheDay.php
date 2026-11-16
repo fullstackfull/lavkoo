@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Utils\Helpers;
+use App\Utils\RequestArea;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -55,7 +56,7 @@ class DealOfTheDay extends Model
 
     public function getTitleAttribute($title): string|null
     {
-        if (strpos(url()->current(), '/admin') || strpos(url()->current(), '/vendor') || strpos(url()->current(), '/seller')) {
+        if (RequestArea::isPanel()) {
             return $title;
         }
 

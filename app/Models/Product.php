@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -511,8 +512,7 @@ class Product extends Model
                     return $query->where('locale', getDefaultLanguage());
                 }
             }, 'reviews' => function ($query) {
-                $segment = request()->segment(1);
-                $query->whereNull('delivery_man_id')->when(!in_array($segment, ['admin', 'vendor', 'seller'], true), function ($query) use ($segment) {
+                $query->whereNull('delivery_man_id')->when(!RequestArea::isPanel(), function ($query) {
                     return $query->active();
                 });
             }]);
