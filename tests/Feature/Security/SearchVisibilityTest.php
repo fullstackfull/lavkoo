@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Security;
 
+use App\Services\Search\ProductSearchService;
 use App\Utils\ProductManager;
 use Closure;
 use Illuminate\Http\Request;
@@ -13,7 +14,8 @@ use Tests\TestCase;
 
 /**
  * A search answers only with products a customer may see. The translated-name searches and the category filter used to add products
- * the active scope had already left out, so a draft, disabled or unapproved product could be found by name or by its category.
+ * the active scope had already left out, so a draft, disabled or unapproved product could be found by name or by its category, and
+ * the word-by-word hint of an empty search used to tell which words a product that is not for sale contains.
  */
 class SearchVisibilityTest extends TestCase
 {
@@ -134,5 +136,24 @@ class SearchVisibilityTest extends TestCase
         $this->assertSame([1], $search(self::CATEGORY));
         $this->assertSame([6], $search(self::SUB_SUB_CATEGORY));
         $this->assertSame([], $search(99));
+    }
+
+    public function test_a_word_found_in_a_product_a_customer_may_see_is_not_reported_as_unmatched(): void
+    {
+        $this->indexEveryProduct();
+        $search = app(ProductSearchService::class);
+
+        $this->assertSame([], $search->unmatchedTerms('alpha lamp zeta chair'));
+        $this->assertSame(['nonexistentwordxyz'], $search->unmatchedTerms('alpha nonexistentwordxyz'));
+    }
+
+    public function test_a_word_found_only_in_a_product_a_customer_may_not_see_is_reported_as_unmatched(): void
+    {
+        DB::table('products')->where('id', 2)->update(['details' => '<p>Unreleased crimsonwidget edition</p>']);
+        $this->indexEveryProduct();
+
+        $unmatched = app(ProductSearchService::class)->unmatchedTerms('hidden draft pending crimsonwidget');
+
+        $this->assertSame(['hidden', 'draft', 'pending', 'crimsonwidget'], $unmatched);
     }
 }

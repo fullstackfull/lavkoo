@@ -268,6 +268,27 @@ class HiddenProductExposureTest extends TestCase
         }
     }
 
+    public function test_the_search_hint_names_the_words_that_match_nothing(): void
+    {
+        $this->indexEveryProduct();
+
+        $response = $this->getJson('/searched-products?name=nonexistentwordxyz')->assertOk();
+
+        $this->assertSame(['nonexistentwordxyz'], $response->json('unmatched_terms'));
+    }
+
+    public function test_the_search_hint_does_not_tell_which_words_a_product_a_customer_may_not_see_contains(): void
+    {
+        DB::table('products')->where('id', 2)->update(['details' => '<p>Unreleased crimsonwidget edition</p>']);
+        $this->indexEveryProduct();
+
+        foreach (['hidden', 'draft', 'branded', 'crimsonwidget'] as $wordOfAHiddenProduct) {
+            $response = $this->getJson("/searched-products?name={$wordOfAHiddenProduct}")->assertOk();
+
+            $this->assertSame([$wordOfAHiddenProduct], $response->json('unmatched_terms'), $wordOfAHiddenProduct);
+        }
+    }
+
     public function test_a_banner_of_a_visible_product_carries_the_product(): void
     {
         $this->insertBanner(id: 1, productId: 1);
