@@ -183,6 +183,26 @@ class FileManagerUploadTest extends TestCase
         return $upload;
     }
 
+    /** An archive with one entry that has no name: libzip opens it and names the entry with an empty text. */
+    private function zipUploadWithAnUnnamedEntry(): UploadedFile
+    {
+        $upload = $this->zipUpload(['x' => $this->jpeg()]);
+        $bytes = (string) file_get_contents($upload->getPathname());
+        $bytes = substr_replace($bytes, "\0\0", 26, 2);
+        $bytes = substr($bytes, 0, 30) . substr($bytes, 31);
+        $directoryStart = (int) strrpos($bytes, "PK\x01\x02");
+        $bytes = substr_replace($bytes, "\0\0", $directoryStart + 28, 2);
+        $bytes = substr($bytes, 0, $directoryStart + 46) . substr($bytes, $directoryStart + 47);
+        $endStart = (int) strrpos($bytes, "PK\x05\x06");
+        $end = unpack('Vsize/Voffset', substr($bytes, $endStart + 12, 8));
+        $bytes = substr_replace($bytes, pack('VV', $end['size'] - 1, $end['offset'] - 1), $endStart + 12, 8);
+        file_put_contents($upload->getPathname(), $bytes);
+
+        $this->assertSame('', $this->statOfTheFirstEntry($upload)['name'], 'the entry has no name');
+
+        return $upload;
+    }
+
     /** @return array<string, mixed> */
     private function statOfTheFirstEntry(UploadedFile $upload): array
     {
@@ -269,7 +289,10 @@ class FileManagerUploadTest extends TestCase
 
     public function test_a_zip_entry_that_the_disk_would_refuse_is_not_copied(): void
     {
-        $entries = ["line\nbreak.png" => $this->jpeg(), "zero\u{200B}width.png" => $this->jpeg(), "right\u{202E}left.png" => $this->jpeg(), "delete\x7F.png" => $this->jpeg(), 'ok.jpg' => $this->jpeg()];
+        $entries = [
+            "line\nbreak.png" => $this->jpeg(), "zero\u{200B}width.png" => $this->jpeg(), "right\u{202E}left.png" => $this->jpeg(), "delete\x7F.png" => $this->jpeg(),
+            "private\u{E000}use.png" => $this->jpeg(), "unassigned\u{0378}.png" => $this->jpeg(), 'ok.jpg' => $this->jpeg(),
+        ];
 
         $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload($entries)]));
 
@@ -454,7 +477,8 @@ class FileManagerUploadTest extends TestCase
 
     public function test_the_admin_is_told_that_an_archive_holds_too_many_files_and_nothing_else(): void
     {
-        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($this->manyImages(5001) + ['shell.php' => '<?php'])]);
+        // the script is listed first, so it is counted as left out before the scan stops at the 5001st file
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['shell.php' => '<?php'] + $this->manyImages(5001))]);
 
         $this->assertSame(['type' => 'error', 'message' => 'The archive holds more than 5000 files that can be stored'], $toast);
     }
@@ -791,6 +815,73 @@ class FileManagerUploadTest extends TestCase
         $toast = $this->toastAfterPosting(['file' => $this->zipUpload(['icons/a.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>'])]);
 
         $this->assertSame(['type' => 'error', 'message' => 'The archive holds no file that can be stored: One file of the archive was not stored (icons/a.svg)'], $toast);
+    }
+
+    public function test_an_entry_without_a_name_is_neither_stored_nor_reported_as_left_out(): void
+    {
+        $toast = $this->toastAfterPosting(['file' => $this->zipUploadWithAnUnnamedEntry()]);
+
+        $this->assertSame(['type' => 'error', 'message' => 'The archive holds no file that can be stored'], $toast);
+    }
+
+    public function test_the_metadata_of_a_folder_at_any_depth_is_not_reported_as_left_out(): void
+    {
+        $entries = ['photos/2026/.DS_Store' => 'metadata', 'photos/2026/Thumbs.db' => 'metadata', 'photos/2026/a.jpg' => $this->jpeg()];
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully'], $toast);
+    }
+
+    public function test_the_recent_files_the_gallery_remembers_are_forgotten_after_an_archive_is_stored(): void
+    {
+        foreach (['cache_for_recent_file_list_public', 'cache_for_recent_file_list_s3'] as $key) {
+            Cache::put($key, ['an old list']);
+        }
+
+        $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUpload(['a.jpg' => $this->jpeg()])]));
+
+        $this->assertFalse(Cache::has('cache_for_recent_file_list_public'));
+        $this->assertFalse(Cache::has('cache_for_recent_file_list_s3'));
+    }
+
+    public function test_the_recent_files_the_gallery_remembers_are_forgotten_after_an_archive_is_stored_on_s3(): void
+    {
+        $request = $this->bucketRequest(['file' => $this->zipUpload(['a.jpg' => $this->jpeg()])]);
+        Cache::put('cache_for_recent_file_list_s3', ['an old list']);
+
+        $this->service()->uploadFileAndImages($request);
+
+        $this->assertFalse(Cache::has('cache_for_recent_file_list_s3'));
+    }
+
+    public function test_the_admin_is_told_what_an_archive_left_out_when_images_came_with_it(): void
+    {
+        $toast = $this->toastAfterPosting(['images' => [$this->imageUpload('photo.jpg')], 'file' => $this->zipUpload(['ok.jpg' => $this->jpeg(), 'shell.php' => '<?php'])]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'Image uploaded successfully: One file of the archive was not stored (shell.php)'], $toast);
+    }
+
+    public function test_a_name_that_is_no_text_is_shown_as_text(): void
+    {
+        $report = new ArchiveReport();
+        $report->skip("bad\xFF\xFEname.php");
+
+        $message = (string) $report->skippedMessage();
+
+        $this->assertTrue(mb_check_encoding($message, 'UTF-8'));
+        $this->assertStringContainsString('name.php', $message);
+    }
+
+    public function test_on_s3_the_stored_files_are_public(): void
+    {
+        $request = $this->bucketRequest(['file' => $this->zipUpload(['a.jpg' => $this->jpeg(), 'docs/b.pdf' => '%PDF-1.4'])]);
+        Storage::fake('s3', ['visibility' => 'private']);
+
+        $this->service()->uploadFileAndImages($request);
+
+        $visibilities = array_map(static fn (string $path): string => Storage::disk('s3')->getVisibility($path), $this->storedOnTheBucket());
+        $this->assertSame(['public', 'public'], $visibilities);
     }
 
     public function test_the_admin_is_told_that_an_entry_nobody_can_read_was_left_out(): void
