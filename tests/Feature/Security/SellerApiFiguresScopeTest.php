@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Security;
 
+use App\Services\SellerCenter\Lists\InventoryList;
 use App\Services\SellerCenter\Revenue;
 use App\Services\SellerIntelligence\InsightDraft;
 use App\Services\SellerIntelligence\Producers\FinanceIntegrityProducer;
 use App\Services\SellerIntelligence\SellerInsightEngine;
+use App\Services\SellerIntelligence\Severity\SellerBaselineProvider;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -203,6 +205,38 @@ class SellerApiFiguresScopeTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame([], $response->json('insights'));
         $this->assertSame(0, $response->json('counts.total'));
+    }
+
+    // ---- reserved units ----
+
+    public function test_the_reserved_units_are_the_sellers_own_accepted_orders_and_not_the_in_house_shops(): void
+    {
+        DB::table('orders')->where('id', self::OWN_ORDER)->update(['order_status' => 'confirmed']);
+        DB::table('orders')->where('id', self::IN_HOUSE_ORDER)->update(['order_status' => 'processing']);
+        DB::table('order_details')->where('id', self::IN_HOUSE_LINE)->update(['qty' => 7]);
+
+        $inventory = app(InventoryList::class);
+
+        $this->assertSame(2, $inventory->reservedTotal(self::SELLER));
+    }
+
+    public function test_the_reserved_units_of_the_other_seller_are_still_counted(): void
+    {
+        DB::table('orders')->where('id', self::OTHER_SELLERS_ORDER)->update(['order_status' => 'out_for_delivery']);
+
+        $this->assertSame(2, app(InventoryList::class)->reservedTotal(self::OTHER_SELLER));
+    }
+
+    // ---- the size of the business every insight is scored against ----
+
+    public function test_the_recent_revenue_every_insight_is_scored_against_is_the_sellers_own_delivered_lines_only(): void
+    {
+        $this->deliverTheLinesLongAgo();
+
+        $baselines = app(SellerBaselineProvider::class);
+
+        $this->assertEqualsWithDelta(200.0, $baselines->for(self::SELLER)->recentRevenue, 0.001);
+        $this->assertEqualsWithDelta(960.0, $baselines->for(self::OTHER_SELLER)->recentRevenue, 0.001);
     }
 
     // ---- helpers ----
