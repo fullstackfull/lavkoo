@@ -11233,6 +11233,7 @@ return [
 	'attention_outcome_still_unknown' => 'I looked and the channel does not say',
 	'attention_outcome_no_longer_relevant' => 'No longer relevant',
 	'profile_updated_successfully' => 'Profile updated successfully',
+	'admin_password_updated_successfully' => 'Admin password updated successfully',
 	'theme_created_from_preset_successfully' => 'Theme created from preset successfully',
 	'no_review_meets_the_minimum_rating_yet' => 'No review meets the minimum rating yet',
 	'the_app_has_no_newsletter_signup_surface' => 'The app has no newsletter signup surface',

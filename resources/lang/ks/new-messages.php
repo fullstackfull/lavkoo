@@ -2743,6 +2743,7 @@ return [
 	'Are_you_sure_you_want_to_delete_this_vendor' => 'Are you sure you want to delete this vendor',
 	'Vendor_deleted_successfully' => 'Vendor deleted successfully',
 	'profile_updated_successfully' => 'Profile updated successfully',
+	'admin_password_updated_successfully' => 'Admin password updated successfully',
 	'The_phone_has_already_been_taken' => 'The phone has already been taken',
 	'The_image_type_must_be_' => 'The image type must be ',
 	'vendor_image_may_not_be_greater_than_' => 'Vendor image may not be greater than ',

@@ -4843,6 +4843,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'download_URL_For_Deliveryman_App_ios_version_is_required' => 'Download URL For Deliveryman App ios version is required',
 	'Already_have_account_' => 'Already have account ',
 	'profile_updated_successfully' => 'Profile updated successfully',
+	'admin_password_updated_successfully' => 'Admin password updated successfully',
 	'no_notifications' => 'No notifications',
 	'staff_and_roles' => 'Staff and roles',
 	'payouts' => 'Payouts',

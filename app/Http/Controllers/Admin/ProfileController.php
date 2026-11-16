@@ -14,6 +14,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 
+/** An admin reads and edits only their own profile: the {id} in these URLs is never trusted, because the routes carry no module permission. */
 class ProfileController extends BaseController
 {
     public function __construct(
@@ -34,7 +35,13 @@ class ProfileController extends BaseController
      */
     public function getUpdateView(string|int $id): View|RedirectResponse
     {
-        $admin = $this->adminRepo->getFirstWhere(params: ['id' => $id]);
+        $signedInAdminId = auth('admin')->id();
+        if ($signedInAdminId != $id) {
+            ToastMagic::error(translate('access_Denied') . '!');
+            return redirect()->route('admin.dashboard.index');
+        }
+
+        $admin = $this->adminRepo->getFirstWhere(params: ['id' => $signedInAdminId]);
         $shopBanner = getWebConfig('shop_banner');
         return view('admin-views.profile.update-view', compact('admin', 'shopBanner'));
     }
@@ -46,8 +53,9 @@ class ProfileController extends BaseController
      */
     public function update(AdminRequest $request, string|int $id): RedirectResponse
     {
-        $admin = $this->adminRepo->getFirstWhere(params: ['id' => $id]);
-        $this->adminRepo->update(id: $id, data: $this->adminService->getAdminDataForUpdate(request: $request, admin: $admin));
+        $signedInAdminId = auth('admin')->id();
+        $admin = $this->adminRepo->getFirstWhere(params: ['id' => $signedInAdminId]);
+        $this->adminRepo->update(id: $signedInAdminId, data: $this->adminService->getAdminDataForUpdate(request: $request, admin: $admin));
         ToastMagic::success(translate('profile_updated_successfully'));
         return redirect()->back();
     }
@@ -59,7 +67,7 @@ class ProfileController extends BaseController
      */
     public function updatePassword(AdminPasswordRequest $request, string|int $id): RedirectResponse
     {
-        $this->adminRepo->update(id: $id, data: $this->adminService->getAdminPasswordData(request: $request));
+        $this->adminRepo->update(id: auth('admin')->id(), data: $this->adminService->getAdminPasswordData(request: $request));
         ToastMagic::success(translate('admin_password_updated_successfully'));
         return redirect()->back();
     }
