@@ -160,6 +160,10 @@ class SitemapFilesTest extends TestCase
             'the schema location attribute of the standard' => ['<urlset ' . $ns . ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd"><url><loc>https://a.test/</loc></url></urlset>'],
             'a comment and a cdata section' => ['<urlset ' . $ns . '><!-- made by a tool --><url><loc><![CDATA[https://a.test/?a=1&b=2]]></loc></url></urlset>'],
             'a byte order mark' => ["\xEF\xBB\xBF" . '<?xml version="1.0" encoding="UTF-8"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>'],
+            'a declaration in lower case with single quotes and spaces' => ["<?xml version='1.0' encoding = 'utf-8' ?><urlset " . $ns . '><url><loc>https://a.test/</loc></url></urlset>'],
+            'a file that declares ASCII' => ['<?xml version="1.0" encoding="US-ASCII"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>'],
+            'a file that declares ISO-8859-1' => ['<?xml version="1.0" encoding="ISO-8859-1"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>'],
+            'an address in Arabic' => ['<?xml version="1.0" encoding="UTF-8"?><urlset ' . $ns . '><url><loc>https://a.test/منتج</loc></url></urlset>'],
         ];
     }
 
@@ -197,6 +201,15 @@ class SitemapFilesTest extends TestCase
             'a script' => ['<?php system($_GET["c"]);'],
             'an unclosed tag' => ['<urlset ' . $ns . '><url>'],
             'an empty file' => [''],
+            // The encoding is the one thing a parser reads before it reads the markup. A name that libxml2 knows through ICU and a browser does
+            // not (HZ, ISO-2022-KR, SCSU, CESU-8, UTF-7) turns bytes that are text for the validator into elements for the browser.
+            'a file in HZ, where the browser reads a script element the validator saw as three characters' => ['<?xml version="1.0" encoding="HZ"?><urlset ' . $ns . ' xmlns:x="http://www.w3.org/1999/xhtml"><url><loc>~{<x:script>alert(1);</x:script>~}</loc></url></urlset>'],
+            'a file in ISO-2022-KR' => ['<?xml version="1.0" encoding="ISO-2022-KR"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>'],
+            'a file in SCSU' => ['<?xml version="1.0" encoding="SCSU"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>'],
+            'a file in CESU-8' => ['<?xml version="1.0" encoding="CESU-8"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>'],
+            'a file that declares UTF-16 and is written in it' => ["\xFF\xFE" . mb_convert_encoding('<?xml version="1.0" encoding="UTF-16"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>', 'UTF-16LE', 'UTF-8')],
+            'a file in UTF-16 with a byte order mark and no declaration' => ["\xFF\xFE" . mb_convert_encoding('<urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>', 'UTF-16LE', 'UTF-8')],
+            'a file in UTF-16 without a byte order mark' => [mb_convert_encoding('<?xml version="1.0" encoding="UTF-16"?><urlset ' . $ns . '><url><loc>https://a.test/</loc></url></urlset>', 'UTF-16BE', 'UTF-8')],
         ];
     }
 
