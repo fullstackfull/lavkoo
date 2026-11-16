@@ -342,6 +342,7 @@ class SellerProductOwnershipTest extends TestCase
             $table->id();
             $table->string('f_name')->nullable();
             $table->string('auth_token')->nullable();
+            $table->string('status')->default('approved');
             $table->timestamps();
             $table->softDeletes();
         });
