@@ -620,6 +620,7 @@ class SellerPasswordResetTest extends TestCase
             'another Saudi number' => ['+966511111111'],
             'the same digits under another country code' => ['+971500000001'],
             'a number that only ends like the owner\'s' => ['+96600000001'],
+            'a foreign number whose digits read as the owner\'s' => ['+500000001'],
         ];
     }
 
@@ -648,6 +649,28 @@ class SellerPasswordResetTest extends TestCase
 
     #[DataProvider('sameSaudiNumberWrittenDifferently')]
     public function test_google_writing_the_same_saudi_number_differently_still_verifies_the_seller(string $registeredPhone, string $googlesPhone): void
+    {
+        $owner = $this->seller($registeredPhone, 'owner@example.test');
+        $this->firebaseKnows([self::SESSION => ['phone' => $googlesPhone, 'code' => '482915']]);
+
+        $this->storeFirebaseSession($registeredPhone, self::SESSION)->assertOk();
+        $this->verifyFirebaseCode($registeredPhone, self::SESSION, '482915')->assertOk();
+        $this->resetPasswordTheWayTheAppDoes($registeredPhone, self::SESSION)->assertOk();
+
+        $this->assertTookPassword($owner);
+    }
+
+    /** @return array<string, array{string, string}> what the seller registered with, and what Google calls the same Gulf number */
+    public static function sameGulfNumberWrittenDifferently(): array
+    {
+        return [
+            'the Emirates with the trunk zero kept after the country code' => ['+9710501234567', '+971501234567'],
+            'Kuwait with the trunk zero kept after the country code' => ['+965050012345', '+96550012345'],
+        ];
+    }
+
+    #[DataProvider('sameGulfNumberWrittenDifferently')]
+    public function test_google_writing_the_same_gulf_number_differently_still_verifies_the_seller(string $registeredPhone, string $googlesPhone): void
     {
         $owner = $this->seller($registeredPhone, 'owner@example.test');
         $this->firebaseKnows([self::SESSION => ['phone' => $googlesPhone, 'code' => '482915']]);

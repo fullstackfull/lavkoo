@@ -82,7 +82,7 @@ class VendorPasswordResetService
 
     public function acceptSession(Seller $seller, string $session, string $verifiedPhone): bool
     {
-        if (!$this->isSamePhone(first: $verifiedPhone, second: $seller['phone'])) {
+        if (!SaudiPhone::isSameNumber(first: $verifiedPhone, second: (string)$seller['phone'])) {
             return false;
         }
 
@@ -126,20 +126,4 @@ class VendorPasswordResetService
         return hash_hmac('sha256', $session, (string)config('app.key'));
     }
 
-    /**
-     * Google answers with the phone in its own notation, so two Saudi numbers written differently (+966 5…, 05…) are the same number and
-     * any other numbers are compared by their digits, not their punctuation.
-     */
-    private function isSamePhone(string $first, string $second): bool
-    {
-        $firstSaudi = SaudiPhone::normalize($first);
-        $secondSaudi = SaudiPhone::normalize($second);
-        if ($firstSaudi !== null || $secondSaudi !== null) {
-            return $firstSaudi === $secondSaudi;
-        }
-
-        $digitsOfFirst = (string)preg_replace('/\D+/', '', $first);
-
-        return $digitsOfFirst !== '' && $digitsOfFirst === (string)preg_replace('/\D+/', '', $second);
-    }
 }
