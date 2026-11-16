@@ -1936,10 +1936,12 @@ class ProductController extends Controller
             ->where(['seller_id' => $seller['id']])
             ->when(!empty($request['search']), function ($query) use ($request) {
                 $key = searchTerms($request['search']);
-                foreach ($key as $value) {
-                    $query->where('f_name', 'like', "%{$value}%")
-                        ->orWhere('l_name', 'like', "%{$value}%");
-                }
+                $query->where(function ($query) use ($key) {
+                    foreach ($key as $value) {
+                        $query->orWhere('f_name', 'like', "%{$value}%")
+                            ->orWhere('l_name', 'like', "%{$value}%");
+                    }
+                });
             })
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 
