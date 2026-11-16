@@ -161,6 +161,21 @@ trait BuildsProductCatalog
         return array_map('intval', $ids);
     }
 
+    /** @var array{private: string, public: string}|null generated once per run: making a key pair is the slowest step of a test */
+    private static ?array $passportKeys = null;
+
+    /** A throwaway RSA key pair: auth('api') builds Passport's token guard, which refuses to exist without one. */
+    protected function useThrowawayPassportKeys(): void
+    {
+        if (self::$passportKeys === null) {
+            $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+            openssl_pkey_export($key, $private);
+            self::$passportKeys = ['private' => $private, 'public' => openssl_pkey_get_details($key)['key']];
+        }
+
+        config(['passport.private_key' => self::$passportKeys['private'], 'passport.public_key' => self::$passportKeys['public']]);
+    }
+
     protected function setBusinessSetting(string $type, string|array $value): void
     {
         DB::table('business_settings')->where('type', $type)->delete();
@@ -221,6 +236,8 @@ trait BuildsProductCatalog
             $table->decimal('purchase_price', 24, 2)->default(4);
             $table->decimal('discount', 24, 2)->default(0);
             $table->string('discount_type')->default('flat');
+            $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->boolean('multiply_qty')->default(false);
             $table->text('colors')->nullable();
             $table->text('attributes')->nullable();
             $table->text('choice_options')->nullable();
@@ -366,12 +383,27 @@ trait BuildsProductCatalog
             $table->unsignedBigInteger('product_id')->nullable();
             $table->string('cart_group_id')->nullable();
             $table->string('product_type')->nullable();
+            $table->string('digital_product_type')->nullable();
+            $table->string('color')->nullable();
+            $table->text('choices')->nullable();
+            $table->text('variations')->nullable();
             $table->decimal('price', 24, 2)->default(0);
             $table->decimal('tax', 24, 2)->default(0);
+            $table->decimal('discount', 24, 2)->default(0);
+            $table->string('tax_model')->nullable();
             $table->string('variant')->nullable();
             $table->integer('quantity')->default(1);
+            $table->string('slug')->nullable();
+            $table->string('name')->nullable();
+            $table->string('thumbnail')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('seller_is')->nullable();
+            $table->text('shop_info')->nullable();
+            $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->string('shipping_type')->nullable();
             $table->boolean('is_guest')->default(false);
             $table->boolean('is_checked')->default(true);
+            $table->timestamps();
         });
         Schema::create('shipping_types', function (Blueprint $table) {
             $table->id();
