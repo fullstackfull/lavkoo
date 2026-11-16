@@ -283,6 +283,14 @@ abstract class VendorPanelTestCase extends TestCase
         });
     }
 
+    /** @param list<string> $permissions */
+    protected function insertSellerRole(string $name, array $permissions): int
+    {
+        return DB::table('seller_roles')->insertGetId([
+            'seller_id' => self::SELLER, 'name' => $name, 'permissions' => json_encode($permissions), 'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     /**
      * A staff member of seller 1 whose role grants exactly $permissions (null: no role at all).
      *
@@ -290,14 +298,9 @@ abstract class VendorPanelTestCase extends TestCase
      */
     protected function insertStaffMember(string $name, ?array $permissions): int
     {
-        $roleId = $permissions === null ? null : DB::table('seller_roles')->insertGetId([
-            'seller_id' => self::SELLER, 'name' => 'Role of ' . $name, 'permissions' => json_encode($permissions), 'status' => 'active',
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
-
         return DB::table('seller_staff')->insertGetId([
-            'seller_id' => self::SELLER, 'seller_role_id' => $roleId, 'name' => $name, 'email' => $name . '@alpha.test', 'status' => 'active',
-            'created_at' => now(), 'updated_at' => now(),
+            'seller_id' => self::SELLER, 'seller_role_id' => $permissions === null ? null : $this->insertSellerRole(name: 'Role of ' . $name, permissions: $permissions),
+            'name' => $name, 'email' => $name . '@alpha.test', 'status' => 'active', 'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
