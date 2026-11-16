@@ -78,8 +78,16 @@ class SellerStaffAccessMiddleware
 
         return match ($area) {
             // Navigation, self-service and read-only cockpit — any active staff member.
-            'auth', 'staff-auth', 'dashboard', 'profile', 'notification', 'messages', 'v2', 'system', 'shop', 'seller-center'
+            'auth', 'staff-auth', 'dashboard', 'notification', 'messages', 'v2', 'system', 'seller-center'
                 => self::ALLOW,
+
+            // The owner's profile and the shop's page. Reading them is how a staff member sees which shop they work for. Changing the
+            // account itself (password, name, phone, photo) is refused to every staff member, whatever their role: a role that could
+            // change the owner's password could take the shop, so no permission grants it, exactly as the seller app's `seller_owner`
+            // gate. Changing the shop (details, vacation, temporary close, order settings) takes shop_settings.manage, as its
+            // `seller_can` gate does.
+            'profile' => $isWrite ? self::DENY : self::ALLOW,
+            'shop' => $isWrite ? 'shop_settings.manage' : self::ALLOW,
 
             // The Seller Center's own screens. They sit on the same `/vendor` prefix as the classic
             // panel, so this map decides whether a staff member reaches them at all — and being
