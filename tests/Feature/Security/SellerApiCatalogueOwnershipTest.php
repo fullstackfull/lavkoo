@@ -157,6 +157,42 @@ class SellerApiCatalogueOwnershipTest extends TestCase
         $this->assertSame([5.0, 0], $this->categoryCost(self::OTHER_SELLERS_COST));
     }
 
+    // ---- category shipping costs: API v2 ----
+
+    public function test_v2_the_shipping_cost_of_another_sellers_category_cannot_be_rewritten(): void
+    {
+        $response = $this->sellerApiV2('POST', 'shipping/set-category-cost', ['ids' => [self::OTHER_SELLERS_COST], 'cost' => [999], 'multiply_qty' => [1]]);
+
+        $this->assertSame([5.0, 0], $this->categoryCost(self::OTHER_SELLERS_COST));
+        $this->assertNotFound($response, code: 'category_shipping_cost');
+    }
+
+    public function test_v2_a_request_naming_an_own_and_another_sellers_cost_rewrites_neither(): void
+    {
+        $response = $this->sellerApiV2('POST', 'shipping/set-category-cost', ['ids' => [self::OWN_COST, self::OTHER_SELLERS_COST], 'cost' => [10, 999], 'multiply_qty' => [1, 1]]);
+
+        $this->assertSame([5.0, 0], $this->categoryCost(self::OTHER_SELLERS_COST));
+        $this->assertSame([3.0, 0], $this->categoryCost(self::OWN_COST));
+        $this->assertNotFound($response, code: 'category_shipping_cost');
+    }
+
+    public function test_v2_a_shipping_cost_that_does_not_exist_is_not_found_instead_of_crashing(): void
+    {
+        $response = $this->sellerApiV2('POST', 'shipping/set-category-cost', ['ids' => [999], 'cost' => [10], 'multiply_qty' => [1]]);
+
+        $this->assertNotFound($response, code: 'category_shipping_cost');
+    }
+
+    public function test_v2_the_seller_can_still_set_the_shipping_cost_of_their_own_categories(): void
+    {
+        $response = $this->sellerApiV2('POST', 'shipping/set-category-cost', ['ids' => [self::OWN_COST, self::OWN_SECOND_COST], 'cost' => [10, 20], 'multiply_qty' => [1, 0]]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([10.0, 1], $this->categoryCost(self::OWN_COST));
+        $this->assertSame([20.0, 0], $this->categoryCost(self::OWN_SECOND_COST));
+        $this->assertSame([5.0, 0], $this->categoryCost(self::OTHER_SELLERS_COST));
+    }
+
     // ---- helpers ----
 
     private function assertNotFound($response, string $code): void
