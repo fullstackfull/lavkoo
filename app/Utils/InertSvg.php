@@ -31,12 +31,12 @@ final class InertSvg
 
     private const RASTER_DATA_URL = '#^data:image/(?:png|jpe?g|gif|webp)(?:;[a-z0-9=.-]+)*;base64,[A-Za-z0-9+/=\s]*$#i';
 
+    private const STANDARD_DTD = '#^http://www\.w3\.org/(?:Graphics/SVG|TR)/#';
+
+    private const TEXT_ENTITY = '/<!ENTITY\s+[A-Za-z_][A-Za-z0-9._-]*\s+(?:"[^"<&%]*"|\'[^\'<&%]*\')\s*>/';
+
     public static function isInert(string $svg): bool
     {
-        if (stripos($svg, '<!entity') !== false) {
-            return false;
-        }
-
         $document = self::parse(xml: $svg);
         if ($document === null || !self::hasOnlyAPlainDocumentType(document: $document)) {
             return false;
@@ -71,14 +71,24 @@ final class InertSvg
         return $isWellFormed ? $document : null;
     }
 
-    /** The document type that editors write (`<!DOCTYPE svg PUBLIC ... "http://www.w3.org/Graphics/SVG/...">`) is fine; one with an internal subset declares entities. */
+    /**
+     * The document type that editors write (`<!DOCTYPE svg PUBLIC ... "http://www.w3.org/Graphics/SVG/...">`, the SVG 1.0 one under
+     * `http://www.w3.org/TR/`) is fine. An internal subset is fine when it only names text, as Illustrator's does for its namespaces
+     * (`<!ENTITY ns_extend "http://ns.adobe.com/Extensibility/1.0/">`): a literal with no markup, no reference and no parameter entity can
+     * expand to nothing a browser acts on.
+     */
     private static function hasOnlyAPlainDocumentType(DOMDocument $document): bool
     {
         $documentType = $document->doctype;
 
         return $documentType === null
-            || (($documentType->internalSubset ?? '') === ''
-                && ($documentType->systemId === '' || str_starts_with((string)$documentType->systemId, 'http://www.w3.org/Graphics/SVG/')));
+            || (self::declaresOnlyTextEntities(internalSubset: (string)($documentType->internalSubset ?? ''))
+                && ($documentType->systemId === '' || preg_match(self::STANDARD_DTD, (string)$documentType->systemId) === 1));
+    }
+
+    private static function declaresOnlyTextEntities(string $internalSubset): bool
+    {
+        return trim((string)preg_replace(self::TEXT_ENTITY, '', $internalSubset)) === '';
     }
 
     private static function isInertElement(DOMElement $element): bool
@@ -129,9 +139,17 @@ final class InertSvg
         return $reference === '' || str_starts_with($reference, '#') || self::isRasterDataUrl(address: $reference);
     }
 
-    /** Every `url(...)` of a value (a paint, a filter, a clip path, a style) points into the file or is a raster image given as data. */
+    /**
+     * Every `url(...)` of a value (a paint, a filter, a clip path, a style) points into the file or is a raster image given as data. A value
+     * that mentions `url` must be well formed for that to be read: a browser loads an address that is not closed (`url(http://x/p.png`) and one
+     * written with a CSS escape (`\75rl(`), and neither is a `url(...)` to the pattern below.
+     */
     private static function loadsOnlyFromTheFile(string $text): bool
     {
+        if (stripos($text, 'url') !== false && (str_contains($text, '\\') || substr_count($text, '(') !== substr_count($text, ')'))) {
+            return false;
+        }
+
         preg_match_all('/url\s*\(\s*([\'"]?)(.*?)\1\s*\)/is', $text, $matches);
         foreach ($matches[2] as $address) {
             if (!self::staysInTheFile(reference: trim($address))) {
@@ -147,10 +165,15 @@ final class InertSvg
         return preg_match(self::RASTER_DATA_URL, $address) === 1;
     }
 
-    /** CSS cannot run script in a current browser, but it can import another sheet and load addresses; keep it to what draws inside the file. */
+    /**
+     * CSS cannot run script in a current browser, but it can import another sheet and load addresses; keep it to what draws inside the file.
+     * A CSS escape (`@\69mport`, `\75rl(`) writes a keyword the patterns do not see, `image-set()` and `src()` load an address from a string,
+     * and parentheses that do not match leave a `url(` open: any of them refuses the style.
+     */
     private static function isInertStyle(string $css): bool
     {
-        return preg_match('/@import|expression\s*\(|behaviou?r\s*:|-moz-binding|javascript\s*:|vbscript\s*:/i', $css) !== 1
+        return preg_match('/@import|\\\\|image-set\s*\(|(?<![\w-])src\s*\(|expression\s*\(|behaviou?r\s*:|-moz-binding|javascript\s*:|vbscript\s*:/i', $css) !== 1
+            && substr_count($css, '(') === substr_count($css, ')')
             && self::loadsOnlyFromTheFile(text: $css);
     }
 
