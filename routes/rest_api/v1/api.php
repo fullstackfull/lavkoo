@@ -175,7 +175,7 @@ Route::get('/cash', function () {
         });
     });
 
-    Route::group(['prefix' => 'cart', 'middleware' => 'apiGuestCheck'], function () {
+    Route::group(['prefix' => 'cart', 'middleware' => ['apiGuestCheck', 'storefront']], function () {
         Route::controller(CartController::class)->group(function () {
             Route::get('/', 'getCartList');
             Route::post('add', 'addToCart');

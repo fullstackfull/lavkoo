@@ -20,7 +20,7 @@ class ResolveStorefrontMiddlewareTest extends TestCase
     }
 
     /**
-     * The alias is on the storefront-facing routes (the product and theme routes) and on the routes that start a new sale, which
+     * The alias is on the storefront-facing routes (the product, theme and cart routes) and on the routes that start a new sale, which
      * also carry the sale gate (GCC-11). It is in no named group, and it is not on the storefront list or the config route, which
      * must not depend on a storefront.
      */
@@ -47,12 +47,13 @@ class ResolveStorefrontMiddlewareTest extends TestCase
 
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/products')));
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/theme')));
+        $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/cart')));
         $this->assertNotEmpty($startingASale);
         $this->assertNotContains('api/v1/storefronts', $resolving);
         $this->assertNotContains('api/v1/config', $resolving);
         foreach ($resolving as $uri) {
             $isApi = str_starts_with($uri, 'api/');
-            $isStorefrontFacing = str_starts_with($uri, 'api/v1/products') || str_starts_with($uri, 'api/v1/theme');
+            $isStorefrontFacing = str_starts_with($uri, 'api/v1/products') || str_starts_with($uri, 'api/v1/theme') || str_starts_with($uri, 'api/v1/cart');
             $this->assertTrue(
                 !$isApi || $isStorefrontFacing || in_array($uri, $startingASale, true),
                 "API route [{$uri}] must not resolve a storefront unless it starts a new sale.",

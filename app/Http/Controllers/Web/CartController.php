@@ -14,6 +14,7 @@ use App\Models\RestockProductCustomer;
 use App\Models\Shop;
 use App\Models\Wishlist;
 use App\Services\RestockProductService;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
@@ -592,7 +593,7 @@ class CartController extends Controller
     function update_variation(Request $request)
     {
         $product = Product::active()->where(['id' => $request['product_id']])->first();
-        if (!$product) {
+        if (!$product || !StorefrontCatalog::offers(product: $product)) {
             return ['status' => 0, 'message' => translate('Product_is_unavailable')];
         }
         if ($product['product_type'] == 'digital') {
@@ -653,6 +654,9 @@ class CartController extends Controller
     {
         $user = Helpers::getCustomerInformation();
         $product = $this->productRepo->getWebFirstWhereActive(params: ['id' => $request['id']]);
+        if (!$product && !StorefrontCatalog::offers(product: Product::find($request['id']))) {
+            return response()->json(['status' => 'error', 'message' => translate('Product_is_unavailable')], 200);
+        }
         $restockRequest = $this->restockProductRepo->updateOrCreate(params: ['product_id' => $request['id'], 'variant' => $request['product_variation_code']], value: [
             'product_id' => $request['id'],
             'variant' => $request['product_variation_code'],

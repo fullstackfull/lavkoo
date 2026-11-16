@@ -2,7 +2,11 @@
 
 namespace App\Services\Storefront;
 
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -32,16 +36,86 @@ final class StorefrontCatalog
 
     public static function restrict(Builder $query): Builder
     {
-        $country = self::country();
-        if ($country === null) {
+        return self::narrowTo(query: $query, column: $query->qualifyColumn(self::COLUMN));
+    }
+
+    /** For a plain query that joins the products table, as the checkout guard does: it reads the cart without going through the Product model. */
+    public static function restrictJoinedProducts(QueryBuilder $query): QueryBuilder
+    {
+        return self::narrowTo(query: $query, column: self::TABLE . '.' . self::COLUMN);
+    }
+
+    /** For a plain query over a table that holds product ids, such as the search index: it is narrowed before any cap on the number of rows. */
+    public static function restrictProductIds(QueryBuilder $query, string $column): QueryBuilder
+    {
+        if (!self::narrows()) {
             return $query;
         }
 
-        if (self::columnReady()) {
-            return $query->where($query->qualifyColumn(self::COLUMN), $country);
+        return $query->whereIn($column, fn (QueryBuilder $products) => self::narrowTo(query: $products->select('id')->from(self::TABLE), column: self::COLUMN));
+    }
+
+    /**
+     * A cart only holds, shows and changes the rows of the storefront it is used from, so a customer who shops two countries has two separate
+     * carts. A row whose product no longer exists belongs to no country, so it stays reachable: it can be removed, and a checkout cleans it up.
+     */
+    public static function restrictCartRows(Builder $cartRows): Builder
+    {
+        if (!self::narrows()) {
+            return $cartRows;
         }
 
-        return self::isDefaultCountry($country) ? $query : $query->whereRaw('1 = 0');
+        return $cartRows->where(fn (Builder $rows) => $rows
+            ->whereHas('allProducts', fn (Builder $products) => self::restrict(query: $products))
+            ->orWhereDoesntHave('allProducts'));
+    }
+
+    /**
+     * Runs an operation that is cross-storefront by nature, such as moving a guest's cart into an account at login, once in every
+     * storefront: the rows of each country go to the cart of that country, and none is left behind because the request was served from
+     * another one. Storefronts that are switched off, and a request that is not a storefront request, run it once as it always ran.
+     */
+    public static function inEveryStorefront(Closure $operation): void
+    {
+        if (!self::narrows()) {
+            $operation();
+
+            return;
+        }
+
+        $resolver = StorefrontResolver::fromConfig();
+        foreach ($resolver->configuredCountries() as $country) {
+            $resolver->contextOfRecordedCountry($country)?->serve(callback: $operation);
+        }
+    }
+
+    /** Whether the storefront of the request may sell this product: the cart asks before it takes a product, whatever route reached it. */
+    public static function offers(?Model $product): bool
+    {
+        $country = self::country();
+        if ($country === null || $product === null) {
+            return true;
+        }
+
+        if (self::columnReady()) {
+            return $product->getAttribute(self::COLUMN) === $country;
+        }
+
+        return self::isDefaultCountry($country);
+    }
+
+    /** The country the products of a cart group belong to, for a link that must open the storefront the cart was made in. Null while storefronts are off. */
+    public static function countryOfCartGroup(string $cartGroupId): ?string
+    {
+        if (!config('gcc.storefronts.enabled') || !self::columnReady()) {
+            return null;
+        }
+
+        return DB::table('carts')
+            ->join(self::TABLE, self::TABLE . '.id', '=', 'carts.product_id')
+            ->where('carts.cart_group_id', $cartGroupId)
+            ->orderBy('carts.id')
+            ->value(self::TABLE . '.' . self::COLUMN);
     }
 
     public static function flush(): void
@@ -49,9 +123,32 @@ final class StorefrontCatalog
         self::$columnAnswer = null;
     }
 
-    private static function country(): ?string
+    /** The country this request is narrowed to, or null while storefronts are off and for a request that is not a storefront request. */
+    public static function country(): ?string
     {
         return self::context()?->country;
+    }
+
+    /** Whether a query over products is narrowed at all for this request: not while storefronts are off, for a panel, a seller API or a queue, nor for the default storefront before the migration has run. */
+    private static function narrows(): bool
+    {
+        $country = self::country();
+
+        return $country !== null && (self::columnReady() || !self::isDefaultCountry($country));
+    }
+
+    private static function narrowTo(Builder|QueryBuilder $query, string $column): Builder|QueryBuilder
+    {
+        $country = self::country();
+        if ($country === null) {
+            return $query;
+        }
+
+        if (self::columnReady()) {
+            return $query->where($column, $country);
+        }
+
+        return self::isDefaultCountry($country) ? $query : $query->whereRaw('1 = 0');
     }
 
     private static function context(): ?StorefrontContext

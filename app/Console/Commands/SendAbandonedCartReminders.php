@@ -8,7 +8,6 @@ use App\Services\Retention\AbandonedCartService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\URL;
 
 /**
  * Sends the abandoned-cart reminders (Phase 2.4).
@@ -109,7 +108,7 @@ class SendAbandonedCartReminders extends Command
             try {
                 Mail::to($row['email'])->send(new AbandonedCartReminderMail(
                     reminder: $reminder,
-                    recoveryUrl: $this->recoveryUrl($reminder),
+                    recoveryUrl: $service->recoveryUrl(reminder: $reminder),
                 ));
                 $sent++;
             } catch (\Throwable $exception) {
@@ -123,15 +122,6 @@ class SendAbandonedCartReminders extends Command
         $this->info(sprintf('Sent %d reminder(s).%s', $sent, $failed ? " {$failed} failed." : ''));
 
         return $failed && !$sent ? self::FAILURE : self::SUCCESS;
-    }
-
-    /**
-     * A signed link, so the recovery endpoint can trust the reminder id it is handed without
-     * anybody being able to walk the sequence and mark other people's reminders as clicked.
-     */
-    private function recoveryUrl(AbandonedCartReminder $reminder): string
-    {
-        return URL::signedRoute('cart.recover', ['reminder' => $reminder->id], now()->addDays(30));
     }
 
     /** Console output is logged and screen-shared; addresses do not need to be in it in full. */

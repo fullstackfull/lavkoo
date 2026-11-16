@@ -43,8 +43,10 @@ class SystemController extends Controller
                 $request['cart_group_id'] = $groupId;
                 self::insertIntoCartShipping($request);
             }
-        } else {
+        } elseif (CartManager::holdsCartGroup(cartGroupId: $request['cart_group_id'])) {
             self::insertIntoCartShipping($request);
+        } else {
+            return response()->json(['status' => 0]);
         }
         return response()->json(['status' => 1]);
     }
