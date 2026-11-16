@@ -5,6 +5,7 @@ namespace App\Http\Requests\Admin;
 use App\Traits\ResponseHandler;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Validator;
 
 /**
@@ -58,14 +59,16 @@ class LanguageRequest extends FormRequest
                 $existingNames = $languages->pluck('name')->toArray();
                 $existingCodes = $languages->pluck('code')->toArray();
 
-                if ($this['type'] == 'add') {
+                // The route decides, not the `type` field: a request that leaves the field out was taken for an update, and an add that
+                // reached the writer rewrote the files of a language that exists.
+                if ($this->route()?->getActionMethod() === 'add') {
                     if (in_array($this['name'], $existingNames)) {
                         $validator->errors()->add(
                             'name', translate('The_language_name_must_be_unique') . '!'
                         );
                     }
 
-                    if (in_array($this['code'], $existingCodes)) {
+                    if (in_array(strtolower((string)$this['code']), array_map('strtolower', $existingCodes), true) || File::isDirectory(base_path('resources/lang/' . $this['code']))) {
                         $validator->errors()->add(
                             'code', translate('The_language_code_must_be_unique') . '!'
                         );

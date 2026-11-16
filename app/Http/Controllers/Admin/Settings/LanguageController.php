@@ -264,6 +264,10 @@ class LanguageController extends BaseController
     public function delete($lang, LanguageService $languageService): RedirectResponse
     {
         $language = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'language']);
+        if (!$languageService->canBeDeleted(language: $language, code: $lang)) {
+            ToastMagic::error(translate('the_language_code_is_not_valid'));
+            return back();
+        }
         $languageArray = $languageService->getLangDelete(language: $language, code: $lang);
         $this->businessSettingRepo->updateOrInsert(type: 'language', value: $languageArray);
 

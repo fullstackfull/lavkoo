@@ -174,6 +174,14 @@ class LanguageService
         return $languageArray;
     }
 
+    /** Only a language the store lists can be deleted, and never the base language `en`: the request names a directory of resources/lang. */
+    public function canBeDeleted(object $language, string $code): bool
+    {
+        $listedCodes = array_column((array)json_decode((string)$language['value'], true), 'code');
+
+        return $code !== 'en' && in_array($code, $listedCodes, true);
+    }
+
     public function getLangDelete(object $language, string $code): array
     {
         $del_default = false;
