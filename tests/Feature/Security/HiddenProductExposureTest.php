@@ -21,6 +21,7 @@ use App\Services\Theme\SectionDataResolver;
 use App\Utils\ProductManager;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
@@ -250,7 +251,7 @@ class HiddenProductExposureTest extends TestCase
         foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
             $hidden = $this->getJson("/api/v1/products/reviews/product-{$hiddenId}");
 
-            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+            $this->assertSame($this->answer($unknown), $this->answer($hidden), "product {$hiddenId}");
             $this->assertSame(404, $hidden->getStatusCode(), "product {$hiddenId}");
         }
     }
@@ -275,7 +276,7 @@ class HiddenProductExposureTest extends TestCase
             $hidden = $this->getJson($lookup($hiddenId));
 
             $this->assertSame($unknown->getStatusCode(), $hidden->getStatusCode(), "product {$hiddenId}");
-            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+            $this->assertSame($this->answer($unknown), $this->answer($hidden), "product {$hiddenId}");
         }
     }
 
@@ -392,6 +393,19 @@ class HiddenProductExposureTest extends TestCase
         $this->assertSame([1, 3, 11, 14, 15], $this->idsOf((new SectionDataResolver())->flashDealProducts(dealId: 2, limit: 24)));
     }
 
+    /**
+     * What a client is told: the status and the body, without what APP_DEBUG adds to an error answer (CI runs with it on): the trace names the
+     * line of the test that made the request, so two requests for the same thing never answer the same bytes.
+     *
+     * @return array{0: int, 1: mixed}
+     */
+    private function answer(TestResponse $response): array
+    {
+        $body = json_decode((string) $response->getContent(), true);
+
+        return [$response->getStatusCode(), is_array($body) ? Arr::except($body, ['exception', 'file', 'line', 'trace']) : $response->getContent()];
+    }
+
     /** The reviews of product 1 and of every hidden product, each reading "Review of <product id>". */
     private function seedOneReviewPerProduct(): void
     {
@@ -424,7 +438,7 @@ class HiddenProductExposureTest extends TestCase
 
                 $this->assertStringNotContainsString("Review of {$hiddenId}", $response->getContent(), "ids {$first} and {$second}");
                 $this->assertSame($unknown->getStatusCode(), $response->getStatusCode(), "ids {$first} and {$second}");
-                $this->assertSame($unknown->getContent(), $response->getContent(), "ids {$first} and {$second}");
+                $this->assertSame($this->answer($unknown), $this->answer($response), "ids {$first} and {$second}");
             }
         }
     }
@@ -468,7 +482,7 @@ class HiddenProductExposureTest extends TestCase
         foreach (self::HIDDEN_PRODUCTS as $hiddenId) {
             $hidden = $this->post('/review-list-product', ['product_id' => (string) $hiddenId, 'offset' => 0], ['Accept' => 'application/json'])->assertNotFound();
 
-            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+            $this->assertSame($this->answer($unknown), $this->answer($hidden), "product {$hiddenId}");
         }
     }
 
@@ -543,7 +557,7 @@ class HiddenProductExposureTest extends TestCase
 
             $this->assertSame(['status' => 0, 'message' => translate('Product_is_unavailable')], $hidden->json(), "product {$hiddenId}");
             $this->assertSame($unknown->getStatusCode(), $hidden->getStatusCode(), "product {$hiddenId}");
-            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+            $this->assertSame($this->answer($unknown), $this->answer($hidden), "product {$hiddenId}");
             $this->assertSame(0, DB::table('carts')->count(), "product {$hiddenId}");
         }
     }
@@ -579,7 +593,7 @@ class HiddenProductExposureTest extends TestCase
             $hidden = $this->updateVariation($hiddenId);
 
             $this->assertSame($unknown->getStatusCode(), $hidden->getStatusCode(), "product {$hiddenId}");
-            $this->assertSame($unknown->getContent(), $hidden->getContent(), "product {$hiddenId}");
+            $this->assertSame($this->answer($unknown), $this->answer($hidden), "product {$hiddenId}");
         }
         $this->assertSame(0, DB::table('carts')->count());
     }
