@@ -5904,6 +5904,7 @@ return [
 	'it_looks_like_the_email' => 'It looks like the email',
 	'you_entered_has_already_been_used_and_has_an_existing_account' => 'You entered has already been used and has an existing account',
 	'It’s_Me' => 'It’s Me',
+	'this_social_account_shared_no_email_please_use_another_login_method' => 'This social account did not share an email address. Please use another login method.',
 	'Social_Media_Chat' => 'Social Media Chat',
 	'social_media_field_is_required' => 'Social media field is required',
 	'Social_Media_Link' => 'Social Media Link',

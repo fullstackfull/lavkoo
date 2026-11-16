@@ -58,6 +58,11 @@ class SocialAuthController extends Controller
             return redirect()->route('home');
         }
 
+        if (empty($userSocialData->getEmail())) {
+            Toastr::error(translate('this_social_account_shared_no_email_please_use_another_login_method'));
+            return redirect()->route('customer.auth.login');
+        }
+
         $user = $this->customerRepo->getFirstWhere(params: ['email' => $userSocialData->getEmail()]);
 
         if (!$user || $user['login_medium'] != $service) {

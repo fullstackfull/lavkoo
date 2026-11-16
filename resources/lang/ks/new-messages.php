@@ -1886,6 +1886,7 @@ return [
 	'it_looks_like_the_email' => 'It looks like the email',
 	'you_entered_has_already_been_used_and_has_an_existing_account' => 'You entered has already been used and has an existing account',
 	'It’s_Me' => 'It’s Me',
+	'this_social_account_shared_no_email_please_use_another_login_method' => 'لم يشارك حساب التواصل الاجتماعي هذا عنوان بريد إلكتروني. يرجى استخدام طريقة تسجيل دخول أخرى.',
 	'social_media_field_is_required' => 'حقل التواصل الاجتماعي مطلوب',
 	'social_media_link_is_required' => 'رابط التواصل الاجتماعي مطلوب',
 	'some_carrier_data_could_not_be_loaded' => 'تعذّر تحميل بعض بيانات الناقل.',

@@ -32,6 +32,7 @@ class SocialLoginConfirmationTest extends TestCase
     private const VICTIM_EMAIL = 'victim@example.test';
     private const PHONE_ONLY_ID = 6;
     private const PENDING_LOGIN_KEY = 'social_login_new_customer';
+    private const NO_EMAIL_MESSAGE_KEY = 'this_social_account_shared_no_email_please_use_another_login_method';
     private const MESSAGE_KEYS = [
         'invalid_request',
         'Phone_Number_Already_Exist',
@@ -39,6 +40,7 @@ class SocialLoginConfirmationTest extends TestCase
         'it_looks_like_the_email',
         'you_entered_has_already_been_used_and_has_an_existing_account',
         'It’s_Me',
+        self::NO_EMAIL_MESSAGE_KEY,
     ];
 
     protected function setUp(): void
@@ -224,6 +226,12 @@ class SocialLoginConfirmationTest extends TestCase
     private function customerRow(int $id): array
     {
         return (array) DB::table('users')->where('id', $id)->first();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function customerRows(): array
+    {
+        return DB::table('users')->orderBy('id')->get()->map(fn (object $row): array => (array) $row)->all();
     }
 
     /** @return list<string> */
@@ -437,6 +445,29 @@ class SocialLoginConfirmationTest extends TestCase
         $response->assertRedirect(route('customer.auth.login'));
         $this->assertGuest('customer');
         $this->assertSame($accountBefore, $this->customerRow(id: self::PHONE_ONLY_ID));
+    }
+
+    #[DataProvider('emailsAProviderMayLeaveOut')]
+    public function test_a_provider_that_shares_no_email_is_refused_with_its_own_message_and_changes_nothing(?string $sharedEmail): void
+    {
+        $this->insertPhoneOnlyCustomer();
+        $customersBefore = $this->customerRows();
+
+        $response = $this->returnFromProvider(service: 'facebook', profile: ['id' => 'facebook-uid-7', 'name' => 'No Mail', 'email' => $sharedEmail]);
+
+        $response->assertRedirect(route('customer.auth.login'))->assertSessionMissing(self::PENDING_LOGIN_KEY);
+        $this->assertSame([translate(self::NO_EMAIL_MESSAGE_KEY)], $this->toastedMessages());
+        $this->assertGuest('customer');
+        $this->assertSame($customersBefore, $this->customerRows());
+    }
+
+    /** @return array<string, array{?string}> */
+    public static function emailsAProviderMayLeaveOut(): array
+    {
+        return [
+            'no email at all' => [null],
+            'an empty email' => [''],
+        ];
     }
 
     public function test_a_provider_that_shares_an_email_sends_the_browser_to_a_confirmation_that_finishes_the_sign_up(): void
