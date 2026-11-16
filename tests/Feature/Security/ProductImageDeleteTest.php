@@ -190,6 +190,7 @@ class ProductImageDeleteTest extends TestCase
         return [
             'by its name' => [['name' => 'extras-1.webp']],
             'by its name with an empty colour' => [['name' => 'extras-1.webp', 'color' => '']],
+            'by its name with the text null as colour, as the app sends it' => [['name' => 'extras-1.webp', 'color' => 'null']],
         ];
     }
 
@@ -236,5 +237,110 @@ class ProductImageDeleteTest extends TestCase
 
         $this->assertEqualsCanonicalizing(['colour-red.webp', 'colour-blue.webp'], array_values(array_unique($service->imageNames(Product::withoutGlobalScopes()->find(8)))));
         $this->assertSame(['own-a.webp', 'own-b.webp'], $service->imageNames(Product::withoutGlobalScopes()->find(5)));
+    }
+
+    /**
+     * @param list<string> $colors
+     * @param list<array{color: ?string, image_name: string}> $entries
+     */
+    private function insertColourProduct(int $id, array $colors, array $entries): void
+    {
+        $images = array_map(static fn (array $entry): array => ['image_name' => $entry['image_name'], 'storage' => 'public'], $entries);
+        DB::table('products')->insert(['id' => $id, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'COL' . $id, 'name' => 'Colour product ' . $id, 'thumbnail' => 'thumb-' . $id . '.webp', 'images' => json_encode($images), 'colors' => json_encode($colors), 'color_image' => json_encode(array_map(static fn (array $entry): array => $entry + ['storage' => 'public'], $entries))]);
+        foreach ($entries as $entry) {
+            $this->fileOnDisk($this->product($entry['image_name']), $entry['image_name']);
+        }
+    }
+
+    /** @param array<string, string> $query */
+    private function removeThroughTheSellerApp(int $id, array $query): void
+    {
+        $response = app(SellerApiProductController::class)->deleteImage(Request::create('/', 'GET', ['id' => $id, 'seller' => $this->seller()] + $query));
+
+        $this->assertSame(200, $response->status());
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function colourImagesOf(int $id): array
+    {
+        return json_decode(DB::table('products')->where('id', $id)->value('color_image'), true);
+    }
+
+    public function test_the_seller_app_removes_the_image_of_a_colour_with_the_text_null_as_colour_as_it_sends_it(): void
+    {
+        $this->removeThroughTheSellerApp(id: 8, query: ['name' => 'colour-red.webp', 'color' => 'null']);
+
+        $this->assertFileDoesNotExist($this->product('colour-red.webp'));
+        $this->assertFileExists($this->product('colour-blue.webp'));
+        $this->assertSame([['color' => '#FF0000', 'image_name' => null], ['color' => '#0000FF', 'image_name' => 'colour-blue.webp', 'storage' => 'public']], $this->colourImagesOf(id: 8));
+    }
+
+    public function test_the_seller_app_removes_the_image_of_a_colour_by_the_colour_alone_with_its_file(): void
+    {
+        $this->removeThroughTheSellerApp(id: 8, query: ['color' => '#FF0000']);
+
+        $this->assertFileDoesNotExist($this->product('colour-red.webp'), 'the colour the request names lost its image file');
+        $this->assertFileExists($this->product('colour-blue.webp'));
+        $this->assertSame([['color' => '#FF0000', 'image_name' => null], ['color' => '#0000FF', 'image_name' => 'colour-blue.webp', 'storage' => 'public']], $this->colourImagesOf(id: 8));
+    }
+
+    public function test_the_seller_app_never_matches_a_colour_image_by_a_name_that_is_the_same_number_written_another_way(): void
+    {
+        $this->insertColourProduct(id: 12, colors: ['FF0000'], entries: [['color' => 'FF0000', 'image_name' => '20'], ['color' => null, 'image_name' => 'numeric-keep.webp']]);
+        $this->fileOnDisk($this->product('2e1'), '2e1');
+
+        $this->removeThroughTheSellerApp(id: 12, query: ['name' => '2e1', 'color' => 'null']);
+
+        $this->assertFileExists($this->product('20'));
+        $this->assertFileExists($this->product('2e1'));
+        $this->assertFileExists($this->product('numeric-keep.webp'));
+        $this->assertSame(['20', 'numeric-keep.webp'], array_column($this->colourImagesOf(id: 12), 'image_name'));
+    }
+
+    public function test_the_seller_app_does_not_read_an_empty_colour_as_the_colour_of_entries_whose_colour_is_empty_text(): void
+    {
+        $this->insertColourProduct(id: 13, colors: ['FF0000'], entries: [['color' => '', 'image_name' => 'empty-a.webp'], ['color' => '', 'image_name' => 'empty-b.webp']]);
+
+        $this->removeThroughTheSellerApp(id: 13, query: ['name' => 'empty-a.webp', 'color' => '']);
+
+        $this->assertFileDoesNotExist($this->product('empty-a.webp'));
+        $this->assertFileExists($this->product('empty-b.webp'), 'an empty colour removed every entry whose colour is the empty text');
+        $this->assertSame(['empty-b.webp'], array_column($this->colourImagesOf(id: 13), 'image_name'));
+    }
+
+    public function test_the_seller_app_tells_two_colours_apart_that_are_the_same_number(): void
+    {
+        $this->insertColourProduct(id: 14, colors: ['0E0000', '000000'], entries: [['color' => '0E0000', 'image_name' => 'dark-red.webp'], ['color' => '000000', 'image_name' => 'black.webp']]);
+
+        $this->removeThroughTheSellerApp(id: 14, query: ['color' => '000000']);
+
+        $this->assertFileDoesNotExist($this->product('black.webp'));
+        $this->assertFileExists($this->product('dark-red.webp'), 'the image of the dark red colour went with the black one');
+        $this->assertSame([['color' => '0E0000', 'image_name' => 'dark-red.webp', 'storage' => 'public'], ['color' => '000000', 'image_name' => null]], $this->colourImagesOf(id: 14));
+    }
+
+    /** @return array<string, array{0: array<string, string>}> */
+    public static function requestsThatNameNothing(): array
+    {
+        return [
+            'no name and no colour' => [[]],
+            'an empty name and an empty colour' => [['name' => '', 'color' => '']],
+            'an empty name and the text null as colour' => [['name' => '', 'color' => 'null']],
+        ];
+    }
+
+    #[DataProvider('requestsThatNameNothing')]
+    public function test_the_seller_app_removes_nothing_for_a_request_that_names_no_image_and_no_colour(array $query): void
+    {
+        $before = DB::table('products')->where('id', 9)->first();
+
+        $this->removeThroughTheSellerApp(id: 9, query: $query);
+
+        foreach (['extras-red.webp', 'extras-blue.webp', 'extras-1.webp', 'extras-2.webp', 'extras-3.webp'] as $kept) {
+            $this->assertFileExists($this->product($kept), $kept);
+        }
+        $after = DB::table('products')->where('id', 9)->first();
+        $this->assertEquals(json_decode($before->color_image, true), json_decode($after->color_image, true));
+        $this->assertSame($before->images, $after->images);
     }
 }
