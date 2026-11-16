@@ -140,6 +140,33 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
         $this->assertStringNotContainsString('In-house pro', $summary);
     }
 
+    // ---- the order details route nothing linked to ----
+
+    /** @return array<string, array{int}> */
+    public static function ordersOfAnyShop(): array
+    {
+        return [
+            'the sellers own order' => [100001],
+            'another seller order' => [100002],
+            'the in-house order sharing the seller id' => [100003],
+            'an order that does not exist' => [999999],
+        ];
+    }
+
+    #[DataProvider('ordersOfAnyShop')]
+    public function test_the_point_of_sale_has_no_order_details_route_that_reads_an_order_by_its_id(int $orderId): void
+    {
+        DB::table('business_settings')->insert(['type' => 'seller_pos', 'value' => '1']);
+        Cache::flush();
+        DB::table('orders')->insert([
+            ['id' => 100001, 'seller_is' => 'seller', 'seller_id' => self::SELLER, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 100002, 'seller_is' => 'seller', 'seller_id' => self::OTHER_SELLER, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 100003, 'seller_is' => 'admin', 'seller_id' => self::SELLER, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $this->signInAs(self::SELLER)->post('/vendor/pos/order-details/' . $orderId)->assertNotFound();
+    }
+
     // ---- the quick view of a product ----
 
     #[DataProvider('productsThatAreNotTheSellers')]
