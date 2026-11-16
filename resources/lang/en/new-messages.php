@@ -11239,4 +11239,6 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'product_country' => 'Country',
+	'the_country_this_product_is_sold_in_it_cannot_be_changed_after_the_product_is_added' => 'The country this product is sold in. It cannot be changed after the product is added: use the product gallery to add a copy for another country.',
 ];

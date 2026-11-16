@@ -4856,4 +4856,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'_this_page_will_be_unavailable_throughout_the_user_section.' => ' this page will be unavailable throughout the user section.',
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
+	'product_country' => 'الدولة',
+	'the_country_this_product_is_sold_in_it_cannot_be_changed_after_the_product_is_added' => 'الدولة التي يُباع فيها هذا المنتج. لا يمكن تغييرها بعد إضافة المنتج: استخدم معرض المنتجات لإضافة نسخة لدولة أخرى.',
 ];

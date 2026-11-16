@@ -17738,4 +17738,6 @@ return [
 	'attention_outcome_not_done_at_channel' => 'القناة تُظهر أنه لم يحدث',
 	'attention_outcome_still_unknown' => 'نظرتُ والقناة لا تقول',
 	'attention_outcome_no_longer_relevant' => 'لم يبقَ ذا صلة',
+	'product_country' => 'الدولة',
+	'the_country_this_product_is_sold_in_it_cannot_be_changed_after_the_product_is_added' => 'الدولة التي يُباع فيها هذا المنتج. لا يمكن تغييرها بعد إضافة المنتج: استخدم معرض المنتجات لإضافة نسخة لدولة أخرى.',
 ];
