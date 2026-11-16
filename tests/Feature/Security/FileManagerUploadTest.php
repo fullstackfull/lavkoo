@@ -220,6 +220,16 @@ class FileManagerUploadTest extends TestCase
         return $upload;
     }
 
+    /** An archive in which two entries have one name, with `$first` as the data of the first and `$second` as the data of the second. */
+    private function zipUploadWithARepeatedName(string $name, string $first, string $second): UploadedFile
+    {
+        $placeholder = str_repeat('~', strlen($name));
+        $upload = $this->zipUpload([$name => $first, $placeholder => $second]);
+        file_put_contents($upload->getPathname(), str_replace($placeholder, $name, (string) file_get_contents($upload->getPathname())));
+
+        return $upload;
+    }
+
     /** An archive with one entry that has no name: libzip opens it and names the entry with an empty text. */
     private function zipUploadWithAnUnnamedEntry(): UploadedFile
     {
@@ -1050,6 +1060,52 @@ class FileManagerUploadTest extends TestCase
         $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
 
         $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully'], $toast);
+    }
+
+    public function test_the_system_files_of_an_archive_are_not_reported_as_left_out_whatever_their_case(): void
+    {
+        $entries = [
+            'desktop.ini' => '[.ShellClassInfo]', 'photos/Desktop.INI' => '[.ShellClassInfo]', 'META-INF/MANIFEST.MF' => 'Manifest-Version: 1.0', '._a.jpg' => 'apple double',
+            'photos/._b.jpg' => 'apple double', 'THUMBS.DB' => 'metadata', 'photos/.ds_store' => 'metadata', 'photos/a.jpg' => $this->jpeg(),
+        ];
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully'], $toast);
+    }
+
+    public function test_a_name_that_only_starts_like_a_system_file_is_an_ordinary_name_and_a_hidden_one_is_listed(): void
+    {
+        $entries = ['Thumbs.db.jpg' => $this->jpeg(), 'photos/Thumbs.db.png' => $this->jpeg(), 'Thumbs.dbx/a.jpg' => $this->jpeg(), 'desktop.ini.jpg' => $this->jpeg(), 'photos/.DS_Store.jpg' => $this->jpeg()];
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUpload($entries)]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'File uploaded successfully: One file of the archive was not stored (photos/.DS_Store.jpg)'], $toast);
+        $this->assertSame(['Thumbs.db.jpg', 'Thumbs.dbx/a.jpg', 'desktop.ini.jpg', 'photos/Thumbs.db.png'], $this->copiedFiles());
+    }
+
+    public function test_on_the_local_disk_the_first_of_two_entries_of_one_name_is_stored_and_the_repeat_is_listed(): void
+    {
+        $report = new ArchiveReport();
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $this->zipUploadWithARepeatedName('a.jpg', first: 'FIRST', second: 'SECOND')]), $report);
+
+        $this->assertTrue($stored);
+        $this->assertSame('FIRST', file_get_contents(storage_path('app/public/' . self::FOLDER . '/a.jpg')));
+        $this->assertSame('One file of the archive was not stored (a.jpg)', $report->skippedMessage());
+    }
+
+    public function test_on_s3_two_entries_of_one_name_are_two_objects_each_with_the_data_of_its_own_entry(): void
+    {
+        $report = new ArchiveReport();
+
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $this->zipUploadWithARepeatedName('a.jpg', first: 'FIRST', second: 'SECOND')]), $report);
+
+        $this->assertTrue($stored);
+        $contents = array_map(static fn (string $path): string => Storage::disk('s3')->get($path), $this->storedOnTheBucket());
+        sort($contents);
+        $this->assertSame(['FIRST', 'SECOND'], $contents);
+        $this->assertNull($report->skippedMessage());
     }
 
     public function test_the_recent_files_the_gallery_remembers_are_forgotten_after_an_archive_is_stored(): void

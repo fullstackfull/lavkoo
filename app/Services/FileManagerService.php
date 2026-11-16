@@ -23,6 +23,11 @@ class FileManagerService
 
     private const MOST_COMPRESSION_RATIO = 100;
 
+    /** What the system that made an archive adds on its own, by whole names and whatever their case: folders at the top of the archive, and files at any depth. */
+    private const SYSTEM_FOLDERS = ['__macosx', 'meta-inf'];
+
+    private const SYSTEM_FILES = ['.ds_store', 'thumbs.db', 'desktop.ini'];
+
     /** The disk the gallery works on: S3 only when the shop keeps its files there, whatever disk the request names. */
     public function galleryDisk(mixed $requested): string
     {
@@ -185,10 +190,20 @@ class FileManagerService
         return $written;
     }
 
-    /** A folder, or a file that the system that made the archive added on its own (the `__MACOSX` twins, `.DS_Store`, Thumbs.db): nothing the admin put there. */
+    /**
+     * A folder, or a file that the system that made the archive added on its own (the `__MACOSX` twins and the `._` twin of a file, `.DS_Store`,
+     * Thumbs.db, desktop.ini, the `META-INF` of a jar): nothing the admin put there. Whole names count, so `Thumbs.db.png` is an image.
+     */
     private function isArchiveMetadata(string $name): bool
     {
-        return $name === '' || str_ends_with($name, '/') || self::shouldSkip($name) || self::shouldSkip(basename($name));
+        $segments = explode('/', strtolower($name));
+        $fileName = end($segments);
+
+        return $name === ''
+            || str_ends_with($name, '/')
+            || (count($segments) > 1 && in_array($segments[0], self::SYSTEM_FOLDERS, true))
+            || in_array($fileName, self::SYSTEM_FILES, true)
+            || str_starts_with($fileName, '._');
     }
 
     /**
@@ -205,23 +220,24 @@ class FileManagerService
 
     /**
      * Copies the unpacked files to the path of their entry in the folder of the gallery. An entry whose path the disk cannot hold (a name that is
-     * too long, a file where a folder is wanted, a folder where a file is wanted) is left out and listed.
+     * too long, a file where a folder is wanted, a folder where a file is wanted) is left out and listed, and so is an entry whose name an
+     * earlier entry of the archive already stored: a name holds one file, the first.
      *
      * @param array<string, string> $unpacked the name of the entry of every unpacked file, by the path of the file
      */
     private function copyToGallery(array $unpacked, string $folder, ArchiveReport $report): int
     {
         $gallery = $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder);
-        $stored = 0;
+        $stored = [];
         foreach ($unpacked as $file => $name) {
-            if ($this->copyFile(file: $file, target: $gallery . '/' . $name)) {
-                $stored++;
-            } else {
+            if (isset($stored[$name]) || !$this->copyFile(file: $file, target: $gallery . '/' . $name)) {
                 $report->skip(name: $name);
+                continue;
             }
+            $stored[$name] = true;
         }
 
-        return $stored;
+        return count($stored);
     }
 
     private function copyFile(string $file, string $target): bool
