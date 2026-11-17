@@ -56,6 +56,34 @@ trait BuildsPlatformAdminWorld
         }
     }
 
+    /**
+     * A JSON column is read back with its keys in the order the engine keeps them (MySQL sorts them by length, then by name), so
+     * contexts are compared with every level sorted by key.
+     *
+     * @param array<array-key, mixed> $value
+     *
+     * @return array<array-key, mixed>
+     */
+    protected function sortedByKey(array $value): array
+    {
+        foreach ($value as $key => $item) {
+            if (is_array($item)) {
+                $value[$key] = $this->sortedByKey($item);
+            }
+        }
+        if (!array_is_list($value)) {
+            ksort($value);
+        }
+
+        return $value;
+    }
+
+    /** @return array<array-key, mixed> the context of an audit line, sorted by key */
+    protected function contextOf(object $auditLine): array
+    {
+        return $this->sortedByKey((array) json_decode((string) $auditLine->context, true));
+    }
+
     private function runStorefrontCountryColumn(): void
     {
         (require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php'))->up();

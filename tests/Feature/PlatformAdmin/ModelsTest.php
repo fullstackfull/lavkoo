@@ -40,6 +40,13 @@ class ModelsTest extends TestCase
     #[DataProvider('storedCountries')]
     public function test_only_sql_null_means_every_market(?string $stored, ?array $expected): void
     {
+        if ($stored !== null) {
+            json_decode($stored);
+            if (json_last_error() !== JSON_ERROR_NONE && DB::getDriverName() !== 'sqlite') {
+                $this->markTestSkipped('A JSON column on this engine refuses damaged text, so it cannot be stored at all.');
+            }
+        }
+
         DB::table('platform_admin_grants')->insert(['admin_id' => 7, 'level' => 1, 'countries' => $stored, 'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
         $this->assertSame($expected, PlatformAdminGrant::query()->firstOrFail()->countryList());
