@@ -1895,7 +1895,7 @@ class ProductManager
 
     public static function getPublishingHouseList($productIds = [], $vendorId = null, $type = null): mixed
     {
-        $publishingHouseList = PublishingHouse::with(['publishingHouseProducts.product'])
+        $publishingHouseList = PublishingHouse::with(['publishingHouseProducts'])
             ->withCount(['publishingHouseProducts' => function ($query) use ($productIds, $vendorId, $type) {
                 return $query->whereHas('product', function ($query) use ($productIds, $vendorId, $type) {
                     return $query->active()->where('product_type', 'digital')->when(!empty($productIds), function ($query) use ($productIds) {
