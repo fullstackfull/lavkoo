@@ -382,8 +382,9 @@ apart by country, and a restricted employee is answered like for something that 
 - **Customers, delivery men and vendors.** The list of customers, of delivery men and of vendors is not narrowed (they belong to no country), and what each counts about orders is:
   the orders per customer and per vendor, the delivered orders of a delivery man. The screen of one customer lists their orders and counts their refund requests, and its export holds
   their orders; the screens of a delivery man (the orders and earnings per order, the filtered list, the history log and its export) and of a vendor (its orders, their export and its
-  money records) list the employee's orders only. An order read **by its number** outside the order screens (`vendors/order-details/{order_id}/{vendor_id}` and
-  `delivery-man/ajax-order-status-history/{order}`) is answered 404, with the same body as an unknown number, when it is not the employee's.
+  money records) list the employee's orders only. An order read **by its number** outside the order screens (`vendors/order-details/{order_id}/{vendor_id}`,
+  `delivery-man/ajax-order-status-history/{order}` and the two PDFs of one order's transaction and expense, `transaction/pdf-order-wise-transaction` and
+  `transaction/pdf-order-wise-expense-transaction`) is answered 404, with the same body as an unknown number, when it is not the employee's (`StaffReadRoutesTest` walks the four).
 - **The dashboard.** The counters by status, the earnings and the graphs, the top customers, delivery men and products, and the poller of the header (the new orders and the restock
   requests) count the employee's orders and products. The admin wallet, the top vendors by earning and the auction wallet cannot be told apart by country: they are not read for a
   restricted employee, and the admin wallet card of the view is skipped.
@@ -472,12 +473,12 @@ constructors, after the sign-in check and the module permission of the route (th
 | `GET admin/report/vendor-report` | `VendorProductSaleReportController::vendorReport` | `list:orders` + `list:order_lines` + `list:refund_transactions` | module:reports |
 | `GET admin/report/vendor-report-export` | `VendorProductSaleReportController::exportVendorReport` | `list:orders` + `list:order_lines` + `list:refund_transactions` | module:reports |
 | `GET admin/transaction/order-transaction-list` | `TransactionReportController::order_transaction_list` | `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
-| `GET admin/transaction/pdf-order-wise-transaction` | `TransactionReportController::pdf_order_wise_transaction` | `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
+| `GET admin/transaction/pdf-order-wise-transaction` | `TransactionReportController::pdf_order_wise_transaction` | `order.input:order_id` + `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
 | `GET admin/transaction/order-transaction-export-excel` | `TransactionReportController::orderTransactionExportExcel` | `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
 | `GET admin/transaction/order-transaction-summary-pdf` | `TransactionReportController::order_transaction_summary_pdf` | `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
 | `GET admin/transaction/wallet-bonus` | `TransactionReportController::wallet_bonus` | `none` | module:reports |
 | `GET admin/transaction/expense-transaction-list` | `ExpenseTransactionReportController::getExpenseTransactionList` | `list:orders` + `list:order_transactions` | module:reports |
-| `GET admin/transaction/pdf-order-wise-expense-transaction` | `ExpenseTransactionReportController::generateOrderWiseExpenseTransactionPdf` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/transaction/pdf-order-wise-expense-transaction` | `ExpenseTransactionReportController::generateOrderWiseExpenseTransactionPdf` | `order.input:id` + `list:orders` + `list:order_transactions` | module:reports |
 | `GET admin/transaction/expense-transaction-export-excel` | `ExpenseTransactionReportController::expenseTransactionExportExcel` | `list:orders` + `list:order_transactions` | module:reports |
 | `GET admin/transaction/expense-transaction-summary-pdf` | `ExpenseTransactionReportController::generateExpenseTransactionSummaryPDF` | `list:orders` + `list:order_transactions` | module:reports |
 | `GET admin/stock/product-stock` | `ProductStockReportController::index` | `none` | module:reports |

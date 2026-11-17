@@ -29,6 +29,7 @@ use Tests\Support\AssertsNarrowedOrderReads;
 use Tests\Support\BuildsStaffReportWorld;
 use Tests\Support\RendersNoViews;
 use Tests\Support\RestoresLanguageFiles;
+use Tests\Support\StaffProbe\UnlistedPeopleController;
 use Tests\TestCase;
 
 /**
@@ -348,6 +349,41 @@ class StaffPeopleScreensTest extends TestCase
         $this->asKuwaitEmployee();
 
         $this->assertSame(2, $this->viewOf($this->get('/admin/vendors/list'), 'vendors')->first()->orders_count);
+    }
+
+    public function test_a_value_that_is_not_an_id_is_refused_on_the_two_routes_that_read_an_order_by_its_number_whatever_the_database_would_make_of_it(): void
+    {
+        $this->asKuwaitEmployee();
+        $unknown = $this->answer($this->getJson('/admin/vendors/order-details/424242/5'));
+
+        foreach (['102abc', '0102', '1e2', '-102', '102.0', '%20102', '102%20', '1%2C2', '0'] as $junk) {
+            $vendor = $this->getJson('/admin/vendors/order-details/' . $junk . '/5');
+            $history = $this->getJson('/admin/delivery-man/ajax-order-status-history/' . $junk);
+
+            $this->assertSame($unknown, $this->answer($vendor), 'vendors/order-details/' . $junk);
+            $this->assertSame($unknown, $this->answer($history), 'ajax-order-status-history/' . $junk);
+        }
+    }
+
+    public function test_the_answer_for_an_order_that_does_not_exist_is_what_it_always_was_for_who_is_not_restricted(): void
+    {
+        $this->signInAsStaff(adminId: 1);
+        $this->switchStaffScopesOn();
+
+        $this->get('/admin/vendors/order-details/424242/5')->assertRedirect();
+        $this->get('/admin/delivery-man/ajax-order-status-history/424242')->assertOk();
+    }
+
+    public function test_a_route_of_a_covered_people_controller_that_has_no_rule_is_refused_to_a_restricted_employee_and_open_to_the_rest(): void
+    {
+        Route::get('admin/customer/zz-unlisted', [UnlistedPeopleController::class, 'unlisted'])->middleware(['web', 'admin', 'module:people']);
+        $this->switchStaffScopesOn();
+        $this->giveCountries(adminId: 9, countries: ['KW']);
+
+        $this->signInAsStaff(adminId: 9)->getJson('/admin/customer/zz-unlisted')->assertNotFound();
+        $this->signInAsStaff(adminId: 1)->getJson('/admin/customer/zz-unlisted')->assertOk()->assertJson(['reached' => 'unlisted']);
+        DB::table('admin_country_scopes')->where('admin_id', 9)->delete();
+        $this->signInAsStaff(adminId: 9)->getJson('/admin/customer/zz-unlisted')->assertOk();
     }
 
     // ---- what cannot be told apart by country ----------------------------------------------------------------------------------------

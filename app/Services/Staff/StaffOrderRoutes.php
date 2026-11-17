@@ -203,14 +203,14 @@ final class StaffOrderRoutes
         ],
         TransactionReportController::class => [
             'order_transaction_list' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
-            'pdf_order_wise_transaction' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
+            'pdf_order_wise_transaction' => ['order.input:order_id', 'list:orders', 'list:order_lines', 'list:order_transactions'],
             'orderTransactionExportExcel' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
             'order_transaction_summary_pdf' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
             'wallet_bonus' => ['none'],
         ],
         ExpenseTransactionReportController::class => [
             'getExpenseTransactionList' => ['list:orders', 'list:order_transactions'],
-            'generateOrderWiseExpenseTransactionPdf' => ['list:orders', 'list:order_transactions'],
+            'generateOrderWiseExpenseTransactionPdf' => ['order.input:id', 'list:orders', 'list:order_transactions'],
             'expenseTransactionExportExcel' => ['list:orders', 'list:order_transactions'],
             'generateExpenseTransactionSummaryPDF' => ['list:orders', 'list:order_transactions'],
         ],
