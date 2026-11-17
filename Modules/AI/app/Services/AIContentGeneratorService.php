@@ -4,7 +4,6 @@ namespace Modules\AI\app\Services;
 
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
 use App\Traits\FileManagerTrait;
-use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Modules\AI\AIProviders\AIProviderManager;
@@ -120,7 +119,7 @@ class AIContentGeneratorService
     public function getAiImagePath($image, string $type): array
     {
         $storageConnectionType = getWebConfig(name: 'storage_connection_type') ?? 'public';
-        $extension = StoredFileExtension::of(clientExtension: $image->getClientOriginalExtension(), file: $image);
+        $extension = $image->getClientOriginalExtension();
 
         if ($storageConnectionType === 'public') {
             $dir = "{$type}/ai_{$type}_image/";

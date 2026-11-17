@@ -17,7 +17,7 @@ use Modules\AI\app\Http\Controllers\Vendor\AIProductController;
 */
 
 Route::group(['prefix' => 'vendor', 'as' => 'vendor.', 'middleware' => ['seller']], function () {
-    Route::group(['prefix' => 'product', 'as' => 'product.', 'middleware' => ['seller_staff_access']], function () {
+    Route::group(['prefix' => 'product', 'as' => 'product.'], function () {
         Route::get('title-auto-fill', [AIProductController::class, 'titleAutoFill'])->name('title-auto-fill');
         Route::get('description-auto-fill', [AIProductController::class, 'descriptionAutoFill'])->name('description-auto-fill');
         Route::get('general-setup-auto-fill', [AIProductController::class, 'generalSetupAutoFill'])->name('general-setup-auto-fill');
@@ -28,7 +28,7 @@ Route::group(['prefix' => 'vendor', 'as' => 'vendor.', 'middleware' => ['seller'
         Route::post('generate-title-suggestions', [AIProductController::class, 'generateProductTitleSuggestion'])->name('generate-title-suggestions');
     });
 
-    Route::group(['prefix' => 'auction/product', 'as' => 'auction.product.', 'middleware' => ['seller_staff_access']], function () {
+    Route::group(['prefix' => 'auction/product', 'as' => 'auction.product.'], function () {
         Route::get('title-auto-fill', [AIAuctionProductController::class, 'titleAutoFill'])->name('title-auto-fill');
         Route::get('description-auto-fill', [AIAuctionProductController::class, 'descriptionAutoFill'])->name('description-auto-fill');
         Route::get('general-setup-auto-fill', [AIAuctionProductController::class, 'generalSetupAutoFill'])->name('general-setup-auto-fill');

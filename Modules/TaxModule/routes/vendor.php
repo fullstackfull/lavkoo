@@ -13,7 +13,7 @@ use Modules\TaxModule\app\Http\Controllers\Vendor\Reports\TaxReportController;
 |
 */
 
-Route::group(['prefix' => 'vendor', 'as' => 'vendor.', 'middleware' => ['seller', 'seller_staff_access']], function () {
+Route::group(['prefix' => 'vendor', 'as' => 'vendor.', 'middleware' => ['seller']], function () {
     Route::group(['prefix' => 'report', 'as' => 'report.'], function () {
         Route::controller(TaxReportController::class)->group(function () {
             Route::get('get-vat-report', 'vendorTaxReportList')->name('get-vat-report');

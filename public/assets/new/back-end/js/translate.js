@@ -1,21 +1,5 @@
 "use strict";
 $(document).ready(function () {
-    // A key or a value of the language file may hold what a visitor typed: it is text on this screen, never markup.
-    function escapeHtml(text) {
-        return (text === null || text === undefined ? "" : String(text)).replace(
-            /[&<>"']/g,
-            function (character) {
-                return {
-                    "&": "&amp;",
-                    "<": "&lt;",
-                    ">": "&gt;",
-                    '"': "&quot;",
-                    "'": "&#39;",
-                }[character];
-            }
-        );
-    }
-
     let getDataTable = $("#get-data-table-route-and-text");
     let dataTablePageLength = [
         getDataTable.data("page-length"),
@@ -68,9 +52,6 @@ $(document).ready(function () {
             {
                 className: "text-center overflow-hidden text-wrap max-w-200",
                 data: "key",
-                render: function (data, type) {
-                    return type === "display" ? escapeHtml(data) : data;
-                },
             },
             {
                 data: null,
@@ -80,8 +61,8 @@ $(document).ready(function () {
                         `<textarea class="form-control w-100" id="value-${
                             meta.row + 1
                         }" value="` +
-                        escapeHtml(data.value) +
-                        `">${escapeHtml(data.value)}</textarea>`
+                        data.value +
+                        `">${data.value}</textarea>`
                     );
                 },
             },
@@ -90,7 +71,7 @@ $(document).ready(function () {
                 className: "text-center",
                 render: function (data, type, full, meta) {
                     return `<button type="button"  class="btn btn-outline-primary mx-auto icon-btn autoTranslate" data-key="${
-                        escapeHtml(data.encode)
+                        data.encode
                     }" data-index="${meta.row + 1}">
                                         <i class="fi fi-sr-language-exchange"></i></button>`;
                 },
@@ -100,7 +81,7 @@ $(document).ready(function () {
                 className: "text-center",
                 render: function (data, type, full, meta) {
                     return `<button type="button" class="btn btn-primary mx-auto icon-btn update-lang" data-key="${
-                        escapeHtml(data.encode)
+                        data.encode
                     }" data-index="${meta.row + 1}">
                                         <i class="fi fi-sr-disk"></i>
                                     </button>`;

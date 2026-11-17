@@ -37,7 +37,6 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin']],
             Route::post('status-update', 'updateStatus')->name('status-update');
             Route::post('blog-status-update'. '/{id}', 'updateBlogStatus')->name('blog-status-update');
             Route::get('draft-edit' . '/{id}', 'draftEdit')->name('draft-edit');
-            Route::get('draft-preview' . '/{id}', 'draftPreview')->name('draft-preview');
             Route::post('delete', 'delete')->name('delete');
             Route::post('section-view', 'sectionView')->name('section-view');
         });
