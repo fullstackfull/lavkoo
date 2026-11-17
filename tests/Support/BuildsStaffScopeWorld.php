@@ -125,6 +125,10 @@ trait BuildsStaffScopeWorld
             $table->string('thumbnail_storage_type')->nullable();
             $table->text('images')->nullable();
             $table->text('color_image')->nullable();
+            $table->string('unit')->nullable();
+            $table->boolean('refundable')->default(false);
+            $table->string('video_provider')->nullable();
+            $table->string('video_url')->nullable();
             $table->timestamps();
         });
         (require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php'))->up();

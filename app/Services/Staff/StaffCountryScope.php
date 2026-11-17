@@ -136,6 +136,35 @@ final class StaffCountryScope
     }
 
     /**
+     * The country the rows of a bulk import are saved in for the current request, or null when the request is not narrowed. The sheet has no country column, so every row
+     * takes one country: with countries tracked, the only country of the employee; while they are not, the default of the table, which has to be one of theirs. An employee
+     * with several countries, or none, has no such country and may not import.
+     */
+    public function countryOfImportedRows(bool $countriesAreTracked): ?string
+    {
+        $bound = $this->boundCountries();
+
+        return match (true) {
+            $bound === null => null,
+            $countriesAreTracked => count($bound) === 1 ? $bound[0] : null,
+            default => in_array(self::TABLE_DEFAULT_COUNTRY, $bound, true) ? self::TABLE_DEFAULT_COUNTRY : null,
+        };
+    }
+
+    /** @return string|null the language key of why a narrowed request may not import a sheet, or null when it may or the request is not narrowed */
+    public function whyItMayNotImport(bool $countriesAreTracked): ?string
+    {
+        $bound = $this->boundCountries();
+        if ($bound === null || $this->countryOfImportedRows(countriesAreTracked: $countriesAreTracked) !== null) {
+            return null;
+        }
+
+        return $countriesAreTracked && count($bound) > 1
+            ? 'the_import_sheet_has_no_country_and_your_account_works_with_more_than_one'
+            : 'the_products_of_this_sheet_would_be_saved_in_a_country_your_account_does_not_work_with';
+    }
+
+    /**
      * Whether every one of these products exists and belongs to a country the current request may work with. A request that is not narrowed may work with every
      * product, existing or not: the screens answer for an unknown one as they always did.
      *

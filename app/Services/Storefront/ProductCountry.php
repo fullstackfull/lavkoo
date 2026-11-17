@@ -2,6 +2,7 @@
 
 namespace App\Services\Storefront;
 
+use App\Rules\NewProductCountryInStaffScope;
 use App\Services\Staff\StaffCountryScope;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
@@ -32,7 +33,13 @@ final class ProductCountry
      */
     public static function options(): array
     {
-        return app(StaffCountryScope::class)->narrow(countries: StorefrontResolver::fromConfig()->configuredCountries());
+        return app(StaffCountryScope::class)->narrow(countries: self::configured());
+    }
+
+    /** @return list<string> every configured country, whoever asks: what a request means by a country does not depend on who sends it */
+    private static function configured(): array
+    {
+        return StorefrontResolver::fromConfig()->configuredCountries();
     }
 
     /** The country a product belongs to when nobody chose one: the default storefront's. */
@@ -51,9 +58,18 @@ final class ProductCountry
         return $country . ' · ' . StorefrontResolver::fromConfig()->currencyOf($country);
     }
 
-    /** @return array<string, list<mixed>> the validation of the country field of a new product */
+    /**
+     * The validation of the country field of a new product. A request narrowed to the countries of the signed-in employee (GCC-14c) also asks that the country the
+     * product will be saved in is one of them, even while countries are not tracked: the row then takes the default of the table.
+     *
+     * @return array<string, list<mixed>>
+     */
     public static function newProductRules(): array
     {
+        if (app(StaffCountryScope::class)->restricts()) {
+            return [StorefrontCatalog::COLUMN => self::isTracked() ? ['bail', 'nullable', new NewProductCountryInStaffScope(), Rule::in(self::options())] : ['bail', new NewProductCountryInStaffScope()]];
+        }
+
         if (!self::isTracked()) {
             return [];
         }
@@ -73,7 +89,7 @@ final class ProductCountry
             return [];
         }
 
-        $country = in_array($requestedCountry, self::options(), true) ? $requestedCountry : self::defaultCountry();
+        $country = in_array($requestedCountry, self::configured(), true) ? $requestedCountry : self::defaultCountry();
 
         return [StorefrontCatalog::COLUMN => $country];
     }
