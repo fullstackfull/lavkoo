@@ -191,10 +191,25 @@ final class SharedProductFile
     private static function otherTablesHolding(array $file): iterable
     {
         return match ($file['folder']) {
-            'meta' => ProductSeo::query()->where('image', $file['name'])->whereIn('product_id', self::existingProductIds())->pluck('product_id'),
-            'digital-product' => DigitalProductVariation::query()->where('file', $file['name'])->whereIn('product_id', self::existingProductIds())->pluck('product_id'),
+            'meta' => self::liveProductsHolding(rows: ProductSeo::query(), column: 'image', name: $file['name']),
+            'digital-product' => self::liveProductsHolding(rows: DigitalProductVariation::query(), column: 'file', name: $file['name']),
             default => [],
         };
+    }
+
+    /**
+     * @return list<int|string> the live products among the rows whose column holds the name byte for byte: the collation of the table may read `Case.png` and `case.png`, or
+     *                          `book.zip` and `book.zip ` (a trailing space), as one value, and they are two files
+     */
+    private static function liveProductsHolding(Builder $rows, string $column, string $name): array
+    {
+        return $rows->where($column, $name)
+            ->whereIn('product_id', self::existingProductIds())
+            ->toBase()
+            ->get(['product_id', $column])
+            ->filter(static fn (object $row): bool => $row->{$column} === $name)
+            ->pluck('product_id')
+            ->all();
     }
 
     private static function existingProductIds(): Builder

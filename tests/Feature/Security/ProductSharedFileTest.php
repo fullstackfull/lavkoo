@@ -961,6 +961,55 @@ class ProductSharedFileTest extends TestCase
         }
     }
 
+    public function test_a_meta_image_and_the_seo_image_of_another_product_that_differ_in_case_are_two_files(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'Case-Seo.png']);
+        $this->insertProduct(82);
+        DB::table('product_seos')->insert(['product_id' => 82, 'image' => 'case-seo.png']);
+        $this->fileOnDisk($this->product('meta/Case-Seo.png'), 'meta');
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/meta/Case-Seo.png'), 'product 82 holds case-seo.png, which is another file');
+
+        ImageManager::delete('/product/meta/Case-Seo.png');
+
+        $this->assertFileDoesNotExist($this->product('meta/Case-Seo.png'), 'the last product that holds the file lets go of it, and the file goes');
+    }
+
+    public function test_a_digital_file_and_the_variation_of_another_product_that_differ_by_a_trailing_space_are_two_files(): void
+    {
+        $this->insertProduct(81, ['digital_file_ready' => 'book-trailing.zip']);
+        $this->insertProduct(82);
+        DB::table('digital_product_variations')->insert(['product_id' => 82, 'file' => 'book-trailing.zip ']);
+        $this->fileOnDisk($this->product('digital-product/book-trailing.zip'), 'zip');
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/digital-product/book-trailing.zip'), 'product 82 holds "book-trailing.zip ", which is another file');
+
+        ImageManager::delete('/product/digital-product/book-trailing.zip');
+
+        $this->assertFileDoesNotExist($this->product('digital-product/book-trailing.zip'));
+    }
+
+    public function test_a_file_named_with_digits_and_the_variation_of_another_product_that_adds_a_trailing_space_are_two_files(): void
+    {
+        $this->insertProduct(81, ['digital_file_ready' => '2024']);
+        $this->insertProduct(82);
+        DB::table('digital_product_variations')->insert(['product_id' => 82, 'file' => '2024 ']);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/digital-product/2024'), 'two numbers that are equal as numbers are two names');
+    }
+
+    public function test_the_seo_row_or_the_variation_that_holds_the_exact_name_still_counts_next_to_one_that_holds_another_case(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'Exact-Seo.png', 'digital_file_ready' => 'Exact-Book.zip']);
+        $this->insertProduct(82);
+        $this->insertProduct(83);
+        DB::table('product_seos')->insert([['product_id' => 82, 'image' => 'exact-seo.png'], ['product_id' => 83, 'image' => 'Exact-Seo.png']]);
+        DB::table('digital_product_variations')->insert([['product_id' => 82, 'file' => 'exact-book.zip'], ['product_id' => 83, 'file' => 'Exact-Book.zip']]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/meta/Exact-Seo.png'), 'products 81 and 83 hold it');
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/digital-product/Exact-Book.zip'), 'products 81 and 83 hold it');
+    }
+
     public function test_a_file_that_hundreds_of_products_hold_is_answered_from_plain_rows_and_one_statement(): void
     {
         DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'PH' . $number, 'name' => 'Imported ' . $number, 'thumbnail' => 'placeholder.png', 'images' => json_encode(['placeholder.png']), 'colors' => '[]', 'color_image' => '[]'], range(1, 250)));
