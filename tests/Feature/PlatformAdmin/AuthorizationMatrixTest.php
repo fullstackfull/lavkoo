@@ -391,23 +391,6 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
         $this->assertNull(Admin::query()->find($admin['id'])->remember_token, 'no remember token is written');
     }
 
-    /** @param array<string, string> $headers */
-    private function assertEveryRouteRefuses(array $headers, string $why): void
-    {
-        $before = $this->ownTables();
-
-        foreach ($this->platformRoutes() as $route) {
-            [$method, $uri] = $this->requestTo($route);
-
-            $response = $this->json($method, $uri, [], $headers);
-
-            $this->assertSame(401, $response->getStatusCode(), "{$why}: {$method} {$uri} must be refused");
-            $response->assertExactJson($this->uniformRefusal());
-        }
-
-        $this->assertSame($before, $this->ownTables(), "{$why}: a refused request wrote something");
-    }
-
     /** What a database without the foreign key does when an admin is deleted: the row goes and its grant and sessions stay behind. */
     private function deleteTheAdminRowAndNothingElse(array $admin): void
     {
@@ -417,16 +400,5 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
     private function assertTokenOfTheSameAdminWorks(array $admin): void
     {
         $this->json('GET', self::PREFIX . '/me', [], $this->bearer($this->mintToken($admin)))->assertOk();
-    }
-
-    private function ownTables(): string
-    {
-        $rows = [];
-        foreach (['platform_admin_grants', 'platform_admin_tokens', 'platform_admin_audit_logs'] as $table) {
-            $rows[$table] = DB::table($table)->orderBy('id')->get();
-        }
-        $rows['admins'] = DB::table('admins')->orderBy('id')->get();
-
-        return json_encode($rows);
     }
 }
