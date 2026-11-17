@@ -252,7 +252,8 @@ would have more than 5 (section 3).
 ### `POST /auth/mfa`
 
 Completes a sign-in that answered `mfa_required`. No bearer token. Body (JSON or form; **a body only**): `challenge` (the `lkpc_` value) and **exactly one of** `code` (a **string** of six digits, since a number would lose its
-leading zeros; spaces are ignored) or `recovery_code` (a string, `xxxxx-xxxxx`, in any case, with or without the hyphen). Both, neither, or a value that is not of that shape is a malformed attempt: the same 401 as any failure.
+leading zeros; spaces are ignored) or `recovery_code` (a string, `xxxxx-xxxxx`, in any case, with or without the hyphen). Both, neither, or a value that is not of that shape is a malformed attempt: the same 401 as any failure. A field that is present counts as sent whatever it holds (a list, a number), except
+that an empty string is read as absent, so `{"code": "123456", "recovery_code": ""}` is an attempt with a code and `{"code": "123456", "recovery_code": ["x"]}` is both.
 
 ```json
 {"data": {

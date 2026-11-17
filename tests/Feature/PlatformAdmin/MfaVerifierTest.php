@@ -101,9 +101,13 @@ class MfaVerifierTest extends MfaTestCase
             'both' => [['code' => '123456', 'recovery_code' => 'abcde-23456']],
             'neither' => [[]],
             'a code that is not six digits' => [['code' => '12345']],
+            'a code of seven digits' => [['code' => '1234567']],
+            'a code with something after its six digits' => [['code' => '123456x']],
             'a recovery code that is not one' => [['recovery_code' => 'abcde']],
             'a code that is not text' => [['code' => 123456]],
             'a code that is a list' => [['code' => ['123456']]],
+            'a code and a recovery code that is a list' => [['code' => '123456', 'recovery_code' => ['abcde-23456']]],
+            'a code and a recovery code that is not text' => [['code' => '123456', 'recovery_code' => "abcde\xFF23456"]],
         ];
     }
 

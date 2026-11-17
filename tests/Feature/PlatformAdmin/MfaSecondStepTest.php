@@ -10,6 +10,7 @@ use App\Services\PlatformAdmin\PlatformAdminMfaVerifier;
 use App\Services\PlatformAdmin\Totp;
 use Carbon\Carbon;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Database\Connection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -235,6 +236,7 @@ class MfaSecondStepTest extends MfaTestCase
             'a grant that was revoked' => ['revoked grant'],
             'a grant that is gone' => ['no grant'],
             'a grant made for another admin row' => ['another row'],
+            'a grant that now belongs to another admin' => ['grant of another admin'],
             'a password that changed since the challenge' => ['password changed'],
             'a factor that was reset' => ['factor reset'],
             'a factor that the application key cannot read' => ['unreadable secret'],
@@ -644,6 +646,51 @@ class MfaSecondStepTest extends MfaTestCase
         $this->assertNull(DB::table('platform_admin_mfa_factors')->value('last_used_step'), 'the code was not used up by a sign-in that did not happen');
     }
 
+    public function test_a_field_sent_empty_is_as_good_as_one_not_sent_and_one_sent_with_anything_in_it_is_sent(): void
+    {
+        $this->travelTo('2026-11-17 10:00:15');
+        $admin = $this->enrolledAdmin();
+        $withCode = fn (array $more): array => ['challenge' => $this->challengeFor($admin), 'code' => $this->totpFor($admin['factor'], steps: 1)] + $more;
+
+        $this->second($withCode(['recovery_code' => ['abcde-23456']]))->assertStatus(401)->assertExactJson($this->uniformRefusal());
+        $this->second($withCode(['recovery_code' => 5]))->assertStatus(401)->assertExactJson($this->uniformRefusal());
+        $this->second($withCode(['recovery_code' => '']))->assertOk()->assertJsonPath('data.mfa.method', 'totp');
+        $this->second(['challenge' => $this->challengeFor($admin), 'recovery_code' => $admin['factor']['recovery_codes'][0], 'code' => ''])->assertOk()->assertJsonPath('data.mfa.method', 'recovery_code');
+    }
+
+    public function test_a_try_that_loses_the_race_for_the_last_place_on_a_challenge_is_refused_as_consumed_and_the_code_is_not_used_up(): void
+    {
+        $this->travelTo('2026-11-17 10:00:15');
+        $admin = $this->enrolledAdmin();
+        $challenge = $this->challengeFor($admin);
+        $this->consumeTheChallengeWhenTheTryIsCounted();
+
+        $this->second(['challenge' => $challenge, 'code' => $this->totpFor($admin['factor'])])->assertStatus(401)->assertExactJson($this->uniformRefusal());
+
+        $line = DB::table('platform_admin_audit_logs')->where('action', 'auth.mfa_failed')->first();
+        $this->assertSame('consumed_challenge', json_decode($line->context, true)['reason']);
+        $this->assertSame(0, DB::table('platform_admin_tokens')->count());
+        $this->assertNull(DB::table('platform_admin_mfa_factors')->value('last_used_step'), 'the code was not used up by a sign-in that did not happen');
+    }
+
+    public function test_a_challenge_nobody_was_given_looks_up_the_admin_the_grant_and_the_factor_of_nobody_and_never_those_of_a_real_admin(): void
+    {
+        $this->enrolledAdmin();
+        $lookups = [];
+        DB::listen(static function ($query) use (&$lookups): void {
+            if (preg_match('/\bfrom [`"]?(admins|platform_admin_grants|platform_admin_mfa_factors)[`"]?\s/', $query->sql) === 1) {
+                $lookups[] = [$query->sql, $query->bindings];
+            }
+        });
+
+        $this->second(['challenge' => 'lkpc_' . Str::random(48), 'code' => '000000'])->assertStatus(401);
+
+        $this->assertCount(3, $lookups, 'the admin, the grant and the factor are looked up, for nobody');
+        foreach ($lookups as [$sql, $bindings]) {
+            $this->assertSame([0], $bindings, $sql);
+        }
+    }
+
     public function test_the_second_step_does_not_depend_on_the_switch_being_on_when_the_challenge_is_completed(): void
     {
         $admin = $this->enrolledAdmin();
@@ -701,7 +748,7 @@ class MfaSecondStepTest extends MfaTestCase
         config(['gcc.platform_admin.failed_login_audit_per_hour' => 1000, 'gcc.platform_admin.mfa.lockout_failures' => 20]);
         $reasons = [];
         foreach (['expired' => 'expired_challenge', 'consumed' => 'consumed_challenge', 'exhausted' => 'attempts_exhausted', 'wrong code' => 'wrong_code', 'replayed code' => 'replayed_code', 'malformed code' => 'malformed_input',
-            'inactive' => 'inactive_admin', 'revoked grant' => 'revoked_grant', 'another row' => 'grant_of_another_admin_row', 'password changed' => 'password_changed', 'factor reset' => 'unusable_factor', 'unreadable secret' => 'unusable_factor'] as $cause => $reason) {
+            'inactive' => 'inactive_admin', 'revoked grant' => 'revoked_grant', 'another row' => 'grant_of_another_admin_row', 'grant of another admin' => 'grant_of_another_admin_row', 'password changed' => 'password_changed', 'factor reset' => 'unusable_factor', 'unreadable secret' => 'unusable_factor'] as $cause => $reason) {
             DB::table('platform_admin_audit_logs')->delete();
             [$body] = $this->bodyFor(cause: $cause);
 
@@ -873,6 +920,10 @@ class MfaSecondStepTest extends MfaTestCase
                 DB::table('platform_admin_grants')->where('id', $admin['grant_id'])->update(['admin_fingerprint' => hash('sha256', 'another row')]);
 
                 return [['challenge' => $challenge, 'code' => $right()], $admin];
+            case 'grant of another admin':
+                DB::table('platform_admin_grants')->where('id', $admin['grant_id'])->update(['admin_id' => $this->makeAdmin()['id']]);
+
+                return [['challenge' => $challenge, 'code' => $right()], $admin];
             case 'password changed':
                 DB::table('admins')->where('id', $admin['id'])->update(['password' => Hash::make(Str::random(20))]);
 
@@ -934,6 +985,23 @@ class MfaSecondStepTest extends MfaTestCase
         }
 
         return $spy;
+    }
+
+    /** Consumes the challenge at the moment the statement that counts a try on it is about to run, as another request that took the last try would have. */
+    private function consumeTheChallengeWhenTheTryIsCounted(): void
+    {
+        $raced = false;
+
+        DB::beforeExecuting(static function (string $query, array $bindings, Connection $connection) use (&$raced): void {
+            $countsATry = str_starts_with($query, 'update') && str_contains($query, 'platform_admin_mfa_challenges') && str_contains($query, 'attempts');
+
+            if ($raced || !$countsATry) {
+                return;
+            }
+
+            $raced = true;
+            $connection->table('platform_admin_mfa_challenges')->update(['consumed_at' => now()]);
+        });
     }
 
     /** @return array<string, int> */

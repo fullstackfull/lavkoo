@@ -206,6 +206,20 @@ class SessionPolicyTest extends PlatformAdminTestCase
         $this->assertSame([$ids[0], $ids[1], $ids[2]], $lines->pluck('token_id')->map(fn ($id) => (int) $id)->all(), 'oldest first');
     }
 
+    public function test_a_sign_in_holds_the_row_of_the_grant_while_it_counts_the_open_sessions_so_that_two_of_them_cannot_both_see_room(): void
+    {
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            $this->markTestSkipped('SQLite has no row locks: the statement that takes one can be seen on MySQL and MariaDB only.');
+        }
+
+        $admin = $this->platformAdmin();
+
+        $statements = $this->statementsRunBy(fn () => $this->signIn($admin));
+
+        $holdingTheGrant = array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'platform_admin_grants') && str_ends_with(rtrim($sql), 'for update'));
+        $this->assertCount(1, $holdingTheGrant);
+    }
+
     public function test_sessions_that_are_over_do_not_take_a_place_and_so_nobody_is_ended_for_them(): void
     {
         $this->travelTo('2026-11-17 10:00:00');

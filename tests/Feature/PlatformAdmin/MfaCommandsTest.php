@@ -346,6 +346,15 @@ class MfaCommandsTest extends TestCase
         $this->assertSame(0, DB::table('platform_admin_audit_logs')->count(), 'a command that has nothing to confirm leaves no line');
     }
 
+    public function test_confirming_for_an_admin_that_does_not_exist_is_refused_and_says_so_and_leaves_no_line(): void
+    {
+        [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:mfa:confirm', arguments: ['admin_id' => 99, 'code' => '123456']);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('Admin 99 does not exist.', $output);
+        $this->assertSame(0, DB::table('platform_admin_audit_logs')->count());
+    }
+
     public function test_a_secret_that_the_current_key_cannot_read_is_refused_and_says_so(): void
     {
         $this->enrolFactor(adminId: 7, confirmed: false, overrides: ['secret' => Crypt::encryptString('JBSWY3DPEHPK3PXP')]);
@@ -466,6 +475,17 @@ class MfaCommandsTest extends TestCase
         $this->assertSame(['none', '-', '-'], [$rows[10]['factor'], $rows[10]['codes'], $rows[10]['secret']]);
         $this->assertStringContainsString('The second factor is required.', $output);
         $this->assertStringNotContainsString('NOT required', $output);
+    }
+
+    public function test_the_status_names_a_factor_made_for_another_row_instead_of_calling_it_active_or_pending(): void
+    {
+        $this->enrolFactor(adminId: 7, overrides: ['admin_fingerprint' => hash('sha256', 'another row')]);
+        $this->enrolFactor(adminId: 8, confirmed: false, overrides: ['admin_fingerprint' => hash('sha256', 'another row')]);
+
+        [, $output] = $this->runCommand(command: 'gcc:platform-admin:mfa:status');
+
+        $rows = $this->statusRows(output: $output);
+        $this->assertSame(['other_row', 'other_row'], [$rows[7]['factor'], $rows[8]['factor']]);
     }
 
     public function test_the_status_names_a_secret_the_current_key_cannot_read_and_never_prints_a_secret_or_a_hash(): void
