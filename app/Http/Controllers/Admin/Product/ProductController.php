@@ -41,6 +41,7 @@ use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
+use App\Services\Catalog\ProductCodeScope;
 use App\Utils\CartManager;
 use App\Utils\ProductManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -724,6 +725,7 @@ class ProductController extends BaseController
             'type' => $this->stringOr($request->type, $type),
             'seller' => $seller,
             'status' => $request->status ?? '',
+            'countryColumn' => app(ProductCodeScope::class)->enabled(),
             'productWiseTax' => $productWiseTax
         ];
         return Excel::download(new ProductListExport($data), ucwords($this->stringOr($request['type'], $type)) . '-' . 'product-list.xlsx');

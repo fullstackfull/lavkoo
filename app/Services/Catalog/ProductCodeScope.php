@@ -6,6 +6,7 @@ use App\Services\Storefront\ProductCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -192,6 +193,33 @@ final class ProductCodeScope
         $country = $this->enabled() ? $this->countryOfProduct($product) : null;
 
         return $country === null ? '' : ' · ' . $country;
+    }
+
+    /**
+     * The columns a picker reads. The country joins them while the scope applies, so that the rows can be tagged; before that no query mentions the column.
+     *
+     * @param list<string> $columns
+     * @return list<string>
+     */
+    public function pickerColumns(array $columns): array
+    {
+        return $this->enabled() ? [...$columns, StorefrontCatalog::COLUMN] : $columns;
+    }
+
+    /**
+     * The rows of a picker that answers JSON, each with the label of its product's country (`country_tag`) while the scope applies, so that a script can
+     * tell two products of one name or code apart. The country column itself is not handed on. Without the scope the rows are returned as they are.
+     *
+     * @param Collection<int, object> $rows rows read with pickerColumns()
+     * @return Collection<int, object|array<string, mixed>>
+     */
+    public function tagPickerRows(Collection $rows): Collection
+    {
+        if (!$this->enabled()) {
+            return $rows;
+        }
+
+        return $rows->map(fn (object $row): array => [...Arr::except((array) $row, StorefrontCatalog::COLUMN), 'country_tag' => $this->countryTag($row)]);
     }
 
     /** Keeps a products query to one country while the scope applies. With no country, or before the scope applies, the query is as it was. */

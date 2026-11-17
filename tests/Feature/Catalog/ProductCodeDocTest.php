@@ -16,8 +16,10 @@ class ProductCodeDocTest extends TestCase
     private const LABELS = [
         ProductCodeSites::COVERED => 'covered',
         ProductCodeSites::PARTIAL => 'partial',
+        ProductCodeSites::LABELLED => 'labelled',
         ProductCodeSites::ID_KEYED => 'not needed (id-keyed)',
         ProductCodeSites::NOT_COVERED => 'NOT covered',
+        ProductCodeSites::DEFERRED => 'deferred (owner)',
     ];
 
     private function doc(): string
@@ -36,6 +38,18 @@ class ProductCodeDocTest extends TestCase
                 "{$site['id']} is {$site['status']} in ProductCodeSites and the doc says otherwise (or has no row for it)",
             );
         }
+    }
+
+    public function test_the_doc_states_the_totals_of_the_registry(): void
+    {
+        $counts = ProductCodeSites::counts();
+
+        $this->assertStringContainsString(
+            sprintf('**%d covered, %d labelled, %d not needed (id-keyed), %d open**', $counts['covered'], $counts['labelled'], $counts['id_keyed'], $counts['open']),
+            $this->doc(),
+            'the totals line of the doc is out of step with ProductCodeSites::counts()',
+        );
+        $this->assertStringContainsString(sprintf('(%d rows below)', array_sum($counts)), $this->doc());
     }
 
     public function test_the_doc_has_no_row_for_a_site_the_registry_does_not_know(): void

@@ -28,6 +28,7 @@ final class ProductCodeReadiness
      *     within_country: list<array{kind: string, country: string, value: string, products: int}>,
      *     across_countries: list<array{kind: string, value: string, countries: list<string>}>,
      *     sites: list<array{id: string, where: string, status: string, note: string}>,
+     *     survey: array{covered: int, labelled: int, id_keyed: int, open: int},
      *     ready: bool
      * }
      */
@@ -44,6 +45,7 @@ final class ProductCodeReadiness
             'within_country' => [],
             'across_countries' => [],
             'sites' => ProductCodeSites::notCovered(),
+            'survey' => ProductCodeSites::counts(),
             'ready' => false,
         ];
         if (!$column) {

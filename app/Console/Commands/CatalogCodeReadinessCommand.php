@@ -21,7 +21,7 @@ class CatalogCodeReadinessCommand extends Command
 
         if (!$report['column']) {
             $this->error('The products migration that adds products.storefront_country has not run: codes cannot be scoped to a country, and the switch acts as off.');
-            $this->printSites($report['sites']);
+            $this->printSites($report['sites'], $report['survey']);
 
             return self::FAILURE;
         }
@@ -30,7 +30,7 @@ class CatalogCodeReadinessCommand extends Command
         $this->printEmptyCountry($report['empty_country']);
         $this->printHeldTwice($report['within_country']);
         $this->printShared($report['across_countries']);
-        $this->printSites($report['sites']);
+        $this->printSites($report['sites'], $report['survey']);
         $this->line($report['ready'] ? 'Ready: nothing in the catalogue blocks the switch.' : 'Not ready: fix what is listed above, then run this again.');
 
         return $report['ready'] ? self::SUCCESS : self::FAILURE;
@@ -83,10 +83,21 @@ class CatalogCodeReadinessCommand extends Command
         $this->printLimited(array_map(static fn (array $row): string => sprintf('  %-8s %s (%s)', $row['kind'], $row['value'], implode(', ', $row['countries'])), $rows));
     }
 
-    /** @param list<array{id: string, where: string, status: string, note: string}> $sites */
-    private function printSites(array $sites): void
+    /**
+     * @param list<array{id: string, where: string, status: string, note: string}> $sites
+     * @param array{covered: int, labelled: int, id_keyed: int, open: int} $survey
+     */
+    private function printSites(array $sites, array $survey): void
     {
-        $this->line(count($sites) . ' site(s) still read a code as one product, wholly or in part:');
+        $this->line(sprintf(
+            'Survey of %d lookup sites: %d covered, %d labelled (a picker names the country), %d not needed (id-keyed), %d still open.',
+            array_sum($survey),
+            $survey['covered'],
+            $survey['labelled'],
+            $survey['id_keyed'],
+            $survey['open'],
+        ));
+        $this->line(count($sites) . ' site(s) still read a code as one product, wholly or in part, or wait for the owner:');
         foreach ($sites as $site) {
             $this->line(sprintf('  %-4s %-12s %s: %s', $site['id'], str_replace('_', ' ', $site['status']), $site['where'], $site['note']));
         }
