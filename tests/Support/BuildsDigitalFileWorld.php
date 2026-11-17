@@ -87,7 +87,7 @@ trait BuildsDigitalFileWorld
     {
         Storage::fake('public');
         Storage::fake('digital_private');
-        config(['filesystems.digital_files_private' => $private]);
+        config(['filesystems.digital_files_private' => $private, 'filesystems.disks.digital_private.root' => storage_path('framework/testing/disks/digital_private')]);
     }
 
     protected function removeDigitalDisks(): void
