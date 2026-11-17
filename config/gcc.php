@@ -4,6 +4,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Country-scoped SKU and barcode (GCC-14b)
+    |--------------------------------------------------------------------------
+    |
+    | Off by default: a product code and a barcode stay unique across the whole table, exactly as before. When it is on, and only once the products
+    | table has its `storefront_country` column, the same code or barcode may exist in two countries and never twice in one. The gates, the lookups
+    | and the importers read the answer from App\Services\Catalog\ProductCodeScope. Read docs/gcc/GCC-14B-COUNTRY-SCOPED-CODES.md and run
+    | `php artisan gcc:catalog:code-readiness` before turning it on.
+    |
+    */
+
+    'catalog' => [
+        'country_scoped_codes' => filter_var(env('GCC_COUNTRY_SCOPED_CODES', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | GCC storefronts
     |--------------------------------------------------------------------------
     |

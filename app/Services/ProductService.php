@@ -9,6 +9,7 @@ use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use Illuminate\Support\Str;
 use Rap2hpoutre\FastExcel\FastExcel;
+use App\Services\Catalog\ProductCodeScope;
 class ProductService
 {
     use FileManagerTrait;
@@ -768,7 +769,7 @@ class ProductService
     public function getUniqueProductSKUCode(): string
     {
         $code = strtoupper(Str::random('6'));
-        if (\App\Models\Product::where('code', $code)->exists()) {
+        if (!app(ProductCodeScope::class)->generatedCodeIsFree(code: $code, country: ProductCodeScope::TABLE_DEFAULT_COUNTRY)) {
             return self::getUniqueProductSKUCode();
         }
         return $code;
@@ -838,7 +839,7 @@ class ProductService
 
             $productCode = self::getUniqueProductSKUCode();
 
-            $productsTax[$productCode] = $collection['tax_ids'];
+            $productsTax[] = $collection['tax_ids'];
 
             $products[] = [
                 'name' => $collection['name'],

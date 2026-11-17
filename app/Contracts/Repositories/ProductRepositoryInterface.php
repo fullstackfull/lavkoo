@@ -47,6 +47,14 @@ interface ProductRepositoryInterface extends RepositoryInterface
     public function getStockLimitListWhere(array $orderBy = [], ?string $searchValue = null, array $filters = [], array $withCount = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator;
 
     /**
+     * Adds the rows all or nothing and tells which products they became.
+     *
+     * @param array $data
+     * @return list<int> the ids of the new rows, in the order of the rows
+     */
+    public function addArrayAndGetIds(array $data): array;
+
+    /**
      * @param array $data
      * @return bool
      */
