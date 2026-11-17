@@ -4,6 +4,7 @@ namespace App\Traits;
 
 use App\Events\OrderEditDuePaymentEvent;
 use App\Events\OrderEditEvent;
+use App\Exceptions\WalletDebitRefusedException;
 use App\Library\Payer;
 use App\Library\Payment as PaymentInfo;
 use App\Library\Receiver;
@@ -28,6 +29,7 @@ use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\OrderTax;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
@@ -708,32 +710,56 @@ trait OrderEditManager
         return $data;
     }
 
+    /**
+     * Pays the due of an edited order from the customer's own wallet, completely or not at all.
+     *
+     * The order row is locked and its due read again under the lock, so a second submission, or a concurrent one, finds nothing left
+     * to pay and debits nothing. The debit, the order, its edit history and the admin wallet are written in one transaction: a debit
+     * the wallet refuses leaves all of them as they were. Only the customer who owns the order may pay its due.
+     *
+     * @return array{status: bool, message: string}
+     */
     public function payEditOrderDueByCustomerWallet(object|array $order, object|array $customer): array
     {
-        if (($customer['wallet_balance'] ?? 0) < $order['edit_due_amount']) {
-            return [
-                'status' => false,
-                'message' => translate('Insufficient_Wallet_Balance')
-            ];
+        try {
+            return DB::transaction(function () use ($order, $customer) {
+                $lockedOrder = Order::query()
+                    ->where(['id' => $order['id'], 'customer_id' => $customer['id'], 'is_guest' => 0])
+                    ->lockForUpdate()
+                    ->first();
+                if (!$lockedOrder) {
+                    return ['status' => false, 'message' => translate('Order_not_found')];
+                }
+
+                $dueAmount = (float) $lockedOrder['edit_due_amount'];
+                if ($dueAmount <= 0) {
+                    return ['status' => false, 'message' => translate('No_due_amount_to_pay')];
+                }
+                if (($customer['wallet_balance'] ?? 0) < $dueAmount) {
+                    return ['status' => false, 'message' => translate('Insufficient_Wallet_Balance')];
+                }
+
+                $debit = CustomerManager::create_wallet_transaction($customer['id'], $dueAmount, 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet']);
+                if ($debit === false) {
+                    throw new WalletDebitRefusedException(customerId: $customer['id']);
+                }
+
+                AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $dueAmount);
+                OrderEditHistory::where('id', $lockedOrder->latestEditHistory?->id)->update([
+                    'order_due_payment_status' => 'paid',
+                    'order_due_payment_method' => 'wallet',
+                ]);
+                Order::where('id', $lockedOrder['id'])->update([
+                    'edit_due_amount' => 0,
+                    'order_amount' => $lockedOrder['order_amount'] + $dueAmount,
+                    'payment_status' => 'paid'
+                ]);
+
+                return ['status' => true, 'message' => translate('Payment_Successful')];
+            });
+        } catch (WalletDebitRefusedException) {
+            return ['status' => false, 'message' => translate('Insufficient_Wallet_Balance')];
         }
-        CustomerManager::create_wallet_transaction($customer['id'], $order['edit_due_amount'], 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet']);
-        AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $order['edit_due_amount']);
-        OrderEditHistory::where('id', $order?->latestEditHistory?->id)->update([
-            'order_due_payment_status' => 'paid',
-            'order_due_payment_method' => 'wallet',
-        ]);
-
-        Order::where('id', $order['id'])->update([
-            'edit_due_amount' => 0,
-            'order_amount' => $order['order_amount'] + $order['edit_due_amount'],
-            'payment_status' => 'paid'
-        ]);
-
-
-        return [
-            'status' => true,
-            'message' => translate('Payment_Successful')
-        ];
     }
 
     public function payEditOrderDueByDigitalPayment(object|array $request, object|array $order, object|array|string $customer): array
