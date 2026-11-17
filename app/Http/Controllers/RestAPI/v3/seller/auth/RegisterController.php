@@ -8,6 +8,7 @@ use App\Http\Requests\API\v3\SellerRegistrationRequest;
 use App\Models\Admin;
 use App\Models\Seller;
 use App\Models\Shop;
+use App\Services\VendorService;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use Carbon\Carbon;
@@ -21,8 +22,13 @@ class RegisterController extends Controller
 
     public function store(SellerRegistrationRequest $request): JsonResponse
     {
-        $adminEmail = Admin::where('admin_role_id', 1)->select('email')->first();
-        if ($adminEmail && $request['email'] === $adminEmail) {
+        if (!app(VendorService::class)->isRegistrationOpen()) {
+            return response()->json([
+                'message' => translate('access_denied') . '!!',
+                'error' => translate('access_denied') . '!!',
+            ], 403);
+        }
+        if (Admin::masterAdminUsesEmail($request['email'])) {
             return response()->json([
                 'message' => translate('Email_already_exist_please_try_another_email'),
                 'error' => translate('Email_already_exist_please_try_another_email'),
@@ -38,7 +44,7 @@ class RegisterController extends Controller
             $seller->email = $request->email;
             $seller->image = $request->file('image') ? ImageManager::upload('seller/', 'webp', $request->file('image')) : null;
             $seller->password = bcrypt($request->password);
-            $seller->status = $request->status == 'approved' ? 'approved' : "pending";
+            $seller->status = 'pending';
             $seller->save();
 
             $shop = new Shop();

@@ -18,6 +18,7 @@ use App\Http\Controllers\BaseController;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Database\Eloquent\Collection;
 use App\Http\Requests\Vendor\VendorAddRequest;
+use App\Models\Admin;
 use Illuminate\Pagination\LengthAwarePaginator;
 use App\Contracts\Repositories\ShopRepositoryInterface;
 use App\Repositories\VendorRegistrationReasonRepository;
@@ -48,9 +49,7 @@ class RegisterController extends BaseController
 
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse
     {
-        $businessMode = getWebConfig(name: 'business_mode');
-        $vendorRegistration = getWebConfig(name: 'seller_registration');
-        if ((isset($businessMode) && $businessMode == 'single') || (isset($vendorRegistration) && $vendorRegistration == 0)) {
+        if (!$this->vendorService->isRegistrationOpen()) {
             ToastMagic::warning(translate('access_denied') . '!!');
             return redirect('/');
         }
@@ -69,6 +68,11 @@ class RegisterController extends BaseController
 
     public function add(VendorAddRequest $request): JsonResponse
     {
+        if (!$this->vendorService->isRegistrationOpen()) {
+            return response()->json([
+                'error' => translate('access_denied') . '!!',
+            ]);
+        }
         $result = RecaptchaService::verificationStatus(request: $request, session: SessionKey::VENDOR_RECAPTCHA_KEY, action: "register");
         if ($result && !$result['status']) {
             if ($request->ajax()) {
@@ -77,8 +81,7 @@ class RegisterController extends BaseController
                 ]);
             }
         }
-        $adminEmail = $this->adminRepo->getFirstWhere(['admin_role_id' => 1]);
-        if ($adminEmail && isset($adminEmail['email']) && $request['email'] === $adminEmail['email']) {
+        if (Admin::masterAdminUsesEmail($request['email'])) {
             return response()->json([
                 'error' => translate('Email_already_exist_please_try_another_email'),
             ]);
