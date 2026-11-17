@@ -96,7 +96,10 @@ class RefundController extends Controller
     {
         $seller = $request->seller;
         // Ownership: scope the order line to this seller so one seller can't read another's line/refund detail.
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_details_id);
+        $order_details = OrderDetail::where('seller_id', $seller['id'])
+            ->whereHas('order', function ($query) {
+                $query->where('seller_is', 'seller');
+            })->find($request->order_details_id);
         if (!$order_details) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
