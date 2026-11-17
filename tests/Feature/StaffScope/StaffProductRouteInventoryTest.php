@@ -111,6 +111,15 @@ class StaffProductRouteInventoryTest extends TestCase
         $this->assertSame([], StaffProductRoutes::rulesOf(controller: 'App\Http\Controllers\Admin\Order\OrderController'));
     }
 
+    public function test_a_rule_of_a_kind_nobody_knows_names_nothing_that_can_be_checked(): void
+    {
+        $request = \Illuminate\Http\Request::create('/admin/products/delete/10', 'DELETE');
+
+        $this->assertNull(StaffProductRoutes::productIdsOf(request: $request, rule: 'bogus:id'));
+        $this->assertNull(StaffProductRoutes::productIdsOf(request: $request, rule: ''));
+        $this->assertSame([], StaffProductRoutes::productIdsOf(request: $request, rule: 'list'));
+    }
+
     // ---- the scan is not blind -------------------------------------------------------------------------------------------------------
 
     public function test_a_new_controller_that_reads_products_is_found_and_fails_the_guard(): void

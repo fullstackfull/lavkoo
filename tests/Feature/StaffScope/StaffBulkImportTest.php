@@ -224,6 +224,17 @@ class StaffBulkImportTest extends TestCase
         $this->assertArrayNotHasKey('storefront_country', $result['products'][0]);
     }
 
+    public function test_the_two_refusals_are_language_keys_every_language_file_holds(): void
+    {
+        foreach (['en', 'sa', 'ae'] as $locale) {
+            $messages = require base_path("resources/lang/{$locale}/new-messages.php");
+
+            foreach ([self::SEVERAL, self::UNUSABLE] as $key) {
+                $this->assertNotSame('', trim((string) ($messages[$key] ?? '')), $locale . ' lacks ' . $key);
+            }
+        }
+    }
+
     public function test_the_default_of_the_table_is_what_a_row_without_a_country_gets(): void
     {
         $this->assertSame(StaffCountryScope::TABLE_DEFAULT_COUNTRY, 'SA');

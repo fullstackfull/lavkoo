@@ -362,6 +362,8 @@ job, and a one-line rule each.
    employee's products and the labels route leaves other countries' out; a crafted request can still store the id of another country's product. It exposes nothing to the
    employee, and the storefront shows a country's own products only. Checking the ids in `ProductService::getBoughtTogetherIds` is the fix, and slice 2's.
 10. **The counters and the lists of the shared layout and of the dashboard** are not on the product screens and are not narrowed (slice 4).
+    **No product screen fills a shared cache from a product query**: the caches of product lists are built by storefront requests, which are never bound, so a narrowed
+    answer cannot be served to someone else.
 11. **Three language keys** were added in the middle of `en`, `sa` and `ae` `new-messages.php`; the Arabic text is the author's and should be read by a native speaker.
 
 ### What changed shape while the answer did not (switch off)

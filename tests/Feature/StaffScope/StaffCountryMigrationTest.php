@@ -105,6 +105,16 @@ class StaffCountryMigrationTest extends TestCase
         $this->assertSame(1, DB::table('admin_country_scopes')->where('country', 'SA')->count());
     }
 
+    public function test_on_mysql_the_country_is_two_ascii_bytes_compared_byte_for_byte(): void
+    {
+        $this->requireMySqlOrMariaDb();
+        $this->runStaffScopeMigration();
+
+        $column = DB::selectOne("select character_maximum_length as length, collation_name as collation_name from information_schema.columns where table_schema = database() and table_name = 'admin_country_scopes' and column_name = 'country'");
+
+        $this->assertSame([2, 'ascii_bin'], [(int) $column->length, $column->collation_name]);
+    }
+
     public function test_with_a_bigint_unsigned_admins_id_the_table_is_tied_to_admins_and_nothing_is_warned(): void
     {
         $log = $this->captureLog();

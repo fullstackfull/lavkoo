@@ -128,6 +128,16 @@ class StaffNewProductCountryTest extends TestCase
         $this->assertSame([self::REFUSAL], $this->refusalsOf(['storefront_country' => 'AE']));
     }
 
+    public function test_a_value_that_is_not_a_country_at_all_is_refused_even_when_the_default_storefront_is_one_of_theirs(): void
+    {
+        $this->storefrontsOn();
+        $this->restrictedTo(['KW', 'SA']);
+
+        foreach (['ZZ', 'kw', 'KWT'] as $country) {
+            $this->assertNotSame([], $this->refusalsOf(['storefront_country' => $country]), $country . ' would fall back to the default storefront if the list rule did not refuse it');
+        }
+    }
+
     public function test_the_default_storefront_is_the_one_that_is_configured_not_always_saudi_arabia(): void
     {
         $this->storefrontsOn();
