@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\Taxable;
+use App\Services\DigitalFileAddressService;
 
 /**
  * @property int $user_id
@@ -457,7 +458,8 @@ class Product extends Model
     public function getDigitalFileReadyFullUrlAttribute(): array
     {
         $value = $this->digital_file_ready;
-        return $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
+        return app(DigitalFileAddressService::class)->privateAnswer(name: $value, kind: 'product', id: $this->id, storageType: $this->digital_file_ready_storage_type)
+            ?? $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
     }
 
     public function getColorImagesFullUrlAttribute(): array

@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\DigitalProductFileService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -77,6 +78,7 @@ class ImageManager
     {
         if (PlainFileName::staysInside(path: (string) $full_path) && self::checkFileExists(filePath: $full_path)['status'] && !SharedProductFile::isShared(path: (string) $full_path)) {
             Storage::disk(self::checkFileExists(filePath: $full_path)['disk'])->delete($full_path);
+            app(DigitalProductFileService::class)->deletePrivateCopy(path: (string) $full_path);
         }
         return [
             'success' => 1,
@@ -95,6 +97,11 @@ class ImageManager
             return [
                 'status' => true,
                 'disk' => 's3'
+            ];
+        } elseif (app(DigitalProductFileService::class)->holdsPrivately(path: $filePath)) {
+            return [
+                'status' => true,
+                'disk' => DigitalProductFileService::PRIVATE_DISK
             ];
         } else {
             return [
