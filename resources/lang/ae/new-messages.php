@@ -17744,4 +17744,6 @@ return [
 	'attention_outcome_not_done_at_channel' => 'القناة تُظهر أنه لم يحدث',
 	'attention_outcome_still_unknown' => 'نظرتُ والقناة لا تقول',
 	'attention_outcome_no_longer_relevant' => 'لم يبقَ ذا صلة',
+	'order_item_of_a_removed_product_cannot_be_changed' => 'يحتوي هذا الطلب على عنصر لم يعد منتجه موجودًا. لا يمكن تغيير هذا العنصر أو إزالته؛ اتركه كما هو.',
+	'order_item_of_a_removed_product_carries_tax' => 'يحتوي هذا الطلب على عنصر خاضع للضريبة لم يعد منتجه موجودًا، لذلك لا يمكن تعديل عناصره.',
 ];

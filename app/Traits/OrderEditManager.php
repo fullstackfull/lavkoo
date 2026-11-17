@@ -184,8 +184,10 @@ trait OrderEditManager
         foreach (collect($order->details ?? []) as $detail) {
             $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, (int)($detail['qty'] ?? 0), 'increment');
         }
-        $keepIds = [];
-        $totalPrice = 0;
+        // A line without a product is kept as it is, with its rewards: it is never written, and it counts in the total the rewards are shared over.
+        $linesWithoutProduct = collect($order->details ?? [])->filter(fn ($detail) => empty($detail['product_id']));
+        $keepIds = $linesWithoutProduct->pluck('id')->all();
+        $totalPrice = $linesWithoutProduct->sum(fn ($detail) => $detail['price'] * $detail['qty'] - $detail['discount']);
         $rewardsData = [];
         $taxList = collect($taxSummary['applied_tax_cart_list'] ?? []);
         $now = Carbon::now();
@@ -313,9 +315,19 @@ trait OrderEditManager
             return $this->getRefusedEditOrderSummary(order: $order, message: translate('Product_is_unavailable'));
         }
 
+        $linesWithoutProductRefusal = app(OrderEditService::class)->getRefusalOfLinesWithoutProduct(order: $order, editedLines: $editedOrder);
+        if ($linesWithoutProductRefusal !== null) {
+            return $this->getRefusedEditOrderSummary(order: $order, message: $linesWithoutProductRefusal);
+        }
+
         $productList = Product::whereIn('id', collect($editedOrder)->pluck('product_id')->toArray())->get();
 
         foreach ($editedOrder as $details) {
+            // A line without a product takes no stock: the edit keeps it as it is.
+            if (empty($details['product_id'])) {
+                continue;
+            }
+
             $product = json_decode($details['product_details'] ?? '', true);
             $activeProduct = $productList?->firstWhere('id', $details['product_id']) ?? $product;
             $currentStock = max(0, $activeProduct['current_stock']);
@@ -705,14 +717,15 @@ trait OrderEditManager
             if ($editedItem['active_product']) {
                 $totalDiscountPrice = ($editedItem['price'] - $editedItem['discount']) * $editedItem['qty'];
                 $appliedDiscountAmount = $totalDiscountOnProduct > 0 ? ($totalDiscountOnProduct * $totalDiscountPrice) / $totalDiscountProductPrice : 0;
-                $appliedTaxAmount = CartManager::getAppliedTaxAmount(
+                // A line without a product keeps the tax the order stored for it, none: an edit of an order whose such line carries tax is refused.
+                $appliedTaxAmount = empty($editedItem['product_id']) ? 0 : CartManager::getAppliedTaxAmount(
                     product: $editedItem['active_product'],
                     taxConfig: $taxConfig,
                     totalDiscountedPrice: $totalDiscountPrice,
                     appliedDiscountedAmount: $appliedDiscountAmount,
                 );
 
-                $appliedTaxIds = CartManager::getAppliedTaxIds(
+                $appliedTaxIds = empty($editedItem['product_id']) ? [] : CartManager::getAppliedTaxIds(
                     product: $editedItem['active_product'],
                     taxConfig: $taxConfig
                 );

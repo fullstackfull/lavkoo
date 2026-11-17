@@ -11239,4 +11239,6 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'order_item_of_a_removed_product_cannot_be_changed' => 'This order holds an item whose product no longer exists. That item cannot be changed or removed: keep it as it is.',
+	'order_item_of_a_removed_product_carries_tax' => 'This order holds a taxed item whose product no longer exists, so its items cannot be edited.',
 ];

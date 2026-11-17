@@ -33,6 +33,10 @@ class SellerApiOrderEditProductsTest extends TestCase
     private const OWN_PRODUCT = 10;
     private const OTHER_SELLERS_PRODUCT = 20;
     private const IN_HOUSE_PRODUCT = 30;
+    private const ANOTHER_OWN_PRODUCT = 11;
+    private const ANOTHER_OWN_LINE = 40;
+    private const OWN_LINE_KEY = '10-single-variant';
+    private const LINE_WITHOUT_PRODUCT_KEY = '-single-variant';
 
     protected function setUp(): void
     {
@@ -165,6 +169,29 @@ class SellerApiOrderEditProductsTest extends TestCase
         $this->assertSame([49, 50, 50], $this->stockOfEachProduct());
         $this->assertEqualsWithDelta(300.0, (float) DB::table('orders')->where('id', self::OWN_ORDER)->value('order_amount'), 0.001);
         $this->assertSame(1, DB::table('order_edit_histories')->where('order_id', self::OWN_ORDER)->count());
+    }
+
+    /** @return iterable<string, array{0: bool}> */
+    public static function ordersThatMayHoldALineWithoutAProduct(): iterable
+    {
+        yield 'an order of products only' => [false];
+        yield 'an order that also holds a line without a product' => [true];
+    }
+
+    #[DataProvider('ordersThatMayHoldALineWithoutAProduct')]
+    public function test_an_edit_that_leaves_out_a_product_of_the_order_removes_its_line_and_gives_its_units_back(bool $holdsALineWithoutAProduct): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsOfAnotherOwnProduct();
+        if ($holdsALineWithoutAProduct) {
+            $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+        }
+
+        $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 2)]);
+
+        $this->assertSame('success', $response->json('status'));
+        $this->assertEqualsCanonicalizing($holdsALineWithoutAProduct ? [[self::OWN_PRODUCT, 2], [0, 2]] : [[self::OWN_PRODUCT, 2]], $this->linesOfTheOrder());
+        $this->assertSame(52, $this->stockOf(self::ANOTHER_OWN_PRODUCT), 'the units of the removed line did not go back to the shelf');
+        $this->assertTheOrderIsWorthWhatItsLinesSay();
     }
 
     public function test_the_seller_can_still_validate_an_edit_of_their_own_product(): void
@@ -481,16 +508,175 @@ class SellerApiOrderEditProductsTest extends TestCase
         $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => null, 'variant' => 'red', 'qty' => 1]]), 'moved to a variant the order does not hold');
     }
 
-    public function test_an_edit_of_an_order_that_holds_a_line_without_a_product_id_can_still_hold_more_of_the_orders_own_product(): void
+    /** @param array<string, mixed> $copyOfTheProduct */
+    #[DataProvider('copiesOfTheProductOfALineWithoutAProduct')]
+    public function test_an_edit_of_an_order_that_holds_a_line_without_a_product_id_can_still_hold_more_of_the_orders_own_product_and_the_line_is_kept_as_it_is(array $copyOfTheProduct): void
     {
-        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId(copyOfTheProduct: $copyOfTheProduct);
+        $lineBefore = $this->theLineWithoutAProduct();
 
         $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('success', $response->json('status'));
-        $this->assertSame([[self::OWN_PRODUCT, 3]], $this->linesOfTheOrder());
+        $this->assertEqualsCanonicalizing([[self::OWN_PRODUCT, 3], [0, 2]], $this->linesOfTheOrder());
+        $this->assertEquals($lineBefore, $this->theLineWithoutAProduct(), 'the line was changed');
         $this->assertSame([49, 50, 50], $this->stockOfEachProduct());
+        $this->assertTheOrderIsWorthWhatItsLinesSay();
+    }
+
+    /** @param array<string, mixed> $copyOfTheProduct */
+    #[DataProvider('copiesOfTheProductOfALineWithoutAProduct')]
+    public function test_validating_an_edit_of_an_order_that_holds_a_line_without_a_product_id_prices_the_line_with_the_others_and_writes_nothing(array $copyOfTheProduct): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId(copyOfTheProduct: $copyOfTheProduct);
+        $before = $this->whatTheSaveWrites();
+
+        $response = $this->sellerApi('POST', 'orders/edit-order-validation', ['order_id' => (string) self::OWN_ORDER, 'products' => json_encode([$this->item(self::OWN_PRODUCT, quantity: 3)])]);
+
+        $this->assertSame('success', $response->json('status'));
+        $this->assertEqualsWithDelta(500.0, (float) $response->json('order_amount'), 0.001);
+        $this->assertSame($before, $this->whatTheSaveWrites());
+    }
+
+    public function test_an_edit_keeps_a_line_without_a_product_id_that_carries_a_discount_exactly_as_the_order_stored_it(): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId(discount: 20);
+        $lineBefore = $this->theLineWithoutAProduct();
+
+        $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame('success', $response->json('status'));
+        $this->assertEquals($lineBefore, $this->theLineWithoutAProduct(), 'the line was changed');
+        $this->assertTheOrderIsWorthWhatItsLinesSay();
+        $this->assertEqualsWithDelta(480.0, (float) DB::table('orders')->where('id', self::OWN_ORDER)->value('order_amount'), 0.001, 'three units of the own product and two of the line, less its discount');
+    }
+
+    public function test_an_edit_of_an_order_whose_line_without_a_product_id_carries_tax_is_refused_by_the_validation_and_the_save_and_writes_nothing(): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId(tax: 7);
+        $before = $this->whatTheSaveWrites();
+
+        $validation = $this->sellerApi('POST', 'orders/edit-order-validation', ['order_id' => (string) self::OWN_ORDER, 'products' => json_encode([$this->item(self::OWN_PRODUCT, quantity: 3)])]);
+        $submission = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame(['error', translate('order_item_of_a_removed_product_carries_tax')], [$validation->json('status'), $validation->json('message')]);
+        $this->assertEqualsWithDelta(500.0, (float) $validation->json('order_amount'), 0.001, 'the refusal does not name the order\'s own total');
+        $this->assertSame(['error', translate('order_item_of_a_removed_product_carries_tax')], [$submission->json('status'), $submission->json('message')]);
+        $this->assertSame($before, $this->whatTheSaveWrites());
+    }
+
+    public function test_an_edit_that_names_the_id_zero_is_refused_even_when_the_order_holds_a_line_without_a_product_id(): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+        $before = $this->whatTheSaveWrites();
+
+        $response = $this->submitEdit([['id' => 0] + $this->item(self::OWN_PRODUCT, quantity: 2)]);
+
+        $this->assertNotFound($response, code: 'product');
+        $this->assertSame($before, $this->whatTheSaveWrites());
+    }
+
+    /** @param array<string, mixed> $copyOfTheProduct */
+    #[DataProvider('copiesOfTheProductOfALineWithoutAProduct')]
+    public function test_the_shared_edit_keeps_the_line_without_a_product_id_for_the_admin_and_writes_the_others(array $copyOfTheProduct): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId(copyOfTheProduct: $copyOfTheProduct);
+        $lineBefore = $this->theLineWithoutAProduct();
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+        $adminsSession = app(OrderEditService::class)->addOrderDetailsInSession(order: $order);
+        $adminsSession[self::OWN_LINE_KEY]['qty'] = 3;
+
+        $result = $editor->generateEditOrder(order: $order, editedOrder: $adminsSession, data: ['edit_by' => 'admin', 'edited_user_id' => 1, 'edited_user_name' => 'Admin']);
+
+        $this->assertSame('success', $result['status']);
+        $this->assertEquals($lineBefore, $this->theLineWithoutAProduct(), 'the line was changed');
+        $this->assertEqualsCanonicalizing([[self::OWN_PRODUCT, 3], [0, 2]], $this->linesOfTheOrder());
+        $this->assertTheOrderIsWorthWhatItsLinesSay();
+    }
+
+    /** @return iterable<string, array{0: string}> what an edit of the admin's session may do to the line without a product id */
+    public static function editsThatChangeTheLineWithoutAProduct(): iterable
+    {
+        yield 'removes it' => ['removed'];
+        yield 'reduces it' => ['reduced'];
+        yield 'changes its price' => ['another_price'];
+    }
+
+    #[DataProvider('editsThatChangeTheLineWithoutAProduct')]
+    public function test_the_shared_edit_refuses_an_edit_of_the_admin_that_changes_the_line_without_a_product_id_and_writes_nothing(string $change): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+        $adminsSession = app(OrderEditService::class)->addOrderDetailsInSession(order: $order);
+        match ($change) {
+            'removed' => $adminsSession = array_diff_key($adminsSession, [self::LINE_WITHOUT_PRODUCT_KEY => true]),
+            'reduced' => $adminsSession[self::LINE_WITHOUT_PRODUCT_KEY]['qty'] = 1,
+            'another_price' => $adminsSession[self::LINE_WITHOUT_PRODUCT_KEY]['price'] = 1,
+        };
+        $before = $this->whatTheSaveWrites();
+
+        $result = $editor->generateEditOrder(order: $order, editedOrder: $adminsSession, data: ['edit_by' => 'admin', 'edited_user_id' => 1, 'edited_user_name' => 'Admin']);
+
+        $this->assertSame(['error', translate('order_item_of_a_removed_product_cannot_be_changed')], [$result['status'], $result['message']]);
+        $this->assertSame($before, $this->whatTheSaveWrites());
+    }
+
+    public function test_the_summary_does_not_tax_a_line_without_a_product_id_again(): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        Cache::put('tax_system_type_vendor_with_vat', [
+            'SystemTaxVat' => ['is_active' => 1, 'tax_ids' => [1], 'additionalData' => []], 'SystemTaxVatType' => 'order_wise', 'is_included' => 0,
+            'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([['id' => 1, 'name' => 'VAT', 'tax_rate' => 10]]),
+        ], 3600);
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+
+        $summary = $editor->generateEditOrderSummary(order: $order, editedOrder: $this->theEditedLinesHoldingOfTheOwnProduct(order: $order, quantity: 3));
+
+        $this->assertSame('success', $summary['status']);
+        $this->assertEqualsWithDelta(30.0, $summary['tax_summary']['total_tax_amount'], 0.001, 'the tax of the own product only: the line without a product carries none');
+        $this->assertEqualsWithDelta(530.0, $summary['order_amount'], 0.001);
+        $taxesOfTheLines = collect($summary['tax_summary']['applied_tax_cart_list'])->groupBy(static fn (array $line): string => empty($line['product_id']) ? 'without_a_product' : 'own_product');
+        $this->assertNotEmpty($taxesOfTheLines['own_product'][0]['applied_tax_ids'], 'the tax system names no tax for the own product, so this test says nothing');
+        $this->assertSame([], $taxesOfTheLines['without_a_product'][0]['applied_tax_ids'], 'the line without a product is entered under a tax it does not carry');
+    }
+
+    public function test_the_summary_counts_a_line_without_a_product_id_in_the_coupon_and_the_shipping_like_any_other_line(): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        Schema::table('coupons', function (Blueprint $table) {
+            $table->decimal('discount', 16, 2)->default(0);
+            $table->string('discount_type')->nullable();
+            $table->decimal('min_purchase', 16, 2)->default(0);
+            $table->decimal('max_discount', 16, 2)->default(0);
+        });
+        DB::table('coupons')->insert([
+            'code' => 'TEN', 'coupon_type' => 'discount_on_purchase', 'coupon_bearer' => 'seller', 'seller_id' => self::SELLER, 'customer_id' => 0, 'start_date' => now()->subDay()->toDateString(),
+            'expire_date' => now()->addMonth()->toDateString(), 'status' => 1, 'discount' => 10, 'discount_type' => 'percentage', 'max_discount' => 1000,
+        ]);
+        DB::table('business_settings')->insert(['type' => 'shipping_method', 'value' => 'inhouse_shipping']);
+        Cache::forget(CACHE_BUSINESS_SETTINGS_TABLE);
+        DB::table('orders')->where('id', self::OWN_ORDER)->update(['coupon_code' => 'TEN', 'shipping_cost' => 20]);
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+
+        $summary = $editor->generateEditOrderSummary(order: $order, editedOrder: $this->theEditedLinesHoldingOfTheOwnProduct(order: $order, quantity: 3));
+
+        $this->assertSame('success', $summary['status']);
+        $this->assertEqualsWithDelta(500.0, $summary['coupon_summary']['total_cart_amount'], 0.001, 'the lines are the own product and the line without a product');
+        $this->assertEqualsWithDelta(50.0, $summary['coupon_summary']['discount'], 0.001);
+        $this->assertEqualsWithDelta(470.0, $summary['order_amount'], 0.001, 'the lines, less the coupon, plus the order\'s shipping');
     }
 
     public function test_an_edit_that_names_no_product_is_still_refused_when_the_order_holds_a_line_without_a_product_id(): void
@@ -580,17 +766,61 @@ class SellerApiOrderEditProductsTest extends TestCase
         ]);
     }
 
+    private function theOrderAlsoHoldsTwoUnitsOfAnotherOwnProduct(): void
+    {
+        DB::table('products')->insert(['id' => self::ANOTHER_OWN_PRODUCT, 'name' => 'Another own product'] + (array) DB::table('products')->where('id', self::OWN_PRODUCT)->first());
+
+        $ownLine = (array) DB::table('order_details')->where('id', self::OWN_LINE)->first();
+        DB::table('order_details')->insert([
+            'id' => self::ANOTHER_OWN_LINE,
+            'product_id' => self::ANOTHER_OWN_PRODUCT,
+            'product_details' => json_encode(['id' => self::ANOTHER_OWN_PRODUCT, 'name' => 'Another own item'] + json_decode($ownLine['product_details'], true)),
+        ] + $ownLine);
+    }
+
     private function theOrderHoldsTwoUnitsOfAnotherSellersProduct(): void
     {
         DB::table('order_details')->where('id', self::OWN_LINE)->update(['product_id' => self::OTHER_SELLERS_PRODUCT]);
     }
 
-    private function theOrderAlsoHoldsTwoUnitsWithoutAProductId(): void
+    /** @param array<string, mixed> $copyOfTheProduct what the copy of the product the row keeps says, where it is not what the own product says */
+    private function theOrderAlsoHoldsTwoUnitsWithoutAProductId(float $tax = 0, array $copyOfTheProduct = [], float $discount = 0): void
     {
         DB::table('order_details')->insert([
-            'order_id' => self::OWN_ORDER, 'seller_id' => self::SELLER, 'product_id' => null, 'qty' => 2, 'price' => 100, 'variation' => '[]', 'variant' => '',
-            'product_details' => json_encode(['id' => null, 'name' => 'Product that is gone', 'product_type' => 'physical', 'unit_price' => 100]),
+            'order_id' => self::OWN_ORDER, 'seller_id' => self::SELLER, 'product_id' => null, 'qty' => 2, 'price' => 100, 'tax' => $tax, 'discount' => $discount, 'variation' => '[]', 'variant' => '',
+            'product_details' => json_encode(['id' => null, 'name' => 'Product that is gone'] + $copyOfTheProduct + (array) DB::table('products')->where('id', self::OWN_PRODUCT)->first()),
         ]);
+    }
+
+    /** @return array<string, mixed> the line without a product id, as the order stores it */
+    private function theLineWithoutAProduct(): array
+    {
+        return (array) DB::table('order_details')->whereNull('product_id')->first();
+    }
+
+    private function assertTheOrderIsWorthWhatItsLinesSay(): void
+    {
+        $lines = DB::table('order_details')->where('order_id', self::OWN_ORDER)->get();
+
+        $this->assertEqualsWithDelta(
+            $lines->sum(static fn (object $line): float => (float) $line->price * (float) $line->qty - (float) $line->discount + (float) $line->tax),
+            (float) DB::table('orders')->where('id', self::OWN_ORDER)->value('order_amount'),
+            0.001,
+            'the order is not worth what its lines say',
+        );
+    }
+
+    /**
+     * The lines of an edit that holds the quantity of the own product the app names and keeps every line without a product as the order's own session holds it.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function theEditedLinesHoldingOfTheOwnProduct(Order $order, int $quantity): array
+    {
+        $service = app(OrderEditService::class);
+        $linesWithoutAProduct = array_filter($service->addOrderDetailsInSession(order: $order), static fn (array $line): bool => empty($line['product_id']));
+
+        return $service->getFormatAPIProductsForEditOrder(request: ['products' => [$this->item(self::OWN_PRODUCT, quantity: $quantity)]], order: $order, colors: collect())['product_list'] + $linesWithoutAProduct;
     }
 
     /** @param list<array<string, mixed>> $items */

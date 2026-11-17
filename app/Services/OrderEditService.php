@@ -131,6 +131,11 @@ class OrderEditService
 
         $products = [];
         foreach ($order?->details as $details) {
+            if (empty($details['product_id'])) {
+                $products[$this->getSessionKeyOfDetail(details: $details)] = $this->getSessionLineWithoutProduct(details: $details, order: $order);
+                continue;
+            }
+
             $product = json_decode($details->product_details, true);
             $activeProduct = $productList?->firstWhere('id', $details['product_id']) ?? $product;
 
@@ -176,7 +181,7 @@ class OrderEditService
                 }
             }
             if ($product) {
-                $products[$this->generateProductIndex(id: $details['product_id'], variant: $details['variant'] ?? '')] = [
+                $products[$this->getSessionKeyOfDetail(details: $details)] = [
                     'existing_product' => true,
                     'existing_product_modified' => true,
                     'product_type' => $product['product_type'] ?? 'physical',
@@ -213,6 +218,71 @@ class OrderEditService
             }
         }
         return $products;
+    }
+
+    /**
+     * The lines the order holds without a product (the product is gone and the row has no product id), as an edit holds them. The seller app names the
+     * products of an edit and nothing else, so what it sends keeps these lines as they are.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function getHeldLinesWithoutProduct(object $order): array
+    {
+        return $order->details->filter(fn ($details) => empty($details['product_id']))
+            ->mapWithKeys(fn ($details) => [$this->getSessionKeyOfDetail(details: $details) => $this->getSessionLineWithoutProduct(details: $details, order: $order)])
+            ->all();
+    }
+
+    /**
+     * Nothing can price a line without a product again or take its stock, so an edit holds it exactly as the order stores it: at the price, the discount
+     * and the tax the order stored for it, and with the quantity it holds as the most it can have.
+     *
+     * @return array<string, mixed>
+     */
+    private function getSessionLineWithoutProduct(object $details, object|array $order): array
+    {
+        $product = json_decode($details['product_details'] ?? '', true) ?: [];
+        $unitDiscount = $details['qty'] > 0 ? $details['discount'] / $details['qty'] : 0;
+
+        return [
+            'existing_product' => true,
+            'existing_product_modified' => true,
+            'product_type' => $product['product_type'] ?? 'physical',
+            'name' => $product['name'] ?? '',
+            'discounted_price' => $details['price'] - $unitDiscount,
+            'thumbnail_full_url' => [],
+            'is_quantity_editable' => false,
+
+            'order_id' => $details['order_id'],
+            'product_id' => $details['product_id'],
+            'seller_id' => $details['seller_id'],
+            'seller_is' => $order['seller_is'],
+            'minimum_order_qty' => 1,
+            'digital_file_after_sell' => $details['digital_file_after_sell'],
+            'product_details' => $details['product_details'],
+            'active_product' => $product,
+            'qty' => $details['qty'],
+            'price' => $details['price'],
+            'tax' => $details['tax'],
+            'discount' => $unitDiscount,
+            'current_stock' => $details['qty'],
+            'tax_model' => $details['tax_model'],
+            'delivery_status' => $details['delivery_status'],
+            'payment_status' => $details['payment_status'],
+            'shipping_method_id' => $details['shipping_method_id'],
+            'variant' => $details['variant'],
+            'variation' => $details['variation'],
+            'discount_type' => $product['discount_type'] ?? '',
+            'is_stock_decreased' => $details['is_stock_decreased'],
+            'refund_request' => $details['refund_request'],
+            'refund_started_at' => now(),
+            'created_at' => $details['created_at'],
+        ];
+    }
+
+    private function getSessionKeyOfDetail(object $details): string
+    {
+        return $this->generateProductIndex(id: $details['product_id'], variant: $details['variant'] ?? '');
     }
 
     public function addOrUpdateProductInOrderSession(object|array $request, object|array $order = [], object|array|null $color = []): array
@@ -355,6 +425,10 @@ class OrderEditService
             }
         }
 
+        if ($refusal = $this->getRefusalOfLinesWithoutProduct(order: $order, editedLines: $filteredProducts)) {
+            return ['status' => 'error', 'message' => $refusal];
+        }
+
         $orderSession['product_list'] = $filteredProducts;
         Session::put($this->getOrderEditSessionKey(orderId: $order['id']), $orderSession);
 
@@ -383,6 +457,10 @@ class OrderEditService
 
         if (!$this->areEditedLinesAllowedOnOrder(order: $order, editedLines: $filteredProducts)) {
             return $this->getUnavailableProductRefusal();
+        }
+
+        if ($refusal = $this->getRefusalOfLinesWithoutProduct(order: $order, editedLines: $filteredProducts)) {
+            return ['status' => 'error', 'message' => $refusal];
         }
 
         $orderSession['product_list'] = $filteredProducts;
@@ -469,8 +547,9 @@ class OrderEditService
             return false;
         }
 
+        // An id of 0 names no product, whatever the order holds under it.
         return $this->areLinesAllowedOnOrder(order: $order, lines: collect($requestProducts)->map(fn ($productItem) => [
-            'product_id' => is_array($productItem) ? ($productItem['id'] ?? null) : null,
+            'product_id' => (is_array($productItem) ? ($productItem['id'] ?? null) : null) ?: null,
             'variant' => is_array($productItem) ? ($productItem['variant'] ?? null) : null,
             'quantity' => is_array($productItem) ? ($productItem['quantity'] ?? 1) : 1,
         ]));
@@ -484,6 +563,37 @@ class OrderEditService
             'variant' => $line['variant'] ?? null,
             'quantity' => $line['qty'] ?? 1,
         ]));
+    }
+
+    /**
+     * Why an edit cannot be saved because of the order's lines without a product, or null when it can. Such a line is kept as the order stores it, so the
+     * edit has to carry it unchanged, and it cannot be represented safely when it carries tax of its own (the tax of an edit is worked out again from the
+     * products) or when the order holds the same line in two rows (an edit's session holds one): the whole edit is refused and nothing is written.
+     */
+    public function getRefusalOfLinesWithoutProduct(object $order, iterable $editedLines): ?string
+    {
+        $heldLines = $order->details->filter(fn ($detail) => empty($detail['product_id']));
+
+        if ($heldLines->contains(fn ($detail) => (float) $detail['tax'] > 0)) {
+            return translate('order_item_of_a_removed_product_carries_tax');
+        }
+
+        $keptLines = collect($editedLines)->filter(fn ($line) => empty($line['product_id']))
+            ->groupBy(fn ($line) => $this->getLineKey(productId: 0, variant: $line['variant'] ?? null));
+
+        $everyLineIsKept = $heldLines->groupBy(fn ($detail) => $this->getLineKey(productId: 0, variant: $detail['variant']))
+            ->every(fn (Collection $details, string $lineKey) => $details->count() === 1
+                && $keptLines->get($lineKey)?->count() === 1
+                && $this->isLineAsHeld(line: $keptLines[$lineKey]->first(), detail: $details->first()));
+
+        return $everyLineIsKept ? null : translate('order_item_of_a_removed_product_cannot_be_changed');
+    }
+
+    private function isLineAsHeld(array $line, object $detail): bool
+    {
+        return (float) $line['qty'] === (float) $detail['qty']
+            && abs((float) $line['price'] - (float) $detail['price']) < 0.0001
+            && abs((float) $line['discount'] * (float) $line['qty'] - (float) $detail['discount']) < 0.0001;
     }
 
     /** Whether an edit of the order may look at the product: it is the order's shop's own, or the order holds a line of it. */
@@ -660,7 +770,7 @@ class OrderEditService
             'status' => $status,
             'message' => translate('Order_Edit_successfully'),
             'errors' => $errors,
-            'product_list' => $productList,
+            'product_list' => $productList + $this->getHeldLinesWithoutProduct(order: $order),
         ];
     }
 }

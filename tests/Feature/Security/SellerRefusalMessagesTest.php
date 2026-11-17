@@ -23,6 +23,9 @@ class SellerRefusalMessagesTest extends TestCase
     /** Refusals the seller APIs answer with that are not named in a recordNotFound() call. */
     private const OTHER_REFUSALS = ['order_not_found', 'Order_not_found', 'delivery_man_not_found', 'data_not_found', 'not_found'];
 
+    /** What an edit of an order that holds a line without a product is refused with, by the panel and by the app. */
+    private const ORDER_EDIT_REFUSALS = ['order_item_of_a_removed_product_cannot_be_changed', 'order_item_of_a_removed_product_carries_tax'];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -45,12 +48,30 @@ class SellerRefusalMessagesTest extends TestCase
         }
     }
 
+    /** @return iterable<string, array{0: string}> the languages the order edit's own refusals are defined in */
+    public static function localesOfTheOrderEditRefusals(): iterable
+    {
+        foreach (['en', 'ae', 'sa'] as $locale) {
+            yield $locale => [$locale];
+        }
+    }
+
     #[DataProvider('locales')]
     public function test_every_locale_defines_every_refusal_the_seller_apis_answer_with(string $locale): void
     {
-        $messages = [...include base_path("resources/lang/{$locale}/messages.php"), ...include base_path("resources/lang/{$locale}/new-messages.php")];
+        $messages = $this->messagesOf(locale: $locale);
 
         foreach ($this->refusalKeys() as $key) {
+            $this->assertArrayHasKey($key, $messages, "resources/lang/{$locale} does not define {$key}");
+        }
+    }
+
+    #[DataProvider('localesOfTheOrderEditRefusals')]
+    public function test_the_refusals_of_an_edit_of_an_order_that_holds_a_line_without_a_product_are_defined_in(string $locale): void
+    {
+        $messages = $this->messagesOf(locale: $locale);
+
+        foreach (self::ORDER_EDIT_REFUSALS as $key) {
             $this->assertArrayHasKey($key, $messages, "resources/lang/{$locale} does not define {$key}");
         }
     }
@@ -91,6 +112,12 @@ class SellerRefusalMessagesTest extends TestCase
     }
 
     // ---- helpers ----
+
+    /** @return array<string, string> */
+    private function messagesOf(string $locale): array
+    {
+        return [...include base_path("resources/lang/{$locale}/messages.php"), ...include base_path("resources/lang/{$locale}/new-messages.php")];
+    }
 
     /** @return list<string> */
     private function refusalKeys(): array

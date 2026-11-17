@@ -4858,4 +4858,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'page_description_is_required' => 'Page description is required',
 	'review_not_found' => 'لم يتم العثور على المراجعة',
 	'order_not_found' => 'لم يتم العثور على الطلب',
+	'order_item_of_a_removed_product_cannot_be_changed' => 'يحتوي هذا الطلب على عنصر لم يعد منتجه موجودًا. لا يمكن تغيير هذا العنصر أو إزالته؛ اتركه كما هو.',
+	'order_item_of_a_removed_product_carries_tax' => 'يحتوي هذا الطلب على عنصر خاضع للضريبة لم يعد منتجه موجودًا، لذلك لا يمكن تعديل عناصره.',
 ];

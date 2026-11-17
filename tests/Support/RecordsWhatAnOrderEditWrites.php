@@ -13,10 +13,18 @@ use stdClass;
 
 /**
  * What a saved order edit writes, and when it tells anybody: for the tests that make a late write of the save fail and then require everything it had
- * already written to be as it was, and that require the notifications to be sent only once the writes are committed.
+ * already written to be as it was, and that require the notifications to be sent only once the writes are committed. They also share what the copy of a
+ * product, which a line of the order keeps, may say.
  */
 trait RecordsWhatAnOrderEditWrites
 {
+    /** @return iterable<string, array{0: array<string, mixed>}> what the copy of a deleted product may say besides what the row of the line says */
+    public static function copiesOfTheProductOfALineWithoutAProduct(): iterable
+    {
+        yield 'a copy that agrees with the line' => [[]];
+        yield 'a copy that says another price and a discount' => [['unit_price' => 120, 'discount' => 10, 'discount_type' => 'flat']];
+    }
+
     /** @return iterable<string, array{0: Closure(Closure): mixed}> a write late in the save, and how to make it fail */
     public static function lateWritesThatFail(): iterable
     {
