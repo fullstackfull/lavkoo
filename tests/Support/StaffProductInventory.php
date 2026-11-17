@@ -57,8 +57,9 @@ use Modules\AI\app\Http\Controllers\API\V3\AIAuctionProductController;
  * lookup table of the country-scoped codes: a controller the scan finds that is not here fails, an entry whose controller no longer reads products fails, and so
  * does an entry without a reason or with a slice nobody named. The same table is in docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md, and a test keeps the two in step.
  *
- * `scoped`: slice 1 narrows it (App\Services\Staff\StaffProductRoutes holds its rules). `not_needed`: it must keep seeing every country, or it has no product rows. `out`:
- * it still shows every country's products to a restricted employee; the slice that takes it is named.
+ * `scoped`: a slice narrows it, slice 1 when it names none (App\Services\Staff\StaffProductRoutes holds the rules of the product screens) and slice 2 for the order, POS and
+ * refund screens (App\Services\Staff\StaffOrderRoutes). `not_needed`: it must keep seeing every country, or it has no product rows. `out`: it still shows every country's
+ * products to a restricted employee; the slice that takes it is named.
  */
 final class StaffProductInventory
 {
@@ -68,11 +69,10 @@ final class StaffProductInventory
 
     public const OUT = 'out';
 
-    /** The slices that follow slice 1, in the order proposed. */
+    /** The slices that follow slice 2 (the order, POS and refund screens), in the order proposed. */
     public const SLICES = [
-        'slice 2' => 'promotions and storefront content: deals, banners, themes, the SEO pages and the site map',
-        'slice 3' => 'orders, POS and refunds',
-        'slice 4' => 'reports and the dashboard counters',
+        'slice 3' => 'reports, the dashboard counters and the counters of the shared layout',
+        'slice 4' => 'promotions and storefront content: deals, banners, themes, the SEO pages and the site map',
         'slice 5' => 'vendors, reviews and the marketplace operations',
         'slice 6' => 'integrations and costs: sales channels, fulfilment providers and the operational costs',
     ];
@@ -112,95 +112,95 @@ final class StaffProductInventory
             'reason' => 'The only route that mentions a product is the Noon product group of a channel account, a setting of the account. It reads no product row.',
         ],
         SeoTranslationController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'Lists the products whose SEO text can be translated: every country\'s.',
         ],
         FlashDealController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'The deal pages pick products and list the ones in a deal: every country\'s. A promotion has no country yet (GCC-17).',
         ],
         DealOfTheDayController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'Picks the product of the day among every country\'s products.',
         ],
         ClearanceSaleController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'Picks, lists and removes clearance products of every country.',
         ],
         MostDemandedController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'Picks the products of the most demanded section among every country\'s.',
         ],
         BannerController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'A banner can point at a product, picked among every country\'s.',
         ],
         InhouseShopController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'The in-house shop page lists the in-house products of every country.',
         ],
         ThemeBuilderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'The pickers of the theme builder list and name products of every country.',
         ],
         SeoHealthController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'Audits the SEO of the products a storefront shows, of every country.',
         ],
         SiteMapController::class => [
-            'class' => self::OUT, 'slice' => 'slice 2',
+            'class' => self::OUT, 'slice' => 'slice 4',
             'reason' => 'The site map lists the active products of every country.',
         ],
         OrderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'An order carries no country: it follows from its lines. The rule is that an employee works with an order only when all its lines are in their countries.',
+            'class' => self::SCOPED, 'slice' => 'slice 2',
+            'reason' => 'Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order (status, payment, address, courier, invoice, bulk change). Every action has a rule in StaffOrderRoutes.',
         ],
         OrderEditController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The product picker of the order edit offers every country\'s products. It follows the country of the order (all its lines are in one country).',
+            'class' => self::SCOPED, 'slice' => 'slice 2',
+            'reason' => 'The order edit: the product picker is narrowed by the product scope, the order is looked up by id and a product of another country is refused. Every action has a rule in StaffOrderRoutes.',
         ],
         POSController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The POS grid and search list every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 2',
+            'reason' => 'The POS grid and search offer the products of the employee\'s countries (the product scope), and a product of another country is refused by id. Every action has a rule in StaffOrderRoutes.',
         ],
         PosCartController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The POS cart takes a product by id from any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 2',
+            'reason' => 'The POS cart takes, prices and counts a product by id: a product of another country is refused. Every action has a rule in StaffOrderRoutes.',
         ],
         POSOrderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'Places a POS order from the lines of the cart, of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 2',
+            'reason' => 'Places a POS order only when every product of the cart is the employee\'s, and reads a POS order by id. Every action has a rule in StaffOrderRoutes.',
         ],
         DashboardController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'Counters of products, stock and restock requests across every country.',
         ],
         ReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'The earning and product counts of the reports are not split by country.',
         ],
         ProductReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'The all-products report and its export list every country\'s products.',
         ],
         ProductStockReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'The stock report and its export list every country\'s products.',
         ],
         ProductWishlistReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'The wishlist report and its export list every country\'s products.',
         ],
         InhouseProductSaleController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'The in-house sales report lists every country\'s products.',
         ],
         TransactionReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'The transaction report counts the products of every country.',
         ],
         VendorProductSaleReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
+            'class' => self::OUT, 'slice' => 'slice 3',
             'reason' => 'The vendor sales report lists the products of every country.',
         ],
         ReviewController::class => [
@@ -279,26 +279,41 @@ final class StaffProductInventory
 
     /**
      * Controllers that reach products only through a service the scan does not read, found by hand. They are not checked against the scan, only against the route table:
-     * a controller that is gone from it fails the guard.
+     * a controller that is gone from it fails the guard. One that a slice has scoped says so with `class`.
+     *
+     * @var array<class-string, array{slice: string, reason: string, class?: string}>
+     */
+    public const READ_THROUGH_SERVICES = [
+        'App\Http\Controllers\Admin\AdvancedSearchController' => ['slice' => 'slice 3', 'reason' => 'The header search of the classic layout finds products of every country through AdvancedSearchService.'],
+        'App\Http\Controllers\Admin\V2AdvancedSearchController' => ['slice' => 'slice 3', 'reason' => 'The header search of the new layout finds products of every country through the same service.'],
+        'App\Http\Controllers\Admin\Commerce\CollectionController' => ['slice' => 'slice 4', 'reason' => 'The preview of a collection resolves its products through CollectionResolver.'],
+        'App\Http\Controllers\Admin\Order\RefundController' => ['class' => self::SCOPED, 'slice' => 'slice 2', 'reason' => 'A refund request follows the country of the product of the order line it is about. The refund lists, their exports, the details and the decision on a request go through the scope of the refund requests and the rules of StaffOrderRoutes.'],
+        'App\Http\Controllers\Admin\Telemetry\AnalyticsController' => ['slice' => 'slice 3', 'reason' => 'The analytics export by product counts the products of every country.'],
+    ];
+
+    /**
+     * Controllers a staff scope covers that read no product, so that the survey above does not hold them: an order screen names an order, not a product.
      *
      * @var array<class-string, array{slice: string, reason: string}>
      */
-    public const READ_THROUGH_SERVICES = [
-        'App\Http\Controllers\Admin\AdvancedSearchController' => ['slice' => 'slice 4', 'reason' => 'The header search of the classic layout finds products of every country through AdvancedSearchService.'],
-        'App\Http\Controllers\Admin\V2AdvancedSearchController' => ['slice' => 'slice 4', 'reason' => 'The header search of the new layout finds products of every country through the same service.'],
-        'App\Http\Controllers\Admin\Commerce\CollectionController' => ['slice' => 'slice 2', 'reason' => 'The preview of a collection resolves its products through CollectionResolver.'],
-        'App\Http\Controllers\Admin\Order\RefundController' => ['slice' => 'slice 3', 'reason' => 'A refund names the product of an order line, which belongs to an order of any country.'],
-        'App\Http\Controllers\Admin\Telemetry\AnalyticsController' => ['slice' => 'slice 4', 'reason' => 'The analytics export by product counts the products of every country.'],
+    public const SCOPED_WITHOUT_PRODUCTS = [
+        'App\Http\Controllers\Admin\Order\DeliverySyriaDispatchController' => ['slice' => 'slice 2', 'reason' => 'Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product.'],
     ];
 
-    /** @return array<string, int> how many controllers there are of each class */
-    public static function countsByClass(): array
+    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, scoped in slice 2, not needed, out */
+    public static function countsByStatus(): array
     {
-        $counts = [self::SCOPED => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 1' => 0, 'slice 2' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
-            $counts[$entry['class']]++;
+            $counts[self::statusKeyOf($entry)]++;
         }
 
         return $counts;
+    }
+
+    /** @param array{class: string, slice: string|null} $entry */
+    public static function statusKeyOf(array $entry): string
+    {
+        return $entry['class'] === self::SCOPED ? ($entry['slice'] === null ? 'slice 1' : $entry['slice']) : $entry['class'];
     }
 }

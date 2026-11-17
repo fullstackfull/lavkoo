@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\StaffScope;
 
+use App\Http\Controllers\Admin\Promotion\BannerController;
+use App\Services\Staff\StaffOrderRoutes;
 use App\Services\Staff\StaffProductRoutes;
 use Illuminate\Support\Facades\Route;
 use Tests\Support\StaffProbe\NewPathOnlyController;
@@ -12,7 +14,7 @@ use Tests\TestCase;
 
 /**
  * The guard of the staff country scope (GCC-14c): it walks the real route table of the admin panel and fails for a controller that reads products or names one and is
- * neither scoped nor listed, with the slice that takes it, or the reason it needs none. It is how a screen added after slice 1 cannot show a restricted employee another
+ * neither scoped nor listed, with the slice that takes it, or the reason it needs none. It is how a screen added after slice 2 cannot show a restricted employee another
  * country's products without somebody having decided so. The table is the one of docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md, which a second test keeps in step.
  *
  * The scan is a pattern check over source text and has blind spots (a controller that reaches products only through a service it does not name here). The ones found by
@@ -65,36 +67,60 @@ class StaffProductRouteInventoryTest extends TestCase
         foreach (StaffProductInventory::CONTROLLERS as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller . ' is listed without a reason');
             $this->assertContains($entry['class'], [StaffProductInventory::SCOPED, StaffProductInventory::NOT_NEEDED, StaffProductInventory::OUT], $controller);
-            $this->assertSame($entry['class'] === StaffProductInventory::OUT, $entry['slice'] !== null, $controller . ': only a controller that is out of slice 1 names the slice that takes it');
-            if ($entry['slice'] !== null) {
-                $this->assertArrayHasKey($entry['slice'], StaffProductInventory::SLICES, $controller);
+            $this->assertSame($entry['class'] === StaffProductInventory::NOT_NEEDED, $entry['slice'] === null && $entry['class'] !== StaffProductInventory::SCOPED, $controller . ': a controller that needs no scope names no slice');
+            if ($entry['class'] === StaffProductInventory::OUT) {
+                $this->assertArrayHasKey($entry['slice'], StaffProductInventory::SLICES, $controller . ': the slice that takes it is one that follows slice 2');
+            }
+            if ($entry['class'] === StaffProductInventory::SCOPED) {
+                $this->assertContains($entry['slice'], [null, 'slice 2'], $controller . ': scoped in slice 1 (no slice named) or in slice 2');
             }
         }
         foreach (StaffProductInventory::READ_THROUGH_SERVICES as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
-            $this->assertArrayHasKey($entry['slice'], StaffProductInventory::SLICES, $controller);
+            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffProductInventory::SCOPED ? ['slice 2' => true] : StaffProductInventory::SLICES, $controller);
+        }
+        foreach (StaffProductInventory::SCOPED_WITHOUT_PRODUCTS as $controller => $entry) {
+            $this->assertNotSame('', trim($entry['reason']), $controller);
+            $this->assertSame('slice 2', $entry['slice'], $controller);
         }
     }
 
-    public function test_the_controllers_listed_as_scoped_are_exactly_the_ones_that_have_rules(): void
+    /** @return array<string, list<class-string>> the controllers the survey says a slice scoped, by slice */
+    private function scopedBySurvey(): array
     {
-        $scoped = array_keys(array_filter(StaffProductInventory::CONTROLLERS, static fn (array $entry): bool => $entry['class'] === StaffProductInventory::SCOPED));
-        $withRules = StaffProductRoutes::controllers();
-        sort($scoped);
-        sort($withRules);
+        $scoped = ['slice 1' => [], 'slice 2' => []];
+        foreach (StaffProductInventory::CONTROLLERS as $controller => $entry) {
+            if ($entry['class'] === StaffProductInventory::SCOPED) {
+                $scoped[$entry['slice'] ?? 'slice 1'][] = $controller;
+            }
+        }
+        foreach (StaffProductInventory::READ_THROUGH_SERVICES as $controller => $entry) {
+            if (($entry['class'] ?? null) === StaffProductInventory::SCOPED) {
+                $scoped[$entry['slice']][] = $controller;
+            }
+        }
+        $scoped['slice 2'] = [...$scoped['slice 2'], ...array_keys(StaffProductInventory::SCOPED_WITHOUT_PRODUCTS)];
+        sort($scoped['slice 1']);
+        sort($scoped['slice 2']);
 
-        $this->assertSame($scoped, $withRules);
+        return $scoped;
+    }
+
+    public function test_the_controllers_listed_as_scoped_are_exactly_the_ones_that_have_rules_in_the_registry_of_their_slice(): void
+    {
+        $slice1 = StaffProductRoutes::controllers();
+        $slice2 = StaffOrderRoutes::controllers();
+        sort($slice1);
+        sort($slice2);
+
+        $this->assertSame(['slice 1' => $slice1, 'slice 2' => $slice2], $this->scopedBySurvey());
+        $this->assertSame([], array_values(array_intersect($slice1, $slice2)), 'a controller is covered by one slice');
     }
 
     public function test_every_route_of_a_scoped_controller_has_a_rule_and_every_rule_names_a_route(): void
     {
         foreach (StaffProductRoutes::controllers() as $controller) {
-            $actions = [];
-            foreach (Route::getRoutes()->getRoutes() as $route) {
-                if (ltrim((string) $route->getControllerClass(), '\\') === $controller) {
-                    $actions[$route->getActionMethod()] = $this->scanner->keyOf(route: $route);
-                }
-            }
+            $actions = $this->actionsOf(controller: $controller);
 
             $rules = StaffProductRoutes::rulesOf(controller: $controller);
             $this->assertSame([], array_values(array_diff_key($actions, $rules)), $controller . ' has routes without a rule in StaffProductRoutes');
@@ -103,11 +129,34 @@ class StaffProductRouteInventoryTest extends TestCase
                 $this->assertMatchesRegularExpression('/^(list|none|new|(route|input|inputs|restock):[A-Za-z_]+\??)$/', $rule, $controller . '@' . $action);
             }
         }
+        foreach (StaffOrderRoutes::controllers() as $controller) {
+            $actions = $this->actionsOf(controller: $controller);
+
+            $rules = StaffOrderRoutes::rulesOf(controller: $controller);
+            $this->assertSame([], array_values(array_diff_key($actions, $rules)), $controller . ' has routes without a rule in StaffOrderRoutes');
+            $this->assertSame([], array_values(array_diff(array_keys($rules), array_keys($actions))), $controller . ' has rules for actions that no route reaches');
+        }
+    }
+
+    /** @return array<string, string> the routes of a controller by the name of the action they reach */
+    private function actionsOf(string $controller): array
+    {
+        $actions = [];
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            if (ltrim((string) $route->getControllerClass(), '\\') === $controller) {
+                $actions[$route->getActionMethod()] = $this->scanner->keyOf(route: $route);
+            }
+        }
+
+        return $actions;
     }
 
     public function test_the_unscoped_controllers_have_no_rules_and_so_no_middleware(): void
     {
         $this->assertSame([], StaffProductRoutes::rulesOf(controller: StaffProductInventory::class));
+        $this->assertSame([], StaffProductRoutes::rulesOf(controller: BannerController::class));
+        $this->assertSame([], StaffOrderRoutes::rulesOf(controller: BannerController::class));
+        $this->assertSame([], StaffOrderRoutes::rulesOf(controller: 'App\Http\Controllers\Admin\Product\ProductController'), 'the order screens and the product screens are covered by their own registry');
         $this->assertSame([], StaffProductRoutes::rulesOf(controller: 'App\Http\Controllers\Admin\Order\OrderController'));
     }
 
