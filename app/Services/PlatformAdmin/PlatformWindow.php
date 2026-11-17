@@ -6,9 +6,13 @@ use App\Exceptions\PlatformAdminApiException;
 use Carbon\CarbonImmutable;
 
 /**
- * The span of calendar days an overview reads, in the application time zone: from the first moment of the first day to the last moment of the last.
+ * The span of calendar days an overview reads: from the first moment of the first day to the last moment of the last.
  * No query of the API reads further back than the longest window. A window that asks for more is cut at its old end, and says so; one that
  * cannot be read, or whose end comes before its start, is refused.
+ *
+ * The days are those of the zone the rows were stamped in, which is the PHP default zone and not `app.timezone`: Eloquent writes `created_at` with
+ * the wall clock of `Carbon::now()`, and the application sets that zone at boot from the merchant's own `timezone` setting (ConfigServiceProvider),
+ * so it can differ from `app.timezone`. A window built in `app.timezone` would then be hours away from the orders it counts.
  */
 final readonly class PlatformWindow
 {
@@ -21,7 +25,7 @@ final readonly class PlatformWindow
      */
     public static function resolve(mixed $from, mixed $to, int $defaultDays, int $maxDays): self
     {
-        $today = CarbonImmutable::now(config('app.timezone'))->startOfDay();
+        $today = CarbonImmutable::now()->startOfDay();
 
         $end = $to === null ? $today : self::parse($to);
         $start = $from === null ? $end->subDays($defaultDays - 1) : self::parse($from);
@@ -39,7 +43,7 @@ final readonly class PlatformWindow
     /** The last days up to today, the span the queries that are not about a window (a backlog, an alert) read at most. */
     public static function lastDays(int $days): self
     {
-        $today = CarbonImmutable::now(config('app.timezone'))->startOfDay();
+        $today = CarbonImmutable::now()->startOfDay();
 
         return new self(from: $today->subDays($days - 1), to: $today, clamped: false);
     }
@@ -63,7 +67,7 @@ final readonly class PlatformWindow
             'to' => $this->to->format('Y-m-d'),
             'days' => (int) round($this->from->diffInDays($this->to)) + 1,
             'clamped' => $this->clamped,
-            'timezone' => (string) config('app.timezone'),
+            'timezone' => date_default_timezone_get(),
         ];
     }
 
@@ -75,6 +79,6 @@ final readonly class PlatformWindow
             throw PlatformAdminApiException::invalidWindow('The window must be given as dates written YYYY-MM-DD.');
         }
 
-        return CarbonImmutable::create((int) $parts[1], (int) $parts[2], (int) $parts[3], 0, 0, 0, config('app.timezone'));
+        return CarbonImmutable::create((int) $parts[1], (int) $parts[2], (int) $parts[3], 0, 0, 0);
     }
 }

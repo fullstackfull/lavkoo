@@ -87,7 +87,7 @@ class OverviewTest extends PlatformAdminTestCase
     {
         $response = $this->overview();
 
-        $this->assertSame(['from' => '2026-10-19', 'to' => '2026-11-17', 'days' => 30, 'clamped' => false, 'timezone' => 'Asia/Dhaka'], $response->json('data.window'));
+        $this->assertSame(['from' => '2026-10-19', 'to' => '2026-11-17', 'days' => 30, 'clamped' => false, 'timezone' => date_default_timezone_get()], $response->json('data.window'));
         $this->assertSame(Carbon::parse('2026-11-17 12:00:00')->utc()->toIso8601ZuluString(), $response->json('data.generated_at'));
         $this->assertSame(['mode' => 'live', 'cached' => false], $response->json('data.freshness'));
         $this->assertSame(['scope' => 'all', 'market' => 'all'], ['scope' => $response->json('data.scope'), 'market' => $response->json('data.market')]);
@@ -125,15 +125,15 @@ class OverviewTest extends PlatformAdminTestCase
     {
         $window = $this->overview($query)->assertOk()->json('data.window');
 
-        $this->assertSame($expected + ['timezone' => 'Asia/Dhaka'], $window);
+        $this->assertSame($expected + ['timezone' => date_default_timezone_get()], $window);
     }
 
     public function test_the_default_and_the_longest_window_are_configuration(): void
     {
         config(['gcc.platform_admin.window_days_default' => 7, 'gcc.platform_admin.window_days_max' => 10]);
 
-        $this->assertSame(['from' => '2026-11-11', 'to' => '2026-11-17', 'days' => 7, 'clamped' => false, 'timezone' => 'Asia/Dhaka'], $this->overview()->json('data.window'));
-        $this->assertSame(['from' => '2026-11-08', 'to' => '2026-11-17', 'days' => 10, 'clamped' => true, 'timezone' => 'Asia/Dhaka'], $this->overview('?from=2026-11-01')->json('data.window'));
+        $this->assertSame(['from' => '2026-11-11', 'to' => '2026-11-17', 'days' => 7, 'clamped' => false, 'timezone' => date_default_timezone_get()], $this->overview()->json('data.window'));
+        $this->assertSame(['from' => '2026-11-08', 'to' => '2026-11-17', 'days' => 10, 'clamped' => true, 'timezone' => date_default_timezone_get()], $this->overview('?from=2026-11-01')->json('data.window'));
     }
 
     public function test_a_default_longer_than_the_longest_is_cut_to_it_and_nonsense_means_the_defaults(): void
@@ -257,6 +257,29 @@ class OverviewTest extends PlatformAdminTestCase
 
         $this->assertSame(1, $byStatus['on_hold']);
         $this->assertSame(6, array_sum($byStatus));
+    }
+
+    public function test_the_days_of_the_window_are_the_days_of_the_zone_the_rows_were_stamped_in(): void
+    {
+        $platformZone = date_default_timezone_get();
+        date_default_timezone_set('Asia/Kuwait');
+        try {
+            $this->travelTo(Carbon::parse('2026-11-17 22:30:00', 'Asia/Kuwait'));
+            DB::table('orders')->delete();
+            DB::table('order_details')->delete();
+            $this->order(id: 40, status: 'pending', at: '2026-11-17 22:00:00', products: [4]);
+            $this->order(id: 41, status: 'pending', at: '2026-11-18 00:30:00', products: [4]);
+            $this->order(id: 42, status: 'pending', at: '2026-10-19 00:00:00', products: [4]);
+            $this->order(id: 43, status: 'pending', at: '2026-10-19 12:00:00', products: [4]);
+            $this->order(id: 44, status: 'pending', at: '2026-10-18 23:59:59', products: [4]);
+
+            $response = $this->overview('?market=SA');
+
+            $this->assertSame(['from' => '2026-10-19', 'to' => '2026-11-17', 'days' => 30, 'clamped' => false, 'timezone' => 'Asia/Kuwait'], $response->json('data.window'), 'it is still the 17th in Kuwait, where it is already the 18th in the application zone');
+            $this->assertSame(3, $response->json('data.markets.0.orders.total'), 'the orders of the first and of the last day of the window are in it, the one just after the last day and the one just before the first are not');
+        } finally {
+            date_default_timezone_set($platformZone);
+        }
     }
 
     public function test_an_order_is_counted_once_however_many_lines_it_has(): void
