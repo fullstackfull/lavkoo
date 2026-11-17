@@ -16,8 +16,10 @@ class EmergencyContactController extends Controller
         $seller = $request->seller;
         $contactList = EmergencyContact::where(['user_id' => $seller->id])
             ->when($request->has('search') && $request['search'], function ($query) use ($request) {
-                return $query->where('name', 'like', '%' . $request['search'] . '%')
-                    ->orWhere('phone', 'like', '%' . $request['search'] . '%');
+                return $query->where(function ($query) use ($request) {
+                    $query->where('name', 'like', '%' . $request['search'] . '%')
+                        ->orWhere('phone', 'like', '%' . $request['search'] . '%');
+                });
             })->latest()->get();
 
         return response()->json(['contact_list' => $contactList], 200);

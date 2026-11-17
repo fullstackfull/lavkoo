@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\Review;
 use App\Traits\CommonTrait;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +21,7 @@ use Illuminate\Support\Facades\Validator;
 
 class DeliveryManController extends Controller
 {
-    use CommonTrait;
+    use CommonTrait, SellerOwnedRecords;
 
     private $shippingMethod;
 
@@ -233,6 +234,10 @@ class DeliveryManController extends Controller
 
     public function order_status_history(Request $request, $id): JsonResponse
     {
+        if (!Order::where(['id' => $id, 'seller_id' => $request->seller->id, 'seller_is' => 'seller'])->exists()) {
+            return $this->recordNotFound(code: 'order', message: 'order_not_found');
+        }
+
         $histories = OrderStatusHistory::where(['order_id' => $id])
             ->latest()
             ->get();

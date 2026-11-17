@@ -9,6 +9,7 @@ use App\Services\DeliveryManService;
 use App\Services\EmergencyContactService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -54,14 +55,20 @@ class EmergencyContactController extends BaseController
 
     public function getUpdateView($id): JsonResponse
     {
-        $emergencyContact = $this->emergencyContactRepo->getFirstWhere(params: ['id' => $id]);
+        $emergencyContact = $this->getOwnEmergencyContact(id: $id);
+        abort_if(boolean: !$emergencyContact, code: 404);
         return response()->json(['view' => view('vendor-views.delivery-man.emergency-contact._update-emergency-contact', compact('emergencyContact'))->render()]);
 
     }
 
     public function update(EmergencyContactRequest $request, $id): RedirectResponse
     {
-        $this->emergencyContactRepo->update(id: $id, data: $this->emergencyContactService->getEmergencyContactUpdateData(request: $request));
+        $emergencyContact = $this->getOwnEmergencyContact(id: $id);
+        if (!$emergencyContact) {
+            ToastMagic::error(translate('access_denied') . '!');
+            return back();
+        }
+        $this->emergencyContactRepo->update(id: $emergencyContact['id'], data: $this->emergencyContactService->getEmergencyContactUpdateData(request: $request));
         ToastMagic::success(translate('emergency_contact_update_successfully'));
         return back();
     }
@@ -99,5 +106,10 @@ class EmergencyContactController extends BaseController
             ToastMagic::error(translate('emergency_contact_delete_failed') . '!');
         }
         return redirect()->back();
+    }
+
+    private function getOwnEmergencyContact(string|int $id): ?Model
+    {
+        return $this->emergencyContactRepo->getFirstWhere(params: ['user_id' => auth('seller')->id(), 'id' => $id]);
     }
 }

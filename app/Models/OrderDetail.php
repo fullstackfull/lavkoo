@@ -82,6 +82,12 @@ class OrderDetail extends Model
         'variation' => 'array',
     ];
 
+    /** The in-house shop's lines carry seller_id 1 too, so the line's own seller_id is not enough: its order must be a seller's order. */
+    public function scopeOfSeller($query, int|string $sellerId): void
+    {
+        $query->where('seller_id', $sellerId)->whereHas('order', fn ($orderQuery) => $orderQuery->where('seller_is', 'seller'));
+    }
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class)->where('status', 1);

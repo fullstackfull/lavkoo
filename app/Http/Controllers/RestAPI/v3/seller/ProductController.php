@@ -41,6 +41,7 @@ use App\Services\ProductService;
 use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Utils\ProductManager;
@@ -59,7 +60,7 @@ class ProductController extends Controller
         delete as deleteFile;
         update as updateFile;
     }
-    use CacheManagerTrait, ProductTrait;
+    use CacheManagerTrait, ProductTrait, SellerOwnedRecords;
     use VatTaxManagement;
 
     public function __construct(
@@ -765,6 +766,10 @@ class ProductController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
+        if (!$this->ownsProduct(request: $request, productId: $request['product_id'])) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
+
         $variation = DigitalProductVariation::where(['product_id' => $request['product_id'], 'variant_key' => $request['variant_key']])->first();
         if ($variation) {
             DigitalProductVariation::where(['id' => $variation['id']])->update(['file' => null]);
@@ -1207,7 +1212,10 @@ class ProductController extends Controller
 
     public function edit(Request $request, $id)
     {
-        $product = Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews')->find($id);
+        $product = Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $product = Helpers::product_data_formatting($product);
 
         return response()->json($product, 200);
@@ -1217,7 +1225,10 @@ class ProductController extends Controller
     {
         $storage = config('filesystems.disks.default') ?? 'public';
         $seller = $request->seller;
-        $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->find($id);
+        $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->ofSeller(sellerId: $seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $oldProductData = $product;
         $validator = Validator::make($request->all(), [
             'name' => 'required',
@@ -1804,7 +1815,10 @@ class ProductController extends Controller
 
     public function delete(Request $request, $id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($id);
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         foreach (json_decode($product['images'], true) as $image) {
             $imageName = is_string($image) ? $image : $image['image_name'];
             $this->deleteFile('/product/' . $imageName);
@@ -1831,7 +1845,10 @@ class ProductController extends Controller
         if ($request['limit'] > 270) {
             return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
         }
-        $product = Product::withCount('reviews')->where('id', $request->id)->first();
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->where('id', $request->id)->first();
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $quantity = $request->quantity ?? 30;
 
         if (isset($product->code)) {
@@ -1919,10 +1936,12 @@ class ProductController extends Controller
             ->where(['seller_id' => $seller['id']])
             ->when(!empty($request['search']), function ($query) use ($request) {
                 $key = searchTerms($request['search']);
-                foreach ($key as $value) {
-                    $query->where('f_name', 'like', "%{$value}%")
-                        ->orWhere('l_name', 'like', "%{$value}%");
-                }
+                $query->where(function ($query) use ($key) {
+                    foreach ($key as $value) {
+                        $query->orWhere('f_name', 'like', "%{$value}%")
+                            ->orWhere('l_name', 'like', "%{$value}%");
+                    }
+                });
             })
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 
@@ -1936,7 +1955,10 @@ class ProductController extends Controller
 
     public function review_list(Request $request, $product_id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($product_id);
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($product_id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $average_rating = count($product->rating) > 0 ? number_format($product->rating[0]->average, 2, '.', ' ') : 0;
         $reviews = Review::with(['customer', 'product', 'reply'])->where(['product_id' => $product_id])
             ->latest('updated_at')
@@ -2134,8 +2156,14 @@ class ProductController extends Controller
 
     public function deleteRestockRequest(Request $request): JsonResponse
     {
-        $this->restockProductRepo->delete(params: ['id' => $request['id']]);
-        $this->restockProductCustomerRepo->delete(params: ['restock_product_id' => $request['id']]);
+        // restock_products has no seller column: the request is the seller's when its product is.
+        $restockProduct = $this->restockProductRepo->getFirstWhere(params: ['id' => $request['id']]);
+        if (!$restockProduct || !$this->ownsProduct(request: $request, productId: $restockProduct['product_id'])) {
+            return $this->recordNotFound(code: 'restock_request', message: 'restock_request_not_found');
+        }
+
+        $this->restockProductRepo->delete(params: ['id' => $restockProduct['id']]);
+        $this->restockProductCustomerRepo->delete(params: ['restock_product_id' => $restockProduct['id']]);
         return response()->json([
             'message' => translate('product_restock_removed_successfully')
         ], 200);
@@ -2202,6 +2230,11 @@ class ProductController extends Controller
         return response()->json([
             'brands' => $brands,
         ], 200);
+    }
+
+    private function ownsProduct(Request $request, mixed $productId): bool
+    {
+        return Product::ofSeller(sellerId: $request->seller->id)->whereKey($productId)->exists();
     }
 
     /**

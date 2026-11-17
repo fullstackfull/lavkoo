@@ -257,7 +257,7 @@ class POSController extends Controller
         return response()->json($data, 200);
     }
 
-    public function isDigitalProductExist($cartList): bool
+    public function isDigitalProductExist($cartList, int|string $sellerId): bool
     {
         $cartIDs = [];
         $isDigitalProduct = false;
@@ -267,7 +267,7 @@ class POSController extends Controller
             }
         }
 
-        if (!empty($cartIDs) && Product::whereIn('id', $cartIDs)->where(['product_type' => 'digital'])->count() > 0) {
+        if (!empty($cartIDs) && Product::ofSeller(sellerId: $sellerId)->whereIn('id', $cartIDs)->where(['product_type' => 'digital'])->count() > 0) {
             $isDigitalProduct = true;
         }
         return $isDigitalProduct;
@@ -300,12 +300,16 @@ class POSController extends Controller
             ]);
         }
 
-        $isDigitalProduct = self::isDigitalProductExist(cartList: $carts);
+        $isDigitalProduct = self::isDigitalProductExist(cartList: $carts, sellerId: $seller->id);
         if ($customerId == 0 && $isDigitalProduct) {
             return response()->json([
                 'checkProductTypeForWalkingCustomer' => true,
                 'message' => translate('To_order_digital_product') . ',' . translate('_kindly_fill_up_the_“Add_New_Customer”_form') . '.'
             ]);
+        }
+
+        if ($unavailableProductResponse = $this->unavailableProductResponse(modifiedCart: $request['modified_cart'], sellerId: $seller->id)) {
+            return $unavailableProductResponse;
         }
 
         $deliveryShippingAddress = $fulfillment == 'delivery' ? $this->orderAddresses->latestSavedAddress(customerId: $customerId) : null;
@@ -335,23 +339,7 @@ class POSController extends Controller
         if ($request['modified_cart']) {
             foreach ($request['modified_cart'] as $cartItem) {
                 if (is_array($cartItem)) {
-                    $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
-                        return $query->active();
-                    }])->withCount('reviews')->first();
-                    if (!$product || $cartItem['quantity'] > $product['current_stock']) {
-                        return response()->json([
-                            'product_not_available' => true,
-                            'message' => $product['name'] . ' ' . translate('not_available_for_order_place')
-                        ]);
-                    }
-                }
-            }
-
-            foreach ($request['modified_cart'] as $cartItem) {
-                if (is_array($cartItem)) {
-                    $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
-                        return $query->active();
-                    }])->withCount('reviews')->first();
+                    $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $seller->id);
                     if ($product) {
                         $getProductArray = self::getOrderDetailsAddData(cartItem: $cartItem, product: $product);
                         $cartsTotalAmount += $cartItem['discounted_price'] * $cartItem['quantity'];
@@ -434,6 +422,32 @@ class POSController extends Controller
         return response()->json(['order_id' => $generateOrderID], 200);
     }
 
+    private function unavailableProductResponse(mixed $modifiedCart, int|string $sellerId): ?JsonResponse
+    {
+        foreach ($modifiedCart ?: [] as $cartItem) {
+            if (!is_array($cartItem)) {
+                continue;
+            }
+
+            $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $sellerId);
+            if (!$product || $cartItem['quantity'] > $product['current_stock']) {
+                return response()->json([
+                    'product_not_available' => true,
+                    'message' => trim(($product['name'] ?? '') . ' ' . translate('not_available_for_order_place'))
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    private function ownedCartProduct(array $cartItem, int|string $sellerId): ?Product
+    {
+        return Product::ofSeller(sellerId: $sellerId)->where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
+            return $query->active();
+        }])->withCount('reviews')->first();
+    }
+
     public function get_invoice(Request $request):JsonResponse
     {
         $seller = $request->seller;
@@ -442,7 +456,7 @@ class POSController extends Controller
             return response()->json(['message' => translate('access_denied!')], 403);
         }
 
-        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id']])->find($request['id']);
+        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['id']);
         if ($orders) {
             foreach ($orders['details'] as $order) {
                 $order['product_details'] = Helpers::product_data_formatting(json_decode($order['product_details'], true));

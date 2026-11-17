@@ -20,10 +20,13 @@ use App\Models\WithdrawRequest;
 use App\Models\OrderTransaction;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
+use App\Traits\SellerOwnedRecords;
 use Illuminate\Support\Facades\Validator;
 
 class SellerController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function shop_info(Request $request):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -84,7 +87,10 @@ class SellerController extends Controller
         $data = Helpers::get_seller_by_token($request);
 
         if ($data['success'] == 1) {
-            $reviews = Review::find($request->id);
+            $reviews = Review::whereHas('product', fn ($query) => $query->ofSeller(sellerId: $data['data']['id']))->find($request->id);
+            if (!$reviews) {
+                return $this->recordNotFound(code: 'review', message: 'review_not_found');
+            }
             $reviews->status = $request->status;
             $reviews->save();
             return response()->json(['message'=>translate('status updated successfully!!')],200);
@@ -107,7 +113,7 @@ class SellerController extends Controller
             ], 401);
         }
 
-        $profile = Seller::with(['wallet'])->withCount(['product', 'orders'])->where(['id' => $seller['id']])->first();
+        $profile = Seller::with(['wallet'])->withCount(['product', 'orders' => fn ($query) => $query->where('seller_is', 'seller')])->where(['id' => $seller['id']])->first();
 
         return response()->json($profile?->makeVisible(Seller::OWNER_ONLY_ATTRIBUTES), 200);
     }
@@ -238,12 +244,12 @@ class SellerController extends Controller
             ], 401);
         }
 
-        $withdraw_request = WithdrawRequest::find($request['id']);
+        $withdraw_request = WithdrawRequest::ofSeller(sellerId: $seller['id'])->find($request['id']);
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {
-            $wallet->total_earning += BackEndHelper::currency_to_usd($withdraw_request['amount']);
-            $wallet->pending_withdraw -= BackEndHelper::currency_to_usd($request['amount']);
+            $wallet->total_earning += $withdraw_request['amount'];
+            $wallet->pending_withdraw -= $withdraw_request['amount'];
             $wallet->save();
             $withdraw_request->delete();
             return response()->json(translate('Withdraw request has been closed successfully!'), 200);
