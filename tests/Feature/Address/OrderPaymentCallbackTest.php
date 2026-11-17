@@ -42,7 +42,7 @@ class OrderPaymentCallbackTest extends ApiAddressTestCase
     {
         request()->replace([]);
         digital_payment_success([
-            'is_paid' => 1, 'payment_method' => 'ssl_commerz', 'transaction_id' => 'TXN-1',
+            'is_paid' => 1, 'payment_method' => 'ssl_commerz', 'transaction_id' => 'TXN-' . uniqid(),
             'additional_data' => json_encode($stored + [
                 'customer_id' => $payer->id, 'is_guest' => 0, 'is_guest_in_order' => 0, 'order_note' => null, 'coupon_code' => null,
                 'payment_mode' => 'web', 'payment_request_from' => 'web', 'new_customer_id' => 0,

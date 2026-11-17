@@ -18,6 +18,7 @@ use App\Models\Seller;
 use App\Models\Setting;
 use App\Traits\CommonTrait;
 use App\Models\User;
+use App\Services\Payments\PaymentSettlementScope;
 use App\Utils\CartManager;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
@@ -33,6 +34,11 @@ class Helpers
 
     public static function getCustomerInformation($request = null)
     {
+        $settlement = PaymentSettlementScope::current();
+        if ($settlement !== null) {
+            return $settlement->registeredPayer ?? 'offline';
+        }
+
         $user = null;
         if (auth('customer')->check()) {
             $user = auth('customer')->user();
