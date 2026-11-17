@@ -4,6 +4,7 @@ namespace Tests\Feature\PlatformAdmin;
 
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Support\Facades\DB;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\Support\SeedsPlatformMarketData;
@@ -42,17 +43,21 @@ class StorefrontIsolationTest extends PlatformAdminTestCase
 
     public function test_nothing_a_storefront_uses_to_pick_a_country_changes_what_any_market_returns(): void
     {
-        $token = $this->mintToken($this->platformAdmin());
+        $owner = $this->platformAdmin();
+        $token = $this->mintToken($owner);
+        $trail = $this->seedTrail([$owner]);
 
         foreach ($this->readRoutes() as $route) {
             [, $uri] = $this->requestTo($route);
 
             foreach (['', '?market=all', '?market=SA', '?market=KW', '?market=AE'] as $market) {
+                $this->forgetRequestsOfTheTest($trail);
                 $baseline = $this->getJson($uri . $market, $this->bearer($token));
 
                 foreach (self::WHAT_CHOOSES_A_STOREFRONT as $what => $change) {
                     $query = isset($change['query']) ? ($market === '' ? '?' : $market . '&') . $change['query'] : $market;
 
+                    $this->forgetRequestsOfTheTest($trail);
                     $changed = $this->withSession($change['session'] ?? [])
                         ->withUnencryptedCookies($change['cookies'] ?? [])
                         ->getJson($uri . $query, $this->bearer($token) + ($change['headers'] ?? []));
@@ -73,8 +78,11 @@ class StorefrontIsolationTest extends PlatformAdminTestCase
 
     public function test_two_principals_with_different_scopes_never_see_each_others_data(): void
     {
-        $owner = $this->mintToken($this->platformAdmin());
-        $viewer = $this->mintToken($this->platformAdmin(countries: ['KW']));
+        $ownerAdmin = $this->platformAdmin();
+        $viewerAdmin = $this->platformAdmin(countries: ['KW']);
+        $owner = $this->mintToken($ownerAdmin);
+        $viewer = $this->mintToken($viewerAdmin);
+        $trail = $this->seedTrail([$ownerAdmin, $viewerAdmin]);
         $queries = [];
         foreach ($this->readRoutes() as $route) {
             [, $uri] = $this->requestTo($route);
@@ -82,13 +90,17 @@ class StorefrontIsolationTest extends PlatformAdminTestCase
         }
         $ownersOwn = $viewersOwn = [];
         foreach ($queries as $query) {
+            $this->forgetRequestsOfTheTest($trail);
             $ownersOwn[$query] = $this->getJson($query, $this->bearer($owner))->getContent();
+            $this->forgetRequestsOfTheTest($trail);
             $viewersOwn[$query] = $this->getJson($query, $this->bearer($viewer))->getContent();
         }
 
         for ($round = 0; $round < 3; $round++) {
             foreach (array_reverse($queries) as $query) {
+                $this->forgetRequestsOfTheTest($trail);
                 $this->assertSame($viewersOwn[$query], $this->getJson($query, $this->bearer($viewer))->getContent(), "the restricted viewer, round {$round}: {$query}");
+                $this->forgetRequestsOfTheTest($trail);
                 $this->assertSame($ownersOwn[$query], $this->getJson($query, $this->bearer($owner))->getContent(), "the platform owner, round {$round}: {$query}");
             }
         }
@@ -111,6 +123,26 @@ class StorefrontIsolationTest extends PlatformAdminTestCase
                 $this->assertStringNotContainsString($forbidden, $code, basename($file) . ' must not cache anything: a cache entry needs a key of its own for the market and for who asks, and Level 1 has none');
             }
         }
+    }
+
+    /**
+     * Puts a few lines in the audit trail for each admin, so that the answer of the trail has something in it, and returns the last id they have.
+     * Every request of a test adds a line of its own, which the trail would show the next time it is read: those are taken out before each request.
+     *
+     * @param list<array{id: int}> $admins
+     */
+    private function seedTrail(array $admins): int
+    {
+        foreach ($admins as $admin) {
+            DB::table('platform_admin_audit_logs')->insert(['admin_id' => $admin['id'], 'action' => 'overview.view', 'market' => 'KW', 'ip' => '203.0.113.7', 'created_at' => now()]);
+        }
+
+        return (int) DB::table('platform_admin_audit_logs')->max('id');
+    }
+
+    private function forgetRequestsOfTheTest(int $lastSeededLine): void
+    {
+        DB::table('platform_admin_audit_logs')->where('id', '>', $lastSeededLine)->delete();
     }
 
     /** @return list<RoutingRoute> */

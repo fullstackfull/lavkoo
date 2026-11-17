@@ -3,6 +3,7 @@
 namespace App\Services\PlatformAdmin;
 
 use Carbon\CarbonInterface;
+use Illuminate\Container\Attributes\Scoped;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,10 @@ use Illuminate\Support\Facades\Schema;
  *
  * While the column is missing (the products migration of the storefront has not run) every product belongs to the default storefront, which is
  * what the storefront code itself assumes, and the answer says so.
+ *
+ * One instance serves a whole request, so that the overview and the alerts ask the schema once.
  */
+#[Scoped]
 final class PlatformMarketFigures
 {
     private const COUNTRY_COLUMN = 'storefront_country';

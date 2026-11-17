@@ -35,6 +35,12 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
         return new self(errorCode: 'market_not_allowed', message: 'This account may not see that market.', status: 403);
     }
 
+    /** @param list<string> $valid */
+    public static function invalidSeverity(array $valid): self
+    {
+        return new self(errorCode: 'invalid_severity', message: 'The severity must be info, warning or critical.', status: 422, extra: ['valid' => $valid]);
+    }
+
     public static function invalidWindow(string $message): self
     {
         return new self(errorCode: 'invalid_window', message: $message, status: 422);

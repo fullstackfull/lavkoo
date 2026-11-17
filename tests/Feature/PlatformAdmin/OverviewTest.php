@@ -36,11 +36,11 @@ class OverviewTest extends PlatformAdminTestCase
         $markets = collect($response->json('data.markets'))->keyBy('market');
         $this->assertSame(['SA', 'AE', 'KW', 'QA', 'BH', 'OM'], $markets->keys()->all());
 
-        $this->assertSame($this->market(code: 'SA', currency: 'SAR', active: true, total: 5, byStatus: ['pending' => 1, 'confirmed' => 1, 'processing' => 1, 'delivered' => 2], latest: '2026-11-17 18:00:00', backlog: 4, refunds: [2, 1], stock: [1, 3]), $markets['SA']);
-        $this->assertSame($this->market(code: 'AE', currency: 'AED', active: false, total: 1, byStatus: ['processing' => 1], latest: '2026-11-14 10:00:00', backlog: 1, refunds: [0, 0], stock: [0, 1]), $markets['AE']);
-        $this->assertSame($this->market(code: 'KW', currency: 'KWD', active: false, total: 3, byStatus: ['pending' => 1, 'delivered' => 1, 'canceled' => 1], latest: '2026-11-16 10:00:00', backlog: 1, refunds: [1, 1], stock: [2, 1]), $markets['KW']);
+        $this->assertSame($this->market(code: 'SA', currency: 'SAR', active: true, total: 5, byStatus: ['pending' => 1, 'confirmed' => 1, 'processing' => 1, 'delivered' => 2], latest: '2026-11-17 18:00:00', backlog: 4, refunds: [2, 1], stock: [1, 3], alerts: [0, 0, 1]), $markets['SA']);
+        $this->assertSame($this->market(code: 'AE', currency: 'AED', active: false, total: 1, byStatus: ['processing' => 1], latest: '2026-11-14 10:00:00', backlog: 1, refunds: [0, 0], stock: [0, 1], alerts: [0, 0, 0]), $markets['AE']);
+        $this->assertSame($this->market(code: 'KW', currency: 'KWD', active: false, total: 3, byStatus: ['pending' => 1, 'delivered' => 1, 'canceled' => 1], latest: '2026-11-16 10:00:00', backlog: 1, refunds: [1, 1], stock: [2, 1], alerts: [0, 0, 1]), $markets['KW']);
         foreach (['QA' => 'QAR', 'BH' => 'BHD', 'OM' => 'OMR'] as $code => $currency) {
-            $this->assertSame($this->market(code: $code, currency: $currency, active: false, total: 0, byStatus: [], latest: null, backlog: 0, refunds: [0, 0], stock: [0, 0]), $markets[$code], "{$code} has nothing, and says so with zeros");
+            $this->assertSame($this->market(code: $code, currency: $currency, active: false, total: 0, byStatus: [], latest: null, backlog: 0, refunds: [0, 0], stock: [0, 0], alerts: [0, 0, 0]), $markets[$code], "{$code} has nothing, and says so with zeros");
         }
     }
 
@@ -343,21 +343,43 @@ class OverviewTest extends PlatformAdminTestCase
         $this->assertSame(0, $markets['SA']['orders']['total']);
     }
 
-    public function test_a_read_of_any_size_runs_a_fixed_number_of_bounded_statements(): void
+    public function test_a_read_runs_the_same_bounded_statements_whatever_the_amount_of_data(): void
     {
-        $statements = $this->statementsRunBy(fn () => $this->overview('?from=2026-08-18&to=2026-11-17')->assertOk());
+        $this->readsOfOneFreshRequest();
+        $reads = $this->readsOfOneFreshRequest();
 
-        $reads = array_values(array_filter($statements, static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select')));
         $touchingOrders = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'orders'));
         $touchingRefunds = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'refund_requests'));
-
-        $this->assertCount(2, $touchingOrders, 'the orders of the window, and the backlog');
+        $this->assertCount(3, $touchingOrders, 'the orders of the window, the backlog, and the pending orders of the alerts');
         $this->assertCount(1, $touchingRefunds);
         foreach (array_merge($touchingOrders, $touchingRefunds) as $sql) {
             $this->assertStringContainsString('created_at', $sql, 'a read of orders or refund requests is bounded by a date: ' . $sql);
             $this->assertStringContainsString('group by', strtolower($sql), 'and is summed in the database, not in PHP');
         }
-        $this->assertLessThanOrEqual(14, count($reads), 'a fixed number of reads, not one per market or per order');
+
+        for ($more = 1; $more <= 60; $more++) {
+            $this->product(id: 1000 + $more, country: ['SA', 'AE', 'KW', 'QA'][$more % 4], stock: $more % 3);
+            $this->order(id: 1000 + $more, status: 'pending', at: '2026-11-1' . ($more % 7) . ' 10:00:00', products: [1000 + $more, 1]);
+            $this->refund(status: 'pending', at: '2026-11-1' . ($more % 7) . ' 10:00:00', product: 1000 + $more);
+        }
+        $afterMuchMore = $this->readsOfOneFreshRequest();
+
+        $this->assertCount(count($reads), $afterMuchMore, 'sixty more of everything, and not one statement more: a fixed number, not one per market, order or product');
+        $this->assertLessThanOrEqual(20, count($reads));
+    }
+
+    /**
+     * The statements that read in one overview, as a new request would run them: what the container shares for the length of a request is
+     * forgotten first. The caller asks once before it counts, so that what the platform caches for hours (its settings) is warm in both counts.
+     *
+     * @return list<string>
+     */
+    private function readsOfOneFreshRequest(): array
+    {
+        $this->app->forgetScopedInstances();
+        $statements = $this->statementsRunBy(fn () => $this->overview('?from=2026-08-18&to=2026-11-17')->assertOk());
+
+        return array_values(array_filter($statements, static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select')));
     }
 
     private function overview(string $query = '', ?string $token = null): TestResponse
@@ -374,10 +396,11 @@ class OverviewTest extends PlatformAdminTestCase
      * @param array<string, int> $byStatus
      * @param array{0: int, 1: int} $refunds requests and how many are pending
      * @param array{0: int, 1: int} $stock zero and low
+     * @param array{0: int, 1: int, 2: int} $alerts critical, warning and info
      *
      * @return array<string, mixed>
      */
-    private function market(string $code, string $currency, bool $active, int $total, array $byStatus, ?string $latest, int $backlog, array $refunds, array $stock): array
+    private function market(string $code, string $currency, bool $active, int $total, array $byStatus, ?string $latest, int $backlog, array $refunds, array $stock, array $alerts): array
     {
         return [
             'market' => $code,
@@ -388,6 +411,7 @@ class OverviewTest extends PlatformAdminTestCase
             'pending_fulfilment' => ['count' => $backlog],
             'returns' => ['refund_requests' => $refunds[0], 'pending' => $refunds[1]],
             'stock' => ['zero' => $stock[0], 'low' => $stock[1]],
+            'alerts' => ['critical' => $alerts[0], 'warning' => $alerts[1], 'info' => $alerts[2]],
         ];
     }
 

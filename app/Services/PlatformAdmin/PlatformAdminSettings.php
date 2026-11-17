@@ -22,6 +22,16 @@ final class PlatformAdminSettings
 
     private const DEFAULT_MAX_WINDOW_DAYS = 92;
 
+    private const DEFAULT_ZERO_STOCK_WARNING_COUNT = 10;
+
+    private const DEFAULT_ZERO_STOCK_CRITICAL_COUNT = 50;
+
+    private const DEFAULT_PENDING_AGE_HOURS = 24;
+
+    private const DEFAULT_PENDING_WARNING_COUNT = 5;
+
+    private const DEFAULT_PENDING_CRITICAL_COUNT = 20;
+
     /** Only a real boolean true switches the API on: a string or a number that merely looks true does not. */
     public function enabled(): bool
     {
@@ -60,6 +70,33 @@ final class PlatformAdminSettings
     public function windowDaysDefault(): int
     {
         return min($this->positiveInteger(key: 'window_days_default', default: self::DEFAULT_WINDOW_DAYS), $this->windowDaysMax());
+    }
+
+    public function zeroStockWarningCount(): int
+    {
+        return $this->positiveInteger(key: 'alerts.zero_stock_warning_count', default: self::DEFAULT_ZERO_STOCK_WARNING_COUNT);
+    }
+
+    /** Never below the warning count, so that the levels of one alert stay in order whatever is configured. */
+    public function zeroStockCriticalCount(): int
+    {
+        return max($this->positiveInteger(key: 'alerts.zero_stock_critical_count', default: self::DEFAULT_ZERO_STOCK_CRITICAL_COUNT), $this->zeroStockWarningCount());
+    }
+
+    public function pendingAgeHours(): int
+    {
+        return $this->positiveInteger(key: 'alerts.pending_age_hours', default: self::DEFAULT_PENDING_AGE_HOURS);
+    }
+
+    public function pendingWarningCount(): int
+    {
+        return $this->positiveInteger(key: 'alerts.pending_warning_count', default: self::DEFAULT_PENDING_WARNING_COUNT);
+    }
+
+    /** Never below the warning count. */
+    public function pendingCriticalCount(): int
+    {
+        return max($this->positiveInteger(key: 'alerts.pending_critical_count', default: self::DEFAULT_PENDING_CRITICAL_COUNT), $this->pendingWarningCount());
     }
 
     private function positiveInteger(string $key, int $default): int

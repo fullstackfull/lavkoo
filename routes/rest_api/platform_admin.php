@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AlertController;
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AuditLogController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AuthController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MarketController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MeController;
@@ -30,5 +32,7 @@ Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform
         Route::delete('sessions/{id}', [SessionController::class, 'destroy'])->whereNumber('id')->name('session.revoke');
         Route::get('markets', MarketController::class)->name('markets.view');
         Route::get('overview', OverviewController::class)->name('overview.view');
+        Route::get('alerts', AlertController::class)->name('alerts.view');
+        Route::get('audit-logs', AuditLogController::class)->name('audit_logs.view');
     });
 });

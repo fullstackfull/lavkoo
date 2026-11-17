@@ -26,6 +26,7 @@ final class PlatformOverviewService
         private readonly PlatformMarkets $markets,
         private readonly PlatformMarketFigures $figures,
         private readonly PlatformAdminSettings $settings,
+        private readonly PlatformAlertService $alerts,
     ) {
     }
 
@@ -47,23 +48,30 @@ final class PlatformOverviewService
             'window' => $window->toArray(),
             'freshness' => ['mode' => 'live', 'cached' => false],
             'attribution' => $this->attribution(),
-            'markets' => $this->marketsOf($selection, $figures),
+            'markets' => $this->marketsOf(
+                $selection,
+                $figures,
+                $this->alerts->countsBySeverity($this->alerts->forMarkets($selection->markets, $figures['stock'])),
+            ),
             'unattributed' => $selection->includesUnattributed ? $this->figuresOf(market: null, figures: $figures) + ['reason' => self::NO_MARKET_REASON] : null,
         ];
     }
 
     /**
      * @param array<string, list<array<string, mixed>>> $figures
+     * @param array<string, array{critical: int, warning: int, info: int}> $alertCounts
      *
      * @return list<array<string, mixed>>
      */
-    private function marketsOf(MarketSelection $selection, array $figures): array
+    private function marketsOf(MarketSelection $selection, array $figures, array $alertCounts): array
     {
         $overview = [];
 
         foreach ($this->markets->all() as $code => $market) {
             if (in_array($code, $selection->markets, true)) {
-                $overview[] = ['market' => $code, 'storefront_currency' => $market['currency'], 'active' => $market['active']] + $this->figuresOf(market: $code, figures: $figures);
+                $overview[] = ['market' => $code, 'storefront_currency' => $market['currency'], 'active' => $market['active']]
+                    + $this->figuresOf(market: $code, figures: $figures)
+                    + ['alerts' => $alertCounts[$code] ?? ['critical' => 0, 'warning' => 0, 'info' => 0]];
             }
         }
 
