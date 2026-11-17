@@ -4,6 +4,7 @@ namespace App\Services\Theme;
 
 use App\Models\Theme;
 use App\Models\ThemeAsset;
+use App\Utils\InertSvg;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -128,10 +129,7 @@ class ThemeAssetService
         return (bool) $asset->delete();
     }
 
-    /**
-     * Reject SVGs containing script, event handlers or embedded/external content.
-     * Deliberately a denylist of the dangerous constructs plus a conservative bail-out on failure.
-     */
+    /** Accept an SVG only when it is a plain vector image: see InertSvg for what that excludes. */
     public function isSafeSvg(UploadedFile $file): bool
     {
         try {
@@ -140,28 +138,6 @@ class ThemeAssetService
             return false;
         }
 
-        if ($content === '' || stripos($content, '<svg') === false) {
-            return false;
-        }
-
-        // Needles are concatenated so the denylist never exists as contiguous bytes in this file:
-        // hosting malware scanners quarantine files embedding these sequences verbatim.
-        $dangerous = [
-            '<scr' . 'ipt', 'javascr' . 'ipt:', '<foreign' . 'object', '<ifr' . 'ame',
-            '<emb' . 'ed', '<obj' . 'ect', '<u' . 'se', '<hand' . 'ler', 'data:text/' . 'html',
-        ];
-        $lower = strtolower($content);
-        foreach ($dangerous as $needle) {
-            if (str_contains($lower, $needle)) {
-                return false;
-            }
-        }
-
-        // any on*= event handler (onload, onclick, onmouseover, …)
-        if (preg_match('/\son[a-z]+\s*=/i', $content)) {
-            return false;
-        }
-
-        return true;
+        return InertSvg::isInert(svg: $content);
     }
 }

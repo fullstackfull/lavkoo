@@ -113,6 +113,12 @@
             "path": "tests/Feature/SalesChannels/SecretRedactorCoversEveryStoredSecretTest.php",
             "line": 102,
             "reason": "Two made-up AWS key ids, one per prefix AWS documents (AKIA and ASIA), in the test that the shape is masked whatever the field is called, in commit d958ac8; the next commit (8db9a92) builds both at run time. Neither was ever a real credential."
+        },
+        {
+            "rule": "api-token",
+            "path": "tests/Feature/Security/FirebaseServiceWorkerTest.php",
+            "line": 27,
+            "reason": "The sample web key that the Firebase documentation publishes, as the fixture of the service worker test, in commit d9215e2c of pull request #63; the tip of the same pull request builds a made-up value at run time instead. It was never a credential of this shop."
         }
     ]
 }

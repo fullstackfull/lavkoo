@@ -2,11 +2,17 @@
 
 namespace App\Traits;
 
+use App\Utils\PlainFileName;
+use App\Utils\SharedProductFile;
+use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Intervention\Image\Exception\NotReadableException;
 use Intervention\Image\Facades\Image;
+use Symfony\Component\HttpFoundation\File\File;
 
 trait FileManagerTrait
 {
@@ -26,15 +32,21 @@ trait FileManagerTrait
                 Storage::disk($storage)->makeDirectory($dir);
             }
 
-            $isOriginalImage = in_array($image->getClientOriginalExtension(), ['gif', 'svg']);
-            if ($isOriginalImage) {
-                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $image->getClientOriginalExtension();
+            if (StoredFileExtension::isGifToKeep($image)) {
+                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . ".gif";
                 Storage::disk($storage)->put($dir . $imageName, file_get_contents($image));
             } else {
                 if (in_array(request()->ip(), ['127.0.0.1', '::1']) && !(imagetypes() & IMG_WEBP) || env('APP_DEBUG') && !(imagetypes() & IMG_WEBP)) {
                     $format = 'png';
                 }
-                $imageWebp = Image::make($image)->encode($format);
+                if (!StoredFileExtension::isRasterImage($image)) {
+                    throw ValidationException::withMessages(['image' => translate('the_file_is_not_a_supported_image')]);
+                }
+                try {
+                    $imageWebp = Image::make($image)->encode($format);
+                } catch (NotReadableException) {
+                    throw ValidationException::withMessages(['image' => translate('the_file_is_not_a_supported_image')]);
+                }
                 $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
                 Storage::disk($storage)->put($dir . $imageName, $imageWebp);
                 $imageWebp->destroy();
@@ -59,7 +71,7 @@ trait FileManagerTrait
         Cache::forget("cache_all_files_for_public_storage");
 
         if (!is_null($file)) {
-            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
+            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . StoredFileExtension::of(clientExtension: $format, file: $file instanceof File ? $file : null);
             if (!$this->checkFileExists($dir)['status']) {
                 Storage::disk($storage)->makeDirectory($dir);
             }
@@ -83,9 +95,8 @@ trait FileManagerTrait
      */
     public function update(string $dir, $oldImage, string $format, $image, string $fileType = 'image'): string
     {
-        if ($this->checkFileExists(filePath: $dir . $oldImage)['status']) {
-            Storage::disk($this->checkFileExists(filePath: $dir . $oldImage)['disk'])->delete($dir . $oldImage);
-        }
+        $this->deleteUnsharedFiles(filePaths: [$dir . $oldImage]);
+
         return $fileType == 'file' ? $this->fileUpload($dir, $format, $image) : $this->upload($dir, $format, $image);
     }
 
@@ -95,15 +106,35 @@ trait FileManagerTrait
      */
     protected function  delete(string $filePath): array
     {
-        if ($this->checkFileExists(filePath: $filePath)['status']) {
-            Storage::disk($this->checkFileExists(filePath: $filePath)['disk'])->delete($filePath);
-        }
+        return $this->deleteAll(filePaths: [$filePath]);
+    }
+
+    /**
+     * @param list<string> $filePaths
+     * @return array
+     */
+    protected function deleteAll(array $filePaths): array
+    {
+        $this->deleteUnsharedFiles(filePaths: $filePaths);
         cacheRemoveByType(type: 'file_manager');
         Cache::forget("cache_all_files_for_public_storage");
         return [
             'success' => 1,
             'message' => translate('Removed_successfully')
         ];
+    }
+
+    /**
+     * Deletes the files that are on a disk and that no other product holds; a file that is not there costs no search of the products.
+     *
+     * @param list<string> $filePaths
+     */
+    private function deleteUnsharedFiles(array $filePaths): void
+    {
+        $stored = array_filter($filePaths, fn (string $filePath): bool => PlainFileName::staysInside(path: $filePath) && $this->checkFileExists(filePath: $filePath)['status']);
+        foreach (array_diff($stored, SharedProductFile::sharedAmong(paths: $stored)) as $filePath) {
+            Storage::disk($this->checkFileExists(filePath: $filePath)['disk'])->delete($filePath);
+        }
     }
 
     public function setStorageConnectionEnvironment(): void

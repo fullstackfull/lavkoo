@@ -6,6 +6,7 @@ use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\AddonPurchaseCodeRequest;
 use App\Services\AddonService;
+use App\Utils\AtomicFile;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\View\View;
@@ -61,8 +62,9 @@ class AddonActivationController extends BaseController
 
     public function activateFromList(AddonPurchaseCodeRequest $request): Redirector|RedirectResponse|Application|JsonResponse
     {
-        $infoPath = base_path($request['path'] . '/Addon/info.php');
-        if (!file_exists($infoPath)) {
+        $addonPath = $this->addonService->installedAddonPath($request['path']);
+        $infoPath = $addonPath === null ? null : base_path($addonPath . '/Addon/info.php');
+        if ($infoPath === null) {
             $message = translate('invalid_addon');
             if ($request->ajax()) {
                 return response()->json(['status' => 0, 'message' => $message]);
@@ -80,7 +82,7 @@ class AddonActivationController extends BaseController
             $fullData['is_published'] = 1;
             $fullData['username'] = $request['username'];
             $fullData['purchase_code'] = $request['purchase_key'];
-            file_put_contents($infoPath, "<?php return " . var_export($fullData, true) . ";");
+            AtomicFile::rewrite(path: $infoPath, change: fn (): string => "<?php return " . var_export($fullData, true) . ";", lockIsRequired: false);
 
             $this->businessSettingRepo->updateOrInsert(
                 type: 'addon_activation_' . $moduleKey,
