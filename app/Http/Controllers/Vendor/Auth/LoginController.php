@@ -39,7 +39,7 @@ class LoginController extends Controller
             return back();
         }
 
-        $vendor = $this->vendorRepo->getFirstWhere(['identity' => $request['email']]);
+        $vendor = $this->vendorRepo->getFirstWhere(['email' => $request['email']]);
         if (!$vendor) {
             ToastMagic::error(translate('credentials_doesnt_match') . '!');
             return back();
