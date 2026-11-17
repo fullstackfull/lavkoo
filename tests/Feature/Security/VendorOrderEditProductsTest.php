@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Security;
 
+use App\Models\Admin;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -306,7 +307,136 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         $this->assertTheOrderHoldsWhatItHeld();
     }
 
+    // ---- an order the page does not offer the edit for ----
+
+    /** @return iterable<string, array{0: string}> */
+    public static function statusesTheEditIsNotOfferedFor(): iterable
+    {
+        foreach (['processing', 'out_for_delivery', 'delivered', 'returned', 'failed', 'canceled'] as $status) {
+            yield $status => [$status];
+        }
+    }
+
+    #[DataProvider('statusesTheEditIsNotOfferedFor')]
+    public function test_an_edit_of_an_order_in_a_status_the_page_does_not_offer_the_edit_for_is_refused_and_writes_nothing(string $status): void
+    {
+        DB::table('orders')->where('id', self::ORDER)->update(['order_status' => $status]);
+
+        $this->assertTheEditIsRefusedAndWritesNothing(reason: 'Order can only be edited when the order status is Pending or Confirmed.');
+    }
+
+    public function test_an_edit_of_an_order_that_is_not_a_default_order_is_refused_and_writes_nothing(): void
+    {
+        DB::table('orders')->where('id', self::ORDER)->update(['order_type' => 'POS']);
+
+        $this->assertTheEditIsRefusedAndWritesNothing(reason: 'Order can only be edited when the order status is Pending or Confirmed.');
+    }
+
+    public function test_an_edit_while_the_admin_does_not_let_sellers_edit_orders_is_refused_and_writes_nothing(): void
+    {
+        $this->theAdminSwitchesTheSellersEditsOff();
+
+        $this->assertTheEditIsRefusedAndWritesNothing(reason: 'Vendors are not allowed to edit orders now.');
+    }
+
+    public function test_an_edit_of_an_order_whose_offline_payment_is_not_confirmed_is_refused_and_writes_nothing(): void
+    {
+        DB::table('orders')->where('id', self::ORDER)->update(['payment_method' => 'offline_payment', 'payment_status' => 'unpaid']);
+
+        $this->assertTheEditIsRefusedAndWritesNothing(reason: 'Please confirm the offline payment information before editing this order.');
+    }
+
+    public function test_an_edit_of_an_order_whose_last_edit_left_an_offline_due_amount_unpaid_is_refused_and_writes_nothing(): void
+    {
+        $this->theLastEditLeftAnOfflineDueAmountUnpaid();
+
+        $this->assertTheEditIsRefusedAndWritesNothing(reason: 'Please confirm the offline payment information of the due amount before editing this order.');
+    }
+
+    public function test_an_edit_of_an_order_that_holds_only_digital_products_is_refused_and_writes_nothing(): void
+    {
+        DB::table('order_details')->where('id', 1)->update(['product_details' => json_encode(['product_type' => 'digital'] + (array) DB::table('products')->where('id', self::OWN_PRODUCT)->first())]);
+
+        $this->assertTheEditIsRefusedAndWritesNothing(reason: 'Orders containing only digital products cannot be edited.');
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function statusesTheEditIsOfferedFor(): iterable
+    {
+        yield 'pending' => ['pending'];
+        yield 'confirmed' => ['confirmed'];
+    }
+
+    #[DataProvider('statusesTheEditIsOfferedFor')]
+    public function test_an_order_the_page_offers_the_edit_for_is_still_saved_as_edited(string $status): void
+    {
+        DB::table('orders')->where('id', self::ORDER)->update(['order_status' => $status]);
+
+        $this->addToTheEdit(productId: self::OWN_PRODUCT, quantity: 3)->assertOk();
+        $saved = $this->saveTheEdit();
+
+        $saved->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame([[self::OWN_PRODUCT, 3]], $this->linesOfTheOrder());
+        $this->assertSame([49, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame(1, DB::table('order_edit_histories')->count());
+    }
+
+    public function test_the_admins_edit_of_an_order_the_page_offers_the_edit_for_is_saved_whether_or_not_sellers_may_edit(): void
+    {
+        $this->theAdminSwitchesTheSellersEditsOff();
+
+        $saved = $this->saveTheEditAsAnAdmin();
+
+        $saved->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame(1, DB::table('order_edit_histories')->where('edit_by', 'admin')->count());
+    }
+
+    #[DataProvider('statusesTheEditIsNotOfferedFor')]
+    public function test_the_admins_edit_of_an_order_in_a_status_the_page_does_not_offer_the_edit_for_is_refused_and_writes_nothing(string $status): void
+    {
+        DB::table('orders')->where('id', self::ORDER)->update(['order_status' => $status]);
+
+        $saved = $this->saveTheEditAsAnAdmin();
+
+        $saved->assertOk()->assertJson(['status' => 'error', 'message' => translate('Order can only be edited when the order status is Pending or Confirmed.')]);
+        $this->assertSame(0, DB::table('order_edit_histories')->count(), 'an edit was recorded');
+        $this->assertSame(0, (int) DB::table('orders')->where('id', self::ORDER)->value('edited_status'));
+    }
+
     // ---- helpers ----
+
+    private function theAdminSwitchesTheSellersEditsOff(): void
+    {
+        DB::table('business_settings')->where('type', 'vendor_can_edit_order')->update(['value' => '0']);
+        Cache::forget(CACHE_BUSINESS_SETTINGS_TABLE);
+    }
+
+    private function theLastEditLeftAnOfflineDueAmountUnpaid(): void
+    {
+        DB::table('orders')->where('id', self::ORDER)->update(['edited_status' => 1, 'edit_due_amount' => 100]);
+        DB::table('order_edit_histories')->insert([
+            'order_id' => self::ORDER, 'edit_by' => 'seller', 'order_amount' => 300, 'order_due_amount' => 100, 'order_due_payment_method' => 'offline_payment',
+            'order_due_payment_status' => 'unpaid', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /** The seller puts more of their own product on the edit (the routes of the edit's session only change the session) and saves it: the save is refused and leaves everything as it was. */
+    private function assertTheEditIsRefusedAndWritesNothing(string $reason): void
+    {
+        $editsBefore = DB::table('order_edit_histories')->count();
+        $this->addToTheEdit(productId: self::OWN_PRODUCT, quantity: 9)->assertOk();
+
+        $saved = $this->saveTheEdit();
+
+        $saved->assertOk()->assertJson(['status' => 'error', 'message' => translate($reason)]);
+        $this->assertTheOrderHoldsWhatItHeld();
+        $this->assertSame($editsBefore, DB::table('order_edit_histories')->count(), 'an edit was recorded');
+    }
+
+    private function saveTheEditAsAnAdmin(): TestResponse
+    {
+        return $this->actingAs(Admin::findOrFail(1), 'admin')->postJson('/admin/orders/edit-order-generate', ['order_id' => self::ORDER]);
+    }
 
     private function theOrderAlsoHoldsAUnitWithoutAProductId(): void
     {
@@ -401,7 +531,9 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
     {
         DB::table('users')->insert(['id' => 7, 'f_name' => 'Customer']);
         DB::table('currencies')->insert(['id' => 1, 'name' => 'US Dollar', 'symbol' => '$', 'code' => 'USD', 'exchange_rate' => 1]);
-        DB::table('business_settings')->insert([['type' => 'system_default_currency', 'value' => '1'], ['type' => 'currency_model', 'value' => 'single_currency']]);
+        DB::table('business_settings')->insert([
+            ['type' => 'system_default_currency', 'value' => '1'], ['type' => 'currency_model', 'value' => 'single_currency'], ['type' => 'vendor_can_edit_order', 'value' => '1'],
+        ]);
         // The application read the settings when it booted, from whatever the database held then.
         Cache::flush();
         // The prices of the fixture include their tax, so the edit needs no tax setup.

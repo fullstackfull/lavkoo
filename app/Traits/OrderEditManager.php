@@ -478,6 +478,19 @@ trait OrderEditManager
         ];
     }
 
+    /**
+     * The page's rule for offering the edit (OrderEditService::checkIsOrderEditable), asked of the writer too: the routes of the vendor panel and of
+     * the seller app take any order of the seller, whatever its page would offer. An edit that does not say it is the admin's is held to the sellers' rule.
+     *
+     * @return array{status: bool, message: string}
+     */
+    private function checkOrderIsEditableByTheEditor(object $order, object|array $data): array
+    {
+        $order->loadMissing(['details', 'latestEditHistory']);
+
+        return app(OrderEditService::class)->checkIsOrderEditable(order: $order, type: ($data['edit_by'] ?? null) === 'admin' ? 'admin' : 'vendor');
+    }
+
     public function generateEditOrder(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
         // Admin panel, vendor panel and seller API all save an edit through here. A provider-owned line cannot be
@@ -485,6 +498,12 @@ trait OrderEditManager
         $providerBlock = app(FulfillmentOrderGuard::class)->editBlockedReason(orderId: (int) $order['id'], editedLines: $editedOrder);
         if ($providerBlock !== null) {
             return ['status' => 'error', 'message' => $providerBlock];
+        }
+
+        // Nor can an order the page does not offer the edit for (its status, its type, only digital products, the sellers' switch, an unpaid offline payment).
+        $editable = $this->checkOrderIsEditableByTheEditor(order: $order, data: $data);
+        if (!$editable['status']) {
+            return ['status' => 'error', 'message' => $editable['message']];
         }
 
         $editOrderSummary = $this->generateEditOrderSummary(request: $request, order: $order, editedOrder: $editedOrder, data: $data);

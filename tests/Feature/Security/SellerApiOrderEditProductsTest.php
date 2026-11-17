@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Services\OrderEditService;
 use App\Traits\OrderEditManager;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
@@ -35,6 +36,8 @@ class SellerApiOrderEditProductsTest extends TestCase
         parent::setUp();
 
         $this->buildSellerApiWorld();
+        DB::table('business_settings')->insert(['type' => 'vendor_can_edit_order', 'value' => '1']);
+        Cache::flush();
         $this->createSellerApiOrderTables();
         $this->createTablesTheOrderDetailsRelationsReadFrom();
         $this->createTablesTheEditWritersUse();
@@ -264,6 +267,98 @@ class SellerApiOrderEditProductsTest extends TestCase
         $this->assertNotFound($response, code: 'product');
     }
 
+    // ---- an order the app does not offer the edit for ----
+
+    /** @return iterable<string, array{0: string, 1: string}> what makes the app not offer the edit, and the reason the edit is refused with */
+    public static function whatTheAppDoesNotOfferTheEditFor(): iterable
+    {
+        $status = 'Order can only be edited when the order status is Pending or Confirmed.';
+
+        yield 'a processing order' => ['processing', $status];
+        yield 'a delivered order' => ['delivered', $status];
+        yield 'a canceled order' => ['canceled', $status];
+        yield 'an order that is not a default order' => ['point_of_sale', $status];
+        yield 'sellers who may not edit orders' => ['sellers_may_not_edit', 'Vendors are not allowed to edit orders now.'];
+        yield 'an offline payment that is not confirmed' => ['offline_payment_unpaid', 'Please confirm the offline payment information before editing this order.'];
+        yield 'an offline due amount that is not paid' => ['due_amount_unpaid', 'Please confirm the offline payment information of the due amount before editing this order.'];
+        yield 'only digital products' => ['only_digital', 'Orders containing only digital products cannot be edited.'];
+    }
+
+    #[DataProvider('whatTheAppDoesNotOfferTheEditFor')]
+    public function test_an_edit_the_app_does_not_offer_is_refused_by_the_server_and_writes_nothing(string $state, string $reason): void
+    {
+        $this->theOrderIs($state);
+        $orderBefore = DB::table('orders')->where('id', self::OWN_ORDER)->first();
+        $editsBefore = DB::table('order_edit_histories')->count();
+
+        $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['error', translate($reason)], [$response->json('status'), $response->json('message')]);
+        $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
+        $this->assertEquals($orderBefore, DB::table('orders')->where('id', self::OWN_ORDER)->first());
+        $this->assertSame($editsBefore, DB::table('order_edit_histories')->count(), 'an edit was recorded');
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function statusesTheAppOffersTheEditFor(): iterable
+    {
+        yield 'pending' => ['pending'];
+        yield 'confirmed' => ['confirmed'];
+    }
+
+    #[DataProvider('statusesTheAppOffersTheEditFor')]
+    public function test_an_order_the_app_offers_the_edit_for_is_still_saved_as_edited(string $status): void
+    {
+        DB::table('orders')->where('id', self::OWN_ORDER)->update(['order_status' => $status]);
+
+        $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame('success', $response->json('status'));
+        $this->assertSame([[self::OWN_PRODUCT, 3]], $this->linesOfTheOrder());
+        $this->assertSame([49, 50, 50], $this->stockOfEachProduct());
+    }
+
+    public function test_the_shared_edit_lets_the_admin_edit_an_order_sellers_may_not_edit_and_refuses_the_admin_a_delivered_one(): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        $editedLines = fn (Order $order) => app(OrderEditService::class)->getFormatAPIProductsForEditOrder(
+            request: ['products' => [$this->item(self::OWN_PRODUCT, quantity: 3)]], order: $order, colors: collect(),
+        )['product_list'];
+        $edit = fn (string $editBy) => $editor->generateEditOrder(
+            order: ($order = Order::findOrFail(self::OWN_ORDER)), editedOrder: $editedLines($order), data: ['edit_by' => $editBy, 'edited_user_id' => 1, 'edited_user_name' => 'Editor'],
+        );
+        $this->theOrderIs('sellers_may_not_edit');
+
+        $refusedForTheSeller = $edit('seller');
+        $savedForTheAdmin = $edit('admin');
+        $this->theOrderIs('delivered');
+        $refusedForTheAdmin = $edit('admin');
+
+        $this->assertSame(['error', 'success', 'error'], [$refusedForTheSeller['status'], $savedForTheAdmin['status'], $refusedForTheAdmin['status']]);
+        $this->assertSame(1, DB::table('order_edit_histories')->count());
+        $this->assertSame('admin', DB::table('order_edit_histories')->value('edit_by'));
+    }
+
+    public function test_the_shared_edit_holds_an_edit_that_does_not_say_who_edits_to_the_sellers_rule(): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        $this->theOrderIs('sellers_may_not_edit');
+        $order = Order::findOrFail(self::OWN_ORDER);
+        $editedLines = app(OrderEditService::class)->getFormatAPIProductsForEditOrder(
+            request: ['products' => [$this->item(self::OWN_PRODUCT, quantity: 3)]], order: $order, colors: collect(),
+        )['product_list'];
+
+        $result = $editor->generateEditOrder(order: $order, editedOrder: $editedLines);
+
+        $this->assertSame(['error', translate('Vendors are not allowed to edit orders now.')], [$result['status'], $result['message']]);
+        $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
+    }
+
     // ---- the in-house shop's own orders ----
 
     public function test_an_in_house_order_may_be_edited_with_in_house_products_only_and_not_with_a_sellers_who_shares_its_seller_id(): void
@@ -388,6 +483,33 @@ class SellerApiOrderEditProductsTest extends TestCase
     }
 
     // ---- helpers ----
+
+    /** Makes the seller's own order one the app does not offer the edit for. */
+    private function theOrderIs(string $state): void
+    {
+        match ($state) {
+            'processing', 'delivered', 'canceled' => DB::table('orders')->where('id', self::OWN_ORDER)->update(['order_status' => $state]),
+            'point_of_sale' => DB::table('orders')->where('id', self::OWN_ORDER)->update(['order_type' => 'POS']),
+            'sellers_may_not_edit' => $this->sellersMayNotEditOrders(),
+            'offline_payment_unpaid' => DB::table('orders')->where('id', self::OWN_ORDER)->update(['payment_method' => 'offline_payment', 'payment_status' => 'unpaid']),
+            'due_amount_unpaid' => $this->theLastEditLeftAnOfflineDueAmountUnpaid(),
+            'only_digital' => DB::table('order_details')->where('id', self::OWN_LINE)->update(['product_details' => json_encode(['product_type' => 'digital'] + json_decode((string) DB::table('order_details')->where('id', self::OWN_LINE)->value('product_details'), true))]),
+        };
+    }
+
+    private function sellersMayNotEditOrders(): void
+    {
+        DB::table('business_settings')->where('type', 'vendor_can_edit_order')->update(['value' => '0']);
+        Cache::forget(CACHE_BUSINESS_SETTINGS_TABLE);
+    }
+
+    private function theLastEditLeftAnOfflineDueAmountUnpaid(): void
+    {
+        DB::table('orders')->where('id', self::OWN_ORDER)->update(['edited_status' => 1, 'edit_due_amount' => 100]);
+        DB::table('order_edit_histories')->insert([
+            'order_id' => self::OWN_ORDER, 'edit_by' => 'seller', 'order_amount' => 500, 'order_due_amount' => 100, 'order_due_payment_method' => 'offline_payment', 'order_due_payment_status' => 'unpaid',
+        ]);
+    }
 
     private function theOrderHoldsTwoUnitsOfAnotherSellersProduct(): void
     {
