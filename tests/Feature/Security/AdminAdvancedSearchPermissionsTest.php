@@ -19,6 +19,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsAdvancedSearchSchema;
 use Tests\Support\BuildsFulfillmentSchema;
 use Tests\Support\RestoresLanguageFiles;
+use Tests\Support\SpoiledStoredHits;
 use Tests\TestCase;
 
 /**
@@ -152,9 +153,23 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
         $cases = [];
         foreach (self::ROUTES as $routeName => $route) {
             $cases[$routeName . ': a hit of the customers is hidden from a role without people, whatever its address says'] = [$route, 'users', 'admin/orders/list/all', ['orders'], false];
-            $cases[$routeName . ': a hit of a type nobody knows is hidden when its address is a page of a permission the role does not hold'] = [$route, 'zz_forged', 'admin/customer/view/4101', ['orders'], false];
-            $cases[$routeName . ': a hit of a type nobody knows is listed when its address is a page of a permission the role holds'] = [$route, 'zz_forged', 'admin/customer/view/4101', ['people'], true];
-            $cases[$routeName . ': a hit of a type nobody knows and of an address no menu knows is listed, like the pages of an add-on'] = [$route, 'zz_forged', 'admin/zz-addon/page', [], true];
+            $cases[$routeName . ': a hit of the pages is hidden when its address is a page of a permission the role does not hold'] = [$route, 'page', 'admin/customer/view/4101', ['orders'], false];
+            $cases[$routeName . ': a hit of the pages is listed when its address is a page of a permission the role holds'] = [$route, 'page', 'admin/customer/view/4101', ['people'], true];
+            $cases[$routeName . ': a hit of the pages with an address no menu knows is listed, like the pages of an add-on'] = [$route, 'page', 'admin/zz-addon/page', [], true];
+            $cases[$routeName . ': a hit of a type the search does not give is left out, whatever its address says'] = [$route, 'zz_forged', 'admin/zz-addon/page', [], false];
+        }
+
+        return $cases;
+    }
+
+    /** @return array<string, array{0: string, 1: callable(array<string, mixed>): array<string, mixed>}> the route, how a stored hit is spoiled */
+    public static function routesAndSpoiledStoredHits(): array
+    {
+        $cases = [];
+        foreach (self::ROUTES as $routeName => $route) {
+            foreach (SpoiledStoredHits::all() as $whatIsWrong => [$spoil]) {
+                $cases[$routeName . ' with ' . $whatIsWrong] = [$route, $spoil];
+            }
         }
 
         return $cases;
@@ -388,11 +403,11 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
     public function test_a_stored_hit_cannot_put_markup_into_the_list(string $route): void
     {
         $employee = $this->employeeHolding(permissions: []);
-        $this->storeAHit(employee: $employee, hit: ['priority' => 3, 'type' => 'zz_stored', 'uri' => self::MARKUP, 'page_title_value' => self::MARKUP, 'image' => '"><script>alert(1)</script>']);
+        $this->storeAHit(employee: $employee, hit: ['priority' => 2, 'type' => 'page', 'uri' => self::MARKUP, 'page_title_value' => self::MARKUP, 'image' => '"><script>alert(1)</script>']);
 
         $answer = $this->search(employee: $employee, route: $route, keyword: '');
 
-        $this->assertSame(['zz_stored'], $answer['groups']);
+        $this->assertSame(['page'], $answer['groups']);
         $this->assertStringNotContainsString(self::MARKUP, $answer['html']);
         $this->assertStringNotContainsString('"><script>alert(1)</script>', $answer['html']);
     }
@@ -413,6 +428,36 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
 
         $this->assertSame(['menu' => ['admin/dashboard']], $answer['urisByGroup']);
         $this->assertStringNotContainsString('onerror', $answer['html']);
+    }
+
+    /** @param callable(array<string, mixed>): array<string, mixed> $spoil */
+    #[DataProvider('routesAndSpoiledStoredHits')]
+    public function test_a_stored_hit_the_search_could_not_have_given_is_left_out_and_the_list_still_answers(string $route, callable $spoil): void
+    {
+        $employee = $this->employeeHolding(permissions: ['people']);
+        $this->clickOnTheHits(employee: $employee, groups: ['users']);
+        $this->storeABlob(employee: $employee, blob: $spoil(['type' => 'users', 'priority' => 3, 'uri' => 'admin/customer/list', 'page_title_value' => 'Stored hit']), routeUri: 'spoiled-hit');
+
+        $answer = $this->search(employee: $employee, route: $route, keyword: '');
+
+        $this->assertSame(['users' => ['admin/customer/view/4101']], $answer['urisByGroup']);
+    }
+
+    #[DataProvider('routes')]
+    public function test_a_group_name_an_employee_posted_never_reaches_translate_so_the_language_file_stays_as_it_was(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: ['people']);
+        $this->clickOnTheHits(employee: $employee, groups: ['users']);
+        $this->search(employee: $employee, route: $route, keyword: '');
+        $languageFile = $this->newMessagesFile();
+
+        foreach (['zz_posted_group', str_repeat('zz_long_group_', 4000), self::MARKUP, "'; echo 1; //", 'Users', 'users '] as $position => $type) {
+            $this->storeABlob(employee: $employee, blob: ['type' => $type, 'priority' => 3, 'uri' => 'admin/zz-addon/p' . $position, 'page_title_value' => 'Posted ' . $position], routeUri: 'posted-' . $position);
+        }
+        $answer = $this->search(employee: $employee, route: $route, keyword: '');
+
+        $this->assertSame(md5($languageFile), md5($this->newMessagesFile()), 'resources/lang/en/new-messages.php after the list was loaded (it was ' . strlen($languageFile) . ' bytes, it is ' . strlen($this->newMessagesFile()) . ')');
+        $this->assertSame(['users'], $answer['groups']);
     }
 
     private function seedTheSearchableRows(): void
@@ -621,12 +666,23 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
     /** @param array<string, mixed> $hit the same form the box posts when an employee clicks on a hit */
     private function storeAHit(Admin $employee, array $hit): void
     {
+        $this->storeABlob(employee: $employee, blob: $hit, routeUri: $hit['uri']);
+    }
+
+    /** @param array<string, mixed> $blob what a browser can post as the response of a recent search, whatever it holds */
+    private function storeABlob(Admin $employee, array $blob, string $routeUri): void
+    {
         $this->actingAs(Admin::query()->findOrFail($employee->id), 'admin')->post('/admin/advanced-search-recent', [
-            'routeName' => $hit['page_title_value'],
-            'routeUri' => $hit['uri'],
-            'routeFullUrl' => url($hit['uri']),
+            'routeName' => 'Posted',
+            'routeUri' => $routeUri,
+            'routeFullUrl' => url('admin/dashboard'),
             'searchKeyword' => self::KEYWORD,
-            'response' => json_encode($hit),
+            'response' => json_encode($blob),
         ])->assertRedirect();
+    }
+
+    private function newMessagesFile(): string
+    {
+        return (string) file_get_contents(base_path('resources/lang/en/new-messages.php'));
     }
 }
