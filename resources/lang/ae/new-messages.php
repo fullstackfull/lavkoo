@@ -11029,6 +11029,8 @@ return [
 	'Order_Edited_by' => 'Order Edited by',
 	'order_edit_message' => 'Order edit message',
 	'order_edit_return_amount_message' => 'Order edit return amount message',
+	'order_item_of_a_removed_product_cannot_be_changed' => 'يحتوي هذا الطلب على عنصر لم يعد منتجه موجودًا. لا يمكن تغيير هذا العنصر أو إزالته؛ اتركه كما هو.',
+	'order_item_of_a_removed_product_carries_tax' => 'يحتوي هذا الطلب على عنصر خاضع للضريبة لم يعد منتجه موجودًا، لذلك لا يمكن تعديل عناصره.',
 	'order_end_date' => 'Order end date',
 	'order_fulfillment' => 'Order fulfillment',
 	'Order_Id' => 'Order Id',
@@ -17744,6 +17746,4 @@ return [
 	'attention_outcome_not_done_at_channel' => 'القناة تُظهر أنه لم يحدث',
 	'attention_outcome_still_unknown' => 'نظرتُ والقناة لا تقول',
 	'attention_outcome_no_longer_relevant' => 'لم يبقَ ذا صلة',
-	'order_item_of_a_removed_product_cannot_be_changed' => 'يحتوي هذا الطلب على عنصر لم يعد منتجه موجودًا. لا يمكن تغيير هذا العنصر أو إزالته؛ اتركه كما هو.',
-	'order_item_of_a_removed_product_carries_tax' => 'يحتوي هذا الطلب على عنصر خاضع للضريبة لم يعد منتجه موجودًا، لذلك لا يمكن تعديل عناصره.',
 ];
