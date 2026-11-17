@@ -3,6 +3,7 @@
 namespace Tests\Feature\Security;
 
 use App\Models\Admin;
+use Closure;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsPanelOrderEditTables;
+use Tests\Support\RecordsWhatAnOrderEditWrites;
 
 /**
  * The vendor panel's order edit takes the order from the signed-in seller, but the product from the request: the modal, the variant price and the
@@ -23,6 +25,7 @@ use Tests\Support\BuildsPanelOrderEditTables;
 class VendorOrderEditProductsTest extends VendorPanelTestCase
 {
     use BuildsPanelOrderEditTables;
+    use RecordsWhatAnOrderEditWrites;
 
     private const ORDER = 100001;
     private const SESSION_KEY = 'SELLER_SESSION_FOR_EDIT_ORDER_100001';
@@ -515,7 +518,64 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         $this->assertSame(0, (int) DB::table('orders')->where('id', self::ORDER)->value('edited_status'));
     }
 
+    // ---- a save that fails halfway ----
+
+    /** @param Closure(Closure): mixed $failsALateWrite */
+    #[DataProvider('lateWritesThatFail')]
+    public function test_a_save_of_the_sellers_panel_that_fails_halfway_leaves_the_order_its_lines_its_stock_and_its_records_as_they_were(Closure $failsALateWrite): void
+    {
+        $this->theOrderHasTaxRowsRewardsAndATransaction();
+        $this->addToTheEdit(productId: self::OWN_PRODUCT, quantity: 3)->assertOk();
+        $before = $this->whatTheSaveWrites();
+        $notifications = $this->listenForTheEditsNotifications();
+        $failsALateWrite(static fn () => throw new \RuntimeException('a late write of the save failed'));
+
+        $response = $this->saveTheEdit();
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame($before, $this->whatTheSaveWrites());
+        $this->assertSame([], $notifications->levels, 'a notification was sent for an edit that was not saved');
+    }
+
+    /** @param Closure(Closure): mixed $failsALateWrite */
+    #[DataProvider('lateWritesThatFail')]
+    public function test_a_save_of_the_admin_panel_that_fails_halfway_leaves_the_order_its_lines_its_stock_and_its_records_as_they_were(Closure $failsALateWrite): void
+    {
+        $this->theOrderHasTaxRowsRewardsAndATransaction();
+        $before = $this->whatTheSaveWrites();
+        $notifications = $this->listenForTheEditsNotifications();
+        $failsALateWrite(static fn () => throw new \RuntimeException('a late write of the save failed'));
+
+        $response = $this->saveTheEditAsAnAdmin();
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame($before, $this->whatTheSaveWrites());
+        $this->assertSame([], $notifications->levels, 'a notification was sent for an edit that was not saved');
+    }
+
+    public function test_the_notifications_of_a_saved_edit_are_sent_after_its_writes_are_committed(): void
+    {
+        $notifications = $this->listenForTheEditsNotifications();
+        $this->addToTheEdit(productId: self::OWN_PRODUCT, quantity: 3)->assertOk();
+
+        $this->saveTheEdit()->assertOk()->assertJson(['status' => 'success']);
+
+        $this->assertNotSame([], $notifications->levels, 'no notification was sent');
+        $this->assertSame(array_fill(0, count($notifications->levels), 0), $notifications->levels, 'a notification was sent inside the transaction of the save');
+    }
+
     // ---- helpers ----
+
+    private function theOrderHasTaxRowsRewardsAndATransaction(): void
+    {
+        DB::table('order_taxes')->insert(['order_id' => self::ORDER, 'tax_for' => 'tax_for_orders', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('order_details_rewards')->insert([
+            'order_id' => self::ORDER, 'product_id' => self::OWN_PRODUCT, 'order_details_id' => 1, 'reward_type' => 'loyalty_point', 'reward_amount' => 5, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('order_transactions')->insert([
+            'order_id' => self::ORDER, 'seller_id' => self::SELLER, 'seller_is' => 'seller', 'order_amount' => 200, 'seller_amount' => 200, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
 
     private function theAdminSwitchesTheSellersEditsOff(): void
     {

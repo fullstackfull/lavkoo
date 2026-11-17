@@ -29,6 +29,7 @@ use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\OrderTax;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
@@ -540,11 +541,27 @@ trait OrderEditManager
             }
         }
 
+        DB::transaction(function () use ($order, $editedOrder, $editOrderSummary, $data) {
+            $this->writeEditedOrder(order: $order, editedOrder: $editedOrder, editOrderSummary: $editOrderSummary, data: $data);
+            DB::afterCommit(fn () => $this->dispatchOrderEditNotifications(order: $order, data: $data));
+        });
+
+        return [
+            'status' => 'success',
+            'message' => translate('Order_Edit_Successfully'),
+        ];
+    }
+
+    /** Every write of a saved edit, for the caller to make as one: an edit that fails halfway must leave the order, its lines, its stock and its records as they were. */
+    private function writeEditedOrder(object $order, object|array $editedOrder, array $editOrderSummary, object|array $data): void
+    {
+        $orderData = $editOrderSummary['order_data'];
+
         $taxConfig = self::getTaxSystemType();
         OrderTax::where('order_id', $order['id'])->where('tax_for', 'tax_for_orders')->delete();
         self::updateEditOrderTaxAmount(order: $order, taxConfig: $taxConfig, taxSummary: $editOrderSummary['tax_summary']);
 
-        Order::where('id', $order->id)->update($editOrderSummary['order_data']);
+        Order::where('id', $order->id)->update($orderData);
 
         self::addAndUpdateProductsInOrderDetails(order: $order, editedOrder: $editedOrder, taxSummary: $editOrderSummary['tax_summary']);
 
@@ -571,7 +588,11 @@ trait OrderEditManager
             'delivery_charge' => $orderData['shipping_cost'] - $orderData['extra_discount'],
             'tax' => $orderData['total_tax_amount'],
         ]);
+    }
 
+    /** Sent once the edit is committed: a listener, or a queued job, that ran before it would read an order that is not edited yet, or never will be. */
+    private function dispatchOrderEditNotifications(object $order, object|array $data): void
+    {
         $orderEditNotificationEvent = OrderManager::getEditOrderNotificationInfo(
             vendorType: $order['seller_is'],
             vendorId: $order['seller_id'],
@@ -585,11 +606,6 @@ trait OrderEditManager
                 event(new OrderEditEvent(notification: $orderEditEvent['notificationData']));
             }
         }
-
-        return [
-            'status' => 'success',
-            'message' => translate('Order_Edit_Successfully'),
-        ];
     }
 
     public function updateEditOrderTaxAmount(object|array $request = [], object|array $order = [], object|array|null $taxConfig = [], object|array $taxSummary = []): void

@@ -5,6 +5,7 @@ namespace Tests\Feature\Security;
 use App\Models\Order;
 use App\Services\OrderEditService;
 use App\Traits\OrderEditManager;
+use Closure;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsSellerApiOrders;
+use Tests\Support\RecordsWhatAnOrderEditWrites;
 use Tests\TestCase;
 
 /**
@@ -26,6 +28,7 @@ use Tests\TestCase;
 class SellerApiOrderEditProductsTest extends TestCase
 {
     use BuildsSellerApiOrders;
+    use RecordsWhatAnOrderEditWrites;
 
     private const OWN_PRODUCT = 10;
     private const OTHER_SELLERS_PRODUCT = 20;
@@ -359,6 +362,60 @@ class SellerApiOrderEditProductsTest extends TestCase
         $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
     }
 
+    // ---- a save that fails halfway ----
+
+    /** @param Closure(Closure): mixed $failsALateWrite */
+    #[DataProvider('lateWritesThatFail')]
+    public function test_a_save_of_the_app_that_fails_halfway_leaves_the_order_its_lines_its_stock_and_its_records_as_they_were(Closure $failsALateWrite): void
+    {
+        $this->theOrderHasTaxRowsRewardsAndATransaction();
+        $before = $this->whatTheSaveWrites();
+        $notifications = $this->listenForTheEditsNotifications();
+        $failsALateWrite(static fn () => throw new \RuntimeException('a late write of the save failed'));
+
+        $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame($before, $this->whatTheSaveWrites());
+        $this->assertSame([], $notifications->levels, 'a notification was sent for an edit that was not saved');
+    }
+
+    /** @param Closure(Closure): mixed $failsALateWrite */
+    #[DataProvider('lateWritesThatFail')]
+    public function test_a_save_of_the_shared_edit_that_fails_halfway_for_the_admin_leaves_the_order_as_it_was_and_throws(Closure $failsALateWrite): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        $this->theOrderHasTaxRowsRewardsAndATransaction();
+        $order = Order::findOrFail(self::OWN_ORDER);
+        $editedLines = app(OrderEditService::class)->getFormatAPIProductsForEditOrder(
+            request: ['products' => [$this->item(self::OWN_PRODUCT, quantity: 3)]], order: $order, colors: collect(),
+        )['product_list'];
+        $before = $this->whatTheSaveWrites();
+        $failsALateWrite(static fn () => throw new \RuntimeException('a late write of the save failed'));
+
+        try {
+            $editor->generateEditOrder(order: $order, editedOrder: $editedLines, data: ['edit_by' => 'admin', 'edited_user_id' => 1, 'edited_user_name' => 'Admin']);
+            $this->fail('the edit did not fail');
+        } catch (\RuntimeException $failure) {
+            $this->assertSame('a late write of the save failed', $failure->getMessage());
+        }
+
+        $this->assertSame($before, $this->whatTheSaveWrites());
+    }
+
+    public function test_the_notifications_of_a_saved_edit_are_sent_after_its_writes_are_committed(): void
+    {
+        $notifications = $this->listenForTheEditsNotifications();
+
+        $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame('success', $response->json('status'));
+        $this->assertNotSame([], $notifications->levels, 'no notification was sent');
+        $this->assertSame(array_fill(0, count($notifications->levels), 0), $notifications->levels, 'a notification was sent inside the transaction of the save');
+    }
+
     // ---- the in-house shop's own orders ----
 
     public function test_an_in_house_order_may_be_edited_with_in_house_products_only_and_not_with_a_sellers_who_shares_its_seller_id(): void
@@ -483,6 +540,18 @@ class SellerApiOrderEditProductsTest extends TestCase
     }
 
     // ---- helpers ----
+
+    private function theOrderHasTaxRowsRewardsAndATransaction(): void
+    {
+        DB::table('order_taxes')->insert(['order_id' => self::OWN_ORDER, 'tax_for' => 'tax_for_orders', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('order_details_rewards')->insert([
+            'order_id' => self::OWN_ORDER, 'product_id' => self::OWN_PRODUCT, 'order_details_id' => self::OWN_LINE, 'reward_type' => 'loyalty_point', 'reward_amount' => 5,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('order_transactions')->insert([
+            'order_id' => self::OWN_ORDER, 'seller_id' => self::SELLER, 'seller_is' => 'seller', 'order_amount' => 500, 'seller_amount' => 500, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
 
     /** Makes the seller's own order one the app does not offer the edit for. */
     private function theOrderIs(string $state): void
