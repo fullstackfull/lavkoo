@@ -18,12 +18,16 @@ final class PlatformAdminPrincipal
 {
     public const REQUEST_ATTRIBUTE = 'platform_admin_principal';
 
-    /** @param list<string> $markets the codes of the markets this admin may see, in the order of the configuration */
+    /**
+     * @param list<string> $markets the codes of the markets this admin may see, in the order of the configuration: those their grant names that the staff country scope also leaves them
+     * @param bool $restrictedByStaffScope whether the staff country scope restricts this admin in the admin panel
+     */
     public function __construct(
         public readonly Admin $admin,
         public readonly PlatformAdminGrant $grant,
         public readonly PlatformAdminToken $token,
         public readonly array $markets,
+        public readonly bool $restrictedByStaffScope,
     ) {
     }
 
@@ -49,10 +53,10 @@ final class PlatformAdminPrincipal
         return $this->grant->level;
     }
 
-    /** The platform owner sees every market; anyone else holds a list of them. */
+    /** The platform owner sees every market and is restricted by nothing; anyone else holds a list of them, in their grant or in the staff country scope that restricts them. */
     public function isPlatformOwner(): bool
     {
-        return $this->grant->countryList() === null;
+        return $this->grant->countryList() === null && !$this->restrictedByStaffScope;
     }
 
     public function scope(): string

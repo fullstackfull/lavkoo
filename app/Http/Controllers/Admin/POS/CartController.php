@@ -7,6 +7,7 @@ use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Enums\SessionKey;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\CartService;
 use App\Services\POSService;
 use App\Traits\CalculatorTrait;
@@ -41,6 +42,7 @@ class CartController extends BaseController
         private readonly POSService                  $POSService,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse
