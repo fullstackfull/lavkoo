@@ -11257,4 +11257,7 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'This_is_a_draft_copy.' => 'This is a draft copy.',
+	'It_has_not_been_published_yet.' => 'It has not been published yet.',
+	'Blog_not_found' => 'Blog not found',
 ];
