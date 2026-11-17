@@ -255,6 +255,9 @@ class StaffProductIdRoutesTest extends TestCase
         $this->assertFalse($this->letsThrough($restock[0], 2), 'a request for a product of another country');
         $this->assertFalse($this->letsThrough($restock[0], 3), 'a request for a product that is gone');
         $this->assertFalse($this->letsThrough($restock[0], 99), 'a request that does not exist');
+        foreach (['abc', '1abc', '01', '1.0', '', '0', '-1'] as $junk) {
+            $this->assertFalse($this->letsThrough($restock[0], $junk), 'the id of a restock request that is no id: ' . json_encode($junk));
+        }
     }
 
     public function test_the_routes_that_name_no_product_pass_a_restricted_employee(): void
@@ -311,6 +314,19 @@ class StaffProductIdRoutesTest extends TestCase
                 $this->assertTrue($this->letsThrough($covered, $this->valueFor(rule: $covered['rule'], product: self::UNKNOWN)), $label . ': an unknown id is the controller\'s to answer, as it always was');
             }
         }
+    }
+
+    public function test_an_empty_list_of_products_asks_the_database_nothing_even_for_a_restricted_employee(): void
+    {
+        $this->asKuwaitEmployee();
+        $this->app->instance('request', Request::create('/admin/products/bulk-product-status', 'POST'));
+        app(\App\Services\Staff\StaffCountryScope::class)->bind(request: request(), admin: \App\Models\Admin::query()->findOrFail(5));
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->assertTrue(app(\App\Services\Staff\StaffCountryScope::class)->coversEveryProduct(productIds: []));
+
+        $this->assertSame([], DB::getQueryLog());
     }
 
     public function test_with_the_switch_off_the_middleware_asks_the_database_nothing(): void

@@ -261,6 +261,23 @@ class StaffCountryScopeTest extends TestCase
         $this->assertSame(['SA', 'AE', 'KW'], $this->scope->narrow(countries: ['SA', 'AE', 'KW']));
     }
 
+    public function test_a_request_nobody_narrowed_covers_every_product_without_asking_the_database(): void
+    {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->assertTrue($this->scope->coversEveryProduct(productIds: [1, 99, 123]));
+
+        $this->assertSame([], DB::getQueryLog(), 'an id that does not exist is the action\'s to answer, as it always was');
+    }
+
+    public function test_every_country_is_allowed_while_nothing_is_bound(): void
+    {
+        $this->assertTrue($this->scope->allows(country: 'KW'));
+        $this->assertTrue($this->scope->allows(country: 'ZZ'));
+        $this->assertFalse($this->scope->restricts());
+    }
+
     public function test_a_list_of_countries_is_cut_to_the_bound_ones_and_keeps_its_order(): void
     {
         $this->switchStaffScopesOn();

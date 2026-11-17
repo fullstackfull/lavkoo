@@ -111,6 +111,13 @@ class StaffProductRouteInventoryTest extends TestCase
         $this->assertSame([], StaffProductRoutes::rulesOf(controller: 'App\Http\Controllers\Admin\Order\OrderController'));
     }
 
+    public function test_a_controller_is_found_with_or_without_the_backslash_a_route_may_carry_in_front_of_its_class(): void
+    {
+        $this->assertSame('list', StaffProductRoutes::ruleOf(controller: '\\App\\Http\\Controllers\\Admin\\Product\\ProductController', method: 'index'));
+        $this->assertSame('list', StaffProductRoutes::ruleOf(controller: 'App\\Http\\Controllers\\Admin\\Product\\ProductController', method: 'index'));
+        $this->assertSame(StaffProductRoutes::rulesOf(controller: 'App\\Http\\Controllers\\Admin\\Product\\ProductController'), StaffProductRoutes::rulesOf(controller: '\\App\\Http\\Controllers\\Admin\\Product\\ProductController'));
+    }
+
     public function test_a_rule_of_a_kind_nobody_knows_names_nothing_that_can_be_checked(): void
     {
         $request = \Illuminate\Http\Request::create('/admin/products/delete/10', 'DELETE');

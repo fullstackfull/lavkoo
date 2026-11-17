@@ -194,6 +194,20 @@ class StaffBulkImportTest extends TestCase
         $this->assertArrayNotHasKey('storefront_country', $result['products'][0], 'the row carries no country: the table gives it the default, as it always did');
     }
 
+    public function test_an_import_nobody_narrowed_does_not_probe_the_schema_even_with_countries_tracked(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        $request = Request::create('/vendor/products/bulk-import', 'POST', files: ['products_file' => $this->sheet()]);
+        $this->app->instance('request', $request);
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->importedBy($request);
+
+        $probes = array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $query): bool => preg_match('/pragma|information_schema|sqlite_master|table_info|show columns|show tables/i', $query) === 1);
+        $this->assertSame([], array_values($probes), 'whether countries are tracked is only asked once an employee is narrowed');
+    }
+
     public function test_the_master_admin_and_an_employee_without_countries_import_as_before(): void
     {
         config(['gcc.storefronts.enabled' => true]);

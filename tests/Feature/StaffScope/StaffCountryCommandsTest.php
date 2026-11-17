@@ -64,6 +64,13 @@ class StaffCountryCommandsTest extends TestCase
         $this->assertSame(2, DB::table('admin_country_scopes')->count());
     }
 
+    public function test_assign_names_what_it_added_in_the_order_of_the_codes_whatever_order_they_were_typed_in(): void
+    {
+        $this->artisan('gcc:staff-country:assign', ['admin_id' => 2, 'countries' => 'SA,QA,KW'])
+            ->expectsOutputToContain('Added KW, QA, SA.')
+            ->assertExitCode(0);
+    }
+
     public function test_assign_takes_codes_in_any_case_trims_them_and_collapses_repeats(): void
     {
         $this->artisan('gcc:staff-country:assign', ['admin_id' => 2, 'countries' => ' kw , KW,sa '])->assertExitCode(0);
@@ -176,6 +183,18 @@ class StaffCountryCommandsTest extends TestCase
         $this->assertSame(['KW', 'SA'], $this->stored(adminId: 2));
     }
 
+    public function test_revoke_for_an_employee_who_has_no_country_says_so_and_changes_nothing(): void
+    {
+        $this->giveCountries(adminId: 3, countries: ['KW']);
+
+        $this->artisan('gcc:staff-country:revoke', ['admin_id' => 2, 'countries' => 'QA'])
+            ->expectsOutputToContain('did not have QA')
+            ->assertExitCode(0);
+
+        $this->assertSame([], $this->stored(adminId: 2));
+        $this->assertSame(['KW'], $this->stored(adminId: 3));
+    }
+
     public function test_revoke_refuses_to_take_back_the_last_country_because_that_would_widen_the_employee(): void
     {
         $this->giveCountries(adminId: 2, countries: ['KW']);
@@ -276,6 +295,17 @@ class StaffCountryCommandsTest extends TestCase
         $this->artisan('gcc:staff-country:list', ['admin_id' => 2])
             ->expectsOutputToContain('Admin 2 (Catalog one) has no country scope and is not restricted.')
             ->assertExitCode(0);
+    }
+
+    public function test_list_for_one_employee_shows_that_employee_and_not_the_first_row_of_the_table(): void
+    {
+        $this->giveCountries(adminId: 2, countries: ['KW']);
+        $this->giveCountries(adminId: 3, countries: ['AE', 'QA']);
+
+        $output = $this->outputOf('gcc:staff-country:list', ['admin_id' => 3]);
+
+        $this->assertStringContainsString('Admin 3 (Catalog two) works with AE, QA only.', $output);
+        $this->assertStringNotContainsString('Catalog one', $output);
     }
 
     public function test_list_for_the_master_admin_says_it_is_never_restricted_and_shows_rows_it_holds(): void
