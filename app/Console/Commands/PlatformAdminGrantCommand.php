@@ -10,6 +10,7 @@ use App\Services\PlatformAdmin\PlatformAdminGrantService;
 use App\Services\PlatformAdmin\PlatformAdminMfaFactors;
 use App\Services\PlatformAdmin\PlatformAdminSchema;
 use App\Services\PlatformAdmin\PlatformAdminSettings;
+use App\Services\PlatformAdmin\PlatformEffectiveMarkets;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
@@ -28,7 +29,7 @@ class PlatformAdminGrantCommand extends Command
 
     protected $description = 'Make the whole grant of an admin to use the platform admin API: the markets, the parts of the API and the day it ends. Only an operator on the server can do this; no request can';
 
-    public function handle(PlatformAdminGrantService $grants, PlatformAdminSchema $schema, PlatformAdminSettings $settings, PlatformAdminMfaFactors $factors): int
+    public function handle(PlatformAdminGrantService $grants, PlatformAdminSchema $schema, PlatformAdminSettings $settings, PlatformAdminMfaFactors $factors, PlatformEffectiveMarkets $effectiveMarkets): int
     {
         if ($this->migrationsMissing(schema: $schema)) {
             return self::FAILURE;
@@ -57,8 +58,36 @@ class PlatformAdminGrantCommand extends Command
         }
 
         $this->adviseOnTheSecondFactor(adminId: $adminId, settings: $settings, factors: $factors);
+        $this->adviseOnTheStaffScope(adminId: $adminId, grant: $grant, effectiveMarkets: $effectiveMarkets);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Read-only advice: while the staff country scopes are on, an employee they restrict in the admin panel is restricted here too, whatever markets the grant names. The grant is
+     * as the operator gave it; the staff scope is for the staff commands to change.
+     */
+    private function adviseOnTheStaffScope(int $adminId, PlatformAdminGrant $grant, PlatformEffectiveMarkets $effectiveMarkets): void
+    {
+        if (!$effectiveMarkets->staffScopeIsEnforced()) {
+            return;
+        }
+
+        $admin = Admin::query()->select(['id', 'admin_role_id'])->find($adminId);
+        $reach = $admin === null ? null : $effectiveMarkets->of(grant: $grant, admin: $admin);
+
+        if ($reach === null || !$reach->narrowsTheGrant()) {
+            return;
+        }
+
+        $staffCountries = $reach->staffCountries ?? [];
+        $this->warn(sprintf(
+            'Staff country scopes are ON and admin %d is restricted to %s in the admin panel: through the platform admin API they will see %s, not all of %s. The grant is as given; nothing was changed.',
+            $adminId,
+            $staffCountries === [] ? 'no country' : implode(', ', $staffCountries),
+            $reach->markets === [] ? 'no market' : implode(', ', $reach->markets),
+            $grant->countryList() === null ? 'every market' : implode(', ', $reach->granted),
+        ));
     }
 
     /** What the grant does not give the admin: while the second factor is required they cannot sign in without a confirmed one; while it is not, nobody is asked for one. */

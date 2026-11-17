@@ -48,4 +48,10 @@ final class PlatformEffectiveMarkets
     {
         return $this->staffScope->isOn() ? [...$columns, 'admin_role_id'] : $columns;
     }
+
+    /** Whether the staff scope is enforced just now: its switch is on, and its table and the products column it works on exist. */
+    public function staffScopeIsEnforced(): bool
+    {
+        return $this->staffScope->enabled();
+    }
 }
