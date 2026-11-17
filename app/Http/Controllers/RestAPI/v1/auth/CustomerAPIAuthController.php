@@ -778,47 +778,6 @@ class CustomerAPIAuthController extends Controller
         }
     }
 
-    public function existingAccountCheck(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
-            'user_response' => 'required|in:0,1',
-            'medium' => 'required|in:google,facebook,apple',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
-        }
-
-        $user = $this->customerRepo->getFirstWhere(params: ['email' => $request['email']]);
-
-        $temporaryToken = Str::random(40);
-        if (!$user) {
-            return response()->json(['temp_token' => $temporaryToken, 'status' => false], 200);
-        }
-
-        if ($user['is_active'] != 1) {
-            return response()->json(['errors' => [
-                ['code' => 'active', 'message' => translate('This_user_is_not_active!')]
-            ]], 403);
-        }
-
-        if ($request['user_response'] == 1) {
-            $user->email_verified_at = now();
-            $user->login_medium = $request['medium'];
-            $user->save();
-
-            $token = $user->createToken('LaravelAuthApp')->accessToken;
-            return response()->json(['token' => $token, 'status' => true], 200);
-        }
-
-        $user->email = null;
-        $user->email_verified_at = null;
-        $user->save();
-
-        return response()->json(['temp_token' => $temporaryToken, 'status' => false], 200);
-    }
-
     public function registrationWithSocialMedia(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
