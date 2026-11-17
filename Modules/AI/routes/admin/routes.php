@@ -20,7 +20,7 @@ use Modules\AI\app\Http\Controllers\API\V3\AIAuctionProductController;
 
 Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', 'actch:admin_panel']], function () {
     //Product
-    Route::group(['prefix' => 'product', 'as' => 'product.'], function () {
+    Route::group(['prefix' => 'product', 'as' => 'product.', 'middleware' => ['module:catalog']], function () {
         Route::get('title-auto-fill', [AIProductController::class, 'titleAutoFill'])->name('title-auto-fill');
         Route::get('description-auto-fill', [AIProductController::class, 'descriptionAutoFill'])->name('description-auto-fill');
         Route::get('general-setup-auto-fill', [AIProductController::class, 'generalSetupAutoFill'])->name('general-setup-auto-fill');
@@ -43,7 +43,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
     //Blog
- Route::group(['prefix' => 'blog', 'as' => 'blog.'], function () {
+ Route::group(['prefix' => 'blog', 'as' => 'blog.', 'middleware' => ['module:marketing']], function () {
         Route::get('title-auto-fill', [AIBlogController::class, 'titleAutoFill'])->name('title-auto-fill');
         Route::get('description-auto-fill', [AIBlogController::class, 'descriptionAutoFill'])->name('description-auto-fill');
         Route::post('seo-section-auto-fill', [AIBlogController::class, 'seoSectionAutoFill'])->name('seo-section-auto-fill');
