@@ -160,6 +160,29 @@ class PosScanCodeScopeTest extends TestCase
         $this->assertSame($product, $this->scannedId(['code' => 'SKU100']));
     }
 
+    public function test_with_the_switch_on_a_scan_without_a_usable_code_finds_nothing_instead_of_every_product_without_a_barcode(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->sellerProduct(1, 'SKU100', 'SA');
+        $this->sellerProduct(2, 'SKU200', 'SA');
+        $this->sellerProduct(3, 'SKU300', 'SA', barcode: '');
+
+        foreach ([[], ['code' => ''], ['code' => ['SKU100']]] as $query) {
+            $response = $this->scan($query);
+
+            $this->assertSame(200, $response->getStatusCode(), json_encode($query));
+            $this->assertSame([], $response->getData(true), json_encode($query));
+        }
+    }
+
+    public function test_with_the_switch_on_a_code_that_is_the_number_zero_is_still_a_code(): void
+    {
+        $this->scopeCodesByCountry();
+        $product = $this->sellerProduct(1, '0', 'SA');
+
+        $this->assertSame($product, $this->scannedId(['code' => '0']));
+    }
+
     public function test_with_the_switch_on_only_the_sellers_own_products_answer(): void
     {
         $this->scopeCodesByCountry();

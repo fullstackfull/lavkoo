@@ -83,7 +83,8 @@ final class ProductCodeScope
      * The products a scanned value answers to among the products the caller hands over (the owner's own, already narrowed by the caller).
      * With the scope off the answer is the old one: the first product whose code is the value, never its barcode. With the scope on it is
      * every product of the country whose code or barcode is the value, lowest id first; more than one is an ambiguity for the caller to
-     * answer, never a product to pick.
+     * answer, never a product to pick. A value that is missing, empty or not text answers nothing: read as null it would match every product
+     * that has no barcode.
      *
      * @return Collection<int, \App\Models\Product>
      */
@@ -91,6 +92,10 @@ final class ProductCodeScope
     {
         if (!$this->enabled()) {
             return $ownedProducts->where(['code' => $code])->limit(1)->get();
+        }
+
+        if (!is_scalar($code) || (string) $code === '') {
+            return new Collection();
         }
 
         return $this->restrictToCountry(query: $ownedProducts, country: $country)

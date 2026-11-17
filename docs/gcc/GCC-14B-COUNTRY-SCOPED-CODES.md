@@ -151,7 +151,7 @@ readiness command finds them), the column is `CHAR(2) ascii_bin NOT NULL` while 
   a nonsense one. Pinned by tests.
 - Switch on: the seller's own products whose code **or barcode** is the value, narrowed to `country` (a query value: one of the configured country codes,
   open or not), or to the default storefront's country when it names none, so a Saudi seller sees no change. One match is answered exactly as before;
-  none is `[]`; more than one is
+  none is `[]` (so is a `code` that is missing, empty or not text, which read as null would match every product that has no barcode); more than one is
   `409 {"errors": [{"code": "ambiguous_code", "message": "...", "candidates": [{"id": 1, "name": "...", "country": "SA"}]}]}`. A `country` that is not a
   configured code is `422 {"errors": [{"code": "country", "message": "..."}]}`: a typo must not fall back to Saudi and sell the wrong twin.
 - `X-Storefront` does not reach `api/v3` routes (the storefront middleware is not applied there), which is why the country is an explicit query value.
