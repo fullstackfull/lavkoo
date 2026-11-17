@@ -450,8 +450,8 @@ class StaffOrderScreensTest extends TestCase
             app('view')->callComposer($view);
 
             return [
-                'orders' => $view->getData()['sidebarOrderCounts']->all(),
-                'refunds' => $view->getData()['sidebarRefundCounts']->all(),
+                'orders' => $view->getData()['sidebarOrderCounts']->sortKeys()->all(),
+                'refunds' => $view->getData()['sidebarRefundCounts']->sortKeys()->all(),
                 'latest' => Order::query()->where('order_status', 'pending')->orderByDesc('id')->take(5)->pluck('id')->map(static fn ($id): int => (int) $id)->all(),
             ];
         }, $input);

@@ -208,8 +208,13 @@ line is Kuwait's to decide, although Kuwait cannot open that order. A refund abo
 Both rules are one correlated `EXISTS` / `NOT EXISTS` statement (`App\Services\Staff\StaffOrderVisibility`): *the order has a line* and *there is no line whose product is not
 theirs*. It is written with `NOT EXISTS` and not `NOT IN`, so that a product with no country cannot be let through by a comparison with nothing. A whole list is one statement and
 never a query per row (a test counts the queries of a list of two orders and of sixty), and the statement is plain SQL that MySQL 8, MariaDB 11.4 and SQLite plan alike. It uses
-the `order_id` prefix of the existing indexes of `order_details` and the primary key of `products`: **no migration**. The cost is two index probes per order of the list, which
-the sidebar counters of the layout pay on every screen of slices 1 and 2 for a restricted employee (see the shared layout below).
+the `order_id` prefix of the existing indexes of `order_details` (`idx_order_details_order_id_delivery_status`, migration `2026_02_25_163645`) and the primary key of `products`:
+**no migration**. Without an index on `order_details.order_id` the scope would read every line once per order, so the first step before the switch is to check it exists.
+
+Measured once on MySQL 8 with 60,000 orders, 120,000 lines and 3,000 products, on a machine under a load of 12: a page of 25 orders, 5 ms; the counters by status, 1.4 s against
+0.4 s for the same query without the scope (an index lookup of the lines of each order and a primary-key lookup of each of their products); the pending list of one country, 0.5 s.
+The counters are the cost: a full scan that the scope makes about three times dearer, which the sidebar of the layout pays on every screen of slices 1 and 2 for a restricted
+employee. Counting once a minute, or giving an order the country of its lines when it is placed, are the two ways out if the table grows; neither is needed to switch on.
 
 ### How a request is narrowed
 
@@ -586,13 +591,15 @@ Not part of the product survey above, which finds products. A restricted employe
 1. Deploy with the switch off. Nothing changes.
 2. Run the `2026_11_28_100000_create_admin_country_scopes_table` migration (additive; it never fails a deploy: the foreign key to `admins` is added only when `admins.id` is
    `BIGINT UNSIGNED` on InnoDB, and otherwise the table is created without it and one warning says why) and the products migration of GCC-14a.
-3. Assign the countries: `gcc:staff-country:assign`, then check with `gcc:staff-country:list`. Nobody is restricted before then.
-4. Read the survey above and accept, per slice, what still shows every country.
-5. Set `GCC_STAFF_COUNTRY_SCOPES=true`, run `php artisan config:clear`.
-6. Check as a restricted employee: the product list, a product of another country by its address (a 404 like an unknown id), a product add in another country (refused),
+3. Check that `order_details` has an index that starts with `order_id` (migration `2026_02_25_163645_add_indexes_to_order_details_table`), and that `products` has its primary key:
+   the order scope probes both for every order of a list.
+4. Assign the countries: `gcc:staff-country:assign`, then check with `gcc:staff-country:list`. Nobody is restricted before then.
+5. Read the survey above and accept, per slice, what still shows every country.
+6. Set `GCC_STAFF_COUNTRY_SCOPES=true`, run `php artisan config:clear`.
+7. Check as a restricted employee: the product list, a product of another country by its address (a 404 like an unknown id), a product add in another country (refused),
    the order list and its counters (only orders whose every line is theirs), an order of another country by its number and a refund request about another country by its number
    (a 404 like an unknown id), a POS sale with a product of another country (refused), and as the master admin that nothing changed.
-7. Read the unattributed orders (`orders` with no line, or a line whose product is gone): only the master admin and an employee with no country see them (assumption 12).
+8. Find the unattributed orders (`orders` with no line, or a line whose product is gone): only the master admin and an employee with no country see them (assumption 12).
 
 Turning it off again leaves the rows in place and removes every restriction at once; turning it on restores them.
 
