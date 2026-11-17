@@ -1123,7 +1123,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'messages', 'as' => 'messages.'], function () {
+    Route::group(['prefix' => 'messages', 'as' => 'messages.', 'middleware' => ['module:people']], function () {
         Route::controller(ChattingController::class)->group(function () {
             Route::get('index/{type}', 'index')->name('index');
             Route::get('message', 'getMessageByUser')->name('message');
