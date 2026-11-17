@@ -112,7 +112,7 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
         $admin = $this->platformAdmin();
         $token = $this->mintToken($admin);
 
-        foreach (['Token ' . $token, 'Basic ' . $token, 'Bot ' . $token, 'Bearer: ' . $token, 'Bearer  ' . $token, 'BearerX ' . $token, $token, ' Bearer ' . $token] as $header) {
+        foreach (['Token ' . $token, 'Basic ' . $token, 'Bot ' . $token, 'Bearer: ' . $token, 'Bearer  ' . $token, 'BearerX ' . $token, $token, ' Bearer ' . $token, 'Token: ' . $token, 'Bearer:' . $token, 'Bearer_' . $token, 'Xearer ' . $token, 'BearerX' . $token] as $header) {
             $this->assertEveryRouteRefuses(headers: ['Authorization' => $header], why: 'the header ' . substr($header, 0, 12));
         }
         $this->json('GET', self::PREFIX . '/me', [], ['Authorization' => 'bearer ' . $token])->assertOk();

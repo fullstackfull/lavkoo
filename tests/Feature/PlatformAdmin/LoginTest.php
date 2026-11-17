@@ -139,6 +139,7 @@ class LoginTest extends PlatformAdminTestCase
         $selects = [];
         foreach ($causes as $cause => $payload) {
             $hasher->checks = 0;
+            $hasher->hashes = [];
             $statements = $this->statementsRunBy(function () use ($payload, &$response): void {
                 $response = $this->postJson(self::LOGIN, $payload);
             });
@@ -147,6 +148,9 @@ class LoginTest extends PlatformAdminTestCase
             $bodies[$cause] = $response->getContent();
             $selects[$cause] = count(array_filter($statements, static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select')));
             $this->assertSame(1, $hasher->checks, "{$cause}: exactly one password check, so that nothing tells an existing admin from one that does not exist");
+
+            $info = password_get_info($hasher->hashes[0]);
+            $this->assertSame(['bcrypt', (int) config('hashing.bcrypt.rounds')], [$info['algoName'], $info['options']['cost'] ?? null], "{$cause}: the check is a real one, against a hash of the cost every hash here has, not against nothing");
         }
 
         $this->assertCount(1, array_unique($bodies), 'one body for every cause');
@@ -454,6 +458,9 @@ class LoginTest extends PlatformAdminTestCase
         $hasher = new class($this->app->make(Hasher::class)) implements Hasher {
             public int $checks = 0;
 
+            /** @var list<string> the hashes it was asked to check against */
+            public array $hashes = [];
+
             public function __construct(private readonly Hasher $inner)
             {
             }
@@ -471,6 +478,7 @@ class LoginTest extends PlatformAdminTestCase
             public function check($value, $hashedValue, array $options = []): bool
             {
                 $this->checks++;
+                $this->hashes[] = (string) $hashedValue;
 
                 return $this->inner->check($value, $hashedValue, $options);
             }

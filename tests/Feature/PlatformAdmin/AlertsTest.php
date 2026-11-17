@@ -256,6 +256,20 @@ class AlertsTest extends PlatformAdminTestCase
         $this->assertStringNotContainsString('Private', $content);
     }
 
+    public function test_one_product_or_one_order_is_said_in_the_singular(): void
+    {
+        config(['gcc.platform_admin.alerts.zero_stock_warning_count' => 1, 'gcc.platform_admin.alerts.pending_age_hours' => 1]);
+        DB::table('products')->where('storefront_country', 'KW')->delete();
+        $this->product(id: 201, country: 'KW', stock: 0);
+        DB::table('orders')->whereIn('id', [4, 5, 6])->delete();
+        $this->order(id: 301, status: 'pending', at: '2026-11-16 10:00:00', products: [201]);
+
+        $messages = array_column($this->alerts('?market=KW')->json('data'), 'message', 'code');
+
+        $this->assertSame('1 live product in KW is out of stock.', $messages['stock_zero']);
+        $this->assertSame('1 order in KW has been pending for more than 1 hour.', $messages['orders_pending_too_long']);
+    }
+
     public function test_the_alerts_read_the_orders_once_and_the_stock_once_whatever_the_amount_of_data(): void
     {
         $this->app->forgetScopedInstances();

@@ -139,7 +139,8 @@ class OverviewTest extends PlatformAdminTestCase
     public function test_a_default_longer_than_the_longest_is_cut_to_it_and_nonsense_means_the_defaults(): void
     {
         config(['gcc.platform_admin.window_days_default' => 500, 'gcc.platform_admin.window_days_max' => 92]);
-        $this->assertSame(92, $this->overview()->json('data.window.days'));
+        $window = $this->overview()->json('data.window');
+        $this->assertSame([92, false], [$window['days'], $window['clamped']], 'the default is cut to the longest, and nobody asked for more, so nothing was clamped');
 
         config(['gcc.platform_admin.window_days_default' => 0, 'gcc.platform_admin.window_days_max' => -3]);
         $this->assertSame(30, $this->overview()->json('data.window.days'));
@@ -154,6 +155,8 @@ class OverviewTest extends PlatformAdminTestCase
             'from in the future with no to' => ['?from=2026-12-01'],
             'a word' => ['?from=yesterday'],
             'a date that does not exist' => ['?from=2026-02-31&to=2026-03-02'],
+            'a start day that the month does not have, before an end that is fine' => ['?from=2026-02-30&to=2026-03-10'],
+            'an end day that the month does not have' => ['?from=2026-11-01&to=2026-11-31'],
             'a date with a time' => ['?from=2026-11-10T00:00:00&to=2026-11-12'],
             'the wrong order of parts' => ['?from=10-11-2026&to=12-11-2026'],
             'one digit months' => ['?from=2026-1-1&to=2026-1-2'],
@@ -280,6 +283,38 @@ class OverviewTest extends PlatformAdminTestCase
         } finally {
             date_default_timezone_set($platformZone);
         }
+    }
+
+    public function test_an_order_with_one_line_that_is_gone_and_one_that_is_not_has_no_market(): void
+    {
+        $this->order(id: 33, status: 'pending', at: '2026-11-16 10:00:00', products: [7, 9999]);
+
+        $response = $this->overview();
+
+        $this->assertSame(3, collect($response->json('data.markets'))->firstWhere('market', 'KW')['orders']['total'], 'the line that is a Kuwaiti product does not make it a Kuwaiti order');
+        $this->assertSame(5, $response->json('data.unattributed.orders.total'));
+    }
+
+    public function test_the_latest_order_of_a_market_is_its_newest_one_even_when_older_orders_share_its_status(): void
+    {
+        $this->order(id: 34, status: 'processing', at: '2026-11-16 08:00:00', products: [15]);
+
+        $market = collect($this->overview('?market=AE')->json('data.markets'))->firstWhere('market', 'AE');
+
+        $this->assertSame($this->zulu('2026-11-16 08:00:00'), $market['orders']['latest_at']);
+    }
+
+    public function test_refund_requests_are_counted_from_the_first_second_of_the_window_to_its_last(): void
+    {
+        DB::table('refund_requests')->delete();
+        $this->refund(status: 'pending', at: '2026-10-18 23:59:59', product: 4);
+        $this->refund(status: 'pending', at: '2026-10-19 00:00:00', product: 4);
+        $this->refund(status: 'approved', at: '2026-11-17 23:59:59', product: 4);
+        $this->refund(status: 'pending', at: '2026-11-18 00:00:00', product: 4);
+
+        $returns = collect($this->overview('?market=SA')->json('data.markets'))->firstWhere('market', 'SA')['returns'];
+
+        $this->assertSame(['refund_requests' => 2, 'pending' => 1], $returns);
     }
 
     public function test_an_order_is_counted_once_however_many_lines_it_has(): void
