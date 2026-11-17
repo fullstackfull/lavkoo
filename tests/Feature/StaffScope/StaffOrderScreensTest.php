@@ -13,11 +13,14 @@ use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Http\Middleware\ScopeOrdersToStaffCountries;
+use App\Models\Order;
+use App\Providers\AppServiceProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Testing\TestResponse;
 use Maatwebsite\Excel\Facades\Excel;
@@ -351,7 +354,7 @@ class StaffOrderScreensTest extends TestCase
         $seen = $this->insideTheAction('POST', '/admin/orders/status', fn (): array => [
             $orders->getList()->count(),
             DB::table('orders')->count(),
-            \App\Models\Order::query()->where('customer_id', 1)->where('order_status', 'delivered')->count(),
+            Order::query()->where('customer_id', 1)->where('order_status', 'delivered')->count(),
             $orders->getFirstWhere(params: ['id' => 109])?->id,
         ], ['id' => 102, 'order_status' => 'delivered']);
 
@@ -422,5 +425,64 @@ class StaffOrderScreensTest extends TestCase
 
         $this->get('/admin/orders/generate-invoice/101')->assertNotFound();
         $this->get('/admin/orders/generate-invoice/424242')->assertNotFound();
+    }
+
+    // ---- the layout every admin page shares ---------------------------------------------------------------------------------------------
+
+    /**
+     * What the layout of the admin panel shows of the orders: the counters of the sidebar and the latest pending orders of the header, read the way the layout reads them,
+     * inside a request that is bound as the middleware of a screen binds it.
+     *
+     * @return array{orders: array<string, int>, refunds: array<string, int>, latest: list<int>}
+     */
+    private function theLayoutShows(string $method, string $uri, array $input = []): array
+    {
+        Schema::dropIfExists('contacts');
+        Schema::create('contacts', function ($table) {
+            $table->id();
+            $table->boolean('seen')->default(false);
+        });
+        $provider = $this->app->getProvider(AppServiceProvider::class);
+        (new \ReflectionMethod($provider, 'adminSidebarLayoutCount'))->invoke($provider);
+
+        return $this->insideTheAction($method, $uri, function (): array {
+            $view = view('layouts.admin.app');
+            app('view')->callComposer($view);
+
+            return [
+                'orders' => $view->getData()['sidebarOrderCounts']->all(),
+                'refunds' => $view->getData()['sidebarRefundCounts']->all(),
+                'latest' => Order::query()->where('order_status', 'pending')->orderByDesc('id')->take(5)->pluck('id')->map(static fn ($id): int => (int) $id)->all(),
+            ];
+        }, $input);
+    }
+
+    public function test_the_counters_and_the_latest_orders_of_the_shared_layout_follow_the_screens_that_bound_the_employee(): void
+    {
+        $this->insertStaffRefund(id: 1, orderId: 101, aboutProduct: 1);
+        $this->insertStaffRefund(id: 2, orderId: 102, aboutProduct: 2);
+        $this->insertStaffRefund(id: 3, orderId: 104, aboutProduct: 1);
+        $this->asKuwaitEmployee();
+
+        $kuwait = $this->theLayoutShows('GET', '/admin/orders/list/all');
+        $this->signInAsStaff(adminId: 1);
+        $master = $this->theLayoutShows('GET', '/admin/orders/list/all');
+
+        $this->assertSame(['delivered' => 1, 'pending' => 1], $kuwait['orders']);
+        $this->assertSame(['pending' => 1], $kuwait['refunds']);
+        $this->assertSame([102], $kuwait['latest'], 'no thumbnail and no number of an order of another country in the header');
+        $this->assertSame(['confirmed' => 1, 'delivered' => 1, 'pending' => 4], $master['orders']);
+        $this->assertSame(['pending' => 3], $master['refunds']);
+        $this->assertSame([105, 104, 102, 101], $master['latest']);
+    }
+
+    public function test_the_layout_of_a_screen_that_bound_nobody_counts_everything_as_it_always_did(): void
+    {
+        $this->giveCountries(adminId: 7, countries: ['KW']);
+        $this->signInAsStaff(adminId: 7);
+
+        $withTheSwitchOff = $this->theLayoutShows('GET', '/admin/orders/list/all');
+
+        $this->assertSame(['confirmed' => 1, 'delivered' => 1, 'pending' => 4], $withTheSwitchOff['orders']);
     }
 }
