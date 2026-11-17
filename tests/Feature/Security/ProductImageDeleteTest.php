@@ -11,9 +11,9 @@ use App\Services\ProductService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
+use Tests\Support\RemovesFilesItCreated;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
@@ -26,12 +26,10 @@ use Tests\TestCase;
 class ProductImageDeleteTest extends TestCase
 {
     use BuildsFulfillmentSchema;
+    use RemovesFilesItCreated;
     use RestoresLanguageFiles;
 
     private const DIRECTORY = 'storage/app/public/product';
-
-    /** @var list<string> */
-    private array $created = [];
 
     protected function setUp(): void
     {
@@ -55,20 +53,10 @@ class ProductImageDeleteTest extends TestCase
 
     protected function tearDown(): void
     {
-        File::deleteDirectory(base_path(self::DIRECTORY . '/thumbnail'));
-        File::deleteDirectory(base_path(self::DIRECTORY . '/digital-product'));
-        File::deleteDirectory(base_path('storage/app/public/company'));
-        array_map('unlink', array_filter($this->created, 'file_exists'));
+        $this->removeTheFilesItCreated(folders: [$this->product('thumbnail'), $this->product('digital-product'), base_path(self::DIRECTORY), base_path('storage/app/public/company')]);
         $this->restoreLanguageFiles();
 
         parent::tearDown();
-    }
-
-    private function fileOnDisk(string $path, string $content): void
-    {
-        File::ensureDirectoryExists(dirname($path));
-        file_put_contents($path, $content);
-        $this->created[] = $path;
     }
 
     private function product(string $name): string
@@ -402,23 +390,13 @@ class ProductImageDeleteTest extends TestCase
     /** The lists the panel's update makes of the images of a product and of the colours and the files in its form. */
     private function updatedLists(int $id, Request $request): array
     {
-        return $this->trackingTheNewFiles(static fn (): array => app(ProductService::class)->getProcessedUpdateImages(request: $request, product: Product::withoutGlobalScopes()->find($id)));
+        return $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: static fn (): array => app(ProductService::class)->getProcessedUpdateImages(request: $request, product: Product::withoutGlobalScopes()->find($id)));
     }
 
     /** @param array<string, UploadedFile> $files */
     private function updateRequest(array $colors, array $files = []): Request
     {
         return Request::create('/', 'POST', ['colors_active' => 'on', 'colors' => $colors], [], $files);
-    }
-
-    /** Runs what stores files and puts the files it stored on the list of the files this test removes. */
-    private function trackingTheNewFiles(callable $work): mixed
-    {
-        $before = glob($this->product('*')) ?: [];
-        $result = $work();
-        $this->created = [...$this->created, ...array_diff(glob($this->product('*')) ?: [], $before)];
-
-        return $result;
     }
 
     public function test_the_panel_replaces_the_image_of_one_colour_and_leaves_the_image_of_another_that_is_the_same_number(): void

@@ -17,10 +17,10 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
+use Tests\Support\RemovesFilesItCreated;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
@@ -33,12 +33,10 @@ use Tests\TestCase;
 class ProductSharedFileTest extends TestCase
 {
     use BuildsFulfillmentSchema;
+    use RemovesFilesItCreated;
     use RestoresLanguageFiles;
 
     private const DIRECTORY = 'storage/app/public/product';
-
-    /** @var list<string> */
-    private array $created = [];
 
     protected function setUp(): void
     {
@@ -78,22 +76,13 @@ class ProductSharedFileTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['thumbnail', 'preview', 'meta', 'digital-product'] as $folder) {
-            File::deleteDirectory(base_path(self::DIRECTORY . '/' . $folder));
-        }
-        File::deleteDirectory(base_path('storage/app/public/category'));
-        array_map('unlink', array_filter($this->created, 'file_exists'));
-        @rmdir(base_path('storage/app/public/profile'));
+        $this->removeTheFilesItCreated(folders: [
+            $this->product('thumbnail'), $this->product('preview'), $this->product('meta'), $this->product('digital-product'), base_path(self::DIRECTORY),
+            base_path('storage/app/public/category'), base_path('storage/app/public/profile'),
+        ]);
         $this->restoreLanguageFiles();
 
         parent::tearDown();
-    }
-
-    private function fileOnDisk(string $path, string $content): void
-    {
-        File::ensureDirectoryExists(dirname($path));
-        file_put_contents($path, $content);
-        $this->created[] = $path;
     }
 
     private function product(string $name): string
@@ -182,11 +171,10 @@ class ProductSharedFileTest extends TestCase
         };
         $upload = new UploadedFile($this->temporaryImage(), 'new.' . $format, null, null, true);
 
-        $stored = $writer->update(dir: $directory, oldImage: $held, format: $format, image: $upload, fileType: $format === 'pdf' ? 'file' : 'image');
+        $stored = $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: fn (): string => $writer->update(dir: $directory, oldImage: $held, format: $format, image: $upload, fileType: $format === 'pdf' ? 'file' : 'image'));
 
         $this->assertFileExists(base_path('storage/app/public/' . $directory . $held), 'the file of the other product stays');
         $this->assertFileExists(base_path('storage/app/public/' . $directory . $stored), 'the new file is stored');
-        File::delete(base_path('storage/app/public/' . $directory . $stored));
     }
 
     private function temporaryImage(): string
@@ -239,7 +227,6 @@ class ProductSharedFileTest extends TestCase
 
         $this->assertFileExists($this->product('digital-product/shared-digital.zip'));
         $this->assertFileDoesNotExist($this->product('digital-product/solo-digital.zip'));
-        File::deleteDirectory($this->product('digital-product'));
     }
 
     public function test_a_file_that_is_no_product_file_is_deleted_as_before(): void
@@ -378,22 +365,26 @@ class ProductSharedFileTest extends TestCase
     /** The order of Vendor\Product\ProductController::add and of the admin panel's: the data of the form, the row, then the SEO row. */
     private function addAsThePanelDoes(Request $request, int $sellerId): Product
     {
-        $service = app(ProductService::class);
-        $data = array_merge($service->getAddProductData(request: $request, addedBy: 'seller', shopId: 1), ['user_id' => $sellerId]);
-        $saved = Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->add(data: $data));
-        app(ProductSeoRepositoryInterface::class)->add(data: $service->getProductSEOData(request: $request, product: $saved, action: 'add'));
+        return $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: function () use ($request, $sellerId): Product {
+            $service = app(ProductService::class);
+            $data = array_merge($service->getAddProductData(request: $request, addedBy: 'seller', shopId: 1), ['user_id' => $sellerId]);
+            $saved = Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->add(data: $data));
+            app(ProductSeoRepositoryInterface::class)->add(data: $service->getProductSEOData(request: $request, product: $saved, action: 'add'));
 
-        return $saved;
+            return $saved;
+        });
     }
 
     /** The order of Vendor\Product\ProductController::update and of the admin panel's: the data of the form, the row, and only then the SEO row. */
     private function updateAsThePanelDoes(int $productId, Request $request): void
     {
-        $service = app(ProductService::class);
-        $product = app(ProductRepositoryInterface::class)->getFirstWhereWithoutGlobalScope(params: ['id' => $productId], relations: ['seoInfo']);
-        $dataArray = $service->getUpdateProductData(request: $request, product: $product, updateBy: 'seller');
-        Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->update(id: (string) $productId, data: $dataArray));
-        app(ProductSeoRepositoryInterface::class)->updateOrInsert(params: ['product_id' => $product['id']], data: $service->getProductSEOData(request: $request, product: $product, action: 'update'));
+        $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: function () use ($productId, $request): void {
+            $service = app(ProductService::class);
+            $product = app(ProductRepositoryInterface::class)->getFirstWhereWithoutGlobalScope(params: ['id' => $productId], relations: ['seoInfo']);
+            $dataArray = $service->getUpdateProductData(request: $request, product: $product, updateBy: 'seller');
+            Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->update(id: (string) $productId, data: $dataArray));
+            app(ProductSeoRepositoryInterface::class)->updateOrInsert(params: ['product_id' => $product['id']], data: $service->getProductSEOData(request: $request, product: $product, action: 'update'));
+        });
     }
 
     public function test_editing_a_copy_with_a_new_meta_image_keeps_the_meta_image_that_the_original_shows_as_its_seo_image(): void
@@ -716,12 +707,12 @@ class ProductSharedFileTest extends TestCase
         $writer = $this->fileWriter();
         $upload = new UploadedFile($this->temporaryImage(), 'new.webp', null, null, true);
 
-        $statements = $this->productQueriesDuring(function () use ($writer, $upload): void {
+        $statements = $this->productQueriesDuring(fn () => $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: function () use ($writer, $upload): void {
             ImageManager::delete('/product/thumbnail/ghost.webp');
             $writer->remove('/product/ghost.webp');
             $writer->update(dir: 'product/thumbnail/', oldImage: 'ghost.webp', format: 'webp', image: $upload);
             app(ProductService::class)->deleteImages(product: (new Product())->forceFill(['images' => json_encode(['ghost-a.webp', 'ghost-b.webp']), 'thumbnail' => 'ghost-thumb.webp']));
-        });
+        }));
 
         $this->assertSame([], $statements);
     }
