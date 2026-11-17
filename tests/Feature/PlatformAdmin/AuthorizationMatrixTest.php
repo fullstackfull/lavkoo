@@ -107,6 +107,29 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
         $this->assertEveryRouteRefuses(headers: $this->bearer('lkpa_' . Str::random(64)), why: 'a random token of the right shape');
     }
 
+    public function test_a_valid_token_under_any_scheme_but_bearer_is_not_a_credential(): void
+    {
+        $admin = $this->platformAdmin();
+        $token = $this->mintToken($admin);
+
+        foreach (['Token ' . $token, 'Basic ' . $token, 'Bot ' . $token, 'Bearer: ' . $token, 'Bearer  ' . $token, 'BearerX ' . $token, $token, ' Bearer ' . $token] as $header) {
+            $this->assertEveryRouteRefuses(headers: ['Authorization' => $header], why: 'the header ' . substr($header, 0, 12));
+        }
+        $this->json('GET', self::PREFIX . '/me', [], ['Authorization' => 'bearer ' . $token])->assertOk();
+        $this->json('GET', self::PREFIX . '/me', [], ['Authorization' => 'BEARER ' . $token])->assertOk();
+    }
+
+    public function test_a_token_that_cannot_be_ours_is_refused_without_a_read_of_the_token_table(): void
+    {
+        foreach (['x', Str::random(64), 'lkpa_' . Str::random(63), 'lkpa_' . str_repeat('é', 64)] as $candidate) {
+            $statements = $this->statementsRunBy(fn () => $this->json('GET', self::PREFIX . '/me', [], $this->bearer($candidate))->assertStatus(401));
+
+            $reads = array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'platform_admin_tokens') && !str_contains($sql, 'sqlite_master') && !str_contains($sql, 'information_schema'));
+
+            $this->assertSame([], array_values($reads), 'a token of the wrong shape costs no read of the sessions');
+        }
+    }
+
     public function test_the_hash_of_a_token_is_not_a_token(): void
     {
         $admin = $this->platformAdmin();

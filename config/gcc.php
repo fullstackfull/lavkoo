@@ -62,7 +62,7 @@ return [
         // How long a token lives. A value below 1 means the default of 480; whatever is configured, 1440 (one day) is the most a token can live.
         'token_ttl_minutes' => (int) env('GCC_PLATFORM_ADMIN_TOKEN_TTL_MINUTES', 480),
 
-        // Sign-in attempts per minute, counted for one address and for one address with one e-mail. Successful attempts count too.
+        // Sign-in attempts per minute from one address with one e-mail. One address as a whole may make three times as many. Successful attempts count too.
         'login_attempts_per_minute' => (int) env('GCC_PLATFORM_ADMIN_LOGIN_ATTEMPTS_PER_MINUTE', 5),
 
         // Requests per minute from one address to any route of the API, counted before a token is looked up.

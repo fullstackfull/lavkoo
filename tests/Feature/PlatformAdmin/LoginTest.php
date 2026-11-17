@@ -263,15 +263,43 @@ class LoginTest extends PlatformAdminTestCase
         $this->assertSame(0, DB::table('platform_admin_tokens')->count(), 'the right password does not get through while it is throttled');
     }
 
-    public function test_one_address_cannot_try_many_e_mails(): void
+    public function test_one_address_cannot_try_many_e_mails_but_may_try_more_than_one_e_mail_alone_could(): void
     {
-        config(['gcc.platform_admin.login_attempts_per_minute' => 5]);
+        config(['gcc.platform_admin.login_attempts_per_minute' => 2]);
 
-        for ($attempt = 1; $attempt <= 5; $attempt++) {
+        for ($attempt = 1; $attempt <= 6; $attempt++) {
             $this->signIn(['email' => "nobody{$attempt}@example.test", 'password' => 'wrong'])->assertStatus(401);
         }
 
         $this->signIn(['email' => 'another@example.test', 'password' => 'wrong'])->assertStatus(429);
+    }
+
+    public function test_an_office_behind_one_address_is_not_locked_out_by_the_typos_of_one_person(): void
+    {
+        config(['gcc.platform_admin.login_attempts_per_minute' => 3]);
+        $typist = $this->platformAdmin();
+        $colleague = $this->platformAdmin();
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $this->signIn(['email' => $typist['email'], 'password' => 'wrong'])->assertStatus(401);
+        }
+
+        $this->signIn($typist)->assertStatus(429);
+        $this->signIn($colleague)->assertOk();
+    }
+
+    public function test_a_sign_in_that_succeeds_starts_the_count_of_that_e_mail_from_that_address_again(): void
+    {
+        config(['gcc.platform_admin.login_attempts_per_minute' => 3]);
+        $admin = $this->platformAdmin();
+
+        $this->signIn(['email' => $admin['email'], 'password' => 'wrong'])->assertStatus(401);
+        $this->signIn(['email' => $admin['email'], 'password' => 'wrong'])->assertStatus(401);
+        $this->signIn($admin)->assertOk();
+
+        $this->signIn(['email' => $admin['email'], 'password' => 'wrong'])->assertStatus(401);
+        $this->signIn(['email' => $admin['email'], 'password' => 'wrong'])->assertStatus(401);
+        $this->signIn($admin)->assertOk();
     }
 
     public function test_the_throttle_counts_an_address_and_an_e_mail_together_and_leaves_other_addresses_alone(): void
