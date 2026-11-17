@@ -535,6 +535,67 @@ class ProductSharedFileTest extends TestCase
         $this->assertTrue(SharedProductFile::isShared(path: $path), 'two products hold ' . $path);
     }
 
+    /** @return array<string, array{0: string, 1: int}> a name, and the flags of the JSON writer that wrote it into the rows of two products */
+    public static function writersOfAGalleryText(): array
+    {
+        $quotedArabic = "q\"\u{0635}\u{0648}\u{0631}\u{0629}.webp";
+
+        return [
+            'raw letters and an escaped quote' => [$quotedArabic, JSON_UNESCAPED_UNICODE],
+            'raw letters, an escaped quote and raw slashes' => [$quotedArabic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES],
+            'a backslash that the disk reads as a folder, and raw letters' => ["b\\\u{0635}.webp", JSON_UNESCAPED_UNICODE],
+            'an apostrophe, an ampersand, angle brackets and a letter with an accent, all escaped' => ["abcdef&ghijkl<mnopqr>stuvwx'yz\u{00e9}.webp", JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_TAG | JSON_HEX_QUOT],
+            'a name of which no character stays as it is but the dot and the extension' => ["\u{0635}\u{0648}\u{0631}\u{0629}\"'.webp", JSON_HEX_APOS | JSON_HEX_QUOT],
+        ];
+    }
+
+    #[DataProvider('writersOfAGalleryText')]
+    public function test_two_products_that_hold_a_name_make_it_shared_whatever_the_flags_of_the_json_writer_of_their_rows(string $name, int $flags): void
+    {
+        $this->insertProduct(81, ['images' => json_encode([$name], $flags)]);
+        $this->insertProduct(82, ['images' => json_encode([$name], $flags)]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/' . $name), 'two products hold ' . $name . ' in the text ' . json_encode([$name], $flags));
+    }
+
+    public function test_two_products_whose_gallery_text_spells_its_escapes_in_upper_case_hold_the_file(): void
+    {
+        $name = "caf\u{00e9}-\u{0635}.webp";
+        $this->assertSame('["caf\\u00e9-\\u0635.webp"]', json_encode([$name]), 'json_encode writes the hex digits in lower case, other writers in upper case');
+        $this->insertProduct(81, ['images' => '["caf\\u00E9-\\u0635.webp"]']);
+        $this->insertProduct(82, ['images' => '["caf\\u00E9-\\u0635.webp"]']);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/' . $name));
+    }
+
+    public function test_a_name_with_no_character_that_a_json_writer_leaves_alone_is_found_in_the_rows_of_its_holders(): void
+    {
+        $name = "\u{0635}\u{0648}\u{0631}\u{0629}";
+        $this->insertProduct(81, ['images' => json_encode([$name])]);
+        $this->insertProduct(82, ['images' => json_encode(['other.webp'])]);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/' . $name), 'one holder');
+
+        $this->insertProduct(83, ['images' => json_encode([$name], JSON_UNESCAPED_UNICODE)]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/' . $name), 'two holders, one of them with raw letters');
+    }
+
+    public function test_the_search_asks_for_the_longest_run_of_the_name_that_no_json_writer_spells_in_another_way(): void
+    {
+        $patterns = [];
+        DB::listen(static function ($query) use (&$patterns): void {
+            if (preg_match('/\bfrom [`"]?products[`"]?\b/i', $query->sql) === 1) {
+                $patterns[] = array_values(array_filter($query->bindings, 'is_string'));
+            }
+        });
+
+        SharedProductFile::sharedAmong(paths: ["product/ab\u{0635}cdefg.webp", 'product/plain-name_1.webp', "product/\u{0635}\u{0648}"]);
+
+        // the gallery and the colour images, for each file: the run, with the characters of the pattern language escaped; a name with no such character asks for every row
+        $this->assertSame([['%cdefg.webp%', '%cdefg.webp%', '%plain-name!_1.webp%', '%plain-name!_1.webp%', '%%', '%%']], $patterns);
+    }
+
     /** @return array<string, array{0: string}> the paths that the disk reads as product/ps1.webp */
     public static function pathsOfTheGalleryFile(): array
     {

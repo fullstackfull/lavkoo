@@ -149,10 +149,8 @@ final class SharedProductFile
             ->where(static function ($query) use ($files) {
                 $like = self::likeOperator(connection: $query->getConnection());
                 foreach ($files as $file) {
-                    foreach (self::jsonSpellings(name: $file['name']) as $spelling) {
-                        $pattern = self::likeContaining(text: $spelling);
-                        $query->orWhereRaw("images {$like} ? escape '!'", [$pattern])->orWhereRaw("color_image {$like} ? escape '!'", [$pattern]);
-                    }
+                    $pattern = self::likeContaining(text: self::longestRunNoJsonWriterEscapes(name: $file['name']));
+                    $query->orWhereRaw("images {$like} ? escape '!'", [$pattern])->orWhereRaw("color_image {$like} ? escape '!'", [$pattern]);
                     if ($file['column'] !== null) {
                         $query->orWhere($file['column'], $file['name']);
                     }
@@ -204,12 +202,17 @@ final class SharedProductFile
         return Product::withoutGlobalScopes()->select('id');
     }
 
-    /** @return list<string> the name as a JSON text holds it: as it is, and as json_encode() escapes it (letters that are not ASCII, quotes, backslashes) */
-    private static function jsonSpellings(string $name): array
+    /**
+     * The longest run of the characters that no JSON writer spells in another way (ASCII letters, digits, `.`, `_`, `-` and a space). It stands in
+     * the text of a row however the writer spelled the rest of the name (a letter that is not ASCII raw or escaped, a quote, an apostrophe or an
+     * angle bracket escaped or not, the hex digits in upper or lower case), so a search for it finds every row that may hold the name, and the rows
+     * are checked exactly afterwards. A name with no such character finds every row.
+     */
+    private static function longestRunNoJsonWriterEscapes(string $name): string
     {
-        $escaped = substr((string) json_encode($name), 1, -1);
+        preg_match_all('/[A-Za-z0-9._ -]+/', $name, $runs);
 
-        return array_values(array_unique(array_filter([$name, $escaped], static fn (string $spelling): bool => $spelling !== '')));
+        return array_reduce($runs[0], static fn (string $longest, string $run): string => strlen($run) > strlen($longest) ? $run : $longest, '');
     }
 
     /** The rows are checked exactly afterwards, so the case-insensitive collation of the columns only slows the search down: MySQL compares bytes, several times faster. */
