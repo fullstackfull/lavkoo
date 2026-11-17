@@ -2,6 +2,7 @@
 
 namespace App\Services\Storefront;
 
+use App\Services\Staff\StaffCountryScope;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 
@@ -24,13 +25,14 @@ final class ProductCountry
     }
 
     /**
-     * Every configured country, open or not: a country's catalogue is prepared before its storefront opens.
+     * Every configured country, open or not: a country's catalogue is prepared before its storefront opens. A request narrowed to the countries of the signed-in
+     * employee (GCC-14c) is offered those only: the form, the filter and the validation all read this list.
      *
      * @return list<string>
      */
     public static function options(): array
     {
-        return StorefrontResolver::fromConfig()->configuredCountries();
+        return app(StaffCountryScope::class)->narrow(countries: StorefrontResolver::fromConfig()->configuredCountries());
     }
 
     /** The country a product belongs to when nobody chose one: the default storefront's. */
