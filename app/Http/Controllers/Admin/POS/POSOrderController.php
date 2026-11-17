@@ -12,6 +12,7 @@ use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Enums\SessionKey;
 use App\Events\DigitalProductDownloadEvent;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\CartService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
@@ -65,6 +66,7 @@ class POSOrderController extends BaseController
         private readonly OrderService                               $orderService,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

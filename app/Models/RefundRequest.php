@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryRefundScope;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -42,6 +43,11 @@ class RefundRequest extends Model
         'change_by'=>'string',
         'images' => 'array'
     ];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new StaffCountryRefundScope());
+    }
 
     public function customer():BelongsTo
     {

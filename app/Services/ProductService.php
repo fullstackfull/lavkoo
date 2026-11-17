@@ -5,7 +5,9 @@ namespace App\Services;
 
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\Storefront\ProductCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\FileManagerTrait;
 use Illuminate\Support\Str;
 use Rap2hpoutre\FastExcel\FastExcel;
@@ -777,6 +779,17 @@ class ProductService
 
     public function getImportBulkProductData(object $request, string $addedBy, int|string $shopId): array
     {
+        $staffCountries = app(StaffCountryScope::class);
+        $countriesAreTracked = $staffCountries->restricts() && ProductCountry::isTracked();
+        $refusal = $staffCountries->whyItMayNotImport(countriesAreTracked: $countriesAreTracked);
+        if ($refusal !== null) {
+            return [
+                'status' => false,
+                'message' => translate($refusal),
+                'products' => []
+            ];
+        }
+
         try {
             $collections = (new FastExcel)->import($request->file('products_file'));
         } catch (\Exception $exception) {
@@ -878,10 +891,12 @@ class ProductService
             ];
         }
 
+        $importCountry = $staffCountries->countryOfImportedRows(countriesAreTracked: $countriesAreTracked);
+
         return [
             'status' => true,
             'message' => count($products) . ' - ' . translate('products_imported_successfully'),
-            'products' => $products,
+            'products' => $importCountry === null ? $products : array_map(static fn (array $row): array => $row + [StorefrontCatalog::COLUMN => $importCountry], $products),
             'productsTax' => $productsTax,
         ];
     }

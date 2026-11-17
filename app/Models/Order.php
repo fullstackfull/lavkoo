@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryOrderScope;
 use App\Services\Address\AddressSnapshot;
 use App\Traits\DemoMaskingTrait;
 use Carbon\Carbon;
@@ -363,6 +364,7 @@ class Order extends Model
     protected static function boot(): void
     {
         parent::boot();
+        static::addGlobalScope(new StaffCountryOrderScope());
         //static::addGlobalScope(new RememberScope);
     }
 }

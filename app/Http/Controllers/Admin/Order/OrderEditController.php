@@ -8,6 +8,7 @@ use App\Contracts\Repositories\OrderDetailsRewardsRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\PublishingHouseRepositoryInterface;
 use App\Services\CartService;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\OrderEditService;
 use App\Services\ProductService;
 use App\Traits\OrderEditManager;
@@ -93,6 +94,7 @@ class OrderEditController extends BaseController
         private readonly OrderDetailsRewardsRepositoryInterface          $orderDetailsRewardsRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse|JsonResponse

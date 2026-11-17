@@ -24,6 +24,7 @@ use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\ThemeHelper;
 use App\Services\AuditLogger;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\SellerIntelligence\Producers\BrandComplianceProducer;
 use App\Services\SellerIntelligence\Producers\CatalogIntegrityProducer;
 use App\Services\SellerIntelligence\Producers\FinanceIntegrityProducer;
@@ -354,6 +355,7 @@ class AppServiceProvider extends ServiceProvider
     protected function adminSidebarLayoutCount(): void
     {
         View::composer('layouts.admin.app', function ($view) {
+            app(StaffCountryScope::class)->narrowLayout(request: request(), admin: auth('admin')->user());
             $sidebarOrderCounts = Order::selectRaw('order_status, COUNT(*) as total')
                 ->groupBy('order_status')
                 ->pluck('total', 'order_status');

@@ -8,6 +8,7 @@ use App\Enums\ExportFileNames\Admin\Report;
 use App\Enums\WebConfigKey;
 use App\Exports\RefundTransactionReportExport;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\RefundTransactionService;
 use App\Traits\PdfGenerator;
 use Illuminate\Contracts\View\View;
@@ -30,6 +31,7 @@ class RefundTransactionController extends BaseController
     )
     {
 
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse
