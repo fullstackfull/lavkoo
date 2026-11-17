@@ -76,6 +76,7 @@ class OrderEditPickerCountryTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('order_id');
             $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
             $table->integer('qty')->default(1);
         });
     }
