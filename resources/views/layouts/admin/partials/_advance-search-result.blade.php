@@ -42,7 +42,6 @@
                        <input hidden name="routeUri" value="{{ $item['uri'] }}">
                        <input hidden name="routeFullUrl" value="{{ url($item['uri']) }}">
                        <input hidden name="searchKeyword" value="{{ $keyword }}">
-                       <input hidden name="fullResult" value="{{ json_encode($result) }}">
                        <input hidden name="response" value="{{ json_encode($item) }}">
 
                        <div class="search-item-wrapper" data-item-id="{{ $uniqueId }}">

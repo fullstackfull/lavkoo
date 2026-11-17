@@ -13,6 +13,8 @@ use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Admin;
 use App\Packages\AdvanceSearch\AdvanceSearch;
+use DOMDocument;
+use DOMElement;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -460,6 +462,18 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
         $this->assertSame(['users'], $answer['groups']);
     }
 
+    #[DataProvider('routes')]
+    public function test_the_form_of_a_hit_posts_what_the_recent_search_reads_and_the_hit_is_listed_afterwards(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: ['people']);
+        $form = $this->firstFormOf(html: $this->search(employee: $employee, route: $route)['html']);
+
+        $this->assertEqualsCanonicalizing(['_token', 'routeName', 'routeUri', 'routeFullUrl', 'searchKeyword', 'response'], array_keys($form['fields']));
+        $this->actingAs(Admin::query()->findOrFail($employee->id), 'admin')->post($form['action'], $form['fields'])->assertRedirect(url('admin/customer/list') . '?keyword=' . self::KEYWORD);
+
+        $this->assertSame(['users' => ['admin/customer/list']], $this->search(employee: $employee, route: $route, keyword: '')['urisByGroup']);
+    }
+
     private function seedTheSearchableRows(): void
     {
         foreach ($this->searchableRows() as $row) {
@@ -661,6 +675,24 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
         foreach ($groups as $group) {
             $this->storeAHit(employee: $employee, hit: end($result[$group]));
         }
+    }
+
+    /** @return array{action: string, fields: array<string, string>} the first form of the list and the fields a browser posts with it */
+    private function firstFormOf(string $html): array
+    {
+        $document = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+
+        $form = $document->getElementsByTagName('form')->item(0);
+        $fields = [];
+        foreach ($form->getElementsByTagName('input') as $input) {
+            /** @var DOMElement $input */
+            $fields[$input->getAttribute('name')] = $input->getAttribute('value');
+        }
+
+        return ['action' => $form->getAttribute('action'), 'fields' => $fields];
     }
 
     /** @param array<string, mixed> $hit the same form the box posts when an employee clicks on a hit */
