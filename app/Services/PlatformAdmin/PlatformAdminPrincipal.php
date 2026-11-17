@@ -27,7 +27,7 @@ final class PlatformAdminPrincipal
         public readonly PlatformAdminGrant $grant,
         public readonly PlatformAdminToken $token,
         public readonly array $markets,
-        public readonly bool $restrictedByStaffScope = false,
+        public readonly bool $restrictedByStaffScope,
     ) {
     }
 

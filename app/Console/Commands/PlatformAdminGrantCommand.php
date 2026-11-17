@@ -73,10 +73,9 @@ class PlatformAdminGrantCommand extends Command
             return;
         }
 
-        $admin = Admin::query()->select(['id', 'admin_role_id'])->find($adminId);
-        $reach = $admin === null ? null : $effectiveMarkets->of(grant: $grant, admin: $admin);
+        $reach = $effectiveMarkets->of(grant: $grant, admin: Admin::query()->select(['id', 'admin_role_id'])->findOrFail($adminId));
 
-        if ($reach === null || !$reach->narrowsTheGrant()) {
+        if (!$reach->narrowsTheGrant()) {
             return;
         }
 
