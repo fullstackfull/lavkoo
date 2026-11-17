@@ -730,7 +730,7 @@ class OrderManager
 
     public static function getCustomerInfoForOrder($data): array
     {
-        $customer = Helpers::getCustomerInformation($data['requestObj'] ?? request()->all());
+        $customer = Helpers::getCustomerInformation($data['requestObj'] ?? request());
         $isGuest = ($customer == 'offline') ? 1 : 0;
         if (isset($data['is_guest'])) {
             $isGuest = $data['is_guest'] ?? 0;
@@ -888,21 +888,21 @@ class OrderManager
     {
         $cartListQuery = CartManager::getCartListQuery(type: 'checked');
         $cartListQueryGroup = $cartListQuery?->groupBy('cart_group_id');
-        $checkReferralDiscount = OrderManager::checkCustomerReferralDiscount(request: ($data['requestObj'] ?? request()->all()));
+        $checkReferralDiscount = OrderManager::checkCustomerReferralDiscount(request: ($data['requestObj'] ?? request()));
         $onlyProductPriceGrandTotal = CartManager::getOnlyCartProductPriceGrandTotal(type: 'checked');
 
         $shippingModel = getWebConfig(name: 'shipping_method');
         $adminShipping = ShippingType::where('seller_id', 0)->first();
 
         $couponCode = $data['coupon_code'] ?? session('coupon_code');
-        $totalCouponDiscountInfo = OrderManager::getTotalCouponAmount(request: ($data['requestObj'] ?? request()->all()), couponCode: $couponCode);
+        $totalCouponDiscountInfo = OrderManager::getTotalCouponAmount(request: ($data['requestObj'] ?? request()), couponCode: $couponCode);
         $totalCouponDiscount = $totalCouponDiscountInfo['discount'] ?? 0;
 
         $vendorWiseCartList = [];
         foreach ($cartListQueryGroup as $groupId => $cartListQueryGroupItem) {
 
             $couponInfo = OrderManager::getGroupWiseCouponArray(
-                request: ($data['requestObj'] ?? request()->all()),
+                request: ($data['requestObj'] ?? request()),
                 couponCode: $couponCode,
                 applicableAmount: $totalCouponDiscountInfo['total_cart_amount'] ?? 0,
                 discountAmount: $totalCouponDiscountInfo['discount'] ?? 0,
@@ -2041,7 +2041,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 }
 
 
-        $user = Helpers::getCustomerInformation(($data['requestObj'] ?? request()->all()));
+        $user = Helpers::getCustomerInformation(($data['requestObj'] ?? request()));
 
         $notificationSent = false;
         foreach ($orderPlacedIds as $orderPlacedId) {

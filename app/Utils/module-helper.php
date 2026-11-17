@@ -56,7 +56,7 @@ if (!function_exists('digital_payment_success')) {
 
             if (isset($additionalData['is_guest']) && $additionalData['is_guest'] == 0) {
                 $user = User::where(['id' => $additionalData['customer_id']])->first();
-                request()->merge(['user' => $user]);
+                request()->setUserResolver(static fn (?string $guard = null) => $guard === null ? $user : auth($guard)->user());
             }
 
 
@@ -154,7 +154,7 @@ request()->merge($requestObj);
                 'coupon_code' => $additionalData['coupon_code'] ?? null,
                 'address_id' => $additionalData['address_id'] ?? null,
                 'billing_address_id' => $additionalData['billing_address_id'] ?? null,
-                'requestObj' => $requestObj,
+                'requestObj' => request(),
 
                 // Paid already: the order is never refused over its address. It only never keeps an address that is not the customer's.
                 'enforce_address_rules' => false,
