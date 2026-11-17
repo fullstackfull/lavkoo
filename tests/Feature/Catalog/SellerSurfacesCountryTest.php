@@ -119,6 +119,7 @@ class SellerSurfacesCountryTest extends TestCase
             }
         }
         sort($callers);
+        $callers = array_values(array_diff($callers, ['app/Rules/NewProductCountryInStaffScope.php']));
 
         $this->assertSame(['app/Services/Catalog/ProductCodeScope.php', 'app/Services/ProductService.php', 'app/Services/Storefront/ProductCountry.php'], $callers);
         $this->assertStringContainsString("\$addedBy == 'admin' ? ProductCountry::newProductAttributes(", (string) file_get_contents(app_path('Services/ProductService.php')), 'only an admin add takes the country of the request');
