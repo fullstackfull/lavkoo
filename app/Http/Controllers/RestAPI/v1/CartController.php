@@ -238,10 +238,16 @@ class CartController extends Controller
 
     public function updateCheckedCartItems(Request $request): JsonResponse
     {
+        $user = Helpers::getCustomerInformation($request);
+        $ownRows = Cart::where([
+            'customer_id' => ($user == 'offline' ? $request->guest_id : $user->id),
+            'is_guest' => ($user == 'offline' ? 1 : '0'),
+        ])->whereIn('id', (array) $request['ids']);
+
         if ($request['action'] == 'unchecked') {
-            Cart::whereIn('id', $request['ids'])->update(['is_checked' => 0]);
+            $ownRows->update(['is_checked' => 0]);
         } elseif ($request['action'] == 'checked') {
-            Cart::whereIn('id', $request['ids'])->update(['is_checked' => 1]);
+            $ownRows->update(['is_checked' => 1]);
         }
         return response()->json(translate('Successfully_Update'), 200);
     }
@@ -348,12 +354,14 @@ class CartController extends Controller
                 foreach ($cartList as $cart) {
                     $databaseCart = Cart::where([
                         'customer_id' => $user->id,
+                        'is_guest' => 0,
                         'seller_id' => $cart['seller_id'],
                         'seller_is' => $cart['seller_is']
                     ])->first();
 
                     Cart::where([
                         'customer_id' => $user->id,
+                        'is_guest' => 0,
                         'product_id' => $cart['product_id'],
                         'variant' => $cart['variant'],
                         'seller_id' => $cart['seller_id'],
