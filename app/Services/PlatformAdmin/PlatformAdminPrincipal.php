@@ -64,4 +64,15 @@ final class PlatformAdminPrincipal
     {
         return in_array($market, $this->markets, true);
     }
+
+    /** @return list<string> the parts of the API the grant includes */
+    public function capabilities(): array
+    {
+        return $this->grant->capabilityList();
+    }
+
+    public function can(string $capability): bool
+    {
+        return $this->grant->allows(capability: $capability);
+    }
 }

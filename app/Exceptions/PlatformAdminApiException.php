@@ -30,6 +30,11 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
         return new self(errorCode: 'invalid_market', message: 'The market must be all or the code of a market.', status: 422, extra: ['valid' => $valid]);
     }
 
+    public static function capabilityNotAllowed(string $capability): self
+    {
+        return new self(errorCode: 'capability_not_allowed', message: 'This account may not use that part of the API.', status: 403, extra: ['capability' => $capability]);
+    }
+
     public static function marketNotAllowed(): self
     {
         return new self(errorCode: 'market_not_allowed', message: 'This account may not see that market.', status: 403);

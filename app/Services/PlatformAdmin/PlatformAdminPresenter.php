@@ -22,8 +22,8 @@ final class PlatformAdminPresenter
     }
 
     /**
-     * What `GET /me` answers: the admin as the sign-in shows them, and how this session stands with the second factor. `enrolled` is whether the admin has a
-     * factor they may sign in with, `verified` whether this session passed it, and `method` how.
+     * What `GET /me` answers: the admin as the sign-in shows them, what their grant includes and when it ends, and how this session stands with the second
+     * factor. `enrolled` is whether the admin has a factor they may sign in with, `verified` whether this session passed it, and `method` how.
      *
      * @return array<string, mixed>
      */
@@ -31,7 +31,11 @@ final class PlatformAdminPresenter
     {
         $method = $principal->token->mfaMethod();
 
-        return self::me(principal: $principal) + ['mfa' => ['enrolled' => $enrolled, 'verified' => $method !== null, 'method' => $method?->value]];
+        return self::me(principal: $principal) + [
+            'capabilities' => $principal->capabilities(),
+            'grant_expires_at' => self::timestamp(moment: $principal->grant->expires_at),
+            'mfa' => ['enrolled' => $enrolled, 'verified' => $method !== null, 'method' => $method?->value],
+        ];
     }
 
     /** @return array{id: int, device_name: string, created_at: ?string, last_used_at: ?string, expires_at: ?string, current: bool, mfa_method: ?string} */

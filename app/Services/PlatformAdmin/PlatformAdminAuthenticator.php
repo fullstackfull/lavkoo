@@ -66,7 +66,8 @@ final class PlatformAdminAuthenticator
             (int) $admin->getRawOriginal('status') !== 1 => 'inactive_admin',
             $grant === null => 'no_grant',
             !$grant->isMadeFor(admin: $admin) => 'grant_of_another_admin_row',
-            !$grant->isActive() => 'revoked_grant',
+            $grant->isWithdrawn() => 'revoked_grant',
+            $grant->hasExpired() => 'expired_grant',
             $this->settings->mfaRequired() && ($factor === null || !$factor->isActiveFor(admin: $admin)) => 'mfa_not_enrolled',
             default => null,
         };

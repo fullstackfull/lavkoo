@@ -112,7 +112,17 @@ final class PlatformAdminTokenService
 
         $grant = PlatformAdminGrant::query()->find($token->grant_id);
 
-        if ($grant === null || !$grant->isActive() || $grant->admin_id !== $token->admin_id || !$grant->isMadeFor(admin: $admin)) {
+        if ($grant === null || $grant->admin_id !== $token->admin_id || !$grant->isMadeFor(admin: $admin)) {
+            return null;
+        }
+
+        if ($grant->hasExpired() && !$grant->isWithdrawn()) {
+            $this->endSessionsOfAnExpiredGrant(token: $token, grant: $grant, ip: $ip, userAgent: $userAgent);
+
+            return null;
+        }
+
+        if (!$grant->isActive()) {
             return null;
         }
 
@@ -149,19 +159,19 @@ final class PlatformAdminTokenService
      */
     public function endAllExcept(int $adminId, int $keptTokenId): int
     {
-        return PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->where('id', '!=', $keptTokenId)->update(['revoked_at' => now()]);
+        return $this->openSessionsQuery(adminId: $adminId)->where('id', '!=', $keptTokenId)->update(['revoked_at' => now()]);
     }
 
     /** @return Collection<int, PlatformAdminToken> the sessions of an admin that are still open, newest first */
     public function openSessionsOf(int $adminId): Collection
     {
-        return PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->orderByDesc('id')->limit(self::LISTING_LIMIT)->get();
+        return $this->openSessionsQuery(adminId: $adminId)->orderByDesc('id')->limit(self::LISTING_LIMIT)->get();
     }
 
     /** One of the open sessions of this admin, or null when there is none with that id: another admin's session is not found either. */
     public function openSessionOf(int $adminId, int $tokenId): ?PlatformAdminToken
     {
-        return PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->whereKey($tokenId)->first();
+        return $this->openSessionsQuery(adminId: $adminId)->whereKey($tokenId)->first();
     }
 
     /** The SHA-256 of a password hash: what a session remembers of the password it was opened with, so any change of it ends every session. */
@@ -173,6 +183,32 @@ final class PlatformAdminTokenService
     private function principalOf(Admin $admin, PlatformAdminGrant $grant, PlatformAdminToken $token): PlatformAdminPrincipal
     {
         return new PlatformAdminPrincipal(admin: $admin, grant: $grant, token: $token, markets: $this->markets->allowedBy(grant: $grant));
+    }
+
+    /** @return Builder<PlatformAdminToken> the sessions of an admin that are open: not ended, not expired and not idle */
+    private function openSessionsQuery(int $adminId): Builder
+    {
+        return PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId);
+    }
+
+    /**
+     * Ends every open session of an admin whose grant has ended, on the first request that meets it, and says so in the trail once: the sessions that are ended
+     * already are refused like any other and write nothing. Nothing is written when there was no open session to end.
+     */
+    private function endSessionsOfAnExpiredGrant(PlatformAdminToken $token, PlatformAdminGrant $grant, ?string $ip, ?string $userAgent): void
+    {
+        $ended = $this->openSessionsQuery(adminId: (int) $token->admin_id)->update(['revoked_at' => now()]);
+
+        if ($ended > 0) {
+            $this->audit->record(
+                action: 'session.grant_expired',
+                adminId: (int) $token->admin_id,
+                tokenId: (int) $token->getKey(),
+                ip: $ip,
+                userAgent: $userAgent,
+                context: ['expired_at' => PlatformAdminPresenter::timestamp(moment: $grant->expires_at), 'sessions_ended' => $ended],
+            );
+        }
     }
 
     /**
@@ -202,7 +238,7 @@ final class PlatformAdminTokenService
      */
     private function endOldestBeyond(int $adminId, int $keep): array
     {
-        $surplus = PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->orderByDesc('id')->pluck('id')
+        $surplus = $this->openSessionsQuery(adminId: $adminId)->orderByDesc('id')->pluck('id')
             ->slice($keep)
             ->map(static fn ($id): int => (int) $id)
             ->reverse()
