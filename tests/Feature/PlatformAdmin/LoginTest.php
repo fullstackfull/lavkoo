@@ -3,7 +3,6 @@
 namespace Tests\Feature\PlatformAdmin;
 
 use Carbon\Carbon;
-use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -463,45 +462,5 @@ class LoginTest extends PlatformAdminTestCase
             'grants' => DB::table('platform_admin_grants')->count(),
             'audit' => DB::table('platform_admin_audit_logs')->count(),
         ];
-    }
-
-    private function countingHasher(): object
-    {
-        $hasher = new class($this->app->make(Hasher::class)) implements Hasher {
-            public int $checks = 0;
-
-            /** @var list<string> the hashes it was asked to check against */
-            public array $hashes = [];
-
-            public function __construct(private readonly Hasher $inner)
-            {
-            }
-
-            public function info($hashedValue): array
-            {
-                return $this->inner->info($hashedValue);
-            }
-
-            public function make($value, array $options = []): string
-            {
-                return $this->inner->make($value, $options);
-            }
-
-            public function check($value, $hashedValue, array $options = []): bool
-            {
-                $this->checks++;
-                $this->hashes[] = (string) $hashedValue;
-
-                return $this->inner->check($value, $hashedValue, $options);
-            }
-
-            public function needsRehash($hashedValue, array $options = []): bool
-            {
-                return $this->inner->needsRehash($hashedValue, $options);
-            }
-        };
-        $this->app->instance(Hasher::class, $hasher);
-
-        return $hasher;
     }
 }

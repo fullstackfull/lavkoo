@@ -66,7 +66,7 @@ class PlatformAdminGrantCommand extends Command
         $admin = Admin::query()->select(['id', 'created_at'])->find($adminId);
         $factor = $factors->forAdmin(adminId: $adminId);
 
-        if ($admin === null || $factor === null || !$factor->isConfirmed() || !$factor->isMadeFor(admin: $admin)) {
+        if ($admin === null || $factor === null || !$factor->isActiveFor(admin: $admin)) {
             $this->warn("Admin {$adminId} has no confirmed second factor, so they cannot sign in yet. Run: php artisan gcc:platform-admin:mfa:enroll {$adminId}, then gcc:platform-admin:mfa:confirm {$adminId} <code>.");
         }
     }

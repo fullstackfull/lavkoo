@@ -250,8 +250,8 @@ would have more than 5 (section 3).
 
 ### `POST /auth/mfa`
 
-Completes a sign-in that answered `mfa_required`. No bearer token. Body (JSON or form; **a body only**): `challenge` (the `lkpc_` value) and **exactly one of** `code` (six digits; spaces are ignored) or
-`recovery_code` (`xxxxx-xxxxx`, in any case, with or without the hyphen). Both, neither, or a value that is not of that shape is a malformed attempt: the same 401 as any failure.
+Completes a sign-in that answered `mfa_required`. No bearer token. Body (JSON or form; **a body only**): `challenge` (the `lkpc_` value) and **exactly one of** `code` (a **string** of six digits, since a number would lose its
+leading zeros; spaces are ignored) or `recovery_code` (a string, `xxxxx-xxxxx`, in any case, with or without the hyphen). Both, neither, or a value that is not of that shape is a malformed attempt: the same 401 as any failure.
 
 ```json
 {"data": {

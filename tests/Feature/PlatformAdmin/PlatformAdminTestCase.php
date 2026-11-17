@@ -3,6 +3,7 @@
 namespace Tests\Feature\PlatformAdmin;
 
 use App\Models\Admin;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -201,5 +202,46 @@ abstract class PlatformAdminTestCase extends TestCase
         }
 
         return $response->getStatusCode() . ' ' . $content;
+    }
+
+    /** Counts the password checks the application makes, and remembers the hash each was made against. */
+    protected function countingHasher(): object
+    {
+        $hasher = new class($this->app->make(Hasher::class)) implements Hasher {
+            public int $checks = 0;
+
+            /** @var list<string> the hashes it was asked to check against */
+            public array $hashes = [];
+
+            public function __construct(private readonly Hasher $inner)
+            {
+            }
+
+            public function info($hashedValue): array
+            {
+                return $this->inner->info($hashedValue);
+            }
+
+            public function make($value, array $options = []): string
+            {
+                return $this->inner->make($value, $options);
+            }
+
+            public function check($value, $hashedValue, array $options = []): bool
+            {
+                $this->checks++;
+                $this->hashes[] = (string) $hashedValue;
+
+                return $this->inner->check($value, $hashedValue, $options);
+            }
+
+            public function needsRehash($hashedValue, array $options = []): bool
+            {
+                return $this->inner->needsRehash($hashedValue, $options);
+            }
+        };
+        $this->app->instance(Hasher::class, $hasher);
+
+        return $hasher;
     }
 }

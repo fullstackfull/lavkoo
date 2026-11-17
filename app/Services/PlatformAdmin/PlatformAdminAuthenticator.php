@@ -4,14 +4,17 @@ namespace App\Services\PlatformAdmin;
 
 use App\Models\Admin;
 use App\Models\PlatformAdminGrant;
+use App\Models\PlatformAdminMfaFactor;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Signing in as a platform admin: the admin's own e-mail and password, checked against the admins table without starting a session, and an
- * active grant made for that admin row. Whatever is wrong, the caller learns only that it was not accepted, and the work done is the same:
- * one lookup of the admin, one check of the password (against a dummy hash when there is no such admin) and one lookup of the grant.
+ * The first step of signing in as a platform admin: the admin's own e-mail and password, checked against the admins table without starting a session, and
+ * an active grant made for that admin row. While the second factor is required the admin must also have a confirmed one, and what a good password earns is
+ * a challenge, not a session. Whatever is wrong, the caller learns only that it was not accepted, and the work done is the same: one lookup of the admin,
+ * one check of the password (against a dummy hash when there is no such admin), one lookup of the grant and, while the second factor is required, one of the
+ * factor.
  */
 final class PlatformAdminAuthenticator
 {
@@ -22,30 +25,39 @@ final class PlatformAdminAuthenticator
 
     public function __construct(
         private readonly Hasher $hasher,
-        private readonly PlatformAdminTokenService $tokens,
+        private readonly PlatformAdminSettings $settings,
+        private readonly PlatformAdminSessionOpener $sessions,
+        private readonly PlatformAdminMfaFactors $factors,
+        private readonly PlatformAdminMfaChallenges $challenges,
+        private readonly PlatformAdminMfaLockout $lockout,
         private readonly PlatformAdminAudit $audit,
         private readonly PlatformAdminLoginFailures $failures,
     ) {
     }
 
-    public function authenticate(LoginAttempt $attempt): ?PlatformAdminSession
+    public function authenticate(LoginAttempt $attempt): SignInOutcome
     {
         $admin = Admin::query()->select(['id', 'name', 'status', 'password', 'created_at'])->where('email', $attempt->email)->first();
         $passwordMatches = $this->hasher->check($attempt->password, $admin === null ? $this->dummyHash() : (string) $admin->getAuthPassword());
         $grant = PlatformAdminGrant::query()->where('admin_id', $admin?->getKey() ?? 0)->first();
+        $factor = $this->settings->mfaRequired() ? $this->factors->forAdmin(adminId: (int) ($admin?->getKey() ?? 0)) : null;
 
-        $reason = $this->reasonToRefuse(attempt: $attempt, admin: $admin, passwordMatches: $passwordMatches, grant: $grant);
+        $reason = $this->reasonToRefuse(attempt: $attempt, admin: $admin, passwordMatches: $passwordMatches, grant: $grant, factor: $factor);
 
         if ($reason !== null) {
             $this->failures->afterTheAnswer(reason: $reason, attempt: $attempt, grant: $grant);
 
-            return null;
+            return SignInOutcome::refused();
         }
 
-        return DB::transaction(fn (): PlatformAdminSession => $this->openSession(attempt: $attempt, admin: $admin, grant: $grant));
+        if (!$this->settings->mfaRequired()) {
+            return SignInOutcome::opened(DB::transaction(fn (): PlatformAdminSession => $this->sessions->open(admin: $admin, grant: $grant, deviceName: $attempt->deviceName, ip: $attempt->ip, userAgent: $attempt->userAgent)));
+        }
+
+        return $this->challengeUnlessLockedOut(attempt: $attempt, admin: $admin, grant: $grant);
     }
 
-    private function reasonToRefuse(LoginAttempt $attempt, ?Admin $admin, bool $passwordMatches, ?PlatformAdminGrant $grant): ?string
+    private function reasonToRefuse(LoginAttempt $attempt, ?Admin $admin, bool $passwordMatches, ?PlatformAdminGrant $grant, ?PlatformAdminMfaFactor $factor): ?string
     {
         return match (true) {
             !$attempt->wellFormed => 'malformed_input',
@@ -55,24 +67,29 @@ final class PlatformAdminAuthenticator
             $grant === null => 'no_grant',
             !$grant->isMadeFor(admin: $admin) => 'grant_of_another_admin_row',
             !$grant->isActive() => 'revoked_grant',
+            $this->settings->mfaRequired() && ($factor === null || !$factor->isActiveFor(admin: $admin)) => 'mfa_not_enrolled',
             default => null,
         };
     }
 
-    private function openSession(LoginAttempt $attempt, Admin $admin, PlatformAdminGrant $grant): PlatformAdminSession
+    /**
+     * A good password with a confirmed second factor behind it: a challenge for the second step. An admin who is locked out of the second step is told so, and
+     * given none: it is only said to somebody who gave the right password, so it tells a stranger nothing about who exists or who is locked.
+     */
+    private function challengeUnlessLockedOut(LoginAttempt $attempt, Admin $admin, PlatformAdminGrant $grant): SignInOutcome
     {
-        $session = $this->tokens->issue(admin: $admin, grant: $grant, deviceName: $attempt->deviceName, ip: $attempt->ip, userAgent: $attempt->userAgent);
+        $adminId = (int) $admin->getKey();
 
-        $this->audit->record(
-            action: 'auth.login',
-            adminId: $session->principal->adminId(),
-            tokenId: (int) $session->principal->token->getKey(),
-            ip: $attempt->ip,
-            userAgent: $attempt->userAgent,
-            context: ['device_name' => $attempt->deviceName],
-        );
+        if ($this->lockout->isLocked(adminId: $adminId)) {
+            return SignInOutcome::throttled(retryAfterSeconds: $this->lockout->secondsUntilAvailable(adminId: $adminId));
+        }
 
-        return $session;
+        return SignInOutcome::challenged(DB::transaction(function () use ($attempt, $admin, $grant, $adminId): IssuedChallenge {
+            $challenge = $this->challenges->issue(admin: $admin, grant: $grant, deviceName: $attempt->deviceName);
+            $this->audit->record(action: 'auth.mfa_challenge', adminId: $adminId, ip: $attempt->ip, userAgent: $attempt->userAgent, context: ['device_name' => $attempt->deviceName]);
+
+            return $challenge;
+        }));
     }
 
     private function dummyHash(): string

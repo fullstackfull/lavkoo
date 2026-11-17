@@ -17,13 +17,14 @@ use Illuminate\Support\Facades\Route;
 | Deliberately NOT in the `api` middleware group: that group records a telemetry row and a response shape for every request, sets a visitor
 | cookie and runs the analytics, and the answers here are private. Nothing of the storefront applies either: no storefront is resolved from a
 | header or a path, a market is always a validated `market` parameter. The `platform_admin` middleware answers 404 while the API is switched
-| off and 503 until its tables exist; `platform_admin_auth` accepts only a token of this API. The only route without it is the sign-in.
+| off and 503 until its tables exist; `platform_admin_auth` accepts only a token of this API. The only routes without it are the two steps of the sign-in.
 |
 | Every route is named `platform_admin.<action>`, and the action is what the audit trail records. The only routes that are not reads are the
-| sign-in, the sign-out and the ending of a session; no route changes business data.
+| sign-in (two steps), the sign-out and the ending of a session; no route changes business data.
 */
 Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform_admin.')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login'])->name('auth.login');
+    Route::post('auth/mfa', [AuthController::class, 'mfa'])->name('auth.mfa');
 
     Route::middleware('platform_admin_auth')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');

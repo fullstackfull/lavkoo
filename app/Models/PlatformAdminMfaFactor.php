@@ -34,6 +34,12 @@ class PlatformAdminMfaFactor extends Model
         return $this->confirmed_at !== null;
     }
 
+    /** Whether this factor is one the admin may sign in with: confirmed, and made for exactly this admin row. */
+    public function isActiveFor(Admin $admin): bool
+    {
+        return $this->isConfirmed() && $this->isMadeFor(admin: $admin);
+    }
+
     /** Whether this factor was enrolled for exactly this admin row: the grant's own test, so that a row that merely carries the same id is not that admin. */
     public function isMadeFor(Admin $admin): bool
     {

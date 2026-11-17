@@ -99,7 +99,8 @@ class MfaCommandsTest extends TestCase
         [, $output] = $this->runCommand(command: 'gcc:platform-admin:mfa:enroll', arguments: ['admin_id' => 7]);
         $shown = $this->shownBy(output: $output);
 
-        $everything = json_encode(array_map(static fn (string $table): array => DB::table($table)->get()->all(), Schema::getTableListing(schemaQualified: false)));
+        $tables = array_filter(Schema::getTableListing(schemaQualified: false), static fn (string $table): bool => Schema::hasTable($table));
+        $everything = json_encode(array_map(static fn (string $table): array => DB::table($table)->get()->all(), $tables));
         $everything .= json_encode(array_map(static fn (LogRecord $record): array => [$record->message, $record->context], $log->getRecords()));
         foreach (array_merge([$shown['secret'], $shown['uri']], $shown['codes'], array_map(static fn (string $code): string => str_replace('-', '', $code), $shown['codes'])) as $secret) {
             $this->assertStringNotContainsString($secret, $everything);

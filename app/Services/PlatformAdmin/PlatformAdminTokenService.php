@@ -2,6 +2,7 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Enums\PlatformAdmin\MfaMethod;
 use App\Models\Admin;
 use App\Models\PlatformAdminGrant;
 use App\Models\PlatformAdminToken;
@@ -37,7 +38,7 @@ final class PlatformAdminTokenService
     {
     }
 
-    public function issue(Admin $admin, PlatformAdminGrant $grant, string $deviceName, ?string $ip, ?string $userAgent): PlatformAdminSession
+    public function issue(Admin $admin, PlatformAdminGrant $grant, string $deviceName, ?string $ip, ?string $userAgent, ?MfaMethod $mfaMethod = null): PlatformAdminSession
     {
         $plain = self::PREFIX . Str::random(self::SECRET_LENGTH);
 
@@ -49,6 +50,7 @@ final class PlatformAdminTokenService
             'device_name' => $deviceName,
             'ip' => $ip,
             'user_agent' => $userAgent === null ? null : PlatformAdminText::clipped(text: $userAgent, limit: self::USER_AGENT_LIMIT),
+            'mfa_method' => $mfaMethod?->value,
             'expires_at' => now()->addMinutes($this->settings->tokenTtlMinutes()),
         ]);
 
@@ -60,7 +62,8 @@ final class PlatformAdminTokenService
     /**
      * Who holds this token, if anyone does. Every check is made on every request, and the answer to each is the same nothing:
      * a token that is unknown, ended, expired, of an admin who is no longer active or whose password has changed since, or whose grant is gone
-     * or was made for another admin row (the row of the admin was deleted and another came to carry its id).
+     * or was made for another admin row (the row of the admin was deleted and another came to carry its id); and, while the second factor is required,
+     * one that did not pass it, however it was opened.
      */
     public function principalFor(string $candidate): ?PlatformAdminPrincipal
     {
@@ -70,7 +73,7 @@ final class PlatformAdminTokenService
 
         $token = PlatformAdminToken::query()->where('token_hash', hash('sha256', $candidate))->first();
 
-        if ($token === null || !$token->isActive()) {
+        if ($token === null || !$token->isActive() || ($this->settings->mfaRequired() && $token->mfaMethod() === null)) {
             return null;
         }
 
