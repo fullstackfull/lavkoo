@@ -80,26 +80,6 @@ final class ProductCodeScope
     }
 
     /**
-     * Every product that answers to a typed or scanned value, by its code or its barcode, lowest id first. A country narrows them while the
-     * scope applies; a caller that gets more than one back has an ambiguity to answer, never a product to pick.
-     *
-     * @return Collection<int, object{id: int, name: ?string, code: ?string, barcode: ?string, storefront_country?: ?string}>
-     */
-    public function candidatesForCode(string $code, ?string $country = null): Collection
-    {
-        $columns = ['id', 'name', 'code', 'barcode'];
-        if ($this->enabled()) {
-            $columns[] = StorefrontCatalog::COLUMN;
-        }
-
-        return $this->restrictToCountry(query: DB::table(self::TABLE), country: $country)
-            ->where(static fn (QueryBuilder $match) => $match->where('code', $code)->orWhere('barcode', $code))
-            ->orderBy('id')
-            ->limit(self::CANDIDATE_LIMIT)
-            ->get($columns);
-    }
-
-    /**
      * The products a scanned value answers to among the products the caller hands over (the owner's own, already narrowed by the caller).
      * With the scope off the answer is the old one: the first product whose code is the value, never its barcode. With the scope on it is
      * every product of the country whose code or barcode is the value, lowest id first; more than one is an ambiguity for the caller to

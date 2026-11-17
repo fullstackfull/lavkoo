@@ -218,40 +218,6 @@ class ProductCodeScopeTest extends TestCase
         $this->assertFalse($this->passes($field, $value, null));
     }
 
-    // ---- candidates ------------------------------------------------------------------------------------------------------------
-
-    public function test_the_candidates_of_a_code_are_every_product_that_answers_to_it_by_code_or_barcode(): void
-    {
-        $sa = $this->insertCodedProduct(code: 'SKU100', country: 'SA');
-        $kw = $this->insertCodedProduct(code: 'SKU900', country: 'KW', barcode: 'SKU100');
-        $this->insertCodedProduct(code: 'SKU300', country: 'SA');
-
-        $candidates = $this->scope->candidatesForCode(code: 'SKU100');
-
-        $this->assertSame([$sa, $kw], $candidates->pluck('id')->map(fn ($id) => (int) $id)->all());
-    }
-
-    public function test_with_the_flag_off_a_country_never_narrows_the_candidates(): void
-    {
-        $sa = $this->insertCodedProduct(code: 'SKU100', country: 'SA');
-        $kw = $this->insertCodedProduct(code: 'SKU100', country: 'KW');
-
-        $this->assertSame([$sa, $kw], $this->scope->candidatesForCode(code: 'SKU100', country: 'KW')->pluck('id')->map(fn ($id) => (int) $id)->all());
-    }
-
-    public function test_with_the_flag_on_a_country_narrows_the_candidates_and_each_one_names_its_country(): void
-    {
-        $this->scopeCodesByCountry();
-        $this->insertCodedProduct(code: 'SKU100', country: 'SA');
-        $kw = $this->insertCodedProduct(code: 'SKU100', country: 'KW');
-
-        $candidates = $this->scope->candidatesForCode(code: 'SKU100', country: 'KW');
-
-        $this->assertSame([$kw], $candidates->pluck('id')->map(fn ($id) => (int) $id)->all());
-        $this->assertSame('KW', $candidates->first()->storefront_country);
-        $this->assertCount(2, $this->scope->candidatesForCode(code: 'SKU100'), 'no country: every country answers');
-    }
-
     // ---- the country of a product ----------------------------------------------------------------------------------------------
 
     public function test_the_default_country_of_a_row_is_the_one_the_migration_gives_it(): void

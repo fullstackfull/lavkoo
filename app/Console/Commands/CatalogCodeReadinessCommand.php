@@ -88,7 +88,7 @@ class CatalogCodeReadinessCommand extends Command
     {
         $this->line(count($sites) . ' site(s) still read a code as one product, wholly or in part:');
         foreach ($sites as $site) {
-            $this->line(sprintf('  %-4s %-8s %s: %s', $site['id'], str_replace('_', ' ', $site['status']), $site['where'], $site['note']));
+            $this->line(sprintf('  %-4s %-12s %s: %s', $site['id'], str_replace('_', ' ', $site['status']), $site['where'], $site['note']));
         }
     }
 
