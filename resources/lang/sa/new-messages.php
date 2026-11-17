@@ -1264,6 +1264,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'product_source' => 'مصدر المنتجات',
 	'Product_video' => 'Product video',
 	'Profile_Info' => 'Profile Info',
+	'profile_updated_successfully' => 'Profile updated successfully',
+	'admin_password_updated_successfully' => 'Admin password updated successfully',
 	'promised_delivery' => 'التسليم الموعود',
 	'promotion' => 'عرض ترويجي',
 	'promotional_banner' => 'بانر ترويجي',

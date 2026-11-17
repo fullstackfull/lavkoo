@@ -4933,6 +4933,8 @@ return [
 	'profile_image_is_required' => 'Profile image is required',
 	'Profile_image_is_required.' => 'Profile image is required.',
 	'Profile_Info' => 'Profile Info',
+	'profile_updated_successfully' => 'Profile updated successfully',
+	'admin_password_updated_successfully' => 'Admin password updated successfully',
 	'projected_cost_for_the_full_month' => 'Projected cost for the full month',
 	'projected_for_the_full_month' => 'Projected for the full month',
 	'prometheus_exposition' => 'Prometheus exposition',
