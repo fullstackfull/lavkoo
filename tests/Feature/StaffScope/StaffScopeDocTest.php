@@ -56,7 +56,7 @@ class StaffScopeDocTest extends TestCase
 
     public function test_the_doc_records_the_owner_decision_about_the_platform_admin_grants(): void
     {
-        $this->assertStringContainsString('Owner decision recorded: a platform admin\'s grant country list is to be intersected with the staff scope once both are merged', $this->doc);
+        $this->assertStringContainsString('Owner decision recorded and built: a platform admin\'s grant country list is intersected with the staff scope', $this->doc);
     }
 
     public function test_every_controller_of_the_table_is_in_the_doc_with_its_counts_and_its_status(): void

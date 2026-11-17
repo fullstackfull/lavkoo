@@ -13,6 +13,10 @@ seller app: `GET /me` gains `capabilities` and `grant_expires_at`; a part of the
 same 401 as any other refusal. The rest is for the operator (section 3: the grant options, `list`, and the audit commands `audit:verify` and `audit:prune`) and for the reviewer
 (section 7 and the tests of section 11).
 
+**With the staff country scopes (GCC-14c) of the admin panel (section 12).** An admin who is also a restricted employee reaches only the markets of their grant that the staff scope leaves
+them, while `GCC_STAFF_COUNTRY_SCOPES` is on. What changes for the seller app is a value, never a shape: `markets` is shorter, and `scope` is `restricted` for an employee whose grant names every
+market. While that switch is off, for the master admin and for an employee with no row, nothing changes at all.
+
 ## 1. What it is
 
 A small JSON API under `/api/platform-admin/v1` with which the platform owner, signed in to the seller app as an **admin**, watches all six markets: whether each market is
@@ -118,7 +122,7 @@ GCC_PLATFORM_ADMIN_ENABLED=true                              # then clear the co
 | Restrict, narrow or widen | `gcc:platform-admin:grant {admin_id} --countries=KW,AE` | The grant is updated in place. Codes are case-insensitive, deduplicated and stored in configuration order. An unknown code, or a list with no code in it, is refused and nothing is written. `--confirm-owner` together with `--countries` is refused: it says the opposite. |
 | Limit to parts of the API | `... --capabilities=overview,alerts` | Of `overview`, `markets`, `alerts`, `audit`, `sessions` (case-insensitive, deduplicated, kept in that order). Leaving it out is all five. An unknown name, or a list with none in it, is refused. |
 | Give it an end | `... --expires=2027-03-31` | The grant is good through the end of that day (23:59:59 in the time zone the platform stamps its rows in, the one of section 9, point 10), and then it is no grant. A date that has passed, or anything that is not `YYYY-MM-DD`, is refused. Leaving it out is no end. |
-| Look at the grants | `gcc:platform-admin:list` | Every grant: the admin, the markets, the capabilities, the end, and its state (`active`, `revoked`, `expired`, `admin inactive`, `admin row replaced`, `admin missing`). Read only. |
+| Look at the grants | `gcc:platform-admin:list` | Every grant: the admin, the markets, the capabilities, the end, and its state (`active`, `revoked`, `expired`, `admin inactive`, `admin row replaced`, `admin missing`). While the staff country scopes are on and enforced it adds two columns: the countries the staff scope restricts the admin to, and the markets that leaves them (section 12). Read only. |
 | End a stolen or lost token | `gcc:platform-admin:revoke-tokens {admin_id}` | Every session of that admin ends at once; the grant stays, so they can sign in again. |
 | Take access away | `gcc:platform-admin:revoke {admin_id}` | The grant is revoked and every session ends. Revoking twice is harmless and keeps the first time. |
 | Give it back | `gcc:platform-admin:grant {admin_id} ...` | A revoked grant is reactivated, and any session that survived a hand edit is ended first. |
@@ -133,7 +137,8 @@ Each of these writes one audit line (`grant.created`, `grant.updated`, `grant.re
 with what the grant was before and after where there is one (the level, the markets, the capabilities and the end). **The lines of every command that changes something carry the identity of the operator**: the operating system user and the host name of
 the machine the command ran on (`context.operator.user`, `context.operator.host`), and `source: "console"`; never a secret. The commands work whether the flag is on or off, and each tells the operator to run the migrations
 if the tables are missing instead of failing. `gcc:platform-admin:grant` also says, after it succeeds, when the admin has no confirmed factor yet (and that they cannot sign in until
-they have one), and warns every time it runs while `GCC_PLATFORM_ADMIN_MFA_REQUIRED` is off.
+they have one), and warns every time it runs while `GCC_PLATFORM_ADMIN_MFA_REQUIRED` is off. While the staff country scopes are on and enforced it also says, as advice and without changing anything, when the staff scope of the admin
+leaves them fewer markets than the grant gives (section 12).
 
 ### Capabilities and expiry
 
@@ -240,7 +245,7 @@ somebody holds the password: change it. The lines the console commands write car
 |---|---|---|
 | 401 | `platform_admin_auth` | Any failure to authenticate or to sign in |
 | 403 | `capability_not_allowed` | The grant does not include the part of the API the route belongs to (section 3, "Capabilities and expiry"); the error carries `capability`, the one that is missing. Not an authentication failure: the token is good, and `GET /me` says what is allowed |
-| 403 | `market_not_allowed` | The market is not in the admin's grant (`market=all` is never refused: it means all of theirs) |
+| 403 | `market_not_allowed` | The market is not one the admin may see: not in their grant, or not left to them by their staff country scope (section 12); the answer is the same, so it says nothing about which (`market=all` is never refused: it means all of theirs) |
 | 404 | `session_not_found` | The session is not one of the admin's own open sessions (another admin's id, an ended one and an unknown one all answer alike) |
 | 404 | (router's own) | The API is switched off, or the path does not exist |
 | 422 | `invalid_market` | `market` is not `all` or a configured code; the error carries `valid` |
@@ -323,7 +328,7 @@ Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's o
 
 ### `GET /me`
 
-`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}}}`. `scope` is `all` (the platform owner) or `restricted`; `markets` is what the server allows, in
+`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}}}`. `scope` is `all` (the platform owner) or `restricted` (the grant names markets, or the staff country scope restricts the admin: section 12); `markets` is what the server allows (the grant, narrowed by the staff scope while it is on), in
 configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, in that order: what the server enforces, so the app offers only those); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
 
 `mfa.enrolled` is whether the admin has a confirmed factor made for their own admin row (whether or not it is required just now); `mfa.verified` is whether **this session** passed the second factor, and `mfa.method`
@@ -567,6 +572,7 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
     today). Whether the owner wants one, or wants a lockout that slows rather than stops, is open.
 12. **Capability sets and ends of grants as policy.** The five capabilities are the surface of the API, not roles. Which set a country manager gets, whether `sessions` (the right to end one's own sessions) should always be included, and whether every grant of a restricted
     viewer, or of the owner, must carry an end date, are the owner's to decide; the commands make any of them possible and none of them a default.
+13. **The staff country scopes (GCC-14c)** narrow what an admin who is also a restricted employee reaches here. The decisions it leaves are listed in section 12.
 
 ## 11. Review gates before merge and release
 
@@ -589,3 +595,124 @@ because what they pin is the one-step sign-in and the behaviour of a session, wh
 tests, which switch it on: `Totp` and `Base32` against the vectors of RFC 4226 and RFC 6238 appendix B and RFC 4648 (`tests/Unit/PlatformAdmin`), and in `tests/Feature/PlatformAdmin` the migrations of the factor, the challenge and the session
 column, the console commands, the two-step sign-in (every refusal, the attempts, the replay, the lockout, the limits, what is stored and what is never stored), the session rules (idle, the number of sessions, ending the others, the
 refusal of a session without the factor), and the shape of every answer that changed. The test base provides `enrolFactor()` and `totpFor()` so that a test can sign in the way the app does.
+
+## 12. The staff country scopes (GCC-14c): what an admin who is also an employee reaches
+
+An admin who signs in to this API may also be an employee of the admin panel whose work is limited to some countries (`gcc:staff-country:assign`,
+[GCC-14C-STAFF-COUNTRY-SCOPES.md](./GCC-14C-STAFF-COUNTRY-SCOPES.md)). The owner decided that the two lists are intersected: **through a platform token nobody reaches a market that their staff
+scope forbids them in the admin panel.** This section is the rule, what it does to each part of the principal, what the seller app sees, what the console says, what it costs, the decisions it
+leaves and what must be true before both switches are on.
+
+**There is no switch of its own.** The staff switch (`GCC_STAFF_COUNTRY_SCOPES`, `gcc.staff.country_scopes`, default off) decides for both. The change adds no migration, no route, no setting, no
+error code and no member of any answer. While `GCC_PLATFORM_ADMIN_ENABLED` is off nothing here is reached.
+
+### The rule
+
+The markets an admin reaches are **the markets their grant names that their staff scope also leaves them** (the grant's markets intersected with the staff countries), in the order of the
+configuration:
+
+| Grant | Staff scope (admin panel) | Reaches | `scope` |
+|---|---|---|---|
+| every market (the platform owner) | none: the master admin, an employee with no row, the staff switch off, or its table or the products column missing | every market | `all` |
+| every market | KW, SA | SA, KW | `restricted` |
+| every market | all six countries | all six, and still **not** the platform owner (below) | `restricted` |
+| KW, AE | KW, SA | KW | `restricted` |
+| KW | SA | no market: the admin signs in and sees nothing | `restricted` |
+| any | only values that are no country (`zz`, `kw` in lower case, an empty value) | no market | `restricted` |
+| any | the master admin, whatever rows it has | what the grant names | as the grant says |
+
+Who the staff scope restricts is its own rule and is not repeated here: the master admin (`admin_role_id` 1) never is, an employee with no row is not, and an employee with rows is restricted to the
+rows that name a configured country (rows that name none leave them restricted to nothing, never to everything).
+
+**When the staff scope is read.** On every request, and at every step of a sign-in that opens a session, from the rows as they are then. Nothing is kept from one request to the next, so a scope
+that is given, changed or taken back, and the staff switch turned on or off, applies to the next request made with the same token. **No session ends** when a scope changes.
+
+### What it does to each part of the principal
+
+* **Markets.** The intersection above, worked out in one place: `PlatformEffectiveMarkets`, called by `PlatformAdminTokenService` when it builds the principal. Everything that reads the markets of a
+  principal reads that: `GET /me` and the `me` of both steps of the sign-in, `GET /markets`, and the `market` parameter and the markets answered for by `GET /overview` and `GET /alerts`. The console
+  `list` and `grant` ask the same service. No reader holds a copy of the rule. The staff scope itself is asked of `StaffCountryScope::countriesOfAdmin()`, the one place that knows its switch, its
+  table and how rows become countries.
+* **The platform owner (`scope: all`).** An admin the staff scope restricts is **not** the platform owner of this API, even when their grant names every market and their scope names all six
+  countries: the staff scope hides the orders that belong to no country from every restricted employee (GCC-14c, slice 2), and this API does the same. The flag is read in two places, and `scope` of
+  every answer follows it: the bucket `unattributed` of `GET /overview` (shown only to the platform owner asking for all markets, so never to a restricted employee), and `GET /audit-logs` (the platform
+  owner reads every line and the operator of the console lines; everyone else reads only their own lines, without the operator).
+* **Capabilities, level, expiry and sessions** are unchanged: the intersection is about markets only. A narrowed admin who is not granted `alerts` still gets `403 capability_not_allowed`.
+* **An empty intersection** is a principal with no market, as a grant that names none is today: it signs in, `GET /me` says `markets: []`, the readers answer with empty lists, and a named market is a
+  403. It is not a failure to sign in.
+* **The `market` parameter.** A market outside the markets the admin reaches is `403 market_not_allowed` with the same body whichever list forbids it, so it is no oracle for the staff scope. The
+  spelling of a code (case, spaces), `market=all` (all of theirs), a list, a keyed list or two codes in one value are what they always were (a 200 for theirs, a 403 for a market outside, a 422 for
+  what is not a market); a body, another header or a parameter of another name never names a market.
+* **Audit lines** have the format they had, and no line is written about the staff scope, per request or otherwise.
+
+### What the seller app sees
+
+A value, never a shape. `GET /me` and the `me` of the sign-in say `markets` (shorter than the grant, possibly `[]`) and `scope` (`restricted` for an employee the staff scope restricts, even when
+their grant names every market). No member, header or error code is added, so an app that handles a restricted viewer already handles this admin. The app is **not told why** the list is shorter
+(owner decision 5 below). What it must already do for any restricted viewer applies: an admin whose `scope` was `all` and becomes `restricted` loses the bucket of orders without a market
+(`unattributed` is `null`) and the whole audit trail (only their own lines are read).
+
+### The console
+
+Both commands only read; the staff scope is for the staff commands to change.
+
+* `gcc:platform-admin:list`, while the staff scope is on and enforced (its switch is on, and its table and `products.storefront_country` exist), adds two columns: `Staff countries` (what the staff scope
+  restricts the admin to: `-` when it does not, `none` when it restricts them to nothing) and `Effective markets` (the markets of the grant that this leaves them; for an admin it does not restrict, the
+  markets of the grant). Otherwise the table is the one it always was.
+* `gcc:platform-admin:grant`, in the same state, prints one warning after it succeeds when the staff scope of the admin leaves them fewer markets than the grant gives: it says what the staff scope
+  restricts them to, what they will see, and that the grant is as given. It prints nothing otherwise.
+
+### What it costs, and when it is dormant
+
+| State | What the API asks about the staff scope |
+|---|---|
+| The staff switch is off | **Nothing.** The same statements run, whether or not the staff table exists (a test compares them), no statement names the staff table or the role of the admin, and the answers are those of the grant alone (the six-country tests check every grant against six kinds of staff scope, and compare the whole answers of the readers body for body with the grant that has no row) |
+| On, and the table or the products column missing | The schema, to find that out, and then it acts as off: nothing is narrowed and nothing fails |
+| On, the master admin | **No statement more on a request:** the statement that reads the admin reads the role as one more column, and the staff table and its schema are not touched. A sign-in that opens a session reads the role with one statement of its own |
+| On, an employee | The schema and one read of the rows, for each request (and for the step of a sign-in that opens a session) |
+| On, a request refused at authentication (the uniform 401) | Nothing: the staff scope is asked only after every check of the token has passed |
+
+Nothing is cached, in a static, in the container or in the application store, so a scope that changes takes effect at once. The API only reads the staff table: a test compares it before and after a series of
+requests.
+
+### Decisions the owner is left
+
+Each was decided on the safest reading that can be reversed (turning the staff switch off restores the answers of the grant alone, at the next request, with nothing to clean up). None is financial or legal.
+
+1. **Whether this API should follow the staff scope at all, and with which switch.** Built as the recorded decision says: the stricter of the two lists wins, with no switch of its own, so the staff switch decides for
+   both. Open: a switch of its own for this API.
+2. **A restricted employee is not the platform owner of this API.** No bucket of orders without a market, only their own audit lines, no operator on the lines: also when their grant names every market and their
+   staff scope names all six countries, consistent with the staff scope hiding the orders that belong to no country from every restricted employee. Open: whether such an admin should still read the whole audit
+   trail (the lines of other admins say which market somebody asked about, and nothing else) or the bucket; each is one condition (`PlatformAdminPrincipal::isPlatformOwner()`).
+3. **Who may hold a grant for every market.** An employee who is not the master admin and holds no staff row is the platform owner of this API when their grant names every market: `gcc:platform-admin:grant
+   --confirm-owner` has never asked for the master role, and the staff scope restricts nobody until a country is assigned. Open: whether a grant for every market should need the master role, or a staff scope.
+4. **No market is not a refusal.** An admin whose staff scope leaves them no market (their staff countries are not in their grant, or damaged) signs in and sees nothing, which tells nobody what the staff scope
+   is. Open: whether such a sign-in should be refused (the uniform 401), which would tell the admin that something is wrong at the cost of saying more.
+5. **The seller app is not told why `markets` is shorter than the grant.** Open: a member that appears only when the staff scope narrows the list, so that the app can say why. It would be a contract change for
+   the app.
+6. **A change of the staff scope ends no session.** It narrows (or widens) the next request. Open: ending the sessions of an admin whose staff scope changes, which needs the staff commands to write to this API's
+   tables (they do not, and the two features are kept apart).
+7. **A staff scope that is on but not enforced narrows nothing** (the table or the products column is missing: the staff scope's own rule, kept here). An operator who switches it on before the migrations have run
+   has not restricted anybody, and `gcc:staff-country:list` and the two extra columns of `gcc:platform-admin:list` are how they find out.
+
+### Before both switches are on
+
+1. Deploy with both switches off. Nothing changes.
+2. Run the migrations of both features: the nine of this API (section 3), `2026_11_28_100000_create_admin_country_scopes_table` and the products migration of GCC-14a (`products.storefront_country`).
+3. Give the grants (`gcc:platform-admin:grant`) and the staff scopes (`gcc:staff-country:assign`), then read both back: `gcc:staff-country:list` says what is stored and whether it is enforced, and once the staff
+   switch is on `gcc:platform-admin:list` says what each admin reaches.
+4. **Switch the staff scopes on before, or together with, this API** when employees hold grants: an employee whose grant names every market reaches every market through this API for as long as the staff
+   switch is off.
+5. Take the decisions above, at least 2 and 3.
+6. Tell the seller app team that `scope` can be `restricted` for an admin whose grant names every market, and that `markets` can be shorter than the grant or empty.
+7. Check, as a restricted employee with a platform token: `GET /me` (their markets only, `restricted`), `GET /overview?market=<a market of another country>` (403, the same body as for a market outside the
+   grant), no bucket of orders without a market and only their own lines in the trail; and, as the master admin, that nothing changed.
+8. To go back, turn the staff switch off: the answers are those of the grant alone at the next request.
+
+### The tests
+
+`tests/Feature/PlatformAdmin`: `StaffScopeEffectiveMarketsTest` (the rule for each part of the principal, a scope that changes after the sign-in, the market parameter in 25 spellings, the shapes, the trail),
+`StaffScopeSixCountryMatrixTest` (the six countries of the configuration: every grant against every staff scope, the staff switch on and off, over `/me`, `/markets`, `/overview`, `/alerts` and `/audit-logs`,
+the unattributed bucket, a market at a time, and the answers with the switch off compared with the grant alone), `StaffScopeDormancyTest` (no statement about the staff scope while it is off or for the master
+admin, one read of the rows otherwise), `StaffScopeOtherIdentitiesTest` (sellers, customers and the panel session are unaffected), `StaffScopeMfaSignInTest` (the second step) and `StaffScopeConsoleTest`; and
+`tests/Feature/StaffScope/StaffCountryOfAdminTest` for `StaffCountryScope::countriesOfAdmin()`. The expected answers are worked out in the tests as set logic from the two lists and from the description of the world.
