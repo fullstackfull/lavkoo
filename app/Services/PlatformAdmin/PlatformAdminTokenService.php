@@ -35,7 +35,7 @@ final class PlatformAdminTokenService
 
     private const LISTING_LIMIT = 100;
 
-    public function __construct(private readonly PlatformAdminSettings $settings, private readonly PlatformMarkets $markets, private readonly PlatformAdminAudit $audit)
+    public function __construct(private readonly PlatformAdminSettings $settings, private readonly PlatformEffectiveMarkets $effectiveMarkets, private readonly PlatformAdminAudit $audit)
     {
     }
 
@@ -104,7 +104,7 @@ final class PlatformAdminTokenService
             return null;
         }
 
-        $admin = Admin::query()->select(['id', 'name', 'status', 'password', 'created_at'])->find($token->admin_id);
+        $admin = Admin::query()->select($this->effectiveMarkets->columnsToRead(columns: ['id', 'name', 'status', 'password', 'created_at']))->find($token->admin_id);
 
         if ($admin === null || (int) $admin->getRawOriginal('status') !== 1) {
             return null;
@@ -182,7 +182,9 @@ final class PlatformAdminTokenService
 
     private function principalOf(Admin $admin, PlatformAdminGrant $grant, PlatformAdminToken $token): PlatformAdminPrincipal
     {
-        return new PlatformAdminPrincipal(admin: $admin, grant: $grant, token: $token, markets: $this->markets->allowedBy(grant: $grant));
+        $reach = $this->effectiveMarkets->of(grant: $grant, admin: $admin);
+
+        return new PlatformAdminPrincipal(admin: $admin, grant: $grant, token: $token, markets: $reach->markets, restrictedByStaffScope: $reach->restrictedByStaffScope());
     }
 
     /** @return Builder<PlatformAdminToken> the sessions of an admin that are open: not ended, not expired and not idle */
