@@ -114,7 +114,7 @@ final class PlatformAdminSecondStep
             }
 
             return [$verdict, $session];
-        });
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
     }
 
     /** What a refused try leaves: a guess counts against the admin, the last try consumes the challenge, and the trail and the log are written after the answer. */

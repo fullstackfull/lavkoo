@@ -39,7 +39,10 @@ final class PlatformAdminGrantService
         $included = $this->capabilitiesOf(capabilities: $capabilities);
         $this->requireAnEndInTheFuture(expiresAt: $expiresAt);
 
-        return DB::transaction(fn (): PlatformAdminGrant => $this->writeGrant(admin: $admin, scope: $scope, level: $level, capabilities: $included, expiresAt: $expiresAt));
+        return DB::transaction(
+            fn (): PlatformAdminGrant => $this->writeGrant(admin: $admin, scope: $scope, level: $level, capabilities: $included, expiresAt: $expiresAt),
+            attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS,
+        );
     }
 
     /**
@@ -68,7 +71,7 @@ final class PlatformAdminGrantService
             $this->audit->record(action: 'grant.revoked', adminId: $adminId, context: ConsoleOperator::auditContext(extra: $result));
 
             return $result;
-        });
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
     }
 
     /** Ends every session of the admin and leaves the grant, so the admin can sign in again. Returns how many sessions it ended. */

@@ -69,7 +69,7 @@ final class PlatformAdminMfaEnrolment
             ]);
 
             $this->audit->record(action: 'mfa.enrolled', adminId: $adminId, context: ConsoleOperator::auditContext(extra: $context));
-        });
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
 
         $base32 = Base32::encode(bytes: $secret);
 
@@ -90,7 +90,7 @@ final class PlatformAdminMfaEnrolment
     {
         $admin = Admin::query()->select(['id', 'created_at'])->find($adminId) ?? throw new PlatformAdminMfaRefusedException("Admin {$adminId} does not exist.");
 
-        $failure = DB::transaction(fn (): ?string => $this->activateWith(admin: $admin, code: $code));
+        $failure = DB::transaction(fn (): ?string => $this->activateWith(admin: $admin, code: $code), attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
 
         if ($failure !== null) {
             $this->audit->record(action: 'mfa.confirm_failed', adminId: $adminId, context: ConsoleOperator::auditContext(extra: ['reason' => $failure]));
@@ -123,7 +123,7 @@ final class PlatformAdminMfaEnrolment
             $this->audit->record(action: 'mfa.reset', adminId: $adminId, context: ConsoleOperator::auditContext(extra: $result));
 
             return $result;
-        });
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
     }
 
     /**
