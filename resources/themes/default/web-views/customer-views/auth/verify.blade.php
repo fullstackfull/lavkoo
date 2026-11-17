@@ -59,7 +59,6 @@
                                         <input class="otp-value" type="hidden" name="token" required>
                                     </div>
                                 </div>
-                                <input type="hidden" value="{{$user->id}}" name="id">
                                 <input type="hidden" name="identity" value="{{ request('identity') }}">
                                 <input type="hidden" name="type" value="{{ request('type') }}">
 
