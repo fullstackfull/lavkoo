@@ -11,10 +11,12 @@
    <div class="search-list d-flex flex-column">
        @if (count($result) > 0)
            <?php
-           function highlightKeyword($text, $keyword)
-           {
-               $escapedKeyword = preg_quote($keyword, '/');
-               return preg_replace("/($escapedKeyword)/i", '<mark>$1</mark>', $text);
+           if (!function_exists('highlightKeyword')) {
+               function highlightKeyword($text, $keyword)
+               {
+                   $escapedKeyword = preg_quote($keyword, '/');
+                   return preg_replace("/($escapedKeyword)/i", '<mark>$1</mark>', $text);
+               }
            }
            ?>
            @foreach ($result as $groupKey => $resultItem)
@@ -25,7 +27,7 @@
                    @php
                        $title = $item['page_title_value'] ?? 'N/A';
                        $title = ucfirst(str_replace('_', ' ', removeSpecialCharacters(str_replace("\'", "'", $title))));
-                       $uri = $item['uri'] ?? '';
+                       $uri = e($item['uri'] ?? '');
                        $image = $item['image'] ?? null;
                        $uniqueId = 'item_' . $groupKey . '_' . $key;
 
@@ -40,7 +42,6 @@
                        <input hidden name="routeUri" value="{{ $item['uri'] }}">
                        <input hidden name="routeFullUrl" value="{{ url($item['uri']) }}">
                        <input hidden name="searchKeyword" value="{{ $keyword }}">
-                       <input hidden name="fullResult" value="{{ json_encode($result) }}">
                        <input hidden name="response" value="{{ json_encode($item) }}">
 
                        <div class="search-item-wrapper" data-item-id="{{ $uniqueId }}">
