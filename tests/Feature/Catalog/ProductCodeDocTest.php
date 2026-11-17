@@ -40,6 +40,18 @@ class ProductCodeDocTest extends TestCase
         }
     }
 
+    public function test_the_doc_states_the_totals_of_the_registry(): void
+    {
+        $counts = ProductCodeSites::counts();
+
+        $this->assertStringContainsString(
+            sprintf('**%d covered, %d labelled, %d not needed (id-keyed), %d open**', $counts['covered'], $counts['labelled'], $counts['id_keyed'], $counts['open']),
+            $this->doc(),
+            'the totals line of the doc is out of step with ProductCodeSites::counts()',
+        );
+        $this->assertStringContainsString(sprintf('(%d rows below)', array_sum($counts)), $this->doc());
+    }
+
     public function test_the_doc_has_no_row_for_a_site_the_registry_does_not_know(): void
     {
         preg_match_all('/^\| ([A-G]\d+) \| `/m', $this->doc(), $rows);

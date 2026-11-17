@@ -88,6 +88,40 @@ class ProductCodeReadinessTest extends TestCase
         }
     }
 
+    public function test_the_output_counts_the_sites_of_the_survey_by_status(): void
+    {
+        $this->cleanCatalog();
+        $counts = ProductCodeSites::counts();
+
+        $output = $this->run_command()[1];
+
+        $this->assertSame(count(ProductCodeSites::all()), array_sum($counts), 'every site is in exactly one count');
+        $this->assertStringContainsString(
+            sprintf('Survey of %d lookup sites: %d covered, %d labelled (a picker names the country), %d not needed (id-keyed), %d still open.', count(ProductCodeSites::all()), $counts['covered'], $counts['labelled'], $counts['id_keyed'], $counts['open']),
+            $output,
+        );
+    }
+
+    public function test_the_counts_agree_with_the_status_of_each_site(): void
+    {
+        $byStatus = array_count_values(array_column(ProductCodeSites::all(), 'status'));
+        $counts = ProductCodeSites::counts();
+
+        $this->assertSame($byStatus[ProductCodeSites::COVERED] ?? 0, $counts['covered']);
+        $this->assertSame($byStatus[ProductCodeSites::LABELLED] ?? 0, $counts['labelled']);
+        $this->assertSame($byStatus[ProductCodeSites::ID_KEYED] ?? 0, $counts['id_keyed']);
+        $this->assertSame(($byStatus[ProductCodeSites::PARTIAL] ?? 0) + ($byStatus[ProductCodeSites::NOT_COVERED] ?? 0) + ($byStatus[ProductCodeSites::DEFERRED] ?? 0), $counts['open']);
+    }
+
+    public function test_the_open_sites_are_the_partial_the_not_covered_and_the_deferred_ones_and_nothing_else(): void
+    {
+        $open = array_column(ProductCodeSites::notCovered(), 'status');
+
+        $this->assertNotSame([], $open);
+        $this->assertSame([], array_diff($open, [ProductCodeSites::PARTIAL, ProductCodeSites::NOT_COVERED, ProductCodeSites::DEFERRED]));
+        $this->assertContains(ProductCodeSites::DEFERRED, $open, 'the copy-to-country tool waits for the owner and is listed with the open sites');
+    }
+
     public function test_a_product_without_a_country_makes_the_catalog_not_ready(): void
     {
         $this->cleanCatalog();

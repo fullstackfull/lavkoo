@@ -53,6 +53,19 @@ final class ProductCodeSites
         ));
     }
 
+    /** @return array{covered: int, labelled: int, id_keyed: int, open: int} how many sites are in each state; every site is in exactly one */
+    public static function counts(): array
+    {
+        $byStatus = array_count_values(array_column(self::all(), 'status'));
+
+        return [
+            'covered' => $byStatus[self::COVERED] ?? 0,
+            'labelled' => $byStatus[self::LABELLED] ?? 0,
+            'id_keyed' => $byStatus[self::ID_KEYED] ?? 0,
+            'open' => count(self::notCovered()),
+        ];
+    }
+
     private const SITES = [
         ['A1', 'ProductAddRequest: code', self::COVERED, 'Unique inside the country the add action saves the product in (the admin\'s choice, the table default for a vendor).'],
         ['A2', 'ProductAddRequest: barcode', self::COVERED, 'Unique inside the same country.'],
@@ -97,6 +110,6 @@ final class ProductCodeSites
         ['G6', 'Stock rows', self::ID_KEYED, 'Display only.'],
         ['G7', 'Outbound attributes (Torod externalId, M5AZN)', self::ID_KEYED, 'The product id is the external id; SKU and barcode are only attributes.'],
         ['G8', 'CatalogIntegrityProducer', self::ID_KEYED, 'A diagnostic that flags the same barcode inside one seller: a false positive for twins once sellers have markets.'],
-        ['G9', 'Product gallery copy', self::NOT_COVERED, 'The copy blanks the code and barcode so it passes the old global rule; a copy-to-country flow keeps them.'],
+        ['G9', 'Product gallery copy', self::DEFERRED, 'Kept as it is: the copy blanks the code and the barcode and is saved by the add action, so the new ones are checked in the country the copy is saved in. A copy-to-country tool that keeps them is a later, owner-approved slice; the doc lists what it needs.'],
     ];
 }
