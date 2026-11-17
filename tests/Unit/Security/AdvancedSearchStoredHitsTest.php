@@ -2,10 +2,12 @@
 
 namespace Tests\Unit\Security;
 
+use App\Models\Admin;
 use App\Packages\AdvanceSearch\AdvanceSearch;
 use App\Services\AdvancedSearchService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use stdClass;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\Support\SpoiledStoredHits;
 use Tests\TestCase;
 
@@ -17,6 +19,22 @@ use Tests\TestCase;
  */
 class AdvancedSearchStoredHitsTest extends TestCase
 {
+    use RestoresLanguageFiles;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->rememberLanguageFiles();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
+    }
+
     /** @return array<string, array{0: callable(array<string, mixed>): array<string, mixed>}> how a stored hit is spoiled */
     public static function hitsTheSearchCouldNotHaveGiven(): array
     {
@@ -81,6 +99,22 @@ class AdvancedSearchStoredHitsTest extends TestCase
 
         $this->assertEqualsCanonicalizing(['menu', 'page', ...array_keys($search->getModels())], $search->getResultTypes());
         $this->assertSame(array_values(array_unique($search->getResultTypes())), $search->getResultTypes());
+    }
+
+    public function test_the_menu_hits_and_the_page_hits_the_package_produces_are_of_a_type_it_lists(): void
+    {
+        session(['local' => 'en']);
+        $this->actingAs(new Admin(['admin_role_id' => 1]), 'admin');
+        $search = new AdvanceSearch(type: 'admin', keyword: 'orders');
+
+        $menuHits = $search->searchMenuList();
+        $pageHits = $search->searchPageList();
+
+        $this->assertNotEmpty($menuHits);
+        $this->assertNotEmpty($pageHits);
+        foreach ([...$menuHits, ...$pageHits] as $hit) {
+            $this->assertContains($hit['type'], $search->getResultTypes(), 'The type of the hit for ' . $hit['uri']);
+        }
     }
 
     public function test_nothing_stored_means_nothing_listed(): void
