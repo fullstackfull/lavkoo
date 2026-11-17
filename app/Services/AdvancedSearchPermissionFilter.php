@@ -30,7 +30,7 @@ class AdvancedSearchPermissionFilter
         'coupons' => 'marketing',
         'blogs' => 'marketing',
         'contacts' => 'help_and_support',
-        'business_page' => 'business_settings',
+        'business_pages' => 'business_settings',
     ];
 
     /**

@@ -40,9 +40,6 @@ class AdvancedSearchPermissionFilterTest extends TestCase
         $cases = [];
         foreach (self::GROUPS as $group => [$permission, $page]) {
             $cases[$group . ' with the address of its own page'] = [$group, $permission, $page];
-            if ($group === 'business_pages') {
-                continue;
-            }
             $cases[$group . ' with no address'] = [$group, $permission, ''];
             $cases[$group . ' with the address of a page of another permission'] = [$group, $permission, $permission === 'orders' ? 'admin/products/list/in-house' : 'admin/orders/list/all'];
         }
