@@ -871,8 +871,8 @@ class ProductController extends BaseController
             ToastMagic::error($dataArray['message']);
             return back();
         }
-        $this->productRepo->addArray(data: $dataArray['products']);
-        $products = \App\Models\Product::whereIn('code', array_keys($dataArray['productsTax']))->get();
+        $importedProductIds = $this->productRepo->addArrayAndGetIds(data: $dataArray['products']);
+        $productTaxIds = array_combine($importedProductIds, $dataArray['productsTax']);
         $SystemTaxVat = SystemTaxSetup::where('is_active', 1)->where('is_default', 1)->first();
 
         $allTaxIds = collect($dataArray['productsTax'])->flatten()->map(function ($ids) {
@@ -880,14 +880,13 @@ class ProductController extends BaseController
         })->flatten()->unique();
         $validTaxIds = \Modules\TaxModule\app\Models\Tax::whereIn('id', $allTaxIds)->pluck('id')->toArray();
         $rowsToInsert = [];
-        \Modules\TaxModule\app\Models\Taxable::where('tax_for', 'tax_for_orders')->where('taxable_type', ' App\Models\Product')->whereIn('taxable_id', $products->pluck('id')->toArray() ?? [0])->delete();
-        foreach ($products as $product) {
-            $taxIds = explode(',', $dataArray['productsTax'][$product->code]);
+        foreach ($productTaxIds as $productId => $productTaxList) {
+            $taxIds = explode(',', $productTaxList);
             foreach ($taxIds as $taxId) {
                 if (in_array($taxId, $validTaxIds)) {
                     $rowsToInsert[] = [
                         'taxable_type' => 'App\Models\Product',
-                        'taxable_id' => $product->id,
+                        'taxable_id' => $productId,
                         'system_tax_setup_id' => $SystemTaxVat->id,
                         'tax_id' => $taxId,
                         'tax_for' => 'tax_for_orders',

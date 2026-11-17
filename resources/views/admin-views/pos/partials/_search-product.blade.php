@@ -10,7 +10,7 @@
                 <div
                     class="fs-10">{{ translate('category').' '.':'.' '}}{{ isset($product->category) ? $product->category->name : translate('category_not_found') }}</div>
                 <div
-                    class="fs-10">{{ translate('sku').' '.':'.' '}}{{ isset($product->code) ? $product->code : translate('sku_not_found') }}</div>
+                    class="fs-10">{{ translate('sku').' '.':'.' '}}{{ isset($product->code) ? $product->code : translate('sku_not_found') }}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}</div>
                 <div
                     class="fs-10">{{ translate('brand').' '.':'.' '}}{{ isset($product->brand) ? $product?->brand?->name : translate('brands_not_found') }}</div>
                 @if ($product->added_by == "seller")

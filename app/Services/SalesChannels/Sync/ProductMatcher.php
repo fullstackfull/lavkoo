@@ -4,6 +4,7 @@ namespace App\Services\SalesChannels\Sync;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Services\Catalog\ProductCodeScope;
 
 /**
  * Proposes which of OUR products a channel listing might be, from identifiers that are supposed to be unique (a seller SKU against a product code or a variant SKU, a barcode against
@@ -11,8 +12,17 @@ use Illuminate\Support\Facades\Schema;
  */
 class ProductMatcher
 {
-    /** @return list<array{product_id: int, variant_key: string, reason: string}> */
-    public function candidates(?string $sku, ?string $barcode): array
+    public function __construct(private readonly ProductCodeScope $codeScope)
+    {
+    }
+
+    /**
+     * With the country-scoped codes on, a country (the one the channel account sells in) keeps the proposal to that country's products; without one every country's products are proposed, and
+     * a code two countries share is then ambiguous.
+     *
+     * @return list<array{product_id: int, variant_key: string, reason: string}>
+     */
+    public function candidates(?string $sku, ?string $barcode, ?string $country = null): array
     {
         if (!Schema::hasTable('products')) {
             return [];
@@ -21,7 +31,7 @@ class ProductMatcher
         $barcode = $barcode === null ? null : trim($barcode);
         $found = [];
 
-        $query = DB::table('products')->where('added_by', 'admin')->where('product_type', 'physical')->select('id', 'code', 'barcode', 'variation');
+        $query = $this->codeScope->restrictToCountry(query: DB::table('products'), country: $country)->where('added_by', 'admin')->where('product_type', 'physical')->select('id', 'code', 'barcode', 'variation');
         $query->where(static function ($q) use ($sku, $barcode): void {
             if ($sku !== null && $sku !== '') {
                 $q->orWhere('code', $sku)->orWhere('barcode', $sku)->orWhere('variation', 'like', '%"sku":' . json_encode($sku) . '%');

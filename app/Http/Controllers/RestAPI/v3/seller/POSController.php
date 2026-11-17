@@ -30,6 +30,8 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
+use App\Services\Catalog\ProductCodeScope;
+use Illuminate\Support\Collection;
 
 class POSController extends Controller
 {
@@ -204,20 +206,42 @@ class POSController extends Controller
     public function get_product_by_barcode(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $product = Product::withCount('reviews')->where([
-            'added_by' => 'seller',
-            'user_id' => $seller->id,
-            'code' => $request->code
-        ])->with(['clearanceSale' => function ($query) {
-            return $query->active()->with(['setup']);
-        }])->first();
+        $codeScope = app(ProductCodeScope::class);
+        $requestedCountry = $request->query('country');
+        if (!$codeScope->isScanCountryAllowed($requestedCountry)) {
+            return response()->json(['errors' => [['code' => 'country', 'message' => translate('the_country_must_be_one_of_the_configured_storefront_countries')]]], 422);
+        }
+
+        $products = $codeScope->scan(
+            ownedProducts: Product::withCount('reviews')->where([
+                'added_by' => 'seller',
+                'user_id' => $seller->id,
+            ])->with(['clearanceSale' => function ($query) {
+                return $query->active()->with(['setup']);
+            }]),
+            code: $request->code,
+            country: $codeScope->countryOfScan($requestedCountry),
+        );
+        if ($products->count() > 1) {
+            return $this->ambiguousCodeResponse(products: $products);
+        }
 
         $final_product = array();
-        if ($product) {
-            $final_product = Helpers::product_data_formatting($product, false);
+        if ($products->isNotEmpty()) {
+            $final_product = Helpers::product_data_formatting($products->first(), false);
         }
 
         return response()->json($final_product, 200);
+    }
+
+    /** A scanned code that more than one product answers to is never settled by picking one: the app is told which products it could be. */
+    private function ambiguousCodeResponse(Collection $products): JsonResponse
+    {
+        return response()->json(['errors' => [[
+            'code' => 'ambiguous_code',
+            'message' => translate('the_scanned_code_matches_more_than_one_product'),
+            'candidates' => $products->map(fn (Product $product): array => ['id' => $product->id, 'name' => $product->name, 'country' => $product->storefront_country])->values()->all(),
+        ]]], 409);
     }
 
     public function product_list(Request $request): JsonResponse

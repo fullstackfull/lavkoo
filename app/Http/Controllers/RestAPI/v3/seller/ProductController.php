@@ -52,6 +52,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
+use App\Services\Catalog\ProductCodeScope;
 
 class ProductController extends Controller
 {
@@ -782,6 +783,7 @@ class ProductController extends Controller
     public function add_new(Request $request): JsonResponse
     {
         $seller = $request->seller;
+        $codeScope = app(ProductCodeScope::class);
 
         $validator = Validator::make($request->all(), [
             'name' => 'required',
@@ -795,7 +797,7 @@ class ProductController extends Controller
             'unit_price' => 'required|min:1',
             'discount' => 'required|gt:-1',
             'shipping_cost' => 'required_if:product_type,==,physical|gt:-1',
-            'code' => 'required|min:6|max:20|regex:/^[a-zA-Z0-9]+$/|unique:products',
+            'code' => ['required', 'min:6', 'max:20', 'regex:/^[a-zA-Z0-9]+$/', $codeScope->uniqueRuleForCode(country: $codeScope->countryOfNewProduct(addedBy: 'seller'))],
             'minimum_order_qty' => 'required|numeric|min:1',
         ], [
             'name.required' => translate('Product name is required!'),
@@ -1219,6 +1221,7 @@ class ProductController extends Controller
         $seller = $request->seller;
         $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->find($id);
         $oldProductData = $product;
+        $codeScope = app(ProductCodeScope::class);
         $validator = Validator::make($request->all(), [
             'name' => 'required',
             'category_id' => 'required',
@@ -1230,7 +1233,7 @@ class ProductController extends Controller
             'discount' => 'required|gt:-1',
             'shipping_cost' => 'required_if:product_type,==,physical|gt:-1',
             'minimum_order_qty' => 'required|numeric|min:1',
-            'code' => 'required|min:6|max:20|regex:/^[a-zA-Z0-9]+$/|unique:products,code,' . $product->id,
+            'code' => ['required', 'min:6', 'max:20', 'regex:/^[a-zA-Z0-9]+$/', $codeScope->uniqueRuleForCode(country: $codeScope->countryOfProduct($product), ignoreProductId: $product->id)],
         ], [
             'name.required' => 'Product name is required!',
             'category_id.required' => 'category  is required!',
