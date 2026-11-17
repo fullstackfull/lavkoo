@@ -31,16 +31,19 @@ Route::group(['prefix' => 'v3/seller', 'as' => 'v3/seller.', 'middleware' => ['a
         });
 
         Route::group(['prefix' => 'auction/product', 'as' => 'auction.product.'], function () {
-            Route::post('title-auto-fill', [AIAuctionProductController::class, 'titleAutoFill'])->name('title-auto-fill');
-            Route::post('description-auto-fill', [AIAuctionProductController::class, 'descriptionAutoFill'])->name('description-auto-fill');
-            Route::post('general-setup-auto-fill', [AIAuctionProductController::class, 'generalSetupAutoFill'])->name('general-setup-auto-fill');
-            Route::post('shipping-policy-auto-fill', [AIAuctionProductController::class, 'shippingPolicyAutoFill'])->name('shipping-policy-auto-fill');
-            Route::post('auction-info-auto-fill', [AIAuctionProductController::class, 'auctionInfoAutoFill'])->name('auction-info-auto-fill');
-            Route::post('seo-section-auto-fill', [AIAuctionProductController::class, 'seoSectionAutoFill'])->name('seo-section-auto-fill');
-            Route::post('analyze-image-auto-fill', [AIAuctionProductController::class, 'generateTitleFromImages'])->name('analyze-image-auto-fill');
-            Route::post('generate-title-suggestions', [AIAuctionProductController::class, 'generateProductTitleSuggestion'])->name('generate-title-suggestions');
-            Route::post('setup-auto-fill', [AIAuctionProductController::class, 'setupAutoFill'])->name('setup-auto-fill');
-            Route::get('generate-limit-check', [AIAuctionProductController::class, 'generateLimitCheck'])->name('generate-limit-check');
+            Route::middleware('seller_can:products.manage')->group(function () {
+                Route::post('title-auto-fill', [AIAuctionProductController::class, 'titleAutoFill'])->name('title-auto-fill');
+                Route::post('description-auto-fill', [AIAuctionProductController::class, 'descriptionAutoFill'])->name('description-auto-fill');
+                Route::post('general-setup-auto-fill', [AIAuctionProductController::class, 'generalSetupAutoFill'])->name('general-setup-auto-fill');
+                Route::post('shipping-policy-auto-fill', [AIAuctionProductController::class, 'shippingPolicyAutoFill'])->name('shipping-policy-auto-fill');
+                Route::post('auction-info-auto-fill', [AIAuctionProductController::class, 'auctionInfoAutoFill'])->name('auction-info-auto-fill');
+                Route::post('seo-section-auto-fill', [AIAuctionProductController::class, 'seoSectionAutoFill'])->name('seo-section-auto-fill');
+                Route::post('analyze-image-auto-fill', [AIAuctionProductController::class, 'generateTitleFromImages'])->name('analyze-image-auto-fill');
+                Route::post('generate-title-suggestions', [AIAuctionProductController::class, 'generateProductTitleSuggestion'])->name('generate-title-suggestions');
+                Route::post('setup-auto-fill', [AIAuctionProductController::class, 'setupAutoFill'])->name('setup-auto-fill');
+            });
+
+            Route::get('generate-limit-check', [AIAuctionProductController::class, 'generateLimitCheck'])->name('generate-limit-check')->middleware('seller_can:products.view,products.manage');
         });
     });
 });
