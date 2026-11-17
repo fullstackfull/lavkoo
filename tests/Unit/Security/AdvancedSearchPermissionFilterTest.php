@@ -57,7 +57,9 @@ class AdvancedSearchPermissionFilterTest extends TestCase
             'a detail page of the catalog' => ['admin/products/update/15', 'catalog'],
             'a detail page of the customers' => ['admin/customer/view/15', 'people'],
             'a page of a menu entry whose permission no role can hold' => ['admin/vat-tax/list', 'Business_Settings'],
-            'an address of no menu entry under a path root that entries of two permissions share, which takes the permission of the first of them' => ['admin/business-settings/zz-detail/1', 'marketing'],
+            'an address of no menu entry under a path root that entries of two permissions share takes the permission of the first of them (the reports)' => ['admin/report/zz-detail/1', 'reports'],
+            'an address of no menu entry under a path root that entries of two permissions share takes the permission of the first of them (the system setup)' => ['admin/system-setup/zz-detail/1', 'system_settings'],
+            'an address of no menu entry under a path root that entries of two permissions share takes the permission of the first of them (marketing, not business settings)' => ['admin/business-settings/zz-detail/1', 'marketing'],
         ];
     }
 
@@ -93,17 +95,28 @@ class AdvancedSearchPermissionFilterTest extends TestCase
         $this->assertSame($hits, $this->filter(grouped: $hits));
     }
 
+    public function test_a_page_that_asks_for_no_permission_is_kept_for_every_role(): void
+    {
+        $hits = ['menu' => [['uri' => 'admin/dashboard', 'type' => 'menu', 'priority' => 1]]];
+
+        $this->signInHolding(permissions: []);
+
+        $this->assertSame($hits, $this->filter(grouped: $hits));
+    }
+
     public function test_a_hit_that_is_an_object_or_names_its_page_by_route_uri_is_read_like_the_others(): void
     {
-        $object = new stdClass();
-        $object->uri = 'admin/orders/list/all';
-        $hits = ['menu' => [$object, ['route_uri' => 'admin/orders/list/all'], ['route_uri' => 'admin/customer/list']]];
+        $kept = new stdClass();
+        $kept->uri = 'admin/orders/list/all';
+        $dropped = new stdClass();
+        $dropped->uri = 'admin/customer/list';
+        $hits = ['menu' => [$kept, $dropped, ['route_uri' => 'admin/orders/list/all'], ['route_uri' => 'admin/customer/list']]];
 
         $this->signInHolding(permissions: ['orders']);
         $filtered = $this->filter(grouped: $hits);
 
-        $this->assertSame([$object, ['route_uri' => 'admin/orders/list/all']], $filtered['menu']);
-        $this->assertSame($object, $filtered['menu'][0]);
+        $this->assertSame([$kept, ['route_uri' => 'admin/orders/list/all']], $filtered['menu']);
+        $this->assertSame($kept, $filtered['menu'][0]);
     }
 
     public function test_a_group_with_nothing_left_is_removed_and_the_others_keep_their_order_and_are_numbered_again(): void

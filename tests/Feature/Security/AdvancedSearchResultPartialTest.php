@@ -97,8 +97,8 @@ class AdvancedSearchResultPartialTest extends TestCase
     }
 
     /** @param array<string, list<array<string, mixed>>> $hits */
-    private function render(array $hits, string $keyword, bool $recent = false): string
+    private function render(array $hits, string $keyword): string
     {
-        return view(self::PARTIAL, ['result' => $hits, 'keyword' => $keyword, 'recent' => $recent])->render();
+        return view(self::PARTIAL, ['result' => $hits, 'keyword' => $keyword, 'recent' => false])->render();
     }
 }

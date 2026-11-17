@@ -355,6 +355,16 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
         }
     }
 
+    public function test_the_v2_search_leaves_the_entries_of_the_auction_add_on_out_of_a_fresh_search_while_it_is_not_published(): void
+    {
+        $this->skipWhenTheAuctionAddOnIsPublished();
+
+        $uris = $this->search(employee: $this->employeeHolding(permissions: null), route: self::V2_SEARCH, keyword: 'orders')['uris'];
+
+        $this->assertNotEmpty($uris);
+        $this->assertSame([], array_values(array_filter($uris, static fn (string $uri): bool => str_contains($uri, 'auction'))));
+    }
+
     public function test_the_v2_search_drops_the_recent_searches_of_the_auction_add_on_while_it_is_not_published(): void
     {
         $this->skipWhenTheAuctionAddOnIsPublished();
