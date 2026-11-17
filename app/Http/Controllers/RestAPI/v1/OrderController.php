@@ -8,6 +8,7 @@ use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Address\OrderAddressService;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\DigitalFileAddressService;
 use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
@@ -58,6 +59,7 @@ class OrderController extends Controller
         private readonly OrderAddressService $orderAddresses,
         private readonly StorefrontAddressService $storefrontAddresses,
         private readonly DigitalProductFileService $digitalFiles,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
     )
     {
     }
@@ -1048,7 +1050,7 @@ class OrderController extends Controller
                 $query['variation'] = is_array($query['variation']) ? $query['variation'] : json_decode($query['variation'], true);
                 $product = is_array($query['product_details']) ? $query['product_details'] : json_decode($query['product_details'], true);
                 if ($product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                    $product['digital_file_ready_full_url'] = $this->digitalFiles->readyFileAnswerOfLine(orderDetail: $query);
+                    $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $query);
                 }
 
                 if (!isset($product['thumbnail_full_url']) && isset($query?->product?->thumbnail_full_url)) {

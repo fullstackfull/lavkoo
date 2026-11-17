@@ -1005,7 +1005,7 @@ class OrderController extends BaseController
         $orderDetails = $this->orderDetailRepo->getFirstWhere(['id' => $id]);
         abort_if($orderDetails === null, 404);
 
-        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLine(orderDetail: $orderDetails)) ?? abort(404);
+        return $this->digitalFiles->download(name: $orderDetails->deliveredDigitalFile()) ?? abort(404);
     }
 
     public function getSearchEditOrderProductsView(Request $request): JsonResponse

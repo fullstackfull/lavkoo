@@ -20,7 +20,7 @@ use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
-use App\Services\DigitalProductFileService;
+use App\Services\DigitalFileAddressService;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Services\ShippingAddressService;
 use App\Traits\CommonTrait;
@@ -53,7 +53,7 @@ class CustomerController extends Controller
 
     private const LOCATION_FIELDS = ['city', 'country', 'region_id', 'city_id', 'district', 'national_address'];
 
-    public function __construct(private readonly ShippingAddressService $shippingAddressService, private readonly DigitalProductFileService $digitalFiles)
+    public function __construct(private readonly ShippingAddressService $shippingAddressService, private readonly DigitalFileAddressService $digitalFileAddresses)
     {
     }
 
@@ -523,7 +523,7 @@ class CustomerController extends Controller
             $product = json_decode($query['product_details'], true);
             $product['thumbnail_full_url'] = $currentProduct?->thumbnail_full_url;
             if (isset($product['product_type']) && $product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                $product['digital_file_ready_full_url'] = $this->digitalFiles->readyFileAnswerOfLine(orderDetail: $query);
+                $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $query);
             }
             $query['product_details'] = Helpers::product_data_formatting_for_json_data($product);
 

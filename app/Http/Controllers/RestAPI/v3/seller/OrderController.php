@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
 use App\Enums\Address\AddressChannel;
+use App\Services\DigitalFileAddressService;
 use App\Services\DigitalProductFileService;
 use App\Services\OrderAddressUpdateService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
@@ -51,6 +52,7 @@ class OrderController extends Controller
         private readonly OrderRepositoryInterface $orderRepo,
         private readonly OrderAddressUpdateService $addressUpdates,
         private readonly DigitalProductFileService $digitalFiles,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
     )
     {
     }
@@ -242,7 +244,7 @@ class OrderController extends Controller
 
             $product['thumbnail_full_url'] = $detail?->productAllStatus?->thumbnail_full_url;
             if (isset($product['product_type']) && $product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                $product['digital_file_ready_full_url'] = $this->digitalFiles->readyFileAnswerOfLine(orderDetail: $detail);
+                $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $detail);
             }
             $detail['product_details'] = Helpers::product_data_formatting_for_json_data($product);
 

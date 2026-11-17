@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Services\DigitalProductFileService;
+use App\Services\DigitalFileAddressService;
 use App\Traits\StorageTrait;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -50,7 +50,7 @@ class DigitalProductVariation extends Model
     {
         $storageType = $this->storage->where('key', 'file')->first()['value'] ?? 'public';
 
-        return app(DigitalProductFileService::class)->privateAnswer(name: $this->file, kind: 'variation', id: $this->id, storageType: $storageType)
+        return app(DigitalFileAddressService::class)->privateAnswer(name: $this->file, kind: 'variation', id: $this->id, storageType: $storageType)
             ?? $this->storageLink('product/digital-product', $this->file, $storageType);
     }
 

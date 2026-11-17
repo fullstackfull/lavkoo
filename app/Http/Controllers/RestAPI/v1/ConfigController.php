@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Request;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\NationalAddress;
-use App\Services\DigitalProductFileService;
+use App\Services\DigitalFileAddressService;
 use App\Traits\CacheManagerTrait;
 use App\Traits\MaintenanceModeTrait;
 use App\Traits\SettingsTrait;
@@ -173,7 +173,7 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             'base_urls' => [
                 'product_image_url' => ProductManager::product_image_path('product'),
                 'product_thumbnail_url' => ProductManager::product_image_path('thumbnail'),
-                'digital_product_url' => app(DigitalProductFileService::class)->publicBaseUrl(),
+                'digital_product_url' => app(DigitalFileAddressService::class)->publicBaseUrl(),
                 'brand_image_url' => dynamicStorage(path: 'storage/app/public/brand'),
                 'customer_image_url' => dynamicStorage(path: 'storage/app/public/profile'),
                 'banner_image_url' => dynamicStorage(path: 'storage/app/public/banner'),

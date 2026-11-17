@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Services\DigitalProductFileService;
+use App\Services\DigitalFileAddressService;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -152,8 +152,30 @@ class OrderDetail extends Model
     {
         $storageType = $this->digitalFileAfterSellStorageType();
 
-        return app(DigitalProductFileService::class)->privateAnswer(name: $this->digital_file_after_sell, kind: 'order-line', id: $this->id, storageType: $storageType)
+        return app(DigitalFileAddressService::class)->privateAnswer(name: $this->digital_file_after_sell, kind: 'order-line', id: $this->id, storageType: $storageType)
             ?? $this->storageLink('product/digital-product', $this->digital_file_after_sell, $storageType);
+    }
+
+    /** The product of the line the way it was when the order was placed. */
+    public function productSnapshot(): array
+    {
+        $snapshot = $this->product_details;
+
+        return is_array($snapshot) ? $snapshot : (array) json_decode((string) $snapshot, true);
+    }
+
+    /** Whether the line delivers the ready file its snapshot names (otherwise it delivers the file that was uploaded after the sale). */
+    public function deliversTheReadyFile(): bool
+    {
+        $product = $this->productSnapshot();
+
+        return ($product['digital_product_type'] ?? null) == 'ready_product' && !empty($product['digital_file_ready']);
+    }
+
+    /** The name of the file the line delivers: the ready file its snapshot names, or the file uploaded after the sale. */
+    public function deliveredDigitalFile(): ?string
+    {
+        return $this->deliversTheReadyFile() ? $this->productSnapshot()['digital_file_ready'] : $this->digital_file_after_sell;
     }
 
     public function digitalFileAfterSellStorageType(): string

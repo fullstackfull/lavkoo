@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\Analytics\Analytics;
+use App\Services\DigitalFileAddressService;
 use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
@@ -88,6 +89,7 @@ class WebController extends Controller
         private readonly ShopService                              $shopService,
         private readonly StorefrontAddressService                 $storefrontAddresses,
         private readonly DigitalProductFileService                $digitalFiles,
+        private readonly DigitalFileAddressService                $digitalFileAddresses,
     )
     {
 
@@ -1305,7 +1307,7 @@ class WebController extends Controller
                 return self::getDigitalProductDownloadProcess(orderDetailsData: $orderDetailsData, customer: $customerData);
             } else {
                 if (auth('customer')->check() && auth('customer')->user()->id == $orderDetailsData->order->customer->id) {
-                    $checkFilePath = $this->digitalFiles->answerForTheBuyer(orderDetail: $orderDetailsData);
+                    $checkFilePath = $this->digitalFileAddresses->answerForTheBuyer(orderDetail: $orderDetailsData);
                     $filePath = $checkFilePath['path'];
                     $fileName = $checkFilePath['key'];
                     $fileExist = $checkFilePath['status'] == 200;
@@ -1343,7 +1345,7 @@ class WebController extends Controller
             return response()->json(['status' => 0, 'message' => translate('Payment_must_be_confirmed_first') . ' !!'], 403);
         }
 
-        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLine(orderDetail: $orderDetailsData))
+        return $this->digitalFiles->download(name: $orderDetailsData->deliveredDigitalFile())
             ?? response()->json(['status' => 0, 'message' => translate('file_not_found')], 404);
     }
 
@@ -1356,7 +1358,7 @@ class WebController extends Controller
             $fileName = '';
             $fileExist = false;
             if ($orderDetailsData) {
-                $checkFilePath = $this->digitalFiles->answerForTheBuyer(orderDetail: $orderDetailsData);
+                $checkFilePath = $this->digitalFileAddresses->answerForTheBuyer(orderDetail: $orderDetailsData);
                 $filePath = $checkFilePath['path'];
                 $fileName = $checkFilePath['key'];
                 $fileExist = $checkFilePath['status'] == 200;

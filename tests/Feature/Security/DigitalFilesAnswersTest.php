@@ -6,7 +6,7 @@ use App\Models\DigitalProductVariation;
 use App\Models\OrderDetail;
 use App\Models\Product;
 use App\Models\User;
-use App\Services\DigitalProductFileService;
+use App\Services\DigitalFileAddressService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -363,17 +363,17 @@ class DigitalFilesAnswersTest extends TestCase
     public function test_the_base_address_of_the_config_answer_is_the_public_folder_while_the_mode_is_off_and_nothing_while_it_is_on(): void
     {
         $this->useDigitalDisks(private: false);
-        $this->assertSame(dynamicStorage(path: 'storage/app/public/product/digital-product'), app(DigitalProductFileService::class)->publicBaseUrl());
+        $this->assertSame(dynamicStorage(path: 'storage/app/public/product/digital-product'), app(DigitalFileAddressService::class)->publicBaseUrl());
 
         $this->useDigitalDisks(private: true);
-        $this->assertSame('', app(DigitalProductFileService::class)->publicBaseUrl());
+        $this->assertSame('', app(DigitalFileAddressService::class)->publicBaseUrl());
     }
 
     public function test_the_config_answer_asks_the_service_for_the_base_address_of_the_digital_files(): void
     {
         $source = (string) file_get_contents(base_path('app/Http/Controllers/RestAPI/v1/ConfigController.php'));
 
-        $this->assertStringContainsString("'digital_product_url' => app(DigitalProductFileService::class)->publicBaseUrl(),", $source);
+        $this->assertStringContainsString("'digital_product_url' => app(DigitalFileAddressService::class)->publicBaseUrl(),", $source);
         $this->assertStringNotContainsString("dynamicStorage(path: 'storage/app/public/product/digital-product')", $source);
     }
 }

@@ -79,7 +79,7 @@
 
                                                 @if($productDetails['digital_product_type'] == 'ready_product')
                                                     <?php
-                                                        $checkFilePath = app(\App\Services\DigitalProductFileService::class)->answerForTheBuyer(orderDetail: $orderDetail);
+                                                        $checkFilePath = app(\App\Services\DigitalFileAddressService::class)->answerForTheBuyer(orderDetail: $orderDetail);
                                                         $filePath = $checkFilePath['path'];
                                                         $fileExist = $checkFilePath['status'] == 200;
                                                         $fileName = $checkFilePath['key'];
@@ -96,7 +96,7 @@
                                                 @elseif($productDetails['digital_product_type'] == 'ready_after_sell')
                                                     @if($orderDetail->digital_file_after_sell)
                                                         <?php
-                                                            $checkFilePath = app(\App\Services\DigitalProductFileService::class)->answerForTheBuyer(orderDetail: $orderDetail);
+                                                            $checkFilePath = app(\App\Services\DigitalFileAddressService::class)->answerForTheBuyer(orderDetail: $orderDetail);
                                                             $filePath = $checkFilePath['path'];
                                                             $fileName = $checkFilePath['key'];
                                                             $fileExist = $checkFilePath['status'] == 200;
