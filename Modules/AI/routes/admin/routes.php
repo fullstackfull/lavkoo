@@ -43,7 +43,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
     //Blog
- Route::group(['prefix' => 'blog', 'as' => 'blog.'], function () {
+ Route::group(['prefix' => 'blog', 'as' => 'blog.', 'middleware' => ['module:marketing']], function () {
         Route::get('title-auto-fill', [AIBlogController::class, 'titleAutoFill'])->name('title-auto-fill');
         Route::get('description-auto-fill', [AIBlogController::class, 'descriptionAutoFill'])->name('description-auto-fill');
         Route::post('seo-section-auto-fill', [AIBlogController::class, 'seoSectionAutoFill'])->name('seo-section-auto-fill');
