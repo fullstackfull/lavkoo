@@ -146,6 +146,23 @@ class StorefrontTrackOrderTest extends StorefrontTestCase
         $this->track(401, '0551234568')->assertRedirect();
     }
 
+    public function test_the_phone_without_the_trunk_zero_the_customer_registered_with_opens_their_order(): void
+    {
+        $this->placeCustomerOrder(id: 406, customerPhone: '+9630912345678');
+
+        $this->track(orderId: 406, phone: '+963912345678')->assertOk()->assertSee('TRACKING PAGE OF ORDER 406');
+        $this->track(orderId: 406, phone: '+9630912345679')->assertRedirect();
+        $this->track(orderId: 406, phone: '+963')->assertRedirect();
+    }
+
+    public function test_a_phone_registered_in_digits_of_another_script_is_not_opened_by_its_country_code_alone(): void
+    {
+        $this->placeCustomerOrder(id: 407, customerPhone: '+971٥٠١٢٣٤٥٦٧');
+
+        $this->track(orderId: 407, phone: '+971')->assertRedirect();
+        $this->track(orderId: 407, phone: '+971501234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 407');
+    }
+
     public function test_a_piece_of_the_phone_or_a_pattern_opens_nothing(): void
     {
         $this->placeCustomerOrder(402, '+966551234567');

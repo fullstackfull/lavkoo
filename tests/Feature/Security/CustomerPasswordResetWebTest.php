@@ -333,18 +333,20 @@ class CustomerPasswordResetWebTest extends CustomerPasswordResetTestCase
         $this->assertKeepsPassword($owner);
     }
 
-    /** @return array<string, array{string, string}> what the customer registered with, and what Google calls the same Saudi number */
-    public static function sameSaudiNumberWrittenDifferently(): array
+    /** @return array<string, array{string, string}> what the customer registered with, and what Google calls the same number */
+    public static function sameNumberWrittenDifferently(): array
     {
         return [
             'registered with the trunk zero' => ['+9660500000001', '+966500000001'],
             'registered the way Google writes it' => ['+966500000001', '+966500000001'],
             'another Gulf number registered with the trunk zero' => ['+9710501234567', '+971501234567'],
+            'a Syrian number registered with the trunk zero' => ['+9630912345678', '+963912345678'],
+            'an Egyptian number registered with the trunk zero' => ['+2001012345678', '+201012345678'],
         ];
     }
 
-    #[DataProvider('sameSaudiNumberWrittenDifferently')]
-    public function test_google_writing_the_same_saudi_number_differently_still_verifies_the_customer_on_the_website(string $registeredPhone, string $googlesPhone): void
+    #[DataProvider('sameNumberWrittenDifferently')]
+    public function test_google_writing_the_same_number_differently_still_verifies_the_customer_on_the_website(string $registeredPhone, string $googlesPhone): void
     {
         $owner = $this->customer($registeredPhone, self::OWNER_EMAIL);
         $this->firebaseKnows([self::SESSION => ['phone' => $googlesPhone, 'code' => '482915']], [$registeredPhone => self::SESSION]);
@@ -354,5 +356,26 @@ class CustomerPasswordResetWebTest extends CustomerPasswordResetTestCase
         $this->assertPasswordWasChanged($this->submitNewPassword(base64_decode($query['identity']), $query['token']));
 
         $this->assertTookPassword($owner);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function phonesThatAreNotTheOwnerOfANumberWithATrunkZero(): array
+    {
+        return [
+            'another last digit' => ['+963912345679'],
+            'the same digits under another country' => ['+961912345678'],
+        ];
+    }
+
+    #[DataProvider('phonesThatAreNotTheOwnerOfANumberWithATrunkZero')]
+    public function test_a_session_google_issued_to_another_phone_proves_nothing_about_a_number_registered_with_a_trunk_zero_on_the_website(string $attackersPhone): void
+    {
+        $victim = $this->customer(phone: '+9630912345678', email: self::OWNER_EMAIL);
+        $this->firebaseKnows(sessions: [self::SESSION => ['phone' => $attackersPhone, 'code' => '246802']], sendsTo: ['+9630912345678' => self::SESSION]);
+        $this->requestCode(phone: '+9630912345678');
+
+        $this->assertNotSentOnToTheResetPage(response: $this->enterCode(identity: '+9630912345678', code: '246802'));
+        $this->assertPasswordWasNotChanged(response: $this->submitNewPassword(identity: '+9630912345678', token: self::SESSION));
+        $this->assertKeepsPassword($victim);
     }
 }

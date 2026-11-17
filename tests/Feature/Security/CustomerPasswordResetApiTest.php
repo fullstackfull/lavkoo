@@ -454,6 +454,29 @@ class CustomerPasswordResetApiTest extends CustomerPasswordResetTestCase
         $this->assertKeepsPassword($attacker);
     }
 
+    /** @return array<string, array{string}> */
+    public static function phonesThatAreNotTheOwnerOfANumberWithATrunkZero(): array
+    {
+        return [
+            'another last digit' => ['+963912345679'],
+            'the same digits under another country' => ['+961912345678'],
+        ];
+    }
+
+    #[DataProvider('phonesThatAreNotTheOwnerOfANumberWithATrunkZero')]
+    public function test_a_session_google_issued_to_another_phone_proves_nothing_about_a_number_registered_with_a_trunk_zero(string $attackersPhone): void
+    {
+        $victim = $this->customer(phone: '+9630912345678', email: self::OWNER_EMAIL);
+        $this->firebaseKnows(sessions: ['attacker-own-session' => ['phone' => $attackersPhone, 'code' => '246802']]);
+
+        $this->storeFirebaseSession(identity: '+9630912345678', session: 'attacker-own-session')->assertOk();
+        $this->verifyFirebaseCode(phone: '+9630912345678', session: 'attacker-own-session', code: '246802')->assertOk();
+
+        $this->resetPasswordTheWayTheAppDoes(identity: '+9630912345678', code: '246802')->assertStatus(400);
+        $this->assertKeepsPassword($victim);
+        $this->assertSame(0, DB::table('password_resets')->where('identity', '+9630912345678')->count());
+    }
+
     public function test_a_session_google_issued_to_another_phone_does_not_log_in_as_this_one(): void
     {
         $victim = $this->customer(self::OWNER_PHONE, self::OWNER_EMAIL);
@@ -490,19 +513,21 @@ class CustomerPasswordResetApiTest extends CustomerPasswordResetTestCase
         $this->assertSame(1, $this->tokensOf($owner));
     }
 
-    /** @return array<string, array{string, string}> what the customer registered with, and what Google calls the same Saudi number */
-    public static function sameSaudiNumberWrittenDifferently(): array
+    /** @return array<string, array{string, string}> what the customer registered with, and what Google calls the same number */
+    public static function sameNumberWrittenDifferently(): array
     {
         return [
             'registered with the trunk zero' => ['+9660500000001', '+966500000001'],
             'registered in national format' => ['0500000001', '+966500000001'],
             'registered without the plus' => ['966500000001', '+966500000001'],
             'registered the way Google writes it' => ['+966500000001', '+966500000001'],
+            'a Syrian number registered with the trunk zero' => ['+9630912345678', '+963912345678'],
+            'an Egyptian number registered with the trunk zero' => ['+2001012345678', '+201012345678'],
         ];
     }
 
-    #[DataProvider('sameSaudiNumberWrittenDifferently')]
-    public function test_google_writing_the_same_saudi_number_differently_still_verifies_the_customer(string $registeredPhone, string $googlesPhone): void
+    #[DataProvider('sameNumberWrittenDifferently')]
+    public function test_google_writing_the_same_number_differently_still_verifies_the_customer(string $registeredPhone, string $googlesPhone): void
     {
         $owner = $this->customer($registeredPhone, self::OWNER_EMAIL);
         $this->firebaseKnows([self::SESSION => ['phone' => $googlesPhone, 'code' => '482915']]);
