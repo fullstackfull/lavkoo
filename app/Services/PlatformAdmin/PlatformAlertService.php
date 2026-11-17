@@ -50,14 +50,16 @@ final class PlatformAlertService
      *
      * @param list<string> $selected the market codes to raise alerts for
      * @param list<array{market: ?string, zero: int, low: int}>|null $stock the stock figures, when the caller already has them
+     * @param list<array{market: ?string, status: string, stuck: int}>|null $backlog the backlog figures, when the caller already has them
      *
      * @return list<array{id: string, severity: string, market: string, code: string, message: string, deep_link: string, generated_at: string}>
      */
-    public function forMarkets(array $selected, ?array $stock = null): array
+    public function forMarkets(array $selected, ?array $stock = null, ?array $backlog = null): array
     {
         $generatedAt = (string) PlatformAdminPresenter::timestamp(now());
         $zeroStock = $this->countsByMarket(rows: $stock ?? $this->figures->stock(), column: 'zero');
-        $stuckOrders = $this->countsByMarket(rows: $this->stuckPendingOrders(), column: 'orders');
+        $pendingRows = array_filter($backlog ?? $this->figures->backlog(), static fn (array $row): bool => $row['status'] === 'pending');
+        $stuckOrders = $this->countsByMarket(rows: $pendingRows, column: 'stuck');
         $alerts = [];
 
         foreach ($this->markets->all() as $code => $market) {
@@ -138,14 +140,6 @@ final class PlatformAlertService
         $hours = $this->settings->pendingAgeHours();
 
         return $severity === null ? null : [$severity, 'orders_pending_too_long', sprintf('%d %s in %s %s been pending for more than %d %s.', $stuck, $stuck === 1 ? 'order' : 'orders', $code, $stuck === 1 ? 'has' : 'have', $hours, $hours === 1 ? 'hour' : 'hours')];
-    }
-
-    /** @return list<array{market: ?string, status: string, orders: int, latest_at: ?string}> */
-    private function stuckPendingOrders(): array
-    {
-        $lookback = PlatformWindow::lastDays($this->settings->windowDaysMax());
-
-        return $this->figures->orders($lookback->startsAt(), now()->subHours($this->settings->pendingAgeHours()), ['pending']);
     }
 
     /**

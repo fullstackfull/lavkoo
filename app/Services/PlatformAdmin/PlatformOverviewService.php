@@ -2,7 +2,6 @@
 
 namespace App\Services\PlatformAdmin;
 
-use App\Services\Marketplace\SlaService;
 use Illuminate\Support\Carbon;
 
 /**
@@ -11,7 +10,7 @@ use Illuminate\Support\Carbon;
  *
  * Two ranges are used and each says which: the orders and the refund requests of the window the admin asked for, and the backlog, which is a
  * state and not a flow, read over the last stretch the API may read at all (the longest window), so that an order that has waited longer than
- * the window is still waiting.
+ * the window is still waiting. The backlog read also says how many of its orders are stuck, which is what the alerts need.
  *
  * Sales are not reported. An order stores no currency, and the amounts it stores are in the platform's base currency, whatever the market
  * it was sold in; adding them up under a market's currency, or under any, would be a guess, so the answer says why there is no figure.
@@ -25,7 +24,6 @@ final class PlatformOverviewService
     public function __construct(
         private readonly PlatformMarkets $markets,
         private readonly PlatformMarketFigures $figures,
-        private readonly PlatformAdminSettings $settings,
         private readonly PlatformAlertService $alerts,
     ) {
     }
@@ -33,10 +31,9 @@ final class PlatformOverviewService
     /** @return array<string, mixed> */
     public function build(MarketSelection $selection, PlatformWindow $window): array
     {
-        $backlogRange = PlatformWindow::lastDays($this->settings->windowDaysMax());
         $figures = [
             'orders' => $this->figures->orders($window->startsAt(), $window->endsBefore()),
-            'backlog' => $this->figures->orders($backlogRange->startsAt(), $backlogRange->endsBefore(), SlaService::AWAITING_SELLER_STATUSES),
+            'backlog' => $this->figures->backlog(),
             'refunds' => $this->figures->refundRequests($window->startsAt(), $window->endsBefore()),
             'stock' => $this->figures->stock(),
         ];
@@ -51,7 +48,7 @@ final class PlatformOverviewService
             'markets' => $this->marketsOf(
                 $selection,
                 $figures,
-                $this->alerts->countsBySeverity($this->alerts->forMarkets($selection->markets, $figures['stock'])),
+                $this->alerts->countsBySeverity($this->alerts->forMarkets($selection->markets, stock: $figures['stock'], backlog: $figures['backlog'])),
             ),
             'unattributed' => $selection->includesUnattributed ? $this->figuresOf(market: null, figures: $figures) + ['reason' => self::NO_MARKET_REASON] : null,
         ];

@@ -2,6 +2,7 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Services\Marketplace\SlaService;
 use Carbon\CarbonInterface;
 use Illuminate\Container\Attributes\Scoped;
 use Illuminate\Database\Query\Builder;
@@ -34,7 +35,7 @@ final class PlatformMarketFigures
 
     private ?bool $countryColumn = null;
 
-    public function __construct(private readonly PlatformMarkets $markets)
+    public function __construct(private readonly PlatformMarkets $markets, private readonly PlatformAdminSettings $settings)
     {
     }
 
@@ -49,17 +50,29 @@ final class PlatformMarketFigures
      *
      * @param list<string>|null $statuses only these statuses, or every status
      *
-     * @return list<array{market: ?string, status: string, orders: int, latest_at: ?string}>
+     * @return list<array{market: ?string, status: string, orders: int, latest_at: ?string, stuck: int}> `stuck` is 0 here: see backlog()
      */
     public function orders(CarbonInterface $from, CarbonInterface $before, ?array $statuses = null): array
     {
-        return DB::query()
-            ->fromSub($this->ordersWithTheirMarket(from: $from, before: $before, statuses: $statuses), 'attributed')
-            ->selectRaw('attributed.market AS market, attributed.status AS status, COUNT(*) AS orders, MAX(attributed.created_at) AS latest_at')
-            ->groupBy('attributed.market', 'attributed.status')
-            ->get()
-            ->map(static fn (object $row): array => ['market' => $row->market, 'status' => (string) $row->status, 'orders' => (int) $row->orders, 'latest_at' => $row->latest_at])
-            ->all();
+        return $this->groupedOrders(from: $from, before: $before, statuses: $statuses, olderThan: null);
+    }
+
+    /**
+     * The orders still waiting to be fulfilled, by market and status, created within the last days the API may read at all. A row also says how
+     * many of its orders have waited longer than the age that makes an order stuck, so one read serves both the backlog and the alerts.
+     *
+     * @return list<array{market: ?string, status: string, orders: int, latest_at: ?string, stuck: int}>
+     */
+    public function backlog(): array
+    {
+        $range = PlatformWindow::lastDays($this->settings->windowDaysMax());
+
+        return $this->groupedOrders(
+            from: $range->startsAt(),
+            before: $range->endsBefore(),
+            statuses: SlaService::AWAITING_SELLER_STATUSES,
+            olderThan: now()->subHours($this->settings->pendingAgeHours()),
+        );
     }
 
     /**
@@ -107,6 +120,27 @@ final class PlatformMarketFigures
             ->get();
 
         return $this->inMarkets(rows: $rows, counts: ['zero', 'low']);
+    }
+
+    /**
+     * @param list<string>|null $statuses
+     *
+     * @return list<array{market: ?string, status: string, orders: int, latest_at: ?string, stuck: int}>
+     */
+    private function groupedOrders(CarbonInterface $from, CarbonInterface $before, ?array $statuses, ?CarbonInterface $olderThan): array
+    {
+        $stuck = $olderThan === null ? '0' : 'SUM(CASE WHEN attributed.created_at < ? THEN 1 ELSE 0 END)';
+
+        return DB::query()
+            ->fromSub($this->ordersWithTheirMarket(from: $from, before: $before, statuses: $statuses), 'attributed')
+            ->selectRaw(
+                "attributed.market AS market, attributed.status AS status, COUNT(*) AS orders, MAX(attributed.created_at) AS latest_at, {$stuck} AS stuck",
+                $olderThan === null ? [] : [$olderThan->format(self::DATE_FORMAT)],
+            )
+            ->groupBy('attributed.market', 'attributed.status')
+            ->get()
+            ->map(static fn (object $row): array => ['market' => $row->market, 'status' => (string) $row->status, 'orders' => (int) $row->orders, 'latest_at' => $row->latest_at, 'stuck' => (int) $row->stuck])
+            ->all();
     }
 
     /** One row per order of the range, with the market the order belongs to or null. */

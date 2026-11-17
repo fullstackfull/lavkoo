@@ -350,7 +350,7 @@ class OverviewTest extends PlatformAdminTestCase
 
         $touchingOrders = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'orders'));
         $touchingRefunds = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'refund_requests'));
-        $this->assertCount(3, $touchingOrders, 'the orders of the window, the backlog, and the pending orders of the alerts');
+        $this->assertCount(2, $touchingOrders, 'the orders of the window, and the backlog, which also says how many of its orders are stuck, for the alerts');
         $this->assertCount(1, $touchingRefunds);
         foreach (array_merge($touchingOrders, $touchingRefunds) as $sql) {
             $this->assertStringContainsString('created_at', $sql, 'a read of orders or refund requests is bounded by a date: ' . $sql);

@@ -256,6 +256,16 @@ class AlertsTest extends PlatformAdminTestCase
         $this->assertStringNotContainsString('Private', $content);
     }
 
+    public function test_the_alerts_read_the_orders_once_and_the_stock_once_whatever_the_amount_of_data(): void
+    {
+        $this->app->forgetScopedInstances();
+        $statements = $this->statementsRunBy(fn () => $this->alerts()->assertOk());
+
+        $reads = array_filter($statements, static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select'));
+        $this->assertCount(1, array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'orders')), 'one read of the orders, for the stuck ones');
+        $this->assertCount(1, array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'products') && str_contains($sql, 'current_stock')), 'one read of the stock');
+    }
+
     public function test_every_read_is_audited_with_the_market_that_was_asked(): void
     {
         $this->alerts('?market=KW&severity=critical');
