@@ -122,7 +122,7 @@ class ProductService
 
             foreach ($inputColors as $color) {
                 $image = 'color_image_' . $color;
-                if (!in_array($color, $dbColorImageFinal)) {
+                if (!in_array($color, $dbColorImageFinal, strict: true)) {
                     if ($request->file($image)) {
                         $imageName = $this->upload(dir: 'product/', format: 'webp', image: $request->file($image));
                         $productImages[] = [
@@ -136,10 +136,10 @@ class ProductService
                         ];
                         $colorImageArray[] = $colorImages;
                     }
-                } else if ($dbColorImage && in_array($color, $dbColorImageFinal) && $request->has($image) && $request->file($image)) {
+                } else if ($dbColorImage && in_array($color, $dbColorImageFinal, strict: true) && $request->has($image) && $request->file($image)) {
                     $dbColorFilterImages = [];
                     foreach ($dbColorImage as $colorImage) {
-                        if ($colorImage['color'] == $color) {
+                        if ($colorImage['color'] === $color) {
                             $this->delete(filePath: 'product/' . $colorImage['image_name']);
                             $imageName = $this->upload(dir: 'product/', format: 'webp', image: $request->file($image));
 
@@ -161,7 +161,7 @@ class ProductService
                             ];
 
                             $colorImageArray = collect($colorImageArray)->filter(function ($colorItem) use ($color, $colorImage) {
-                                return $colorItem['color'] != $color && $colorItem['image_name'] != $colorImage['image_name'];
+                                return $colorItem['color'] !== $color && $colorItem['image_name'] !== $colorImage['image_name'];
                             })->values()->toArray();
 
                             $colorImages = [
@@ -192,7 +192,7 @@ class ProductService
         }
 
         foreach ($colorImageArray as $colorImage) {
-            if (!in_array($colorImage['color'], $requestColors)) {
+            if (!in_array($colorImage['color'], $requestColors, strict: true)) {
                 $productImages[] = [
                     'image_name' => $colorImage['image_name'],
                     'storage' => $colorImage['storage'] ?? $storage,
@@ -201,7 +201,7 @@ class ProductService
         }
 
         $colorImageArray = collect($colorImageArray)->map(function ($colorImage) use ($requestColors) {
-            if (!in_array($colorImage['color'], $requestColors)) {
+            if (!in_array($colorImage['color'], $requestColors, strict: true)) {
                 $colorImage['color'] = null;
             }
             return $colorImage;
@@ -536,6 +536,16 @@ class ProductService
         return array_values(array_filter($names, 'is_string'));
     }
 
+    /**
+     * Whether a request removes a colour image: by the colour it names or by the image name it names. Both are compared as text, so two colours that are the same number
+     * (`000000` and `0E0000`) and two names that are (`10` and `1e1`) stay apart, and an entry with no colour is never matched by a request with none.
+     */
+    public function isRemovedColorImage(object $entry, mixed $color, mixed $name): bool
+    {
+        return (is_string($color) && $color !== '' && ($entry->color ?? null) === $color)
+            || (is_string($name) && $name !== '' && ($entry->image_name ?? null) === $name);
+    }
+
     public function deleteImage(object $request, object $product): array
     {
         $colors = json_decode($product['colors']);
@@ -545,7 +555,7 @@ class ProductService
         $color_images = [];
         if ($colors && $color_image) {
             foreach ($color_image as $img) {
-                if ($img->color != $request['color'] && $img?->image_name != $request['name']) {
+                if (!$this->isRemovedColorImage(entry: $img, color: $request['color'], name: $request['name'])) {
                     $imageNames[] = $img->image_name;
                     $color_images[] = [
                         'color' => $img->color != null ? $img->color : null,
@@ -557,7 +567,7 @@ class ProductService
 
             foreach (json_decode($product['images']) as $image) {
                 $imageName = $image?->image_name ?? $image;
-                if ($imageName != $request['name'] && !in_array($imageName, $imageNames)) {
+                if ($imageName !== $request['name'] && !in_array($imageName, $imageNames, strict: true)) {
                     $color_images[] = [
                         'color' => null,
                         'image_name' => $imageName,
@@ -569,7 +579,7 @@ class ProductService
 
         foreach (json_decode($product['images']) as $image) {
             $imageName = $image?->image_name ?? $image;
-            if ($imageName != $request['name']) {
+            if ($imageName !== $request['name']) {
                 $images[] = $image;
             }
         }

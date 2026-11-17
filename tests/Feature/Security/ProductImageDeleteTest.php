@@ -9,10 +9,11 @@ use App\Models\Product;
 use App\Models\Seller;
 use App\Services\ProductService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
+use Tests\Support\RemovesFilesItCreated;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
@@ -25,12 +26,10 @@ use Tests\TestCase;
 class ProductImageDeleteTest extends TestCase
 {
     use BuildsFulfillmentSchema;
+    use RemovesFilesItCreated;
     use RestoresLanguageFiles;
 
     private const DIRECTORY = 'storage/app/public/product';
-
-    /** @var list<string> */
-    private array $created = [];
 
     protected function setUp(): void
     {
@@ -54,20 +53,10 @@ class ProductImageDeleteTest extends TestCase
 
     protected function tearDown(): void
     {
-        File::deleteDirectory(base_path(self::DIRECTORY . '/thumbnail'));
-        File::deleteDirectory(base_path(self::DIRECTORY . '/digital-product'));
-        File::deleteDirectory(base_path('storage/app/public/company'));
-        array_map('unlink', array_filter($this->created, 'file_exists'));
+        $this->removeTheFilesItCreated(folders: [$this->product('thumbnail'), $this->product('digital-product'), base_path(self::DIRECTORY), base_path('storage/app/public/company')]);
         $this->restoreLanguageFiles();
 
         parent::tearDown();
-    }
-
-    private function fileOnDisk(string $path, string $content): void
-    {
-        File::ensureDirectoryExists(dirname($path));
-        file_put_contents($path, $content);
-        $this->created[] = $path;
     }
 
     private function product(string $name): string
@@ -342,5 +331,141 @@ class ProductImageDeleteTest extends TestCase
         $after = DB::table('products')->where('id', 9)->first();
         $this->assertEquals(json_decode($before->color_image, true), json_decode($after->color_image, true));
         $this->assertSame($before->images, $after->images);
+    }
+
+    /**
+     * What the panel's delete-image route makes of the product's lists, as the service answers it.
+     *
+     * @param array<string, string> $query
+     * @return array{images: list<mixed>, color_images: list<array<string, mixed>>}
+     */
+    private function listsAfterRemovingThroughThePanel(int $id, array $query): array
+    {
+        return app(ProductService::class)->deleteImage(request: Request::create('/', 'GET', ['id' => $id] + $query), product: Product::withoutGlobalScopes()->find($id));
+    }
+
+    public function test_the_panel_removes_the_image_of_one_colour_and_leaves_the_colour_of_another_that_is_the_same_number(): void
+    {
+        $this->insertColourProduct(id: 15, colors: ['000000', '0E0000'], entries: [['color' => '000000', 'image_name' => 'black.webp'], ['color' => '0E0000', 'image_name' => 'dark-red.webp']]);
+
+        $lists = $this->listsAfterRemovingThroughThePanel(id: 15, query: ['name' => 'black.webp', 'color' => '000000']);
+
+        $this->assertSame(['dark-red.webp'], array_column($lists['images'], 'image_name'));
+        $this->assertSame([['color' => '0E0000', 'image_name' => 'dark-red.webp', 'storage' => 'public']], $lists['color_images'], 'the dark red image lost its colour with the black one');
+    }
+
+    public function test_the_panel_compares_names_as_text_so_a_number_written_another_way_removes_another_image(): void
+    {
+        $this->insertColourProduct(id: 16, colors: ['FF0000'], entries: [['color' => 'FF0000', 'image_name' => '100'], ['color' => null, 'image_name' => '1e2']]);
+
+        $lists = $this->listsAfterRemovingThroughThePanel(id: 16, query: ['name' => '1e2']);
+
+        $this->assertSame(['100'], array_column($lists['images'], 'image_name'));
+        $this->assertSame([['color' => 'FF0000', 'image_name' => '100', 'storage' => 'public']], $lists['color_images']);
+    }
+
+    public function test_the_panel_compares_names_as_text_in_a_gallery_of_a_product_without_colours_too(): void
+    {
+        DB::table('products')->insert(['id' => 17, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'NUM1', 'name' => 'Numeric names', 'thumbnail' => 'thumb-17.webp', 'images' => json_encode(['100', '1e2', 'plain.webp']), 'colors' => '[]', 'color_image' => '[]']);
+
+        $lists = $this->listsAfterRemovingThroughThePanel(id: 17, query: ['name' => '1e2']);
+
+        $this->assertSame(['100', 'plain.webp'], $lists['images']);
+    }
+
+    public function test_the_panel_still_removes_the_image_of_a_colour_by_its_name_and_by_its_colour_and_keeps_the_others_in_place(): void
+    {
+        $entries = [['color' => 'FF0000', 'image_name' => 'red.webp'], ['color' => '0000FF', 'image_name' => 'blue.webp'], ['color' => null, 'image_name' => 'extra-1.webp'], ['color' => null, 'image_name' => 'extra-2.webp']];
+        $this->insertColourProduct(id: 18, colors: ['FF0000', '0000FF'], entries: $entries);
+
+        $byName = $this->listsAfterRemovingThroughThePanel(id: 18, query: ['name' => 'red.webp', 'color' => 'FF0000']);
+        $extra = $this->listsAfterRemovingThroughThePanel(id: 18, query: ['name' => 'extra-1.webp']);
+
+        $this->assertSame(['blue.webp', 'extra-1.webp', 'extra-2.webp'], array_column($byName['images'], 'image_name'));
+        $this->assertSame(['blue.webp', 'extra-1.webp', 'extra-2.webp'], array_column($byName['color_images'], 'image_name'));
+        $this->assertSame(['red.webp', 'blue.webp', 'extra-2.webp'], array_column($extra['images'], 'image_name'));
+        $this->assertSame(['red.webp', 'blue.webp', 'extra-2.webp'], array_column($extra['color_images'], 'image_name'));
+    }
+
+    /** The lists the panel's update makes of the images of a product and of the colours and the files in its form. */
+    private function updatedLists(int $id, Request $request): array
+    {
+        return $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: static fn (): array => app(ProductService::class)->getProcessedUpdateImages(request: $request, product: Product::withoutGlobalScopes()->find($id)));
+    }
+
+    /** @param array<string, UploadedFile> $files */
+    private function updateRequest(array $colors, array $files = []): Request
+    {
+        return Request::create('/', 'POST', ['colors_active' => 'on', 'colors' => $colors], [], $files);
+    }
+
+    public function test_the_panel_replaces_the_image_of_one_colour_and_leaves_the_image_of_another_that_is_the_same_number(): void
+    {
+        $this->insertColourProduct(id: 19, colors: ['000000', '0E0000'], entries: [['color' => '000000', 'image_name' => 'update-black.webp'], ['color' => '0E0000', 'image_name' => 'update-dark-red.webp']]);
+
+        $lists = $this->updatedLists(id: 19, request: $this->updateRequest(colors: ['#000000', '#0E0000'], files: ['color_image_000000' => UploadedFile::fake()->image('new-black.png', 40, 40)]));
+
+        $this->assertFileDoesNotExist($this->product('update-black.webp'), 'the image of black is replaced');
+        $this->assertFileExists($this->product('update-dark-red.webp'), 'replacing the image of black deleted the file of the dark red colour');
+        $colours = array_column($lists['colored_image_names'], 'image_name', 'color');
+        $this->assertSame(['0E0000', '000000'], array_keys($colours));
+        $this->assertSame('update-dark-red.webp', $colours['0E0000']);
+        $this->assertNotSame('update-black.webp', $colours['000000']);
+        $this->assertFileExists($this->product($colours['000000']), 'the new image of black is stored');
+    }
+
+    public function test_the_panel_still_replaces_the_image_of_a_colour_and_deletes_its_old_file_and_only_that(): void
+    {
+        $this->insertColourProduct(id: 20, colors: ['FF0000', '0000FF'], entries: [['color' => 'FF0000', 'image_name' => 'update-red.webp'], ['color' => '0000FF', 'image_name' => 'update-blue.webp']]);
+
+        $lists = $this->updatedLists(id: 20, request: $this->updateRequest(colors: ['#FF0000', '#0000FF'], files: ['color_image_FF0000' => UploadedFile::fake()->image('new-red.png', 40, 40)]));
+
+        $this->assertFileDoesNotExist($this->product('update-red.webp'));
+        $this->assertFileExists($this->product('update-blue.webp'));
+        $this->assertSame(['0000FF', 'FF0000'], array_column($lists['colored_image_names'], 'color'));
+        $this->assertSame('update-blue.webp', $lists['colored_image_names'][0]['image_name']);
+        $this->assertNotContains('update-red.webp', array_column($lists['image_names'], 'image_name'));
+    }
+
+    public function test_the_panel_adds_the_image_of_a_new_colour_although_the_product_has_a_colour_that_is_the_same_number(): void
+    {
+        $this->insertColourProduct(id: 22, colors: ['000000'], entries: [['color' => '000000', 'image_name' => 'added-black.webp']]);
+
+        $lists = $this->updatedLists(id: 22, request: $this->updateRequest(colors: ['#000000', '#0E0000'], files: ['color_image_0E0000' => UploadedFile::fake()->image('new-dark-red.png', 40, 40)]));
+
+        $colours = array_column($lists['colored_image_names'], 'image_name', 'color');
+        $this->assertSame(['000000', '0E0000'], array_keys($colours), 'the image of the new colour was taken for a replacement of the image of black and left out');
+        $this->assertSame('added-black.webp', $colours['000000']);
+        $this->assertFileExists($this->product($colours['0E0000']));
+    }
+
+    public function test_the_panel_removes_the_image_of_a_colour_by_the_colour_alone_and_keeps_the_image_whose_name_is_the_same_number_as_its_own(): void
+    {
+        $this->insertColourProduct(id: 23, colors: ['FF0000'], entries: [['color' => 'FF0000', 'image_name' => '100'], ['color' => null, 'image_name' => '1e2']]);
+
+        $lists = $this->listsAfterRemovingThroughThePanel(id: 23, query: ['color' => 'FF0000']);
+
+        $this->assertSame(['100', '1e2'], array_column($lists['images'], 'image_name'), 'the image stays in the gallery');
+        $this->assertSame(['1e2', '100'], array_column($lists['color_images'], 'image_name'), 'and stays an image of the product, with no colour now');
+    }
+
+    public function test_the_panel_removes_an_image_by_a_colour_and_another_by_a_name_that_is_the_same_number_as_the_first(): void
+    {
+        $this->insertColourProduct(id: 24, colors: ['FF0000'], entries: [['color' => 'FF0000', 'image_name' => '100'], ['color' => null, 'image_name' => '1e2']]);
+
+        $lists = $this->listsAfterRemovingThroughThePanel(id: 24, query: ['color' => 'FF0000', 'name' => '1e2']);
+
+        $this->assertSame(['100'], array_column($lists['images'], 'image_name'));
+        $this->assertSame([['color' => null, 'image_name' => '100', 'storage' => 'public']], $lists['color_images'], 'the image that only lost its colour is still an image of the product');
+    }
+
+    public function test_the_panel_takes_the_colour_from_the_image_of_a_colour_that_was_removed_and_not_from_one_that_is_the_same_number(): void
+    {
+        $this->insertColourProduct(id: 21, colors: ['000000', '0E0000'], entries: [['color' => '000000', 'image_name' => 'removed-black.webp'], ['color' => '0E0000', 'image_name' => 'removed-dark-red.webp']]);
+
+        $lists = $this->updatedLists(id: 21, request: $this->updateRequest(colors: ['#000000']));
+
+        $this->assertSame([['color' => '000000', 'image_name' => 'removed-black.webp', 'storage' => 'public'], ['color' => null, 'image_name' => 'removed-dark-red.webp', 'storage' => 'public']], $lists['colored_image_names'], 'the dark red image keeps a colour that the form no longer holds');
+        $this->assertEqualsCanonicalizing(['removed-black.webp', 'removed-dark-red.webp'], array_column($lists['image_names'], 'image_name'));
     }
 }

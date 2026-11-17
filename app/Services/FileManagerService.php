@@ -23,6 +23,11 @@ class FileManagerService
 
     private const MOST_COMPRESSION_RATIO = 100;
 
+    /** What the system that made an archive adds on its own, by whole names and whatever their case: folders at the top of the archive, and files at any depth. */
+    private const SYSTEM_FOLDERS = ['__macosx', 'meta-inf'];
+
+    private const SYSTEM_FILES = ['.ds_store', 'thumbs.db', 'desktop.ini'];
+
     /** The disk the gallery works on: S3 only when the shop keeps its files there, whatever disk the request names. */
     public function galleryDisk(mixed $requested): string
     {
@@ -78,13 +83,13 @@ class FileManagerService
         }
 
         $directory = storage_path('app/temp-zip-' . Str::random(10));
-        File::makeDirectory($directory);
+        File::ensureDirectoryExists($directory);
         try {
-            $names = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize(), report: $report);
+            $unpacked = $this->unpackEntries(zip: $zip, entries: $entries, directory: $directory, archiveBytes: (int)$archive->getSize(), report: $report);
             $stored = match (true) {
-                $names === null => 0,
-                $disk === 's3' => $this->putOnBucket(directory: $directory, names: $names, folder: $folder),
-                default => $this->copyToGallery(directory: $directory, names: $names, folder: $folder),
+                $unpacked === null => 0,
+                $disk === 's3' => $this->putOnBucket(unpacked: $unpacked, folder: $folder, report: $report),
+                default => $this->copyToGallery(unpacked: $unpacked, folder: $folder, report: $report),
             };
         } finally {
             $zip->close();
@@ -120,11 +125,11 @@ class FileManagerService
 
     /**
      * Streams the entries into the directory and counts the bytes that really arrive: the sizes an archive declares are what its maker wrote
-     * down, and a stream of zeros under a header that says 100 bytes unpacks to what it unpacks to. An entry that cannot be read (an encrypted
-     * one) is left out.
+     * down, and a stream of zeros under a header that says 100 bytes unpacks to what it unpacks to. An entry that cannot be read to its end (an
+     * encrypted one, one whose data is damaged) is left out and its partial file goes with it.
      *
      * @param array<int, string> $entries
-     * @return list<string>|null the names that were unpacked, or nothing when the archive unpacks to more than it may
+     * @return array<string, string>|null the name of the entry of every file that was unpacked, by the path of the file, or nothing when the archive unpacks to more than it may
      */
     private function unpackEntries(ZipArchive $zip, array $entries, string $directory, int $archiveBytes, ArchiveReport $report): ?array
     {
@@ -132,7 +137,8 @@ class FileManagerService
         $remainingBytes = $budget;
         $unpacked = [];
         foreach ($entries as $index => $name) {
-            $written = $this->unpackEntry(zip: $zip, index: $index, target: $directory . '/' . $name, limit: $remainingBytes);
+            $file = $directory . '/' . $index . '.' . pathinfo($name, PATHINFO_EXTENSION);
+            $written = $this->unpackEntry(zip: $zip, index: $index, target: $file, limit: $remainingBytes);
             if ($written === null) {
                 $report->skip(name: $name);
                 continue;
@@ -142,7 +148,7 @@ class FileManagerService
                 return null;
             }
             $remainingBytes -= $written;
-            $unpacked[] = $name;
+            $unpacked[$file] = $name;
         }
 
         return $unpacked;
@@ -164,7 +170,7 @@ class FileManagerService
         return max(self::LARGE_ARCHIVE_BYTES, self::MOST_COMPRESSION_RATIO * min($compressedBytes, $archiveBytes));
     }
 
-    /** @return int|null the bytes written, one more than the limit at the most; nothing when the entry cannot be read */
+    /** @return int|null the bytes written, one more than the limit at the most; nothing when the entry cannot be read to its end (an encrypted one, a damaged one) */
     private function unpackEntry(ZipArchive $zip, int $index, string $target, int $limit): ?int
     {
         $source = $zip->getStreamIndex($index);
@@ -172,19 +178,32 @@ class FileManagerService
             return null;
         }
 
-        File::ensureDirectoryExists(dirname($target));
         $destination = fopen($target, 'wb');
-        $written = stream_copy_to_stream($source, $destination, $limit + 1);
+        $written = @stream_copy_to_stream($source, $destination, $limit + 1);
         fclose($source);
         fclose($destination);
+        if ($written === false) {
+            File::delete($target);
+            return null;
+        }
 
-        return $written === false ? null : $written;
+        return $written;
     }
 
-    /** A folder, or a file that the system that made the archive added on its own (the `__MACOSX` twins, `.DS_Store`, Thumbs.db): nothing the admin put there. */
+    /**
+     * A folder, or a file that the system that made the archive added on its own (the `__MACOSX` twins and the `._` twin of a file, `.DS_Store`,
+     * Thumbs.db, desktop.ini, the `META-INF` of a jar): nothing the admin put there. Whole names count, so `Thumbs.db.png` is an image.
+     */
     private function isArchiveMetadata(string $name): bool
     {
-        return $name === '' || str_ends_with($name, '/') || self::shouldSkip($name) || self::shouldSkip(basename($name));
+        $segments = explode('/', strtolower($name));
+        $fileName = end($segments);
+
+        return $name === ''
+            || str_ends_with($name, '/')
+            || (count($segments) > 1 && in_array($segments[0], self::SYSTEM_FOLDERS, true))
+            || in_array($fileName, self::SYSTEM_FILES, true)
+            || str_starts_with($fileName, '._');
     }
 
     /**
@@ -200,36 +219,53 @@ class FileManagerService
     }
 
     /**
-     * Copies the unpacked files into the folder of the gallery.
+     * Copies the unpacked files to the path of their entry in the folder of the gallery. An entry whose path the disk cannot hold (a name that is
+     * too long, a file where a folder is wanted, a folder where a file is wanted) is left out and listed, and so is an entry whose name an
+     * earlier entry of the archive already stored: a name holds one file, the first.
      *
-     * @param list<string> $names
+     * @param array<string, string> $unpacked the name of the entry of every unpacked file, by the path of the file
      */
-    private function copyToGallery(string $directory, array $names, string $folder): int
+    private function copyToGallery(array $unpacked, string $folder, ArchiveReport $report): int
     {
         $gallery = $folder === 'public' ? storage_path('app/public') : storage_path('app/public/' . $folder);
-        foreach ($names as $name) {
-            $target = $gallery . '/' . $name;
-            File::ensureDirectoryExists(dirname($target));
-            File::copy($directory . '/' . $name, $target);
-            touch($target);
+        $stored = [];
+        foreach ($unpacked as $file => $name) {
+            if (isset($stored[$name]) || !$this->copyFile(file: $file, target: $gallery . '/' . $name)) {
+                $report->skip(name: $name);
+                continue;
+            }
+            $stored[$name] = true;
         }
 
-        return count($names);
+        return count($stored);
+    }
+
+    private function copyFile(string $file, string $target): bool
+    {
+        File::makeDirectory(path: dirname($target), recursive: true, force: true);
+
+        return @copy($file, $target);
     }
 
     /**
-     * Stores the unpacked files on the bucket, each under a name of its own.
+     * Stores the unpacked files on the bucket, each under a name of its own: what the local disk can hold under the name of an entry does not
+     * matter here. An object the bucket refuses (the disk answers false and does not throw) is left out and listed.
      *
-     * @param list<string> $names
+     * @param array<string, string> $unpacked the name of the entry of every unpacked file, by the path of the file
      */
-    private function putOnBucket(string $directory, array $names, string $folder): int
+    private function putOnBucket(array $unpacked, string $folder, ArchiveReport $report): int
     {
-        foreach ($names as $name) {
+        $stored = 0;
+        foreach ($unpacked as $file => $name) {
             $imageName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION);
-            Storage::disk('s3')->putFileAs($folder, $directory . '/' . $name, $imageName, 'public');
+            if (Storage::disk('s3')->putFileAs($folder, $file, $imageName, 'public') === false) {
+                $report->skip(name: $name);
+            } else {
+                $stored++;
+            }
         }
 
-        return count($names);
+        return $stored;
     }
 
     public static function shouldSkip($filename): bool

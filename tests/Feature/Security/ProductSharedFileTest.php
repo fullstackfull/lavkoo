@@ -14,12 +14,13 @@ use App\Utils\ImageManager;
 use App\Utils\SharedProductFile;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
+use Tests\Support\RemovesFilesItCreated;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
@@ -32,12 +33,10 @@ use Tests\TestCase;
 class ProductSharedFileTest extends TestCase
 {
     use BuildsFulfillmentSchema;
+    use RemovesFilesItCreated;
     use RestoresLanguageFiles;
 
     private const DIRECTORY = 'storage/app/public/product';
-
-    /** @var list<string> */
-    private array $created = [];
 
     protected function setUp(): void
     {
@@ -77,22 +76,13 @@ class ProductSharedFileTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['thumbnail', 'preview', 'meta', 'digital-product'] as $folder) {
-            File::deleteDirectory(base_path(self::DIRECTORY . '/' . $folder));
-        }
-        File::deleteDirectory(base_path('storage/app/public/category'));
-        array_map('unlink', array_filter($this->created, 'file_exists'));
-        @rmdir(base_path('storage/app/public/profile'));
+        $this->removeTheFilesItCreated(folders: [
+            $this->product('thumbnail'), $this->product('preview'), $this->product('meta'), $this->product('digital-product'), base_path(self::DIRECTORY),
+            base_path('storage/app/public/category'), base_path('storage/app/public/profile'),
+        ]);
         $this->restoreLanguageFiles();
 
         parent::tearDown();
-    }
-
-    private function fileOnDisk(string $path, string $content): void
-    {
-        File::ensureDirectoryExists(dirname($path));
-        file_put_contents($path, $content);
-        $this->created[] = $path;
     }
 
     private function product(string $name): string
@@ -181,11 +171,10 @@ class ProductSharedFileTest extends TestCase
         };
         $upload = new UploadedFile($this->temporaryImage(), 'new.' . $format, null, null, true);
 
-        $stored = $writer->update(dir: $directory, oldImage: $held, format: $format, image: $upload, fileType: $format === 'pdf' ? 'file' : 'image');
+        $stored = $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: fn (): string => $writer->update(dir: $directory, oldImage: $held, format: $format, image: $upload, fileType: $format === 'pdf' ? 'file' : 'image'));
 
         $this->assertFileExists(base_path('storage/app/public/' . $directory . $held), 'the file of the other product stays');
         $this->assertFileExists(base_path('storage/app/public/' . $directory . $stored), 'the new file is stored');
-        File::delete(base_path('storage/app/public/' . $directory . $stored));
     }
 
     private function temporaryImage(): string
@@ -238,7 +227,6 @@ class ProductSharedFileTest extends TestCase
 
         $this->assertFileExists($this->product('digital-product/shared-digital.zip'));
         $this->assertFileDoesNotExist($this->product('digital-product/solo-digital.zip'));
-        File::deleteDirectory($this->product('digital-product'));
     }
 
     public function test_a_file_that_is_no_product_file_is_deleted_as_before(): void
@@ -377,22 +365,26 @@ class ProductSharedFileTest extends TestCase
     /** The order of Vendor\Product\ProductController::add and of the admin panel's: the data of the form, the row, then the SEO row. */
     private function addAsThePanelDoes(Request $request, int $sellerId): Product
     {
-        $service = app(ProductService::class);
-        $data = array_merge($service->getAddProductData(request: $request, addedBy: 'seller', shopId: 1), ['user_id' => $sellerId]);
-        $saved = Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->add(data: $data));
-        app(ProductSeoRepositoryInterface::class)->add(data: $service->getProductSEOData(request: $request, product: $saved, action: 'add'));
+        return $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: function () use ($request, $sellerId): Product {
+            $service = app(ProductService::class);
+            $data = array_merge($service->getAddProductData(request: $request, addedBy: 'seller', shopId: 1), ['user_id' => $sellerId]);
+            $saved = Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->add(data: $data));
+            app(ProductSeoRepositoryInterface::class)->add(data: $service->getProductSEOData(request: $request, product: $saved, action: 'add'));
 
-        return $saved;
+            return $saved;
+        });
     }
 
     /** The order of Vendor\Product\ProductController::update and of the admin panel's: the data of the form, the row, and only then the SEO row. */
     private function updateAsThePanelDoes(int $productId, Request $request): void
     {
-        $service = app(ProductService::class);
-        $product = app(ProductRepositoryInterface::class)->getFirstWhereWithoutGlobalScope(params: ['id' => $productId], relations: ['seoInfo']);
-        $dataArray = $service->getUpdateProductData(request: $request, product: $product, updateBy: 'seller');
-        Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->update(id: (string) $productId, data: $dataArray));
-        app(ProductSeoRepositoryInterface::class)->updateOrInsert(params: ['product_id' => $product['id']], data: $service->getProductSEOData(request: $request, product: $product, action: 'update'));
+        $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: function () use ($productId, $request): void {
+            $service = app(ProductService::class);
+            $product = app(ProductRepositoryInterface::class)->getFirstWhereWithoutGlobalScope(params: ['id' => $productId], relations: ['seoInfo']);
+            $dataArray = $service->getUpdateProductData(request: $request, product: $product, updateBy: 'seller');
+            Product::withoutEvents(static fn () => app(ProductRepositoryInterface::class)->update(id: (string) $productId, data: $dataArray));
+            app(ProductSeoRepositoryInterface::class)->updateOrInsert(params: ['product_id' => $product['id']], data: $service->getProductSEOData(request: $request, product: $product, action: 'update'));
+        });
     }
 
     public function test_editing_a_copy_with_a_new_meta_image_keeps_the_meta_image_that_the_original_shows_as_its_seo_image(): void
@@ -534,6 +526,67 @@ class ProductSharedFileTest extends TestCase
         $this->assertTrue(SharedProductFile::isShared(path: $path), 'two products hold ' . $path);
     }
 
+    /** @return array<string, array{0: string, 1: int}> a name, and the flags of the JSON writer that wrote it into the rows of two products */
+    public static function writersOfAGalleryText(): array
+    {
+        $quotedArabic = "q\"\u{0635}\u{0648}\u{0631}\u{0629}.webp";
+
+        return [
+            'raw letters and an escaped quote' => [$quotedArabic, JSON_UNESCAPED_UNICODE],
+            'raw letters, an escaped quote and raw slashes' => [$quotedArabic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES],
+            'a backslash that the disk reads as a folder, and raw letters' => ["b\\\u{0635}.webp", JSON_UNESCAPED_UNICODE],
+            'an apostrophe, an ampersand, angle brackets and a letter with an accent, all escaped' => ["abcdef&ghijkl<mnopqr>stuvwx'yz\u{00e9}.webp", JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_TAG | JSON_HEX_QUOT],
+            'a name of which no character stays as it is but the dot and the extension' => ["\u{0635}\u{0648}\u{0631}\u{0629}\"'.webp", JSON_HEX_APOS | JSON_HEX_QUOT],
+        ];
+    }
+
+    #[DataProvider('writersOfAGalleryText')]
+    public function test_two_products_that_hold_a_name_make_it_shared_whatever_the_flags_of_the_json_writer_of_their_rows(string $name, int $flags): void
+    {
+        $this->insertProduct(81, ['images' => json_encode([$name], $flags)]);
+        $this->insertProduct(82, ['images' => json_encode([$name], $flags)]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/' . $name), 'two products hold ' . $name . ' in the text ' . json_encode([$name], $flags));
+    }
+
+    public function test_two_products_whose_gallery_text_spells_its_escapes_in_upper_case_hold_the_file(): void
+    {
+        $name = "caf\u{00e9}-\u{0635}.webp";
+        $this->assertSame('["caf\\u00e9-\\u0635.webp"]', json_encode([$name]), 'json_encode writes the hex digits in lower case, other writers in upper case');
+        $this->insertProduct(81, ['images' => '["caf\\u00E9-\\u0635.webp"]']);
+        $this->insertProduct(82, ['images' => '["caf\\u00E9-\\u0635.webp"]']);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/' . $name));
+    }
+
+    public function test_a_name_with_no_character_that_a_json_writer_leaves_alone_is_found_in_the_rows_of_its_holders(): void
+    {
+        $name = "\u{0635}\u{0648}\u{0631}\u{0629}";
+        $this->insertProduct(81, ['images' => json_encode([$name])]);
+        $this->insertProduct(82, ['images' => json_encode(['other.webp'])]);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/' . $name), 'one holder');
+
+        $this->insertProduct(83, ['images' => json_encode([$name], JSON_UNESCAPED_UNICODE)]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/' . $name), 'two holders, one of them with raw letters');
+    }
+
+    public function test_the_search_asks_for_the_longest_run_of_the_name_that_no_json_writer_spells_in_another_way(): void
+    {
+        $patterns = [];
+        DB::listen(static function ($query) use (&$patterns): void {
+            if (preg_match('/\bfrom [`"]?products[`"]?\b/i', $query->sql) === 1) {
+                $patterns[] = array_values(array_filter($query->bindings, 'is_string'));
+            }
+        });
+
+        SharedProductFile::sharedAmong(paths: ["product/ab\u{0635}cdefg.webp", 'product/plain-name_1.webp', "product/\u{0635}\u{0648}"]);
+
+        // the gallery and the colour images, for each file: the run, with the characters of the pattern language escaped; a name with no such character asks for every row
+        $this->assertSame([['%cdefg.webp%', '%cdefg.webp%', '%plain-name!_1.webp%', '%plain-name!_1.webp%', '%%', '%%']], $patterns);
+    }
+
     /** @return array<string, array{0: string}> the paths that the disk reads as product/ps1.webp */
     public static function pathsOfTheGalleryFile(): array
     {
@@ -654,12 +707,12 @@ class ProductSharedFileTest extends TestCase
         $writer = $this->fileWriter();
         $upload = new UploadedFile($this->temporaryImage(), 'new.webp', null, null, true);
 
-        $statements = $this->productQueriesDuring(function () use ($writer, $upload): void {
+        $statements = $this->productQueriesDuring(fn () => $this->trackingTheFilesStoredBelow(folder: base_path(self::DIRECTORY), work: function () use ($writer, $upload): void {
             ImageManager::delete('/product/thumbnail/ghost.webp');
             $writer->remove('/product/ghost.webp');
             $writer->update(dir: 'product/thumbnail/', oldImage: 'ghost.webp', format: 'webp', image: $upload);
             app(ProductService::class)->deleteImages(product: (new Product())->forceFill(['images' => json_encode(['ghost-a.webp', 'ghost-b.webp']), 'thumbnail' => 'ghost-thumb.webp']));
-        });
+        }));
 
         $this->assertSame([], $statements);
     }
@@ -709,6 +762,243 @@ class ProductSharedFileTest extends TestCase
 
         $this->assertSame(['/product/list-shared.webp', '/product/thumbnail/list-thumb.webp'], $shared);
         $this->assertSame([], SharedProductFile::sharedAmong(paths: []));
+    }
+
+    public function test_a_list_of_files_whose_second_holders_are_in_different_later_rows_names_every_shared_file(): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['stag-a.webp', 'stag-b.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['stag-a.webp'])]);
+        $this->insertProduct(83, ['images' => json_encode(['stag-b.webp'])]);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/stag-a.webp', 'product/stag-b.webp']);
+
+        $this->assertSame(['product/stag-a.webp', 'product/stag-b.webp'], $shared, 'the search goes on until every file has a second holder');
+    }
+
+    public function test_a_product_that_deletes_its_files_keeps_every_file_that_another_product_holds_although_each_of_them_has_a_different_other_holder(): void
+    {
+        $this->insertProduct(81, ['thumbnail' => 'stag-thumb.webp', 'images' => json_encode(['stag-ga.webp', 'stag-gb.webp', 'stag-gc.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['stag-ga.webp'])]);
+        $this->insertProduct(83, ['images' => json_encode(['stag-gb.webp'])]);
+        $this->insertProduct(84, ['thumbnail' => 'stag-thumb.webp']);
+        foreach (['stag-ga.webp', 'stag-gb.webp', 'stag-gc.webp', 'thumbnail/stag-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+
+        $this->assertFileExists($this->product('stag-ga.webp'), 'product 82 holds it');
+        $this->assertFileExists($this->product('stag-gb.webp'), 'product 83 holds it');
+        $this->assertFileDoesNotExist($this->product('stag-gc.webp'), 'nobody else holds it');
+        $this->assertFileExists($this->product('thumbnail/stag-thumb.webp'), 'product 84 holds it');
+    }
+
+    public function test_holders_on_both_sides_of_the_boundary_between_two_statements_of_the_search_are_counted(): void
+    {
+        // 260 products whose names only contain the searched ones: all of them are candidates, the search reads a hundred of them at a time
+        DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'ED' . $number, 'name' => 'Edge ' . $number, 'images' => json_encode(['x-edge-a.webp', 'x-edge-b.webp']), 'colors' => '[]', 'color_image' => '[]'], range(1, 260)));
+        // edge-a: the last row of the first statement and the first of the second; edge-b: the first of the second and a row of the third
+        DB::table('products')->where('id', 1100)->update(['images' => json_encode(['edge-a.webp'])]);
+        DB::table('products')->where('id', 1101)->update(['images' => json_encode(['edge-a.webp', 'edge-b.webp'])]);
+        DB::table('products')->where('id', 1250)->update(['images' => json_encode(['edge-b.webp'])]);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/edge-a.webp', 'product/edge-b.webp', 'product/edge-c.webp']);
+
+        $this->assertSame(['product/edge-a.webp', 'product/edge-b.webp'], $shared, 'the products that only hold a longer name are no holders');
+    }
+
+    public function test_a_file_that_one_product_holds_in_each_statement_of_the_search_is_still_held_by_each_of_them_alone(): void
+    {
+        DB::table('products')->insert(array_map(static fn (int $number): array => ['id' => 1000 + $number, 'added_by' => 'seller', 'user_id' => 7, 'code' => 'SG' . $number, 'name' => 'Single ' . $number, 'images' => json_encode(['single-' . $number . '.webp']), 'colors' => '[]', 'color_image' => '[]'], range(1, 300)));
+
+        $this->assertSame([], SharedProductFile::sharedAmong(paths: ['product/single-1.webp', 'product/single-150.webp', 'product/single-300.webp']));
+    }
+
+    public function test_the_same_file_under_two_spellings_in_one_list_is_answered_for_both_spellings(): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['spelled.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['spelled.webp'])]);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/spelled.webp', '/product/./spelled.webp', 'product//spelled.webp']);
+
+        $this->assertSame(['product/spelled.webp', '/product/./spelled.webp', 'product//spelled.webp'], $shared);
+    }
+
+    public function test_a_file_in_the_seo_table_counts_as_the_second_holder_when_the_first_is_a_product_of_the_same_list(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'seo-listed.png', 'images' => json_encode(['seo-listed-gallery.webp'])]);
+        $this->insertProduct(82, ['images' => json_encode(['seo-listed-gallery.webp'])]);
+        $this->insertProduct(83);
+        DB::table('product_seos')->insert(['product_id' => 83, 'image' => 'seo-listed.png']);
+
+        $shared = SharedProductFile::sharedAmong(paths: ['product/meta/seo-listed.png', 'product/seo-listed-gallery.webp']);
+
+        $this->assertSame(['product/meta/seo-listed.png', 'product/seo-listed-gallery.webp'], $shared);
+    }
+
+    public function test_a_long_list_of_files_is_answered_for_every_file_whichever_statement_of_the_search_it_was_in(): void
+    {
+        $names = [];
+        foreach (range(1, 120) as $number) {
+            $names[$number] = 'chunk-' . $number . '.webp';
+        }
+        $isHeldTwice = static fn (int $number): bool => $number % 3 === 0 || $number >= 100;
+        $this->insertProduct(81, ['images' => json_encode(array_values($names))]);
+        $this->insertProduct(82, ['images' => json_encode(array_values(array_filter($names, static fn (int $number): bool => $number % 3 === 0, ARRAY_FILTER_USE_KEY)))]);
+        $this->insertProduct(83, ['images' => json_encode(array_values(array_filter($names, static fn (int $number): bool => $number >= 100, ARRAY_FILTER_USE_KEY)))]);
+
+        $shared = SharedProductFile::sharedAmong(paths: array_map(static fn (string $name): string => 'product/' . $name, array_values($names)));
+
+        $expected = array_map(static fn (string $name): string => 'product/' . $name, array_values(array_filter($names, $isHeldTwice, ARRAY_FILTER_USE_KEY)));
+        $this->assertSame($expected, $shared);
+    }
+
+    /** @return array<string, array{0: int, 1: int}> the number of files asked about, and the statements on the products table that answer it */
+    public static function sizesOfAList(): array
+    {
+        return ['one file' => [1, 1], 'fifty files' => [50, 1], 'fifty-one files' => [51, 2], 'a hundred files' => [100, 2], 'a hundred and one files' => [101, 3]];
+    }
+
+    #[DataProvider('sizesOfAList')]
+    public function test_a_list_of_files_is_asked_for_fifty_at_a_time(int $count, int $statementsNeeded): void
+    {
+        $paths = array_map(static fn (int $number): string => 'product/asked-' . $number . '.webp', range(1, $count));
+        $answer = [];
+
+        $statements = $this->productQueriesDuring(function () use ($paths, &$answer): void {
+            $answer = SharedProductFile::sharedAmong(paths: $paths);
+        });
+
+        $this->assertSame([], $answer);
+        $this->assertCount($statementsNeeded, $statements);
+    }
+
+    public function test_a_product_with_a_gallery_of_hundreds_of_files_can_be_deleted_and_keeps_the_files_another_product_holds(): void
+    {
+        $names = array_map(static fn (int $number): string => 'long-gallery-' . $number . '.webp', range(1, 600));
+        $this->insertProduct(81, ['thumbnail' => 'long-gallery-thumb.webp', 'images' => json_encode($names)]);
+        $this->insertProduct(82, ['images' => json_encode([$names[0], $names[299], $names[599]])]);
+        foreach ([...$names, 'thumbnail/long-gallery-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+
+        $left = array_map('basename', glob($this->product('long-gallery-*.webp')) ?: []);
+        sort($left);
+        $this->assertSame(['long-gallery-1.webp', 'long-gallery-300.webp', 'long-gallery-600.webp'], $left, 'the three files that product 82 holds stay, the others go');
+        $this->assertFileDoesNotExist($this->product('thumbnail/long-gallery-thumb.webp'));
+    }
+
+    public function test_a_product_with_a_gallery_of_objects_deletes_its_files_and_keeps_the_ones_another_product_holds(): void
+    {
+        $entry = static fn (string $name): array => ['image_name' => $name, 'storage' => 'public'];
+        $this->insertProduct(81, ['thumbnail' => 'obj-thumb.webp', 'images' => json_encode([$entry('obj-1.webp'), $entry('obj-2.webp')]), 'colors' => json_encode(['FF0000']), 'color_image' => json_encode([['color' => 'FF0000'] + $entry('obj-1.webp')])]);
+        $this->insertProduct(82, ['images' => json_encode([$entry('obj-2.webp')])]);
+        foreach (['obj-1.webp', 'obj-2.webp', 'thumbnail/obj-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+
+        $this->assertFileDoesNotExist($this->product('obj-1.webp'), 'product 81 holds it in its gallery and as a colour image, and no other product does');
+        $this->assertFileExists($this->product('obj-2.webp'), 'product 82 holds it too');
+        $this->assertFileDoesNotExist($this->product('thumbnail/obj-thumb.webp'));
+    }
+
+    /** @return array<string, array{0: string, 1: string}> a column, and a value that holds the name `shape-held.webp` in a shape that names no image */
+    public static function valuesThatHoldTheNameWithoutNamingAnImage(): array
+    {
+        return [
+            'a colour image whose name is a list' => ['color_image', json_encode([['color' => 'FF0000', 'image_name' => ['shape-held.webp']]])],
+            'a colour image without a name' => ['color_image', json_encode([['color' => 'FF0000', 'image_name' => null, 'note' => 'shape-held.webp']])],
+            'a gallery entry that is a list' => ['images', json_encode([['shape-held.webp']])],
+            'a gallery entry that is an object with another key' => ['images', json_encode([['name' => 'shape-held.webp']])],
+            'a gallery entry whose name is a list' => ['images', json_encode([['image_name' => ['shape-held.webp']]])],
+            'a gallery entry whose name is a number' => ['images', json_encode([['image_name' => 5, 'note' => 'shape-held.webp']])],
+            'a gallery entry whose name is true' => ['images', json_encode([['image_name' => true, 'note' => 'shape-held.webp']])],
+            'a gallery written as JSON inside JSON' => ['images', json_encode(json_encode(['shape-held.webp']))],
+        ];
+    }
+
+    #[DataProvider('valuesThatHoldTheNameWithoutNamingAnImage')]
+    public function test_a_row_that_holds_the_name_in_a_shape_that_names_no_image_neither_breaks_the_search_nor_counts_as_a_holder(string $column, string $value): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['shape-held.webp'])]);
+        $this->insertProduct(82, [$column => $value]);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/shape-held.webp'), 'only product 81 holds it');
+
+        $this->insertProduct(83, ['images' => json_encode(['shape-held.webp'])]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/shape-held.webp'), 'products 81 and 83 hold it, and the search goes on past the row of product 82');
+    }
+
+    public function test_a_delete_through_the_trait_forgets_what_the_file_manager_remembers_of_its_files(): void
+    {
+        $writer = $this->fileWriter();
+        foreach (['remove', 'removeAll'] as $method) {
+            $this->fileOnDisk($this->product('forget-' . $method . '.webp'), $method);
+            foreach (['cache_for_recent_file_list_public', 'cache_for_recent_file_list_s3', 'cache_all_files_for_public_storage'] as $key) {
+                Cache::put($key, 'what was listed before the delete');
+            }
+
+            $method === 'remove' ? $writer->remove('/product/forget-remove.webp') : $writer->removeAll(['/product/forget-removeAll.webp']);
+
+            $this->assertFileDoesNotExist($this->product('forget-' . $method . '.webp'));
+            foreach (['cache_for_recent_file_list_public', 'cache_for_recent_file_list_s3', 'cache_all_files_for_public_storage'] as $key) {
+                $this->assertNull(Cache::get($key), $method . ' forgets ' . $key);
+            }
+        }
+    }
+
+    public function test_a_meta_image_and_the_seo_image_of_another_product_that_differ_in_case_are_two_files(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'Case-Seo.png']);
+        $this->insertProduct(82);
+        DB::table('product_seos')->insert(['product_id' => 82, 'image' => 'case-seo.png']);
+        $this->fileOnDisk($this->product('meta/Case-Seo.png'), 'meta');
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/meta/Case-Seo.png'), 'product 82 holds case-seo.png, which is another file');
+
+        ImageManager::delete('/product/meta/Case-Seo.png');
+
+        $this->assertFileDoesNotExist($this->product('meta/Case-Seo.png'), 'the last product that holds the file lets go of it, and the file goes');
+    }
+
+    public function test_a_digital_file_and_the_variation_of_another_product_that_differ_by_a_trailing_space_are_two_files(): void
+    {
+        $this->insertProduct(81, ['digital_file_ready' => 'book-trailing.zip']);
+        $this->insertProduct(82);
+        DB::table('digital_product_variations')->insert(['product_id' => 82, 'file' => 'book-trailing.zip ']);
+        $this->fileOnDisk($this->product('digital-product/book-trailing.zip'), 'zip');
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/digital-product/book-trailing.zip'), 'product 82 holds "book-trailing.zip ", which is another file');
+
+        ImageManager::delete('/product/digital-product/book-trailing.zip');
+
+        $this->assertFileDoesNotExist($this->product('digital-product/book-trailing.zip'));
+    }
+
+    public function test_a_file_named_with_digits_and_the_variation_of_another_product_that_adds_a_trailing_space_are_two_files(): void
+    {
+        $this->insertProduct(81, ['digital_file_ready' => '2024']);
+        $this->insertProduct(82);
+        DB::table('digital_product_variations')->insert(['product_id' => 82, 'file' => '2024 ']);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/digital-product/2024'), 'two numbers that are equal as numbers are two names');
+    }
+
+    public function test_the_seo_row_or_the_variation_that_holds_the_exact_name_still_counts_next_to_one_that_holds_another_case(): void
+    {
+        $this->insertProduct(81, ['meta_image' => 'Exact-Seo.png', 'digital_file_ready' => 'Exact-Book.zip']);
+        $this->insertProduct(82);
+        $this->insertProduct(83);
+        DB::table('product_seos')->insert([['product_id' => 82, 'image' => 'exact-seo.png'], ['product_id' => 83, 'image' => 'Exact-Seo.png']]);
+        DB::table('digital_product_variations')->insert([['product_id' => 82, 'file' => 'exact-book.zip'], ['product_id' => 83, 'file' => 'Exact-Book.zip']]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/meta/Exact-Seo.png'), 'products 81 and 83 hold it');
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/digital-product/Exact-Book.zip'), 'products 81 and 83 hold it');
     }
 
     public function test_a_file_that_hundreds_of_products_hold_is_answered_from_plain_rows_and_one_statement(): void

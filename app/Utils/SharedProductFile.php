@@ -31,6 +31,12 @@ final class SharedProductFile
     /** The products read from the database for each statement: the search stops at the second holder of every file, so it rarely needs a second one. */
     private const CANDIDATES_PER_STATEMENT = 100;
 
+    /**
+     * The files one search asks about. A search holds a few predicates for every file and the database refuses one that holds too many (SQLite
+     * from about 450 files, MySQL from about 33,000 placeholders), and the gallery of a product is a list its seller makes.
+     */
+    private const FILES_PER_STATEMENT = 50;
+
     /** Whether the file at a path of the disk (`product/x.webp`, `/product/thumbnail/x.webp`) is held by more than one product. */
     public static function isShared(string $path): bool
     {
@@ -38,7 +44,7 @@ final class SharedProductFile
     }
 
     /**
-     * The same question for several files, answered with one search of the products instead of one for each file.
+     * The same question for several files, answered with one search of the products for every fifty of them instead of one for each file.
      *
      * @param array<int, string> $paths
      * @return list<string> the paths of the list whose file more than one product holds
@@ -91,11 +97,21 @@ final class SharedProductFile
      */
     private static function holdersOf(array $files): array
     {
-        $holders = array_fill_keys(array_keys($files), []);
-        if ($files === []) {
-            return $holders;
+        $holders = [];
+        foreach (array_chunk($files, self::FILES_PER_STATEMENT, preserve_keys: true) as $someFiles) {
+            $holders += self::holdersInOneSearch(files: $someFiles);
         }
 
+        return $holders;
+    }
+
+    /**
+     * @param array<string, File> $files by path, no more than one search asks about
+     * @return array<string, array<int|string, true>> the products that hold each file, by path
+     */
+    private static function holdersInOneSearch(array $files): array
+    {
+        $holders = array_fill_keys(array_keys($files), []);
         foreach (self::candidates(files: $files) as $row) {
             $entries = self::entriesOf(row: $row);
             foreach ($files as $path => $file) {
@@ -133,10 +149,8 @@ final class SharedProductFile
             ->where(static function ($query) use ($files) {
                 $like = self::likeOperator(connection: $query->getConnection());
                 foreach ($files as $file) {
-                    foreach (self::jsonSpellings(name: $file['name']) as $spelling) {
-                        $pattern = self::likeContaining(text: $spelling);
-                        $query->orWhereRaw("images {$like} ? escape '!'", [$pattern])->orWhereRaw("color_image {$like} ? escape '!'", [$pattern]);
-                    }
+                    $pattern = self::likeContaining(text: self::longestRunNoJsonWriterEscapes(name: $file['name']));
+                    $query->orWhereRaw("images {$like} ? escape '!'", [$pattern])->orWhereRaw("color_image {$like} ? escape '!'", [$pattern]);
                     if ($file['column'] !== null) {
                         $query->orWhere($file['column'], $file['name']);
                     }
@@ -177,10 +191,25 @@ final class SharedProductFile
     private static function otherTablesHolding(array $file): iterable
     {
         return match ($file['folder']) {
-            'meta' => ProductSeo::query()->where('image', $file['name'])->whereIn('product_id', self::existingProductIds())->pluck('product_id'),
-            'digital-product' => DigitalProductVariation::query()->where('file', $file['name'])->whereIn('product_id', self::existingProductIds())->pluck('product_id'),
+            'meta' => self::liveProductsHolding(rows: ProductSeo::query(), column: 'image', name: $file['name']),
+            'digital-product' => self::liveProductsHolding(rows: DigitalProductVariation::query(), column: 'file', name: $file['name']),
             default => [],
         };
+    }
+
+    /**
+     * @return list<int|string> the live products among the rows whose column holds the name byte for byte: the collation of the table may read `Case.png` and `case.png`, or
+     *                          `book.zip` and `book.zip ` (a trailing space), as one value, and they are two files
+     */
+    private static function liveProductsHolding(Builder $rows, string $column, string $name): array
+    {
+        return $rows->where($column, $name)
+            ->whereIn('product_id', self::existingProductIds())
+            ->toBase()
+            ->get(['product_id', $column])
+            ->filter(static fn (object $row): bool => $row->{$column} === $name)
+            ->pluck('product_id')
+            ->all();
     }
 
     private static function existingProductIds(): Builder
@@ -188,12 +217,17 @@ final class SharedProductFile
         return Product::withoutGlobalScopes()->select('id');
     }
 
-    /** @return list<string> the name as a JSON text holds it: as it is, and as json_encode() escapes it (letters that are not ASCII, quotes, backslashes) */
-    private static function jsonSpellings(string $name): array
+    /**
+     * The longest run of the characters that no JSON writer spells in another way (ASCII letters, digits, `.`, `_`, `-` and a space). It stands in
+     * the text of a row however the writer spelled the rest of the name (a letter that is not ASCII raw or escaped, a quote, an apostrophe or an
+     * angle bracket escaped or not, the hex digits in upper or lower case), so a search for it finds every row that may hold the name, and the rows
+     * are checked exactly afterwards. A name with no such character finds every row.
+     */
+    private static function longestRunNoJsonWriterEscapes(string $name): string
     {
-        $escaped = substr((string) json_encode($name), 1, -1);
+        preg_match_all('/[A-Za-z0-9._ -]+/', $name, $runs);
 
-        return array_values(array_unique(array_filter([$name, $escaped], static fn (string $spelling): bool => $spelling !== '')));
+        return array_reduce($runs[0], static fn (string $longest, string $run): string => strlen($run) > strlen($longest) ? $run : $longest, '');
     }
 
     /** The rows are checked exactly afterwards, so the case-insensitive collation of the columns only slows the search down: MySQL compares bytes, several times faster. */

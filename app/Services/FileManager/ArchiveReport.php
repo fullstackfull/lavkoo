@@ -45,7 +45,10 @@ final class ArchiveReport
         return Copy::line($this->refusal ?? self::NOTHING_TO_STORE, ['limit' => $this->limit]);
     }
 
-    /** An entry of the archive that is not stored although it is a file: a script, a page, a name the disk refuses, an entry nobody can read. */
+    /**
+     * An entry of the archive that is not stored although it is a file: a script, a page, a name the disk cannot hold or that an earlier entry already took, an entry nobody
+     * can read or whose data is damaged, an object the bucket refuses.
+     */
     public function skip(string $name): void
     {
         $this->skipped++;
