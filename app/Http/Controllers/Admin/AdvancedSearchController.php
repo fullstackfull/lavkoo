@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Repositories\RecentSearchRepositoryInterface;
+use App\Services\AdvancedSearchPermissionFilter;
 use App\Services\AdvancedSearchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class AdvancedSearchController extends BaseController
     public function __construct(
         private readonly RecentSearchRepositoryInterface $recentSearchRepo,
         private readonly AdvancedSearchService           $advancedSearchService,
+        private readonly AdvancedSearchPermissionFilter  $permissionFilter,
     )
     {
     }
@@ -46,7 +48,7 @@ class AdvancedSearchController extends BaseController
         $advanceSearch = new AdvanceSearch('admin', $keyword);
 
         if (!empty($keyword)) {
-            $result = collect($advanceSearch->searchAllList());
+            $result = $this->permissionFilter->filterByPermission(grouped: $advanceSearch->searchAllList());
             return response()->json([
                 'keyword' => $keyword,
                 'result' => $result,
@@ -63,7 +65,7 @@ class AdvancedSearchController extends BaseController
             'user_type' => $userType
         ], dataLimit: 10);
 
-        $finalData = $this->advancedSearchService->getSortRecentSearchByType($recentSearches);
+        $finalData = $this->permissionFilter->filterByPermission(grouped: $this->advancedSearchService->getSortRecentSearchByType($recentSearches));
         return response()->json([
             'keyword' => $keyword,
             'result' => $finalData,

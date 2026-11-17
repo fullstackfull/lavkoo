@@ -43,7 +43,7 @@ class AdminRouteTableTest extends TestCase
         'POST admin/v2/sidebar-pins/toggle' => self::OWN_SIDEBAR_PINS,
         'POST admin/v2/sidebar-pins/replace' => self::OWN_SIDEBAR_PINS,
         'GET admin/v2/advanced-search' => 'The search box in the header of every page. It drops the results of the modules the employee does not hold (V2AdvancedSearchController).',
-        'GET admin/advanced-search' => 'The search box in the header of the classic layout, on every page, so no one permission fits. Unlike the v2 search it drops only the menu hits of the modules the employee does not hold, not the customers, vendors, orders, contacts and coupons it finds: that needs a change of the controller, not a permission.',
+        'GET admin/advanced-search' => 'The search box in the header of the classic layout, on every page, so no one permission fits. Like the v2 search it drops the hits of the modules the employee does not hold, the customers, vendors, orders, contacts and coupons it finds included (AdvancedSearchPermissionFilter).',
         'POST admin/advanced-search-recent' => 'Records the recent search of the signed-in employee and redirects to it: their own list only.',
         'GET admin/profile/update/{id}' => self::OWN_PROFILE,
         'POST admin/profile/update/{id}' => self::OWN_PROFILE,
