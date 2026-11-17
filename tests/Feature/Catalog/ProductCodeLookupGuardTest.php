@@ -117,6 +117,16 @@ class ProductCodeLookupGuardTest extends TestCase
      * @var array<string, array<string, string>>
      */
     private const LABELLED_BY = [
+        'C2' => [
+            'resources/views/admin-views/pos/partials/_search-product.blade.php' => 'countryTag(',
+        ],
+        'C3' => [
+            'resources/views/admin-views/pos/partials/_single-product.blade.php' => 'countryTag(',
+            'resources/views/admin-views/product/product-gallery.blade.php' => 'countryTag(',
+            'resources/views/admin-views/product/partials/offcanvas/_product-gallery-details-offcanvas.blade.php' => 'countryTag(',
+            'resources/views/file-exports/product-list.blade.php' => 'countryColumn',
+            'app/Http/Controllers/Admin/Product/ProductController.php' => 'countryColumn',
+        ],
         'C4' => [
             'resources/views/admin-views/order/partials/_search-product.blade.php' => 'countryTag(',
             'resources/views/admin-views/deal/clearance-sale/partials/_search-product.blade.php' => 'countryTag(',

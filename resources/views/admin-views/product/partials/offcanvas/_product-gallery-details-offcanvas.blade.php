@@ -37,7 +37,7 @@
                         </div>
                     </div>
                     <div class="d-flex flex-column gap-3">
-                        <h3 class="text-capitalize mb-0">{{ $product['name'] }}</h3>
+                        <h3 class="text-capitalize mb-0">{{ $product['name'] }}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}</h3>
                         @if ($product?->tags->count() > 0)
                             <div class="d-flex gap-2 align-items-center text-dark">
                                 <div>{{ translate('Tag') }}:</div>

@@ -36,6 +36,7 @@ use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductEditImageRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Repositories\DigitalProductPublishingHouseRepository;
+use App\Services\Catalog\ProductCodeScope;
 use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
@@ -724,6 +725,7 @@ class ProductController extends BaseController
             'type' => $this->stringOr($request->type, $type),
             'seller' => $seller,
             'status' => $request->status ?? '',
+            'countryColumn' => app(ProductCodeScope::class)->enabled(),
             'productWiseTax' => $productWiseTax
         ];
         return Excel::download(new ProductListExport($data), ucwords($this->stringOr($request['type'], $type)) . '-' . 'product-list.xlsx');
