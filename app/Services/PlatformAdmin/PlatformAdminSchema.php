@@ -13,7 +13,7 @@ final class PlatformAdminSchema
     private const TABLES = ['platform_admin_grants', 'platform_admin_tokens', 'platform_admin_audit_logs', 'platform_admin_mfa_factors', 'platform_admin_mfa_challenges'];
 
     /** What the migrations that change a table of the API add to it, which the code reads and writes as soon as it is switched on. */
-    private const COLUMNS = ['platform_admin_tokens' => ['mfa_method']];
+    private const COLUMNS = ['platform_admin_tokens' => ['mfa_method'], 'platform_admin_grants' => ['capabilities', 'expires_at']];
 
     /** @var list<string>|null */
     private ?array $missing = null;

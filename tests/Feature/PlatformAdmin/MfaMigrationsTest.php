@@ -56,7 +56,7 @@ class MfaMigrationsTest extends TestCase
         }
     }
 
-    public function test_the_migrations_change_no_existing_table_except_by_the_one_column_of_the_sessions(): void
+    public function test_the_migrations_change_no_existing_table_except_by_the_column_of_the_sessions_and_the_two_of_the_grants(): void
     {
         $before = $this->columnsOfEveryTable();
 
@@ -65,8 +65,11 @@ class MfaMigrationsTest extends TestCase
 
         $expected = $before;
         $expected['platform_admin_tokens'][] = 'mfa_method';
-        $this->assertEqualsCanonicalizing($expected['platform_admin_tokens'], $after['platform_admin_tokens']);
-        unset($expected['platform_admin_tokens'], $after['platform_admin_tokens']);
+        $expected['platform_admin_grants'] = array_merge($expected['platform_admin_grants'], ['capabilities', 'expires_at']);
+        foreach (['platform_admin_tokens', 'platform_admin_grants'] as $table) {
+            $this->assertEqualsCanonicalizing($expected[$table], $after[$table], $table);
+            unset($expected[$table], $after[$table]);
+        }
         $this->assertSame($expected, $after);
 
         $this->rollBackPlatformAdminPhaseTwoMigrations();

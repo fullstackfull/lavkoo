@@ -28,6 +28,7 @@ trait BuildsPlatformAdminWorld
         '2026_11_29_100000_create_platform_admin_mfa_factors_table.php',
         '2026_11_29_100100_create_platform_admin_mfa_challenges_table.php',
         '2026_11_29_100200_add_mfa_method_to_platform_admin_tokens_table.php',
+        '2026_11_30_100000_add_expiry_and_capabilities_to_platform_admin_grants_table.php',
     ];
 
     /** The store tables and the admin sign-in columns, without the tables of the platform admin API. */
@@ -132,11 +133,14 @@ trait BuildsPlatformAdminWorld
         }
     }
 
-    /** @param string|null $only the file of one migration of phase 2, to run it alone */
-    protected function runPlatformAdminPhaseTwoMigrations(?string $only = null): void
+    /**
+     * @param string|null $only the file of one migration of phase 2, to run it alone
+     * @param list<string> $except files of phase 2 not to run
+     */
+    protected function runPlatformAdminPhaseTwoMigrations(?string $only = null, array $except = []): void
     {
         foreach (self::PLATFORM_ADMIN_PHASE_TWO_MIGRATIONS as $file) {
-            if ($only === null || $only === $file) {
+            if (($only === null || $only === $file) && !in_array($file, $except, true)) {
                 (require database_path("migrations/{$file}"))->up();
             }
         }
