@@ -72,23 +72,23 @@ class StaffProductRouteInventoryTest extends TestCase
                 $this->assertArrayHasKey($entry['slice'], StaffProductInventory::SLICES, $controller . ': the slice that takes it is one that follows slice 2');
             }
             if ($entry['class'] === StaffProductInventory::SCOPED) {
-                $this->assertContains($entry['slice'], [null, 'slice 2'], $controller . ': scoped in slice 1 (no slice named) or in slice 2');
+                $this->assertContains($entry['slice'], [null, 'slice 2', 'slice 3'], $controller . ': scoped in slice 1 (no slice named), in slice 2 or in slice 3');
             }
         }
         foreach (StaffProductInventory::READ_THROUGH_SERVICES as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
-            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffProductInventory::SCOPED ? ['slice 2' => true] : StaffProductInventory::SLICES, $controller);
+            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffProductInventory::SCOPED ? ['slice 2' => true, 'slice 3' => true] : StaffProductInventory::SLICES, $controller);
         }
         foreach (StaffProductInventory::SCOPED_WITHOUT_PRODUCTS as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
-            $this->assertSame('slice 2', $entry['slice'], $controller);
+            $this->assertContains($entry['slice'], ['slice 2', 'slice 3'], $controller);
         }
     }
 
     /** @return array<string, list<class-string>> the controllers the survey says a slice scoped, by slice */
     private function scopedBySurvey(): array
     {
-        $scoped = ['slice 1' => [], 'slice 2' => []];
+        $scoped = ['slice 1' => [], 'slice 2' => [], 'slice 3' => []];
         foreach (StaffProductInventory::CONTROLLERS as $controller => $entry) {
             if ($entry['class'] === StaffProductInventory::SCOPED) {
                 $scoped[$entry['slice'] ?? 'slice 1'][] = $controller;
@@ -99,9 +99,12 @@ class StaffProductRouteInventoryTest extends TestCase
                 $scoped[$entry['slice']][] = $controller;
             }
         }
-        $scoped['slice 2'] = [...$scoped['slice 2'], ...array_keys(StaffProductInventory::SCOPED_WITHOUT_PRODUCTS)];
-        sort($scoped['slice 1']);
-        sort($scoped['slice 2']);
+        foreach (StaffProductInventory::SCOPED_WITHOUT_PRODUCTS as $controller => $entry) {
+            $scoped[$entry['slice']][] = $controller;
+        }
+        foreach ($scoped as &$controllers) {
+            sort($controllers);
+        }
 
         return $scoped;
     }
@@ -109,12 +112,16 @@ class StaffProductRouteInventoryTest extends TestCase
     public function test_the_controllers_listed_as_scoped_are_exactly_the_ones_that_have_rules_in_the_registry_of_their_slice(): void
     {
         $slice1 = StaffProductRoutes::controllers();
-        $slice2 = StaffOrderRoutes::controllers();
+        $slice2 = StaffOrderRoutes::orderScreenControllers();
+        $slice3 = StaffOrderRoutes::readScreenControllers();
         sort($slice1);
         sort($slice2);
+        sort($slice3);
 
-        $this->assertSame(['slice 1' => $slice1, 'slice 2' => $slice2], $this->scopedBySurvey());
+        $this->assertSame(['slice 1' => $slice1, 'slice 2' => $slice2, 'slice 3' => $slice3], $this->scopedBySurvey());
         $this->assertSame([], array_values(array_intersect($slice1, $slice2)), 'a controller is covered by one slice');
+        $this->assertSame([], array_values(array_intersect($slice1, $slice3)));
+        $this->assertSame([], array_values(array_intersect($slice2, $slice3)));
     }
 
     public function test_every_route_of_a_scoped_controller_has_a_rule_and_every_rule_names_a_route(): void

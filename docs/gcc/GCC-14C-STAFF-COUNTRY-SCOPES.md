@@ -325,78 +325,133 @@ not restricted an unknown id stays what the action always answered.
   header. On every screen where the request is bound (the product, order, POS and refund screens) those read the employee's countries only. On the screens that are out of both
   slices nothing is bound, so they still show every country's counts: binding the layout on every admin page is the first step of slice 3.
 
+## What slice 3 enforces (the shared layout, the people, the dashboard and the reports)
+
+The rules of the screens of slice 3:
+
+<!-- slice-3-rules-start -->
+| Route | Action | Rule | Permission |
+|---|---|---|---|
+| `GET admin/customer/list` | `CustomerController::index` | `list:orders` | module:people |
+| `GET admin/customer/view/{user_id}` | `CustomerController::getView` | `list:orders` + `list:refunds` | module:people |
+| `GET admin/customer/order-list-export/{user_id}` | `CustomerController::exportOrderList` | `list:orders` | module:people |
+| `POST admin/customer/status-update` | `CustomerController::updateStatus` | `none` | module:people |
+| `POST admin/customer/bulk-status` | `CustomerController::bulkUpdateStatus` | `none` | module:people |
+| `DELETE admin/customer/delete/{id}` | `CustomerController::deleteCustomer` | `none` | module:people |
+| `GET admin/customer/subscriber-list` | `CustomerController::getSubscriberListView` | `none` | module:people |
+| `GET admin/customer/subscriber-list/export` | `CustomerController::exportSubscribersList` | `none` | module:people |
+| `GET admin/customer/export` | `CustomerController::exportList` | `list:orders` | module:people |
+| `GET admin/customer/customer-list-search` | `CustomerController::getCustomerList` | `none` | module:people |
+| `GET admin/customer/customer-list-without-all-customer` | `CustomerController::getCustomerListWithoutAllCustomerName` | `none` | module:people |
+| `POST admin/customer/add` | `CustomerController::add` | `none` | module:people |
+| `POST admin/customer/profile-update` | `CustomerController::updateProfile` | `none` | module:people |
+| `GET admin/vendors/list` | `VendorController::index` | `list:orders` | module:people |
+| `GET admin/vendors/add` | `VendorController::getAddView` | `none` | module:people |
+| `POST admin/vendors/add` | `VendorController::add` | `none` | module:people |
+| `GET admin/vendors/order-list-export/{vendor_id}` | `VendorController::exportOrderList` | `list:orders` | module:people |
+| `POST admin/vendors/status` | `VendorController::updateStatus` | `none` | module:people |
+| `POST admin/vendors/bulk-status` | `VendorController::bulkUpdateStatus` | `none` | module:people |
+| `GET admin/vendors/export` | `VendorController::exportList` | `list:orders` | module:people |
+| `POST admin/vendors/sales-commission-update/{id}` | `VendorController::updateSalesCommission` | `none` | module:people |
+| `GET admin/vendors/order-details/{order_id}/{vendor_id}` | `VendorController::getOrderDetailsView` | `order.route:order_id` + `list:orders` | module:people |
+| `GET admin/vendors/view/{id}/{tab?}` | `VendorController::getView` | `list:orders` + `list:order_transactions` | module:people |
+| `POST admin/vendors/update_setting/{id}` | `VendorController::updateSetting` | `none` | module:people |
+| `GET admin/vendors/withdraw-list` | `VendorController::getWithdrawListView` | `none` | module:people |
+| `GET admin/vendors/withdraw-list-export-excel` | `VendorController::exportWithdrawList` | `none` | module:people |
+| `GET admin/vendors/withdraw-view/{withdrawId}/{vendorId}` | `VendorController::getWithdrawView` | `none` | module:people |
+| `POST admin/vendors/withdraw-status/{id}` | `VendorController::withdrawStatus` | `none` | module:people |
+| `POST admin/vendors/load-more-stores` | `VendorController::loadMoreStores` | `none` | module:people |
+| `DELETE admin/vendors/{id}` | `VendorController::destroy` | `none` | module:people |
+| `GET admin/delivery-man/list` | `DeliveryManController::index` | `list:orders` | module:people |
+| `GET admin/delivery-man/add` | `DeliveryManController::getAddView` | `none` | module:people |
+| `POST admin/delivery-man/add` | `DeliveryManController::add` | `none` | module:people |
+| `POST admin/delivery-man/status-update` | `DeliveryManController::updateStatus` | `none` | module:people |
+| `GET admin/delivery-man/export` | `DeliveryManController::exportList` | `list:orders` | module:people |
+| `GET admin/delivery-man/update/{id}` | `DeliveryManController::getUpdateView` | `none` | module:people |
+| `POST admin/delivery-man/update/{id}` | `DeliveryManController::update` | `none` | module:people |
+| `DELETE admin/delivery-man/delete/{id}` | `DeliveryManController::delete` | `none` | module:people |
+| `GET admin/delivery-man/earning-statement-overview/{id}` | `DeliveryManController::getEarningOverview` | `unavailable` | module:people |
+| `GET admin/delivery-man/order-wise-earning/{id}` | `DeliveryManController::getOrderWiseEarningView` | `list:orders` | module:people |
+| `GET admin/delivery-man/order-list-by-filer/{id}` | `DeliveryManController::getOrderWiseEarningListByFilter` | `list:orders` | module:people |
+| `GET admin/delivery-man/order-history-log/{id}` | `DeliveryManController::getOrderHistoryList` | `list:orders` | module:people |
+| `GET admin/delivery-man/order-history-log-export/{id}` | `DeliveryManController::getOrderHistoryListExport` | `list:orders` | module:people |
+| `GET admin/delivery-man/rating/{id}` | `DeliveryManController::getRatingView` | `unavailable` | module:people |
+| `GET admin/delivery-man/ajax-order-status-history/{order}` | `DeliveryManController::getOrderStatusHistory` | `order.route:order` | module:people |
+| `GET admin/business-settings/customer-settings` | `CustomerController::getCustomerSettingsView` | `none` | module:business_settings |
+| `POST admin/business-settings/customer-settings` | `CustomerController::updateCustomer` | `none` | module:business_settings |
+<!-- slice-3-rules-end -->
+
 ## The survey: every admin route that reads products or names one
 
 `tests/Feature/StaffScope/StaffProductRouteInventoryTest.php` walks the real route table of the admin panel and fails for an admin controller that reads products or names
-one and is neither scoped nor listed in `tests/Support/StaffProductInventory.php` with a reason (and, when it is out of slice 2, the slice that takes it). The table is
+one and is neither scoped nor listed in `tests/Support/StaffProductInventory.php` with a reason (and, when it is out of slice 3, the slice that takes it). The table is
 exact: an entry whose controller no longer reads products fails, so does an entry without a reason, every route of a scoped controller must have a rule in the registry of its
 slice, and the scoped controllers are exactly the ones that have rules. A second test keeps this document in step with the table and the routes. The scan reads the source of
 each action, its path and its parameters, and the file of each controller (so a route that delegates to a helper of its controller is not missed): the repository, the model, the
 product manager, the products table, and a product id in a request.
 
-**49 controllers: 2 scoped in slice 1, 5 scoped in slice 2, 6 not needed, 36 out of slice 2.**
-**153 routes read or name a product: 42 scoped in slice 1, 16 scoped in slice 2, 22 not needed, 73 out of slice 2.**
+**49 controllers: 2 scoped in slice 1, 5 scoped in slice 2, 1 scoped in slice 3, 6 not needed, 35 out of slice 3.**
+**153 routes read or name a product: 42 scoped in slice 1, 16 scoped in slice 2, 1 scoped in slice 3, 22 not needed, 72 out of slice 3.**
 
-The slices that follow slice 2 (the order, POS and refund screens), in the order proposed:
+The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
 | Slice | What it takes |
 |---|---|
-| slice 3 | reports, the dashboard counters and the counters of the shared layout |
 | slice 4 | promotions and storefront content: deals, banners, themes, the SEO pages and the site map |
 | slice 5 | vendors, reviews and the marketplace operations |
 | slice 6 | integrations and costs: sales channels, fulfilment providers and the operational costs |
 
 | Controller | Admin routes | Routes that read or name a product | Status | Why |
 |---|---:|---:|---|---|
-| `Admin\Marketplace\ProductModerationController` | 4 | 4 | scoped in slice 1 | Approve, reject or suspend a seller product by its id, singly or in bulk, and read its history: an id route like the product screens. |
 | `Admin\Product\ProductController` | 38 | 38 | scoped in slice 1 | The product screens: lists, counters, pickers, exports, the add and edit forms, and every action on a product. Every action has a rule in StaffProductRoutes. |
-| `Admin\Order\OrderController` | 17 | 1 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order (status, payment, address, courier, invoice, bulk change). Every action has a rule in StaffOrderRoutes. |
-| `Admin\Order\OrderEditController` | 7 | 6 | scoped in slice 2 | The order edit: the product picker is narrowed by the product scope, the order is looked up by id and a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
-| `Admin\POS\CartController` | 9 | 3 | scoped in slice 2 | The POS cart takes, prices and counts a product by id: a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
-| `Admin\POS\POSController` | 6 | 5 | scoped in slice 2 | The POS grid and search offer the products of the employee's countries (the product scope), and a product of another country is refused by id. Every action has a rule in StaffOrderRoutes. |
-| `Admin\POS\POSOrderController` | 4 | 1 | scoped in slice 2 | Places a POS order only when every product of the cart is the employee's, and reads a POS order by id. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Marketplace\ProductModerationController` | 4 | 4 | scoped in slice 1 | Approve, reject or suspend a seller product by its id, singly or in bulk, and read its history: an id route like the product screens. |
 | `Admin\Product\BrandController` | 9 | 1 | not needed | Reads the products of a brand only to refuse deleting a brand that is in use. The answer must count every country's products, or a brand a product of another country uses could be deleted. |
 | `Admin\Product\CategoryController` | 7 | 2 | not needed | As the brands: the products of a category are read only to refuse deleting or moving a category that is in use, and that count must include every country. |
-| `Admin\SalesChannels\ChannelAccountOperationsController` | 7 | 1 | not needed | The only route that mentions a product is the Noon product group of a channel account, a setting of the account. It reads no product row. |
 | `Admin\Settings\BusinessSettingsController` | 15 | 2 | not needed | The product settings page is a setting of the shop (brands, digital products, approval). It reads no product row. |
-| `Modules\AI\API\V3\AIAuctionProductController` | 8 | 8 | not needed | As the product text generation, for the auction add-on, whose products are not in the products table. |
 | `Modules\AI\Admin\AIProductController` | 8 | 8 | not needed | Writes a title, a description or the SEO text of a product from what is typed in the form. It reads no product row. |
-| `Admin\DashboardController` | 5 | 2 | out of slice 2 (slice 3) | Counters of products, stock and restock requests across every country. |
-| `Admin\InhouseProductSaleController` | 1 | 1 | out of slice 2 (slice 3) | The in-house sales report lists every country's products. |
-| `Admin\ProductReportController` | 2 | 2 | out of slice 2 (slice 3) | The all-products report and its export list every country's products. |
-| `Admin\ProductStockReportController` | 2 | 2 | out of slice 2 (slice 3) | The stock report and its export list every country's products. |
-| `Admin\ProductWishlistReportController` | 2 | 2 | out of slice 2 (slice 3) | The wishlist report and its export list every country's products. |
-| `Admin\ReportController` | 6 | 1 | out of slice 2 (slice 3) | The earning and product counts of the reports are not split by country. |
-| `Admin\TransactionReportController` | 5 | 1 | out of slice 2 (slice 3) | The transaction report counts the products of every country. |
-| `Admin\VendorProductSaleReportController` | 2 | 1 | out of slice 2 (slice 3) | The vendor sales report lists the products of every country. |
-| `Admin\Promotion\BannerController` | 8 | 2 | out of slice 2 (slice 4) | A banner can point at a product, picked among every country's. |
-| `Admin\Promotion\ClearanceSaleController` | 11 | 8 | out of slice 2 (slice 4) | Picks, lists and removes clearance products of every country. |
-| `Admin\Promotion\DealOfTheDayController` | 6 | 4 | out of slice 2 (slice 4) | Picks the product of the day among every country's products. |
-| `Admin\Promotion\FlashDealController` | 10 | 4 | out of slice 2 (slice 4) | The deal pages pick products and list the ones in a deal: every country's. A promotion has no country yet (GCC-17). |
-| `Admin\Promotion\MostDemandedController` | 6 | 0 | out of slice 2 (slice 4) | Picks the products of the most demanded section among every country's. |
-| `Admin\Settings\InhouseShopController` | 6 | 1 | out of slice 2 (slice 4) | The in-house shop page lists the in-house products of every country. |
-| `Admin\Settings\SeoHealthController` | 1 | 1 | out of slice 2 (slice 4) | Audits the SEO of the products a storefront shows, of every country. |
-| `Admin\Settings\SeoTranslationController` | 3 | 0 | out of slice 2 (slice 4) | Lists the products whose SEO text can be translated: every country's. |
-| `Admin\Settings\SiteMapController` | 6 | 0 | out of slice 2 (slice 4) | The site map lists the active products of every country. |
-| `Admin\Settings\ThemeBuilderController` | 25 | 2 | out of slice 2 (slice 4) | The pickers of the theme builder list and name products of every country. |
-| `Admin\Marketplace\BatchController` | 3 | 2 | out of slice 2 (slice 5) | Batches of a marketplace product, picked by id from any country. |
-| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | out of slice 2 (slice 5) | Counts the products of each brand across every country. |
-| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | out of slice 2 (slice 5) | A commission rule can name a product of any country. |
-| `Admin\Marketplace\InventoryAdjustmentController` | 2 | 2 | out of slice 2 (slice 5) | Adjusts the stock of a product by id, of any country. |
-| `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | out of slice 2 (slice 5) | A purchase order line names a product of any country. |
-| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 2 (slice 5) | A return names a product of any country. |
-| `Admin\Marketplace\WarehouseController` | 5 | 3 | out of slice 2 (slice 5) | Places and transfers the stock of a product by id, of any country. |
-| `Admin\Product\ReviewController` | 7 | 3 | out of slice 2 (slice 5) | The reviews list and its product filter show the reviews of every country's products. |
-| `Admin\Vendor\VendorController` | 17 | 1 | out of slice 2 (slice 5) | A vendor's product tab lists its products of every country. |
-| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 2 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
-| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 2 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
-| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | out of slice 2 (slice 6) | The cost layer picker offers the products of every country. |
-| `Admin\OperationalCosts\ReturnController` | 2 | 1 | out of slice 2 (slice 6) | The returns of the operational costs name products of any country. |
-| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | out of slice 2 (slice 6) | Lists the stock a channel holds for the products of every country. |
-| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | out of slice 2 (slice 6) | Drafts and publishes the listing of a product by id, of any country. |
-| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | out of slice 2 (slice 6) | A channel order's lines are matched to products of any country. |
-| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | out of slice 2 (slice 6) | Links a channel listing to a product picked among every country's. |
-| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | out of slice 2 (slice 6) | A routing rule can name a product of any country. |
+| `Modules\AI\API\V3\AIAuctionProductController` | 8 | 8 | not needed | As the product text generation, for the auction add-on, whose products are not in the products table. |
+| `Admin\SalesChannels\ChannelAccountOperationsController` | 7 | 1 | not needed | The only route that mentions a product is the Noon product group of a channel account, a setting of the account. It reads no product row. |
+| `Admin\Settings\SeoTranslationController` | 3 | 0 | out of slice 3 (slice 4) | Lists the products whose SEO text can be translated: every country's. |
+| `Admin\Promotion\FlashDealController` | 10 | 4 | out of slice 3 (slice 4) | The deal pages pick products and list the ones in a deal: every country's. A promotion has no country yet (GCC-17). |
+| `Admin\Promotion\DealOfTheDayController` | 6 | 4 | out of slice 3 (slice 4) | Picks the product of the day among every country's products. |
+| `Admin\Promotion\ClearanceSaleController` | 11 | 8 | out of slice 3 (slice 4) | Picks, lists and removes clearance products of every country. |
+| `Admin\Promotion\MostDemandedController` | 6 | 0 | out of slice 3 (slice 4) | Picks the products of the most demanded section among every country's. |
+| `Admin\Promotion\BannerController` | 8 | 2 | out of slice 3 (slice 4) | A banner can point at a product, picked among every country's. |
+| `Admin\Settings\InhouseShopController` | 6 | 1 | out of slice 3 (slice 4) | The in-house shop page lists the in-house products of every country. |
+| `Admin\Settings\ThemeBuilderController` | 25 | 2 | out of slice 3 (slice 4) | The pickers of the theme builder list and name products of every country. |
+| `Admin\Settings\SeoHealthController` | 1 | 1 | out of slice 3 (slice 4) | Audits the SEO of the products a storefront shows, of every country. |
+| `Admin\Settings\SiteMapController` | 6 | 0 | out of slice 3 (slice 4) | The site map lists the active products of every country. |
+| `Admin\Order\OrderController` | 17 | 1 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order (status, payment, address, courier, invoice, bulk change). Every action has a rule in StaffOrderRoutes. |
+| `Admin\Order\OrderEditController` | 7 | 6 | scoped in slice 2 | The order edit: the product picker is narrowed by the product scope, the order is looked up by id and a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
+| `Admin\POS\POSController` | 6 | 5 | scoped in slice 2 | The POS grid and search offer the products of the employee's countries (the product scope), and a product of another country is refused by id. Every action has a rule in StaffOrderRoutes. |
+| `Admin\POS\CartController` | 9 | 3 | scoped in slice 2 | The POS cart takes, prices and counts a product by id: a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
+| `Admin\POS\POSOrderController` | 4 | 1 | scoped in slice 2 | Places a POS order only when every product of the cart is the employee's, and reads a POS order by id. Every action has a rule in StaffOrderRoutes. |
+| `Admin\DashboardController` | 5 | 2 | out of slice 3 (slice 3) | Counters of products, stock and restock requests across every country. |
+| `Admin\ReportController` | 6 | 1 | out of slice 3 (slice 3) | The earning and product counts of the reports are not split by country. |
+| `Admin\ProductReportController` | 2 | 2 | out of slice 3 (slice 3) | The all-products report and its export list every country's products. |
+| `Admin\ProductStockReportController` | 2 | 2 | out of slice 3 (slice 3) | The stock report and its export list every country's products. |
+| `Admin\ProductWishlistReportController` | 2 | 2 | out of slice 3 (slice 3) | The wishlist report and its export list every country's products. |
+| `Admin\InhouseProductSaleController` | 1 | 1 | out of slice 3 (slice 3) | The in-house sales report lists every country's products. |
+| `Admin\TransactionReportController` | 5 | 1 | out of slice 3 (slice 3) | The transaction report counts the products of every country. |
+| `Admin\VendorProductSaleReportController` | 2 | 1 | out of slice 3 (slice 3) | The vendor sales report lists the products of every country. |
+| `Admin\Product\ReviewController` | 7 | 3 | out of slice 3 (slice 5) | The reviews list and its product filter show the reviews of every country's products. |
+| `Admin\Vendor\VendorController` | 17 | 1 | scoped in slice 3 | The request is bound for the whole controller (it lists orders), so a vendor's product tab lists the products of the employee's countries only. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Marketplace\BatchController` | 3 | 2 | out of slice 3 (slice 5) | Batches of a marketplace product, picked by id from any country. |
+| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | out of slice 3 (slice 5) | Counts the products of each brand across every country. |
+| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | out of slice 3 (slice 5) | A commission rule can name a product of any country. |
+| `Admin\Marketplace\InventoryAdjustmentController` | 2 | 2 | out of slice 3 (slice 5) | Adjusts the stock of a product by id, of any country. |
+| `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | out of slice 3 (slice 5) | A purchase order line names a product of any country. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 3 (slice 5) | A return names a product of any country. |
+| `Admin\Marketplace\WarehouseController` | 5 | 3 | out of slice 3 (slice 5) | Places and transfers the stock of a product by id, of any country. |
+| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 3 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
+| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 3 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
+| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | out of slice 3 (slice 6) | Links a channel listing to a product picked among every country's. |
+| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | out of slice 3 (slice 6) | Drafts and publishes the listing of a product by id, of any country. |
+| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | out of slice 3 (slice 6) | Lists the stock a channel holds for the products of every country. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | out of slice 3 (slice 6) | A channel order's lines are matched to products of any country. |
+| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | out of slice 3 (slice 6) | A routing rule can name a product of any country. |
+| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | out of slice 3 (slice 6) | The cost layer picker offers the products of every country. |
+| `Admin\OperationalCosts\ReturnController` | 2 | 1 | out of slice 3 (slice 6) | The returns of the operational costs name products of any country. |
 
 ### Routes that read or name a product, of the controllers that are not needed
 
@@ -404,10 +459,10 @@ The slices that follow slice 2 (the order, POS and refund screens), in the order
 |---|---|
 | `Admin\Product\BrandController` | `POST admin/brand/delete` |
 | `Admin\Product\CategoryController` | `POST admin/category/update`<br>`POST admin/category/delete` |
-| `Admin\SalesChannels\ChannelAccountOperationsController` | `POST admin/sales-channels/accounts/{account}/product-group/members` |
 | `Admin\Settings\BusinessSettingsController` | `GET admin/business-settings/product-settings`<br>`POST admin/business-settings/product-settings` |
-| `Modules\AI\API\V3\AIAuctionProductController` | `GET admin/auction/product/title-auto-fill`<br>`GET admin/auction/product/description-auto-fill`<br>`GET admin/auction/product/general-setup-auto-fill`<br>`GET admin/auction/product/shipping-policy-auto-fill`<br>`GET admin/auction/product/auction-info-auto-fill`<br>`GET admin/auction/product/seo-section-auto-fill`<br>`POST admin/auction/product/analyze-image-auto-fill`<br>`POST admin/auction/product/generate-title-suggestions` |
 | `Modules\AI\Admin\AIProductController` | `GET admin/product/title-auto-fill`<br>`GET admin/product/description-auto-fill`<br>`GET admin/product/general-setup-auto-fill`<br>`GET admin/product/price-others-auto-fill`<br>`GET admin/product/seo-section-auto-fill`<br>`GET admin/product/variation-setup-auto-fill`<br>`POST admin/product/analyze-image-auto-fill`<br>`POST admin/product/generate-title-suggestions` |
+| `Modules\AI\API\V3\AIAuctionProductController` | `GET admin/auction/product/title-auto-fill`<br>`GET admin/auction/product/description-auto-fill`<br>`GET admin/auction/product/general-setup-auto-fill`<br>`GET admin/auction/product/shipping-policy-auto-fill`<br>`GET admin/auction/product/auction-info-auto-fill`<br>`GET admin/auction/product/seo-section-auto-fill`<br>`POST admin/auction/product/analyze-image-auto-fill`<br>`POST admin/auction/product/generate-title-suggestions` |
+| `Admin\SalesChannels\ChannelAccountOperationsController` | `POST admin/sales-channels/accounts/{account}/product-group/members` |
 
 ### Routes that read or name a product, of the controllers scoped in slice 2
 
@@ -415,34 +470,41 @@ The slices that follow slice 2 (the order, POS and refund screens), in the order
 |---|---|
 | `Admin\Order\OrderController` | `GET admin/orders/details/{id}` |
 | `Admin\Order\OrderEditController` | `GET admin/orders/search-for-edit-order-product`<br>`POST admin/orders/edit-order-product-modal-view`<br>`POST admin/orders/edit-order-product-add`<br>`POST admin/orders/edit-order-product-variant-price`<br>`POST admin/orders/edit-order-product-list-update`<br>`POST admin/orders/edit-order-product-remove` |
-| `Admin\POS\CartController` | `POST admin/pos/get-variant-price`<br>`POST admin/pos/quantity-update`<br>`POST admin/pos/add-to-cart` |
 | `Admin\POS\POSController` | `GET admin/pos`<br>`POST admin/pos/update-discount`<br>`POST admin/pos/coupon-discount`<br>`GET admin/pos/quick-view`<br>`GET admin/pos/search-product` |
+| `Admin\POS\CartController` | `POST admin/pos/get-variant-price`<br>`POST admin/pos/quantity-update`<br>`POST admin/pos/add-to-cart` |
 | `Admin\POS\POSOrderController` | `POST admin/pos/order-place` |
 
-### Routes that read or name a product, of the controllers that are out of slice 2
+### Routes that read or name a product, of the controllers scoped in slice 3
+
+| Controller | Routes that read or name a product |
+|---|---|
+| `Admin\Vendor\VendorController` | `GET admin/vendors/order-details/{order_id}/{vendor_id}` |
+
+### Routes that read or name a product, of the controllers that are out of slice 3
 
 A restricted employee who has the permission of one of these screens still sees every country's products there. Each is named for the slice that takes it.
 
 | Controller | Routes that read or name a product |
 |---|---|
+| `Admin\Settings\SeoTranslationController` |  |
+| `Admin\Promotion\FlashDealController` | `POST admin/deal/delete-product`<br>`GET admin/deal/add-product/{deal_id}`<br>`POST admin/deal/add-product/{deal_id}`<br>`GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/deal/search-product` |
+| `Admin\Promotion\DealOfTheDayController` | `GET admin/deal/day`<br>`POST admin/deal/day`<br>`GET admin/deal/day-update/{id}`<br>`POST admin/deal/day-update/{id}` |
+| `Admin\Promotion\ClearanceSaleController` | `GET admin/deal/clearance-sale`<br>`GET admin/deal/clearance-sale/search`<br>`GET admin/deal/clearance-sale/multiple-product-details`<br>`POST admin/deal/clearance-sale/add-clearance-product`<br>`POST admin/deal/clearance-sale/clearance-product-status-update`<br>`DELETE admin/deal/clearance-sale/clearance-delete/{product_id}`<br>`DELETE admin/deal/clearance-sale/clearance-products-delete`<br>`POST admin/deal/clearance-sale/update-discount` |
+| `Admin\Promotion\MostDemandedController` |  |
+| `Admin\Promotion\BannerController` | `GET admin/banner/list`<br>`GET admin/banner/update/{id}` |
+| `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
+| `Admin\Settings\ThemeBuilderController` | `GET admin/theme/builder/resources`<br>`GET admin/theme/builder/resource-labels` |
+| `Admin\Settings\SeoHealthController` | `GET admin/seo-settings/health` |
+| `Admin\Settings\SiteMapController` |  |
 | `Admin\DashboardController` | `GET admin/dashboard`<br>`GET admin/dashboard/real-time-activities` |
-| `Admin\InhouseProductSaleController` | `GET admin/report/inhouse-product-sale` |
+| `Admin\ReportController` | `GET admin/report/vendor-earning` |
 | `Admin\ProductReportController` | `GET admin/report/all-product`<br>`GET admin/report/all-product-excel` |
 | `Admin\ProductStockReportController` | `GET admin/stock/product-stock`<br>`GET admin/stock/product-stock-export` |
 | `Admin\ProductWishlistReportController` | `GET admin/stock/product-in-wishlist`<br>`GET admin/stock/wishlist-product-export` |
-| `Admin\ReportController` | `GET admin/report/vendor-earning` |
+| `Admin\InhouseProductSaleController` | `GET admin/report/inhouse-product-sale` |
 | `Admin\TransactionReportController` | `GET admin/transaction/order-transaction-list` |
 | `Admin\VendorProductSaleReportController` | `GET admin/report/vendor-report` |
-| `Admin\Promotion\BannerController` | `GET admin/banner/list`<br>`GET admin/banner/update/{id}` |
-| `Admin\Promotion\ClearanceSaleController` | `GET admin/deal/clearance-sale`<br>`GET admin/deal/clearance-sale/search`<br>`GET admin/deal/clearance-sale/multiple-product-details`<br>`POST admin/deal/clearance-sale/add-clearance-product`<br>`POST admin/deal/clearance-sale/clearance-product-status-update`<br>`DELETE admin/deal/clearance-sale/clearance-delete/{product_id}`<br>`DELETE admin/deal/clearance-sale/clearance-products-delete`<br>`POST admin/deal/clearance-sale/update-discount` |
-| `Admin\Promotion\DealOfTheDayController` | `GET admin/deal/day`<br>`POST admin/deal/day`<br>`GET admin/deal/day-update/{id}`<br>`POST admin/deal/day-update/{id}` |
-| `Admin\Promotion\FlashDealController` | `POST admin/deal/delete-product`<br>`GET admin/deal/add-product/{deal_id}`<br>`POST admin/deal/add-product/{deal_id}`<br>`GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/deal/search-product` |
-| `Admin\Promotion\MostDemandedController` |  |
-| `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
-| `Admin\Settings\SeoHealthController` | `GET admin/seo-settings/health` |
-| `Admin\Settings\SeoTranslationController` |  |
-| `Admin\Settings\SiteMapController` |  |
-| `Admin\Settings\ThemeBuilderController` | `GET admin/theme/builder/resources`<br>`GET admin/theme/builder/resource-labels` |
+| `Admin\Product\ReviewController` | `GET admin/reviews/list`<br>`GET admin/reviews/export`<br>`GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-product` |
 | `Admin\Marketplace\BatchController` | `GET admin/marketplace/batches`<br>`POST admin/marketplace/batches` |
 | `Admin\Marketplace\BrandRegistryController` |  |
 | `Admin\Marketplace\CommissionRuleController` | `GET admin/marketplace/commission-rules` |
@@ -450,17 +512,15 @@ A restricted employee who has the permission of one of these screens still sees 
 | `Admin\Marketplace\PurchaseOrderController` | `POST admin/marketplace/purchase-orders` |
 | `Admin\Marketplace\ReturnLogisticsController` | `POST admin/marketplace/returns` |
 | `Admin\Marketplace\WarehouseController` | `GET admin/marketplace/warehouses`<br>`POST admin/marketplace/warehouses/place`<br>`POST admin/marketplace/warehouses/transfer` |
-| `Admin\Product\ReviewController` | `GET admin/reviews/list`<br>`GET admin/reviews/export`<br>`GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-product` |
-| `Admin\Vendor\VendorController` | `GET admin/vendors/order-details/{order_id}/{vendor_id}` |
 | `Admin\Fulfillment\M5aznProductsController` | `GET admin/fulfillment-providers/m5azn/products`<br>`POST admin/fulfillment-providers/m5azn/products/import-all`<br>`POST admin/fulfillment-providers/m5azn/products/{item}/import` |
 | `Admin\Fulfillment\TorodMatchingController` | `GET admin/fulfillment-providers/torod-point/matching`<br>`POST admin/fulfillment-providers/torod-point/matching/approve`<br>`POST admin/fulfillment-providers/torod-point/matching/push`<br>`GET admin/fulfillment-providers/torod-point/products/search` |
+| `Admin\SalesChannels\ChannelProductController` | `GET admin/sales-channels/products`<br>`GET admin/sales-channels/products/product-search`<br>`POST admin/sales-channels/products/{mapping}/link`<br>`POST admin/sales-channels/products/{mapping}/ignore`<br>`POST admin/sales-channels/products/{mapping}/unignore`<br>`POST admin/sales-channels/products/{mapping}/accept-suggestion`<br>`POST admin/sales-channels/products/{mapping}/settings`<br>`POST admin/sales-channels/products/{mapping}/fulfilment-mode` |
+| `Admin\SalesChannels\ChannelListingController` | `GET admin/sales-channels/listings/{product}`<br>`POST admin/sales-channels/listings/{product}/accounts/{account}` |
+| `Admin\SalesChannels\ChannelInventoryController` | `GET admin/sales-channels/inventory` |
+| `Admin\SalesChannels\ChannelOrderController` | `GET admin/sales-channels/orders/{mapping}` |
+| `Admin\SalesChannels\ChannelRoutingController` | `GET admin/sales-channels/routing` |
 | `Admin\OperationalCosts\ProductCostController` | `GET admin/operational-costs/product-costs`<br>`POST admin/operational-costs/product-costs`<br>`GET admin/operational-costs/product-costs/products/search`<br>`GET admin/operational-costs/product-costs/{layer}` |
 | `Admin\OperationalCosts\ReturnController` | `GET admin/operational-costs/returns` |
-| `Admin\SalesChannels\ChannelInventoryController` | `GET admin/sales-channels/inventory` |
-| `Admin\SalesChannels\ChannelListingController` | `GET admin/sales-channels/listings/{product}`<br>`POST admin/sales-channels/listings/{product}/accounts/{account}` |
-| `Admin\SalesChannels\ChannelOrderController` | `GET admin/sales-channels/orders/{mapping}` |
-| `Admin\SalesChannels\ChannelProductController` | `GET admin/sales-channels/products`<br>`GET admin/sales-channels/products/product-search`<br>`POST admin/sales-channels/products/{mapping}/link`<br>`POST admin/sales-channels/products/{mapping}/ignore`<br>`POST admin/sales-channels/products/{mapping}/unignore`<br>`POST admin/sales-channels/products/{mapping}/accept-suggestion`<br>`POST admin/sales-channels/products/{mapping}/settings`<br>`POST admin/sales-channels/products/{mapping}/fulfilment-mode` |
-| `Admin\SalesChannels\ChannelRoutingController` | `GET admin/sales-channels/routing` |
 
 ### Blind spots of the scan, found by hand
 
@@ -469,32 +529,131 @@ still an admin controller, nothing more), with what is done about them:
 
 | Controller | Status | Why it is not seen by the scan |
 |---|---|---|
-| `Admin\AdvancedSearchController` | out of slice 2 (slice 3) | The header search of the classic layout finds products of every country through AdvancedSearchService. |
-| `Admin\V2AdvancedSearchController` | out of slice 2 (slice 3) | The header search of the new layout finds products of every country through the same service. |
-| `Admin\Commerce\CollectionController` | out of slice 2 (slice 4) | The preview of a collection resolves its products through CollectionResolver. |
+| `Admin\AdvancedSearchController` | out of slice 3 (slice 3) | The header search of the classic layout finds products of every country through AdvancedSearchService. |
+| `Admin\V2AdvancedSearchController` | out of slice 3 (slice 3) | The header search of the new layout finds products of every country through the same service. |
+| `Admin\Commerce\CollectionController` | out of slice 3 (slice 4) | The preview of a collection resolves its products through CollectionResolver. |
 | `Admin\Order\RefundController` | scoped in slice 2 | A refund request follows the country of the product of the order line it is about. The refund lists, their exports, the details and the decision on a request go through the scope of the refund requests and the rules of StaffOrderRoutes. |
-| `Admin\Telemetry\AnalyticsController` | out of slice 2 (slice 3) | The analytics export by product counts the products of every country. |
+| `Admin\Telemetry\AnalyticsController` | out of slice 3 (slice 3) | The analytics export by product counts the products of every country. |
 | `Admin\Order\DeliverySyriaDispatchController` | scoped in slice 2 | Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product. |
+| `Admin\Customer\CustomerController` | scoped in slice 3 | Lists the orders and refund requests of a customer and counts the orders of each customer (StaffOrderRoutes). It reads no product. |
+| `Admin\Deliveryman\DeliveryManController` | scoped in slice 3 | Lists the orders, the earnings and the status history of a delivery man (StaffOrderRoutes). It reads no product. |
 
-### Routes added by other open branches
+## The survey: every admin route that reads orders or names one
 
-`security-digital-files-private-disk` adds `GET admin/products/digital-file/{id}/{fileName?}` and `GET admin/products/digital-variation-file/{id}/{fileName?}` to the product
-controller. Merged with this branch they have no rule, so a restricted employee is refused them and the guard fails until each gets `route:id`: that is the guard doing its
-job, and a one-line rule each.
+`tests/Feature/StaffScope/StaffOrderRouteInventoryTest.php` is the same guard for orders, their lines, their money records, refunds and the earnings and counters made of them.
+It walks the real route table and fails for an admin controller that reads any of them, or names an order in its path or its parameters, and is neither scoped nor listed in
+`tests/Support/StaffOrderInventory.php` with a reason (and, when it is out of slice 3, the slice that takes it, or `owner` when what it shows cannot be told apart by country).
+The scan reads the models, the repositories, the tables, the relations, the services that hold the sums, the wallets, and an order id in a request, in the source of each action and
+in the file of each controller. The scoped controllers are exactly the ones that have rules in `StaffOrderRoutes`, and a test keeps this document in step.
 
-### Admin screens that read orders and are not covered
+**33 controllers: 6 scoped in slice 2, 3 scoped in slice 3, 4 not needed, 20 out of slice 3.**
+**113 routes read or name an order: 35 scoped in slice 2, 17 scoped in slice 3, 13 not needed, 48 out of slice 3.**
 
-Not part of the product survey above, which finds products. A restricted employee who has the permission of one of these screens still sees the orders of every country there:
+| Slice | What it takes |
+|---|---|
+| slice 3 | the rest of the order reads, the shared layout, the dashboard and the reports |
+| slice 4 | promotions and storefront content: deals, banners, themes, the SEO pages and the site map |
+| slice 5 | vendors, reviews and the marketplace operations |
+| slice 6 | integrations and costs: sales channels, fulfilment providers and the operational costs |
+| owner | figures that cannot be told apart by country, until the owner says what an employee may see |
 
-| Screens | What they show | Proposed |
+| Controller | Admin routes | Routes that read or name an order | Status | Why |
+|---|---:|---:|---|---|
+| `Admin\Order\OrderController` | 17 | 17 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Order\OrderEditController` | 7 | 7 | scoped in slice 2 | The order edit: the order is looked up by id, the product picker is narrowed by the product scope and a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Order\DeliverySyriaDispatchController` | 1 | 1 | scoped in slice 2 | Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Order\RefundController` | 4 | 4 | scoped in slice 2 | The refund requests: the lists, their exports, the details and the decision follow the order line each request is about. Every action has a rule in StaffOrderRoutes. |
+| `Admin\POS\POSController` | 6 | 2 | scoped in slice 2 | The POS grid lists the products of the employee's countries and the filter of the POS orders reads the orders of the scope. Every action has a rule in StaffOrderRoutes. |
+| `Admin\POS\POSOrderController` | 4 | 4 | scoped in slice 2 | Places a POS order only when every product of the cart is the employee's, and reads a POS order by id. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Customer\CustomerController` | 15 | 2 | scoped in slice 3 | The list of customers counts the orders of each, the screen of one customer lists their orders and counts their refund requests, and the export holds their orders: all in the employee's countries. A customer belongs to no country, so the list of customers is not narrowed. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Deliveryman\DeliveryManController` | 15 | 8 | scoped in slice 3 | The orders, the earnings per order and the status history of a delivery man, and the status history of an order by its number, in the employee's countries. The wallet overview and the ratings of a delivery man are unavailable to a restricted employee. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Vendor\VendorController` | 17 | 7 | scoped in slice 3 | The orders of a vendor and their export, an order read by its number, the money records of a vendor and the order counts of the list of vendors, in the employee's countries. The request is bound for the whole controller, so the product tab of a vendor lists the employee's countries too. Every action has a rule in StaffOrderRoutes. |
+| `Admin\DashboardController` | 5 | 5 | out of slice 3 (slice 3) | The dashboard counters, earnings and graphs, the top lists and the real-time poller read orders, their money records and wallets of every country. |
+| `Admin\OrderReportController` | 3 | 3 | out of slice 3 (slice 3) | The order report, its totals and its charts sum the orders of every country. |
+| `Admin\ReportController` | 6 | 5 | out of slice 3 (slice 3) | The earning reports sum the orders, their money records and refunds of every country, and the vendor earning report reads the wallets of the vendors. |
+| `Admin\TransactionReportController` | 5 | 5 | out of slice 3 (slice 3) | The order transaction report lists and sums the money records of the orders of every country. |
+| `Admin\ExpenseTransactionReportController` | 4 | 4 | out of slice 3 (slice 3) | The expense transaction report lists and sums the discounts and delivery expenses of the orders of every country. |
+| `Admin\Report\RefundTransactionController` | 3 | 3 | out of slice 3 (slice 3) | The refund transaction report lists the money records of the refunds of every country. |
+| `Admin\VendorProductSaleReportController` | 2 | 2 | out of slice 3 (slice 3) | The vendor sales report sums the orders and refunds of every country. |
+| `Admin\ProductReportController` | 2 | 2 | out of slice 3 (slice 3) | The all-products report sums the sales of the order lines of every country. |
+| `Admin\Telemetry\AnalyticsController` | 7 | 1 | out of slice 3 (slice 3) | The analytics export by product counts the revenue of the order lines of every country. |
+| `Modules\TaxModule\Admin\Reports\AdminTaxReportController` | 4 | 0 | out of slice 3 (slice 3) | The tax report sums the taxes of the orders of every country. |
+| `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | 4 | 2 | out of slice 3 (slice 3) | The vendor tax reports sum the orders and taxes of every country. |
+| `Admin\V2AdvancedSearchController` | 1 | 0 | out of slice 3 (slice 3) | The header search of the new layout finds an order by its number, whichever country it is in. |
+| `Admin\Product\ProductController` | 38 | 2 | not needed | Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order. |
+| `Admin\Settings\BusinessSettingsController` | 15 | 2 | not needed | The refund setup page is a setting of the shop. It reads no order. |
+| `Admin\Settings\OrderSettingsController` | 2 | 2 | not needed | The order settings page is a setting of the shop. It reads no order. |
+| `Admin\Marketplace\PurchaseOrderController` | 7 | 7 | not needed | Purchase orders to suppliers are not customer orders: they have no order, no order line and no country of their own. |
+| `Admin\Settings\InhouseShopController` | 6 | 1 | out of slice 3 (slice 4) | The in-house shop page counts the in-house orders of every country. |
+| `Admin\Marketplace\FulfillmentController` | 4 | 2 | out of slice 3 (slice 5) | The marketplace fulfilments are shipments of orders of every country, picked by order number. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 3 (slice 5) | A marketplace return names an order of any country. |
+| `Admin\Product\ReviewController` | 7 | 1 | out of slice 3 (slice 5) | The reviews list reads the order behind a review, of any country. |
+| `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | out of slice 3 (slice 6) | The provider fulfilments are shipments of orders of every country. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | out of slice 3 (slice 6) | A channel order is mapped to an order of any country. |
+| `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | out of slice 3 (slice 6) | The profitability of an order of any country, with its costs. |
+| `Admin\MyFatoorah\SettingsController` | 10 | 2 | out of slice 3 (slice 6) | Lists the payment attempts and refunds of the gateway, which belong to orders of every country, and acts on an attempt by its id. |
+
+### Routes that read or name an order, of the controllers scoped in slice 3
+
+| Controller | Routes that read or name an order |
+|---|---|
+| `Admin\Customer\CustomerController` | `GET admin/customer/view/{user_id}`<br>`GET admin/customer/order-list-export/{user_id}` |
+| `Admin\Deliveryman\DeliveryManController` | `GET admin/delivery-man/list`<br>`GET admin/delivery-man/export`<br>`GET admin/delivery-man/earning-statement-overview/{id}`<br>`GET admin/delivery-man/order-wise-earning/{id}`<br>`GET admin/delivery-man/order-list-by-filer/{id}`<br>`GET admin/delivery-man/order-history-log/{id}`<br>`GET admin/delivery-man/order-history-log-export/{id}`<br>`GET admin/delivery-man/ajax-order-status-history/{order}` |
+| `Admin\Vendor\VendorController` | `GET admin/vendors/list`<br>`POST admin/vendors/add`<br>`GET admin/vendors/order-list-export/{vendor_id}`<br>`GET admin/vendors/export`<br>`GET admin/vendors/order-details/{order_id}/{vendor_id}`<br>`GET admin/vendors/view/{id}/{tab?}`<br>`POST admin/vendors/withdraw-status/{id}` |
+
+### Routes that read or name an order, of the controllers that are not needed
+
+| Controller | Routes that read or name an order |
+|---|---|
+| `Admin\Product\ProductController` | `GET admin/products/view/{addedBy}/{id}`<br>`GET admin/products/export-excel/{type}` |
+| `Admin\Settings\BusinessSettingsController` | `GET admin/business-settings/refund-setup`<br>`POST admin/business-settings/refund-setup` |
+| `Admin\Settings\OrderSettingsController` | `GET admin/business-settings/order-settings/index`<br>`POST admin/business-settings/order-settings/update-order-settings` |
+| `Admin\Marketplace\PurchaseOrderController` | `GET admin/marketplace/purchase-orders`<br>`GET admin/marketplace/purchase-orders/create`<br>`POST admin/marketplace/purchase-orders`<br>`GET admin/marketplace/purchase-orders/{id}`<br>`POST admin/marketplace/purchase-orders/{id}/place`<br>`POST admin/marketplace/purchase-orders/{id}/receive`<br>`POST admin/marketplace/purchase-orders/{id}/cancel` |
+
+### Routes that read or name an order, of the controllers that are out of slice 3
+
+A restricted employee who has the permission of one of these screens still sees the orders of every country there. Each is named for the slice that takes it, or for the owner.
+
+| Controller | Routes that read or name an order |
+|---|---|
+| `Admin\DashboardController` | `GET admin/dashboard`<br>`POST admin/dashboard/order-status`<br>`GET admin/dashboard/earning-statistics`<br>`GET admin/dashboard/order-statistics`<br>`GET admin/dashboard/real-time-activities` |
+| `Admin\OrderReportController` | `GET admin/report/order`<br>`GET admin/report/order-report-excel`<br>`GET admin/report/order-report-pdf` |
+| `Admin\ReportController` | `GET admin/report/admin-earning`<br>`GET admin/report/admin-earning-excel-export`<br>`POST admin/report/admin-earning-duration-download-pdf`<br>`GET admin/report/vendor-earning`<br>`GET admin/report/vendor-earning-excel-export` |
+| `Admin\TransactionReportController` | `GET admin/transaction/order-transaction-list`<br>`GET admin/transaction/pdf-order-wise-transaction`<br>`GET admin/transaction/order-transaction-export-excel`<br>`GET admin/transaction/order-transaction-summary-pdf`<br>`GET admin/transaction/wallet-bonus` |
+| `Admin\ExpenseTransactionReportController` | `GET admin/transaction/expense-transaction-list`<br>`GET admin/transaction/pdf-order-wise-expense-transaction`<br>`GET admin/transaction/expense-transaction-export-excel`<br>`GET admin/transaction/expense-transaction-summary-pdf` |
+| `Admin\Report\RefundTransactionController` | `GET admin/report/transaction/refund-transaction-list`<br>`GET admin/report/transaction/refund-transaction-export`<br>`GET admin/report/transaction/refund-transaction-summary-pdf` |
+| `Admin\VendorProductSaleReportController` | `GET admin/report/vendor-report`<br>`GET admin/report/vendor-report-export` |
+| `Admin\ProductReportController` | `GET admin/report/all-product`<br>`GET admin/report/all-product-excel` |
+| `Admin\Telemetry\AnalyticsController` | `GET admin/analytics/export/{dimension}` |
+| `Modules\TaxModule\Admin\Reports\AdminTaxReportController` |  |
+| `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | `GET admin/report/vendor-tax-report`<br>`GET admin/report/vendor-tax-export` |
+| `Admin\V2AdvancedSearchController` |  |
+| `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
+| `Admin\Marketplace\FulfillmentController` | `GET admin/marketplace/fulfillments`<br>`POST admin/marketplace/fulfillments` |
+| `Admin\Marketplace\ReturnLogisticsController` | `POST admin/marketplace/returns` |
+| `Admin\Product\ReviewController` | `GET admin/reviews/list` |
+| `Admin\Fulfillment\ProviderFulfillmentController` | `GET admin/fulfillment-providers/fulfillments` |
+| `Admin\SalesChannels\ChannelOrderController` | `GET admin/sales-channels/orders`<br>`GET admin/sales-channels/orders/{mapping}`<br>`POST admin/sales-channels/orders/{mapping}/route`<br>`POST admin/sales-channels/orders/{mapping}/dispatch`<br>`POST admin/sales-channels/orders/{mapping}/link-shipment`<br>`POST admin/sales-channels/orders/{mapping}/unlink-shipment`<br>`POST admin/sales-channels/orders/{mapping}/notify` |
+| `Admin\OperationalCosts\ProfitabilityController` | `GET admin/operational-costs/profit/orders/{type}/{id}` |
+| `Admin\MyFatoorah\SettingsController` | `POST admin/third-party/payment-method/myfatoorah/attempts/{attempt}/refund`<br>`POST admin/third-party/payment-method/myfatoorah/refunds/{refund}/executed` |
+
+### Blind spots of the order scan, found by hand
+
+These admin controllers reach orders or their money through a service or a trait the scan does not read, or read none themselves. They are listed by hand (the guard checks that each
+is still an admin controller, nothing more). `App\Http\Controllers\Admin\TransactionController`, which reads order transactions with no scope, has no admin route at all: a test
+fails the day one reaches it.
+
+| Controller | Status | Why it is not seen by the scan |
 |---|---|---|
-| `Admin\Customer\CustomerController` | the orders and the refund requests of one customer (`customer/view/{user_id}`, `customer/order-list-export/{user_id}`) | slice 3, owner decision below |
-| `Admin\Deliveryman\DeliveryManController` | the orders, the earnings and the status history of a delivery man (`delivery-man/order-wise-earning`, `order-list-by-filer`, `order-history-log` and its export, `earning-statement-overview`), and the status history of an order **by its number** (`delivery-man/ajax-order-status-history/{order}`) | slice 3, owner decision below |
-| `Admin\Vendor\VendorController` | the orders of a vendor and its export, and an order **by its number** (`vendors/order-details/{order_id}/{vendor_id}`) | slice 3: an order read by its number must not wait for slice 5 |
-| `Admin\DashboardController`, `OrderReportController`, `ReportController`, `TransactionReportController`, `TransactionController`, `ExpenseTransactionReportController`, `VendorProductSaleReportController`, `Report\RefundTransactionController`, the TaxModule vendor report, `Telemetry\AnalyticsController` | counters, earnings, graphs and exports of aggregates over every order | slice 3 |
-| `Admin\AdvancedSearchController`, `V2AdvancedSearchController` | the header search | slice 3 |
-| `Admin\Settings\InhouseShopController`, `Admin\Product\ReviewController` | the in-house order count, the orders behind a review | slice 4 and slice 5 |
-| `Admin\Marketplace\FulfillmentController`, `ReturnLogisticsController`, `Admin\Fulfillment\ProviderFulfillmentController`, `Admin\SalesChannels\ChannelOrderController` | the shipments, returns and channel orders of an order | slice 5 and slice 6 |
+| `Admin\AdvancedSearchController` | out of slice 3 (slice 3) | The header search of the classic layout finds an order by its number through AdvancedSearchService, whichever country it is in. |
+| `Admin\InhouseProductSaleController` | out of slice 3 (slice 3) | The in-house sales report counts the sales of the order lines of every country through the product repository. |
+| `Admin\Customer\CustomerWalletController` | out of slice 3 (owner) | The wallet report and the wallet transactions of the customers carry no order and no country, so they cannot be told apart by country. |
+| `Admin\Customer\CustomerLoyaltyController` | out of slice 3 (owner) | The loyalty point transactions carry no order and no country, so they cannot be told apart by country. |
+| `Admin\Marketplace\SellerScorecardController` | out of slice 3 (slice 5) | The scorecard of a seller is made of its orders of every country, through SellerScorecardService. |
+| `Admin\Marketplace\SettlementController` | out of slice 3 (slice 5) | The settlements of the sellers are made of their orders of every country, through the vendor ledger. |
+| `Admin\OperationalCosts\OverviewController` | out of slice 3 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
+| `Admin\SalesChannels\ChannelAccountOperationsController` | out of slice 3 (slice 6) | Synchronises the orders of a sales channel account, which map to orders of any country. |
+| `Admin\POS\CartController` | scoped in slice 2 | The POS cart takes, prices and counts a product by id and reads no order (StaffOrderRoutes). |
 
 ## Out of slices 1 and 2: the rule that would apply
 

@@ -69,7 +69,7 @@ final class StaffProductInventory
 
     public const OUT = 'out';
 
-    /** The slices that follow slice 2 (the order, POS and refund screens), in the order proposed. */
+    /** The slices that follow slice 2 (the order, POS and refund screens), in the order proposed; slice 3 is the one that is being taken. */
     public const SLICES = [
         'slice 3' => 'reports, the dashboard counters and the counters of the shared layout',
         'slice 4' => 'promotions and storefront content: deals, banners, themes, the SEO pages and the site map',
@@ -208,8 +208,8 @@ final class StaffProductInventory
             'reason' => 'The reviews list and its product filter show the reviews of every country\'s products.',
         ],
         VendorController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'A vendor\'s product tab lists its products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The request is bound for the whole controller (it lists orders), so a vendor\'s product tab lists the products of the employee\'s countries only. Every action has a rule in StaffOrderRoutes.',
         ],
         BatchController::class => [
             'class' => self::OUT, 'slice' => 'slice 5',
@@ -298,12 +298,14 @@ final class StaffProductInventory
      */
     public const SCOPED_WITHOUT_PRODUCTS = [
         'App\Http\Controllers\Admin\Order\DeliverySyriaDispatchController' => ['slice' => 'slice 2', 'reason' => 'Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\Customer\CustomerController' => ['slice' => 'slice 3', 'reason' => 'Lists the orders and refund requests of a customer and counts the orders of each customer (StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\Deliveryman\DeliveryManController' => ['slice' => 'slice 3', 'reason' => 'Lists the orders, the earnings and the status history of a delivery man (StaffOrderRoutes). It reads no product.'],
     ];
 
-    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, scoped in slice 2, not needed, out */
+    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2 and 3, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 1' => 0, 'slice 2' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }

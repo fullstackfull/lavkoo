@@ -3,6 +3,8 @@
 namespace App\Services\Staff;
 
 use App\Enums\SessionKey;
+use App\Http\Controllers\Admin\Customer\CustomerController;
+use App\Http\Controllers\Admin\Deliveryman\DeliveryManController;
 use App\Http\Controllers\Admin\Order\DeliverySyriaDispatchController;
 use App\Http\Controllers\Admin\Order\OrderController;
 use App\Http\Controllers\Admin\Order\OrderEditController;
@@ -10,12 +12,14 @@ use App\Http\Controllers\Admin\Order\RefundController;
 use App\Http\Controllers\Admin\POS\CartController;
 use App\Http\Controllers\Admin\POS\POSController;
 use App\Http\Controllers\Admin\POS\POSOrderController;
+use App\Http\Controllers\Admin\Vendor\VendorController;
 use App\Services\OrderEditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Session;
 
 /**
- * The order, POS and refund screens of the admin panel that a staff country scope covers (GCC-14c, slice 2), and what each of their actions names or lists.
+ * The screens of the admin panel that a staff country scope covers for orders, and what each of their actions names or lists: the order, POS and refund screens (slice 2), and the
+ * screens that read orders without managing them, such as the people, the dashboard and the reports (slice 3).
  *
  * Every action of these controllers has a rule: a list of parts. The middleware of the controllers (ScopeOrdersToStaffCountries) reads it for an employee who is restricted
  * to some countries, and a route without a rule is refused to that employee instead of being let through. A test walks the route table and fails for an action that has none.
@@ -24,6 +28,10 @@ use Illuminate\Support\Facades\Session;
  *   none             the action names no order, refund request or product and lists none (a session flag, a customer picker, a cart kept in the session)
  *   list:orders      it returns order rows (a list, a counter, an export, the neighbours of one order): the scope of the orders narrows them
  *   list:refunds     it returns refund request rows: the scope of the refund requests narrows them
+ *   list:order_lines, list:order_transactions, list:refund_transactions
+ *                    it reads the lines of orders, the money records of orders, or the money records of refunds (a sum, a count, a report): each is narrowed through the order or
+ *                    the order line it belongs to, and a screen names the ones it reads
+ *   unavailable      it shows what cannot be told apart by country (a wallet, a total of every order): a restricted employee is answered like for something that does not exist
  *   order.route:n    one order id in the path; order.input:n one in the request; order.inputs:n a list in the request, all of which must be visible
  *   line.input:n     one order LINE id in the request: the order it belongs to must be visible
  *   refund.route:n   one refund request id in the path; refund.input:n one in the request
@@ -104,16 +112,87 @@ final class StaffOrderRoutes
         ],
     ];
 
-    /** @return list<class-string> the controllers whose actions a staff country scope covers here */
+    /** The screens that read orders without managing them (slice 3): what each action lists, and what it cannot show a restricted employee. */
+    private const READ_RULES = [
+        CustomerController::class => [
+            'index' => ['list:orders'],
+            'getView' => ['list:orders', 'list:refunds'],
+            'exportOrderList' => ['list:orders'],
+            'updateStatus' => ['none'],
+            'bulkUpdateStatus' => ['none'],
+            'deleteCustomer' => ['none'],
+            'getSubscriberListView' => ['none'],
+            'exportSubscribersList' => ['none'],
+            'exportList' => ['list:orders'],
+            'getCustomerList' => ['none'],
+            'getCustomerListWithoutAllCustomerName' => ['none'],
+            'add' => ['none'],
+            'updateProfile' => ['none'],
+            'getCustomerSettingsView' => ['none'],
+            'updateCustomer' => ['none'],
+        ],
+        DeliveryManController::class => [
+            'index' => ['list:orders'],
+            'getAddView' => ['none'],
+            'add' => ['none'],
+            'updateStatus' => ['none'],
+            'exportList' => ['list:orders'],
+            'getUpdateView' => ['none'],
+            'update' => ['none'],
+            'delete' => ['none'],
+            'getEarningOverview' => ['unavailable'],
+            'getOrderWiseEarningView' => ['list:orders'],
+            'getOrderWiseEarningListByFilter' => ['list:orders'],
+            'getOrderHistoryList' => ['list:orders'],
+            'getOrderHistoryListExport' => ['list:orders'],
+            'getRatingView' => ['unavailable'],
+            'getOrderStatusHistory' => ['order.route:order'],
+        ],
+        VendorController::class => [
+            'index' => ['list:orders'],
+            'getAddView' => ['none'],
+            'add' => ['none'],
+            'exportOrderList' => ['list:orders'],
+            'updateStatus' => ['none'],
+            'bulkUpdateStatus' => ['none'],
+            'exportList' => ['list:orders'],
+            'updateSalesCommission' => ['none'],
+            'getOrderDetailsView' => ['order.route:order_id', 'list:orders'],
+            'getView' => ['list:orders', 'list:order_transactions'],
+            'updateSetting' => ['none'],
+            'getWithdrawListView' => ['none'],
+            'exportWithdrawList' => ['none'],
+            'getWithdrawView' => ['none'],
+            'withdrawStatus' => ['none'],
+            'loadMoreStores' => ['none'],
+            'destroy' => ['none'],
+        ],
+    ];
+
+    /** @return list<class-string> the controllers whose actions a staff country scope covers here: the order, POS and refund screens, then the ones that read orders */
     public static function controllers(): array
     {
+        return [...self::orderScreenControllers(), ...self::readScreenControllers()];
+    }
+
+    /** @return list<class-string> the order, POS and refund screens (slice 2) */
+    public static function orderScreenControllers(): array
+    {
         return array_keys(self::RULES);
+    }
+
+    /** @return list<class-string> the screens that read orders without managing them (slice 3) */
+    public static function readScreenControllers(): array
+    {
+        return array_keys(self::READ_RULES);
     }
 
     /** @return array<string, list<string>> the rule of every action of a covered controller, by the name of the action */
     public static function rulesOf(string $controller): array
     {
-        return self::RULES[ltrim($controller, '\\')] ?? [];
+        $controller = ltrim($controller, '\\');
+
+        return self::RULES[$controller] ?? self::READ_RULES[$controller] ?? [];
     }
 
     /** @return list<string>|null */
@@ -156,6 +235,7 @@ final class StaffOrderRoutes
 
         return match ($kind) {
             'none', 'list' => true,
+            'unavailable' => false,
             'cart' => self::productsAreCovered(productIds: self::productIdsOfCart(), scope: $scope),
             'edit' => self::productsAreCovered(productIds: self::productIdsOfOrderEdit(orderId: $request->input($name)), scope: $scope),
             default => self::namedIdsAreCovered(request: $request, kind: $kind, name: $name, scope: $scope),

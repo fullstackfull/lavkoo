@@ -333,7 +333,7 @@ trait BuildsStaffOrderWorld
                 'order_id' => $id,
                 'product_id' => $productId,
                 'seller_id' => 1,
-                'product_details' => json_encode(['name' => "Product {$productId}", 'product_type' => 'physical']),
+                'product_details' => json_encode(['name' => "Product {$productId}", 'product_type' => 'physical', 'variation' => '[]', 'choice_options' => '[]', 'colors' => '[]', 'unit_price' => 10, 'tax' => 0, 'tax_model' => 'exclude', 'minimum_order_qty' => 1, 'current_stock' => 5]),
                 'delivery_status' => 'pending',
                 'created_at' => now(),
                 'updated_at' => now(),
