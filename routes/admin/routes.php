@@ -454,12 +454,19 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
     Route::group(['prefix' => 'products', 'as' => 'products.'], function () {
         Route::controller(ProductController::class)->group(function () {
-            Route::get('multiple-product-details', 'getMultipleProductDetailsView')->name('multiple-product-details');
+            // The reviews filter (people) and the deal-of-the-day page (marketing) both search with this one, so it stays open to every employee.
             Route::get('search', 'getSearchedProductsView')->name('search-product');
-            Route::get('search-all-product', 'getSearchedAllProductsView')->name('search-all-type-product');
+
+            Route::middleware('module:marketing')->group(function () {
+                Route::get('multiple-product-details', 'getMultipleProductDetailsView')->name('multiple-product-details');
+                Route::get('search-all-product', 'getSearchedAllProductsView')->name('search-all-type-product');
+            });
+
             // Pickers on the product form (frequently bought together): searchable, id-based.
-            Route::get('picker-options', 'getProductPickerOptions')->name('picker-options');
-            Route::get('picker-labels', 'getProductPickerLabels')->name('picker-labels');
+            Route::middleware('module:catalog')->group(function () {
+                Route::get('picker-options', 'getProductPickerOptions')->name('picker-options');
+                Route::get('picker-labels', 'getProductPickerLabels')->name('picker-labels');
+            });
         });
     });
 
