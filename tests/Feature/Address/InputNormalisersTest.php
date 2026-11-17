@@ -19,8 +19,11 @@ class InputNormalisersTest extends TestCase
     /** Country codes that are not on the trunk zero list, among them the neighbours of the ones that are. */
     private const OTHER_COUNTRY_CODES = ['1', '7', '30', '34', '39', '45', '47', '48', '52', '56', '57', '65', '211', '216', '225', '351', '352', '420', '960', '972', '977', '992'];
 
-    /** The digits 0 to 9 as ASCII, Arabic-Indic, Persian and full-width digits. */
+    /** The digits 0 to 9 as ASCII, Arabic-Indic, Persian and full-width digits: the scripts SaudiPhone reads. */
     private const DIGIT_SCRIPTS = ['0123456789', '٠١٢٣٤٥٦٧٨٩', '۰۱۲۳۴۵۶۷۸۹', '０１２３４５６７８９'];
+
+    /** The digits 0 to 9 as Bengali, Devanagari, Thai and mathematical bold digits: scripts SaudiPhone does not read. */
+    private const UNREAD_DIGIT_SCRIPTS = ['০১২৩৪৫৬৭৮৯', '०१२३४५६७८९', '๐๑๒๓๔๕๖๗๘๙', '𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗'];
 
     #[DataProvider('nationalAddresses')]
     public function test_a_national_address_is_accepted_only_in_the_shape_spl_writes_it(string $typed, ?string $canonical): void
@@ -138,6 +141,19 @@ class InputNormalisersTest extends TestCase
             'digits of another script are digits' => ['+971٥٠١٢٣٤٥٦٧', '+971501234567', true],
             'digits of another script are not nothing' => ['+971٥٠١٢٣٤٥٦٧', '+971', false],
             'two numbers in digits of another script are two numbers' => ['+971٥٠١٢٣٤٥٦٧', '+971٣٣٣٣٣٣٣٣٣', false],
+            'Bengali digits are not the country code alone' => ['+880১৭১২৩৪৫৬৭৮', '+880', false],
+            'Devanagari digits are not the country code alone' => ['+977९८४१२३४५६७', '+977', false],
+            'Thai digits are not the country code alone' => ['+66๘๑๒๓๔๕๖๗๘', '+66', false],
+            'mathematical digits are not the country code alone' => ['+880𝟏𝟕𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖', '+880', false],
+            'two phones in Bengali digits are two phones' => ['+880১৭১২৩৪৫৬৭৮', '+880১৭৯৯৯৯৯৯৯৯', false],
+            'a phone in Bengali digits is not even its own spelling' => ['+880১৭১২৩৪৫৬৭৮', '+880১৭১২৩৪৫৬৭৮', false],
+            'a phone in Bengali digits is not the same digits in Devanagari' => ['+880১৭১২৩৪৫৬৭৮', '+880१७१२३४५६७८', false],
+            'a phone in Bengali digits is not the same digits in ASCII' => ['+880১৭১২৩৪৫৬৭৮', '+8801712345678', false],
+            'one Bengali digit among ASCII digits makes no number' => ['+880 17১2345678', '+8801712345678', false],
+            'two phones that differ in one Bengali digit are two phones' => ['+880 17১2345678', '+880 17২2345678', false],
+            'Bengali and Arabic-Indic digits in one spelling make no number' => ['+971٥٠১٢٣٤٥٦٧', '+971501234567', false],
+            'a space that does not break and a direction mark are no digits' => ["+971\u{00A0}501234567\u{200F}", '+971501234567', true],
+            'a spelling that is not valid text is no number' => ["+971501234567\xFF", '+971501234567', false],
         ];
     }
 
@@ -197,6 +213,10 @@ class InputNormalisersTest extends TestCase
         }
     }
 
+    /**
+     * A spelling with a digit of a script SaudiPhone does not read is no number, so it is one number with nothing, itself included. Any
+     * other pair is one number exactly when the rule of isOneNumber() says so, in both orders, and never when the national digits differ.
+     */
     public function test_seeded_random_pairs_are_one_number_exactly_when_the_rule_says_so_in_both_orders(): void
     {
         $seed = 20261117;
@@ -212,11 +232,11 @@ class InputNormalisersTest extends TestCase
         for ($pair = 0; $pair < 5000; $pair++) {
             $first = self::randomNumber(draw: $draw);
             [$second, $differs] = self::madeFrom(number: $first, draw: $draw);
-            $spelledFirst = self::spelled(number: $first, draw: $draw);
-            $spelledSecond = self::spelled(number: $second, draw: $draw);
+            [$spelledFirst, $readableFirst] = self::spelled(number: $first, draw: $draw);
+            [$spelledSecond, $readableSecond] = self::spelled(number: $second, draw: $draw);
             $verdict = SaudiPhone::isSameNumber(first: $spelledFirst, second: $spelledSecond);
 
-            if ($verdict !== self::isOneNumber(first: $first, second: $second)
+            if ($verdict !== ($readableFirst && $readableSecond && self::isOneNumber(first: $first, second: $second))
                 || $verdict !== SaudiPhone::isSameNumber(first: $spelledSecond, second: $spelledFirst)
                 || ($verdict && $differs)) {
                 $wrong[] = "{$spelledFirst} | {$spelledSecond}";
@@ -291,18 +311,41 @@ class InputNormalisersTest extends TestCase
         };
     }
 
-    /** @param array{0: string, 1: int, 2: string} $number */
-    private static function spelled(array $number, Closure $draw): string
+    /**
+     * A number as someone may write it: the plus or a double zero, then the country code and the rest, each in the digits of one script,
+     * now and then one that SaudiPhone does not read. The plus or double zero is always readable, because it is what marks a number international.
+     *
+     * @param array{0: string, 1: int, 2: string} $number
+     * @return array{0: string, 1: bool} the spelling, and whether every digit of it is in a script SaudiPhone reads
+     */
+    private static function spelled(array $number, Closure $draw): array
     {
         [$countryCode, $zeros, $national] = $number;
-        $plus = $draw(below: 2) === 0;
-        $script = mb_str_split(self::DIGIT_SCRIPTS[$draw(below: count(self::DIGIT_SCRIPTS))]);
-        $spelling = $plus ? '+' : '';
-        foreach (str_split(($plus ? '' : '00') . $countryCode . str_repeat('0', $zeros) . $national) as $digit) {
-            $spelling .= $script[(int) $digit] . [' ', '-', '(', ')', '', '', ''][$draw(below: 7)];
+        $readable = true;
+        $spelling = $draw(below: 2) === 0 ? '+' : self::written(digits: '00', scripts: self::DIGIT_SCRIPTS, draw: $draw);
+        foreach ([$countryCode, str_repeat('0', $zeros) . $national] as $digits) {
+            $unread = $draw(below: 6) === 0;
+            $readable = $readable && !$unread;
+            $spelling .= self::written(digits: $digits, scripts: $unread ? self::UNREAD_DIGIT_SCRIPTS : self::DIGIT_SCRIPTS, draw: $draw);
         }
 
-        return $spelling;
+        return [$spelling, $readable];
+    }
+
+    /**
+     * The digits written in one of the scripts, with a separator or none after each.
+     *
+     * @param list<string> $scripts the digits 0 to 9 of each script
+     */
+    private static function written(string $digits, array $scripts, Closure $draw): string
+    {
+        $script = mb_str_split($scripts[$draw(below: count($scripts))]);
+        $written = '';
+        foreach (str_split($digits) as $digit) {
+            $written .= $script[(int) $digit] . [' ', '-', '(', ')', '', '', ''][$draw(below: 7)];
+        }
+
+        return $written;
     }
 
     /**
