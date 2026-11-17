@@ -17,6 +17,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\SupportTicketConv;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\OrderStatusHistoryService;
 use App\Traits\PdfGenerator;
 use App\Http\Controllers\Controller;
@@ -744,7 +745,8 @@ class UserProfileController extends Controller
                 return redirect()->route('track-order.index', ['order_id' => $request['order_id']]);
             }
 
-            $userInfo = User::where('phone', $request['phone_number'])->orWhere('phone', 'like', "%{$request['phone_number']}%")->first();
+            $orderOwner = $order?->customer;
+            $userInfo = $orderOwner && SaudiPhone::isSameNumber(first: $request['phone_number'], second: (string)$orderOwner['phone']) ? $orderOwner : null;
 
             if ($order && $order->is_guest) {
                 $orderExist = $this->storefrontAddresses->orderWasPlacedWithPhone(order: $order, phone: $request['phone_number']) ? $order : null;
