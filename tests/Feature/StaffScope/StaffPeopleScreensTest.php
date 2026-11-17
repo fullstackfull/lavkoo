@@ -28,6 +28,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\Support\AssertsNarrowedOrderReads;
 use Tests\Support\BuildsStaffReportWorld;
 use Tests\Support\RendersNoViews;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -43,11 +44,21 @@ class StaffPeopleScreensTest extends TestCase
 {
     use AssertsNarrowedOrderReads;
     use BuildsStaffReportWorld;
+    use RestoresLanguageFiles;
     use RendersNoViews;
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
+    }
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->rememberLanguageFiles();
 
         Http::preventStrayRequests();
         Event::fake();
@@ -337,6 +348,19 @@ class StaffPeopleScreensTest extends TestCase
         $this->asKuwaitEmployee();
 
         $this->assertSame(2, $this->viewOf($this->get('/admin/vendors/list'), 'vendors')->first()->orders_count);
+    }
+
+    // ---- what cannot be told apart by country ----------------------------------------------------------------------------------------
+
+    public function test_the_wallet_cards_of_a_delivery_man_and_of_a_vendor_are_left_out_of_their_pages_for_a_restricted_employee(): void
+    {
+        $earning = (string) file_get_contents(resource_path('views/admin-views/delivery-man/earning-statement/earning.blade.php'));
+        $vendor = (string) file_get_contents(resource_path('views/admin-views/vendor/view.blade.php'));
+
+        $guard = preg_quote('@unless (app(\\App\\Services\\Staff\\StaffCountryScope::class)->restricts())', '/');
+        $this->assertMatchesRegularExpression('/' . $guard . '\s*<div class="card mb-3">(?:(?!@endunless).)*total_earning(?:(?!@endunless).)*cash_in_hand(?:(?!@endunless).)*@endunless/s', $earning);
+        $this->assertStringContainsString("@if (\$seller['status'] != 'pending' && !app(\\App\\Services\\Staff\\StaffCountryScope::class)->restricts())", $vendor);
+        $this->assertSame(1, substr_count($vendor, 'vendor_Wallet'), 'the one wallet card of the page is the one that is guarded');
     }
 
     // ---- who is not narrowed ---------------------------------------------------------------------------------------------------------
