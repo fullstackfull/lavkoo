@@ -24,6 +24,10 @@ use Tests\TestCase;
  * The answer keeps its shape, and the address is now a link that the application signs for the one product of the one seller who asked, valid
  * for a few minutes. Nothing is written to disk: the sheet is made when the link is opened, in the language the app asked for.
  *
+ * The apps' form lets the seller ask for 1 to 270 labels, and the server meant to refuse more, but it read a `limit` that the apps never send, so
+ * the `quantity` they do send was unbounded and a seller could have a sheet of millions of labels made. A quantity that is not a whole number from
+ * 1 to 270 is refused, before any link is made, with the answer the `limit` rule always gave (a 200 whose body says `code` 403).
+ *
  * The web server of this installation serves a file that exists under the project root as it is and hands everything else to the application, so a
  * link is opened the same way here, whatever it names.
  */
@@ -75,6 +79,31 @@ class SellerApiBarcodeSheetTest extends TestCase
         return ['both on the app (v3)' => ['v3', 'v3'], 'both on the older app (v2)' => ['v2', 'v2'], 'one on each' => ['v2', 'v3']];
     }
 
+    /** @return iterable<string, array{string, string}> each app with the fewest and the most labels the app's own form lets the seller ask for */
+    public static function quantitiesTheAppsFormAllows(): iterable
+    {
+        foreach (self::apps() as $appName => [$app]) {
+            foreach (['1', '270'] as $quantity) {
+                yield "{$appName}, {$quantity}" => [$app, $quantity];
+            }
+        }
+    }
+
+    /** @return iterable<string, array{string, string}> each app with a quantity that is not a whole number from 1 to 270 */
+    public static function quantitiesThatAreNotAllowed(): iterable
+    {
+        $refused = [
+            'one more than the most' => '271', 'none' => '0', 'a negative number' => '-1', 'letters' => 'abc', 'a decimal' => '270.5',
+            'a million' => '1000000', 'a billion written with an exponent' => '1e9',
+        ];
+
+        foreach (self::apps() as $appName => [$app]) {
+            foreach ($refused as $kind => $quantity) {
+                yield "{$appName}, {$kind}" => [$app, $quantity];
+            }
+        }
+    }
+
     /** @return array<string, array{array<string, int|null>}> what somebody who holds a link of their own can change in it, to read a sheet that is not theirs */
     public static function changesToAnotherSellersLink(): array
     {
@@ -102,6 +131,48 @@ class SellerApiBarcodeSheetTest extends TestCase
         $this->assertSame(3, substr_count($text, '1000010'));
     }
 
+    #[DataProvider('quantitiesTheAppsFormAllows')]
+    public function test_a_quantity_the_apps_form_allows_gets_a_link_signed_for_that_many_labels(string $app, string $quantity): void
+    {
+        $link = $this->generateTheLink(app: $app, seller: self::SELLER, productId: self::OWN_PRODUCT, quantity: $quantity);
+
+        parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
+        $this->assertSame($quantity, $query['quantity']);
+    }
+
+    public function test_the_largest_sheet_the_apps_form_allows_is_made(): void
+    {
+        $link = $this->generateTheLink(app: 'v3', seller: self::SELLER, productId: self::OWN_PRODUCT, quantity: 270);
+
+        $text = $this->textOfPdf((string) $this->openTheLink($link)->assertOk()->getContent());
+
+        $this->assertSame(270, substr_count($text, '1000010'));
+    }
+
+    #[DataProvider('quantitiesThatAreNotAllowed')]
+    public function test_a_quantity_that_is_not_a_whole_number_from_1_to_270_is_refused_as_the_limit_rule_refuses_and_no_link_is_made(string $app, string $quantity): void
+    {
+        $this->askForTheLink(app: $app, seller: self::SELLER, productId: self::OWN_PRODUCT, quantity: $quantity)
+            ->assertOk()
+            ->assertExactJson(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
+    }
+
+    #[DataProvider('apps')]
+    public function test_an_empty_quantity_is_still_refused_by_the_required_rule_and_no_link_is_made(string $app): void
+    {
+        $this->askForTheLink(app: $app, seller: self::SELLER, productId: self::OWN_PRODUCT, quantity: '')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['quantity']);
+    }
+
+    #[DataProvider('apps')]
+    public function test_the_old_limit_rule_still_refuses_and_no_link_is_made(string $app): void
+    {
+        $this->askForTheLink(app: $app, seller: self::SELLER, productId: self::OWN_PRODUCT, quantity: 2, extraQuery: '&limit=271')
+            ->assertOk()
+            ->assertExactJson(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
+    }
+
     #[DataProvider('pairsOfApps')]
     public function test_two_sellers_who_generate_a_sheet_at_the_same_time_each_open_only_their_own(string $appOfTheFirst, string $appOfTheSecond): void
     {
@@ -125,6 +196,14 @@ class SellerApiBarcodeSheetTest extends TestCase
         $secondLink = $this->generateTheLink(app: 'v3', seller: self::OTHER_SELLER, productId: self::OTHER_SELLERS_PRODUCT);
 
         $this->openTheLink($this->changed(link: $secondLink, changes: $changes))->assertForbidden();
+    }
+
+    #[DataProvider('quantitiesThatAreNotAllowed')]
+    public function test_a_link_whose_signed_quantity_is_changed_is_refused(string $app, string $quantity): void
+    {
+        $link = $this->generateTheLink(app: $app, seller: self::SELLER, productId: self::OWN_PRODUCT);
+
+        $this->openTheLink($this->changed(link: $link, changes: ['quantity' => $quantity]))->assertForbidden();
     }
 
     public function test_a_link_opens_under_whatever_host_and_scheme_the_server_sees_it_with(): void
@@ -211,7 +290,7 @@ class SellerApiBarcodeSheetTest extends TestCase
         $this->assertSame(translate('Please update product code!'), $response->json('message'));
     }
 
-    private function generateTheLink(string $app, int $seller, int $productId, int $quantity = 2): string
+    private function generateTheLink(string $app, int $seller, int $productId, int|string $quantity = 2): string
     {
         $response = $this->askForTheLink(app: $app, seller: $seller, productId: $productId, quantity: $quantity)->assertOk();
         $this->assertIsString($response->json(), 'the app reads the answer as the address to open');
@@ -219,9 +298,9 @@ class SellerApiBarcodeSheetTest extends TestCase
         return $response->json();
     }
 
-    private function askForTheLink(string $app, int $seller, int $productId, int $quantity): TestResponse
+    private function askForTheLink(string $app, int $seller, int $productId, int|string $quantity, string $extraQuery = ''): TestResponse
     {
-        $uri = 'products/barcode/generate?quantity=' . $quantity . '&id=' . $productId;
+        $uri = 'products/barcode/generate?quantity=' . rawurlencode((string) $quantity) . '&id=' . $productId . $extraQuery;
 
         return $app === 'v2' ? $this->sellerApiV2('GET', $uri, as: $seller) : $this->sellerApi('GET', $uri, as: $seller);
     }
@@ -237,7 +316,7 @@ class SellerApiBarcodeSheetTest extends TestCase
         return $this->getJson($link);
     }
 
-    /** @param array<string, int|null> $changes a key set to null is taken out of the link */
+    /** @param array<string, int|string|null> $changes a key set to null is taken out of the link */
     private function changed(string $link, array $changes): string
     {
         parse_str((string) parse_url($link, PHP_URL_QUERY), $query);

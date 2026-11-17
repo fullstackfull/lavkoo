@@ -1842,7 +1842,7 @@ class ProductController extends Controller
             'quantity.required' => 'Barcode quantity is required',
         ]);
 
-        if ($request['limit'] > 270) {
+        if ($request['limit'] > 270 || !$barcodeSheetService->isAllowedQuantity(quantity: $request['quantity'])) {
             return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
         }
         $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->where('id', $request->id)->first();

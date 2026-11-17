@@ -20,6 +20,13 @@ class ProductBarcodeSheetService
 {
     private const LINK_LIFETIME_IN_MINUTES = 10;
 
+    private const MOST_LABELS = 270;
+
+    public function isAllowedQuantity(mixed $quantity): bool
+    {
+        return filter_var($quantity, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::MOST_LABELS]]) !== false;
+    }
+
     public function getLink(Product $product, int|string $quantity): string
     {
         return url(URL::temporarySignedRoute(
