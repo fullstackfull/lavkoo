@@ -44,14 +44,14 @@ final class ProductCodeSites
     }
 
     private const SITES = [
-        ['A1', 'ProductAddRequest: code', self::NOT_COVERED, 'The admin and vendor add form refuses a code held anywhere.'],
-        ['A2', 'ProductAddRequest: barcode', self::NOT_COVERED, 'The admin and vendor add form refuses a barcode held anywhere.'],
-        ['A3', 'ProductUpdateRequest: code', self::NOT_COVERED, 'The admin and vendor edit form refuses a code held anywhere.'],
-        ['A4', 'ProductUpdateRequest: barcode', self::NOT_COVERED, 'The admin and vendor edit form refuses a barcode held anywhere.'],
-        ['A5', 'RestAPI v2 seller ProductController::add_new', self::NOT_COVERED, 'The seller app v2 add refuses a code held anywhere.'],
-        ['A6', 'RestAPI v2 seller ProductController::update', self::NOT_COVERED, 'The seller app v2 edit refuses a code held anywhere.'],
-        ['A7', 'RestAPI v3 seller ProductController::add_new', self::NOT_COVERED, 'The seller app v3 add refuses a code held anywhere.'],
-        ['A8', 'RestAPI v3 seller ProductController::updateProduct', self::NOT_COVERED, 'The seller app v3 edit refuses a code held anywhere.'],
+        ['A1', 'ProductAddRequest: code', self::COVERED, 'Unique inside the country the add action saves the product in (the admin\'s choice, the table default for a vendor).'],
+        ['A2', 'ProductAddRequest: barcode', self::COVERED, 'Unique inside the same country.'],
+        ['A3', 'ProductUpdateRequest: code', self::COVERED, 'Unique inside the product\'s own country; the product itself is ignored.'],
+        ['A4', 'ProductUpdateRequest: barcode', self::COVERED, 'Unique inside the product\'s own country; the product itself is ignored.'],
+        ['A5', 'RestAPI v2 seller ProductController::add_new', self::COVERED, 'Unique inside the table default country, where a seller product is saved.'],
+        ['A6', 'RestAPI v2 seller ProductController::update', self::COVERED, 'Unique inside the product\'s own country; the product itself is ignored.'],
+        ['A7', 'RestAPI v3 seller ProductController::add_new', self::COVERED, 'Unique inside the table default country, where a seller product is saved.'],
+        ['A8', 'RestAPI v3 seller ProductController::updateProduct', self::COVERED, 'Unique inside the product\'s own country; the product itself is ignored.'],
         ['A9', 'ProductService::getUniqueProductSKUCode', self::NOT_COVERED, 'The bulk import generates a code free across the whole table.'],
         ['A10', 'M5aznProductImporter::clashesWithExistingProduct', self::NOT_COVERED, 'An M5AZN item whose SKU or barcode exists in any country is parked for review.'],
         ['B1', 'ProductService::getImportBulkProductData ($productsTax)', self::NOT_COVERED, 'The tax ids of an imported row are keyed by its generated code.'],

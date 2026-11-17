@@ -40,6 +40,39 @@ trait BuildsCodeScopeCatalog
         StorefrontCatalog::flush();
     }
 
+    /** The two relations every loaded Product brings along, and the settings table the model reads while it loads. */
+    protected function buildCodeScopeRelationTables(): void
+    {
+        foreach (['translations', 'reviews', 'business_settings'] as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        Schema::create('business_settings', function (Blueprint $table) {
+            $table->id();
+            $table->string('type');
+            $table->text('value')->nullable();
+            $table->timestamps();
+        });
+        foreach (['product_brand' => '1', 'digital_product' => '0', 'business_mode' => 'multi'] as $type => $value) {
+            DB::table('business_settings')->insert(['type' => $type, 'value' => $value]);
+        }
+
+        Schema::create('translations', function (Blueprint $table) {
+            $table->id();
+            $table->string('translationable_type');
+            $table->unsignedBigInteger('translationable_id');
+            $table->string('locale');
+            $table->string('key');
+            $table->text('value')->nullable();
+        });
+        Schema::create('reviews', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('delivery_man_id')->nullable();
+            $table->boolean('status')->default(true);
+        });
+    }
+
     /** Adds the column the way the migration adds it. */
     protected function addStorefrontCountryColumn(): void
     {

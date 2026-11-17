@@ -17,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use App\Services\Catalog\ProductCodeScope;
 
 class ProductController extends Controller
 {
@@ -134,6 +135,7 @@ class ProductController extends Controller
             ], 401);
         }
 
+        $codeScope = app(ProductCodeScope::class);
         $validator = Validator::make($request->all(), [
             'name'                  => 'required',
             'category_id'           => 'required',
@@ -150,7 +152,7 @@ class ProductController extends Controller
             'purchase_price'        => 'required|min:1',
             'discount'              => 'required|gt:-1',
             'shipping_cost'         => 'required_if:product_type,==,physical|gt:-1',
-            'code'                  => 'required|unique:products',
+            'code'                  => ['required', $codeScope->uniqueRuleForCode(country: $codeScope->countryOfNewProduct(addedBy: 'seller'))],
             'minimum_order_qty'     => 'required|numeric|min:1',
         ], [
             'name.required'                     => translate('Product name is required!'),
@@ -376,6 +378,7 @@ class ProductController extends Controller
         }
 
         $product = Product::find($id);
+        $codeScope = app(ProductCodeScope::class);
 
         $validator = Validator::make($request->all(), [
             'name'                  => 'required',
@@ -391,7 +394,7 @@ class ProductController extends Controller
             'discount'              => 'required|gt:-1',
             'shipping_cost'         => 'required_if:product_type,==,physical|gt:-1',
             'minimum_order_qty'     => 'required|numeric|min:1',
-            'code'                  => 'required|numeric|min:1|digits_between:6,20|unique:products,code,'.$product->id,
+            'code'                  => ['required', 'numeric', 'min:1', 'digits_between:6,20', $codeScope->uniqueRuleForCode(country: $codeScope->countryOfProduct($product), ignoreProductId: $product->id)],
         ], [
             'name.required'                     => 'Product name is required!',
             'category_id.required'              => 'category  is required!',
