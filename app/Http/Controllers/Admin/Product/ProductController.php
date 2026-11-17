@@ -31,6 +31,7 @@ use App\Events\ProductRequestStatusUpdateEvent;
 use App\Exports\ProductListExport;
 use App\Exports\RestockProductListExport;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeProductsToStaffCountries;
 use App\Http\Requests\Admin\ProductDenyRequest;
 use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductEditImageRequest;
@@ -97,6 +98,7 @@ class ProductController extends BaseController
         private readonly ProductService                             $productService,
     )
     {
+        $this->middleware(ScopeProductsToStaffCountries::class);
     }
 
     /**

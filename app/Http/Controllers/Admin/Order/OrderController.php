@@ -14,6 +14,7 @@ use App\Events\AddFundToWalletEvent;
 use App\Events\OrderEditReturnPaymentEvent;
 use App\Events\RefundEvent;
 use App\Http\Requests\Admin\RefundStatusRequest;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\OrderEditHistory;
 use App\Services\CustomerWalletService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
@@ -117,6 +118,7 @@ class OrderController extends BaseController
         private readonly OrderEditHistoryRepositoryInterface             $orderEditHistoryRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

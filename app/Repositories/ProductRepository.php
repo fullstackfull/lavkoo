@@ -71,7 +71,7 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function getFirstWhereWithoutGlobalScope(array $params, array $relations = []): ?Model
     {
-        return $this->product->withoutGlobalScopes()->where($params)->with($relations)->first();
+        return $this->product->withoutGlobalScope('translate')->where($params)->with($relations)->first();
     }
 
     public function getFirstWhereActive(array $params, array $relations = []): ?Model

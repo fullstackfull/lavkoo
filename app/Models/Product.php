@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductScope;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
@@ -513,6 +514,8 @@ class Product extends Model
         static::deleted(function ($model) {
             cacheRemoveByType(type: 'products');
         });
+
+        static::addGlobalScope(new StaffCountryProductScope());
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
