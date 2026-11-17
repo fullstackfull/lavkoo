@@ -211,7 +211,7 @@ final class StorefrontCatalog
         return $country === StorefrontResolver::fromConfig()->defaultCountry();
     }
 
-    private static function columnReady(): bool
+    public static function columnReady(): bool
     {
         $answer = self::$columnAnswer;
         if ($answer !== null && ($answer['value'] || time() - $answer['at'] < self::NEGATIVE_ANSWER_SECONDS)) {
