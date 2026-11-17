@@ -85,12 +85,12 @@ jobs:
   tests-mysql:
     name: ${{ matrix.group }}, ${{ matrix.engine }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -107,6 +107,10 @@ jobs:
           - group: Storefront tests
             # Also the platform admin API tests: the SQL they run for orders, products and refund requests has to meet a real engine, MariaDB included.
             paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin
+          - group: Catalog tests
+            paths: tests/Feature/Catalog
+          - group: Staff scope tests
+            paths: tests/Feature/StaffScope
     services:
       mysql:
         image: ${{ matrix.image }}
