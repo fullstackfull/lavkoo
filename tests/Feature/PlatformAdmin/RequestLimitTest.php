@@ -20,7 +20,7 @@ class RequestLimitTest extends PlatformAdminTestCase
         }
         $statements = $this->statementsRunBy(fn () => $this->getJson(self::PREFIX . '/me', $this->bearer($token))->assertStatus(429)->assertExactJson(['errors' => [['code' => 'platform_admin_throttled', 'message' => 'Too many attempts. Try again later.']]]));
 
-        $this->assertSame([], array_values(array_filter($statements, static fn (string $sql): bool => !str_contains($sql, 'sqlite_master') && !str_contains($sql, 'information_schema'))), 'a throttled request reads and writes nothing');
+        $this->assertSame([], $this->withoutSchemaChecks($statements), 'a throttled request reads and writes nothing');
         $this->assertSame(3, DB::table('platform_admin_audit_logs')->count());
     }
 

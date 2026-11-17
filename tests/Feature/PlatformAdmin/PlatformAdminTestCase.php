@@ -32,6 +32,9 @@ abstract class PlatformAdminTestCase extends TestCase
         $this->buildPlatformAdminWorld();
         config([
             'gcc.platform_admin.enabled' => true,
+            // The tests of level 1 pin the one-step sign-in and what a session may do, which the second factor does not change: they run in the staging
+            // mode of the switch. The second factor has its own tests, which turn it on (see MfaTestCase).
+            'gcc.platform_admin.mfa.required' => false,
             // A matrix of requests from one test address must not trip the limiters that have tests of their own.
             'gcc.platform_admin.requests_per_minute' => 1_000_000,
             'gcc.platform_admin.login_attempts_per_minute' => 1_000_000,
@@ -167,6 +170,19 @@ abstract class PlatformAdminTestCase extends TestCase
         $action();
 
         return $statements;
+    }
+
+    /**
+     * The statements that touch data: the ones that only ask the database what its schema looks like (the gate checks that the tables and columns of the
+     * API exist before it does anything else) are not a read of anything the API keeps.
+     *
+     * @param list<string> $statements
+     *
+     * @return list<string>
+     */
+    protected function withoutSchemaChecks(array $statements): array
+    {
+        return array_values(array_filter($statements, static fn (string $sql): bool => !str_contains($sql, 'sqlite_master') && !str_contains($sql, 'information_schema') && !str_contains($sql, 'pragma_table_xinfo')));
     }
 
     /**

@@ -352,8 +352,7 @@ class LoginTest extends PlatformAdminTestCase
 
         $statements = $this->statementsRunBy(fn () => $this->signIn(['email' => 'nobody@example.test', 'password' => 'wrong'])->assertStatus(429));
 
-        $selectsOfTheGate = array_filter($statements, static fn (string $sql): bool => !str_contains($sql, 'sqlite_master') && !str_contains($sql, 'information_schema'));
-        $this->assertSame([], array_values($selectsOfTheGate));
+        $this->assertSame([], $this->withoutSchemaChecks($statements));
         $this->assertSame(0, $hasher->checks);
     }
 

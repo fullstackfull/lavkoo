@@ -71,6 +71,23 @@ return [
         // Failed sign-ins of an admin who holds a grant are audited, at most this many rows per grant per hour. The rest only reach the log.
         'failed_login_audit_per_hour' => 10,
 
+        // The second factor of the sign-in (a TOTP code or a recovery code). `required` ships ON and fails closed: only false, 0, off or no switches it off
+        // (App\Services\PlatformAdmin\PlatformAdminSettings::mfaRequired()); a typo or a blank value leaves it on. Off is for staging only. The numbers: a value below 1 is
+        // the default, and each has a ceiling (the challenge 15 minutes and 10 tries, the lockout 20 failures and 60 minutes).
+        'mfa' => [
+            'required' => env('GCC_PLATFORM_ADMIN_MFA_REQUIRED', true),
+            'challenge_ttl_minutes' => (int) env('GCC_PLATFORM_ADMIN_MFA_CHALLENGE_TTL_MINUTES', 5),
+            'max_challenge_attempts' => (int) env('GCC_PLATFORM_ADMIN_MFA_MAX_CHALLENGE_ATTEMPTS', 5),
+            'lockout_failures' => (int) env('GCC_PLATFORM_ADMIN_MFA_LOCKOUT_FAILURES', 10),
+            'lockout_minutes' => (int) env('GCC_PLATFORM_ADMIN_MFA_LOCKOUT_MINUTES', 15),
+        ],
+
+        // A session unused for this long is over (at most 1440), and an admin has at most this many open at once (at most 20); the oldest is ended to make room.
+        'session' => [
+            'idle_minutes' => (int) env('GCC_PLATFORM_ADMIN_SESSION_IDLE_MINUTES', 60),
+            'max_concurrent' => (int) env('GCC_PLATFORM_ADMIN_SESSION_MAX_CONCURRENT', 5),
+        ],
+
         // The window of an overview: its default length, and the longest span any query may read. Dates are calendar dates in the application time zone.
         'window_days_default' => 30,
         'window_days_max' => 92,

@@ -125,7 +125,7 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
         foreach (['x', Str::random(64), 'lkpa_' . Str::random(63), 'lkpa_' . str_repeat('é', 64)] as $candidate) {
             $statements = $this->statementsRunBy(fn () => $this->json('GET', self::PREFIX . '/me', [], $this->bearer($candidate))->assertStatus(401));
 
-            $reads = array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'platform_admin_tokens') && !str_contains($sql, 'sqlite_master') && !str_contains($sql, 'information_schema'));
+            $reads = array_filter($this->withoutSchemaChecks($statements), static fn (string $sql): bool => str_contains($sql, 'platform_admin_tokens'));
 
             $this->assertSame([], array_values($reads), 'a token of the wrong shape costs no read of the sessions');
         }
