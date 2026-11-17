@@ -418,6 +418,115 @@ class StaffOrderRoutesTest extends TestCase
         }
     }
 
+    // ---- the names the controllers read ---------------------------------------------------------------------------------------------
+
+    /**
+     * What each action of the seven controllers reads its order, line, refund request or product from, written by hand from their source and not from the registry, so that a rule
+     * that looks at a name its controller never reads is found: it would refuse everything, or let everything through.
+     *
+     * @return array<string, array{0: string, 1: string, 2: array<string, mixed>, 3: string}> a label, then method, uri and input that name what is in scope, and the kind of what it names
+     */
+    private function whatTheControllersRead(): array
+    {
+        $order = self::ORDER['in'];
+        $product = self::PRODUCT['in'];
+
+        return [
+            'order list' => ['GET', '/admin/orders/list/all', [], 'nothing'],
+            'order export' => ['GET', '/admin/orders/export-excel/all', [], 'nothing'],
+            'invoice' => ['GET', "/admin/orders/generate-invoice/{$order}", [], 'order'],
+            'order details' => ['GET', "/admin/orders/details/{$order}", [], 'order'],
+            'address' => ['POST', '/admin/orders/address-update', ['order_id' => $order], 'order'],
+            'third party delivery' => ['POST', '/admin/orders/update-deliver-info', ['order_id' => $order], 'order'],
+            'courier' => ['GET', "/admin/orders/add-delivery-man/{$order}/1", [], 'order'],
+            'amount and date' => ['POST', '/admin/orders/amount-date-update', ['order_id' => $order], 'order'],
+            'payment status' => ['POST', '/admin/orders/payment-status', ['id' => $order], 'order'],
+            'digital file after sale (a line)' => ['POST', '/admin/orders/digital-file-upload-after-sell', ['order_id' => $this->lines['in']], 'line'],
+            'status' => ['POST', '/admin/orders/status', ['id' => $order], 'order'],
+            'bulk status' => ['POST', '/admin/orders/bulk-status', ['ids' => [$order]], 'order'],
+            'return amount' => ['POST', '/admin/orders/customer-return-amount', ['order_id' => $order], 'order'],
+            'due amount to cash on delivery' => ['POST', '/admin/orders/customer-due-amount', ['order_id' => $order], 'order'],
+            'due amount paid' => ['POST', '/admin/orders/customer-due-amount-mark-as-paid', ['order_id' => $order], 'order'],
+            'edit: search' => ['GET', '/admin/orders/search-for-edit-order-product', ['order_id' => $order], 'order'],
+            'edit: view a product' => ['POST', '/admin/orders/edit-order-product-modal-view', ['order_id' => $order, 'product_id' => $product], 'order and product'],
+            'edit: add a product' => ['POST', '/admin/orders/edit-order-product-add', ['order_id' => $order, 'product_id' => $product], 'order and product'],
+            'edit: price a variant' => ['POST', '/admin/orders/edit-order-product-variant-price', ['order_id' => $order, 'product_id' => $product], 'order and product'],
+            'edit: change the list' => ['POST', '/admin/orders/edit-order-product-list-update', ['order_id' => $order], 'order'],
+            'edit: remove a product' => ['POST', '/admin/orders/edit-order-product-remove', ['order_id' => $order, 'product_id' => $product], 'order and product'],
+            'edit: save' => ['POST', '/admin/orders/edit-order-generate', ['order_id' => $order], 'order'],
+            'Delivery Syria' => ['POST', '/admin/orders/delivery-syria/dispatch', ['order_id' => $order], 'order'],
+            'refund list' => ['GET', '/admin/refund-section/refund/list/pending', [], 'nothing'],
+            'refund export' => ['GET', '/admin/refund-section/refund/export/pending', [], 'nothing'],
+            'refund details' => ['GET', '/admin/refund-section/refund/details/' . self::REFUND['in'], [], 'refund'],
+            'refund decision' => ['POST', '/admin/refund-section/refund/refund-status-update', ['id' => self::REFUND['in']], 'refund'],
+            'POS: add to cart' => ['POST', '/admin/pos/add-to-cart', ['id' => $product], 'product'],
+            'POS: price a variant' => ['POST', '/admin/pos/get-variant-price', ['id' => $product], 'product'],
+            'POS: change a quantity' => ['POST', '/admin/pos/quantity-update', ['key' => $product], 'product'],
+            'POS: quick view' => ['GET', '/admin/pos/quick-view', ['product_id' => $product], 'product'],
+            'POS: details of an order' => ['POST', "/admin/pos/order-details/{$order}", [], 'order'],
+        ];
+    }
+
+    public function test_every_action_is_let_through_for_what_is_in_scope_under_the_names_its_controller_reads_and_refused_when_they_are_not_the_ones_it_does(): void
+    {
+        $this->asKuwaitEmployee();
+        $this->prepareSessionInScope();
+        $foreign = ['order' => self::ORDER['foreign'], 'line' => $this->lines['foreign'], 'refund' => self::REFUND['foreign'], 'product' => self::PRODUCT['foreign']];
+
+        foreach ($this->whatTheControllersRead() as $label => [$method, $uri, $input, $names]) {
+            $this->assertTrue($this->goes($method, $uri, $input), $label . ': what is in scope passes');
+            foreach ($input as $key => $value) {
+                $this->assertFalse($this->goes($method, $uri, array_merge($input, [$key => $this->swapForForeign($key, $value, $foreign)])), $label . ': ' . $key . ' of another country is refused');
+                $renamed = array_merge(array_diff_key($input, [$key => true]), [$key . '_x' => $value]);
+                $this->assertSame(is_array($value), $this->goes($method, $uri, $renamed), $label . ': without ' . $key . ' it names nothing' . (is_array($value) ? ', which an empty list does and the action refuses itself' : ' and is refused'));
+            }
+            if ($input === [] && $names !== 'nothing') {
+                $path = $this->swapPath($uri, $names, $foreign);
+                $this->assertFalse($this->goes($method, $path, []), $label . ': the id in the path, of another country, is refused');
+            }
+        }
+    }
+
+    private function goes(string $method, string $uri, array $input): bool
+    {
+        $request = Request::create($uri, $method, $input);
+        $route = Route::getRoutes()->match($request);
+        $request->setRouteResolver(static fn () => $route);
+        $route->bind($request);
+        $this->app->instance('request', $request);
+
+        try {
+            app(ScopeOrdersToStaffCountries::class)->handle($request, static fn () => response('reached'));
+        } catch (NotFoundHttpException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /** @param array<string, int> $foreign */
+    private function swapForForeign(string $key, mixed $value, array $foreign): mixed
+    {
+        $kind = match ($key) {
+            'product_id', 'key' => 'product',
+            'id' => $value === self::REFUND['in'] ? 'refund' : 'order',
+            default => $value === $this->lines['in'] ? 'line' : 'order',
+        };
+        if ($key === 'id' && ($value === self::PRODUCT['in'])) {
+            $kind = 'product';
+        }
+
+        return is_array($value) ? [$foreign[$kind]] : $foreign[$kind];
+    }
+
+    /** @param array<string, int> $foreign */
+    private function swapPath(string $uri, string $names, array $foreign): string
+    {
+        $kind = str_contains($uri, 'refund') ? 'refund' : 'order';
+
+        return preg_replace('#/(\d+)(/1)?$#', '/' . $foreign[$kind] . '$2', $uri);
+    }
+
     // ---- the cart of the POS and the edit of an order ------------------------------------------------------------------------------
 
     private function placeOrderRoute(): array
@@ -686,11 +795,13 @@ class StaffOrderRoutesTest extends TestCase
     public function test_a_part_nobody_knows_names_nothing_that_can_be_checked(): void
     {
         $this->asKuwaitEmployee();
-        $request = Request::create('/admin/orders/details/102');
+        $request = Request::create('/admin/orders/status', 'POST', ['id' => 102]);
+        $scope = app(StaffCountryScope::class);
 
-        $this->assertFalse(StaffOrderRoutes::isCovered(request: $request, rule: ['bogus:id'], scope: app(StaffCountryScope::class)));
-        $this->assertFalse(StaffOrderRoutes::isCovered(request: $request, rule: ['order.bogus:id'], scope: app(StaffCountryScope::class)));
-        $this->assertFalse(StaffOrderRoutes::isCovered(request: $request, rule: ['bogus.route:id'], scope: app(StaffCountryScope::class)));
+        $this->assertTrue(StaffOrderRoutes::isCovered(request: $request, rule: ['order.input:id'], scope: $scope), 'the control: the id is in scope');
+        $this->assertFalse(StaffOrderRoutes::isCovered(request: $request, rule: ['bogus:id'], scope: $scope));
+        $this->assertFalse(StaffOrderRoutes::isCovered(request: $request, rule: ['order.bogus:id'], scope: $scope));
+        $this->assertFalse(StaffOrderRoutes::isCovered(request: $request, rule: ['bogus.input:id'], scope: $scope), 'a kind of thing nobody knows is not covered even when the id is good');
         $this->assertSame([], StaffOrderRoutes::subjectsOf(rule: ['order.route:id']));
         $this->assertSame(['orders', 'refunds'], StaffOrderRoutes::subjectsOf(rule: ['list:orders', 'list:refunds']));
     }
