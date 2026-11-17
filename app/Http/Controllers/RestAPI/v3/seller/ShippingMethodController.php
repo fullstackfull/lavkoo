@@ -60,7 +60,7 @@ class ShippingMethodController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
         }
 
-        ShippingMethod::where(['id' => $request['id'], 'creator_id' => $seller['id']])->update([
+        ShippingMethod::where(['id' => $request['id'], 'creator_id' => $seller['id'], 'creator_type' => 'seller'])->update([
             'status' => $request['status']
         ]);
 
@@ -70,7 +70,7 @@ class ShippingMethodController extends Controller
     public function edit(Request $request, $id):JsonResponse
     {
         $seller = $request->seller;
-        $method = ShippingMethod::where(['id' => $id, 'creator_id' => $seller['id']])->first();
+        $method = ShippingMethod::where(['id' => $id, 'creator_id' => $seller['id'], 'creator_type' => 'seller'])->first();
         if (isset($method)) {
             return response()->json($method, 200);
         }
@@ -91,7 +91,7 @@ class ShippingMethodController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
         }
 
-        DB::table('shipping_methods')->where(['id' => $id, 'creator_id' => $seller['id']])->update([
+        DB::table('shipping_methods')->where(['id' => $id, 'creator_id' => $seller['id'], 'creator_type' => 'seller'])->update([
             'title' => $request['title'],
             'duration' => $request['duration'],
             'cost' => BackEndHelper::currency_to_usd($request['cost']),
@@ -106,7 +106,7 @@ class ShippingMethodController extends Controller
     public function delete(Request $request):JsonResponse
     {
         $seller = $request->seller;
-        ShippingMethod::where(['id' => $request->id, 'creator_id' => $seller['id']])->delete();
+        ShippingMethod::where(['id' => $request->id, 'creator_id' => $seller['id'], 'creator_type' => 'seller'])->delete();
 
         return response()->json(['message' => translate('successfully_deleted')], 200);
     }

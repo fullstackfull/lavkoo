@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Translation;
 use App\Utils\Convert;
 use App\Utils\Helpers;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\ImageManager;
 use Barryvdh\DomPDF\PDF;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,8 @@ use Illuminate\Support\Str;
 
 class ProductController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function list(Request $request):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -32,7 +35,7 @@ class ProductController extends Controller
             ], 401);
         }
 
-        return response()->json(Product::where(['added_by' => 'seller', 'id' => $seller['id']])->orderBy('id', 'DESC')->get(), 200);
+        return response()->json(Product::ofSeller(sellerId: $seller['id'])->orderBy('id', 'DESC')->get(), 200);
     }
 
     public function stock_out_list(Request $request):JsonResponse
@@ -358,7 +361,10 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::withoutGlobalScopes()->with('translations')->find($id);
+        $product = Product::withoutGlobalScopes()->with('translations')->ofSeller(sellerId: $seller['id'])->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $product = Helpers::product_data_formatting($product);
 
         return response()->json($product, 200);
@@ -375,7 +381,10 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::find($id);
+        $product = Product::ofSeller(sellerId: $seller['id'])->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
 
         $validator = Validator::make($request->all(), [
             'name'                  => 'required',
@@ -624,7 +633,10 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::find($request->id);
+        $product = Product::ofSeller(sellerId: $seller['id'])->find($request->id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $product->status = $request->status;
         $product->save();
 
@@ -644,7 +656,10 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::find($id);
+        $product = Product::ofSeller(sellerId: $seller['id'])->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         foreach (json_decode($product['images'], true) as $image) {
             ImageManager::delete('/product/' . $image);
         }
@@ -668,11 +683,22 @@ class ProductController extends Controller
         if ($request->limit > 270) {
             return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
         }
-        $product = Product::where('id', $request->id)->first();
+
+        $data = Helpers::get_seller_by_token($request);
+        if ($data['success'] != 1) {
+            return response()->json([
+                'auth-001' => translate('Your existing session token does not authorize you any more')
+            ], 401);
+        }
+
+        $product = Product::ofSeller(sellerId: $data['data']['id'])->where('id', $request->id)->first();
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $quantity = $request->quantity ?? 30;
         if (isset($product->code)) {
             $pdf = app()->make(PDF::class);
-            $pdf->loadView('seller-views.product.barcode-pdf', compact('product', 'quantity'));
+            $pdf->loadView('vendor-views.product.barcode-pdf', compact('product', 'quantity'));
             $pdf->save(storage_path('app/public/product/barcode.pdf'));
             return response()->json(asset('storage/app/public/product/barcode.pdf'));
         } else {

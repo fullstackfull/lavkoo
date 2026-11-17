@@ -136,7 +136,6 @@ Route::group(['middleware' => ['maintenance_mode', 'actch:admin_panel']], functi
                     Route::get('new-cart-id', 'addNewCartId')->name('new-cart-id');
                 });
                 Route::controller(POSOrderController::class)->group(function () {
-                    Route::post(POSOrder::ORDER_DETAILS[URI] . '/{id}', 'index')->name('order-details');
                     Route::post(POSOrder::ORDER_PLACE[URI], 'placeOrder')->name('order-place');
                     Route::any(POSOrder::CANCEL_ORDER[URI], 'cancelOrder')->name('cancel-order');
                     Route::any(POSOrder::HOLD_ORDERS[URI], 'getAllHoldOrdersView')->name('view-hold-orders');

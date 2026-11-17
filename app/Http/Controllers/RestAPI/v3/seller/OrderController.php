@@ -12,6 +12,7 @@ use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\SellerInvoiceService;
 use App\Http\Requests\API\v3\DigitalProductFileUploadAfterSell;
 use App\Models\BusinessSetting;
+use App\Models\DeliveryMan;
 use App\Models\DeliveryManTransaction;
 use App\Models\DeliverymanWallet;
 use App\Models\DeliveryZipCode;
@@ -196,9 +197,9 @@ class OrderController extends Controller
     public function details(Request $request, $id): JsonResponse
     {
         $seller = $request->seller;
-        $detailsList = OrderDetail::with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
+        $detailsList = OrderDetail::ofSeller(sellerId: $seller['id'])->with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
             return $query->orderBy('updated_at', 'desc');
-        }])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get();
+        }])->where('order_id', $id)->get();
 
         if ($detailsList->isEmpty()) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -297,7 +298,13 @@ class OrderController extends Controller
         }
 
         $seller = $request->seller;
-        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'id' => $request['order_id']])->first();
+        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['order_id']);
+        if (!$order) {
+            return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
+        }
+        if (!$this->sellerOwnsDeliveryMan(sellerId: $seller['id'], deliveryManId: $request['delivery_man_id'])) {
+            return response()->json(['success' => 0, 'message' => translate('delivery_man_not_found')], 404);
+        }
 
         if ($order['delivery_man_id'] != $request['delivery_man_id']) {
             $order->deliveryman_assigned_at = Carbon::now();
@@ -309,6 +316,11 @@ class OrderController extends Controller
         $order->save();
         OrderStatusEvent::dispatch('new_order_assigned_message', 'delivery_man', $order);
         return response()->json(['success' => 1, 'message' => translate('order_deliveryman_assigned_successfully')], 200);
+    }
+
+    private function sellerOwnsDeliveryMan(int|string $sellerId, mixed $deliveryManId): bool
+    {
+        return DeliveryMan::where(['id' => $deliveryManId, 'seller_id' => $sellerId])->exists();
     }
 
     public function amount_date_update(Request $request): JsonResponse
@@ -356,7 +368,7 @@ class OrderController extends Controller
     {
         $seller = $request->seller;
         // Scope the order line to the seller so one seller cannot overwrite another's delivered digital file.
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
+        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_id);
         if ($order_details) {
             $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
             $order_details->save();
@@ -652,6 +664,9 @@ class OrderController extends Controller
                     'third_party_delivery_tracking_id' => $request['third_party_delivery_tracking_id'] ?? '',
                 ]);
             } elseif ($request->has('delivery_man_id') && !empty($request['delivery_man_id']) && ($order['delivery_man_id'] != $request['delivery_man_id'])) {
+                if (!$this->sellerOwnsDeliveryMan(sellerId: $seller['id'], deliveryManId: $request['delivery_man_id'])) {
+                    return response()->json(['success' => 0, 'message' => translate('delivery_man_not_found')], 404);
+                }
                 Order::where('id', $request['order_id'])->update([
                     'delivery_man_id' => $request['delivery_man_id'],
                     'delivery_type' => 'self_delivery',

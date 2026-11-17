@@ -3499,6 +3499,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'report_linked_shipments' => 'إبلاغ القناة بالشحنات المرتبطة',
 	'resource' => 'البيانات',
 	'sync_now' => 'مزامنة الآن',
+	'order_item_of_a_removed_product_cannot_be_changed' => 'يحتوي هذا الطلب على عنصر لم يعد منتجه موجودًا. لا يمكن تغيير هذا العنصر أو إزالته؛ اتركه كما هو.',
+	'order_item_of_a_removed_product_carries_tax' => 'يحتوي هذا الطلب على عنصر خاضع للضريبة لم يعد منتجه موجودًا، لذلك لا يمكن تعديل عناصره.',
 	'synchronise' => 'المزامنة',
 	'synchronise_help' => 'تُقرأ البيانات من القناة. كل زر يبدأ تشغيلًا واحدًا، وفتح هذه الصفحة لا يُجري أي استدعاء. يتطلب التشغيل حسابًا مفعّلًا وتفعيل الخطوة المقابلة.',
 	'this_channel_has_nothing_to_read_here' => 'ليس لدى هذه القناة ما يُقرأ هنا',
@@ -4856,4 +4858,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'_this_page_will_be_unavailable_throughout_the_user_section.' => ' this page will be unavailable throughout the user section.',
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
+	'review_not_found' => 'لم يتم العثور على المراجعة',
+	'order_not_found' => 'لم يتم العثور على الطلب',
 ];

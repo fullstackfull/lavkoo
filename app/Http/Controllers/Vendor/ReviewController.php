@@ -10,8 +10,10 @@ use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Enums\ViewPaths\Vendor\Review;
 use App\Exports\CustomerReviewListExport;
 use App\Http\Controllers\BaseController;
+use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -127,7 +129,11 @@ class ReviewController extends BaseController
      */
     public function updateStatus(string|int $id, string|int $status): JsonResponse
     {
-        $this->reviewRepo->update(id: $id, data: ['status' => $status]);
+        $review = $this->getOwnReview(id: $id);
+        if (!$review) {
+            return response()->json(['status' => 0, 'message' => translate('review_not_found')], 404);
+        }
+        $this->reviewRepo->update(id: $review['id'], data: ['status' => $status]);
         return response()->json([
             'status' => 1,
             'message' => translate('review_status_updated_successfully.')
@@ -199,6 +205,10 @@ class ReviewController extends BaseController
 
     public function addReviewReply(Request $request): RedirectResponse
     {
+        if (!$this->getOwnReview(id: $request['review_id'])) {
+            ToastMagic::error(translate('review_not_found'));
+            return back();
+        }
         $this->reviewReplyRepo->updateOrInsert(params: [
             'review_id' => $request['review_id'],
             'added_by' => 'seller',
@@ -209,5 +219,14 @@ class ReviewController extends BaseController
             'updated_at' => now(),
         ]);
         return back();
+    }
+
+    private function getOwnReview(string|int|null $id): ?Model
+    {
+        return $this->reviewRepo->getFirstWhereHas(
+            params: ['id' => $id],
+            whereHas: 'product',
+            whereHasFilters: ['added_by' => 'seller', 'user_id' => auth('seller')->id()],
+        );
     }
 }
