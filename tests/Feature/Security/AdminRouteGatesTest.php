@@ -58,6 +58,9 @@ class AdminRouteGatesTest extends TestCase
         'GET /admin/products/picker-labels' => 'catalog',
         'GET /admin/products/search-all-product' => 'marketing',
         'GET /admin/products/multiple-product-details' => 'marketing',
+        'POST /admin/dashboard/order-status' => 'dashboard',
+        'GET /admin/dashboard/earning-statistics' => 'dashboard',
+        'GET /admin/dashboard/order-statistics' => 'dashboard',
         'GET /admin/messages/index/customer' => 'people',
         'GET /admin/messages/message' => 'people',
         'POST /admin/messages/message' => 'people',
@@ -128,6 +131,16 @@ class AdminRouteGatesTest extends TestCase
         $this->assertReachedTheAction(
             response: $this->requestAs(employee: Admin::query()->findOrFail(1), method: $method, uri: $uri),
             who: 'the master admin',
+        );
+    }
+
+    public function test_the_dashboard_that_every_refusal_redirects_to_answers_an_employee_whose_role_holds_no_module(): void
+    {
+        $this->replaceTheActionWithAStub(method: 'GET', uri: '/admin/dashboard');
+
+        $this->assertReachedTheAction(
+            response: $this->requestAs(employee: $this->employeeHolding(modules: []), method: 'GET', uri: '/admin/dashboard'),
+            who: 'an employee whose role holds no module',
         );
     }
 

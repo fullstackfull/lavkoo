@@ -216,10 +216,13 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     Route::group(['prefix' => 'dashboard', 'as' => 'dashboard.'], function () {
         Route::controller(DashboardController::class)->group(function () {
             Route::get('', 'index')->name('index');
-            Route::post('order-status', 'getOrderStatus')->name('order-status');
-            Route::get('earning-statistics', 'getEarningStatistics')->name('earning-statistics');
-            Route::get('order-statistics', 'getOrderStatistics')->name('order-statistics');
             Route::get('real-time-activities', 'getRealTimeActivities')->name('real-time-activities');
+
+            Route::middleware('module:dashboard')->group(function () {
+                Route::post('order-status', 'getOrderStatus')->name('order-status');
+                Route::get('earning-statistics', 'getEarningStatistics')->name('earning-statistics');
+                Route::get('order-statistics', 'getOrderStatistics')->name('order-statistics');
+            });
         });
     });
 
