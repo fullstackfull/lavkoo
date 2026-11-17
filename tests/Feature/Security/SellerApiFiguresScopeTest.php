@@ -238,6 +238,24 @@ class SellerApiFiguresScopeTest extends TestCase
         $this->assertSame(2, $inventory->reservedTotal(self::SELLER));
     }
 
+    /** @return iterable<string, array{0: string}> the statuses of an order that holds no stock for a customer yet, or no longer */
+    public static function statusesThatReserveNothing(): iterable
+    {
+        yield 'pending' => ['pending'];
+        yield 'delivered' => ['delivered'];
+        yield 'canceled' => ['canceled'];
+    }
+
+    #[DataProvider('statusesThatReserveNothing')]
+    public function test_the_reserved_units_count_only_the_orders_that_are_accepted_and_not_yet_delivered(string $status): void
+    {
+        DB::table('orders')->where('id', self::OWN_ORDER)->update(['order_status' => 'confirmed']);
+        DB::table('orders')->insert(['id' => 101, 'seller_id' => self::SELLER, 'seller_is' => 'seller', 'order_status' => $status, 'order_amount' => 300]);
+        DB::table('order_details')->insert(['order_id' => 101, 'seller_id' => self::SELLER, 'product_id' => self::OWN_PRODUCT, 'qty' => 3, 'price' => 100, 'variation' => '[]']);
+
+        $this->assertSame(2, app(InventoryList::class)->reservedTotal(self::SELLER));
+    }
+
     public function test_the_reserved_units_of_the_other_seller_are_still_counted(): void
     {
         DB::table('orders')->where('id', self::OTHER_SELLERS_ORDER)->update(['order_status' => 'out_for_delivery']);

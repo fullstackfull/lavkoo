@@ -29,6 +29,7 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
     private const HELD_LINE_KEY = '20-single-variant';
     private const OWN_LINE_KEY = '10-single-variant';
     private const LINE_WITHOUT_PRODUCT_KEY = '-single-variant';
+    private const BLUE_LINE_KEY = '20-Blue';
 
     protected function setUp(): void
     {
@@ -174,6 +175,117 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         $this->assertSame(50, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
         $this->assertSame(0, DB::table('order_edit_histories')->count(), 'an edit was recorded');
         $response->assertOk()->assertJson(['status' => 'error']);
+    }
+
+    // ---- the variant of a held line ----
+
+    public function test_an_add_of_another_variant_of_a_held_line_of_another_sellers_product_is_refused_and_takes_nothing_of_that_shop(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+        $this->anotherSellersProductHasABlueVariation();
+
+        $added = $this->addToTheEdit(productId: self::OTHER_SELLERS_PRODUCT, quantity: 2, variant: 'Blue', choices: ['choice_1' => 'Blue']);
+        $saved = $this->saveTheEdit();
+
+        $added->assertOk()->assertJson(['status' => 'error']);
+        $saved->assertOk()->assertJson(['status' => 'success']);
+        $this->assertTheOtherSellersBlueStockIsUntouched();
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 2]], $this->linesOfTheOrder());
+    }
+
+    public function test_a_held_line_of_another_sellers_product_that_was_reduced_to_nothing_cannot_come_back_as_another_variant(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+        $this->anotherSellersProductHasABlueVariation();
+
+        $reduced = $this->updateTheQuantityInTheEdit(key: self::HELD_LINE_KEY, quantity: 0);
+        $added = $this->addToTheEdit(productId: self::OTHER_SELLERS_PRODUCT, quantity: 2, variant: 'Blue', choices: ['choice_1' => 'Blue']);
+        $saved = $this->saveTheEdit();
+
+        $reduced->assertOk()->assertJson(['status' => 'success']);
+        $added->assertOk()->assertJson(['status' => 'error']);
+        $saved->assertOk();
+        $this->assertTheOtherSellersBlueStockIsUntouched();
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 0]], $this->linesOfTheOrder());
+    }
+
+    public function test_a_quantity_update_of_a_line_that_is_another_variant_of_a_held_line_of_another_sellers_product_is_refused(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+        $this->anotherSellersProductHasABlueVariation();
+        $this->theSessionHoldsTheHeldLineAsTheBlueVariant();
+
+        $updated = $this->updateTheQuantityInTheEdit(key: self::BLUE_LINE_KEY, quantity: 2);
+
+        $updated->assertOk()->assertJson(['status' => 'error']);
+    }
+
+    public function test_a_saved_edit_whose_session_holds_another_variant_of_a_held_line_of_another_sellers_product_writes_nothing(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+        $this->anotherSellersProductHasABlueVariation();
+        $this->theSessionHoldsTheHeldLineAsTheBlueVariant();
+
+        $response = $this->saveTheEdit();
+
+        $response->assertOk()->assertJson(['status' => 'error']);
+        $this->assertTheOtherSellersBlueStockIsUntouched();
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 2]], $this->linesOfTheOrder());
+        $this->assertSame(0, DB::table('order_edit_histories')->count(), 'an edit was recorded');
+    }
+
+    // ---- the products an edit may look at ----
+
+    public function test_the_modal_and_the_variant_price_of_an_own_product_that_is_not_on_the_order_open(): void
+    {
+        $this->insertProduct(id: 13, userId: self::SELLER, addedBy: 'seller', name: 'Own product not on the order', overrides: ['current_stock' => 50, 'discount_type' => 'percent', 'discount' => 0, 'tax' => 0]);
+
+        foreach (['edit-order-product-modal-view' => 'htmlView', 'edit-order-product-variant-price' => 'product_quick_view_details'] as $route => $key) {
+            $response = $this->signInAs(self::SELLER)->postJson('/vendor/orders/' . $route, ['order_id' => self::ORDER, 'product_id' => 13]);
+
+            $response->assertOk();
+            $this->assertStringContainsString('Own product not on the order', (string) $response->json($key));
+        }
+    }
+
+    /** @return iterable<string, array{0: mixed, 1: bool}> how a request may spell the id of the seller's own product, and whether it names it */
+    public static function spellingsOfTheOwnProductsId(): iterable
+    {
+        yield 'a whole number' => [self::OWN_PRODUCT, true];
+        yield 'a whole number as text' => ['10', true];
+        yield 'a whole number with trailing text' => ['10abc', false];
+        yield 'a whole number written as an exponent' => ['1e1', false];
+    }
+
+    #[DataProvider('spellingsOfTheOwnProductsId')]
+    public function test_the_modal_and_the_variant_price_open_a_product_only_for_an_id_that_is_a_whole_number(mixed $productId, bool $opens): void
+    {
+        foreach (['edit-order-product-modal-view', 'edit-order-product-variant-price'] as $route) {
+            $response = $this->signInAs(self::SELLER)->postJson('/vendor/orders/' . $route, ['order_id' => self::ORDER, 'product_id' => $productId]);
+
+            $opens ? $response->assertOk() : $response->assertNotFound();
+        }
+    }
+
+    // ---- the lines an order holds twice ----
+
+    public function test_an_order_that_holds_a_line_of_another_sellers_product_in_two_rows_can_keep_the_sum_of_them_but_not_more(): void
+    {
+        $this->theOrderHoldsTwoUnitsOfAnotherSellersProduct();
+        DB::table('order_details')->insert([
+            'id' => 2, 'order_id' => self::ORDER, 'seller_id' => self::SELLER, 'product_id' => self::OTHER_SELLERS_PRODUCT, 'qty' => 1, 'price' => 100, 'variation' => '[]',
+            'product_details' => json_encode(DB::table('products')->where('id', self::OTHER_SELLERS_PRODUCT)->first()),
+        ]);
+
+        $moreThanBothRows = $this->updateTheQuantityInTheEdit(key: self::HELD_LINE_KEY, quantity: 4);
+        $bothRows = $this->updateTheQuantityInTheEdit(key: self::HELD_LINE_KEY, quantity: 3);
+        $saved = $this->saveTheEdit();
+
+        $moreThanBothRows->assertOk()->assertJson(['status' => 'error']);
+        $bothRows->assertOk()->assertJson(['status' => 'success']);
+        $saved->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame([[self::OTHER_SELLERS_PRODUCT, 3]], $this->linesOfTheOrder());
+        $this->assertSame(50, $this->stockOf(self::OTHER_SELLERS_PRODUCT));
     }
 
     // ---- an order that holds a line without a product id ----
@@ -481,11 +593,35 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         $this->withSession([self::SESSION_KEY => $session]);
     }
 
-    private function addToTheEdit(int $productId, int $quantity): TestResponse
+    /** @param array<string, string> $choices the choice the variant is made of, as the product's choice options name it */
+    private function addToTheEdit(int $productId, int $quantity, string $variant = '', array $choices = []): TestResponse
     {
         return $this->signInAs(self::SELLER)->postJson('/vendor/orders/edit-order-product-add', [
-            'order_id' => self::ORDER, 'product_id' => $productId, 'quantity' => $quantity, 'variant' => '',
+            'order_id' => self::ORDER, 'product_id' => $productId, 'quantity' => $quantity, 'variant' => $variant,
+        ] + $choices);
+    }
+
+    private function anotherSellersProductHasABlueVariation(): void
+    {
+        DB::table('products')->where('id', self::OTHER_SELLERS_PRODUCT)->update([
+            'variation' => json_encode([['type' => 'Blue', 'price' => 100, 'sku' => 'blue', 'qty' => 30]]),
+            'choice_options' => json_encode([['name' => 'choice_1', 'title' => 'Colour', 'options' => ['Blue']]]),
         ]);
+    }
+
+    /** The edit's session as a handler that took the line by another way would have left it: the units the order holds, named as a variant it does not hold. */
+    private function theSessionHoldsTheHeldLineAsTheBlueVariant(): void
+    {
+        $this->updateTheQuantityInTheEdit(key: self::HELD_LINE_KEY, quantity: 2)->assertOk();
+        $session = session(self::SESSION_KEY);
+        $session['product_list'] = [self::BLUE_LINE_KEY => array_merge($session['product_list'][self::HELD_LINE_KEY], ['variant' => 'Blue'])];
+
+        $this->withSession([self::SESSION_KEY => $session]);
+    }
+
+    private function assertTheOtherSellersBlueStockIsUntouched(): void
+    {
+        $this->assertSame(30, json_decode((string) DB::table('products')->where('id', self::OTHER_SELLERS_PRODUCT)->value('variation'), true)[0]['qty'], 'units of the Blue variation were taken');
     }
 
     private function saveTheEdit(): TestResponse
