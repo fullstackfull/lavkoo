@@ -13,6 +13,18 @@ final class ConsoleOperator
 
     private const UNKNOWN = 'unknown';
 
+    /**
+     * The context of the audit line of a console command: where it came from, who ran it, and what the command adds.
+     *
+     * @param array<string, mixed> $extra
+     *
+     * @return array<string, mixed>
+     */
+    public static function auditContext(array $extra = []): array
+    {
+        return ['source' => 'console', 'operator' => self::describe()] + $extra;
+    }
+
     /** @return array{user: string, host: string} */
     public static function describe(): array
     {

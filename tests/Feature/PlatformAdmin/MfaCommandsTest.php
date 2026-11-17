@@ -588,7 +588,7 @@ class MfaCommandsTest extends TestCase
     {
         $this->insertAdmin(id: 10, status: 1);
 
-        [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 10]);
+        [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 10, '--confirm-owner' => true]);
 
         $this->assertSame(0, $exit);
         $this->assertStringContainsString('no confirmed second factor', $output);
@@ -600,7 +600,7 @@ class MfaCommandsTest extends TestCase
     {
         $this->enrolFactor(adminId: 7);
 
-        [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 7]);
+        [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 7, '--confirm-owner' => true]);
 
         $this->assertSame(0, $exit);
         $this->assertStringNotContainsString('second factor', $output);
@@ -611,7 +611,7 @@ class MfaCommandsTest extends TestCase
     {
         $this->enrolFactor(adminId: 7, confirmed: false);
 
-        [, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 7]);
+        [, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 7, '--confirm-owner' => true]);
 
         $this->assertStringContainsString('no confirmed second factor', $output);
     }
@@ -622,7 +622,7 @@ class MfaCommandsTest extends TestCase
         $this->enrolFactor(adminId: 7);
 
         foreach ([7, 8, 7] as $adminId) {
-            [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => $adminId]);
+            [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => $adminId, '--confirm-owner' => true]);
 
             $this->assertSame(0, $exit);
             $this->assertStringContainsString('NOT required', $output);
@@ -633,7 +633,7 @@ class MfaCommandsTest extends TestCase
 
     public function test_a_refused_grant_prints_no_second_factor_advice(): void
     {
-        [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 99]);
+        [$exit, $output] = $this->runCommand(command: 'gcc:platform-admin:grant', arguments: ['admin_id' => 99, '--confirm-owner' => true]);
 
         $this->assertSame(1, $exit);
         $this->assertStringNotContainsString('second factor', $output);

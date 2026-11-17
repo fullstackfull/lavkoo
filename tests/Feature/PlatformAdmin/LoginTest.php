@@ -188,7 +188,7 @@ class LoginTest extends PlatformAdminTestCase
     {
         $admin = $this->makeAdmin();
 
-        $this->artisan('gcc:platform-admin:grant', ['admin_id' => $admin['id']])->assertExitCode(0);
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => $admin['id'], '--confirm-owner' => true])->assertExitCode(0);
 
         $this->signIn($admin)->assertOk()->assertJsonPath('data.me.admin_id', $admin['id']);
     }
