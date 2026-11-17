@@ -13,8 +13,8 @@ use Tests\TestCase;
  * table and fails for a new one: a route of the admin group either asks for the permission of its menu or is listed here, with the reason why it
  * is open to every employee. A reason that stops being true is a reason to gate the route.
  *
- * The role middleware takes one permission and ignores a second one (`module:a,b` asks for `a` only), so a route that several screens of several
- * permissions call cannot be gated without locking one of them out. Those are listed.
+ * A route that the screens of several permissions call is gated with a list: `module:a,b` passes an employee who holds `a` or `b`. Every name of a list
+ * has to be a permission the role form offers.
  */
 class AdminRouteTableTest extends TestCase
 {
@@ -33,7 +33,7 @@ class AdminRouteTableTest extends TestCase
     /** The routes that ask for no permission on purpose, as "METHOD path" => why. */
     private const OPEN_ON_PURPOSE = [
         'GET admin/dashboard' => 'The landing page: every refusal of the role middleware redirects to it, so a permission on it would send an employee round in a circle. The view shows its numbers only to the master admin and to a role that holds `dashboard`.',
-        'GET admin/dashboard/real-time-activities' => 'The poller in the layout of every admin page. It reports new orders, restock requests and unread chat messages, which belong to three permissions (orders, catalog, people).',
+        'GET admin/dashboard/real-time-activities' => 'The poller in the layout of every admin page. It answers every signed-in employee and reports only the sections whose permission their role holds: new orders (orders), restock requests (catalog) and unread chat messages (people).',
         'GET admin/logout' => 'Every signed-in employee must be able to sign out.',
         'GET admin/settings' => 'The searchable index of the settings pages. It lists only the groups whose module the employee holds (SettingsIndexService) and holds no data of its own.',
         'GET admin/design-system' => self::STATIC_GALLERY,
@@ -48,8 +48,6 @@ class AdminRouteTableTest extends TestCase
         'GET admin/profile/update/{id}' => self::OWN_PROFILE,
         'POST admin/profile/update/{id}' => self::OWN_PROFILE,
         'PATCH admin/profile/update/{id}' => self::OWN_PROFILE,
-        'GET admin/products/search' => 'Called by the product filter of the customer reviews (people) and by the deal-of-the-day page (marketing): two permissions, one route.',
-        'GET admin/orders/generate-invoice/{id}' => 'The printable invoice, opened from the order lists and details (orders), the POS order screen (pos) and the customer and vendor views (people). The route opts out of the `module:orders` of its group on purpose.',
         'GET admin/auction/product/title-auto-fill' => self::AUCTION_ADDON,
         'GET admin/auction/product/description-auto-fill' => self::AUCTION_ADDON,
         'GET admin/auction/product/general-setup-auto-fill' => self::AUCTION_ADDON,
@@ -74,12 +72,14 @@ class AdminRouteTableTest extends TestCase
         Route::get('admin/zz-walk-probe-open', static fn () => 'x')->middleware(['admin']);
         Route::get('admin/zz-walk-probe-gated', static fn () => 'x')->middleware(['admin', 'module:catalog']);
         Route::get('admin/zz-walk-probe-opted-out', static fn () => 'x')->middleware(['admin', 'module:catalog'])->withoutMiddleware('module:catalog');
+        Route::get('admin/zz-walk-probe-gated-by-a-list', static fn () => 'x')->middleware(['admin', 'module:catalog,people']);
 
         $open = array_keys($this->adminRoutesThatAskForNoPermission());
 
         $this->assertContains('GET admin/zz-walk-probe-open', $open);
         $this->assertContains('GET admin/zz-walk-probe-opted-out', $open);
         $this->assertNotContains('GET admin/zz-walk-probe-gated', $open);
+        $this->assertNotContains('GET admin/zz-walk-probe-gated-by-a-list', $open);
     }
 
     public function test_every_admin_route_asks_for_a_permission_or_is_listed_as_open(): void
@@ -116,6 +116,24 @@ class AdminRouteTableTest extends TestCase
 
     public function test_every_permission_a_route_asks_for_is_one_the_role_form_offers(): void
     {
+        $unknown = $this->permissionsTheRoleFormDoesNotOffer();
+
+        $this->assertSame([], $unknown, "A role cannot hold a permission its form does not offer, so only the master admin passes these routes:\n" . implode("\n", $unknown));
+    }
+
+    public function test_the_check_of_the_permission_names_reads_every_name_of_a_list(): void
+    {
+        Route::get('admin/zz-list-probe-offered', static fn () => 'x')->middleware(['admin', 'module:catalog,people']);
+        Route::get('admin/zz-list-probe-unknown', static fn () => 'x')->middleware(['admin', 'module:catalog,zz_not_offered']);
+
+        $probes = array_filter($this->permissionsTheRoleFormDoesNotOffer(), static fn (string $unknown): bool => str_contains($unknown, 'zz-list-probe'));
+
+        $this->assertSame(['GET admin/zz-list-probe-unknown asks for `zz_not_offered`'], array_values($probes));
+    }
+
+    /** @return list<string> "METHOD path asks for `name`" for every name of a `module:` middleware that the role form does not offer */
+    private function permissionsTheRoleFormDoesNotOffer(): array
+    {
         $offered = array_keys(GlobalConstant::EMPLOYEE_ROLE_MODULE_PERMISSION);
 
         $unknown = [];
@@ -125,7 +143,7 @@ class AdminRouteTableTest extends TestCase
             }
         }
 
-        $this->assertSame([], $unknown, "A role cannot hold a permission its form does not offer, so only the master admin passes these routes:\n" . implode("\n", $unknown));
+        return $unknown;
     }
 
     /** @return array<string, RoutingRoute> the routes of the admin group by "METHOD path" */

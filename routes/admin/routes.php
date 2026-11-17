@@ -457,8 +457,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
     Route::group(['prefix' => 'products', 'as' => 'products.'], function () {
         Route::controller(ProductController::class)->group(function () {
-            // The reviews filter (people) and the deal-of-the-day page (marketing) both search with this one, so it stays open to every employee.
-            Route::get('search', 'getSearchedProductsView')->name('search-product');
+            // The reviews filter (people) and the deal-of-the-day page (marketing) both search with this one.
+            Route::get('search', 'getSearchedProductsView')->middleware('module:marketing,people')->name('search-product');
 
             Route::middleware('module:marketing')->group(function () {
                 Route::get('multiple-product-details', 'getMultipleProductDetailsView')->name('multiple-product-details');
@@ -480,7 +480,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         Route::controller(OrderController::class)->group(function () {
             Route::get('list/{status}', 'index')->name('list');
             Route::get('export-excel/{status}', 'exportList')->name('export-excel');
-            Route::get('generate-invoice/{id}', 'generateInvoice')->name('generate-invoice')->withoutMiddleware(['module:orders']);
+            // Opened from the order screens (orders), the POS order screen (pos) and the customer and vendor views (people): the list takes the place of the group's permission.
+            Route::get('generate-invoice/{id}', 'generateInvoice')->name('generate-invoice')->withoutMiddleware(['module:orders'])->middleware('module:orders,pos,people');
             Route::get('details/{id}', 'getView')->name('details');
             Route::post('address-update', 'updateAddress')->name('address-update'); // update address from order details
             Route::post('update-deliver-info', 'updateDeliverInfo')->name('update-deliver-info');
