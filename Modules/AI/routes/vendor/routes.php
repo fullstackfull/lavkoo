@@ -28,8 +28,7 @@ Route::group(['prefix' => 'vendor', 'as' => 'vendor.', 'middleware' => ['seller'
         Route::post('generate-title-suggestions', [AIProductController::class, 'generateProductTitleSuggestion'])->name('generate-title-suggestions');
     });
 
-    // The staff map of the panel has no auction area, so seller_staff_access would refuse every staff member here: which permission an auction product takes is not decided.
-    Route::group(['prefix' => 'auction/product', 'as' => 'auction.product.'], function () {
+    Route::group(['prefix' => 'auction/product', 'as' => 'auction.product.', 'middleware' => ['seller_staff_access']], function () {
         Route::get('title-auto-fill', [AIAuctionProductController::class, 'titleAutoFill'])->name('title-auto-fill');
         Route::get('description-auto-fill', [AIAuctionProductController::class, 'descriptionAutoFill'])->name('description-auto-fill');
         Route::get('general-setup-auto-fill', [AIAuctionProductController::class, 'generalSetupAutoFill'])->name('general-setup-auto-fill');
