@@ -151,6 +151,8 @@ trait BuildsSellerApiOrders
             $table->string('name')->nullable();
             $table->string('product_type')->default('physical');
             $table->text('images')->nullable();
+            $table->text('color_image')->nullable();
+            $table->string('digital_file_ready')->nullable();
             $table->string('thumbnail')->nullable();
             $table->decimal('unit_price', 16, 2)->default(0);
             $table->integer('current_stock')->default(0);
