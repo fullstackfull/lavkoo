@@ -143,7 +143,7 @@ final class PlatformMarketFigures
             ->all();
     }
 
-    /** One row per order of the range, with the market the order belongs to or null. */
+    /** One row per order of the range, with the market the order belongs to or null. An order without a line has no country to compare, so it has no market. */
     private function ordersWithTheirMarket(CarbonInterface $from, CarbonInterface $before, ?array $statuses): Builder
     {
         $country = $this->productCountry();
@@ -158,7 +158,7 @@ final class PlatformMarketFigures
             ->groupBy('orders.id', 'orders.order_status', 'orders.created_at')
             ->selectRaw(
                 "orders.id AS order_id, orders.order_status AS status, orders.created_at AS created_at,
-                CASE WHEN COUNT(order_details.id) > 0 AND COUNT(products.id) = COUNT(order_details.id) AND MIN({$country}) = MAX({$country}) AND MIN({$country}) IN ({$configured})
+                CASE WHEN COUNT(products.id) = COUNT(order_details.id) AND MIN({$country}) = MAX({$country}) AND MIN({$country}) IN ({$configured})
                     THEN MIN({$country}) END AS market",
                 $codes,
             );
