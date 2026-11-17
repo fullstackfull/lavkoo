@@ -55,6 +55,13 @@ class AuthResolver
             'header' => 'A shared secret configured with the courier',
             'note' => 'Inbound courier webhook. The secret is configured in the Delivery Syria settings, never in the request.',
         ],
+        'App\Http\Middleware\AuthenticatePlatformAdmin' => [
+            'scheme' => 'bearer',
+            'mechanism' => 'platform_admin_token',
+            'actor' => 'admin',
+            'header' => 'Authorization: Bearer <platform_admin_token>',
+            'note' => 'The token the platform admin sign-in returns. It is not a seller token, a customer token or an admin panel session, and none of them opens this API.',
+        ],
         'App\Http\Middleware\AdminMiddleware' => [
             'scheme' => 'session',
             'mechanism' => 'admin_session',
