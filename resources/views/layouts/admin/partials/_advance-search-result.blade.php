@@ -27,7 +27,7 @@
                    @php
                        $title = $item['page_title_value'] ?? 'N/A';
                        $title = ucfirst(str_replace('_', ' ', removeSpecialCharacters(str_replace("\'", "'", $title))));
-                       $uri = $item['uri'] ?? '';
+                       $uri = e($item['uri'] ?? '');
                        $image = $item['image'] ?? null;
                        $uniqueId = 'item_' . $groupKey . '_' . $key;
 

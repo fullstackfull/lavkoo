@@ -70,6 +70,9 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
         'contacts' => 'help_and_support',
     ];
 
+    /** A value that would run a script if the list put it into the page as markup. */
+    private const MARKUP = '<img src=x onerror=alert(1)>';
+
     /** The groups whose hits the recent-search tests record, one hit of each. */
     private const CLICKED_GROUPS = ['users', 'sellers', 'delivery_men', 'subscriptions', 'orders', 'refund_requests', 'products', 'categories', 'brands'];
 
@@ -371,6 +374,37 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
         $this->assertSame(['menu' => ['admin/dashboard']], $answer['urisByGroup']);
     }
 
+    #[DataProvider('routes')]
+    public function test_a_stored_hit_cannot_put_markup_into_the_list(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: []);
+        $this->storeAHit(employee: $employee, hit: ['priority' => 3, 'type' => 'zz_stored', 'uri' => self::MARKUP, 'page_title_value' => self::MARKUP, 'image' => '"><script>alert(1)</script>']);
+
+        $answer = $this->search(employee: $employee, route: $route, keyword: '');
+
+        $this->assertSame(['zz_stored'], $answer['groups']);
+        $this->assertStringNotContainsString(self::MARKUP, $answer['html']);
+        $this->assertStringNotContainsString('"><script>alert(1)</script>', $answer['html']);
+    }
+
+    #[DataProvider('routes')]
+    public function test_the_columns_of_a_recent_search_that_the_list_never_reads_cannot_reach_it(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: []);
+        $this->actingAs(Admin::query()->findOrFail($employee->id), 'admin')->post('/admin/advanced-search-recent', [
+            'routeName' => self::MARKUP,
+            'routeUri' => 'admin/dashboard',
+            'routeFullUrl' => self::MARKUP,
+            'searchKeyword' => self::MARKUP,
+            'response' => json_encode(['priority' => 1, 'type' => 'menu', 'uri' => 'admin/dashboard', 'page_title_value' => 'Dashboard']),
+        ])->assertRedirect();
+
+        $answer = $this->search(employee: $employee, route: $route, keyword: '');
+
+        $this->assertSame(['menu' => ['admin/dashboard']], $answer['urisByGroup']);
+        $this->assertStringNotContainsString('onerror', $answer['html']);
+    }
+
     private function seedTheSearchableRows(): void
     {
         foreach ($this->searchableRows() as $row) {
@@ -493,7 +527,7 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
         DB::table('admin_roles')->where('id', $employee->admin_role_id)->update(['module_access' => json_encode($permissions)]);
     }
 
-    /** @return array{groups: list<string>, uris: list<string>, urisByGroup: array<string, list<string>>, text: string} */
+    /** @return array{groups: list<string>, uris: list<string>, urisByGroup: array<string, list<string>>, text: string, html: string} */
     private function search(Admin $employee, string $route, string $keyword = self::KEYWORD): array
     {
         $response = $this->actingAs(Admin::query()->findOrFail($employee->id), 'admin')->getJson($route . '?' . http_build_query(['keyword' => $keyword]));
@@ -504,7 +538,7 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
     }
 
     /**
-     * @return array{groups: list<string>, uris: list<string>, urisByGroup: array<string, list<string>>, text: string} what the answer says; its text holds the
+     * @return array{groups: list<string>, uris: list<string>, urisByGroup: array<string, list<string>>, text: string, html: string} what the answer says; its text holds the
      *         JSON and the markup of the list the way a browser shows them, where the JSON of the body escapes slashes and the markup of the list escapes quotes
      */
     private function answerOf(TestResponse $response): array
@@ -519,6 +553,7 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
             'groups' => array_keys($result),
             'uris' => array_merge([], ...array_values($urisByGroup)),
             'urisByGroup' => $urisByGroup,
+            'html' => (string) $response->json('htmlView'),
             'text' => $response->getContent() . "\n" . json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n" . html_entity_decode((string) $response->json('htmlView'), ENT_QUOTES | ENT_HTML5),
         ];
     }

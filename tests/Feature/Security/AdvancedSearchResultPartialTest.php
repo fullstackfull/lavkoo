@@ -17,6 +17,9 @@ class AdvancedSearchResultPartialTest extends TestCase
 
     private const PARTIAL = 'layouts.admin.partials._advance-search-result';
 
+    /** A value that would run a script if the list put it into the page as markup. */
+    private const MARKUP = '<img src=x onerror=alert(1)>';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -41,6 +44,56 @@ class AdvancedSearchResultPartialTest extends TestCase
 
         $this->assertStringContainsString('<mark>Quasar</mark>lynx Hollenbeck', $first);
         $this->assertSame($first, $second);
+    }
+
+    public function test_the_title_of_a_hit_cannot_put_markup_into_the_list(): void
+    {
+        $html = $this->render(hits: ['users' => [$this->hit(title: self::MARKUP)]], keyword: '');
+
+        $this->assertStringNotContainsString(self::MARKUP, $html);
+        $this->assertStringNotContainsString('<img src=x', $html);
+    }
+
+    public function test_the_typed_keyword_cannot_put_markup_into_the_list(): void
+    {
+        $html = $this->render(hits: ['users' => [$this->hit(title: 'Quasarlynx script')]], keyword: '<script>alert(1)</script>');
+
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
+    }
+
+    public function test_the_name_of_a_group_cannot_put_markup_into_the_list(): void
+    {
+        $html = $this->render(hits: [self::MARKUP => [$this->hit(title: 'Quasarlynx')]], keyword: '');
+
+        $this->assertStringNotContainsString(self::MARKUP, $html);
+    }
+
+    public function test_the_image_of_a_hit_cannot_leave_its_attribute(): void
+    {
+        $html = $this->render(hits: ['users' => [$this->hit(title: 'Quasarlynx') + ['image' => '"><script>alert(1)</script>']]], keyword: '');
+
+        $this->assertStringNotContainsString('"><script>alert(1)</script>', $html);
+    }
+
+    public function test_the_address_of_a_hit_cannot_put_markup_into_the_list(): void
+    {
+        $html = $this->render(hits: ['zz_stored' => [$this->hit(title: 'Stored hit', uri: self::MARKUP)]], keyword: '');
+
+        $this->assertStringNotContainsString(self::MARKUP, $html);
+        $this->assertMatchesRegularExpression('/<p class="text-muted fs-12 mb-0">\s*&lt;img src=x onerror=alert\(1\)&gt;\s*<\/p>/', $html);
+    }
+
+    public function test_the_address_of_a_hit_is_highlighted_where_the_keyword_is_in_it(): void
+    {
+        $html = $this->render(hits: ['users' => [$this->hit(title: 'Quasarlynx Hollenbeck', uri: 'admin/customer/view/4101')]], keyword: 'customer');
+
+        $this->assertStringContainsString('admin/<mark>customer</mark>/view/4101', $html);
+    }
+
+    /** @return array<string, mixed> */
+    private function hit(string $title, string $uri = 'admin/customer/list'): array
+    {
+        return ['page_title_value' => $title, 'uri' => $uri, 'priority' => 3, 'type' => 'users'];
     }
 
     /** @param array<string, list<array<string, mixed>>> $hits */
