@@ -53,6 +53,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapDeliverySyriaRoutes();
         $this->mapFulfillmentWebhookRoutes();
         $this->mapMyFatoorahWebhookRoutes();
+        $this->mapPlatformAdminRoutes();
 
         //$this->mapInstallRoutes();
         //$this->mapUpdateRoutes();
@@ -152,6 +153,17 @@ class RouteServiceProvider extends ServiceProvider
         Route::prefix('api')
             ->namespace($this->namespace)
             ->group(base_path('routes/rest_api/myfatoorah_webhook.php'));
+    }
+
+    /**
+     * The platform admin API (GCC-20). Under the `api` prefix but outside the `api` middleware group, which records a telemetry row and a
+     * response shape for every request; its own middleware decide whether the API exists at all.
+     */
+    protected function mapPlatformAdminRoutes(): void
+    {
+        Route::prefix('api')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/rest_api/platform_admin.php'));
     }
 
     /**

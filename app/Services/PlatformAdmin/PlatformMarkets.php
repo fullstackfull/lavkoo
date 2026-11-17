@@ -2,6 +2,8 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Models\PlatformAdminGrant;
+
 /**
  * The markets the platform admin API reports on: every country of the storefront configuration, in the order the configuration lists
  * them, whether its storefront is open or not. Read from the configuration directly, so a market is reported even while storefronts are
@@ -50,6 +52,19 @@ final class PlatformMarkets
         $code = strtoupper(trim($value));
 
         return in_array($code, $this->codes(), true) ? $code : null;
+    }
+
+    /**
+     * The markets a grant lets its admin see: every configured market for the platform owner, and for anyone else the configured markets
+     * their grant names, in the order of the configuration. A code the grant names that is not configured opens nothing.
+     *
+     * @return list<string>
+     */
+    public function allowedBy(PlatformAdminGrant $grant): array
+    {
+        $scope = $grant->countryList();
+
+        return $scope === null ? $this->codes() : array_values(array_intersect($this->codes(), $scope));
     }
 
     public function defaultCountry(): string

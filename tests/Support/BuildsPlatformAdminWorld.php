@@ -39,7 +39,60 @@ trait BuildsPlatformAdminWorld
     protected function buildPlatformAdminWorld(): void
     {
         $this->buildStoreTables();
+        $this->buildSellerTables();
         $this->runPlatformAdminMigrations();
+    }
+
+    /** What the seller credentials need: a seller, its staff, their roles and the keys it issued. Inferred, like the rest of the store tables. */
+    protected function buildSellerTables(): void
+    {
+        Schema::create('sellers', function (Blueprint $table) {
+            $table->id();
+            $table->string('f_name')->nullable();
+            $table->string('l_name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('password')->nullable();
+            $table->string('status')->default('approved');
+            $table->string('auth_token')->nullable();
+            $table->decimal('stock_limit', 24, 2)->default(0);
+            $table->softDeletes();
+            $table->timestamps();
+        });
+        Schema::create('seller_roles', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->string('name');
+            $table->json('permissions')->nullable();
+            $table->string('status')->default('active');
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('seller_staff', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->unsignedBigInteger('seller_role_id')->nullable();
+            $table->string('name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('password')->nullable();
+            $table->string('auth_token')->nullable();
+            $table->string('status')->default('active');
+            $table->timestamp('last_login_at')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('seller_api_keys', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->unsignedBigInteger('created_by_staff_id')->nullable();
+            $table->string('name');
+            $table->string('prefix', 12);
+            $table->string('token_hash');
+            $table->json('scopes')->nullable();
+            $table->timestamp('last_used_at')->nullable();
+            $table->string('last_used_ip')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamp('revoked_at')->nullable();
+            $table->timestamps();
+        });
     }
 
     protected function runPlatformAdminMigrations(): void

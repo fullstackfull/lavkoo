@@ -143,7 +143,10 @@ class MigrationsTest extends TestCase
     {
         $columns = [];
         foreach (Schema::getTableListing(schemaQualified: false) as $table) {
-            $columns[$table] = Schema::getColumnListing($table);
+            $listed = Schema::getColumnListing($table);
+            if ($listed !== []) {
+                $columns[$table] = $listed;
+            }
         }
         ksort($columns);
 
