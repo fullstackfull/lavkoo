@@ -23,7 +23,8 @@ use Tests\TestCase;
 /**
  * A route of the admin panel without the `module:` middleware answers every signed-in employee, whatever their role holds, and an employee whose role
  * holds no module at all can use it. Each route listed here belongs to one menu entry of the panel and asks for the permission of that entry, as the
- * other routes of its screen do. The master admin (the first admin role) passes every permission check.
+ * other routes of its screen do. A route that the screens of several menu entries call asks for the list of their permissions (`module:a,b`) and answers
+ * an employee who holds any one of them. The master admin (the first admin role) passes every permission check.
  *
  * The routes and their middleware are the real ones. Only the action is replaced by a stub that answers "reached", because the controllers need
  * tables that these tests do not build.
@@ -64,6 +65,12 @@ class AdminRouteGatesTest extends TestCase
         'GET /admin/messages/index/customer' => 'people',
         'GET /admin/messages/message' => 'people',
         'POST /admin/messages/message' => 'people',
+    ];
+
+    /** The routes that the screens of several menu entries call, as "METHOD /path" => the permissions of those entries, which the route asks for as one list. */
+    private const ANY_OF_GATES = [
+        'GET /admin/products/search' => ['marketing', 'people'],
+        'GET /admin/orders/generate-invoice/1' => ['orders', 'pos', 'people'],
     ];
 
     protected function setUp(): void
@@ -127,6 +134,71 @@ class AdminRouteGatesTest extends TestCase
         $this->assertReachedTheAction(
             response: $this->requestAs(employee: $this->employeeHolding(modules: [$permission]), method: $method, uri: $uri),
             who: 'an employee whose role holds only ' . $permission,
+        );
+        $this->assertReachedTheAction(
+            response: $this->requestAs(employee: Admin::query()->findOrFail(1), method: $method, uri: $uri),
+            who: 'the master admin',
+        );
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: list<string>}> */
+    public static function routesThatAskForAnyOneOfSeveralPermissions(): array
+    {
+        $cases = [];
+        foreach (self::ANY_OF_GATES as $route => $permissions) {
+            [$method, $uri] = explode(' ', $route);
+            $cases[$route] = [$method, $uri, $permissions];
+        }
+
+        return $cases;
+    }
+
+    /** @param list<string> $permissions */
+    #[DataProvider('routesThatAskForAnyOneOfSeveralPermissions')]
+    public function test_the_route_asks_for_one_list_of_the_permissions_of_the_screens_that_call_it(string $method, string $uri, array $permissions): void
+    {
+        $route = $this->routeFor(method: $method, uri: $uri);
+
+        $this->assertCount(1, $this->moduleMiddlewareOf(route: $route), 'one `module:` middleware that lists the permissions: one for each permission would ask for all of them');
+        $this->assertEqualsCanonicalizing($permissions, $this->modulePermissionsOf(route: $route));
+    }
+
+    /** @param list<string> $permissions */
+    #[DataProvider('routesThatAskForAnyOneOfSeveralPermissions')]
+    public function test_an_employee_who_holds_none_of_the_listed_permissions_is_sent_back_to_the_dashboard(string $method, string $uri, array $permissions): void
+    {
+        $this->replaceTheActionWithAStub(method: $method, uri: $uri);
+        $everyOtherPermission = array_values(array_diff(array_keys(GlobalConstant::EMPLOYEE_ROLE_MODULE_PERMISSION), $permissions));
+
+        $this->assertSentBackToTheDashboard(
+            response: $this->requestAs(employee: $this->employeeHolding(modules: []), method: $method, uri: $uri),
+            who: 'an employee whose role holds no module',
+        );
+        $this->assertSentBackToTheDashboard(
+            response: $this->requestAs(employee: $this->employeeHolding(modules: ['catalog']), method: $method, uri: $uri),
+            who: 'an employee whose role holds only the catalog',
+        );
+        $this->assertSentBackToTheDashboard(
+            response: $this->requestAs(employee: $this->employeeHolding(modules: $everyOtherPermission), method: $method, uri: $uri),
+            who: 'an employee whose role holds every permission the route does not list',
+        );
+    }
+
+    /** @param list<string> $permissions */
+    #[DataProvider('routesThatAskForAnyOneOfSeveralPermissions')]
+    public function test_the_holder_of_any_one_of_the_listed_permissions_and_the_master_admin_reach_the_route(string $method, string $uri, array $permissions): void
+    {
+        $this->replaceTheActionWithAStub(method: $method, uri: $uri);
+
+        foreach ($permissions as $permission) {
+            $this->assertReachedTheAction(
+                response: $this->requestAs(employee: $this->employeeHolding(modules: [$permission]), method: $method, uri: $uri),
+                who: 'an employee whose role holds only ' . $permission,
+            );
+        }
+        $this->assertReachedTheAction(
+            response: $this->requestAs(employee: $this->employeeHolding(modules: $permissions), method: $method, uri: $uri),
+            who: 'an employee whose role holds every listed permission',
         );
         $this->assertReachedTheAction(
             response: $this->requestAs(employee: Admin::query()->findOrFail(1), method: $method, uri: $uri),

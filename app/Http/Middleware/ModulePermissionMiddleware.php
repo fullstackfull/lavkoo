@@ -14,12 +14,12 @@ class ModulePermissionMiddleware
      *
      * @param Request $request
      * @param Closure $next
-     * @param $module
+     * @param string ...$modules the permissions of `module:a,b,c`: an employee who holds any one of them passes
      * @return mixed
      */
-    public function handle(Request $request, Closure $next, $module): mixed
+    public function handle(Request $request, Closure $next, string ...$modules): mixed
     {
-        if (Helpers::module_permission_check($module)) {
+        if (collect($modules)->contains(static fn (string $module): bool => Helpers::module_permission_check(mod_name: $module))) {
             return $next($request);
         }
 
