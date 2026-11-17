@@ -26,7 +26,8 @@ use Tests\TestCase;
  *
  * The apps' form lets the seller ask for 1 to 270 labels, and the server meant to refuse more, but it read a `limit` that the apps never send, so
  * the `quantity` they do send was unbounded and a seller could have a sheet of millions of labels made. A quantity that is not a whole number from
- * 1 to 270 is refused, before any link is made, with the answer the `limit` rule always gave (a 200 whose body says `code` 403).
+ * 1 to 270 is refused, before any link is made, with a 403 whose body is the one the `limit` rule always had: the app's error handler shows the
+ * message of a 403, while the 200 that rule answered with would end in a type error on the app's Download path, which reads the body of a 200 as the link.
  *
  * The web server of this installation serves a file that exists under the project root as it is and hands everything else to the application, so a
  * link is opened the same way here, whatever it names.
@@ -150,10 +151,10 @@ class SellerApiBarcodeSheetTest extends TestCase
     }
 
     #[DataProvider('quantitiesThatAreNotAllowed')]
-    public function test_a_quantity_that_is_not_a_whole_number_from_1_to_270_is_refused_as_the_limit_rule_refuses_and_no_link_is_made(string $app, string $quantity): void
+    public function test_a_quantity_that_is_not_a_whole_number_from_1_to_270_is_refused_with_a_403_and_no_link_is_made(string $app, string $quantity): void
     {
         $this->askForTheLink(app: $app, seller: self::SELLER, productId: self::OWN_PRODUCT, quantity: $quantity)
-            ->assertOk()
+            ->assertForbidden()
             ->assertExactJson(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
     }
 
@@ -166,10 +167,10 @@ class SellerApiBarcodeSheetTest extends TestCase
     }
 
     #[DataProvider('apps')]
-    public function test_the_old_limit_rule_still_refuses_and_no_link_is_made(string $app): void
+    public function test_the_old_limit_rule_still_refuses_with_a_403_and_no_link_is_made(string $app): void
     {
         $this->askForTheLink(app: $app, seller: self::SELLER, productId: self::OWN_PRODUCT, quantity: 2, extraQuery: '&limit=271')
-            ->assertOk()
+            ->assertForbidden()
             ->assertExactJson(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
     }
 

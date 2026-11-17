@@ -681,7 +681,7 @@ class ProductController extends Controller
         ]);
 
         if ($request->limit > 270 || !$barcodeSheetService->isAllowedQuantity(quantity: $request->quantity)) {
-            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
+            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode'], 403);
         }
 
         $data = Helpers::get_seller_by_token($request);
