@@ -53,7 +53,7 @@ final class ProductCodeSites
         ['A7', 'RestAPI v3 seller ProductController::add_new', self::COVERED, 'Unique inside the table default country, where a seller product is saved.'],
         ['A8', 'RestAPI v3 seller ProductController::updateProduct', self::COVERED, 'Unique inside the product\'s own country; the product itself is ignored.'],
         ['A9', 'ProductService::getUniqueProductSKUCode', self::COVERED, 'Free in the country the imported products take (the table default: the sheet has no country column).'],
-        ['A10', 'M5aznProductImporter::clashesWithExistingProduct', self::NOT_COVERED, 'An M5AZN item whose SKU or barcode exists in any country is parked for review.'],
+        ['A10', 'M5aznProductImporter::clashesWithExistingProduct', self::COVERED, 'Parks an item only when its SKU or barcode is used in the country it is imported into (the table default, written explicitly while the switch is on).'],
         ['B1', 'ProductService::getImportBulkProductData ($productsTax)', self::COVERED, 'The tax ids are listed in the order of the sheet rows, not keyed by code.'],
         ['B2', 'Admin ProductController::importBulkProduct', self::COVERED, 'The tax rows go to the ids of the rows the import just created; no product is found by its code.'],
         ['C1', 'RestAPI v3 seller POSController::get_product_by_barcode', self::NOT_COVERED, 'The seller POS scan takes the first product with the code, by code only.'],
