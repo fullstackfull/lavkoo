@@ -73,7 +73,10 @@ class ProductExportCountryTest extends TestCase
                 $table->id();
                 $table->string('taxable_type');
                 $table->unsignedBigInteger('taxable_id');
+                $table->unsignedBigInteger('system_tax_setup_id')->nullable();
                 $table->unsignedBigInteger('tax_id')->nullable();
+                $table->string('tax_for')->nullable();
+                $table->timestamps();
             });
             Schema::create('taxes', function ($table) {
                 $table->id();
