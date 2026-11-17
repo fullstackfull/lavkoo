@@ -181,7 +181,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
 
 
-       Route::group(['prefix' => 'meta-app', 'as' => 'meta-app.'], function () {
+       Route::group(['prefix' => 'meta-app', 'as' => 'meta-app.', 'middleware' => ['module:3rd_party_setup']], function () {
     Route::controller(MetaAppIntegrationController::class)->group(function () {
         Route::get('/', 'index')->name('index');
         Route::post('store', 'store')->name('store');
@@ -216,10 +216,13 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     Route::group(['prefix' => 'dashboard', 'as' => 'dashboard.'], function () {
         Route::controller(DashboardController::class)->group(function () {
             Route::get('', 'index')->name('index');
-            Route::post('order-status', 'getOrderStatus')->name('order-status');
-            Route::get('earning-statistics', 'getEarningStatistics')->name('earning-statistics');
-            Route::get('order-statistics', 'getOrderStatistics')->name('order-statistics');
             Route::get('real-time-activities', 'getRealTimeActivities')->name('real-time-activities');
+
+            Route::middleware('module:dashboard')->group(function () {
+                Route::post('order-status', 'getOrderStatus')->name('order-status');
+                Route::get('earning-statistics', 'getEarningStatistics')->name('earning-statistics');
+                Route::get('order-statistics', 'getOrderStatistics')->name('order-statistics');
+            });
         });
     });
 
@@ -454,12 +457,19 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
     Route::group(['prefix' => 'products', 'as' => 'products.'], function () {
         Route::controller(ProductController::class)->group(function () {
-            Route::get('multiple-product-details', 'getMultipleProductDetailsView')->name('multiple-product-details');
+            // The reviews filter (people) and the deal-of-the-day page (marketing) both search with this one, so it stays open to every employee.
             Route::get('search', 'getSearchedProductsView')->name('search-product');
-            Route::get('search-all-product', 'getSearchedAllProductsView')->name('search-all-type-product');
+
+            Route::middleware('module:marketing')->group(function () {
+                Route::get('multiple-product-details', 'getMultipleProductDetailsView')->name('multiple-product-details');
+                Route::get('search-all-product', 'getSearchedAllProductsView')->name('search-all-type-product');
+            });
+
             // Pickers on the product form (frequently bought together): searchable, id-based.
-            Route::get('picker-options', 'getProductPickerOptions')->name('picker-options');
-            Route::get('picker-labels', 'getProductPickerLabels')->name('picker-labels');
+            Route::middleware('module:catalog')->group(function () {
+                Route::get('picker-options', 'getProductPickerOptions')->name('picker-options');
+                Route::get('picker-labels', 'getProductPickerLabels')->name('picker-labels');
+            });
         });
     });
 
@@ -1123,7 +1133,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'messages', 'as' => 'messages.'], function () {
+    Route::group(['prefix' => 'messages', 'as' => 'messages.', 'middleware' => ['module:people']], function () {
         Route::controller(ChattingController::class)->group(function () {
             Route::get('index/{type}', 'index')->name('index');
             Route::get('message', 'getMessageByUser')->name('message');
@@ -1625,9 +1635,12 @@ Route::get(
 
         Route::group(['prefix' => 'priority-setup', 'as' => 'priority-setup.'], function () {
             Route::controller(PrioritySetupController::class)->group(function () {
-                Route::get('', 'index')->name('index');
-                Route::post('', 'update');
-                Route::post('update-by-type', 'updateByType')->name('update-by-type');
+                Route::middleware('module:business_settings')->group(function () {
+                    Route::get('', 'index')->name('index');
+                    Route::post('', 'update');
+                });
+                // Posted by the priority modals of the flash-deal and featured-deal pages, so it asks for the permission of those pages.
+                Route::post('update-by-type', 'updateByType')->middleware('module:marketing')->name('update-by-type');
             });
         });
     });

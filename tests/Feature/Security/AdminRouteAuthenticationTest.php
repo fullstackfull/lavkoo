@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Tests\Support\BuildsFulfillmentSchema;
+use Tests\Support\ReadsRouteMiddleware;
 use Tests\TestCase;
 
 /**
@@ -32,6 +33,7 @@ use Tests\TestCase;
 class AdminRouteAuthenticationTest extends TestCase
 {
     use BuildsFulfillmentSchema;
+    use ReadsRouteMiddleware;
 
     /** Public by design: the admin sign-in screens (guest-only, throttled). */
     private const PUBLIC_BY_DESIGN = [
@@ -81,14 +83,6 @@ class AdminRouteAuthenticationTest extends TestCase
             RecordHttpTelemetry::class, MonitorRequest::class, RecordAnalytics::class, ActivationCheckMiddleware::class,
         ]);
         Http::preventStrayRequests();
-    }
-
-    /** @return list<string> the middleware the route really runs: what is declared on it and its groups, less what it opts out of with withoutMiddleware() */
-    private function declaredMiddleware(\Illuminate\Routing\Route $route): array
-    {
-        $declared = array_map(static fn ($middleware): string => is_string($middleware) ? $middleware : 'closure', (array) $route->middleware());
-
-        return array_values(array_diff($declared, array_map('strval', $route->excludedMiddleware())));
     }
 
     public function test_a_route_that_opts_out_of_the_guard_is_not_counted_as_guarded(): void
