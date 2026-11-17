@@ -7,11 +7,11 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Level 1 only watches. After any number of reads, every table of the database is as it was, except the time a session was last used and the
- * lines of the audit trail, which are the API's own. No statement that changes anything runs on any other table.
+ * lines of the audit trail and its tail, which are the API's own. No statement that changes anything runs on any other table.
  */
 class ReadOnlyProofTest extends PlatformAdminTestCase
 {
-    private const OWN_WRITES = ['platform_admin_tokens', 'platform_admin_audit_logs'];
+    private const OWN_WRITES = ['platform_admin_tokens', 'platform_admin_audit_logs', 'platform_admin_audit_tail'];
 
     protected function setUp(): void
     {
@@ -42,6 +42,7 @@ class ReadOnlyProofTest extends PlatformAdminTestCase
             $this->assertSame(self::OWN_WRITES, array_values(array_intersect(self::OWN_WRITES, $changed)), 'the API wrote its own rows');
             $this->assertSame([], array_values(array_diff($changed, self::OWN_WRITES)), 'a read changed a table that is not the API\'s own');
             $this->assertSame(['last_used_at'], $this->changedColumns('platform_admin_tokens', $before, $after), 'of a session only the time it was last used moves');
+            $this->assertSame(['last_hash', 'last_line_id'], $this->changedColumns('platform_admin_audit_tail', $before, $after), 'of the tail only the line written last moves');
             $this->assertSame([], $this->writesOutsideTheApi($statements), 'no statement that changes anything ran on another table');
         }
     }

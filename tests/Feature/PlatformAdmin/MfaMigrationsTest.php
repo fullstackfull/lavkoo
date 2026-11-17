@@ -23,6 +23,9 @@ class MfaMigrationsTest extends TestCase
 
     private const NEW_TABLES = ['platform_admin_mfa_factors', 'platform_admin_mfa_challenges'];
 
+    /** The tables of the tamper-evident trail, which phase 2 adds as well: they hang off nothing, and have a test of their own (AuditChainMigrationsTest). */
+    private const CHAIN_TABLES = ['platform_admin_audit_tail', 'platform_admin_audit_checkpoints'];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -56,17 +59,18 @@ class MfaMigrationsTest extends TestCase
         }
     }
 
-    public function test_the_migrations_change_no_existing_table_except_by_the_column_of_the_sessions_and_the_two_of_the_grants(): void
+    public function test_the_migrations_change_no_existing_table_except_by_the_column_of_the_sessions_the_two_of_the_grants_and_the_two_of_the_audit_lines(): void
     {
         $before = $this->columnsOfEveryTable();
 
         $this->runPlatformAdminPhaseTwoMigrations();
-        $after = array_diff_key($this->columnsOfEveryTable(), array_flip(self::NEW_TABLES));
+        $after = array_diff_key($this->columnsOfEveryTable(), array_flip([...self::NEW_TABLES, ...self::CHAIN_TABLES]));
 
         $expected = $before;
         $expected['platform_admin_tokens'][] = 'mfa_method';
         $expected['platform_admin_grants'] = array_merge($expected['platform_admin_grants'], ['capabilities', 'expires_at']);
-        foreach (['platform_admin_tokens', 'platform_admin_grants'] as $table) {
+        $expected['platform_admin_audit_logs'] = array_merge($expected['platform_admin_audit_logs'], ['prev_hash', 'hash']);
+        foreach (['platform_admin_tokens', 'platform_admin_grants', 'platform_admin_audit_logs'] as $table) {
             $this->assertEqualsCanonicalizing($expected[$table], $after[$table], $table);
             unset($expected[$table], $after[$table]);
         }

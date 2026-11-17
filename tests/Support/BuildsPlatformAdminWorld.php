@@ -29,6 +29,8 @@ trait BuildsPlatformAdminWorld
         '2026_11_29_100100_create_platform_admin_mfa_challenges_table.php',
         '2026_11_29_100200_add_mfa_method_to_platform_admin_tokens_table.php',
         '2026_11_30_100000_add_expiry_and_capabilities_to_platform_admin_grants_table.php',
+        '2026_11_30_100100_add_hash_chain_to_platform_admin_audit_logs_table.php',
+        '2026_11_30_100200_create_platform_admin_audit_chain_tables.php',
     ];
 
     /** The store tables and the admin sign-in columns, without the tables of the platform admin API. */

@@ -171,7 +171,7 @@ class MfaSignInTest extends MfaTestCase
 
             $response->assertStatus(401)->assertExactJson($this->uniformRefusal());
             $bodies[$cause] = $response->getContent();
-            $selects[$cause] = count(array_filter($statements, static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select')));
+            $selects[$cause] = count(array_filter($this->withoutAuditTrail($statements), static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select')));
             $this->assertSame(1, $hasher->checks, "{$cause}: exactly one password check");
         }
 

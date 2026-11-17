@@ -437,7 +437,7 @@ class OverviewTest extends PlatformAdminTestCase
         $this->app->forgetScopedInstances();
         $statements = $this->statementsRunBy(fn () => $this->overview('?from=2026-08-18&to=2026-11-17')->assertOk());
 
-        return array_values(array_filter($statements, static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select')));
+        return array_values(array_filter($this->withoutSchemaChecks($statements), static fn (string $sql): bool => str_starts_with(strtolower($sql), 'select')));
     }
 
     private function overview(string $query = '', ?string $token = null): TestResponse

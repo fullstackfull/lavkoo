@@ -190,6 +190,19 @@ abstract class PlatformAdminTestCase extends TestCase
     }
 
     /**
+     * The audit line of a refusal is written after the answer, and only for an admin who has a grant, so what the trail reads and writes for it is left out
+     * when the work done for every refusal is compared.
+     *
+     * @param list<string> $statements
+     *
+     * @return list<string>
+     */
+    protected function withoutAuditTrail(array $statements): array
+    {
+        return array_values(array_filter($statements, static fn (string $sql): bool => !str_contains($sql, 'platform_admin_audit_')));
+    }
+
+    /**
      * What an answer says, so that two answers can be compared. With debug on, an error answer also carries the file, the line and the trace
      * of where it was thrown, which differ from one request to the next; there the status and the message are compared, and otherwise the whole body.
      * The path the request was for is taken out, because a missing route says which one it was.
