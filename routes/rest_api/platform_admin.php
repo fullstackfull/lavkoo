@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AuthController;
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MarketController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MeController;
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\OverviewController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\SessionController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,5 +28,7 @@ Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform
         Route::get('me', MeController::class)->name('me.view');
         Route::get('sessions', [SessionController::class, 'index'])->name('sessions.list');
         Route::delete('sessions/{id}', [SessionController::class, 'destroy'])->whereNumber('id')->name('session.revoke');
+        Route::get('markets', MarketController::class)->name('markets.view');
+        Route::get('overview', OverviewController::class)->name('overview.view');
     });
 });

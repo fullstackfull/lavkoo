@@ -24,6 +24,22 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
         return new self(errorCode: 'session_not_found', message: 'No such session.', status: 404);
     }
 
+    /** @param list<string> $valid the values the market parameter takes */
+    public static function invalidMarket(array $valid): self
+    {
+        return new self(errorCode: 'invalid_market', message: 'The market must be all or the code of a market.', status: 422, extra: ['valid' => $valid]);
+    }
+
+    public static function marketNotAllowed(): self
+    {
+        return new self(errorCode: 'market_not_allowed', message: 'This account may not see that market.', status: 403);
+    }
+
+    public static function invalidWindow(string $message): self
+    {
+        return new self(errorCode: 'invalid_window', message: $message, status: 422);
+    }
+
     public function render(): JsonResponse
     {
         return PlatformAdminResponses::error(code: $this->errorCode, message: $this->getMessage(), status: $this->status, extra: $this->extra);

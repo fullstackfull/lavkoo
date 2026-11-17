@@ -33,6 +33,18 @@ trait BuildsPlatformAdminWorld
             $table->string('phone')->nullable();
         });
 
+        Schema::create('refund_requests', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_details_id')->default(0);
+            $table->unsignedBigInteger('customer_id')->default(0);
+            $table->string('status');
+            $table->decimal('amount', 24, 2)->default(0);
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('order_id')->default(0);
+            $table->text('refund_reason')->nullable();
+            $table->timestamps();
+        });
+
         $this->runStorefrontCountryColumn();
     }
 

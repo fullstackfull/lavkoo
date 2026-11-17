@@ -18,6 +18,10 @@ final class PlatformAdminSettings
 
     private const DEFAULT_FAILED_LOGIN_AUDITS_PER_HOUR = 10;
 
+    private const DEFAULT_WINDOW_DAYS = 30;
+
+    private const DEFAULT_MAX_WINDOW_DAYS = 92;
+
     /** Only a real boolean true switches the API on: a string or a number that merely looks true does not. */
     public function enabled(): bool
     {
@@ -44,6 +48,18 @@ final class PlatformAdminSettings
     public function failedLoginAuditsPerHour(): int
     {
         return $this->positiveInteger(key: 'failed_login_audit_per_hour', default: self::DEFAULT_FAILED_LOGIN_AUDITS_PER_HOUR);
+    }
+
+    /** The longest span of days any query of the API may read. */
+    public function windowDaysMax(): int
+    {
+        return $this->positiveInteger(key: 'window_days_max', default: self::DEFAULT_MAX_WINDOW_DAYS);
+    }
+
+    /** The length of the window of an overview that does not ask for one, never longer than the longest. */
+    public function windowDaysDefault(): int
+    {
+        return min($this->positiveInteger(key: 'window_days_default', default: self::DEFAULT_WINDOW_DAYS), $this->windowDaysMax());
     }
 
     private function positiveInteger(string $key, int $default): int
