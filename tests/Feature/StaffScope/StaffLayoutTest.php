@@ -10,6 +10,7 @@ use App\Http\Middleware\MonitorRequest;
 use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
+use App\Models\Admin;
 use App\Providers\AppServiceProvider;
 use App\Services\Staff\StaffCountryScope;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Testing\TestResponse;
 use ReflectionMethod;
+use Tests\Support\AssertsNarrowedOrderReads;
 use Tests\Support\BuildsStaffOrderWorld;
 use Tests\Support\StaffProbe\LayoutProbeController;
 use Tests\Support\RestoresLanguageFiles;
@@ -37,6 +39,7 @@ use Tests\TestCase;
  */
 class StaffLayoutTest extends TestCase
 {
+    use AssertsNarrowedOrderReads;
     use BuildsStaffOrderWorld;
     use RestoresLanguageFiles;
 
@@ -253,6 +256,23 @@ class StaffLayoutTest extends TestCase
         $this->assertCount(1, $this->withoutTheProbes(queries: $queries, containing: 'admin_country_scopes'), 'the rows of the employee are read once');
         $this->assertCount(2, array_filter($queries, static fn (string $query): bool => str_contains($query, 'visible_lines')), 'the order counters and the latest orders are narrowed');
         $this->assertCount(1, array_filter($queries, static fn (string $query): bool => str_contains($query, 'refund_lines')), 'and so are the refund counters');
+    }
+
+    public function test_a_layout_rendered_on_a_screen_that_a_middleware_already_bound_asks_nothing_more_to_know_the_employee(): void
+    {
+        $this->switchStaffScopesOn();
+        $this->giveCountries(adminId: 7, countries: ['KW']);
+        $request = Request::create('/admin/zz-layout-probe');
+        $this->app->instance('request', $request);
+        $admin = Admin::query()->findOrFail(7);
+        $scope = app(StaffCountryScope::class);
+        $scope->bind(request: $request, admin: $admin);
+
+        $queries = $this->statementsOf(static fn () => $scope->narrowLayout(request: $request, admin: $admin));
+
+        $this->assertSame([], $queries, 'the middleware of the screen resolved the employee: the layout takes what is bound');
+        $this->assertTrue($scope->narrows(subject: StaffCountryScope::SUBJECT_ORDERS));
+        $this->assertTrue($scope->narrows(subject: StaffCountryScope::SUBJECT_REFUNDS));
     }
 
     // ---- the header partials -------------------------------------------------------------------------------------------------------

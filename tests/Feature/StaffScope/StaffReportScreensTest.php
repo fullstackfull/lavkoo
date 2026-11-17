@@ -82,6 +82,7 @@ class StaffReportScreensTest extends TestCase
         $this->insertStaffOrder(id: 104, products: [1, 2], extra: ['order_amount' => 400]);
         $this->insertStaffOrder(id: 105, products: [], extra: ['order_amount' => 5000]);
         $this->insertStaffOrder(id: 109, products: [4], extra: $delivered + ['order_amount' => 90000]);
+        DB::table('order_details')->whereIn('order_id', [103, 109])->update(['delivery_status' => 'delivered']);
         foreach ([101 => 100, 102 => 20, 103 => 30, 104 => 400, 105 => 5000, 109 => 90000] as $order => $amount) {
             $this->insertStaffOrderTransaction(id: 1000 + $order, orderId: $order, extra: ['order_amount' => $amount, 'seller_amount' => $amount, 'admin_commission' => 0, 'seller_is' => 'admin', 'status' => 'disburse']);
         }
