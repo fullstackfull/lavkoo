@@ -9,6 +9,7 @@ use App\Traits\FileManagerTrait;
 use App\Utils\PlainFileName;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -44,6 +45,22 @@ class DigitalProductFileService
 
     /** How long the signed address that the website hands out lasts: a browser fetches it at once. */
     private const SIGNED_ADDRESS_MINUTES = 10;
+
+    /** @var array<string, string> the prefix of the names of the routes of each area of the shop, by the address its requests have */
+    private const AREAS = [
+        'admin/*' => 'admin.',
+        'vendor/*' => 'vendor.',
+        'api/v3/seller/*' => 'seller-api.v3.',
+        'api/v2/seller/*' => 'seller-api.v2.',
+        'api/v1/*' => 'customer-api.',
+    ];
+
+    /** @var array<string, string> the name of the route that streams each kind of file, after the prefix of the area */
+    private const ROUTES = [
+        'order-line' => 'orders.digital-file',
+        'product' => 'products.digital-file',
+        'variation' => 'products.digital-variation-file',
+    ];
 
     public function isPrivate(): bool
     {
@@ -104,6 +121,40 @@ class DigitalProductFileService
     public function isOnTheBucket(?string $storageType): bool
     {
         return $storageType === 's3' && config('filesystems.disks.default') === 's3';
+    }
+
+    /**
+     * What an answer that used to carry the public address of a file says while the mode is on: the authenticated route of the area that asks (the admin panel, the
+     * vendor panel, a seller app, the customer app) when it has one for this file, otherwise no address, and the status 404 that storageLink() gives a file it cannot
+     * address. Never the public address, even of a file that is still on the public disk. Nothing while the mode is off or the row keeps its file on the bucket, so the
+     * caller gives the answer it always gave.
+     *
+     * @param string $kind `order-line`, `product` or `variation`
+     * @return array{key: ?string, path: ?string, status: int}|null
+     */
+    public function privateAnswer(?string $name, string $kind, int|string $id, ?string $storageType = null): ?array
+    {
+        if (!$this->isPrivate() || $this->isOnTheBucket(storageType: $storageType)) {
+            return null;
+        }
+
+        return $this->answerWith(name: $name, address: $this->exists(name: $name) ? $this->addressInTheArea(kind: $kind, id: $id, name: $name) : null);
+    }
+
+    /** The `digital_file_ready_full_url` of the snapshot of an order line: what storageLink() answers, or the route of the area that asks while the mode is on. */
+    public function readyFileAnswerOfLine(OrderDetail $orderDetail): array
+    {
+        $product = $this->snapshotOf(orderDetail: $orderDetail);
+        $storageType = $product['storage_path'] ?? 'public';
+
+        return $this->privateAnswer(name: $product['digital_file_ready'], kind: 'order-line', id: $orderDetail->id, storageType: $storageType)
+            ?? storageLink(self::FOLDER, $product['digital_file_ready'], $storageType);
+    }
+
+    /** The address the apps built the address of a digital file from: the public folder, which does not exist while the mode is on. */
+    public function publicBaseUrl(): string
+    {
+        return $this->isPrivate() ? '' : dynamicStorage(path: 'storage/app/public/' . self::FOLDER);
     }
 
     /** The name of the file an order line delivers: the ready file its snapshot names, or the file uploaded after the sale. */
@@ -169,10 +220,26 @@ class DigitalProductFileService
         }
     }
 
+    /** The address of the route of the area that is asking, or nothing when the area has none for this kind of file (the website gets its signed address elsewhere). */
+    private function addressInTheArea(string $kind, int|string $id, string $name): ?string
+    {
+        foreach (self::AREAS as $pattern => $prefix) {
+            if (request()->is($pattern)) {
+                $route = $prefix . self::ROUTES[$kind];
+
+                return Route::has($route) ? route($route, ['id' => $id, 'fileName' => $name]) : null;
+            }
+        }
+
+        return null;
+    }
+
     /** The product of an order line the way it was when the order was placed. */
     private function snapshotOf(OrderDetail $orderDetail): array
     {
-        return (array) json_decode((string) $orderDetail['product_details'], true);
+        $snapshot = $orderDetail['product_details'];
+
+        return is_array($snapshot) ? $snapshot : (array) json_decode((string) $snapshot, true);
     }
 
     private function isReadyProduct(array $snapshot): bool

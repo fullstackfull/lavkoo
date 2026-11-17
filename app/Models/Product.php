@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\DigitalProductFileService;
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Builder;
@@ -459,7 +460,8 @@ class Product extends Model
     public function getDigitalFileReadyFullUrlAttribute(): array
     {
         $value = $this->digital_file_ready;
-        return $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
+        return app(DigitalProductFileService::class)->privateAnswer(name: $value, kind: 'product', id: $this->id, storageType: $this->digital_file_ready_storage_type)
+            ?? $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
     }
 
     public function getColorImagesFullUrlAttribute(): array

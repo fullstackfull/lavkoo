@@ -1048,8 +1048,7 @@ class OrderController extends Controller
                 $query['variation'] = is_array($query['variation']) ? $query['variation'] : json_decode($query['variation'], true);
                 $product = is_array($query['product_details']) ? $query['product_details'] : json_decode($query['product_details'], true);
                 if ($product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                    $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                    $product['digital_file_ready_full_url'] = $checkFilePath;
+                    $product['digital_file_ready_full_url'] = $this->digitalFiles->readyFileAnswerOfLine(orderDetail: $query);
                 }
 
                 if (!isset($product['thumbnail_full_url']) && isset($query?->product?->thumbnail_full_url)) {

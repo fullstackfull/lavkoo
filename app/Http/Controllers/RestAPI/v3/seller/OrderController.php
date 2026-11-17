@@ -242,8 +242,7 @@ class OrderController extends Controller
 
             $product['thumbnail_full_url'] = $detail?->productAllStatus?->thumbnail_full_url;
             if (isset($product['product_type']) && $product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                $product['digital_file_ready_full_url'] = $checkFilePath;
+                $product['digital_file_ready_full_url'] = $this->digitalFiles->readyFileAnswerOfLine(orderDetail: $detail);
             }
             $detail['product_details'] = Helpers::product_data_formatting_for_json_data($product);
 

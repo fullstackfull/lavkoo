@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\DigitalProductFileService;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -149,7 +150,10 @@ class OrderDetail extends Model
 
     public function getDigitalFileAfterSellFullUrlAttribute(): string|null|array
     {
-        return $this->storageLink('product/digital-product', $this->digital_file_after_sell, $this->digitalFileAfterSellStorageType());
+        $storageType = $this->digitalFileAfterSellStorageType();
+
+        return app(DigitalProductFileService::class)->privateAnswer(name: $this->digital_file_after_sell, kind: 'order-line', id: $this->id, storageType: $storageType)
+            ?? $this->storageLink('product/digital-product', $this->digital_file_after_sell, $storageType);
     }
 
     public function digitalFileAfterSellStorageType(): string
