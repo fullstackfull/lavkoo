@@ -82,7 +82,7 @@ marked partial or NOT covered are what the owner has to read before turning the 
 | C9 | `SellerCenter ProductList` | not needed (id-keyed) | A list a person reads (code LIKE); every action on a row is keyed by its id. |
 | C10 | `SellerCenter InventoryList` | not needed (id-keyed) | A list a person reads (code LIKE); every action on a row is keyed by its id. |
 | C11 | `SellerCenter Search` | not needed (id-keyed) | A list a person reads (code LIKE); every action on a row is keyed by its id. |
-| D1 | `SalesChannels ProductMatcher` | partial | A listing is proposed only the products of the country its Trendyol storefront or noon country names. An Amazon account (a region, not a country), the Turkish Trendyol marketplace and any account of no storefront country are not narrowed: a code two countries share stays a conflict and nothing links on a guess. |
+| D1 | `SalesChannels ProductMatcher` | partial | A listing is proposed only the products of the country its account sells in: a Trendyol storefront, a noon country, or an Amazon account whose marketplaces are all the Saudi (A17E79C6D8DWNP) or all the UAE (A2VIGQ35RCS4UG) one. An Amazon account of any other marketplace or of marketplaces of two countries, the Turkish Trendyol marketplace and any account of no configured country are not narrowed: a code two countries share stays a conflict and nothing links on a guess. |
 | D2 | `ChannelOrderIngestor` | not needed (id-keyed) | The mapping is found by the account and the channel's own listing key; a code never picks it. |
 | D3 | `ListingDraftService / ListingPublisher` | covered | The default outbound key is the product code; a key a listing of the account already holds for another product refuses the second publish. Pinned across two countries, switch on and off. |
 | D4 | `ChannelInventoryWriter` | not needed (id-keyed) | Keyed by the account's listing key. |
@@ -179,9 +179,13 @@ To decide with the app team before the switch is on:
    was checked is what is stored; while off it adds nothing. A provider connection with a country of its own is a later decision.
 6. **Provider connections have no country**, so with the switch on the Torod suggestions and picker (E1, E2) serve the **default storefront's** country
    (approving a match is still by product id and is not checked).
-7. **A channel account's country is read from its own settings:** Trendyol `storefront_code` (SA, AE, KW), noon `country_code`. An Amazon account names a
-   region and marketplace ids, which are not countries, so it has none; neither has the Turkish Trendyol marketplace or an unconfigured code. An
-   account with no country is never narrowed (a shared code stays a conflict, nothing links on a guess).
+7. **A channel account's country is read from its own settings:** Trendyol `storefront_code` (SA, AE, KW), noon `country_code`, and for Amazon the
+   marketplace ids the connectors read (the account's `marketplace_ids`, which the account service keeps in step with the form's setting; the setting
+   is read when the column is empty). Amazon sells in two Gulf countries, Saudi Arabia (`A17E79C6D8DWNP`) and the United Arab Emirates
+   (`A2VIGQ35RCS4UG`); an account has a country when **every** one of its marketplaces is one of those two and they name the same country. An account
+   with no marketplace, one this list does not know (Egypt, Turkey, Europe, India...), or marketplaces of two countries has none, like the Turkish
+   Trendyol marketplace or an unconfigured code. An account with no country is never narrowed (a shared code stays a conflict, nothing links on a
+   guess).
 8. **The routing rule (D6):** with the switch on a SKU condition needs the line's product to be in the country the rule names, or in the default storefront's
    when it names none (every rule written before the switch was written when there was one country). The rule's `country` still also means the order's
    **destination**; both must hold. A line whose product country is unknown matches no SKU rule. Product-id rules and every other condition are untouched.
@@ -218,7 +222,8 @@ product's country while off. The vendor import is unchanged except for the gener
 2. The seller app: send `country` (or the product id) when scanning; handle 409 and 422. Who changes it, and when.
 3. A country for a provider connection (Torod, M5AZN), so that E1 and E2 serve the right country instead of the default storefront, and so that an import
    can land in a country other than `SA`.
-4. A country for an Amazon channel account (a setting, or a mapping of marketplace ids to countries), so that D1 can narrow it.
+4. Amazon accounts of marketplaces outside the two Gulf ones (a country setting, or more ids in the mapping), so that D1 can narrow them: the list
+   knows no marketplace of Kuwait, Qatar, Bahrain or Oman, and an account of two marketplaces sells in two countries, so neither is narrowed.
 5. Whether a promotion (flash deal, deal of the day, clearance sale) belongs to a country (GCC-17): C5 and C6 cannot be narrowed until it does.
 6. The copy-to-country flow (G9): the gallery copy blanks the code and barcode today; a copy for another country should keep them and be checked in the
    target country.

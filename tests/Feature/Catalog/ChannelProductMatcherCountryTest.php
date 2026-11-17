@@ -103,6 +103,8 @@ class ChannelProductMatcherCountryTest extends TestCase
             'a Trendyol Saudi storefront' => ['trendyol', ['storefront_code' => 'SA'], 1],
             'a Trendyol storefront in the wrong letter case' => ['trendyol', ['storefront_code' => 'kw'], 2],
             'a noon account of Saudi Arabia' => ['noon', ['country_code' => 'sa'], 1],
+            'an Amazon account of the Saudi marketplace' => ['amazon', ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP']], 1],
+            'an Amazon account of the Saudi marketplace in the wrong letter case' => ['amazon', ['region' => 'eu', 'marketplace_ids' => [' a17e79c6d8dwnp ']], 1],
         ];
     }
 
@@ -133,7 +135,12 @@ class ChannelProductMatcherCountryTest extends TestCase
     public static function accountsOfUnknownCountry(): array
     {
         return [
-            'an Amazon account: a region and marketplace ids name no country' => ['amazon', ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP']]],
+            'an Amazon account of the Egyptian marketplace' => ['amazon', ['region' => 'eu', 'marketplace_ids' => ['ARBP9OOSHTCHU']]],
+            'an Amazon account of the Turkish marketplace' => ['amazon', ['region' => 'eu', 'marketplace_ids' => ['A33AVAJ2PDY3EV']]],
+            'an Amazon account of the Saudi and the UAE marketplaces' => ['amazon', ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG']]],
+            'an Amazon account of the Saudi marketplace and another one' => ['amazon', ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP', 'ARBP9OOSHTCHU']]],
+            'an Amazon account with no marketplace' => ['amazon', ['region' => 'eu', 'marketplace_ids' => []]],
+            'an Amazon account with only a region' => ['amazon', ['region' => 'eu']],
             'the Turkish Trendyol marketplace' => ['trendyol', ['storefront_code' => '']],
             'a noon account of a country that has no storefront here' => ['noon', ['country_code' => 'eg']],
             'a Trendyol storefront that is not configured' => ['trendyol', ['storefront_code' => 'XX']],
@@ -159,6 +166,23 @@ class ChannelProductMatcherCountryTest extends TestCase
 
         $this->assertSame(SalesChannelProductMapping::UNMAPPED, $this->row()->status);
         $this->assertNull($this->row()->suggested_product_id);
+    }
+
+    public function test_with_the_switch_on_an_amazon_account_of_the_uae_marketplace_is_not_proposed_a_country_that_has_no_such_product(): void
+    {
+        $this->scopeCodesByCountry();
+
+        $this->listings->sync($this->account('amazon', ['region' => 'eu', 'marketplace_ids' => ['A2VIGQ35RCS4UG']]), [$this->listing()]);
+
+        $this->assertSame(SalesChannelProductMapping::UNMAPPED, $this->row()->status);
+        $this->assertNull($this->row()->suggested_product_id);
+    }
+
+    public function test_with_the_switch_off_an_amazon_account_of_a_known_marketplace_is_not_narrowed(): void
+    {
+        $this->listings->sync($this->account('amazon', ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP']]), [$this->listing()]);
+
+        $this->assertSame(SalesChannelProductMapping::CONFLICT, $this->row()->status);
     }
 
     public function test_a_missing_column_acts_as_off(): void
@@ -191,5 +215,45 @@ class ChannelProductMatcherCountryTest extends TestCase
         $this->assertSame('SA', $country->of($this->account('noon', ['country_code' => 'sa'])));
         $this->assertNull($country->of($this->account('amazon', ['region' => 'eu'])));
         $this->assertNull($country->of($this->account('trendyol', [])));
+    }
+
+    /** @return array<string, array{0: list<string>, 1: ?string}> the marketplace ids of an Amazon account, and the country they name */
+    public static function amazonMarketplaces(): array
+    {
+        return [
+            'the Saudi marketplace' => [['A17E79C6D8DWNP'], 'SA'],
+            'the UAE marketplace' => [['A2VIGQ35RCS4UG'], 'AE'],
+            'the same marketplace twice' => [['A17E79C6D8DWNP', 'A17E79C6D8DWNP'], 'SA'],
+            'the Saudi and the UAE marketplaces' => [['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG'], null],
+            'a Gulf marketplace and an unknown one' => [['A2VIGQ35RCS4UG', 'ARBP9OOSHTCHU'], null],
+            'an unknown marketplace' => [['ATVPDKIKX0DER'], null],
+            'a marketplace that is not a country of this platform' => [['ARBP9OOSHTCHU'], null],
+            'no marketplace' => [[], null],
+        ];
+    }
+
+    /** @param list<string> $marketplaces */
+    #[DataProvider('amazonMarketplaces')]
+    public function test_the_country_of_an_amazon_account_is_the_one_country_all_its_marketplaces_name(array $marketplaces, ?string $expected): void
+    {
+        $inSettings = $this->account('amazon', ['region' => 'eu', 'marketplace_ids' => $marketplaces]);
+        $inColumn = SalesChannelAccount::create(['channel' => 'amazon', 'name' => 'Amazon', 'enabled' => true, 'settings' => ['region' => 'eu'], 'marketplace_ids' => $marketplaces]);
+
+        $this->assertSame($expected, app(ChannelAccountCountry::class)->of($inSettings), 'the ids a form saved in the settings');
+        $this->assertSame($expected, app(ChannelAccountCountry::class)->of($inColumn), 'the ids the connectors read, which the account service keeps in step with the settings');
+    }
+
+    public function test_the_marketplaces_the_connectors_read_win_over_the_settings_when_they_differ(): void
+    {
+        $account = SalesChannelAccount::create([
+            'channel' => 'amazon', 'name' => 'Amazon', 'enabled' => true, 'settings' => ['region' => 'eu', 'marketplace_ids' => ['A2VIGQ35RCS4UG']], 'marketplace_ids' => ['A17E79C6D8DWNP'],
+        ]);
+
+        $this->assertSame('SA', app(ChannelAccountCountry::class)->of($account));
+    }
+
+    public function test_a_channel_that_is_not_amazon_ignores_marketplace_ids(): void
+    {
+        $this->assertNull(app(ChannelAccountCountry::class)->of($this->account('trendyol', ['storefront_code' => '', 'marketplace_ids' => ['A17E79C6D8DWNP']])));
     }
 }
