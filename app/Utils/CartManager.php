@@ -752,11 +752,11 @@ class CartManager
     {
         cacheRemoveByType(type: 'carts');
 
-        $product = Product::with(['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->where(['id' => $request['id']])->first();
 
-        if($product['status'] == 0){
+        if (!$product) {
             return ['status' => 0, 'message' => translate('Product_is_unavailable')];
         }
 
