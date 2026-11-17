@@ -14,6 +14,7 @@ use App\Utils\ImageManager;
 use App\Utils\SharedProductFile;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
@@ -835,6 +836,68 @@ class ProductSharedFileTest extends TestCase
         sort($left);
         $this->assertSame(['long-gallery-1.webp', 'long-gallery-300.webp', 'long-gallery-600.webp'], $left, 'the three files that product 82 holds stay, the others go');
         $this->assertFileDoesNotExist($this->product('thumbnail/long-gallery-thumb.webp'));
+    }
+
+    public function test_a_product_with_a_gallery_of_objects_deletes_its_files_and_keeps_the_ones_another_product_holds(): void
+    {
+        $entry = static fn (string $name): array => ['image_name' => $name, 'storage' => 'public'];
+        $this->insertProduct(81, ['thumbnail' => 'obj-thumb.webp', 'images' => json_encode([$entry('obj-1.webp'), $entry('obj-2.webp')]), 'colors' => json_encode(['FF0000']), 'color_image' => json_encode([['color' => 'FF0000'] + $entry('obj-1.webp')])]);
+        $this->insertProduct(82, ['images' => json_encode([$entry('obj-2.webp')])]);
+        foreach (['obj-1.webp', 'obj-2.webp', 'thumbnail/obj-thumb.webp'] as $name) {
+            $this->fileOnDisk($this->product($name), $name);
+        }
+
+        app(ProductService::class)->deleteImages(product: Product::withoutGlobalScopes()->find(81));
+
+        $this->assertFileDoesNotExist($this->product('obj-1.webp'), 'product 81 holds it in its gallery and as a colour image, and no other product does');
+        $this->assertFileExists($this->product('obj-2.webp'), 'product 82 holds it too');
+        $this->assertFileDoesNotExist($this->product('thumbnail/obj-thumb.webp'));
+    }
+
+    /** @return array<string, array{0: string, 1: string}> a column, and a value that holds the name `shape-held.webp` in a shape that names no image */
+    public static function valuesThatHoldTheNameWithoutNamingAnImage(): array
+    {
+        return [
+            'a colour image whose name is a list' => ['color_image', json_encode([['color' => 'FF0000', 'image_name' => ['shape-held.webp']]])],
+            'a colour image without a name' => ['color_image', json_encode([['color' => 'FF0000', 'image_name' => null, 'note' => 'shape-held.webp']])],
+            'a gallery entry that is a list' => ['images', json_encode([['shape-held.webp']])],
+            'a gallery entry that is an object with another key' => ['images', json_encode([['name' => 'shape-held.webp']])],
+            'a gallery entry whose name is a list' => ['images', json_encode([['image_name' => ['shape-held.webp']]])],
+            'a gallery entry whose name is a number' => ['images', json_encode([['image_name' => 5, 'note' => 'shape-held.webp']])],
+            'a gallery entry whose name is true' => ['images', json_encode([['image_name' => true, 'note' => 'shape-held.webp']])],
+            'a gallery written as JSON inside JSON' => ['images', json_encode(json_encode(['shape-held.webp']))],
+        ];
+    }
+
+    #[DataProvider('valuesThatHoldTheNameWithoutNamingAnImage')]
+    public function test_a_row_that_holds_the_name_in_a_shape_that_names_no_image_neither_breaks_the_search_nor_counts_as_a_holder(string $column, string $value): void
+    {
+        $this->insertProduct(81, ['images' => json_encode(['shape-held.webp'])]);
+        $this->insertProduct(82, [$column => $value]);
+
+        $this->assertFalse(SharedProductFile::isShared(path: 'product/shape-held.webp'), 'only product 81 holds it');
+
+        $this->insertProduct(83, ['images' => json_encode(['shape-held.webp'])]);
+
+        $this->assertTrue(SharedProductFile::isShared(path: 'product/shape-held.webp'), 'products 81 and 83 hold it, and the search goes on past the row of product 82');
+    }
+
+    public function test_a_delete_through_the_trait_forgets_what_the_file_manager_remembers_of_its_files(): void
+    {
+        $writer = $this->fileWriter();
+        foreach (['remove', 'removeAll'] as $method) {
+            $this->fileOnDisk($this->product('forget-' . $method . '.webp'), $method);
+            foreach (['cache_for_recent_file_list_public', 'cache_for_recent_file_list_s3', 'cache_all_files_for_public_storage'] as $key) {
+                Cache::put($key, 'what was listed before the delete');
+            }
+
+            $method === 'remove' ? $writer->remove('/product/forget-remove.webp') : $writer->removeAll(['/product/forget-removeAll.webp']);
+
+            $this->assertFileDoesNotExist($this->product('forget-' . $method . '.webp'));
+            foreach (['cache_for_recent_file_list_public', 'cache_for_recent_file_list_s3', 'cache_all_files_for_public_storage'] as $key) {
+                $this->assertNull(Cache::get($key), $method . ' forgets ' . $key);
+            }
+        }
     }
 
     public function test_a_file_that_hundreds_of_products_hold_is_answered_from_plain_rows_and_one_statement(): void
