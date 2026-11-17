@@ -5491,6 +5491,8 @@ return [
 	'want_to_Turn_ON_Coupon_Status' => 'Want to Turn ON Coupon Status',
 	'or_some_coupons_are_for_all_vendors' => 'Or some coupons are for all vendors',
 	'the_coupon_discount_bearer_is_admin' => 'The coupon discount bearer is admin',
+	'the_scanned_code_matches_more_than_one_product' => 'الرمز الممسوح يطابق أكثر من منتج. اختر أحد المنتجات المعروضة أو أرسل الدولة.',
+	'the_country_must_be_one_of_the_configured_storefront_countries' => 'يجب أن تكون الدولة إحدى دول المتاجر المُعدّة.',
 	'some_actions_are_disabled_because_the_admin_added_coupons' => 'Some actions are disabled because the admin added coupons',
 	'some_status_buttons_are_disabled_because_the_admin_added_coupons' => 'Some status buttons are disabled because the admin added coupons',
 	'location_data' => 'Location data',

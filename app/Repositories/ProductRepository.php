@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use App\Services\Catalog\ProductCodeScope;
 
 class ProductRepository implements ProductRepositoryInterface
 {
@@ -277,6 +278,9 @@ class ProductRepository implements ProductRepositoryInterface
                     ->when(isset($filters['seller_id']), function ($query) use ($filters) {
                         return $query->where(['user_id' => $filters['seller_id']]);
                     });
+            })
+            ->when(isset($filters['storefront_country']), function ($query) use ($filters) {
+                return app(ProductCodeScope::class)->restrictToCountry(query: $query, country: $filters['storefront_country']);
             })
             ->when(isset($filters['brand_id']), function ($query) use ($filters) {
                 return $query->where(['brand_id' => $filters['brand_id']]);

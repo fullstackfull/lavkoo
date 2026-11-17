@@ -1641,6 +1641,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'the_barcode_printed_on_the_product_box_EAN_or_UPC_leave_it_empty_to_print_the_SKU' => 'الباركود المطبوع على علبة المنتج (EAN أو UPC). اتركه فارغًا ليُطبع رمز SKU بدلاً منه.',
 	'the_bot_defence_on_your_sign_in_forms_and_how_a_customer_recovers_their_account' => 'دفاع النماذج ضد الروبوتات، وكيفية استعادة العميل لحسابه',
 	'the_console_may_send_writes' => 'يمكن للوحدة إرسال طلبات كتابة',
+	'the_scanned_code_matches_more_than_one_product' => 'الرمز الممسوح يطابق أكثر من منتج. اختر أحد المنتجات المعروضة أو أرسل الدولة.',
+	'the_country_must_be_one_of_the_configured_storefront_countries' => 'يجب أن تكون الدولة إحدى دول المتاجر المُعدّة.',
 	'the_constant_it_is_declared_in_has_been_renamed_or_removed' => 'الثابت المُعلَن فيه أُعيدت تسميته أو حُذف',
 	'the_currency_model_was_updated' => 'تم تحديث نموذج العملة.',
 	'the_dashboard_cannot_see_the_shop_right_now_so_nothing_below_can_be_trusted_as_current' => 'لوحة المراقبة لا ترى المتجر الآن، لذا لا يمكن اعتبار ما تحت هذا السطر حديثًا',

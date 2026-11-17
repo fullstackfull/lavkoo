@@ -99,6 +99,73 @@ final class ProductCodeScope
             ->get($columns);
     }
 
+    /**
+     * The products a scanned value answers to among the products the caller hands over (the owner's own, already narrowed by the caller).
+     * With the scope off the answer is the old one: the first product whose code is the value, never its barcode. With the scope on it is
+     * every product of the country whose code or barcode is the value, lowest id first; more than one is an ambiguity for the caller to
+     * answer, never a product to pick.
+     *
+     * @return Collection<int, \App\Models\Product>
+     */
+    public function scan(EloquentBuilder $ownedProducts, mixed $code, ?string $country): Collection
+    {
+        if (!$this->enabled()) {
+            return $ownedProducts->where(['code' => $code])->limit(1)->get();
+        }
+
+        return $this->restrictToCountry(query: $ownedProducts, country: $country)
+            ->where(static fn (EloquentBuilder $match) => $match->where('code', $code)->orWhere('barcode', $code))
+            ->orderBy('id')
+            ->limit(self::CANDIDATE_LIMIT)
+            ->get();
+    }
+
+    /** Whether the country a scan names can be used: any configured country, open or not, or none. Without the scope nothing in the request counts. */
+    public function isScanCountryAllowed(mixed $requestedCountry): bool
+    {
+        return !$this->enabled()
+            || $requestedCountry === null
+            || $requestedCountry === ''
+            || (is_string($requestedCountry) && in_array($requestedCountry, ProductCountry::options(), true));
+    }
+
+    /** The country a scan is narrowed to: the one it names, else the default storefront's. Null while the scope does not apply. */
+    public function countryOfScan(mixed $requestedCountry): ?string
+    {
+        if (!$this->enabled()) {
+            return null;
+        }
+
+        return $this->isScanCountryAllowed($requestedCountry) && is_string($requestedCountry) && $requestedCountry !== '' ? $requestedCountry : ProductCountry::defaultCountry();
+    }
+
+    /**
+     * The country an order belongs to: orders carry none, it follows from their lines, and only when every line is a product of one country.
+     * Null while the scope does not apply and for an order whose lines name none, two, or a product that is gone or has no country.
+     */
+    public function countryOfOrder(int|string|null $orderId): ?string
+    {
+        if ($orderId === null || !$this->enabled()) {
+            return null;
+        }
+
+        $countries = DB::table('order_details')
+            ->leftJoin(self::TABLE, self::TABLE . '.id', '=', 'order_details.product_id')
+            ->where('order_details.order_id', $orderId)
+            ->distinct()
+            ->pluck(self::TABLE . '.' . StorefrontCatalog::COLUMN);
+
+        return $countries->count() === 1 && is_string($countries->first()) && $countries->first() !== '' ? $countries->first() : null;
+    }
+
+    /** What a picker row adds to a product's label so that two countries' products of one name can be told apart: nothing unless the scope applies. */
+    public function countryTag(object $product): string
+    {
+        $country = $this->enabled() ? $this->countryOfProduct($product) : null;
+
+        return $country === null ? '' : ' · ' . $country;
+    }
+
     /** Keeps a products query to one country while the scope applies. With no country, or before the scope applies, the query is as it was. */
     public function restrictToCountry(EloquentBuilder|QueryBuilder $query, ?string $country): EloquentBuilder|QueryBuilder
     {

@@ -54,6 +54,7 @@ use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
 use App\Contracts\Repositories\DeliveryManTransactionRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Contracts\Repositories\OrderExpectedDeliveryHistoryRepositoryInterface;
+use App\Services\Catalog\ProductCodeScope;
 
 class OrderEditController extends BaseController
 {
@@ -109,6 +110,7 @@ class OrderEditController extends BaseController
         $filters = [
             'added_by' => $order['seller_is'] == 'admin' ? 'in_house' : $order['seller_is'],
             'seller_id' => $order['seller_is'] == 'admin' ? '' : $order['seller_id'],
+            'storefront_country' => app(ProductCodeScope::class)->countryOfOrder(orderId: $order['id']),
         ];
 
         $products = $this->productRepo->getListWithScope(
