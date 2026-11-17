@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Scopes\StaffCountryOrderScope;
+use App\Services\Staff\StaffCountryScope;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
@@ -162,6 +164,7 @@ class OrderDetail extends Model
     protected static function boot(): void
     {
         parent::boot();
+        static::addGlobalScope(new StaffCountryOrderScope(subject: StaffCountryScope::SUBJECT_ORDER_LINES, orderIdColumn: 'order_id'));
         static::saved(function ($model) {
             if ($model->isDirty('digital_file_after_sell')) {
                 $storage = config('filesystems.disks.default') ?? 'public';

@@ -39,6 +39,15 @@ final class StaffCountryScope
     /** The refund requests a request lists. */
     public const SUBJECT_REFUNDS = 'refunds';
 
+    /** The order lines a request reads: their lists, sums and counts, each through the order it belongs to. */
+    public const SUBJECT_ORDER_LINES = 'order_lines';
+
+    /** The money records of orders a request reads (`order_transactions`), each through the order it belongs to. */
+    public const SUBJECT_ORDER_TRANSACTIONS = 'order_transactions';
+
+    /** The money records of refunds a request reads (`refund_transactions`), each through the order line it is about. */
+    public const SUBJECT_REFUND_TRANSACTIONS = 'refund_transactions';
+
     private const REQUEST_ATTRIBUTE = 'staff_country_scope';
 
     private const SUBJECTS_ATTRIBUTE = 'staff_country_scope_subjects';

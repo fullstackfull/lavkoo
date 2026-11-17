@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryOrderScope;
+use App\Services\Staff\StaffCountryScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -77,6 +79,11 @@ class OrderTransaction extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new StaffCountryOrderScope(subject: StaffCountryScope::SUBJECT_ORDER_TRANSACTIONS, orderIdColumn: 'order_id'));
+    }
 
     public function seller(): BelongsTo
     {
