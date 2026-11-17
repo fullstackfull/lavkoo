@@ -73,7 +73,8 @@ final class PlatformAdminSecondStep
             $admin === null || (int) $admin->getRawOriginal('status') !== 1 => 'inactive_admin',
             $grant === null => 'no_grant',
             $grant->admin_id !== $challenge->admin_id || !$grant->isMadeFor(admin: $admin) => 'grant_of_another_admin_row',
-            !$grant->isActive() => 'revoked_grant',
+            $grant->isWithdrawn() => 'revoked_grant',
+            $grant->hasExpired() => 'expired_grant',
             !hash_equals($challenge->password_fingerprint, PlatformAdminTokenService::fingerprintOf(passwordHash: (string) $admin->getAuthPassword())) => 'password_changed',
             $factor === null || !$factor->isActiveFor(admin: $admin) => MfaVerdict::UNUSABLE_FACTOR,
             default => null,
@@ -113,7 +114,7 @@ final class PlatformAdminSecondStep
             }
 
             return [$verdict, $session];
-        });
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
     }
 
     /** What a refused try leaves: a guess counts against the admin, the last try consumes the challenge, and the trail and the log are written after the answer. */

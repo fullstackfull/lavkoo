@@ -157,11 +157,14 @@ class SessionsTest extends PlatformAdminTestCase
         $expiry = static fn (int $hours): string => Carbon::parse('2026-11-17 10:00:00')->addHours($hours)->utc()->toIso8601ZuluString();
 
         $noFactor = ['enrolled' => false, 'verified' => false, 'method' => null];
+        $everything = ['overview', 'markets', 'alerts', 'audit', 'sessions'];
         $this->getJson(self::PREFIX . '/me', $this->bearer($ownerToken))->assertOk()->assertExactJson(['data' => [
-            'admin_id' => $owner['id'], 'name' => 'Platform Owner', 'level' => 1, 'scope' => 'all', 'markets' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'], 'token_expires_at' => $expiry(3), 'mfa' => $noFactor,
+            'admin_id' => $owner['id'], 'name' => 'Platform Owner', 'level' => 1, 'scope' => 'all', 'markets' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'], 'token_expires_at' => $expiry(3),
+            'capabilities' => $everything, 'grant_expires_at' => null, 'mfa' => $noFactor,
         ]]);
         $this->getJson(self::PREFIX . '/me', $this->bearer($viewerToken))->assertOk()->assertExactJson(['data' => [
-            'admin_id' => $viewer['id'], 'name' => 'Kuwait Viewer', 'level' => 1, 'scope' => 'restricted', 'markets' => ['AE', 'KW'], 'token_expires_at' => $expiry(4), 'mfa' => $noFactor,
+            'admin_id' => $viewer['id'], 'name' => 'Kuwait Viewer', 'level' => 1, 'scope' => 'restricted', 'markets' => ['AE', 'KW'], 'token_expires_at' => $expiry(4),
+            'capabilities' => $everything, 'grant_expires_at' => null, 'mfa' => $noFactor,
         ]]);
     }
 

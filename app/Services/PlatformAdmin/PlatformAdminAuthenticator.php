@@ -51,7 +51,10 @@ final class PlatformAdminAuthenticator
         }
 
         if (!$this->settings->mfaRequired()) {
-            return SignInOutcome::opened(DB::transaction(fn (): PlatformAdminSession => $this->sessions->open(admin: $admin, grant: $grant, deviceName: $attempt->deviceName, ip: $attempt->ip, userAgent: $attempt->userAgent)));
+            return SignInOutcome::opened(DB::transaction(
+                fn (): PlatformAdminSession => $this->sessions->open(admin: $admin, grant: $grant, deviceName: $attempt->deviceName, ip: $attempt->ip, userAgent: $attempt->userAgent),
+                attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS,
+            ));
         }
 
         return $this->challengeUnlessLockedOut(attempt: $attempt, admin: $admin, grant: $grant);
@@ -66,7 +69,8 @@ final class PlatformAdminAuthenticator
             (int) $admin->getRawOriginal('status') !== 1 => 'inactive_admin',
             $grant === null => 'no_grant',
             !$grant->isMadeFor(admin: $admin) => 'grant_of_another_admin_row',
-            !$grant->isActive() => 'revoked_grant',
+            $grant->isWithdrawn() => 'revoked_grant',
+            $grant->hasExpired() => 'expired_grant',
             $this->settings->mfaRequired() && ($factor === null || !$factor->isActiveFor(admin: $admin)) => 'mfa_not_enrolled',
             default => null,
         };
@@ -89,7 +93,7 @@ final class PlatformAdminAuthenticator
             $this->audit->record(action: 'auth.mfa_challenge', adminId: $adminId, ip: $attempt->ip, userAgent: $attempt->userAgent, context: ['device_name' => $attempt->deviceName]);
 
             return $challenge;
-        }));
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS));
     }
 
     private function dummyHash(): string

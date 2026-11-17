@@ -161,6 +161,40 @@ abstract class PlatformAdminTestCase extends TestCase
     }
 
     /**
+     * Asks every route of the platform API with the given headers, and says that each is refused with the one 401 and that the refusals wrote nothing.
+     *
+     * @param array<string, string> $headers
+     * @param array<string, string> $query what is put in the query string of every request
+     */
+    protected function assertEveryRouteRefuses(array $headers, string $why, array $query = []): void
+    {
+        $before = $this->ownTables();
+
+        foreach ($this->platformRoutes() as $route) {
+            [$method, $uri] = $this->requestTo($route);
+
+            $response = $this->json($method, $query === [] ? $uri : $uri . '?' . http_build_query($query), [], $headers);
+
+            $this->assertSame(401, $response->getStatusCode(), "{$why}: {$method} {$uri} must be refused");
+            $response->assertExactJson($this->uniformRefusal());
+        }
+
+        $this->assertSame($before, $this->ownTables(), "{$why}: a refused request wrote something");
+    }
+
+    /** The rows of the tables the API owns and of the admins, as text, so that two states can be compared. */
+    protected function ownTables(): string
+    {
+        $rows = [];
+        foreach (['platform_admin_grants', 'platform_admin_tokens', 'platform_admin_audit_logs', 'platform_admin_audit_tail', 'platform_admin_mfa_factors', 'platform_admin_mfa_challenges'] as $table) {
+            $rows[$table] = DB::table($table)->orderBy('id')->get();
+        }
+        $rows['admins'] = DB::table('admins')->orderBy('id')->get();
+
+        return json_encode($rows);
+    }
+
+    /**
      * @param callable(): void $action
      *
      * @return list<string> the SQL of every statement the action ran
@@ -190,6 +224,19 @@ abstract class PlatformAdminTestCase extends TestCase
     }
 
     /**
+     * The audit line of a refusal is written after the answer, and only for an admin who has a grant, so what the trail reads and writes for it is left out
+     * when the work done for every refusal is compared.
+     *
+     * @param list<string> $statements
+     *
+     * @return list<string>
+     */
+    protected function withoutAuditTrail(array $statements): array
+    {
+        return array_values(array_filter($statements, static fn (string $sql): bool => !str_contains($sql, 'platform_admin_audit_')));
+    }
+
+    /**
      * What an answer says, so that two answers can be compared. With debug on, an error answer also carries the file, the line and the trace
      * of where it was thrown, which differ from one request to the next; there the status and the message are compared, and otherwise the whole body.
      * The path the request was for is taken out, because a missing route says which one it was.
@@ -199,7 +246,12 @@ abstract class PlatformAdminTestCase extends TestCase
         $content = $path === null ? $response->getContent() : str_replace(ltrim($path, '/'), '<path>', $response->getContent());
 
         if (config('app.debug') && $response->getStatusCode() >= 400) {
-            $message = $path === null ? $response->json('message') : str_replace(ltrim($path, '/'), '<path>', (string) $response->json('message'));
+            $said = $response->json('message');
+            $message = is_array($said) ? json_encode($said) : $said;
+
+            if ($path !== null) {
+                $message = str_replace(ltrim($path, '/'), '<path>', (string) $message);
+            }
 
             return $response->getStatusCode() . ' ' . ($message ?? $response->headers->get('Content-Type'));
         }

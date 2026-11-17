@@ -68,8 +68,8 @@ final class PlatformAdminMfaEnrolment
                 'recovery_codes' => array_map(static fn (string $code): array => ['hash' => RecoveryCodes::hash(normalized: (string) RecoveryCodes::normalized(typed: $code)), 'used_at' => null], $codes),
             ]);
 
-            $this->audit->record(action: 'mfa.enrolled', adminId: $adminId, context: $this->consoleContext(extra: $context));
-        });
+            $this->audit->record(action: 'mfa.enrolled', adminId: $adminId, context: ConsoleOperator::auditContext(extra: $context));
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
 
         $base32 = Base32::encode(bytes: $secret);
 
@@ -90,10 +90,10 @@ final class PlatformAdminMfaEnrolment
     {
         $admin = Admin::query()->select(['id', 'created_at'])->find($adminId) ?? throw new PlatformAdminMfaRefusedException("Admin {$adminId} does not exist.");
 
-        $failure = DB::transaction(fn (): ?string => $this->activateWith(admin: $admin, code: $code));
+        $failure = DB::transaction(fn (): ?string => $this->activateWith(admin: $admin, code: $code), attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
 
         if ($failure !== null) {
-            $this->audit->record(action: 'mfa.confirm_failed', adminId: $adminId, context: $this->consoleContext(extra: ['reason' => $failure]));
+            $this->audit->record(action: 'mfa.confirm_failed', adminId: $adminId, context: ConsoleOperator::auditContext(extra: ['reason' => $failure]));
 
             throw new PlatformAdminMfaRefusedException(match ($failure) {
                 self::FACTOR_UNREADABLE => "The secret of admin {$adminId} cannot be read with this application key. Run gcc:platform-admin:mfa:enroll {$adminId} --replace.",
@@ -120,10 +120,10 @@ final class PlatformAdminMfaEnrolment
                 'tokens_revoked' => $this->tokens->revokeAllFor(adminId: $adminId),
                 'challenges_ended' => $this->challenges->endAllFor(adminId: $adminId),
             ];
-            $this->audit->record(action: 'mfa.reset', adminId: $adminId, context: $this->consoleContext(extra: $result));
+            $this->audit->record(action: 'mfa.reset', adminId: $adminId, context: ConsoleOperator::auditContext(extra: $result));
 
             return $result;
-        });
+        }, attempts: PlatformAdminAudit::DEADLOCK_ATTEMPTS);
     }
 
     /**
@@ -143,7 +143,7 @@ final class PlatformAdminMfaEnrolment
         }
 
         $rows = $grants->map(fn (PlatformAdminGrant $grant): array => $this->statusOf(adminId: (int) $grant->admin_id))->values()->all();
-        $this->audit->record(action: 'mfa.status', adminId: $adminId, context: $this->consoleContext());
+        $this->audit->record(action: 'mfa.status', adminId: $adminId, context: ConsoleOperator::auditContext());
 
         return $rows;
     }
@@ -201,19 +201,9 @@ final class PlatformAdminMfaEnrolment
         }
 
         $factor->forceFill(['confirmed_at' => now(), 'last_used_step' => $step])->save();
-        $this->audit->record(action: 'mfa.confirmed', adminId: $adminId, context: $this->consoleContext());
+        $this->audit->record(action: 'mfa.confirmed', adminId: $adminId, context: ConsoleOperator::auditContext());
 
         return null;
-    }
-
-    /**
-     * @param array<string, mixed> $extra
-     *
-     * @return array<string, mixed>
-     */
-    private function consoleContext(array $extra = []): array
-    {
-        return ['source' => 'console', 'operator' => ConsoleOperator::describe()] + $extra;
     }
 
     /** @throws PlatformAdminMfaRefusedException */

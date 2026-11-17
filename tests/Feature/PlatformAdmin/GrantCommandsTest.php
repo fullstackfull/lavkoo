@@ -38,7 +38,7 @@ class GrantCommandsTest extends TestCase
 
     public function test_a_grant_without_countries_is_the_platform_owner_and_is_audited(): void
     {
-        $this->assertSame(0, $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->expectsOutputToContain('every market')->run());
+        $this->assertSame(0, $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true])->expectsOutputToContain('every market')->run());
 
         $grant = DB::table('platform_admin_grants')->where('admin_id', 7)->first();
         $this->assertNotNull($grant);
@@ -52,21 +52,21 @@ class GrantCommandsTest extends TestCase
         $this->assertCount(1, $audit);
         $this->assertSame('grant.created', $audit[0]->action);
         $this->assertSame(7, (int) $audit[0]->admin_id);
-        $this->assertSame($this->sortedByKey(['source' => 'console', 'before' => null, 'after' => ['level' => 1, 'countries' => null]]), $this->contextOf($audit[0]));
+        $this->assertSame($this->consoleContext(['before' => null, 'after' => ['level' => 1, 'countries' => null, 'capabilities' => null, 'expires_at' => null]]), $this->contextOf($audit[0]));
     }
 
     public function test_a_grant_remembers_the_admin_row_it_was_made_for(): void
     {
         DB::table('admins')->where('id', 7)->update(['created_at' => '2026-01-05 09:00:00']);
 
-        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->doesntExpectOutputToContain('another admin row')->assertExitCode(0);
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true])->doesntExpectOutputToContain('another admin row')->assertExitCode(0);
 
         $this->assertSame(hash('sha256', '7|2026-01-05 09:00:00'), DB::table('platform_admin_grants')->where('admin_id', 7)->value('admin_fingerprint'));
     }
 
     public function test_granting_again_to_the_same_row_leaves_its_sessions_and_its_grant_time_alone(): void
     {
-        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->assertExitCode(0);
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true])->assertExitCode(0);
         $this->insertToken(adminId: 7, grantId: (int) DB::table('platform_admin_grants')->value('id'), hash: str_repeat('a', 64));
         Carbon::setTestNow('2026-11-18 10:00:00');
 
@@ -79,14 +79,14 @@ class GrantCommandsTest extends TestCase
 
     public function test_granting_again_after_the_admin_row_was_replaced_adopts_the_new_row_and_ends_the_sessions_of_the_old_one(): void
     {
-        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->assertExitCode(0);
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true])->assertExitCode(0);
         $grantId = (int) DB::table('platform_admin_grants')->value('id');
         $this->insertToken(adminId: 7, grantId: $grantId, hash: str_repeat('a', 64));
         Schema::withoutForeignKeyConstraints(fn () => DB::table('admins')->where('id', 7)->delete());
         DB::table('admins')->insert(['id' => 7, 'name' => 'Replacement', 'email' => 'replacement@example.test', 'password' => 'x', 'status' => 1, 'created_at' => '2026-05-01 12:00:00']);
         Carbon::setTestNow('2026-11-18 10:00:00');
 
-        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->expectsOutputToContain('another admin row')->assertExitCode(0);
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true])->expectsOutputToContain('another admin row')->assertExitCode(0);
 
         $grant = DB::table('platform_admin_grants')->where('admin_id', 7)->first();
         $this->assertSame(1, DB::table('platform_admin_grants')->count(), 'the grant is updated in place');
@@ -97,7 +97,7 @@ class GrantCommandsTest extends TestCase
         $line = $this->auditLines()->last();
         $this->assertSame('grant.updated', $line->action);
         $this->assertSame(
-            $this->sortedByKey(['source' => 'console', 'before' => ['level' => 1, 'countries' => null, 'revoked' => false], 'after' => ['level' => 1, 'countries' => null], 'tokens_revoked' => 1, 'replaced_admin_row' => true]),
+            $this->consoleContext(['before' => ['level' => 1, 'countries' => null, 'capabilities' => null, 'expires_at' => null, 'revoked' => false], 'after' => ['level' => 1, 'countries' => null, 'capabilities' => null, 'expires_at' => null], 'tokens_revoked' => 1, 'replaced_admin_row' => true]),
             $this->contextOf($line),
         );
     }
@@ -112,13 +112,13 @@ class GrantCommandsTest extends TestCase
     public function test_a_restricted_grant_can_be_widened_to_every_market_again_only_by_the_command(): void
     {
         $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--countries' => 'KW'])->assertExitCode(0);
-        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->assertExitCode(0);
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true])->assertExitCode(0);
 
         $this->assertNull(DB::table('platform_admin_grants')->where('admin_id', 7)->value('countries'));
         $this->assertSame(1, DB::table('platform_admin_grants')->count(), 'one row per admin');
         $this->assertSame(['grant.created', 'grant.updated'], $this->auditLines()->pluck('action')->all());
         $this->assertSame(
-            $this->sortedByKey(['source' => 'console', 'before' => ['level' => 1, 'countries' => ['KW'], 'revoked' => false], 'after' => ['level' => 1, 'countries' => null]]),
+            $this->consoleContext(['before' => ['level' => 1, 'countries' => ['KW'], 'capabilities' => null, 'expires_at' => null, 'revoked' => false], 'after' => ['level' => 1, 'countries' => null, 'capabilities' => null, 'expires_at' => null]]),
             $this->contextOf($this->auditLines()[1]),
         );
     }
@@ -127,13 +127,13 @@ class GrantCommandsTest extends TestCase
     public static function refusals(): array
     {
         return [
-            'an admin that does not exist' => [['admin_id' => 99], 'does not exist'],
+            'an admin that does not exist' => [['admin_id' => 99, '--confirm-owner' => true], 'does not exist'],
             'an admin id that is not a number' => [['admin_id' => 'seven'], 'positive whole number'],
-            'an inactive admin' => [['admin_id' => 9], 'not active'],
+            'an inactive admin' => [['admin_id' => 9, '--confirm-owner' => true], 'not active'],
             'an unknown country code' => [['admin_id' => 7, '--countries' => 'KW,XX'], 'Unknown country code: XX'],
             'a list with no country in it' => [['admin_id' => 7, '--countries' => ' , '], 'no country code'],
-            'a level that does not exist' => [['admin_id' => 7, '--level' => '2'], 'level 1'],
-            'a level that is not a number' => [['admin_id' => 7, '--level' => 'high'], 'level 1'],
+            'a level that does not exist' => [['admin_id' => 7, '--confirm-owner' => true, '--level' => '2'], 'level 1'],
+            'a level that is not a number' => [['admin_id' => 7, '--confirm-owner' => true, '--level' => 'high'], 'level 1'],
         ];
     }
 
@@ -150,7 +150,7 @@ class GrantCommandsTest extends TestCase
     {
         $this->insertAdmin(id: 1, status: 0);
 
-        $this->assertSame(1, Artisan::call('gcc:platform-admin:grant', ['admin_id' => 1]));
+        $this->assertSame(1, Artisan::call('gcc:platform-admin:grant', ['admin_id' => 1, '--confirm-owner' => true]));
         $this->assertSame(0, DB::table('platform_admin_grants')->count());
     }
 
@@ -158,7 +158,7 @@ class GrantCommandsTest extends TestCase
     {
         DB::table('admins')->where('id', 8)->update(['status' => 2]);
 
-        $this->assertSame(1, Artisan::call('gcc:platform-admin:grant', ['admin_id' => 8]));
+        $this->assertSame(1, Artisan::call('gcc:platform-admin:grant', ['admin_id' => 8, '--confirm-owner' => true]));
         $this->assertSame(0, DB::table('platform_admin_grants')->count());
     }
 
@@ -190,7 +190,7 @@ class GrantCommandsTest extends TestCase
         $this->assertSame(1, DB::table('platform_admin_tokens')->whereNotNull('revoked_at')->count());
         $this->assertSame('grant.reactivated', $this->auditLines()->last()->action);
         $this->assertSame(
-            $this->sortedByKey(['source' => 'console', 'before' => ['level' => 1, 'countries' => null, 'revoked' => true], 'after' => ['level' => 1, 'countries' => ['QA']], 'tokens_revoked' => 1]),
+            $this->consoleContext(['before' => ['level' => 1, 'countries' => null, 'capabilities' => null, 'expires_at' => null, 'revoked' => true], 'after' => ['level' => 1, 'countries' => ['QA'], 'capabilities' => null, 'expires_at' => null], 'tokens_revoked' => 1]),
             $this->contextOf($this->auditLines()->last()),
         );
     }
@@ -213,7 +213,7 @@ class GrantCommandsTest extends TestCase
         $line = $this->auditLines()->last();
         $this->assertSame('grant.revoked', $line->action);
         $this->assertSame(7, (int) $line->admin_id);
-        $this->assertSame($this->sortedByKey(['source' => 'console', 'tokens_revoked' => 2, 'already_revoked' => false]), $this->contextOf($line));
+        $this->assertSame($this->consoleContext(['tokens_revoked' => 2, 'already_revoked' => false]), $this->contextOf($line));
     }
 
     public function test_revoking_twice_is_harmless_and_keeps_the_first_revocation_time(): void
@@ -254,7 +254,7 @@ class GrantCommandsTest extends TestCase
 
         $line = $this->auditLines()->last();
         $this->assertSame('tokens.revoked', $line->action);
-        $this->assertSame($this->sortedByKey(['source' => 'console', 'tokens_revoked' => 1]), $this->contextOf($line));
+        $this->assertSame($this->consoleContext(['tokens_revoked' => 1]), $this->contextOf($line));
     }
 
     public function test_every_command_tells_the_operator_when_the_migrations_have_not_run(): void
@@ -262,8 +262,8 @@ class GrantCommandsTest extends TestCase
         $this->rollBackPlatformAdminMigrations();
         $this->assertFalse(Schema::hasTable('platform_admin_grants'));
 
-        foreach (['gcc:platform-admin:grant', 'gcc:platform-admin:revoke', 'gcc:platform-admin:revoke-tokens'] as $command) {
-            $this->assertSame(1, Artisan::call($command, ['admin_id' => 7]), $command);
+        foreach ([['gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true]], ['gcc:platform-admin:revoke', ['admin_id' => 7]], ['gcc:platform-admin:revoke-tokens', ['admin_id' => 7]]] as [$command, $arguments]) {
+            $this->assertSame(1, Artisan::call($command, $arguments), $command);
             $this->assertStringContainsString('migrations', Artisan::output(), $command);
         }
     }
@@ -272,7 +272,21 @@ class GrantCommandsTest extends TestCase
     {
         config(['gcc.platform_admin.enabled' => false]);
 
-        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->assertExitCode(0);
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--confirm-owner' => true])->assertExitCode(0);
+    }
+
+    /**
+     * The context of the audit line of a command: where it came from, which account on which machine ran it, and what the command adds.
+     *
+     * @param array<string, mixed> $extra
+     *
+     * @return array<array-key, mixed>
+     */
+    private function consoleContext(array $extra): array
+    {
+        $user = function_exists('posix_geteuid') && function_exists('posix_getpwuid') ? (string) posix_getpwuid(posix_geteuid())['name'] : (string) (getenv('USER') ?: getenv('USERNAME') ?: 'unknown');
+
+        return $this->sortedByKey(['source' => 'console', 'operator' => ['user' => $user, 'host' => (string) gethostname()]] + $extra);
     }
 
     private function insertAdmin(int $id, int $status): void

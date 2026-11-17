@@ -8,6 +8,11 @@ document apply (GCC-20 privileged authentication needs a security review before 
 code), and a session has an idle timeout and a limit on how many may be open at once. What changes for the seller app, in one place: sections 5 (the sign-in is now two steps, there is
 a new `POST /auth/mfa`, `GET /me` and `GET /sessions` gain members, `DELETE /sessions` ends every other session) and 3 (the runbook). Everything else of level 1 is as it was.
 
+**Phase 2, delivery 2 (this revision on top of it): grants that can end and be narrowed to parts of the API, a tamper-evident audit trail, and the isolation tests.** What changes for the
+seller app: `GET /me` gains `capabilities` and `grant_expires_at`; a part of the API the grant does not include answers a new `403 capability_not_allowed`; a grant that has ended is the
+same 401 as any other refusal. The rest is for the operator (section 3: the grant options, `list`, and the audit commands `audit:verify` and `audit:prune`) and for the reviewer
+(section 7 and the tests of section 11).
+
 ## 1. What it is
 
 A small JSON API under `/api/platform-admin/v1` with which the platform owner, signed in to the seller app as an **admin**, watches all six markets: whether each market is
@@ -27,7 +32,8 @@ How it is kept apart: its own sign-in endpoint, its own token table (`platform_a
 Passport (`ReverseIsolationTest` scans the code for these). The identity is the admin's own e-mail and password, checked against the `admins` table **without starting a session**.
 Which admin may use it is decided by a row in `platform_admin_grants`, written only by a console command an operator runs on the server. There is no hard-coded admin id (not
 admin 1), no e-mail allow-list and no flag the client sends. A grant is made for one admin **row**: it remembers the id and the creation time of the row, and a different row that
-merely comes to carry the same id (a deleted admin whose id is reused, a restored dump) is not that admin and gets no access.
+merely comes to carry the same id (a deleted admin whose id is reused, a restored dump) is not that admin and gets no access. A grant may also **end on a day** and may be limited to
+some **capabilities** (parts of the API): a viewer who is to see only the alerts is given only those.
 
 Level 1 only reads. The only things it writes are its own session rows (sign-in, sign-out, ending a session, the time a session was last used), its sign-in challenges, the
 counters of its limits and its own audit lines. **No HTTP route can enrol, reset or weaken a second factor**: that is done only by the console commands of section 3.
@@ -85,14 +91,17 @@ process of the platform for migrations and configuration.
    `..._100200_add_mfa_method_to_platform_admin_tokens_table`. They only add tables and one nullable column. Rolling them back drops what they added and nothing else; roll all of them back
    together, newest first (the tokens, the factors and the challenges have a foreign key to the grants table, which MySQL refuses to drop while it is referenced). None of the new tables
    has a foreign key to `admins`: a factor and a challenge hang off the grant, which carries the conditional key of step 2, so deleting an admin takes them away exactly when it takes
-   the grant away. Until all six have run, a switched-on API answers 503 (section 2).
+   the grant away. Delivery 2 adds three more, all additive: `2026_11_30_100000_add_expiry_and_capabilities_to_platform_admin_grants_table` (two nullable columns),
+   `..._100100_add_hash_chain_to_platform_admin_audit_logs_table` (two nullable columns) and `..._100200_create_platform_admin_audit_chain_tables` (the tail of the chain and the checkpoints
+   of a prune). Until all nine have run, a switched-on API answers 503 (section 2).
 4. **Behind a proxy or a load balancer, set `TRUSTED_PROXIES`** (`config/trustedproxy.php`) so that the address the API sees is the client's. The sign-in and request limits count
    addresses; if every client arrives as the proxy's address they share one limit.
 5. Grant access, enrol the second factor, then switch the flag on:
 
 ```
-php artisan gcc:platform-admin:grant 7                       # admin 7 is the platform owner: every market
-php artisan gcc:platform-admin:grant 12 --countries=KW,AE    # admin 12 may see only Kuwait and the Emirates
+php artisan gcc:platform-admin:grant 7 --confirm-owner                                          # admin 7 is the platform owner: every market, every capability, no end
+php artisan gcc:platform-admin:grant 12 --countries=KW,AE --capabilities=overview,alerts \
+    --expires=2027-03-31                                                                         # admin 12: Kuwait and the Emirates, those two parts, until the end of 31 March 2027
 php artisan gcc:platform-admin:mfa:enroll 7                  # prints the secret, the otpauth URI and ten recovery codes, ONCE
 php artisan gcc:platform-admin:mfa:confirm 7 123456          # the first code the admin's authenticator app shows: only now is the factor active
 GCC_PLATFORM_ADMIN_ENABLED=true                              # then clear the configuration cache the way the deployment does
@@ -105,21 +114,57 @@ GCC_PLATFORM_ADMIN_ENABLED=true                              # then clear the co
 
 | To do | Command | What it does |
 |---|---|---|
-| Make a platform owner | `gcc:platform-admin:grant {admin_id}` | Every market. Refuses an unknown admin, an **inactive admin (status must be exactly 1, the first admin included)**, and any level but 1. |
-| Restrict, narrow or widen | `gcc:platform-admin:grant {admin_id} --countries=KW,AE` | The grant is updated in place. Codes are case-insensitive, deduplicated and stored in configuration order. An unknown code, or a list with no code in it, is refused and nothing is written. Leaving `--countries` out makes the admin a platform owner again. |
+| Make a platform owner | `gcc:platform-admin:grant {admin_id} --confirm-owner` | Every market, every capability, no end. **A grant with no `--countries` is a grant for every market, and the command refuses it unless `--confirm-owner` says that is meant.** Refuses an unknown admin, an **inactive admin (status must be exactly 1, the first admin included)**, and any level but 1. |
+| Restrict, narrow or widen | `gcc:platform-admin:grant {admin_id} --countries=KW,AE` | The grant is updated in place. Codes are case-insensitive, deduplicated and stored in configuration order. An unknown code, or a list with no code in it, is refused and nothing is written. `--confirm-owner` together with `--countries` is refused: it says the opposite. |
+| Limit to parts of the API | `... --capabilities=overview,alerts` | Of `overview`, `markets`, `alerts`, `audit`, `sessions` (case-insensitive, deduplicated, kept in that order). Leaving it out is all five. An unknown name, or a list with none in it, is refused. |
+| Give it an end | `... --expires=2027-03-31` | The grant is good through the end of that day (23:59:59 in the time zone the platform stamps its rows in, the one of section 9, point 10), and then it is no grant. A date that has passed, or anything that is not `YYYY-MM-DD`, is refused. Leaving it out is no end. |
+| Look at the grants | `gcc:platform-admin:list` | Every grant: the admin, the markets, the capabilities, the end, and its state (`active`, `revoked`, `expired`, `admin inactive`, `admin row replaced`, `admin missing`). Read only. |
 | End a stolen or lost token | `gcc:platform-admin:revoke-tokens {admin_id}` | Every session of that admin ends at once; the grant stays, so they can sign in again. |
 | Take access away | `gcc:platform-admin:revoke {admin_id}` | The grant is revoked and every session ends. Revoking twice is harmless and keeps the first time. |
-| Give it back | `gcc:platform-admin:grant {admin_id}` | A revoked grant is reactivated, and any session that survived a hand edit is ended first. |
+| Give it back | `gcc:platform-admin:grant {admin_id} ...` | A revoked grant is reactivated, and any session that survived a hand edit is ended first. |
 | Enrol the second factor | `gcc:platform-admin:mfa:enroll {admin_id} [--replace]` | Needs an active grant. Creates a **pending** factor and prints, once, the secret (base32), the otpauth URI and ten recovery codes. Refuses when the admin already has a factor, pending or active, unless `--replace`, which removes it first and ends the admin's sessions and challenges. |
 | Activate it | `gcc:platform-admin:mfa:confirm {admin_id} {code}` | The code the authenticator app shows for the secret just entered. Only a confirmed factor counts at sign-in. A wrong code changes nothing. |
 | Lost phone, lost codes | `gcc:platform-admin:mfa:reset {admin_id}` | Removes the factor (secret and recovery codes), ends every session and every challenge of the admin. They enrol again. |
 | Look | `gcc:platform-admin:mfa:status [{admin_id}]` | For every grant (or one admin): the state of the factor, when it was activated, how many recovery codes are left, whether its secret can still be read with the current key, and how many open sessions passed the second factor and how many did not. Never a secret. |
+| Check the trail | `gcc:platform-admin:audit:verify` | Walks the whole audit trail and its chain of hashes. Exit 0 prints how many lines it read and **the hash of the newest, which is worth writing down somewhere else**; exit 1 names the first line that is broken. Read only. |
+| Cut the trail | `gcc:platform-admin:audit:prune --days=N --confirm` | The **only** way a line leaves the trail, and never scheduled. `N` is a whole number of at least 1. Removes the run of lines from the start of the trail that were all written more than N days ago (a newer line ends the run, and **the newest line is never removed**), after a verification that must pass, and keeps a checkpoint that carries the hash of the last line removed so that `audit:verify` still passes. Without `--confirm` it only says what it would remove. |
 
-Each of these writes one audit line (`grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`) with
-the scope before and after where there is one. **The lines of the MFA commands carry the identity of the operator**: the operating system user and the host name of the machine the command ran on
-(`context.operator.user`, `context.operator.host`), and `source: "console"`; never a secret. The commands work whether the flag is on or off, and each tells the operator to run the migrations
+Each of these writes one audit line (`grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`, `audit.pruned`)
+with what the grant was before and after where there is one (the level, the markets, the capabilities and the end). **The lines of every command that changes something carry the identity of the operator**: the operating system user and the host name of
+the machine the command ran on (`context.operator.user`, `context.operator.host`), and `source: "console"`; never a secret. The commands work whether the flag is on or off, and each tells the operator to run the migrations
 if the tables are missing instead of failing. `gcc:platform-admin:grant` also says, after it succeeds, when the admin has no confirmed factor yet (and that they cannot sign in until
 they have one), and warns every time it runs while `GCC_PLATFORM_ADMIN_MFA_REQUIRED` is off.
+
+### Capabilities and expiry
+
+* **Capabilities** are the parts of the API a grant includes: `overview`, `markets`, `alerts`, `audit`, `sessions`. A grant with none named has all five (and so does every grant that was made before capabilities existed). They are enforced by the
+  route, before the controller: `GET /overview` needs `overview`, `GET /markets` needs `markets`, `GET /alerts` needs `alerts`, `GET /audit-logs` needs `audit`, and `GET /sessions`, `DELETE /sessions` and `DELETE /sessions/{id}` need `sessions`.
+  Nothing else is gated: **`GET /me` and `POST /auth/logout` are always allowed**, so the app can always read what the admin may do and sign out. A request for a part the grant does not include is `403 capability_not_allowed` (section 4), is audited like
+  any other request, and reads nothing. What `GET /me` says is what the server enforces, in the order of the list above; a value in the grant that is not one of the five is ignored, and a value that cannot be read as a list means no capability at all
+  rather than every one.
+* **Expiry.** A grant may end on a day. Once it has, it is no grant: a sign-in with it is the uniform 401 (`expired_grant` in the log and the trail), and the first request of a session of that admin after that moment is the uniform 401 **and ends every open
+  session of the admin** (`session.grant_expired`). The next day's `grant` command with a new `--expires` gives it back; nothing about it needs a revoke. The platform owner is just as subject to it as anybody.
+* Each run of `grant` sets the whole grant: what it leaves out is the default (every market, which needs `--confirm-owner`; every capability; no end). It says what the grant now is, and the audit line says what it was.
+
+### The audit trail
+
+`platform_admin_audit_logs` is append only and **tamper evident**.
+
+* **A chain.** Every line carries `prev_hash`, the hash of the line before it, and `hash`, the SHA-256 of a canonical JSON of its own content (the admin, the action, the market, the session, the address, the user agent, the context with its keys sorted, the time
+  it was written, and `prev_hash`). Changing a line, removing one from the middle, or adding one that did not come from the writer, breaks the chain at that line. The first line of the chain follows a fixed starting value. A line written before the chain began has no
+  hash and is read as older than it; an unhashed line that turns up after hashed ones is a break.
+* **A tail.** The writer holds one row (`platform_admin_audit_tail`: the id and the hash of the line written last) for the duration of a write, which is what makes two writers take turns, and what lets `audit:verify` see that the newest lines are still there.
+  **If that row is missing the writer refuses to write**: a line is never chained to nothing, so a request that must be audited fails closed and a console command that audits its change does not make it, until the row is restored (from a backup of the table, or by rolling back and running again the migration that makes it, which starts it from the newest hashed line: do that only after `audit:verify` and the record you keep of its head hash say no line is missing).
+  A transaction that writes a line holds the tail until it ends, so the tail is the last thing any transaction takes (factor, grant, challenge, then tail); one that is nevertheless chosen as the victim of a deadlock is done again, up to three times.
+* **Nothing edits or deletes through the application.** The model refuses to update or delete a line, and so does a query built on it. A line leaves only by `audit:prune`, which works on the table directly.
+* **`audit:verify`** reads every line in order, and the checkpoint if there is one, recomputes each hash and compares each `prev_hash`, then compares the end of the trail with the tail. It exits 0 and prints the number of lines and the hash of the newest, or exits 1 and names the id of
+  the first line that is wrong and why. **A person with write access to the database can rewrite the whole chain from some point on and recompute the hashes**: the chain is evidence against changes nobody meant to hide, and against clumsy ones; it is not proof against the
+  administrator of the database. Write down the id and the hash `audit:verify` prints (or send them to where the database's administrator cannot reach), at the interval the owner decides: a later `audit:verify` that still finds that line with that hash proves the trail up to it was not rewritten.
+* **`audit:prune`** is the only way lines leave, and it is never scheduled (a test says so). It refuses to run while the trail does not verify (the evidence of a break is not to be cut away), takes the lines that are older than `--days` from the start of the trail (a newer line ends the run, and the newest line is never taken), writes a
+  checkpoint (the id and the hash of the last line removed, how many, when, and who ran it), removes them in the same transaction, and then writes its own line, `audit.pruned`, into the chain. After it, `audit:verify` starts from the checkpoint: the first line that is left must follow the hash it holds.
+  Without `--confirm` it removes nothing and says what it would. **How long to keep the trail is the owner's decision** (section 10); until it is made, nothing is ever removed.
+* **A time zone assumption.** The time a line was written is part of what is hashed, as the database gives it back. It is the same string whatever the time zone of the PHP process is, but it changes if the session time zone of the database server changes between the writing
+  and the checking (a MySQL `TIMESTAMP` column is read through that zone): `audit:verify` would then report the first line as broken. Keep the server's zone fixed.
 
 ### The second factor
 
@@ -164,9 +209,9 @@ they have one), and warns every time it runs while `GCC_PLATFORM_ADMIN_MFA_REQUI
 ### Watching it
 
 `GET /audit-logs` (platform owner: every line) and the table `platform_admin_audit_logs`. A refused sign-in is always in the application log, with its reason (`malformed_input`, `unknown_admin`, `wrong_password`, `inactive_admin`, `no_grant`,
-`grant_of_another_admin_row`, `revoked_grant`, `mfa_not_enrolled`) and a hash of the address, never the address itself. Only a refusal for an admin who holds a grant is also audited, and at most `failed_login_audit_per_hour` (10) lines per grant per hour, so
+`grant_of_another_admin_row`, `revoked_grant`, `expired_grant`, `mfa_not_enrolled`) and a hash of the address, never the address itself. Only a refusal for an admin who holds a grant is also audited, and at most `failed_login_audit_per_hour` (10) lines per grant per hour, so
 traffic from the internet cannot make a table grow. **A refused second step is treated the same way**: always in the application log with its reason (`malformed_input`, `unknown_challenge`, `expired_challenge`, `consumed_challenge`,
-`attempts_exhausted`, `wrong_code`, `replayed_code`, `unusable_factor`, `inactive_admin`, `no_grant`, `grant_of_another_admin_row`, `revoked_grant`, `password_changed`) and a hash of the challenge, never the challenge or the code; and, when the
+`attempts_exhausted`, `wrong_code`, `replayed_code`, `unusable_factor`, `inactive_admin`, `no_grant`, `grant_of_another_admin_row`, `revoked_grant`, `expired_grant`, `password_changed`) and a hash of the challenge, never the challenge or the code; and, when the
 challenge belongs to an admin who holds a grant, one `auth.mfa_failed` line, at most `failed_login_audit_per_hour` per grant per hour (its own count, separate from the sign-in's). Seeing `auth.mfa_failed` lines the admin did not cause means
 somebody holds the password: change it. The lines the console commands write carry an `operator` in their context; **a restricted admin, who reads only their own lines, is never shown it** (the platform owner is).
 
@@ -180,7 +225,7 @@ somebody holds the password: change it. The lines the console commands write car
 * Every answer of the API (except the 404 of a switched-off API) carries `Cache-Control: no-store, private` and `Vary: Authorization`.
 * Authentication: `Authorization: Bearer lkpa_<64 characters>`. The scheme is case-insensitive; **only** the header counts, not a query string, a body field or a cookie.
 * **Every failure to authenticate is the identical 401 `platform_admin_auth`**, with no hint which check failed: unknown or malformed token, expired, idle, revoked, admin deactivated,
-  password changed, grant revoked, grant of another admin, and at the sign-in an admin who has no confirmed second factor while one is required; at the second step (`POST /auth/mfa`) an unknown, expired, used-up or
+  password changed, grant revoked, grant expired, grant of another admin, and at the sign-in an admin who has no confirmed second factor while one is required; at the second step (`POST /auth/mfa`) an unknown, expired, used-up or
   consumed challenge, a wrong code, a code that was already used, a recovery code that was already used, and anything that is not well formed. **The one exception is the lockout** (see below), which is a 429.
 * Limits: 120 requests a minute from one address to any route (`429 platform_admin_throttled` with `Retry-After`), counted before a token is looked up. The sign-in has its own limits (section 5).
   **The second step is limited per address** to three times the number of sign-in attempts a minute for one e-mail (15 by default), counted before the challenge is looked up, so that nothing about a challenge can
@@ -194,6 +239,7 @@ somebody holds the password: change it. The lines the console commands write car
 | Status | Code | When |
 |---|---|---|
 | 401 | `platform_admin_auth` | Any failure to authenticate or to sign in |
+| 403 | `capability_not_allowed` | The grant does not include the part of the API the route belongs to (section 3, "Capabilities and expiry"); the error carries `capability`, the one that is missing. Not an authentication failure: the token is good, and `GET /me` says what is allowed |
 | 403 | `market_not_allowed` | The market is not in the admin's grant (`market=all` is never refused: it means all of theirs) |
 | 404 | `session_not_found` | The session is not one of the admin's own open sessions (another admin's id, an ended one and an unknown one all answer alike) |
 | 404 | (router's own) | The API is switched off, or the path does not exist |
@@ -277,15 +323,16 @@ Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's o
 
 ### `GET /me`
 
-`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "mfa": {"enrolled", "verified", "method"}}}`. `scope` is `all` (the platform owner) or `restricted`; `markets` is what the server allows, in
-configuration order. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
+`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}}}`. `scope` is `all` (the platform owner) or `restricted`; `markets` is what the server allows, in
+configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, in that order: what the server enforces, so the app offers only those); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
 
 `mfa.enrolled` is whether the admin has a confirmed factor made for their own admin row (whether or not it is required just now); `mfa.verified` is whether **this session** passed the second factor, and `mfa.method`
 is how: `"totp"`, `"recovery_code"`, or `null` (`verified` is then `false`: a session opened while the second factor was not required, which can only be seen while it is still not required). With the second factor
 required `verified` is always `true` and there is always a method, because every other session is refused before it gets here.
 
 ```json
-{"data": {"admin_id": 7, "name": "Platform Owner", "level": 1, "scope": "all", "markets": ["SA","AE","KW","QA","BH","OM"], "token_expires_at": "2026-11-17T18:00:00Z", "mfa": {"enrolled": true, "verified": true, "method": "totp"}}}
+{"data": {"admin_id": 7, "name": "Platform Owner", "level": 1, "scope": "all", "markets": ["SA","AE","KW","QA","BH","OM"], "token_expires_at": "2026-11-17T18:00:00Z",
+  "capabilities": ["overview","markets","alerts","audit","sessions"], "grant_expires_at": null, "mfa": {"enrolled": true, "verified": true, "method": "totp"}}}
 ```
 
 ### `GET /sessions`, `DELETE /sessions/{id}`, `DELETE /sessions`
@@ -383,8 +430,8 @@ The counts and the age are in `config/gcc.php` (`platform_admin.alerts`). A crit
 `{"data": [{"id", "admin_id", "action", "market", "token_id", "ip", "user_agent", "context", "created_at"}], "meta": {"scope", "page", "per_page", "has_more"}}`. Newest first, 25 to a
 page, at most 100, and the page number is at most 1000. The **platform owner reads every line; a restricted admin reads only their own.** It never counts the table. `action` is one
 of `auth.login` (a session was opened; its context says how: `mfa` is `totp` or `recovery_code` when the second factor was passed), `auth.login_failed`, `auth.logout`, `auth.mfa_challenge` (a good password, a challenge given),
-`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `markets.view`, `overview.view`, `alerts.view`,
-`audit_logs.view`, `grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, and the console's `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`.
+`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `session.grant_expired`, `markets.view`, `overview.view`, `alerts.view`,
+`audit_logs.view`, `grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, and the console's `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`, `audit.pruned`. The hashes of the chain are not part of a line as the API shows it.
 `context` of a request holds the status and the few parameters the API takes (`id`, `market`, `from`, `to`, `severity`, `page`, `per_page`; `ended` for `sessions.end_others`); never a password, a token, a challenge, a code, an e-mail or
 any other value the request carried. `ip` is as sent; `user_agent` is cut at 255 characters. A line of the console carries `operator` (`user`, `host`) in its context, which only the platform owner is shown.
 
@@ -422,6 +469,15 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 * **No server-side cache.** A cache entry would need a key for the market and for who asks, and level 1 has none; a test scans the code. Two admins with different scopes,
   alternated three times over every route, only ever see their own answer. Everything the browser or a proxy might keep is forbidden by the headers.
 * The developer portal lists every route as an internal admin endpoint with bearer authentication and **never to a partner** (`RoutesTest` builds the manifest).
+* **Isolation is tested against the route table, not against a list somebody wrote** (`tests/Feature/PlatformAdmin/PlatformTokenIsolationTest`, `IdentityIsolationTest`, `PlatformSignInIsolationTest`): (a) for **every route of the application outside
+  `/api/platform-admin/v1`** (2,112 of them today, read from the route table) a request that carries a live platform token answers exactly what the same request with a token of the same shape that was never issued answers (asking with no header at all would not do:
+  the customer API's guest cart, for one, answers differently when any bearer header is there), and afterwards the time a session was last used has not moved and the platform trail has no line (three routes whose page carries a token of its own are compared by status and
+  redirect, and a control route that does read the token shows the comparison can tell); (b) for **every route of the platform API** the credential of every other identity (a seller's token, a seller staff member's token, a seller's API key, a customer's token, a delivery
+  man's token, a live challenge of the second step), put as a bearer token, as the whole `Authorization` header, in `X-Auth-Token` and `X-Api-Key`, in the query string and in a cookie, and the panel session of a seller and of an admin who holds a grant, get the uniform 401 and write
+  nothing; (c) the platform sign-in does not accept the right password of a seller, a seller staff member, a customer, a delivery man or an admin who holds no grant, the sign-ins of the sellers (v2 and v3), the customers and the delivery men do not accept an admin's, and an e-mail that
+  exists as an admin, a seller and a customer authenticates, at each place, only with the password of that place's own row (the success of the customer's and the delivery man's own sign-in needs the OAuth client tables, which the test database does not have, so only their refusals are
+  exercised); (d) no foreign key joins a platform table to a table of another identity in either direction, no migration outside the platform's own mentions a platform table, the platform tables hold none of the credential columns the other identities use (`auth_token`, `password`,
+  `remember_token`, `api_key`, ...), and no other credential has the shape of a platform token (`lkpa_`) or challenge (`lkpc_`). (The platform and the seller API keys both have a column called `token_hash`: what is kept apart is the table, the prefix and the code that reads it, not the name.)
 
 ## 8. What level 1 deliberately does not do
 
@@ -478,6 +534,19 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 20. **Sessions without the second factor** are refused while it is required, however they were opened: turning the switch from false to true ends the staging sessions on their next request rather than letting them live out their eight hours.
 21. **The operator identity** in the console's audit lines (user and host) is what the process says about itself, not an authenticated identity: it tells a reader which machine and account ran the command, which is what the server's own login and
     audit trail can then be asked about.
+22. **Capabilities are named in the grant, and absent means all five.** A column that is SQL NULL is the five parts this revision knows (so a grant made before it exists keeps working); a value that cannot be read grants none. NULL is every capability that exists, today those five: a capability added later to `PlatformAdminGrant::CAPABILITIES` is thereby given to every grant that names no list, which is a decision to make deliberately at that time. `GET /me` and `POST /auth/logout` need none.
+23. **A grant ends at the end of a calendar day** of the platform's time zone, because that is how an operator names it; there is no time of day to get wrong. The check is made at sign-in and on every request, so there is nothing to sweep, and the sessions of an expired grant are ended by
+    the first request that meets it.
+24. **The chain is serialised by one row, not by the table.** Locking "the last line" does not work on an InnoDB table (a second writer that waited for it still sees the line it waited on as the last); the writer takes the row of the tail, which always exists, reads the hash of the last line
+    from it, writes the line, and moves the tail. The tail is part of what `audit:verify` checks.
+25. **What is hashed** is everything of a line except its id (which the database gives after the line is written, and which the order of the chain already pins). The context is hashed with its keys sorted at every depth, so that a database that returns the members of a JSON column in another
+    order (MySQL does) gives the same hash.
+26. **A prune never cuts the newest lines** (it takes a run from the start of the trail, all older than the days given), **never runs on a trail that does not verify**, and its checkpoint is not itself chained (a person who can write the table can forge it): the record of the head hash that the operator keeps elsewhere is what answers that.
+
+27. **Transactions that end by writing a line are done again on a deadlock.** The tail is a point every writer passes through, so two transactions that take the same rows in opposite orders can deadlock on it; the sign-in, the second step and the operator's grant, revoke and
+    second factor commands are tried up to three times, and what a failed try did is rolled back (a code is not used up, a line is not written twice). A deadlock that goes on reaches the caller.
+28. **The readiness check costs about twenty metadata queries per request while the API is switched on** (it asks for each table and for each column that a migration added). It is cheap on the databases this runs on and it is what makes a half-migrated deploy answer 503 instead of 500; if it ever shows up in a
+    profile, cache a positive answer for a minute.
 
 ## 10. Open owner decisions
 
@@ -489,12 +558,15 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 5. **Alert thresholds** (zero stock 10 and 50, pending 24 hours, 1, 5 and 20) are placeholders for a Saudi-sized catalogue.
 6. **An allow-list of addresses, or a separate host,** for the API (it is a bearer API reachable from the internet like every other).
 7. **A panel screen** for an admin to see and end the sessions of an API (today: the console and the API itself).
-8. **Retention** of `platform_admin_audit_logs` (it grows with use and is never pruned).
+8. **Retention** of `platform_admin_audit_logs`: how long to keep the trail. Built: nothing removes a line by itself; `audit:prune` exists, needs `--confirm`, refuses a trail that does not verify and is never scheduled. Open: the number of days, whether the lines
+   are exported before they go, and who writes down the head hash `audit:verify` prints, how often, and where.
 9. **Push topics** for global alerts, separate from marketing and seller topics (GCC-20), once there is something to push.
 10. **Recovery-code custody.** The ten codes are printed once, on the operator's terminal, and only a hash is kept. Who keeps them is the owner's to decide: the admin alone (the operator then sees them once, at enrolment), or the owner
     as well (a second holder of every admin's way in). Also whether the codes should be allowed at all for the platform owner's own account, given that a code defeats the factor.
 11. **Lockout.** Ten wrong codes lock an admin's second step for 15 minutes, so somebody who knows the password can keep a real admin out. There is no `unlock` command (waiting out the window, or changing the password, is the way
     today). Whether the owner wants one, or wants a lockout that slows rather than stops, is open.
+12. **Capability sets and ends of grants as policy.** The five capabilities are the surface of the API, not roles. Which set a country manager gets, whether `sessions` (the right to end one's own sessions) should always be included, and whether every grant of a restricted
+    viewer, or of the owner, must carry an end date, are the owner's to decide; the commands make any of them possible and none of them a default.
 
 ## 11. Review gates before merge and release
 
@@ -507,6 +579,10 @@ set): the authorization matrix (every route of the route table against every cal
 staff, an API key, a customer, a panel session, expired, ended, deactivated, changed password, revoked or foreign grant), the reverse isolation tests, the flag and dormancy tests, login,
 sessions, request limit, markets, overview, alerts, audit logs, storefront isolation, read-only proof, routes and migrations (the grants migration against every shape of `admins`:
 `BIGINT UNSIGNED`, `INT UNSIGNED`, signed `BIGINT`, MyISAM, partitioned, missing), the grant fingerprint, and the grant commands.
+
+**Delivery 2.** Capabilities (every route against every capability set, in the route table's own order, and the middleware's 403 against the 401s), expiry (a grant that ends at the end of a day, at sign-in, on a request, at the second step, and the sessions it ends), the grant commands
+(`--confirm-owner`, `--capabilities`, `--expires`, `list`, the operator on every line), the chain (the hash, the canonical JSON, the tail, writers taken in turn, a changed line, a removed line, an inserted line, an unhashed line after hashed ones, a missing tail, tampering with
+the newest lines), the refusal of the model and of its builder to update or delete, `audit:verify` and `audit:prune` (what is cut, the checkpoint, the refusal on a broken trail and without `--confirm`, never scheduled), the retry of a transaction chosen as the victim of a deadlock, and the three tests of isolation described in section 7.
 
 **How the tests of this revision sign in.** The tests of level 1 (login, throttles, sessions, the matrix, read-only proof) run with `gcc.platform_admin.mfa.required` set to `false` by their test base, `PlatformAdminTestCase`,
 because what they pin is the one-step sign-in and the behaviour of a session, which MFA does not change; that is the staging mode of section 2 and it is also tested as such. Everything about the second factor is in its own

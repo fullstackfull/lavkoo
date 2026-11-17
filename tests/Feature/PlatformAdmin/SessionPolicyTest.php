@@ -364,12 +364,12 @@ class SessionPolicyTest extends PlatformAdminTestCase
         $admin = $this->platformAdmin();
         $other = $this->platformAdmin();
 
-        foreach (['gcc:platform-admin:revoke-tokens', 'gcc:platform-admin:revoke', 'gcc:platform-admin:grant'] as $command) {
+        foreach (['gcc:platform-admin:revoke-tokens' => [], 'gcc:platform-admin:revoke' => [], 'gcc:platform-admin:grant' => ['--confirm-owner' => true]] as $command => $options) {
             DB::table('platform_admin_mfa_challenges')->delete();
             $this->insertChallenge($admin, str_repeat('a', 64));
             $this->insertChallenge($other, str_repeat('b', 64));
 
-            $this->assertSame(0, Artisan::call($command, ['admin_id' => $admin['id']]), $command);
+            $this->assertSame(0, Artisan::call($command, ['admin_id' => $admin['id']] + $options), $command);
 
             $this->assertNotNull(DB::table('platform_admin_mfa_challenges')->where('token_hash', str_repeat('a', 64))->value('consumed_at'), $command);
             $this->assertNull(DB::table('platform_admin_mfa_challenges')->where('token_hash', str_repeat('b', 64))->value('consumed_at'), $command);

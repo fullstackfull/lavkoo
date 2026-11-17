@@ -4,6 +4,7 @@ namespace Tests\Feature\PlatformAdmin;
 
 use App\Http\Middleware\AdminMiddleware;
 use App\Http\Middleware\AuthenticatePlatformAdmin;
+use App\Http\Middleware\EnsurePlatformAdminCapability;
 use App\Http\Middleware\EnsureStorefrontMaySell;
 use App\Http\Middleware\PlatformAdminGate;
 use App\Http\Middleware\RecordAnalytics;
@@ -37,12 +38,13 @@ class RoutesTest extends PlatformAdminTestCase
     /** The two steps of the sign-in: the only routes that are not behind a token, because they are how one is got. */
     private const SIGN_IN_ROUTES = ['platform_admin.auth.login', 'platform_admin.auth.mfa'];
 
-    public function test_the_aliases_point_at_the_two_middleware(): void
+    public function test_the_aliases_point_at_the_three_middleware(): void
     {
         $aliases = app(Router::class)->getMiddleware();
 
         $this->assertSame(PlatformAdminGate::class, $aliases['platform_admin'] ?? null);
         $this->assertSame(AuthenticatePlatformAdmin::class, $aliases['platform_admin_auth'] ?? null);
+        $this->assertSame(EnsurePlatformAdminCapability::class, $aliases['platform_admin_can'] ?? null);
     }
 
     public function test_every_route_is_under_the_prefix_is_named_and_serialisable(): void
@@ -62,8 +64,9 @@ class RoutesTest extends PlatformAdminTestCase
     {
         foreach ($this->platformRoutes() as $route) {
             $expected = in_array($route->getName(), self::SIGN_IN_ROUTES, true) ? ['platform_admin'] : ['platform_admin', 'platform_admin_auth'];
+            $withoutCapability = array_values(array_filter($route->gatherMiddleware(), static fn ($middleware): bool => !(is_string($middleware) && str_starts_with($middleware, 'platform_admin_can:'))));
 
-            $this->assertSame($expected, $route->gatherMiddleware(), $route->uri());
+            $this->assertSame($expected, $withoutCapability, $route->uri());
         }
     }
 
