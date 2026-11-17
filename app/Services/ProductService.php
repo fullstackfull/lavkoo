@@ -766,12 +766,11 @@ class ProductService
         return $dataArray;
     }
 
-    /** A code nobody holds where the product is created: the sheet has no country column, so an import takes the default country of the table. */
-    public function getUniqueProductSKUCode(string $country = ProductCodeScope::TABLE_DEFAULT_COUNTRY): string
+    public function getUniqueProductSKUCode(): string
     {
         $code = strtoupper(Str::random('6'));
-        if (!$this->codeScope->generatedCodeIsFree(code: $code, country: $country)) {
-            return $this->getUniqueProductSKUCode(country: $country);
+        if (!$this->codeScope->generatedCodeIsFree(code: $code, country: ProductCodeScope::TABLE_DEFAULT_COUNTRY)) {
+            return self::getUniqueProductSKUCode();
         }
         return $code;
     }
@@ -838,7 +837,7 @@ class ProductService
             }
             $thumbnail = explode('/', $collection['thumbnail']);
 
-            $productCode = $this->getUniqueProductSKUCode();
+            $productCode = self::getUniqueProductSKUCode();
 
             $productsTax[] = $collection['tax_ids'];
 

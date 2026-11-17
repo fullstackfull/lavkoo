@@ -378,8 +378,8 @@ class ProductController extends Controller
         }
 
         $product = Product::find($id);
-        $codeScope = app(ProductCodeScope::class);
 
+        $codeScope = app(ProductCodeScope::class);
         $validator = Validator::make($request->all(), [
             'name'                  => 'required',
             'category_id'           => 'required',

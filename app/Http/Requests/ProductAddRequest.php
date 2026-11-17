@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Catalog\ProductCodeScope;
 use App\Services\Storefront\ProductCountry;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
@@ -10,7 +11,6 @@ use Illuminate\Validation\Validator;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 use App\Http\Requests\Concerns\ChecksBrandEntitlement;
-use App\Services\Catalog\ProductCodeScope;
 
 class ProductAddRequest extends Request
 {
