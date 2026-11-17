@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * The countries the signed-in employee works with (GCC-14c, slice 1: the product screens of the admin panel).
+ * The countries the signed-in employee works with (GCC-14c, slices 1 and 2: the product screens, and the order, POS and refund screens, of the admin panel).
  *
  * It is the only place that knows the switch (`gcc.staff.country_scopes`), the table of countries and how they become an employee's scope. The switch ships off and
  * acts as off until the table and `products.storefront_country` exist: nothing is read then, and every answer is the one the panel has always given.
@@ -32,7 +32,15 @@ final class StaffCountryScope
 
     private const MASTER_ADMIN_ROLE_ID = 1;
 
+    /** The orders a request lists: their lists, counters and exports. */
+    public const SUBJECT_ORDERS = 'orders';
+
+    /** The refund requests a request lists. */
+    public const SUBJECT_REFUNDS = 'refunds';
+
     private const REQUEST_ATTRIBUTE = 'staff_country_scope';
+
+    private const SUBJECTS_ATTRIBUTE = 'staff_country_scope_subjects';
 
     /** Whether the switch is on. Nothing else is asked while it is off. */
     public function isOn(): bool
@@ -115,6 +123,41 @@ final class StaffCountryScope
         return $this->boundCountries() !== null;
     }
 
+    /**
+     * Narrows the orders, or the refund requests, that the rest of a bound request reads. Products are narrowed as soon as a request is bound; an order is not, because an
+     * action that changes one runs on the real data (the count of a customer's delivered orders that decides a referral bonus, the number of orders that gives the next order
+     * id, the uses of a coupon): only what a screen lists, and only the actions that say so, are narrowed. A request that is not bound is never narrowed.
+     *
+     * @param list<string> $subjects
+     */
+    public function narrowTo(Request $request, array $subjects): void
+    {
+        if ($this->restricts()) {
+            $request->attributes->set(self::SUBJECTS_ATTRIBUTE, array_values(array_unique([...$this->narrowedSubjects(), ...$subjects])));
+        }
+    }
+
+    public function narrows(string $subject): bool
+    {
+        return $this->narrowedCountries(subject: $subject) !== null;
+    }
+
+    /** @return list<string>|null the countries the queries of a subject are narrowed to in the current request: null when they are not narrowed, an empty list when none may be seen */
+    public function narrowedCountries(string $subject): ?array
+    {
+        $bound = $this->boundCountries();
+
+        return $bound !== null && in_array($subject, $this->narrowedSubjects(), true) ? $bound : null;
+    }
+
+    /** @return list<string> */
+    private function narrowedSubjects(): array
+    {
+        $subjects = request()->attributes->get(self::SUBJECTS_ATTRIBUTE);
+
+        return is_array($subjects) ? $subjects : [];
+    }
+
     public function allows(string $country): bool
     {
         $bound = $this->boundCountries();
@@ -179,5 +222,65 @@ final class StaffCountryScope
         }
 
         return DB::table('products')->whereIn('id', $ids)->whereIn(StorefrontCatalog::COLUMN, $bound)->count() === count($ids);
+    }
+
+    /**
+     * Whether every one of these orders is visible to the current request: it has a line and every line is a product of the employee's countries. An order that does not
+     * exist is not. A request that is not narrowed may work with every order, existing or not: the screens answer for an unknown one as they always did.
+     *
+     * @param list<int> $orderIds
+     */
+    public function coversEveryOrder(array $orderIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($orderIds));
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        $orders = DB::table('orders')->whereIn('orders.id', $ids);
+        StaffOrderVisibility::constrainOrders(query: $orders, orderIdColumn: 'orders.id', countries: $bound);
+
+        return $orders->count() === count($ids);
+    }
+
+    /**
+     * Whether every one of these refund requests is about an order line whose product is one of the employee's.
+     *
+     * @param list<int> $refundIds
+     */
+    public function coversEveryRefund(array $refundIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($refundIds));
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        $refunds = DB::table('refund_requests')->whereIn('refund_requests.id', $ids);
+        StaffOrderVisibility::constrainRefunds(query: $refunds, orderLineIdColumn: 'refund_requests.order_details_id', countries: $bound);
+
+        return $refunds->count() === count($ids);
+    }
+
+    /**
+     * Whether the order of every one of these order lines is visible to the current request: a line is reached through its order.
+     *
+     * @param list<int> $lineIds
+     */
+    public function coversEveryOrderLine(array $lineIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($lineIds));
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        $lines = DB::table('order_details')->whereIn('order_details.id', $ids)->whereExists(static function ($orders) use ($bound): void {
+            $orders->selectRaw('1')->from('orders')->whereColumn('orders.id', 'order_details.order_id');
+            StaffOrderVisibility::constrainOrders(query: $orders, orderIdColumn: 'orders.id', countries: $bound);
+        });
+
+        return $lines->count() === count($ids);
     }
 }

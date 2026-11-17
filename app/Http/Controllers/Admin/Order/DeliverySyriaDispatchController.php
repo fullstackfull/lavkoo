@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Order;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Models\Order;
@@ -33,6 +34,7 @@ class DeliverySyriaDispatchController extends Controller
         private readonly DeliverySyriaClient $client,
         private readonly DeliverySyriaRateCalculator $calculator,
     ) {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function dispatchOrder(Request $request): RedirectResponse

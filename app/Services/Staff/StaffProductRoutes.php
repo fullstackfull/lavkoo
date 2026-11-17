@@ -106,45 +106,18 @@ final class StaffProductRoutes
 
         return match ($kind) {
             'list', 'none', 'new' => [],
-            'route' => self::idsOf(value: $request->route($name)),
-            'input' => $optional && self::isBlank(value: $request->input($name)) ? [] : self::idsOf(value: $request->input($name)),
-            'inputs' => self::idsOfList(value: $request->input($name)),
+            'route' => StaffRouteIds::one(value: $request->route($name)),
+            'input' => $optional && StaffRouteIds::blank(value: $request->input($name)) ? [] : StaffRouteIds::one(value: $request->input($name)),
+            'inputs' => StaffRouteIds::many(value: $request->input($name)),
             'restock' => self::productIdsOfRestockRequest(restockRequestId: $request->route($name)),
             default => null,
         };
     }
 
     /** @return list<int>|null */
-    private static function idsOf(mixed $value): ?array
-    {
-        $isId = (is_int($value) && $value > 0) || (is_string($value) && preg_match('/^[1-9][0-9]*$/', $value) === 1);
-
-        return $isId ? [(int) $value] : null;
-    }
-
-    /** @return list<int>|null an empty list names nothing, so nothing is out of scope: the action refuses it itself */
-    private static function idsOfList(mixed $value): ?array
-    {
-        if ($value === null || $value === '' || $value === []) {
-            return [];
-        }
-
-        $ids = [];
-        foreach (is_array($value) ? $value : [$value] as $item) {
-            $id = self::idsOf(value: $item);
-            if ($id === null) {
-                return null;
-            }
-            $ids[] = $id[0];
-        }
-
-        return $ids;
-    }
-
-    /** @return list<int>|null */
     private static function productIdsOfRestockRequest(mixed $restockRequestId): ?array
     {
-        $restockRequest = self::idsOf(value: $restockRequestId);
+        $restockRequest = StaffRouteIds::one(value: $restockRequestId);
         if ($restockRequest === null) {
             return null;
         }
@@ -152,10 +125,5 @@ final class StaffProductRoutes
         $productId = DB::table('restock_products')->where('id', $restockRequest[0])->value('product_id');
 
         return $productId === null ? null : [(int) $productId];
-    }
-
-    private static function isBlank(mixed $value): bool
-    {
-        return $value === null || $value === '';
     }
 }

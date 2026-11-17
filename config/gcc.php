@@ -8,8 +8,9 @@ return [
     |
     | Off by default: every employee sees and changes what their role allows, in every country, exactly as before. When it is on, and only once
     | the `admin_country_scopes` table and the `products.storefront_country` column exist, an employee who has been given countries with
-    | `gcc:staff-country:assign` works on the products of those countries only, in the product screens of the admin panel. An employee with no
-    | country given stays unrestricted, and the master admin is never restricted. Read docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md before turning it on.
+    | `gcc:staff-country:assign` works on the products of those countries only, in the product screens of the admin panel, and on the orders and
+    | refund requests of those countries only, in the order, POS and refund screens of the admin panel. An employee with no country given stays unrestricted, and the
+    | master admin is never restricted. Read docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md before turning it on.
     |
     */
 
