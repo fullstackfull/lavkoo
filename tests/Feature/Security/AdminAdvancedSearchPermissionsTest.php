@@ -40,10 +40,13 @@ class AdminAdvancedSearchPermissionsTest extends TestCase
     /** A word that only the rows seeded below hold. */
     private const KEYWORD = 'quasarlynx';
 
+    private const CLASSIC_SEARCH = '/admin/advanced-search';
+
     private const V2_SEARCH = '/admin/v2/advanced-search';
 
     /** The search boxes of the panel: the one in the header of the classic layout and the one of the sidebar modal of the v2 layout. */
     private const ROUTES = [
+        'the classic search' => self::CLASSIC_SEARCH,
         'the v2 search' => self::V2_SEARCH,
     ];
 
