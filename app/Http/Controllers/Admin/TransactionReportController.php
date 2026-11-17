@@ -11,6 +11,7 @@ use App\Services\Admin\Reports\TransactionReportService;
 use App\Services\Admin\Reports\TransectionReportPdfService;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\BusinessSetting;
 use App\Models\Order;
 use App\Models\OrderTransaction;
@@ -35,6 +36,7 @@ class TransactionReportController extends Controller
         private readonly TransactionReportService $transactionReportService,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function order_transaction_list(Request $request) : ViewResponse

@@ -56,6 +56,7 @@
                 </div>
             </div>
 
+            @if(empty($data['wallet_figures_hidden']))
             <div class="card mb-3 remove-card-shadow">
                 <div class="card-body">
                     <h4 class="d-flex align-items-center text-capitalize gap-10 mb-3">
@@ -69,6 +70,7 @@
                     </div>
                 </div>
             </div>
+            @endif
 
             @if(!empty($data['auction_wallet_visible']))
             <div class="card mb-3 remove-card-shadow">

@@ -5,6 +5,7 @@ namespace App\Services\SalesChannels\Routing;
 use App\Models\FulfillmentRoutingRule;
 use App\Services\Fulfillment\Support\ArabicText;
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\Catalog\ProductCodeScope;
 
 /**
  * Chooses the rule that decides an order: the active rules inside their validity window, lowest priority number first, the more specific rule first among equals, the older
@@ -12,6 +13,10 @@ use App\Services\OperationalCosts\Support\Money;
  */
 class RoutingRuleMatcher
 {
+    public function __construct(private readonly ProductCodeScope $codeScope)
+    {
+    }
+
     public function firstMatch(RoutingContext $context, int $sellerId = 0): ?FulfillmentRoutingRule
     {
         $rules = FulfillmentRoutingRule::where('is_active', true)->where('seller_id', $sellerId)
@@ -32,7 +37,8 @@ class RoutingRuleMatcher
             'fulfillment_mode' => $rule->fulfillment_mode === null || $rule->fulfillment_mode === $context->mode->value,
             'execution_policy' => $rule->execution_policy === null || $rule->execution_policy === $context->currentExecutionPolicy,
             'product_id' => $rule->product_id === null || $this->anyLine($lines, static fn (RoutingLine $line): bool => $line->productId === $rule->product_id),
-            'sku' => blank($rule->sku) || $this->anyLine($lines, static fn (RoutingLine $line): bool => $line->sku !== null && strcasecmp($line->sku, (string) $rule->sku) === 0),
+            'sku' => blank($rule->sku) || $this->anyLine($lines, fn (RoutingLine $line): bool => $line->sku !== null && strcasecmp($line->sku, (string) $rule->sku) === 0
+                && $this->codeScope->skuRuleAppliesTo(ruleCountry: $rule->country, productCountry: $line->productCountry)),
             'inventory_location_id' => $rule->inventory_location_id === null || $this->anyLine($lines, static fn (RoutingLine $line): bool => $line->locationId === $rule->inventory_location_id),
             'product_provider' => blank($rule->product_provider) || $this->anyLine($lines, static fn (RoutingLine $line): bool => $line->provider === $rule->product_provider),
             'country' => blank($rule->country) || ($context->country !== null && strtoupper((string) $rule->country) === $context->country),

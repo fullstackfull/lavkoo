@@ -9,6 +9,7 @@ use App\Exports\ExpenseTransactionReportExport;
 use App\Exports\OrderTransactionReportExport;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\BusinessSetting;
 use App\Models\Order;
 use App\Models\OrderTransaction;
@@ -33,6 +34,7 @@ class ExpenseTransactionReportController extends Controller
         private readonly CustomerRepositoryInterface $customerRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     private static function getExpenseTransactionTable($request, $query): LengthAwarePaginator

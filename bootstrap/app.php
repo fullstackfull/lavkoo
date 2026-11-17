@@ -130,6 +130,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'apiGuestCheck' => APIGuestMiddleware::class,
             'logUserBrowsingNavigation' => \App\Http\Middleware\LogUserBrowsingNavigationMiddleware::class,
             'detectMobile' => \App\Http\Middleware\DetectMobile::class,
+            // Adopted only by the new-sale routes the storefront legal gate covers (GCC-11). Elsewhere the Saudi storefront is untouched.
+            'storefront' => \App\Http\Middleware\ResolveStorefront::class,
+            'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
+            'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
+            // The platform admin API (GCC-20): the door in front of every route of it, and the check of its own bearer token.
+            'platform_admin' => \App\Http\Middleware\PlatformAdminGate::class,
+            'platform_admin_auth' => \App\Http\Middleware\AuthenticatePlatformAdmin::class,
+            'platform_admin_can' => \App\Http\Middleware\EnsurePlatformAdminCapability::class,
         ]);
     })
     // The schedule itself lives in App\Console\ScheduleDefinition, so the monitoring page can

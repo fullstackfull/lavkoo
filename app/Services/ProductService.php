@@ -5,9 +5,13 @@ namespace App\Services;
 
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
+use App\Services\Staff\StaffCountryScope;
+use App\Services\Storefront\ProductCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\FileManagerTrait;
 use Illuminate\Support\Str;
 use Rap2hpoutre\FastExcel\FastExcel;
+use App\Services\Catalog\ProductCodeScope;
 class ProductService
 {
     use FileManagerTrait;
@@ -584,7 +588,9 @@ class ProductService
         $digitalFileOptions = $this->getDigitalVariationOptions(request: $request);
         $digitalFileCombinations = $this->getDigitalVariationCombinations(arrays: $digitalFileOptions);
 
-        return [
+        $countryAttributes = $addedBy == 'admin' ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country']) : [];
+
+        return $countryAttributes + [
             'added_by' => $addedBy,
             'user_id' => $addedBy == 'admin' ? auth('admin')->id() : auth('seller')->id(),
             'shop_id' => $shopId,
@@ -765,7 +771,7 @@ class ProductService
     public function getUniqueProductSKUCode(): string
     {
         $code = strtoupper(Str::random('6'));
-        if (\App\Models\Product::where('code', $code)->exists()) {
+        if (!app(ProductCodeScope::class)->generatedCodeIsFree(code: $code, country: ProductCodeScope::TABLE_DEFAULT_COUNTRY)) {
             return self::getUniqueProductSKUCode();
         }
         return $code;
@@ -773,6 +779,17 @@ class ProductService
 
     public function getImportBulkProductData(object $request, string $addedBy, int|string $shopId): array
     {
+        $staffCountries = app(StaffCountryScope::class);
+        $countriesAreTracked = $staffCountries->restricts() && ProductCountry::isTracked();
+        $refusal = $staffCountries->whyItMayNotImport(countriesAreTracked: $countriesAreTracked);
+        if ($refusal !== null) {
+            return [
+                'status' => false,
+                'message' => translate($refusal),
+                'products' => []
+            ];
+        }
+
         try {
             $collections = (new FastExcel)->import($request->file('products_file'));
         } catch (\Exception $exception) {
@@ -835,7 +852,7 @@ class ProductService
 
             $productCode = self::getUniqueProductSKUCode();
 
-            $productsTax[$productCode] = $collection['tax_ids'];
+            $productsTax[] = $collection['tax_ids'];
 
             $products[] = [
                 'name' => $collection['name'],
@@ -874,10 +891,12 @@ class ProductService
             ];
         }
 
+        $importCountry = $staffCountries->countryOfImportedRows(countriesAreTracked: $countriesAreTracked);
+
         return [
             'status' => true,
             'message' => count($products) . ' - ' . translate('products_imported_successfully'),
-            'products' => $products,
+            'products' => $importCountry === null ? $products : array_map(static fn (array $row): array => $row + [StorefrontCatalog::COLUMN => $importCountry], $products),
             'productsTax' => $productsTax,
         ];
     }

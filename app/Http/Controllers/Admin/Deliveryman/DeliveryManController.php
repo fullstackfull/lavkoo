@@ -11,6 +11,7 @@ use App\Enums\ExportFileNames\Admin\DeliveryMan as DeliveryManExport;
 use App\Exports\DeliveryManListExport;
 use App\Exports\DeliveryManOrderHistory;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Http\Requests\Admin\DeliveryManAddRequest;
 use App\Http\Requests\Admin\DeliveryManUpdateRequest;
 use App\Services\DeliveryManService;
@@ -40,6 +41,7 @@ class DeliveryManController extends Controller
         private readonly OrderStatusHistoryRepositoryInterface $orderStatusHistoryRepo
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

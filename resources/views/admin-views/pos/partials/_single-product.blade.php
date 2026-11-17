@@ -28,7 +28,7 @@
 
     <div class="pos-product-item_content clickable">
         <div class="pos-product-item_title fw-medium">
-            {{ $product['name'] }}
+            {{ $product['name'] }}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}
         </div>
         @if (getProductPriceByType(product: $product, type: 'discount', result: 'value') > 0)
             <div class="fs-12 fw-medium text-decoration-line-through">{{ webCurrencyConverter(amount: $product['unit_price']) }}</div>

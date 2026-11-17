@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductScope;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Builder;
@@ -123,6 +125,7 @@ class Product extends Model
         'digital_file_ready_storage_type',
         'is_shipping_cost_updated',
         'temp_shipping_cost',
+        'storefront_country',
     ];
 
     /**
@@ -180,6 +183,9 @@ class Product extends Model
         'thumbnail_storage_type' => 'string',
         'digital_file_ready_storage_type' => 'string',
     ];
+
+    /** The owning country is a storefront rule, not part of what the apps read: no payload changes when the column appears. */
+    protected $hidden = ['storefront_country'];
 
     protected $appends = ['scan_code', 'is_shop_temporary_close', 'thumbnail_full_url', 'preview_file_full_url', 'color_images_full_url', 'meta_image_full_url', 'images_full_url', 'digital_file_ready_full_url'];
 
@@ -245,7 +251,13 @@ class Product extends Model
             ->where(['status' => 1])
             ->where(['request_status' => 1])
             ->SellerApproved()
-            ->whereIn('product_type', $productType);
+            ->whereIn('product_type', $productType)
+            ->inCurrentStorefront();
+    }
+
+    public function scopeInCurrentStorefront($query): void
+    {
+        StorefrontCatalog::restrict(query: $query);
     }
 
     public function scopeSellerApproved($query): void
@@ -502,6 +514,8 @@ class Product extends Model
         static::deleted(function ($model) {
             cacheRemoveByType(type: 'products');
         });
+
+        static::addGlobalScope(new StaffCountryProductScope());
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {

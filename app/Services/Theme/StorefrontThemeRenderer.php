@@ -5,6 +5,7 @@ namespace App\Services\Theme;
 use App\Models\Theme;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
+use App\Services\Storefront\StorefrontContext;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
@@ -85,7 +86,7 @@ class StorefrontThemeRenderer
             // too: Cache::remember treats a bare null as a miss, and this runs several
             // times per storefront render (once per page area, plus the banner
             // hand-off), each miss costing a publishedVersion() lookup.
-            $cached = Cache::remember(self::CACHE_KEY_PREFIX . $page, self::CACHE_TTL, function () use ($page) {
+            $cached = Cache::remember(StorefrontContext::current()->scopedCacheKey(self::CACHE_KEY_PREFIX . $page), self::CACHE_TTL, function () use ($page) {
                 $version = $this->publishedVersion();
 
                 return ['sections' => $version ? $this->buildSections($version->id, $page) : null];
@@ -333,7 +334,7 @@ class StorefrontThemeRenderer
             // uncached publishedVersion() lookup would hit the DB per page even with nothing published.
             // Wrapped in an array so the common "no published theme" (null) result is cached too —
             // Cache::remember treats a bare null as a miss and would re-query every request.
-            $cached = Cache::remember(self::GLOBAL_SETTINGS_CACHE_KEY, self::CACHE_TTL, function () use ($manager) {
+            $cached = Cache::remember(StorefrontContext::current()->scopedCacheKey(self::GLOBAL_SETTINGS_CACHE_KEY), self::CACHE_TTL, function () use ($manager) {
                 $version = $this->publishedVersion();
 
                 return ['settings' => $version ? $manager->resolveSettings($version) : null];
@@ -374,9 +375,13 @@ class StorefrontThemeRenderer
         }
 
         foreach ($pages as $page) {
-            Cache::forget(self::CACHE_KEY_PREFIX . $page);
+            foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_KEY_PREFIX . $page) as $key) {
+                Cache::forget($key);
+            }
         }
-        Cache::forget(self::GLOBAL_SETTINGS_CACHE_KEY);
+        foreach (StorefrontContext::keysForEveryStorefront(self::GLOBAL_SETTINGS_CACHE_KEY) as $key) {
+            Cache::forget($key);
+        }
     }
 
     /** Shared section builder used by both the published path and draft preview. */

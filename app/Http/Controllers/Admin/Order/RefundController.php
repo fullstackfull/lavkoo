@@ -17,6 +17,7 @@ use App\Events\RefundEvent;
 use App\Exports\RefundRequestExport;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\RefundStatusRequest;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\RefundStatusService;
 use App\Services\RefundTransactionService;
 use App\Traits\CustomerTrait;
@@ -45,7 +46,9 @@ class RefundController extends BaseController
         private readonly RefundTransactionRepositoryInterface       $refundTransactionRepo,
         private readonly LoyaltyPointTransactionRepositoryInterface $loyaltyPointTransactionRepo,
         private readonly OrderDetailsRewardsRepositoryInterface     $orderDetailsRewardsRepo,
-    ) {}
+    ) {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
+    }
 
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse
     {

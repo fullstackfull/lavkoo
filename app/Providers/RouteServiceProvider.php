@@ -53,6 +53,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapDeliverySyriaRoutes();
         $this->mapFulfillmentWebhookRoutes();
         $this->mapMyFatoorahWebhookRoutes();
+        $this->mapPlatformAdminRoutes();
 
         //$this->mapInstallRoutes();
         //$this->mapUpdateRoutes();
@@ -155,6 +156,17 @@ class RouteServiceProvider extends ServiceProvider
     }
 
     /**
+     * The platform admin API (GCC-20). Under the `api` prefix but outside the `api` middleware group, which records a telemetry row and a
+     * response shape for every request; its own middleware decide whether the API exists at all.
+     */
+    protected function mapPlatformAdminRoutes(): void
+    {
+        Route::prefix('api')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/rest_api/platform_admin.php'));
+    }
+
+    /**
      * Define the "beta" routes for the application.
      *
      * These routes all receive session state, CSRF protection, etc.
@@ -214,7 +226,7 @@ class RouteServiceProvider extends ServiceProvider
     }
     protected function mapBetaWebRoutes(): void
     {
-        Route::middleware(['web', 'logUserBrowsingNavigation'])
+        Route::middleware(['web', 'storefront', 'logUserBrowsingNavigation'])
             ->namespace($this->namespace)
             ->group(base_path('routes/web/routes.php'));
     }

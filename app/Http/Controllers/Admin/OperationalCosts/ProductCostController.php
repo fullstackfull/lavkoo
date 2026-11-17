@@ -9,6 +9,7 @@ use App\Http\Requests\Admin\OperationalCosts\RecordPurchaseCostRequest;
 use App\Models\InventoryCostConsumption;
 use App\Models\InventoryCostLayer;
 use App\Models\InventoryLocation;
+use App\Services\Catalog\ProductCodeScope;
 use App\Services\Fulfillment\Support\SafeToast;
 use App\Services\OperationalCosts\Data\LayerReceipt;
 use App\Services\OperationalCosts\Exceptions\CostInputMissing;
@@ -129,10 +130,13 @@ class ProductCostController extends Controller
     {
         $term = (string) QueryInput::text($request, 'q');
 
-        return response()->json(DB::table('products')
+        $codeScope = app(ProductCodeScope::class);
+        $rows = DB::table('products')
             ->where('added_by', 'admin')->where('product_type', 'physical')
             ->where(static fn ($query) => $query->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")->orWhere('barcode', 'like', "%{$term}%")->orWhere('id', $term))
-            ->orderBy('name')->limit(self::SEARCH_LIMIT)->get(['id', 'name', 'code', 'barcode']));
+            ->orderBy('name')->limit(self::SEARCH_LIMIT)->get($codeScope->pickerColumns(columns: ['id', 'name', 'code', 'barcode']));
+
+        return response()->json($codeScope->tagPickerRows(rows: $rows));
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeProductsToStaffCountries;
 use App\Models\ProductModerationEvent;
 use App\Services\Marketplace\ProductModerationService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -23,6 +24,7 @@ class ProductModerationController extends BaseController
 {
     public function __construct(private readonly ProductModerationService $moderation)
     {
+        $this->middleware(ScopeProductsToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View

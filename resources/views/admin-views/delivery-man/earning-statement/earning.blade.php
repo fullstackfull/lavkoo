@@ -14,6 +14,7 @@
             </h2>
         </div>
         @include('admin-views.delivery-man.pages-inline-menu')
+        @unless (app(\App\Services\Staff\StaffCountryScope::class)->restricts())
         <div class="card mb-3">
             <div class="card-body">
                 <div class="row justify-content-between align-items-center g-2 mb-3">
@@ -91,6 +92,7 @@
                 </div>
             </div>
         </div>
+        @endunless
 
         <div class="card mb-3">
             <div class="card-body">

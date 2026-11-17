@@ -58,6 +58,9 @@
                 @if ($data['productWiseTax'])
                     <th>{{ translate('Vat/Tax') }}</th>
                 @endif
+                @if ($data['countryColumn'] ?? false)
+                    <td> {{translate('product_country')}}</td>
+                @endif
             </tr>
             @foreach ($data['products'] as $key=>$item)
                 <tr>
@@ -105,6 +108,9 @@
                                 @endforelse
                             </span>
                         </td>
+                    @endif
+                    @if ($data['countryColumn'] ?? false)
+                        <td>{{ $item->storefront_country }}</td>
                     @endif
                 </tr>
             @endforeach

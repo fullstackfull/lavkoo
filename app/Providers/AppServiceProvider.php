@@ -24,6 +24,7 @@ use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\ThemeHelper;
 use App\Services\AuditLogger;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\SellerIntelligence\Producers\BrandComplianceProducer;
 use App\Services\SellerIntelligence\Producers\CatalogIntegrityProducer;
 use App\Services\SellerIntelligence\Producers\FinanceIntegrityProducer;
@@ -189,8 +190,8 @@ class AppServiceProvider extends ServiceProvider
                     $firebaseOTPVerification = getWebConfig(name: 'firebase_otp_verification');
                     $firebaseOTPVerificationStatus = (int)($firebaseOTPVerification && $firebaseOTPVerification['status'] && $firebaseOTPVerification['web_api_key']);
 
-                    $headerPublishingHouses = $hasPublishingHouses ? Cache::remember(CACHE_PROVIDER_PUBLISHING_HOUSES_COUNT, 3600, fn() => ProductManager::getPublishingHouseList(type: 'count')) : null;
-                    $publishingHouses = $hasPublishingHouses ? Cache::remember(CACHE_PROVIDER_PUBLISHING_HOUSES_LIST, 3600, fn() => ProductManager::getPublishingHouseList()) : null;
+                    $headerPublishingHouses = $hasPublishingHouses ? Cache::remember(storefrontCacheKey(key: CACHE_PROVIDER_PUBLISHING_HOUSES_COUNT), 3600, fn() => ProductManager::getPublishingHouseList(type: 'count')) : null;
+                    $publishingHouses = $hasPublishingHouses ? Cache::remember(storefrontCacheKey(key: CACHE_PROVIDER_PUBLISHING_HOUSES_LIST), 3600, fn() => ProductManager::getPublishingHouseList()) : null;
 
                     $systemColors = getWebConfig('colors');
                     $web_config = [
@@ -217,7 +218,7 @@ class AppServiceProvider extends ServiceProvider
                         'language' => getWebConfig(name: 'language'),
                         'publishing_houses_header' => $headerPublishingHouses,
                         'publishing_houses' => $publishingHouses,
-                        'digital_product_authors' => $hasAuthors ? Cache::remember('_product_authors_list', 3600, fn() => ProductManager::getProductAuthorList()) : null,
+                        'digital_product_authors' => $hasAuthors ? Cache::remember(storefrontCacheKey(key: '_product_authors_list'), 3600, fn() => ProductManager::getProductAuthorList()) : null,
                         'firebase_otp_verification' => $firebaseOTPVerification,
                         'firebase_otp_verification_status' => $firebaseOTPVerificationStatus,
                         'meta_title' => getWebConfig(name: 'company_name') . ' ' . translate('Online_Shopping') . ' | ' . getWebConfig(name: 'company_name') . ' ' . translate('ecommerce'),
@@ -256,7 +257,7 @@ class AppServiceProvider extends ServiceProvider
                                 $socialLoginTextShowStatus = true;
                             }
                         }
-                        $totalDiscountProducts = Cache::remember('_total_discount_products', 3600, function () {
+                        $totalDiscountProducts = Cache::remember(storefrontCacheKey(key: '_total_discount_products'), 3600, function () {
                             $stockClearanceProductIds = StockClearanceProduct::active()->pluck('product_id')->toArray();
                             return Product::active()
                                 ->withCount('reviews')
@@ -354,6 +355,7 @@ class AppServiceProvider extends ServiceProvider
     protected function adminSidebarLayoutCount(): void
     {
         View::composer('layouts.admin.app', function ($view) {
+            app(StaffCountryScope::class)->narrowLayout(request: request(), admin: auth('admin')->user());
             $sidebarOrderCounts = Order::selectRaw('order_status, COUNT(*) as total')
                 ->groupBy('order_status')
                 ->pluck('total', 'order_status');

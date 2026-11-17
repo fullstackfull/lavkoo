@@ -1,0 +1,84 @@
+<?php
+
+namespace App\Services\PlatformAdmin;
+
+use App\Exceptions\PlatformAdminApiException;
+use Carbon\CarbonImmutable;
+
+/**
+ * The span of calendar days an overview reads: from the first moment of the first day to the last moment of the last.
+ * No query of the API reads further back than the longest window. A window that asks for more is cut at its old end, and says so; one that
+ * cannot be read, or whose end comes before its start, is refused.
+ *
+ * The days are those of the zone the rows were stamped in, which is the PHP default zone and not `app.timezone`: Eloquent writes `created_at` with
+ * the wall clock of `Carbon::now()`, and the application sets that zone at boot from the merchant's own `timezone` setting (ConfigServiceProvider),
+ * so it can differ from `app.timezone`. A window built in `app.timezone` would then be hours away from the orders it counts.
+ */
+final readonly class PlatformWindow
+{
+    private function __construct(public CarbonImmutable $from, public CarbonImmutable $to, public bool $clamped)
+    {
+    }
+
+    /**
+     * @throws PlatformAdminApiException
+     */
+    public static function resolve(mixed $from, mixed $to, int $defaultDays, int $maxDays): self
+    {
+        $today = CarbonImmutable::now()->startOfDay();
+
+        $end = $to === null ? $today : self::parse(value: $to);
+        $start = $from === null ? $end->subDays($defaultDays - 1) : self::parse(value: $from);
+
+        if ($start->greaterThan($end)) {
+            throw PlatformAdminApiException::invalidWindow(message: 'The start of the window must not be after its end.');
+        }
+
+        $earliestAllowed = $end->subDays($maxDays - 1);
+        $clamped = $start->lessThan($earliestAllowed);
+
+        return new self(from: $clamped ? $earliestAllowed : $start, to: $end, clamped: $clamped);
+    }
+
+    /** The last days up to today, the span the queries that are not about a window (a backlog, an alert) read at most. */
+    public static function lastDays(int $days): self
+    {
+        $today = CarbonImmutable::now()->startOfDay();
+
+        return new self(from: $today->subDays($days - 1), to: $today, clamped: false);
+    }
+
+    public function startsAt(): CarbonImmutable
+    {
+        return $this->from;
+    }
+
+    /** The first moment after the window: a window ends before it, so that its last second is inside. */
+    public function endsBefore(): CarbonImmutable
+    {
+        return $this->to->addDay();
+    }
+
+    /** @return array{from: string, to: string, days: int, clamped: bool, timezone: string} */
+    public function toArray(): array
+    {
+        return [
+            'from' => $this->from->format('Y-m-d'),
+            'to' => $this->to->format('Y-m-d'),
+            'days' => (int) round($this->from->diffInDays($this->to)) + 1,
+            'clamped' => $this->clamped,
+            'timezone' => date_default_timezone_get(),
+        ];
+    }
+
+    private static function parse(mixed $value): CarbonImmutable
+    {
+        $isDate = is_string($value) && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $parts) === 1 && checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]);
+
+        if (!$isDate) {
+            throw PlatformAdminApiException::invalidWindow(message: 'The window must be given as dates written YYYY-MM-DD.');
+        }
+
+        return CarbonImmutable::create((int) $parts[1], (int) $parts[2], (int) $parts[3], 0, 0, 0);
+    }
+}

@@ -34,6 +34,7 @@ use App\Http\Controllers\RestAPI\v1\ProductController;
 use App\Http\Controllers\RestAPI\v1\ReviewController;
 use App\Http\Controllers\RestAPI\v1\SellerController;
 use App\Http\Controllers\RestAPI\v1\ShippingMethodController;
+use App\Http\Controllers\RestAPI\v1\StorefrontController;
 use App\Http\Controllers\RestAPI\v1\ThemeSectionController;
 use App\Http\Controllers\RestAPI\v1\UserLoyaltyController;
 use App\Http\Controllers\RestAPI\v1\UserWalletController;
@@ -51,7 +52,7 @@ use App\Http\Controllers\Customer\PaymentController;
 |
  */
 
-Route::group(['prefix' => 'v1', 'middleware' => ['api_lang']], function () {
+Route::group(['prefix' => 'v1', 'middleware' => ['api_lang', 'storefront.vary']], function () {
 
 
 
@@ -66,6 +67,8 @@ Route::get('/cash', function () {
         Route::get('config', 'configuration');
         Route::get('business-pages', 'getBusinessPagesList');
     });
+
+    Route::get('storefronts', [StorefrontController::class, 'index'])->middleware('throttle:60,1')->name('api.v1.storefronts');
 
     Route::group(['prefix' => 'address', 'middleware' => ['throttle:120,1,address-catalog-api']], function () {
         Route::get('regions', [AddressCatalogController::class, 'regions']);
@@ -172,7 +175,7 @@ Route::get('/cash', function () {
         });
     });
 
-    Route::group(['prefix' => 'cart', 'middleware' => 'apiGuestCheck'], function () {
+    Route::group(['prefix' => 'cart', 'middleware' => ['apiGuestCheck', 'storefront']], function () {
         Route::controller(CartController::class)->group(function () {
             Route::get('/', 'getCartList');
             Route::post('add', 'addToCart');
@@ -228,7 +231,7 @@ Route::get('/cash', function () {
         });
     });
 
-    Route::group(['prefix' => 'products'], function () {
+    Route::group(['prefix' => 'products', 'middleware' => ['storefront']], function () {
         Route::controller(ProductController::class)->group(function () {
             Route::get('reviews/{slug}', 'get_product_reviews');
             Route::get('rating/{product_id}', 'get_product_rating');
@@ -243,7 +246,7 @@ Route::get('/cash', function () {
     });
 
     Route::group(['middleware' => 'apiGuestCheck'], function () {
-        Route::group(['prefix' => 'products'], function () {
+        Route::group(['prefix' => 'products', 'middleware' => ['storefront']], function () {
             Route::controller(ProductController::class)->group(function () {
                 Route::get('latest', 'get_latest_products');
                 Route::get('new-arrival', 'getNewArrivalProducts');
@@ -321,9 +324,9 @@ Route::get('/cash', function () {
 
             Route::group(['prefix' => 'order'], function () {
                 Route::controller(OrderController::class)->group(function () {
-                    Route::get('place', 'place_order');
+                    Route::get('place', 'place_order')->middleware(['storefront', 'storefront.sellable']);
                     Route::get('offline-payment-method-list', 'offline_payment_method_list');
-                    Route::post('place-by-offline-payment', 'placeOrderByOfflinePayment');
+                    Route::post('place-by-offline-payment', 'placeOrderByOfflinePayment')->middleware(['storefront', 'storefront.sellable']);
                 });
                 Route::controller(CustomerController::class)->group(function () {
                     Route::get('details', 'get_order_details');
@@ -387,11 +390,11 @@ Route::get('/cash', function () {
 
         Route::group(['prefix' => 'order'], function () {
             Route::controller(OrderController::class)->group(function () {
-                Route::get('place-by-wallet', 'placeOrderByWallet');
+                Route::get('place-by-wallet', 'placeOrderByWallet')->middleware(['storefront', 'storefront.sellable']);
                 Route::get('refund', 'refund_request');
                 Route::post('refund-store', 'store_refund');
                 Route::get('refund-details', 'refund_details');
-                Route::post('again', 'order_again');
+                Route::post('again', 'order_again')->middleware(['storefront', 'storefront.sellable']);
             });
 
             Route::controller(CustomerController::class)->group(function () {
@@ -441,11 +444,11 @@ Route::get('/cash', function () {
         });
     });
 
-    Route::group(['prefix' => 'digital-payment', 'middleware' => 'apiGuestCheck'], function () {
+    Route::group(['prefix' => 'digital-payment', 'middleware' => ['apiGuestCheck', 'storefront', 'storefront.sellable']], function () {
         Route::post('/', [PaymentController::class, 'payment']);
     });
 
-    Route::group(['prefix' => 'add-to-fund', 'middleware' => 'auth:api'], function () {
+    Route::group(['prefix' => 'add-to-fund', 'middleware' => ['auth:api', 'storefront', 'storefront.sellable']], function () {
         Route::post('/', [PaymentController::class, 'customer_add_to_fund_request']);
     });
 
@@ -472,7 +475,7 @@ Route::get('/cash', function () {
      * throttled because it walks the theme structure per call; the renderer behind it caches per
      * page, so the throttle is about politeness, not protection.
      */
-    Route::group(['prefix' => 'theme', 'middleware' => ['throttle:60,1']], function () {
+    Route::group(['prefix' => 'theme', 'middleware' => ['throttle:60,1', 'storefront']], function () {
         Route::controller(ThemeSectionController::class)->group(function () {
             Route::get('sections', 'sections')->name('api.v1.theme.sections');
 

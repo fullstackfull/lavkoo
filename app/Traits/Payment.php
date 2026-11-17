@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Services\Storefront\PaymentStorefront;
 use Illuminate\Contracts\Routing\UrlGenerator;
 use Illuminate\Foundation\Application;
 use InvalidArgumentException;
@@ -27,7 +28,7 @@ trait Payment
         $payment->receiver_id = $payment_info->getReceiverId();
         $payment->currency_code = strtoupper($payment_info->getCurrencyCode());
         $payment->payment_method = $payment_info->getPaymentMethod();
-        $payment->additional_data = json_encode($payment_info->getAdditionalData());
+        $payment->additional_data = json_encode(PaymentStorefront::record(additionalData: $payment_info->getAdditionalData()));
         $payment->payer_information = json_encode($payer->information());
         $payment->receiver_information = json_encode($receiver->information());
         $payment->external_redirect_link = $payment_info->getExternalRedirectLink();

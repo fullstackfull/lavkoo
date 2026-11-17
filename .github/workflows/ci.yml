@@ -79,18 +79,18 @@ jobs:
           EXPECT_DB_DRIVER: sqlite
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
-  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with two sets of tests, each job against its own
+  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with three sets of tests (the storefront set is small and runs the products migration on both engines), each job against its own
   # database: the address tests build their tables with the real migrations, which a real engine does slowly, and the two sets together ran past the limit of one job (about 35 minutes
   # on a runner; each set takes about 15 to 20). A MariaDB image answers to the MARIADB_* names; both sets are given so the same service block serves both.
   tests-mysql:
     name: ${{ matrix.group }}, ${{ matrix.engine }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -104,6 +104,13 @@ jobs:
             paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
           - group: Address tests
             paths: tests/Feature/Address
+          - group: Storefront tests
+            # Also the platform admin API tests: the SQL they run for orders, products and refund requests has to meet a real engine, MariaDB included.
+            paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin
+          - group: Catalog tests
+            paths: tests/Feature/Catalog
+          - group: Staff scope tests
+            paths: tests/Feature/StaffScope
     services:
       mysql:
         image: ${{ matrix.image }}

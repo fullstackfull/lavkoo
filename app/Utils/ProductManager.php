@@ -28,6 +28,8 @@ use App\Models\ShippingType;
 use App\Models\StockClearanceProduct;
 use App\Models\Translation;
 use App\Models\Wishlist;
+use App\Services\Storefront\ProductCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
@@ -461,6 +463,15 @@ class ProductManager
         }
     }
 
+    private static function whereInCategory($query, $category)
+    {
+        return $query->where(function ($categoryQuery) use ($category) {
+            $categoryQuery->where(['category_id' => $category])
+                ->orWhere(['sub_category_id' => $category])
+                ->orWhere(['sub_sub_category_id' => $category]);
+        });
+    }
+
     public static function search_products($request, $name, $category = 'all', $limit = 10, $offset = 1): array
     {
         $key = explode(' ', $name);;
@@ -496,9 +507,7 @@ class ProductManager
             });
 
         if (isset($category) && $category != 'all') {
-            $categoryWiseProduct = $productListData->where(['category_id' => $category])
-                ->orWhere(['sub_category_id' => $category])
-                ->orWhere(['sub_sub_category_id' => $category]);
+            $categoryWiseProduct = self::whereInCategory(query: $productListData, category: $category);
             $productListData = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $categoryWiseProduct, dataLimit: $limit, offset: $offset);
         } else {
             $productListData = ProductManager::getPriorityWiseSearchedProductQuery(query: $productListData, keyword: $name, dataLimit: $limit, offset: $offset, type: 'searched');
@@ -557,9 +566,7 @@ class ProductManager
         });
 
         if (isset($category) && $category != 'all') {
-            $categoryWiseProduct = $productListData->where(['category_id' => $category])
-                ->orWhere(['sub_category_id' => $category])
-                ->orWhere(['sub_sub_category_id' => $category]);
+            $categoryWiseProduct = self::whereInCategory(query: $productListData, category: $category);
             $productListData = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $categoryWiseProduct, dataLimit: $limit, offset: $offset);
         } else {
             $productListData = ProductManager::getPriorityWiseSearchedProductQuery(query: $productListData, keyword: $name, dataLimit: $limit, offset: $offset, type: 'searched');
@@ -585,13 +592,11 @@ class ProductManager
         $tagProductIds = ProductTag::whereIn('tag_id', ($tagsId ?? [0]))->pluck('product_id')->toArray() ?? [];
         $productIds = array_merge($productIds, $tagProductIds);
 
-        $productListData = Product::with(['tags', 'clearanceSale' => function ($query) {
+        $productListData = Product::active()->with(['tags', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->whereIn('id', $productIds);
         if ($category != 'all') {
-            $categoryWiseProduct = $productListData->where(['category_id' => $category])
-                ->orWhere(['sub_category_id' => $category])
-                ->orWhere(['sub_sub_category_id' => $category]);
+            $categoryWiseProduct = self::whereInCategory(query: $productListData, category: $category);
             $productListData = ProductManager::getPriorityWiseCategoryWiseProductsQuery(query: $categoryWiseProduct, dataLimit: $limit, offset: $offset);
         } else {
             $productListData = ProductManager::getPriorityWiseSearchedProductQuery(query: $productListData, keyword: $name, dataLimit: $limit, offset: $offset, type: 'translated');
@@ -612,7 +617,7 @@ class ProductManager
             ->where('value', 'like', "%{$name}%")
             ->pluck('translationable_id');
 
-        $productListData = Product::with(['tags', 'translations'])
+        $productListData = Product::active()->with(['tags', 'translations'])
             ->whereIn('id', $translationIds);
 
         if ($category !== 'all') {
@@ -1488,20 +1493,7 @@ class ProductManager
 
         if ($featureDealSortBy && ($featureDealSortBy['custom_sorting_status'] == 1)) {
 
-            $query = $query->when(isset($featureDealSortBy['temporary_close_sorting']) && $featureDealSortBy['temporary_close_sorting'] == 'hide', function ($query) use ($featureDealSortBy) {
-                return $query->where(function ($query) {
-                    return $query->where(['added_by' => 'seller'])->whereHas('seller.shop', function ($query) {
-                        return $query->where(['temporary_close' => 0]);
-                    });
-                })->orWhere(function ($query) use ($featureDealSortBy) {
-                    $inHouseShopInTemporaryClose = Cache::get(IN_HOUSE_SHOP_TEMPORARY_CLOSE_STATUS);
-                    if (!$inHouseShopInTemporaryClose && $featureDealSortBy['temporary_close_sorting'] == 'hide') {
-                        return $query->where(['added_by' => 'admin']);
-                    } else {
-                        return $query;
-                    }
-                });
-            });
+            $query = self::getSortingProductByTemporaryClose(query: $query, temporaryCloseStatus: $featureDealSortBy['temporary_close_sorting'] ?? null);
 
             if ($featureDealSortBy['out_of_stock_product'] == 'hide') {
                 $query = $query->where(function ($query) {
@@ -1623,7 +1615,7 @@ class ProductManager
 
     public static function getPriorityWiseFlashDealsProductsQuery($id = null, $userId = null, $dataLimit = 10): array
     {
-        $cacheKey = 'cache_flash_deal_' . ($id ?? 'default');
+        $cacheKey = storefrontCacheKey(key: 'cache_flash_deal_' . ($id ?? 'default'));
         $cacheKeys = Cache::get(CACHE_FLASH_DEAL_KEYS, []);
 
         if (!in_array($cacheKey, $cacheKeys)) {
@@ -1639,7 +1631,7 @@ class ProductManager
                 ->whereDate('start_date', '<=', date('Y-m-d'))
                 ->whereDate('end_date', '>=', date('Y-m-d'))
                 ->with('seo')
-                ->withCount('products')
+                ->withCount('activeProducts as products_count')
                 ->first();
         });
 
@@ -2178,13 +2170,7 @@ class ProductManager
                 return $query->whereIn('brand_id', $request['brand_ids']);
             })
             ->when($request->has('search_category_value') && !empty($request['search_category_value']) && $request['search_category_value'] != 'all', function ($query) use ($request) {
-                return $query->where(['category_id' => $request['search_category_value']])
-                    ->orWhere(function ($query) use ($request) {
-                        $query->where('sub_category_id', $request['search_category_value']);
-                    })
-                    ->orWhere(function ($query) use ($request) {
-                        $query->where('sub_sub_category_id', $request['search_category_value']);
-                    });
+                return self::whereInCategory(query: $query, category: $request['search_category_value']);
             })
             ->when($request['offer_type'] == 'clearance_sale', function ($query) {
                 $stockClearanceProductIds = StockClearanceProduct::active()->pluck('product_id')->toArray();
@@ -2581,7 +2567,7 @@ class ProductManager
     {
         $user = Helpers::getCustomerInformation($request);
 
-        $cacheKey = 'cache_cart_list_for_' . ($user == 'offline' ? 'guest_' . session('guest_id') ?? ($request->guest_id ?? 0) : 'customer_' . $user->id);
+        $cacheKey = storefrontCacheKey(key: 'cache_cart_list_for_' . ($user == 'offline' ? 'guest_' . session('guest_id') ?? ($request->guest_id ?? 0) : 'customer_' . $user->id));
         self::cacheCartListAllUserKeys(cacheKey: $cacheKey);
 
         $cartItemsList = Cache::remember($cacheKey, CACHE_FOR_3_HOURS, function () use ($request, $user) {
@@ -2908,6 +2894,12 @@ class ProductManager
         if (!empty($request['product_status'])) {
             $filterWhereIn['status'] = array_values($request['product_status']);
         }
+
+        $countries = ProductCountry::filterOf(requestedCountries: $request['filter_storefront_countries'] ?? null);
+        if ($countries !== []) {
+            $filterWhereIn[StorefrontCatalog::COLUMN] = $countries;
+        }
+
         return $filterWhereIn;
     }
 

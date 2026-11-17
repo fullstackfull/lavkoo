@@ -7,9 +7,11 @@ use App\Models\Cart;
 use App\Models\Order;
 use App\Models\ShippingAddress;
 use App\Models\User;
+use App\Services\Storefront\StorefrontCatalog;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\URL;
 
 /**
  * Selects the cart groups that are genuinely abandoned and worth an email (Phase 2.4).
@@ -60,6 +62,21 @@ class AbandonedCartService
     public function isEnabled(): bool
     {
         return (bool) (int) ($this->setting(self::SETTING_ENABLED) ?? 0);
+    }
+
+    /**
+     * A signed link, so the recovery endpoint can trust the reminder id it is handed without anybody being able to walk the sequence and
+     * mark other people's reminders as clicked. The job runs in the console, where every country's carts are seen, so the link carries the
+     * storefront the cart was made in: the website serves the default storefront otherwise, and the cart would open empty.
+     */
+    public function recoveryUrl(AbandonedCartReminder $reminder): string
+    {
+        $parameters = array_filter([
+            'reminder' => $reminder->id,
+            'storefront' => StorefrontCatalog::countryOfCartGroup(cartGroupId: $reminder->cart_group_id),
+        ]);
+
+        return URL::signedRoute('cart.recover', $parameters, now()->addDays(30));
     }
 
     public function includesGuests(): bool
