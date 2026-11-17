@@ -803,7 +803,24 @@ fails the day one reaches it.
 | **Reports and the dashboard** | Done in slice 3: every figure counts the orders of the employee's countries, and what cannot be split (a wallet) is hidden or unavailable (above). |
 | **The vendor panel and seller API staff** | A different principal, with their own staff tables. Sellers have no markets yet (a seller product takes the default of the table), so there is nothing to scope until they do. |
 | **Legal entities** | GCC-14 asks for scopes by country **and entity**. Entities have no table yet; an entity scope is a second dimension beside the country and needs its own decision. |
-| **The platform admin (GCC-20)** | A separate principal with its own tables, untouched by this branch. **Owner decision recorded: a platform admin's grant country list is to be intersected with the staff scope once both are merged**, so that an employee who holds both never sees more than the narrower of the two. |
+| **The platform admin (GCC-20)** | A separate principal with its own tables. **Owner decision recorded and built: a platform admin's grant country list is intersected with the staff scope**, so that an employee who holds both never sees more than the narrower of the two: see the next section. |
+
+## The platform admin API is a consumer of the staff scope (GCC-20)
+
+The decision recorded above is built: **the markets an admin reaches through the platform admin API are the markets of their grant that their staff scope also leaves them.** An employee who holds a
+grant never reaches, through a platform token, a market that this scope forbids them in the admin panel. The API's own side is in `docs/gcc/GCC-20-PLATFORM-ADMIN-API.md`, section 12; it has no switch of its
+own, so `GCC_STAFF_COUNTRY_SCOPES` decides for both.
+
+- **The seam.** `StaffCountryScope::countriesOfAdmin(Admin)` is the rule of `bind()` without the binding: the countries the rows of an admin restrict them to, read from the rows as they are now and kept
+  nowhere, or null when the switch is off or not enforced, for the master admin and for an employee with no row. `PlatformEffectiveMarkets` is its only caller outside the panel, and the one place of the
+  platform API that applies it: every reader of the principal's markets reads what it gives.
+- **The rule.** The grant's markets that the staff countries also hold, in the order of the configuration; a grant for every market held by a restricted employee comes to their countries; no market in
+  common is a principal that sees nothing, not a refusal to sign in. A country that is not configured, or a value that is none, grants nothing, as here.
+- **A restricted employee is no platform owner there.** The API shows them no bucket of orders that belong to no market, and only their own lines of its audit trail, as slice 2 hides the unattributed orders
+  from every restricted employee, the one with all six countries included.
+- **Dormant.** With the switch off, for the master admin, for an employee with no row, and while the table or the products column is missing, the platform API asks nothing about the staff scope and answers
+  exactly what it answered. The rows are read on every request and never kept, so a scope that changes applies to the next request with the same token.
+- **Read only.** The API never writes the table; `gcc:platform-admin:list` and `gcc:platform-admin:grant` show and warn about what the staff scope leaves of a grant, and change nothing.
 
 ## Assumptions and decisions
 
@@ -893,7 +910,7 @@ fails the day one reaches it.
 3. Whether the master admin should be able to restrict **itself** (it cannot today: the commands refuse it).
 4. Whether moderating seller products needs `SA` in the scope until sellers have markets, or a separate permission (assumption 7).
 5. Whether an employee of one country may copy a product from the gallery into a country they do not work with (they cannot today: they cannot see it).
-6. The entity dimension of GCC-14 (legal entities) and the intersection with the platform admin grants: recorded above, not designed here.
+6. The entity dimension of GCC-14 (legal entities): recorded above, not designed here. (The intersection with the platform admin grants is built: see the section on the platform admin API.)
 7. **Unattributed orders** (no line, a deleted product, a product without a country) are hidden from every restricted employee (assumption 12). Whether some role should see them
    (a finance or audit role that is not the master admin) is the owner's: it needs a permission, not a country.
 8. **Mixed-country orders** are visible only to an employee who holds all their countries (assumption 13). Whether the admin POS should refuse to build one for everyone, not only

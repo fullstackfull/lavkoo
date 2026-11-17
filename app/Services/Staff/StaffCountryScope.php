@@ -150,6 +150,29 @@ final class StaffCountryScope
         return array_values(array_map('strval', array_keys((array) config('gcc.storefronts.countries'))));
     }
 
+    /**
+     * The countries the rows of an admin restrict them to, for what is not a screen of the admin panel and so has nothing bound to its request: the platform admin API reads it for
+     * the admin who signs in to it, on every request. It is the rule of `bind()` without the binding, read from the rows as they are now and kept nowhere. The admin may have been
+     * loaded without their role, which is then read.
+     *
+     * @return list<string>|null null when the admin is not restricted: the switch is off or not enforced, they are the master admin, or they hold no row
+     */
+    public function countriesOfAdmin(Admin $admin): ?array
+    {
+        if (!$this->isOn()) {
+            return null;
+        }
+
+        $roleId = $this->roleOf(admin: $admin);
+
+        return $roleId === self::MASTER_ADMIN_ROLE_ID || !$this->enabled() ? null : $this->resolve(adminId: (int) $admin->getKey(), roleId: $roleId);
+    }
+
+    private function roleOf(Admin $admin): ?int
+    {
+        return array_key_exists('admin_role_id', $admin->getAttributes()) ? $admin->admin_role_id : Admin::query()->whereKey($admin->getKey())->value('admin_role_id');
+    }
+
     /** @return list<string>|null what the current request is narrowed to: null when it is not narrowed, an empty list when it may see nothing */
     public function boundCountries(): ?array
     {
