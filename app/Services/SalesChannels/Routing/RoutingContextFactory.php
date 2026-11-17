@@ -8,11 +8,12 @@ use App\Models\ExternalOrderMapping;
 use App\Models\InventoryLocation;
 use App\Services\SalesChannels\Inventory\ChannelOrderReservations;
 use App\Services\SalesChannels\Inventory\PoolNet;
+use App\Services\Catalog\ProductCodeScope;
 
 /** Reads an order and its lines into the facts a routing decision is allowed to use. */
 class RoutingContextFactory
 {
-    public function __construct(private readonly PoolNet $pools)
+    public function __construct(private readonly PoolNet $pools, private readonly ProductCodeScope $codeScope)
     {
     }
 
@@ -21,6 +22,7 @@ class RoutingContextFactory
         $mapping->loadMissing('lines', 'account');
         $snapshot = (array) ($mapping->snapshot ?? []);
         $locations = InventoryLocation::whereIn('id', $mapping->lines->pluck('inventory_location_id')->filter()->unique())->get()->keyBy('id');
+        $productCountries = $this->codeScope->countriesOfProducts($mapping->lines->pluck('product_id')->filter()->unique()->map(static fn ($id): int => (int) $id)->values()->all());
 
         return new RoutingContext(
             mappingId: (int) $mapping->id,
@@ -40,12 +42,12 @@ class RoutingContextFactory
             orderTotal: $mapping->order_total === null ? null : (string) $mapping->order_total,
             currentExecutionPolicy: $mapping->execution_policy,
             alreadyDispatched: $mapping->order_id !== null || $mapping->shipment_link_state === ExternalOrderMapping::LINK_LINKED,
-            lines: $mapping->lines->map(fn (ExternalOrderLine $line): RoutingLine => $this->line($mapping, $line, $locations->get($line->inventory_location_id)))->all(),
+            lines: $mapping->lines->map(fn (ExternalOrderLine $line): RoutingLine => $this->line($mapping, $line, $locations->get($line->inventory_location_id), $productCountries[$line->product_id] ?? null))->all(),
             accountPolicy: ExecutionPolicy::tryFrom((string) $mapping->account?->execution_policy) ?? ExecutionPolicy::ManualReview,
         );
     }
 
-    private function line(ExternalOrderMapping $mapping, ExternalOrderLine $line, ?InventoryLocation $location): RoutingLine
+    private function line(ExternalOrderMapping $mapping, ExternalOrderLine $line, ?InventoryLocation $location, ?string $productCountry): RoutingLine
     {
         // The units this very line holds are not counted against it: the order is asking whether the shelf covers it, and it was reserved a moment ago when it was read.
         $confirmed = $location !== null && $line->product_id !== null
@@ -61,6 +63,7 @@ class RoutingContextFactory
             provider: $location?->provider,
             stockConfirmed: $confirmed,
             cancelled: $line->activeQuantity() === 0,
+            productCountry: $productCountry,
         );
     }
 }

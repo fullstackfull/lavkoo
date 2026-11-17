@@ -158,6 +158,49 @@ final class ProductCodeScope
         return $countries->count() === 1 && is_string($countries->first()) && $countries->first() !== '' ? $countries->first() : null;
     }
 
+    /**
+     * The country of the store products a fulfilment provider's items are matched to. Provider connections have no country of their own yet, so
+     * every one serves the default storefront's. Null while the scope does not apply.
+     */
+    public function countryOfProviderProducts(): ?string
+    {
+        return $this->enabled() ? ProductCountry::defaultCountry() : null;
+    }
+
+    /**
+     * Whether a routing rule written for a SKU may fire for a line whose product is in the given country. A rule that names a country is for that
+     * country's products; a rule that names none was written when the platform had one country, so it is for the default storefront's. A product
+     * of no known country satisfies no SKU rule. Always true while the scope does not apply.
+     */
+    public function skuRuleAppliesTo(?string $ruleCountry, ?string $productCountry): bool
+    {
+        if (!$this->enabled()) {
+            return true;
+        }
+
+        $ruleCountry = $ruleCountry === null ? '' : strtoupper(trim($ruleCountry));
+
+        return $productCountry === ($ruleCountry === '' ? ProductCountry::defaultCountry() : $ruleCountry);
+    }
+
+    /**
+     * The country of each of the given products, by product id, while the scope applies. A product that is gone, or has no country, is not in it.
+     *
+     * @param list<int> $productIds
+     * @return array<int, string>
+     */
+    public function countriesOfProducts(array $productIds): array
+    {
+        if ($productIds === [] || !$this->enabled()) {
+            return [];
+        }
+
+        return DB::table(self::TABLE)->whereIn('id', $productIds)->pluck(StorefrontCatalog::COLUMN, 'id')
+            ->map(static fn ($country): string => (string) $country)
+            ->filter(static fn (string $country): bool => $country !== '')
+            ->all();
+    }
+
     /** What a picker row adds to a product's label so that two countries' products of one name can be told apart: nothing unless the scope applies. */
     public function countryTag(object $product): string
     {
