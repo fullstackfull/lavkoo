@@ -274,6 +274,9 @@ class AtomicFileTest extends TestCase
     #[DataProvider('filesWithAnotherOwner')]
     public function test_a_file_is_replaced_only_where_the_writer_can_give_the_new_file_to_the_owner_of_the_old_one(int $owner, int $group, int $mode, ?int $directoryGroup, bool $isReplaced): void
     {
+        if (!function_exists('posix_geteuid') || posix_geteuid() !== 0) {
+            $this->markTestSkipped('only root may give a file to another user, and run a process as one');
+        }
         $path = $this->directory . '/settings.txt';
         file_put_contents($path, "first\n");
         chown($path, $owner);

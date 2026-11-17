@@ -70,19 +70,25 @@ class TranslationWriterTest extends TestCase
         $writers = array_map($this->startWriter(...), range(1, self::WRITERS));
 
         $cutReads = 0;
-        $statuses = [];
+        $exitCodes = [];
         do {
+            $isRunning = false;
             foreach ($writers as $index => $writer) {
-                $statuses[$index] = proc_get_status($writer['process']);
+                $status = proc_get_status($writer['process']);
+                $isRunning = $isRunning || $status['running'];
+                // only the first look at a process that has ended tells its exit code: every later one answers -1
+                if (!$status['running'] && !array_key_exists($index, $exitCodes)) {
+                    $exitCodes[$index] = $status['exitcode'];
+                }
             }
             $content = (string) @file_get_contents($path);
             if (!str_starts_with($content, "<?php\n") || !str_ends_with($content, "];\n")) {
                 $cutReads++;
             }
-        } while (in_array(true, array_column($statuses, 'running'), true));
+        } while ($isRunning);
 
         foreach ($writers as $index => $writer) {
-            $this->assertSame(0, $statuses[$index]['exitcode'], (string) stream_get_contents($writer['pipes'][2]));
+            $this->assertSame(0, $exitCodes[$index], (string) stream_get_contents($writer['pipes'][2]));
         }
         $messages = include $path;
         $this->assertIsArray($messages, 'the file does not parse');
