@@ -9,12 +9,15 @@ use App\Http\Controllers\BaseController;
 use App\Models\BusinessPage;
 use App\Traits\FileManagerTrait;
 use App\Utils\FileManagerLogic;
+use App\Utils\PlainFileName;
+use App\Utils\SitemapXml;
 use Carbon\Carbon;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Collection;
@@ -223,44 +226,51 @@ class SiteMapController extends BaseController
 
     public function getDownload(Request $request): BinaryFileResponse|RedirectResponse
     {
-        if ($request['path']) {
-            $fileName = base64_decode($request['path']);
-            if (File::exists(storage_path('app/public/sitemap/' . $fileName))) {
-                return response()->download(storage_path('app/public/sitemap/' . $fileName));
-            }
+        $filePath = $this->sitemapFilePath(encodedName: $request['path']);
+        if ($filePath !== null) {
+            return response()->download($filePath);
         }
         return redirect()->route('admin.seo-settings.sitemap');
     }
 
     public function getUpload(Request $request): RedirectResponse
     {
-        if ($request->file('xml_file')->getClientOriginalExtension() != 'xml') {
+        $sitemapFile = $request->file('xml_file');
+        $sitemapContent = $sitemapFile instanceof UploadedFile && $sitemapFile->isValid() && strtolower($sitemapFile->getClientOriginalExtension()) === 'xml'
+            ? (string)file_get_contents($sitemapFile->getRealPath())
+            : '';
+
+        if (!SitemapXml::isSitemap(xml: $sitemapContent)) {
             ToastMagic::error(translate('Please_upload_a_xml_file'));
-        } elseif ($request->file('xml_file')) {
-            $fileName = 'sitemap-' . Str::slug(Carbon::now()) . '.xml';
-            $request->file('xml_file')->storeAs('public/sitemap', $fileName);
-            if (File::exists(public_path('sitemap.xml'))) {
-                File::delete(public_path('sitemap.xml'));
-            }
-            if (File::exists(base_path('sitemap.xml'))) {
-                File::delete(base_path('sitemap.xml'));
-            }
-            File::put(public_path('sitemap.xml'), $request->file('xml_file'));
-            File::put(base_path('sitemap.xml'), $request->file('xml_file'));
-            ToastMagic::success(translate('successfully_upload'));
+            return redirect()->route('admin.seo-settings.sitemap');
         }
+
+        $fileName = 'sitemap-' . Str::slug(Carbon::now()) . '.xml';
+        $sitemapFile->storeAs('public/sitemap', $fileName);
+        foreach ([public_path('sitemap.xml'), base_path('sitemap.xml')] as $publishedPath) {
+            File::put($publishedPath, $sitemapContent);
+        }
+        ToastMagic::success(translate('successfully_upload'));
         return redirect()->route('admin.seo-settings.sitemap');
     }
 
     public function getDelete(Request $request): RedirectResponse
     {
-        if ($request['path']) {
-            $fileName = base64_decode($request['path']);
-            if (File::exists(storage_path('app/public/sitemap/' . $fileName))) {
-                File::delete(storage_path('app/public/sitemap/' . $fileName));
-                ToastMagic::success(translate('successfully_delete'));
-            }
+        $filePath = $this->sitemapFilePath(encodedName: $request['path']);
+        if ($filePath !== null) {
+            File::delete($filePath);
+            ToastMagic::success(translate('successfully_delete'));
         }
         return redirect()->route('admin.seo-settings.sitemap');
+    }
+
+    /** The stored sitemap the list names: the name is one plain segment of the sitemap directory, never a path (the link carries it base64-encoded). */
+    private function sitemapFilePath(mixed $encodedName): ?string
+    {
+        $decodedName = is_string($encodedName) ? base64_decode(string: $encodedName, strict: true) : null;
+        $fileName = PlainFileName::of(name: $decodedName);
+        $filePath = $fileName === null ? null : storage_path('app/public/sitemap/' . $fileName);
+
+        return $filePath !== null && is_file($filePath) ? $filePath : null;
     }
 }

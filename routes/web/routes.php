@@ -175,8 +175,11 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(502, 'Upstream fetch failed');
     }
 
-    $contentType = (string) $response->header('Content-Type');
-    if (!str_starts_with(strtolower($contentType), 'image/')) {
+    // The upstream chooses its own Content-Type, and what is answered here is on the shop's own origin: an SVG is a page that runs script, so only
+    // raster images are proxied, and the answer says it is not to be sniffed into anything else or to run anything.
+    $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+    $rasterImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon'];
+    if (!in_array($contentType, $rasterImageTypes, true)) {
         abort(415, 'Only image responses are proxied');
     }
 
@@ -185,7 +188,12 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(413, 'Image too large');
     }
 
-    return response($body, 200)->header('Content-Type', $contentType);
+    return response($body, 200)->withHeaders([
+        'Content-Type' => $contentType,
+        'X-Content-Type-Options' => 'nosniff',
+        'Content-Security-Policy' => "default-src 'none'; sandbox",
+        'Content-Disposition' => 'inline',
+    ]);
 })->middleware('throttle:30,1');
 
 /*

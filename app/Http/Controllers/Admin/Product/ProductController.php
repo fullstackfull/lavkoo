@@ -629,14 +629,20 @@ class ProductController extends BaseController
 
     public function deleteImage(Request $request, ProductService $service): RedirectResponse
     {
-        $this->deleteFile(filePath: '/product/' . $request['image']);
         $product = $this->productRepo->getFirstWhere(params: ['id' => $request['id']]);
+        if (!$product) {
+            ToastMagic::error(translate('product_not_found') . '!');
+            return back();
+        }
 
         if (count(json_decode($product['images'])) < 2) {
             ToastMagic::warning(translate('you_can_not_delete_all_images'));
             return back();
         }
 
+        if (in_array($request['image'], $service->imageNames(product: $product), true)) {
+            $this->deleteFile(filePath: '/product/' . $request['image']);
+        }
         $imageProcessing = $service->deleteImage(request: $request, product: $product);
 
         $updateData = [

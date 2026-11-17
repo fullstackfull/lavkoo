@@ -9,6 +9,7 @@ use Illuminate\Validation\Validator;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 use App\Http\Requests\Concerns\ChecksBrandEntitlement;
+use App\Rules\StoredFileNames;
 
 class ProductAddRequest extends Request
 {
@@ -52,7 +53,12 @@ class ProductAddRequest extends Request
             'barcode' => 'nullable|regex:/^[a-zA-Z0-9\-]+$/|max:64|unique:products,barcode',
             'minimum_order_qty' => 'required' . '|' . 'numeric' . '|' . 'min' . ':1',
             'video_url' => 'nullable|url',
-        ];
+            // The names of files that were uploaded earlier (a copy from the product gallery posts them back): each is one plain name.
+            'existing_thumbnail' => [new StoredFileNames()],
+            'existing_images' => [new StoredFileNames()],
+            'existing_preview_file' => [new StoredFileNames()],
+            'existing_meta_image' => [new StoredFileNames()],
+        ] + StoredFileNames::forColorImages(fields: array_keys($this->all()));
 
         if (!isset($this['existing_thumbnail'])) {
             $rules['image'] = 'required';

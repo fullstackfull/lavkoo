@@ -4,6 +4,7 @@ use App\Utils\RequestArea;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
+use App\Utils\AtomicFile;
 
 if (!function_exists('translate')) {
     function translate($key = null): string|null
@@ -13,7 +14,9 @@ if (!function_exists('translate')) {
             App::setLocale($local);
             $key = getOrPutTranslateMessageValueByKey(local: $local, key: $key);
         }
-        App::setLocale(getLanguageCode(country_code: $local));
+        if (!isApiRequest()) {
+            App::setLocale(getLanguageCode(country_code: $local));
+        }
         return $key;
     }
 
@@ -26,22 +29,11 @@ if (!function_exists('translate')) {
             $key = str_replace(' ', '_', $key);
             $processedKey = ucfirst(str_replace('_', ' ', removeSpecialCharacters($key)));
 
-            if (!array_key_exists($key, $translatedMessagesArray) && !array_key_exists($key, $newMessagesArray)) {
-                $newMessagesArray[$key] = $processedKey;
+            $isKnown = array_key_exists($key, $translatedMessagesArray) || array_key_exists($key, $newMessagesArray);
 
-                // var_export, not string concatenation: a translation carrying a quote, a
-                // backslash or a $ used to be written into a double-quoted PHP string as-is, which
-                // made the file unparsable — and this file is included on EVERY translate() call,
-                // so one such value took the whole site down with a fatal on every request.
-                $languageFileContents = "<?php\n\nreturn [\n";
-                foreach ($newMessagesArray as $languageKey => $value) {
-                    $languageFileContents .= "\t" . var_export((string) $languageKey, true)
-                        . ' => ' . var_export((string) $value, true) . ",\n";
-                }
-                $languageFileContents .= "];\n";
-
+            if (!$isKnown && !isTranslationKeyWithMarkup(key: $key)) {
                 $targetPath = base_path('resources/lang/' . $local . '/new-messages.php');
-                file_put_contents($targetPath, $languageFileContents);
+                addNewTranslationMessage(path: $targetPath, key: $key, message: $processedKey);
 
                 // Two caches still hold the PRE-write copy of the file we just rewrote, and both
                 // answer the next translate() call in this same request with stale data:
@@ -53,12 +45,14 @@ if (!function_exists('translate')) {
                 //     __('new-messages.<key>') against the copy read before the write, printing the
                 //     raw key — "New-messages.free_delivery" instead of "Free delivery".
                 if (function_exists('opcache_invalidate')) {
-                    opcache_invalidate($targetPath, true);
+                    @opcache_invalidate($targetPath, true);
                 }
                 $translator = app('translator');
                 $translator->load('*', 'new-messages', $local);
                 $translator->addLines(['new-messages.' . $key => $processedKey], $local);
 
+                $message = $processedKey;
+            } elseif (!$isKnown) {
                 $message = $processedKey;
             } elseif (array_key_exists($key, $translatedMessagesArray)) {
                 $message = __('messages.' . $key);
@@ -75,6 +69,56 @@ if (!function_exists('translate')) {
             $message = ucfirst(str_replace('_', ' ', removeSpecialCharacters(str_replace("\'", "'", $key))));
         }
         return $local == 'en' ? ucfirst($message) : $message;
+    }
+}
+
+if (!function_exists('addNewTranslationMessage')) {
+    /**
+     * Adds a message to a language file. Every request that renders a page with a key the file does not know does it at the same moment, so the
+     * file is read again once the lock is held (a key that another request added meanwhile stays, with its text) and replaced in one step.
+     * Where the file system has no locks the key is added without one, as it was before the lock: a key that a concurrent add loses is added again
+     * by the next request that renders it, and there is no screen that could tell anyone the page could not store it.
+     */
+    function addNewTranslationMessage(string $path, string $key, string $message): void
+    {
+        AtomicFile::rewrite(path: $path, change: function () use ($path, $key, $message): string {
+            if (function_exists('opcache_invalidate')) {
+                @opcache_invalidate($path, true);
+            }
+            $messages = include $path;
+            $messages[$key] ??= $message;
+
+            return getLanguageFileContents(messages: $messages);
+        }, lockIsRequired: false);
+    }
+}
+
+if (!function_exists('getLanguageFileContents')) {
+    /**
+     * The text of a language file. var_export, not string concatenation: a translation carrying a quote, a backslash or a $ used to be written
+     * into a double-quoted PHP string as-is, which made the file unparsable (or ran it) — and this file is included on EVERY translate() call,
+     * so one such value took the whole site down with a fatal on every request.
+     */
+    function getLanguageFileContents(array $messages): string
+    {
+        $contents = "<?php\n\nreturn [\n";
+        foreach ($messages as $key => $value) {
+            $contents .= "\t" . var_export((string) $key, true) . ' => ' . var_export((string) $value, true) . ",\n";
+        }
+
+        return $contents . "];\n";
+    }
+}
+
+if (!function_exists('isTranslationKeyWithMarkup')) {
+    /**
+     * A page may hand translate() a value a visitor chose (`translate(request('type'))`), and a key that was not known is written into the
+     * language file, which the admin's translation screen lists. A key that holds a tag or a control character is never stored: its text is
+     * shown with the characters removed, and nothing a visitor typed becomes a row of the admin's screen.
+     */
+    function isTranslationKeyWithMarkup(string $key): bool
+    {
+        return preg_match('/[<>\x00-\x1F\x7F]/', $key) === 1;
     }
 }
 
@@ -98,6 +142,14 @@ if (!function_exists('removeSpecialCharacters')) {
     function removeSpecialCharacters(string|null $text): string|null
     {
         return str_ireplace(['\'', '"', ';', '<', '>', '?', '“', '”'], ' ', preg_replace('/\s\s+/', ' ', $text));
+    }
+}
+
+if (!function_exists('isApiRequest')) {
+    /** The API names its language in a header, which its middleware turns into the locale of the whole request. */
+    function isApiRequest(): bool
+    {
+        return request()->segment(1) === 'api';
     }
 }
 
