@@ -879,9 +879,9 @@ fails the day one reaches it.
   for its subject; the SQL is the same (a test compares the statements).
 - The composer of the admin layout binds the request when nothing has: for the master admin and the switch off it asks nothing more; for an employee with no country, three small reads.
 - `StaffCountryScope::bind` no longer probes the schema for the master admin (slices 1 and 2 probed twice on a covered screen with the switch on): fewer reads, the same answers.
-- Thirteen controllers of the people, the dashboard and the reports hold one more middleware, which lets the request through after one configuration read.
+- Seventeen controllers of the people, the dashboard, the reports and the tax reports hold one more middleware, which lets the request through after one configuration read.
 - The dashboard hands its page one more key (`wallet_figures_hidden`), false for everyone but a restricted employee, and reads the wallets only when it is false.
-- Four pages carry a condition that leaves a wallet card out for a restricted employee (the dashboard, the earning page of a delivery man, the page of a vendor).
+- Three pages carry a condition that leaves a wallet card out for a restricted employee (the dashboard, the earning page of a delivery man, the page of a vendor).
 - The search of the header calls a filter that keeps every hit when the employee is not restricted, and asks the database nothing then.
 
 ## Open owner decisions
@@ -965,4 +965,3 @@ analytics (`StaffTaxAndAnalyticsTest`), the matrix (`StaffSixCountryReportMatrix
 survey (`StaffOrderRouteInventoryTest`, with probes that prove the scan finds a new controller, a path and a parameter). The detector of a read that is not narrowed lets through the
 rows that hang off a row a screen has already read (`where order_details.order_id in (102, 103)`, `where orders.id in (101, 102)`), which are as narrow as the rows they come from.
 The pages of the real layout and of most real views are not rendered by these tests (they render to nothing), so a test reads the source of the three views that carry a condition.
-
