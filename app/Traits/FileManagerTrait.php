@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Services\DigitalProductFileService;
 use App\Utils\PlainFileName;
 use App\Utils\SharedProductFile;
 use App\Utils\StoredFileExtension;
@@ -63,11 +64,12 @@ trait FileManagerTrait
      * @param string $dir
      * @param string $format
      * @param $file
+     * @param string|null $disk the disk to store the file on, where it is not the one every upload goes to
      * @return string
      */
-    public function fileUpload(string $dir, string $format, $file = null): string
+    public function fileUpload(string $dir, string $format, $file = null, ?string $disk = null): string
     {
-        $storage = config('filesystems.disks.default') ?? 'public';
+        $storage = $disk ?? config('filesystems.disks.default') ?? 'public';
         Cache::forget("cache_all_files_for_public_storage");
 
         if (!is_null($file)) {
@@ -91,13 +93,14 @@ trait FileManagerTrait
      * @param string $format
      * @param $image
      * @param string $fileType image/file
+     * @param string|null $disk the disk to store a file on, where it is not the one every upload goes to
      * @return string
      */
-    public function update(string $dir, $oldImage, string $format, $image, string $fileType = 'image'): string
+    public function update(string $dir, $oldImage, string $format, $image, string $fileType = 'image', ?string $disk = null): string
     {
         $this->deleteUnsharedFiles(filePaths: [$dir . $oldImage]);
 
-        return $fileType == 'file' ? $this->fileUpload($dir, $format, $image) : $this->upload($dir, $format, $image);
+        return $fileType == 'file' ? $this->fileUpload($dir, $format, $image, $disk) : $this->upload($dir, $format, $image);
     }
 
     /**
@@ -134,6 +137,7 @@ trait FileManagerTrait
         $stored = array_filter($filePaths, fn (string $filePath): bool => PlainFileName::staysInside(path: $filePath) && $this->checkFileExists(filePath: $filePath)['status']);
         foreach (array_diff($stored, SharedProductFile::sharedAmong(paths: $stored)) as $filePath) {
             Storage::disk($this->checkFileExists(filePath: $filePath)['disk'])->delete($filePath);
+            app(DigitalProductFileService::class)->deletePrivateCopy(path: $filePath);
         }
     }
 
@@ -158,6 +162,11 @@ trait FileManagerTrait
             return [
                 'status' => true,
                 'disk' => 's3'
+            ];
+        } elseif (app(DigitalProductFileService::class)->holdsPrivately(path: $filePath)) {
+            return [
+                'status' => true,
+                'disk' => DigitalProductFileService::PRIVATE_DISK
             ];
         } else {
             return [

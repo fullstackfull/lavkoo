@@ -32,6 +32,7 @@ use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Repositories\DigitalProductPublishingHouseRepository;
 use App\Repositories\TranslationRepository;
+use App\Services\DigitalProductFileService;
 use App\Services\ProductService;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
@@ -86,7 +87,8 @@ class ProductController extends BaseController
         private readonly VendorRepositoryInterface                  $vendorRepo,
         private readonly ShopRepositoryInterface                    $shopRepo,
         private readonly ProductService                             $productService,
-        private readonly AIUsageManagerService                      $AIUsageManagerService
+        private readonly AIUsageManagerService                      $AIUsageManagerService,
+        private readonly DigitalProductFileService                  $digitalFiles,
     )
     {
     }
@@ -436,7 +438,7 @@ class ProductController extends BaseController
                     }
                     $uploadedFile = '';
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     $this->digitalProductVariationRepo->add(data: [
                         'product_id' => $product['id'],
@@ -467,7 +469,7 @@ class ProductController extends BaseController
                     $uploadedFile = $variation['file'] ?? '';
                     $variation = $this->digitalProductVariationRepo->getFirstWhere(params: ['product_id' => $product['id'], 'variant_key' => $variation['variant_key']]);
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     $this->digitalProductVariationRepo->updateByParams(params: ['product_id' => $product['id'], 'variant_key' => $variation['variant_key']], data: [
                         'variant_key' => $request->input('digital_product_variant_key.' . $uniqueKey),

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
 use App\Enums\Address\AddressChannel;
+use App\Services\DigitalProductFileService;
 use App\Services\OrderAddressUpdateService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Contracts\Repositories\OrderRepositoryInterface;
@@ -26,7 +27,6 @@ use App\Utils\BackEndHelper;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
-use App\Utils\ImageManager;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -49,6 +49,7 @@ class OrderController extends Controller
         private Order                             $order,
         private readonly OrderRepositoryInterface $orderRepo,
         private readonly OrderAddressUpdateService $addressUpdates,
+        private readonly DigitalProductFileService $digitalFiles,
     )
     {
     }
@@ -358,7 +359,7 @@ class OrderController extends Controller
         // Scope the order line to the seller so one seller cannot overwrite another's delivered digital file.
         $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
         if ($order_details) {
-            $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
+            $order_details->digital_file_after_sell = $this->digitalFiles->replace(oldName: $order_details->digital_file_after_sell, file: $request->file('digital_file_after_sell'));
             $order_details->save();
             return response()->json(['success' => 1, 'message' => translate('File_upload_successfully')], 200);
         } else {

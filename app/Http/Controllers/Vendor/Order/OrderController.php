@@ -34,13 +34,13 @@ use App\Services\CustomerWalletService;
 use App\Services\DeliveryCountryCodeService;
 use App\Services\DeliveryManTransactionService;
 use App\Services\DeliveryManWalletService;
+use App\Services\DigitalProductFileService;
 use App\Services\OrderAddressUpdateService;
 use App\Services\OrderEditReturnAmountService;
 use App\Services\OrderEditService;
 use App\Services\OrderService;
 use App\Services\OrderStatusHistoryService;
 use App\Traits\CustomerTrait;
-use App\Traits\FileManagerTrait;
 use App\Traits\OrderEditManager;
 use App\Traits\PdfGenerator;
 use App\Utils\CustomerManager;
@@ -70,10 +70,6 @@ class OrderController extends BaseController
     use CustomerTrait;
     use PdfGenerator;
     use OrderEditManager;
-    use FileManagerTrait {
-        delete as deleteFile;
-        update as updateFile;
-    }
 
     public function __construct(
         private readonly OrderRepositoryInterface                   $orderRepo,
@@ -96,6 +92,7 @@ class OrderController extends BaseController
         private readonly VendorWalletRepositoryInterface            $vendorWalletRepo,
         private readonly OrderEditHistoryRepositoryInterface        $orderEditHistoryRepo,
         private readonly AdminWalletRepositoryInterface             $adminWalletRepo,
+        private readonly DigitalProductFileService                  $digitalFiles,
     )
     {
     }
@@ -895,7 +892,7 @@ class OrderController extends BaseController
             ToastMagic::error(translate('access_denied'));
             return back();
         }
-        $digitalFileAfterSell = $this->updateFile(dir: 'product/digital-product/', oldImage: $orderDetails['digital_file_after_sell'], format: $request['digital_file_after_sell']->getClientOriginalExtension(), image: $request->file('digital_file_after_sell'), fileType: 'file');
+        $digitalFileAfterSell = $this->digitalFiles->replace(oldName: $orderDetails['digital_file_after_sell'], file: $request->file('digital_file_after_sell'));
         if ($this->orderDetailRepo->update(id: $orderDetails['id'], data: ['digital_file_after_sell' => $digitalFileAfterSell])) {
             ToastMagic::success(translate('digital_file_upload_successfully'));
         } else {

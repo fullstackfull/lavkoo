@@ -10,6 +10,7 @@ use App\Models\FlashDealProduct;
 use App\Models\Product;
 use App\Models\Translation;
 use App\Rules\StoredFileNames;
+use App\Services\DigitalProductFileService;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
@@ -116,7 +117,7 @@ class ProductController extends Controller
                 return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
             }
 
-            $file = ImageManager::file_upload('product/digital-product/', $request->digital_file_ready->getClientOriginalExtension(), $request->file('digital_file_ready'));
+            $file = app(DigitalProductFileService::class)->store(file: $request->file('digital_file_ready'));
 
             return response()->json(['digital_file_ready_name' => $file], 200);
         } catch (\Exception $e) {

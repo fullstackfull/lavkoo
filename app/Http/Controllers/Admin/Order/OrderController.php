@@ -16,6 +16,7 @@ use App\Events\RefundEvent;
 use App\Http\Requests\Admin\RefundStatusRequest;
 use App\Models\OrderEditHistory;
 use App\Services\CustomerWalletService;
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\OrderAddressUpdateService;
 use App\Services\OrderEditReturnAmountService;
@@ -38,7 +39,6 @@ use App\Traits\CustomerTrait;
 use App\Services\OrderService;
 use App\Events\OrderStatusEvent;
 use App\Models\ReferralCustomer;
-use App\Traits\FileManagerTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
@@ -84,10 +84,6 @@ class OrderController extends BaseController
     use CustomerTrait;
     use PdfGenerator;
     use OrderEditManager;
-    use FileManagerTrait {
-        delete as deleteFile;
-        update as updateFile;
-    }
 
     public function __construct(
         private readonly AuthorRepositoryInterface                       $authorRepo,
@@ -115,6 +111,7 @@ class OrderController extends BaseController
         private readonly VendorWalletRepositoryInterface                 $vendorWalletRepo,
         private readonly WalletTransactionRepositoryInterface            $walletTransactionRepo,
         private readonly OrderEditHistoryRepositoryInterface             $orderEditHistoryRepo,
+        private readonly DigitalProductFileService                       $digitalFiles,
     )
     {
     }
@@ -993,7 +990,7 @@ class OrderController extends BaseController
     public function uploadDigitalFileAfterSell(UploadDigitalFileAfterSellRequest $request): RedirectResponse
     {
         $orderDetails = $this->orderDetailRepo->getFirstWhere(['id' => $request['order_id']]);
-        $digitalFileAfterSell = $this->updateFile(dir: 'product/digital-product/', oldImage: $orderDetails['digital_file_after_sell'], format: $request['digital_file_after_sell']->getClientOriginalExtension(), image: $request->file('digital_file_after_sell'), fileType: 'file');
+        $digitalFileAfterSell = $this->digitalFiles->replace(oldName: $orderDetails['digital_file_after_sell'], file: $request->file('digital_file_after_sell'));
 
         if ($this->orderDetailRepo->update(id: $orderDetails['id'], data: ['digital_file_after_sell' => $digitalFileAfterSell])) {
             ToastMagic::success(translate('digital_file_upload_successfully'));
