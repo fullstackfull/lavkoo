@@ -23,33 +23,6 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ProductController extends Controller
 {
-    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
-    {
-        $seller = Helpers::getSellerByToken($request);
-        if (!$seller) {
-            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
-        }
-        $digitalFiles = app(DigitalProductFileService::class);
-
-        return $digitalFiles->download(name: $digitalFiles->nameOfProductOfSeller(sellerId: $seller['id'], id: $id)) ?? $this->fileNotFound();
-    }
-
-    public function downloadDigitalVariationFile(Request $request, $id): BinaryFileResponse|JsonResponse
-    {
-        $seller = Helpers::getSellerByToken($request);
-        if (!$seller) {
-            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
-        }
-        $digitalFiles = app(DigitalProductFileService::class);
-
-        return $digitalFiles->download(name: $digitalFiles->nameOfVariationOfSeller(sellerId: $seller['id'], id: $id)) ?? $this->fileNotFound();
-    }
-
-    private function fileNotFound(): JsonResponse
-    {
-        return response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
-    }
-
     public function list(Request $request):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -714,5 +687,32 @@ class ProductController extends Controller
             return response()->json(['message' => translate('Please update product code!')], 203);
         }
 
+    }
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        $seller = Helpers::getSellerByToken($request);
+        if (!$seller) {
+            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
+        }
+        $digitalFiles = app(DigitalProductFileService::class);
+
+        return $digitalFiles->download(name: $digitalFiles->nameOfProductOfSeller(sellerId: $seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    public function downloadDigitalVariationFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        $seller = Helpers::getSellerByToken($request);
+        if (!$seller) {
+            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
+        }
+        $digitalFiles = app(DigitalProductFileService::class);
+
+        return $digitalFiles->download(name: $digitalFiles->nameOfVariationOfSeller(sellerId: $seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    private function fileNotFound(): JsonResponse
+    {
+        return response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
     }
 }

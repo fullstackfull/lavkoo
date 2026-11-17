@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Services\DigitalFileAddressService;
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,6 +15,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\Taxable;
+use App\Services\DigitalFileAddressService;
 
 /**
  * @property int $user_id

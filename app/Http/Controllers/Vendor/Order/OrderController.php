@@ -883,6 +883,11 @@ class OrderController extends BaseController
         return response()->json(['status' => $status, 'message' => $message], $status ? 200 : 403);
     }
 
+    public function downloadDigitalFile(string|int $id): BinaryFileResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLineOfSeller(sellerId: auth('seller')->id(), id: $id)) ?? abort(404);
+    }
+
     public function uploadDigitalFileAfterSell(UploadDigitalFileAfterSellRequest $request): RedirectResponse
     {
         // Scope to the seller's own order line — otherwise a seller could overwrite the delivered digital
@@ -899,11 +904,6 @@ class OrderController extends BaseController
             ToastMagic::error(translate('digital_file_upload_failed'));
         }
         return back();
-    }
-
-    public function downloadDigitalFile(string|int $id): BinaryFileResponse
-    {
-        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLineOfSeller(sellerId: auth('seller')->id(), id: $id)) ?? abort(404);
     }
 
 
