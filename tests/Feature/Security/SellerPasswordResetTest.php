@@ -637,6 +637,28 @@ class SellerPasswordResetTest extends TestCase
         $this->assertKeepsPassword($victim);
     }
 
+    /** @return array<string, array{string}> */
+    public static function phonesThatAreNotTheOwnerOfANumberWithATrunkZero(): array
+    {
+        return [
+            'another last digit' => ['+963912345679'],
+            'the same digits under another country' => ['+961912345678'],
+        ];
+    }
+
+    #[DataProvider('phonesThatAreNotTheOwnerOfANumberWithATrunkZero')]
+    public function test_a_session_google_issued_to_another_phone_proves_nothing_about_a_number_registered_with_a_trunk_zero(string $attackersPhone): void
+    {
+        $victim = $this->seller(phone: '+9630912345678', email: 'victim@example.test');
+        $this->firebaseKnows(sessions: ['attacker-own-session' => ['phone' => $attackersPhone, 'code' => '246802']]);
+
+        $this->storeFirebaseSession(identity: '+9630912345678', session: 'attacker-own-session')->assertOk();
+        $this->verifyFirebaseCode(phone: '+9630912345678', session: 'attacker-own-session', code: '246802')->assertNotFound();
+
+        $this->resetPasswordTheWayTheAppDoes(phone: '+9630912345678', session: 'attacker-own-session')->assertStatus(400);
+        $this->assertKeepsPassword($victim);
+    }
+
     /** @return array<string, array{string, string}> what the seller registered with, and what Google calls the same Saudi number */
     public static function sameSaudiNumberWrittenDifferently(): array
     {
@@ -660,17 +682,29 @@ class SellerPasswordResetTest extends TestCase
         $this->assertTookPassword($owner);
     }
 
-    /** @return array<string, array{string, string}> what the seller registered with, and what Google calls the same Gulf number */
-    public static function sameGulfNumberWrittenDifferently(): array
+    /** @return array<string, array{string, string}> what the seller registered with, and what Google calls the same number of another country */
+    public static function sameNumberOfAnotherCountryWrittenDifferently(): array
     {
         return [
             'the Emirates with the trunk zero kept after the country code' => ['+9710501234567', '+971501234567'],
             'Kuwait with the trunk zero kept after the country code' => ['+965050012345', '+96550012345'],
+            'Egypt with the trunk zero kept after the country code' => ['+2001012345678', '+201012345678'],
+            'Turkey with the trunk zero kept after the country code' => ['+9005321234567', '+905321234567'],
+            'Morocco with the trunk zero kept after the country code' => ['+2120612345678', '+212612345678'],
+            'Algeria with the trunk zero kept after the country code' => ['+2130551234567', '+213551234567'],
+            'Libya with the trunk zero kept after the country code' => ['+2180921234567', '+218921234567'],
+            'Sudan with the trunk zero kept after the country code' => ['+2490911234567', '+249911234567'],
+            'Lebanon with the trunk zero kept after the country code' => ['+961071123456', '+96171123456'],
+            'Jordan with the trunk zero kept after the country code' => ['+9620791234567', '+962791234567'],
+            'Syria with the trunk zero kept after the country code' => ['+9630912345678', '+963912345678'],
+            'Iraq with the trunk zero kept after the country code' => ['+96407901234567', '+9647901234567'],
+            'Yemen with the trunk zero kept after the country code' => ['+9670712345678', '+967712345678'],
+            'Palestine with the trunk zero kept after the country code' => ['+9700591234567', '+970591234567'],
         ];
     }
 
-    #[DataProvider('sameGulfNumberWrittenDifferently')]
-    public function test_google_writing_the_same_gulf_number_differently_still_verifies_the_seller(string $registeredPhone, string $googlesPhone): void
+    #[DataProvider('sameNumberOfAnotherCountryWrittenDifferently')]
+    public function test_google_writing_the_same_number_of_another_country_differently_still_verifies_the_seller(string $registeredPhone, string $googlesPhone): void
     {
         $owner = $this->seller($registeredPhone, 'owner@example.test');
         $this->firebaseKnows([self::SESSION => ['phone' => $googlesPhone, 'code' => '482915']]);

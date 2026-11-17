@@ -9,8 +9,13 @@ namespace App\Services\Fulfillment\Support;
  */
 final class SaudiPhone
 {
-    /** Kuwait, Saudi Arabia, Oman, the Emirates, Bahrain and Qatar: where a national number is written with a leading zero that the international form drops. */
-    private const GULF_COUNTRY_CODES = ['965', '966', '968', '971', '973', '974'];
+    /**
+     * Egypt, Turkey, Morocco, Algeria, Libya, Sudan, Lebanon, Jordan, Syria, Iraq, Kuwait, Saudi Arabia, Yemen, Oman, Palestine, the Emirates,
+     * Bahrain and Qatar: where people keep a zero straight after the country code that the international form of the number leaves out.
+     * After any other code a zero is part of the number (in Italy it is), so it is never ignored. No code of the list starts another, so
+     * a number matches at most one.
+     */
+    private const COUNTRY_CODES_WITH_A_TRUNK_ZERO = ['20', '90', '212', '213', '218', '249', '961', '962', '963', '964', '965', '966', '967', '968', '970', '971', '973', '974'];
 
     public static function normalize(?string $raw): ?string
     {
@@ -75,15 +80,15 @@ final class SaudiPhone
         return preg_replace('/\D+/', '', $digits) ?? '';
     }
 
-    /** The digits of an international number without the trunk zero some people keep after the country code. */
+    /** The digits of an international number without the one trunk zero some people keep straight after a country code of the list. */
     private static function withoutTrunkZero(string $raw): string
     {
-        $digits = (string) preg_replace('/\D+/', '', $raw);
+        $digits = self::asciiDigits($raw);
         if (str_starts_with($digits, '00')) {
             $digits = substr($digits, 2);
         }
 
-        foreach (self::GULF_COUNTRY_CODES as $countryCode) {
+        foreach (self::COUNTRY_CODES_WITH_A_TRUNK_ZERO as $countryCode) {
             if (str_starts_with($digits, $countryCode . '0')) {
                 return $countryCode . substr($digits, strlen($countryCode) + 1);
             }
