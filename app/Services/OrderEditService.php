@@ -217,15 +217,16 @@ class OrderEditService
 
     public function addOrUpdateProductInOrderSession(object|array $request, object|array $order = [], object|array|null $color = []): array
     {
-        $requestedLine = ['product_id' => $request['product_id'], 'variant' => $request['variant'], 'qty' => $request['quantity'] ?? 1];
-        if (!$this->areEditedLinesAllowedOnOrder(order: $order, editedLines: [$requestedLine])) {
-            return [
-                'status' => 'error',
-                'message' => translate('Product_is_unavailable'),
-            ];
+        $requestedLine = ['product_id' => $request['product_id'], 'variant' => $request['variant'], 'quantity' => $request['quantity'] ?? 1];
+        if (!$this->areLinesAllowedOnOrder(order: $order, lines: collect([$requestedLine]))) {
+            return $this->getUnavailableProductRefusal();
         }
 
         $product = $this->getProductWithAllDetails(id: $request['product_id']);
+        if (!$product) {
+            return $this->getUnavailableProductRefusal();
+        }
+
         $orderSession = $this->getOrderEditSession(order: $order);
         $productList = $orderSession['product_list'] ?? [];
         $currentStock = $product['current_stock'];
@@ -381,10 +382,7 @@ class OrderEditService
         }
 
         if (!$this->areEditedLinesAllowedOnOrder(order: $order, editedLines: $filteredProducts)) {
-            return [
-                'status' => 'error',
-                'message' => translate('Product_is_unavailable'),
-            ];
+            return $this->getUnavailableProductRefusal();
         }
 
         $orderSession['product_list'] = $filteredProducts;
@@ -478,10 +476,11 @@ class OrderEditService
         ]));
     }
 
+    /** The lines of an edit's session are the order's own to keep or reduce: a line the order holds without a product has no id, and is held under the id 0. */
     public function areEditedLinesAllowedOnOrder(object $order, iterable $editedLines): bool
     {
         return $this->areLinesAllowedOnOrder(order: $order, lines: collect($editedLines)->map(fn ($line) => [
-            'product_id' => $line['product_id'] ?? null,
+            'product_id' => $line['product_id'] ?? 0,
             'variant' => $line['variant'] ?? null,
             'quantity' => $line['qty'] ?? 1,
         ]));
@@ -513,6 +512,15 @@ class OrderEditService
 
         return collect($requestedLines)->every(fn (array $line, string $lineKey) => $shopProductIds->containsStrict($line['product_id'])
             || ($heldQuantities->has($lineKey) && $line['quantity'] >= 0 && $line['quantity'] <= $heldQuantities[$lineKey]));
+    }
+
+    /** @return array{status: string, message: string} */
+    private function getUnavailableProductRefusal(): array
+    {
+        return [
+            'status' => 'error',
+            'message' => translate('Product_is_unavailable'),
+        ];
     }
 
     private function getLineKey(mixed $productId, mixed $variant): string

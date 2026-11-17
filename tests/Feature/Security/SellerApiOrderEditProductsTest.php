@@ -314,6 +314,68 @@ class SellerApiOrderEditProductsTest extends TestCase
         $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['qty' => 1]]));
     }
 
+    // ---- an order that holds a line without a product id ----
+
+    public function test_the_shared_edit_takes_a_line_the_order_holds_without_a_product_id_as_it_takes_any_held_line(): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+        $service = app(OrderEditService::class);
+
+        $this->assertTrue($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => null, 'variant' => '', 'qty' => 2]]), 'kept');
+        $this->assertTrue($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => null, 'variant' => null, 'qty' => 1]]), 'reduced');
+        $this->assertTrue($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => null, 'variant' => '', 'qty' => 0]]), 'removed');
+        $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => null, 'variant' => '', 'qty' => 3]]), 'increased');
+        $this->assertFalse($service->areEditedLinesAllowedOnOrder(order: $order, editedLines: [['product_id' => null, 'variant' => 'red', 'qty' => 1]]), 'moved to a variant the order does not hold');
+    }
+
+    public function test_an_edit_of_an_order_that_holds_a_line_without_a_product_id_can_still_hold_more_of_the_orders_own_product(): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+
+        $response = $this->submitEdit([$this->item(self::OWN_PRODUCT, quantity: 3)]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('success', $response->json('status'));
+        $this->assertSame([[self::OWN_PRODUCT, 3]], $this->linesOfTheOrder());
+        $this->assertSame([49, 50, 50], $this->stockOfEachProduct());
+    }
+
+    public function test_an_edit_that_names_no_product_is_still_refused_when_the_order_holds_a_line_without_a_product_id(): void
+    {
+        $this->theOrderAlsoHoldsTwoUnitsWithoutAProductId();
+
+        $response = $this->submitEdit([['id' => null] + $this->item(self::OWN_PRODUCT, quantity: 2)]);
+
+        $this->assertNotFound($response, code: 'product');
+        $this->assertSame([[self::OWN_PRODUCT, 2], [0, 2]], $this->linesOfTheOrder());
+        $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function refusalsOfTheSummary(): iterable
+    {
+        yield 'another shop product' => ['another_shops_product'];
+        yield 'a line that is out of stock' => ['out_of_stock'];
+    }
+
+    #[DataProvider('refusalsOfTheSummary')]
+    public function test_a_refused_summary_still_carries_the_total_of_the_order_for_the_pages_that_print_it(string $refusal): void
+    {
+        $editor = new class {
+            use OrderEditManager;
+        };
+        DB::table('products')->where('id', self::OWN_PRODUCT)->update(['current_stock' => 0]);
+        DB::table('order_details')->where('id', self::OWN_LINE)->update(['qty' => 0]);
+        $order = Order::with('details')->findOrFail(self::OWN_ORDER);
+        $line = ['another_shops_product' => ['product_id' => self::OTHER_SELLERS_PRODUCT, 'variant' => '', 'qty' => 1], 'out_of_stock' => ['product_id' => self::OWN_PRODUCT, 'variant' => '', 'qty' => 0]][$refusal];
+
+        $summary = $editor->generateEditOrderSummary(order: $order, editedOrder: [$line]);
+
+        $this->assertSame('error', $summary['status']);
+        $this->assertEqualsWithDelta(500.0, $summary['order_amount'], 0.001);
+    }
+
     public function test_the_shared_edit_of_an_in_house_order_takes_in_house_products_only(): void
     {
         DB::table('order_details')->where('id', self::IN_HOUSE_LINE)->update(['product_id' => self::IN_HOUSE_PRODUCT]);
@@ -330,6 +392,14 @@ class SellerApiOrderEditProductsTest extends TestCase
     private function theOrderHoldsTwoUnitsOfAnotherSellersProduct(): void
     {
         DB::table('order_details')->where('id', self::OWN_LINE)->update(['product_id' => self::OTHER_SELLERS_PRODUCT]);
+    }
+
+    private function theOrderAlsoHoldsTwoUnitsWithoutAProductId(): void
+    {
+        DB::table('order_details')->insert([
+            'order_id' => self::OWN_ORDER, 'seller_id' => self::SELLER, 'product_id' => null, 'qty' => 2, 'price' => 100, 'variation' => '[]', 'variant' => '',
+            'product_details' => json_encode(['id' => null, 'name' => 'Product that is gone', 'product_type' => 'physical', 'unit_price' => 100]),
+        ]);
     }
 
     /** @param list<array<string, mixed>> $items */

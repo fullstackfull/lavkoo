@@ -102,6 +102,30 @@ trait BuildsPanelOrderEditTables
         });
     }
 
+    /** What the vendor order page reads on top of the edit: the delivery columns of the order, the drivers and the history of the expected delivery date. */
+    protected function createTheTablesTheOrderDetailsPageReads(): void
+    {
+        $this->createTheTablesTheOrderEditUses();
+        $this->addColumnsThatAreMissing(table: 'orders', columns: [
+            'delivery_type' => 'string', 'delivery_service_name' => 'string', 'third_party_delivery_tracking_id' => 'string', 'expected_delivery_date' => 'string',
+            'shipping_responsibility' => 'string',
+        ]);
+        $this->createTableUnlessItExists('delivery_men', static function (Blueprint $table): void {
+            $table->unsignedBigInteger('seller_id')->default(0);
+            foreach (['f_name', 'l_name', 'country_code', 'phone', 'email', 'image', 'fcm_token', 'app_language'] as $column) {
+                $table->string($column)->nullable();
+            }
+            $table->boolean('is_active')->default(true);
+        });
+        $this->createTableUnlessItExists('order_expected_delivery_histories', static function (Blueprint $table): void {
+            $table->unsignedBigInteger('order_id');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('user_type')->nullable();
+            $table->string('expected_delivery_date')->nullable();
+            $table->text('cause')->nullable();
+        });
+    }
+
     /** @param array<string, string> $columns the type of each column to add: string, amount, id, dateTime or flag */
     private function addColumnsThatAreMissing(string $table, array $columns): void
     {

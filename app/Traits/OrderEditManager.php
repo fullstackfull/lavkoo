@@ -300,10 +300,16 @@ trait OrderEditManager
         });
     }
 
+    /** The pages and the routes that print the summary's total read it from a refused summary too: it names the total the order holds, since nothing was priced. */
+    private function getRefusedEditOrderSummary(object|array $order, string $message): array
+    {
+        return ['status' => 'error', 'message' => $message, 'order_amount' => $order['order_amount'] ?? 0];
+    }
+
     public function generateEditOrderSummary(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
         if (!app(OrderEditService::class)->areEditedLinesAllowedOnOrder(order: $order, editedLines: $editedOrder)) {
-            return ['status' => 'error', 'message' => translate('Product_is_unavailable')];
+            return $this->getRefusedEditOrderSummary(order: $order, message: translate('Product_is_unavailable'));
         }
 
         $productList = Product::whereIn('id', collect($editedOrder)->pluck('product_id')->toArray())->get();
@@ -327,10 +333,7 @@ trait OrderEditManager
             }
 
             if ($currentStock <= 0) {
-                return [
-                    'status' => 'error',
-                    'message' => translate('Out of stock'),
-                ];
+                return $this->getRefusedEditOrderSummary(order: $order, message: translate('Out of stock'));
             }
         }
 

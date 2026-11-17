@@ -26,6 +26,8 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
     private const ORDER = 100001;
     private const SESSION_KEY = 'SELLER_SESSION_FOR_EDIT_ORDER_100001';
     private const HELD_LINE_KEY = '20-single-variant';
+    private const OWN_LINE_KEY = '10-single-variant';
+    private const LINE_WITHOUT_PRODUCT_KEY = '-single-variant';
 
     protected function setUp(): void
     {
@@ -173,7 +175,153 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
         $response->assertOk()->assertJson(['status' => 'error']);
     }
 
+    // ---- an order that holds a line without a product id ----
+
+    public function test_the_order_page_of_an_order_that_holds_a_line_without_a_product_id_opens(): void
+    {
+        $this->theOrderAlsoHoldsAUnitWithoutAProductId();
+
+        $response = $this->openTheOrderPage();
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression('/^total:300$/m', (string) $response->getContent());
+    }
+
+    public function test_the_seller_can_still_add_more_of_their_own_product_to_an_order_that_holds_a_line_without_a_product_id_and_save_it(): void
+    {
+        $this->theOrderAlsoHoldsAUnitWithoutAProductId();
+
+        $added = $this->addToTheEdit(productId: self::OWN_PRODUCT, quantity: 3);
+        $saved = $this->saveTheEdit();
+
+        $added->assertOk()->assertJson(['status' => 'success']);
+        $this->assertStringStartsWith('400', (string) $added->json('edit_order_total_amount'));
+        $saved->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame([[self::OWN_PRODUCT, 3]], $this->linesOfTheOrder());
+        $this->assertSame([49, 50, 50], $this->stockOfEachProduct());
+        $this->assertSame(1, DB::table('order_edit_histories')->count());
+    }
+
+    /** @return iterable<string, array{0: int}> */
+    public static function quantitiesTheLineWithoutAProductMayKeep(): iterable
+    {
+        yield 'the quantity it holds' => [1];
+        yield 'none' => [0];
+    }
+
+    #[DataProvider('quantitiesTheLineWithoutAProductMayKeep')]
+    public function test_an_order_that_holds_a_line_without_a_product_id_can_keep_or_reduce_that_line(int $quantity): void
+    {
+        $this->theOrderAlsoHoldsAUnitWithoutAProductId();
+
+        $updated = $this->updateTheQuantitiesInTheEdit([self::OWN_LINE_KEY => 2, self::LINE_WITHOUT_PRODUCT_KEY => $quantity]);
+        $saved = $this->saveTheEdit();
+
+        $updated->assertOk()->assertJson(['status' => 'success']);
+        $saved->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame([[self::OWN_PRODUCT, 2]], $this->linesOfTheOrder());
+        $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
+    }
+
+    public function test_an_order_that_holds_a_line_without_a_product_id_cannot_take_more_of_it(): void
+    {
+        $this->theOrderAlsoHoldsAUnitWithoutAProductId();
+
+        $updated = $this->updateTheQuantitiesInTheEdit([self::OWN_LINE_KEY => 2, self::LINE_WITHOUT_PRODUCT_KEY => 2]);
+
+        $updated->assertOk()->assertJson(['status' => 'error']);
+        $this->assertSame(1, session(self::SESSION_KEY)['product_list'][self::LINE_WITHOUT_PRODUCT_KEY]['qty']);
+    }
+
+    public function test_the_line_without_a_product_id_can_be_removed_from_the_edit(): void
+    {
+        $this->theOrderAlsoHoldsAUnitWithoutAProductId();
+
+        $removed = $this->signInAs(self::SELLER)->postJson('/vendor/orders/edit-order-product-remove', ['order_id' => self::ORDER, 'product_id' => null, 'variant' => '']);
+        $saved = $this->saveTheEdit();
+
+        $removed->assertOk()->assertJson(['status' => 'success']);
+        $this->assertStringStartsWith('200', (string) $removed->json('edit_order_total_amount'));
+        $saved->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame([[self::OWN_PRODUCT, 2]], $this->linesOfTheOrder());
+    }
+
+    /** @return iterable<string, array{0: mixed}> */
+    public static function idsThatNameNoProduct(): iterable
+    {
+        yield 'no id' => [null];
+        yield 'zero' => [0];
+        yield 'text' => ['abc'];
+        yield 'trailing garbage' => ['10abc'];
+        yield 'an exponent' => ['1e1'];
+    }
+
+    #[DataProvider('idsThatNameNoProduct')]
+    public function test_an_add_that_names_no_product_is_refused_even_when_the_order_holds_a_line_without_a_product_id(mixed $productId): void
+    {
+        $this->theOrderAlsoHoldsAUnitWithoutAProductId();
+
+        $added = $this->signInAs(self::SELLER)->postJson('/vendor/orders/edit-order-product-add', [
+            'order_id' => self::ORDER, 'product_id' => $productId, 'quantity' => 1, 'variant' => '',
+        ]);
+
+        $added->assertOk()->assertJson(['status' => 'error']);
+        $this->assertCount(2, session(self::SESSION_KEY)['product_list']);
+    }
+
+    // ---- a summary the edit refuses ----
+
+    public function test_the_order_page_opens_when_the_edit_summary_is_refused(): void
+    {
+        // a line of no units of a product with none on the shelf: the summary refuses it as out of stock
+        DB::table('products')->where('id', self::OWN_PRODUCT)->update(['current_stock' => 0]);
+        DB::table('order_details')->where('id', 1)->update(['qty' => 0]);
+
+        $response = $this->openTheOrderPage();
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression('/^total:200$/m', (string) $response->getContent());
+    }
+
+    /** @return iterable<string, array{string, array<string, mixed>}> every route that prices the edit's session after it has done its own work */
+    public static function routesThatPriceTheEditsSession(): iterable
+    {
+        yield 'the price of a product' => ['edit-order-product-variant-price', ['product_id' => self::OWN_PRODUCT]];
+        yield 'an add' => ['edit-order-product-add', ['product_id' => self::OWN_PRODUCT, 'quantity' => 2, 'variant' => '']];
+        yield 'a removal' => ['edit-order-product-remove', ['product_id' => self::OWN_PRODUCT, 'variant' => '']];
+        yield 'a quantity update' => ['edit-order-product-list-update', ['products' => [self::OWN_LINE_KEY => ['qty' => 2], '20-single-variant' => ['qty' => 3]]]];
+    }
+
+    /** @param array<string, mixed> $payload */
+    #[DataProvider('routesThatPriceTheEditsSession')]
+    public function test_a_route_that_prices_an_edit_whose_session_holds_another_shops_product_answers_the_orders_own_total_and_not_a_crash(string $route, array $payload): void
+    {
+        $this->addToTheEdit(productId: self::OWN_PRODUCT, quantity: 2)->assertOk();
+        $this->putALineOfProductIntoTheSession(productId: self::OTHER_SELLERS_PRODUCT, quantity: 3);
+
+        $response = $this->signInAs(self::SELLER)->postJson('/vendor/orders/' . $route, ['order_id' => self::ORDER] + $payload);
+
+        $response->assertOk();
+        $this->assertStringStartsWith('200', (string) $response->json('edit_order_total_amount'));
+        $this->assertTheOrderHoldsWhatItHeld();
+    }
+
     // ---- helpers ----
+
+    private function theOrderAlsoHoldsAUnitWithoutAProductId(): void
+    {
+        DB::table('order_details')->insert([
+            'id' => 2, 'order_id' => self::ORDER, 'seller_id' => self::SELLER, 'product_id' => null, 'qty' => 1, 'price' => 100, 'variation' => '[]',
+            'product_details' => json_encode(['id' => null, 'name' => 'Product that is gone'] + (array) DB::table('products')->where('id', self::OWN_PRODUCT)->first()),
+        ]);
+    }
+
+    private function openTheOrderPage(): TestResponse
+    {
+        $this->createTheTablesTheOrderDetailsPageReads();
+
+        return $this->signInAs(self::SELLER)->get('/vendor/orders/details/' . self::ORDER);
+    }
 
     private function theOrderHoldsTwoUnitsOfAnotherSellersProduct(): void
     {
@@ -182,8 +330,14 @@ class VendorOrderEditProductsTest extends VendorPanelTestCase
 
     private function updateTheQuantityInTheEdit(string $key, int $quantity): TestResponse
     {
+        return $this->updateTheQuantitiesInTheEdit([$key => $quantity]);
+    }
+
+    /** @param array<string, int> $quantities the quantity of each line the edit keeps, by the line's key: a line that is not named leaves the edit */
+    private function updateTheQuantitiesInTheEdit(array $quantities): TestResponse
+    {
         return $this->signInAs(self::SELLER)->postJson('/vendor/orders/edit-order-product-list-update', [
-            'order_id' => self::ORDER, 'products' => [$key => ['qty' => $quantity]],
+            'order_id' => self::ORDER, 'products' => array_map(static fn (int $quantity): array => ['qty' => $quantity], $quantities),
         ]);
     }
 
