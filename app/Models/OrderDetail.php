@@ -149,11 +149,12 @@ class OrderDetail extends Model
 
     public function getDigitalFileAfterSellFullUrlAttribute(): string|null|array
     {
-        $value = $this->digital_file_after_sell;
-        if (count($this->storage) > 0) {
-            $storage = $this->storage->where('key', 'digital_file_after_sell')->first();
-        }
-        return $this->storageLink('product/digital-product', $value, $storage['value'] ?? 'public');
+        return $this->storageLink('product/digital-product', $this->digital_file_after_sell, $this->digitalFileAfterSellStorageType());
+    }
+
+    public function digitalFileAfterSellStorageType(): string
+    {
+        return $this->storage->where('key', 'digital_file_after_sell')->first()['value'] ?? 'public';
     }
 
     protected $with = ['storage'];

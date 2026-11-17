@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\OrderDetail;
 use App\Traits\FileManagerTrait;
 use App\Utils\PlainFileName;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
@@ -26,11 +28,19 @@ class DigitalProductFileService
         update as protected;
     }
 
-    public const DIRECTORY = 'product/digital-product/';
+    private const FOLDER = 'product/digital-product';
+
+    public const DIRECTORY = self::FOLDER . '/';
 
     public const PRIVATE_DISK = 'digital_private';
 
+    /** The route of the website that streams the file of an order line to a signed address. */
+    public const CUSTOMER_ROUTE = 'digital-product-download-file';
+
     private const PUBLIC_DISK = 'public';
+
+    /** How long the signed address that the website hands out lasts: a browser fetches it at once. */
+    private const SIGNED_ADDRESS_MINUTES = 10;
 
     public function isPrivate(): bool
     {
@@ -87,6 +97,39 @@ class DigitalProductFileService
         return $response;
     }
 
+    /** Whether a row keeps its file on the bucket: the test storageLink() makes before it builds a bucket address (a row typed `s3` of a shop that stores on the public disk is read from the public disk). */
+    public function isOnTheBucket(?string $storageType): bool
+    {
+        return $storageType === 's3' && config('filesystems.disks.default') === 's3';
+    }
+
+    /** The name of the file an order line delivers: the ready file its snapshot names, or the file uploaded after the sale. */
+    public function nameOfOrderLine(OrderDetail $orderDetail): ?string
+    {
+        $product = $this->snapshotOf(orderDetail: $orderDetail);
+
+        return $this->isReadyProduct(snapshot: $product) ? $product['digital_file_ready'] : $orderDetail['digital_file_after_sell'];
+    }
+
+    /**
+     * Where the buyer of an order line can fetch the file the line delivers, answered the way storageLink() answers (`key`, `path`, `status`). While the mode is off it
+     * is the public address, as it always was. While it is on it is the signed address of the route that streams the file, and only for a paid order.
+     *
+     * @return array{key: ?string, path: ?string, status: int}
+     */
+    public function answerForTheBuyer(OrderDetail $orderDetail): array
+    {
+        $product = $this->snapshotOf(orderDetail: $orderDetail);
+        $isReadyProduct = $this->isReadyProduct(snapshot: $product);
+        $storageType = $isReadyProduct ? ($product['storage_path'] ?? 'public') : $orderDetail->digitalFileAfterSellStorageType();
+
+        if ($this->isPrivate() && !$this->isOnTheBucket(storageType: $storageType)) {
+            return $this->answerWith(name: $this->nameOfOrderLine(orderDetail: $orderDetail), address: $this->signedAddressOf(orderDetail: $orderDetail));
+        }
+
+        return $isReadyProduct ? storageLink(self::FOLDER, $product['digital_file_ready'], $storageType) : $orderDetail->digital_file_after_sell_full_url;
+    }
+
     /** Whether the private disk holds the file that a path of the disk names (`product/digital-product/x.pdf`, with or without the slash in front). Always no while the mode is off. */
     public function holdsPrivately(string $path): bool
     {
@@ -101,6 +144,38 @@ class DigitalProductFileService
         if ($this->holdsPrivately(path: $path)) {
             Storage::disk(self::PRIVATE_DISK)->delete(self::DIRECTORY . $this->nameInFolder(path: $path));
         }
+    }
+
+    /** The product of an order line the way it was when the order was placed. */
+    private function snapshotOf(OrderDetail $orderDetail): array
+    {
+        return (array) json_decode((string) $orderDetail['product_details'], true);
+    }
+
+    private function isReadyProduct(array $snapshot): bool
+    {
+        return ($snapshot['digital_product_type'] ?? null) == 'ready_product' && !empty($snapshot['digital_file_ready']);
+    }
+
+    private function signedAddressOf(OrderDetail $orderDetail): ?string
+    {
+        $name = $this->nameOfOrderLine(orderDetail: $orderDetail);
+        if ($orderDetail->order?->payment_status !== 'paid' || !$this->exists(name: $name)) {
+            return null;
+        }
+
+        return URL::temporarySignedRoute(
+            name: self::CUSTOMER_ROUTE,
+            expiration: now()->addMinutes(self::SIGNED_ADDRESS_MINUTES),
+            parameters: ['id' => $orderDetail->id, 'fileName' => $name],
+            absolute: false,
+        );
+    }
+
+    /** @return array{key: ?string, path: ?string, status: int} */
+    private function answerWith(?string $name, ?string $address): array
+    {
+        return ['key' => $name, 'path' => $address, 'status' => $address === null ? 404 : 200];
     }
 
     private function diskOfNewFiles(): ?string
