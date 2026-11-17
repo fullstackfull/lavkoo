@@ -40,8 +40,8 @@ final class ProductDirectory
             ->where(static fn ($query) => $query->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")->orWhere('barcode', 'like', "%{$term}%"))
             ->orderBy('name')
             ->limit(self::SEARCH_LIMIT)
-            ->get($this->codeScope->pickerColumns(['id', 'name', 'code', 'barcode']));
+            ->get($this->codeScope->pickerColumns(columns: ['id', 'name', 'code', 'barcode']));
 
-        return $this->codeScope->tagPickerRows($rows);
+        return $this->codeScope->tagPickerRows(rows: $rows);
     }
 }

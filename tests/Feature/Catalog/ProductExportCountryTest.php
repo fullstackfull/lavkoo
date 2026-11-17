@@ -13,7 +13,10 @@ use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Events\AfterSheet;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Sheet;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsCodeScopeCatalog;
 use Tests\Support\BuildsProductCatalog;
@@ -182,9 +185,16 @@ class ProductExportCountryTest extends TestCase
     {
         $export = new ProductListExport(['products' => collect([1, 2]), 'type' => 'in_house', 'productWiseTax' => $tax, 'countryColumn' => $country]);
 
-        $styles = $export->styles((new Spreadsheet())->getActiveSheet());
+        $sheet = (new Spreadsheet())->getActiveSheet();
+        $next = Coordinate::stringFromColumnIndex(Coordinate::columnIndexFromString($last) + 1);
+
+        $styles = $export->styles($sheet);
 
         $this->assertSame(["A1:{$last}5"], array_keys($styles));
+        $this->assertSame('063C93', $sheet->getStyle("{$last}3")->getFill()->getStartColor()->getRGB(), 'the header fill reaches the last column');
+        $this->assertTrue($sheet->getStyle("{$last}3")->getFont()->getBold(), 'and so does the bold header');
+        $this->assertSame(Fill::FILL_NONE, $sheet->getStyle("{$next}3")->getFill()->getFillType(), 'the fill stops there');
+        $this->assertFalse($sheet->getStyle("{$next}3")->getFont()->getBold());
     }
 
     #[DataProvider('lastColumns')]
@@ -194,8 +204,13 @@ class ProductExportCountryTest extends TestCase
         $worksheet = (new Spreadsheet())->getActiveSheet();
 
         $export->registerEvents()[AfterSheet::class](new AfterSheet(new Sheet($worksheet), $export));
+        $next = Coordinate::stringFromColumnIndex(Coordinate::columnIndexFromString($last) + 1);
 
         $this->assertSame(["A1:{$last}1", 'A2:B2', "C2:{$last}2", "D2:{$last}2", 'F3:G3'], array_keys($worksheet->getMergeCells()));
+        $this->assertSame(Alignment::HORIZONTAL_CENTER, $worksheet->getStyle("{$last}1")->getAlignment()->getHorizontal(), 'the title is centred over the last column');
+        $this->assertSame(Alignment::HORIZONTAL_LEFT, $worksheet->getStyle("{$last}2")->getAlignment()->getHorizontal(), 'the filters are left aligned over it');
+        $this->assertSame(Alignment::HORIZONTAL_CENTER, $worksheet->getStyle("{$last}3")->getAlignment()->getHorizontal(), 'the header is centred over it');
+        $this->assertSame(Alignment::HORIZONTAL_GENERAL, $worksheet->getStyle("{$next}1")->getAlignment()->getHorizontal(), 'nothing is aligned past it');
     }
 
     // ---- the seller's export -----------------------------------------------------------------------------------------------------

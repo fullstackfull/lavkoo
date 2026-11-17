@@ -121,12 +121,13 @@ class ProductSearchPickerCountryTest extends TestCase
 
     public function test_the_scripts_of_both_pickers_append_the_label_as_text(): void
     {
-        foreach ([
-            'resources/views/admin-views/sales-channels/partials/_product-picker-script.blade.php',
-            'resources/views/admin-views/operational-costs/product-costs/index.blade.php',
-        ] as $view) {
-            $this->assertStringContainsString('product.country_tag', (string) file_get_contents(base_path($view)), $view);
-        }
+        $linkScript = (string) file_get_contents(resource_path('views/admin-views/sales-channels/partials/_product-picker-script.blade.php'));
+        $costPage = (string) file_get_contents(resource_path('views/admin-views/operational-costs/product-costs/index.blade.php'));
+
+        $this->assertStringContainsString("choice.textContent = '#' + product.id + ' ' + product.name + (product.code ? ' (' + product.code + ')' : '') + (product.country_tag || '');", $linkScript, 'a row of the listing-link picker');
+        $this->assertStringContainsString("button.textContent = '#' + product.id + ' ' + product.name + (product.code ? ' · ' + product.code : '') + (product.country_tag || '');", $costPage, 'a row of the cost-layer picker');
+        $this->assertStringContainsString("chosen.textContent = product.name + (product.country_tag || '');", $costPage, 'the product the cost form chose');
+        $this->assertStringNotContainsString('innerHTML', $linkScript . $costPage, 'the label is text, never markup');
     }
 
     // ---- the two helpers of the scope ------------------------------------------------------------------------------------------
