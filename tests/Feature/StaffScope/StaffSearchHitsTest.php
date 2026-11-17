@@ -10,7 +10,9 @@ use App\Packages\AdvanceSearch\AdvanceSearch;
 use App\Services\Staff\StaffSearchHits;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsStaffOrderWorld;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -22,13 +24,27 @@ use Tests\TestCase;
 class StaffSearchHitsTest extends TestCase
 {
     use BuildsStaffOrderWorld;
+    use RestoresLanguageFiles;
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
+    }
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->rememberLanguageFiles();
+
         Cache::flush();
         $this->buildStaffOrderTables();
+        Schema::table('products', function ($table) {
+            $table->string('meta_title')->nullable();
+            $table->text('meta_description')->nullable();
+        });
         $this->insertStaffProduct(id: 1, country: 'SA');
         $this->insertStaffProduct(id: 2, country: 'KW');
         $this->insertStaffProduct(id: 3, country: 'KW');

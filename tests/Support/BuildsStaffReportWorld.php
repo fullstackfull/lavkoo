@@ -25,6 +25,17 @@ trait BuildsStaffReportWorld
             Schema::dropIfExists($table);
         }
 
+        Schema::table('sellers', function (Blueprint $table) {
+            $table->string('f_name')->nullable();
+            $table->string('l_name')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('email')->nullable();
+            $table->timestamps();
+        });
+        Schema::table('products', function (Blueprint $table) {
+            $table->string('meta_title')->nullable();
+            $table->text('meta_description')->nullable();
+        });
         Schema::table('reviews', function (Blueprint $table) {
             $table->unsignedBigInteger('order_id')->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();

@@ -23,6 +23,7 @@ use Illuminate\Testing\TestResponse;
 use ReflectionMethod;
 use Tests\Support\BuildsStaffOrderWorld;
 use Tests\Support\StaffProbe\LayoutProbeController;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -37,10 +38,20 @@ use Tests\TestCase;
 class StaffLayoutTest extends TestCase
 {
     use BuildsStaffOrderWorld;
+    use RestoresLanguageFiles;
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
+    }
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->rememberLanguageFiles();
 
         Http::preventStrayRequests();
         Event::fake();
@@ -116,6 +127,15 @@ class StaffLayoutTest extends TestCase
     private function withoutTheReadsThatResolveAnEmployee(array $queries): array
     {
         return array_values(array_filter($queries, static fn (string $query): bool => !str_contains($query, 'admin_country_scopes') && !str_contains($query, 'sqlite_master') && !str_contains($query, 'information_schema') && !str_contains($query, 'pragma')));
+    }
+
+    /**
+     * @param list<string> $queries
+     * @return list<string> the statements that name something and are not a probe of the schema (SQLite asks its master table, MySQL and MariaDB the information schema)
+     */
+    private function withoutTheProbes(array $queries, string $containing): array
+    {
+        return array_values(array_filter($queries, static fn (string $query): bool => str_contains($query, $containing) && !str_contains($query, 'sqlite_master') && !str_contains($query, 'information_schema')));
     }
 
     private const EVERYTHING = ['screen' => 'orders=6 products=4', 'orders' => 'confirmed=1 delivered=1 pending=4', 'total' => 6, 'refunds' => 'pending=3', 'latest' => '105,104,102,101'];
@@ -230,7 +250,7 @@ class StaffLayoutTest extends TestCase
         $this->signInAsKuwaitEmployee();
         $queries = $this->queriesOfTheProbe();
 
-        $this->assertCount(1, array_filter($queries, static fn (string $query): bool => str_contains($query, 'admin_country_scopes') && !str_contains($query, 'sqlite_master')), 'the rows of the employee are read once');
+        $this->assertCount(1, $this->withoutTheProbes(queries: $queries, containing: 'admin_country_scopes'), 'the rows of the employee are read once');
         $this->assertCount(2, array_filter($queries, static fn (string $query): bool => str_contains($query, 'visible_lines')), 'the order counters and the latest orders are narrowed');
         $this->assertCount(1, array_filter($queries, static fn (string $query): bool => str_contains($query, 'refund_lines')), 'and so are the refund counters');
     }

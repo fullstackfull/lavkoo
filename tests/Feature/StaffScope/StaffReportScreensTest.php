@@ -23,6 +23,7 @@ use Mockery;
 use Tests\Support\AssertsNarrowedOrderReads;
 use Tests\Support\BuildsStaffReportWorld;
 use Tests\Support\RendersNoViews;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -38,11 +39,21 @@ class StaffReportScreensTest extends TestCase
 {
     use AssertsNarrowedOrderReads;
     use BuildsStaffReportWorld;
+    use RestoresLanguageFiles;
     use RendersNoViews;
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
+    }
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->rememberLanguageFiles();
 
         Http::preventStrayRequests();
         Event::fake();

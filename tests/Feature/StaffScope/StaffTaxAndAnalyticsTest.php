@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Modules\TaxModule\app\Http\Controllers\Admin\Reports\VendorTaxReportController;
 use Tests\Support\BuildsStaffReportWorld;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -28,10 +29,20 @@ use Tests\TestCase;
 class StaffTaxAndAnalyticsTest extends TestCase
 {
     use BuildsStaffReportWorld;
+    use RestoresLanguageFiles;
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
+    }
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->rememberLanguageFiles();
 
         $this->withoutMiddleware([
             ActivationCheckMiddleware::class, Localization::class, DetectMobile::class, ApplySeoRedirects::class, NoIndexThemePreview::class,

@@ -224,8 +224,35 @@ class StaffScopeDocTest extends TestCase
         }
     }
 
+    public function test_the_doc_describes_what_slice_3_enforces_and_records_its_decisions_and_its_measure(): void
+    {
+        foreach ([
+            'What slice 3 enforces', 'StaffCountryScope::narrowLayout', 'StaffCountryScope::narrowRawOrders', 'StaffCountryScope::countriesOf', 'StaffSearchHits', '`unavailable`',
+            '`order_lines`', '`order_transactions`', '`refund_transactions`', 'StaffOrderRouteInventoryTest', 'StaffSixCountryReportMatrixTest', 'Measured once on MySQL 8.0.46',
+            'What a restricted employee may see of the money that cannot be told apart by country', 'The sales of a product in a mixed order', 'The ratings of a delivery man',
+            'The recent searches', 'The wallet and loyalty reports and the wallet bonus tab', 'App\\Http\\Controllers\\Admin\\TransactionController',
+        ] as $text) {
+            $this->assertStringContainsString($text, $this->doc, $text);
+        }
+        $this->assertStringContainsString('The screens of a customer and of a delivery man list their orders', $this->doc, 'the decision of slice 2 that slice 3 took');
+    }
+
+    public function test_the_doc_carries_the_rules_of_every_screen_of_slice_3_in_one_table_with_a_row_for_each_route(): void
+    {
+        $routes = 0;
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            $routes += in_array(ltrim((string) $route->getControllerClass(), '\\'), StaffOrderRoutes::readScreenControllers(), true) ? 1 : 0;
+        }
+        $start = (int) strpos($this->doc, '<!-- slice-3-rules-start -->');
+        $end = (int) strpos($this->doc, '<!-- slice-3-rules-end -->');
+
+        $this->assertGreaterThan($start, $end);
+        $this->assertSame($routes, substr_count(substr($this->doc, $start, $end - $start), "\n| `"));
+    }
+
     public function test_the_doc_carries_no_placeholder_of_its_generator(): void
     {
         $this->assertStringNotContainsString('{{', $this->doc);
+        $this->assertStringNotContainsString('PLACEHOLDER', $this->doc);
     }
 }
