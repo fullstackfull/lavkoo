@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\DigitalFileAddressService;
 use App\Traits\StorageTrait;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -47,11 +48,10 @@ class DigitalProductVariation extends Model
 
     public function getFileFullUrlAttribute(): array
     {
-        $value = $this->file;
-        if (count($this->storage) > 0 ) {
-            $storage = $this->storage->where('key','file')->first();
-        }
-        return $this->storageLink('product/digital-product', $value, $storage['value'] ?? 'public');
+        $storageType = $this->storage->where('key', 'file')->first()['value'] ?? 'public';
+
+        return app(DigitalFileAddressService::class)->privateAnswer(name: $this->file, kind: 'variation', id: $this->id, storageType: $storageType)
+            ?? $this->storageLink('product/digital-product', $this->file, $storageType);
     }
 
     protected $with = ['storage'];

@@ -37,6 +37,7 @@ use App\Models\Tag;
 use App\Models\Translation;
 use App\Rules\StoredFileNames;
 use App\Repositories\DigitalProductPublishingHouseRepository;
+use App\Services\DigitalProductFileService;
 use App\Services\Marketplace\BrandRegistryService;
 use App\Services\ProductBarcodeSheetService;
 use App\Services\ProductService;
@@ -53,6 +54,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 class ProductController extends Controller
@@ -76,6 +78,7 @@ class ProductController extends Controller
         private readonly ProductService                            $productService,
         private readonly RestockProductRepositoryInterface         $restockProductRepo,
         private readonly RestockProductCustomerRepositoryInterface $restockProductCustomerRepo,
+        private readonly DigitalProductFileService                 $digitalFiles,
     )
     {
     }
@@ -747,7 +750,7 @@ class ProductController extends Controller
     {
         $seller = $request->seller;
         try {
-            $file = $this->fileUpload('product/digital-product/', $request->digital_file_ready->getClientOriginalExtension(), $request->file('digital_file_ready'));
+            $file = $this->digitalFiles->store(file: $request->file('digital_file_ready'));
 
             return response()->json(['digital_file_ready_name' => $file], 200);
         } catch (\Exception $e) {
@@ -755,6 +758,21 @@ class ProductController extends Controller
         }
     }
 
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfProductOfSeller(sellerId: $request->seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    public function downloadDigitalVariationFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfVariationOfSeller(sellerId: $request->seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    private function fileNotFound(): JsonResponse
+    {
+        return response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
+    }
 
     public function deleteDigitalProduct(Request $request): JsonResponse
     {
@@ -1171,7 +1189,7 @@ class ProductController extends Controller
                 $fileItem = $request->file('digital_files_' . $uniqueKey);
                 $uploadedFile = '';
                 if ($fileItem) {
-                    $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                    $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                 }
                 $digitalFiles[] = [
                     'product_id' => $product->id,
@@ -1733,7 +1751,7 @@ class ProductController extends Controller
                     $fileItem = $request->file('digital_files_' . $uniqueKey);
                     $uploadedFile = '';
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     DigitalProductVariation::insert([
                         'product_id' => $product['id'],
@@ -1759,7 +1777,7 @@ class ProductController extends Controller
                     $uploadedFile = $variation['file'] ?? '';
                     $variation = DigitalProductVariation::where(['product_id' => $product['id'], 'variant_key' => $variation['variant_key']])->first();
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     DigitalProductVariation::where(['product_id' => $product['id'], 'variant_key' => $variation['variant_key']])->update([
                         'variant_key' => $getRequestVariationKey[$uniqueKey],

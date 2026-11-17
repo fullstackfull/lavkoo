@@ -167,6 +167,8 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
                     Route::get('most-popular-product', 'most_popular_products');
                     Route::get('get-product-images/{id}', 'getProductImages');
                     Route::get('stock-limit-status', 'getStockLimitStatus');
+                    Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('seller-api.v3.products.digital-file');
+                    Route::get('digital-variation-file/{id}/{fileName?}', 'downloadDigitalVariationFile')->name('seller-api.v3.products.digital-variation-file');
                     Route::get('digital-author-list', 'getDigitalProductsAuthorList');
                     Route::get('digital-publishing-house-list', 'getDigitalPublishingHouseList');
                     Route::post('restock-request-list', 'getRestockRequestList');
@@ -199,6 +201,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             Route::controller(OrderController::class)->group(function () {
                 Route::middleware('seller_can:orders.view,orders.manage')->group(function () {
                     Route::post('list', 'list');
+                    Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('seller-api.v3.orders.digital-file');
                     // Ahead of the catch-all `/{id}`, which would otherwise swallow it.
                     Route::get('{id}/invoice', 'invoice')->whereNumber('id');
                     // Declared before the catch-all `{id}` below, which would otherwise swallow it.

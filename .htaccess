@@ -3,6 +3,8 @@
         Options -MultiViews -Indexes
     </IfModule>
     RewriteEngine On
+    # The private disk (digital product files) is read by the application only: a shop served from this folder must not hand it out
+    RewriteRule ^storage/app/private(/|$) - [F,L]
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

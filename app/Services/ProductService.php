@@ -13,7 +13,7 @@ class ProductService
 {
     use FileManagerTrait;
 
-    public function __construct(private readonly Color $color)
+    public function __construct(private readonly Color $color, private readonly DigitalProductFileService $digitalFiles)
     {
     }
 
@@ -600,7 +600,7 @@ class ProductService
 
         $digitalFile = '';
         if ($request['product_type'] == 'digital' && $request['digital_product_type'] == 'ready_product' && $request['digital_file_ready']) {
-            $digitalFile = $this->fileUpload(dir: 'product/digital-product/', format: $request['digital_file_ready']->getClientOriginalExtension(), file: $request['digital_file_ready']);
+            $digitalFile = $this->digitalFiles->store(file: $request['digital_file_ready']);
         }
 
         $previewFile = $request['product_type'] == 'digital' && $request->existing_preview_file ? $request->existing_preview_file : '';
@@ -686,7 +686,7 @@ class ProductService
         }
         if ($request['product_type'] == 'digital') {
             if ($request['digital_product_type'] == 'ready_product' && $request->hasFile('digital_file_ready')) {
-                $digitalFile = $this->update(dir: 'product/digital-product/', oldImage: $product['digital_file_ready'], format: $request['digital_file_ready']->getClientOriginalExtension(), image: $request['digital_file_ready'], fileType: 'file');
+                $digitalFile = $this->digitalFiles->replace(oldName: $product['digital_file_ready'], file: $request['digital_file_ready']);
             } elseif (($request['digital_product_type'] == 'ready_after_sell') && $product['digital_file_ready']) {
                 $digitalFile = null;
                 // $this->delete(filePath: 'product/digital-product/' . $product['digital_file_ready']);
@@ -933,7 +933,7 @@ class ProductService
                 $fileItem = $request->file('digital_files.' . $uniqueKey);
                 $uploadedFile = '';
                 if ($fileItem) {
-                    $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                    $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                 }
                 $digitalFiles[] = [
                     'product_id' => $product->id,
