@@ -61,7 +61,7 @@ class Helpers
 
     public static function default_lang()
     {
-        if (strpos(url()->current(), '/api')) {
+        if (RequestArea::isApi()) {
             $lang = App::getLocale();
         } elseif (session()->has('local')) {
             $lang = session('local');
