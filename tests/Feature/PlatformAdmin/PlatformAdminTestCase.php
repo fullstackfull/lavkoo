@@ -36,6 +36,9 @@ abstract class PlatformAdminTestCase extends TestCase
             // The tests of level 1 pin the one-step sign-in and what a session may do, which the second factor does not change: they run in the staging
             // mode of the switch. The second factor has its own tests, which turn it on (see MfaTestCase).
             'gcc.platform_admin.mfa.required' => false,
+            // The tests of level 1 make their sessions with whatever times suit them (a session opened two hours ago and never used, say); the idle time is
+            // at its ceiling for them, and the rule has its own tests, which set it back to the 60 minutes it ships with (SessionPolicyTest).
+            'gcc.platform_admin.session.idle_minutes' => 1440,
             // A matrix of requests from one test address must not trip the limiters that have tests of their own.
             'gcc.platform_admin.requests_per_minute' => 1_000_000,
             'gcc.platform_admin.login_attempts_per_minute' => 1_000_000,

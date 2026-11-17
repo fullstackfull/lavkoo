@@ -8,6 +8,7 @@ use App\Models\PlatformAdminGrant;
 use App\Models\PlatformAdminToken;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -34,29 +35,49 @@ final class PlatformAdminTokenService
 
     private const LISTING_LIMIT = 100;
 
-    public function __construct(private readonly PlatformAdminSettings $settings, private readonly PlatformMarkets $markets)
+    public function __construct(private readonly PlatformAdminSettings $settings, private readonly PlatformMarkets $markets, private readonly PlatformAdminAudit $audit)
     {
     }
 
+    /**
+     * Opens a session. The admin's other open sessions are counted first, in a transaction that holds their grant so that two sign-ins of one admin cannot both
+     * see room, and the oldest beyond what the limit leaves room for are ended: each of them is audited, naming the one that made room.
+     */
     public function issue(Admin $admin, PlatformAdminGrant $grant, string $deviceName, ?string $ip, ?string $userAgent, ?MfaMethod $mfaMethod = null): PlatformAdminSession
     {
-        $plain = self::PREFIX . Str::random(self::SECRET_LENGTH);
+        return DB::transaction(function () use ($admin, $grant, $deviceName, $ip, $userAgent, $mfaMethod): PlatformAdminSession {
+            PlatformAdminGrant::query()->whereKey($grant->getKey())->lockForUpdate()->first();
 
-        $token = PlatformAdminToken::create([
-            'admin_id' => $admin->getKey(),
-            'grant_id' => $grant->getKey(),
-            'token_hash' => hash('sha256', $plain),
-            'password_fingerprint' => self::fingerprintOf(passwordHash: (string) $admin->getAuthPassword()),
-            'device_name' => $deviceName,
-            'ip' => $ip,
-            'user_agent' => $userAgent === null ? null : PlatformAdminText::clipped(text: $userAgent, limit: self::USER_AGENT_LIMIT),
-            'mfa_method' => $mfaMethod?->value,
-            'expires_at' => now()->addMinutes($this->settings->tokenTtlMinutes()),
-        ]);
+            $plain = self::PREFIX . Str::random(self::SECRET_LENGTH);
+            $evicted = $this->endOldestBeyond(adminId: (int) $admin->getKey(), keep: $this->settings->sessionMaxConcurrent() - 1);
 
-        $this->deleteLongEndedSessionsOf(adminId: (int) $admin->getKey());
+            $token = PlatformAdminToken::create([
+                'admin_id' => $admin->getKey(),
+                'grant_id' => $grant->getKey(),
+                'token_hash' => hash('sha256', $plain),
+                'password_fingerprint' => self::fingerprintOf(passwordHash: (string) $admin->getAuthPassword()),
+                'device_name' => $deviceName,
+                'ip' => $ip,
+                'user_agent' => $userAgent === null ? null : PlatformAdminText::clipped(text: $userAgent, limit: self::USER_AGENT_LIMIT),
+                'mfa_method' => $mfaMethod?->value,
+                'expires_at' => now()->addMinutes($this->settings->tokenTtlMinutes()),
+            ]);
 
-        return new PlatformAdminSession(principal: $this->principalOf(admin: $admin, grant: $grant, token: $token), plainToken: $plain);
+            foreach ($evicted as $evictedId) {
+                $this->audit->record(
+                    action: 'session.evicted',
+                    adminId: (int) $admin->getKey(),
+                    tokenId: $evictedId,
+                    ip: $ip,
+                    userAgent: $userAgent,
+                    context: ['by_token_id' => (int) $token->getKey(), 'limit' => $this->settings->sessionMaxConcurrent()],
+                );
+            }
+
+            $this->deleteLongEndedSessionsOf(adminId: (int) $admin->getKey());
+
+            return new PlatformAdminSession(principal: $this->principalOf(admin: $admin, grant: $grant, token: $token), plainToken: $plain);
+        });
     }
 
     /**
@@ -65,7 +86,7 @@ final class PlatformAdminTokenService
      * or was made for another admin row (the row of the admin was deleted and another came to carry its id); and, while the second factor is required,
      * one that did not pass it, however it was opened.
      */
-    public function principalFor(string $candidate): ?PlatformAdminPrincipal
+    public function principalFor(string $candidate, ?string $ip = null, ?string $userAgent = null): ?PlatformAdminPrincipal
     {
         if (preg_match(self::SHAPE, $candidate) !== 1) {
             return null;
@@ -74,6 +95,12 @@ final class PlatformAdminTokenService
         $token = PlatformAdminToken::query()->where('token_hash', hash('sha256', $candidate))->first();
 
         if ($token === null || !$token->isActive() || ($this->settings->mfaRequired() && $token->mfaMethod() === null)) {
+            return null;
+        }
+
+        if ($token->isIdle(idleMinutes: $this->settings->sessionIdleMinutes())) {
+            $this->endIdle(token: $token, ip: $ip, userAgent: $userAgent);
+
             return null;
         }
 
@@ -116,16 +143,25 @@ final class PlatformAdminTokenService
         return PlatformAdminToken::query()->where('admin_id', $adminId)->whereNull('revoked_at')->update(['revoked_at' => now()]);
     }
 
+    /**
+     * Ends every open session of the admin but one, and returns how many it ended. A session that was over already (ended, expired, idle) is not one of them,
+     * and is left as it is.
+     */
+    public function endAllExcept(int $adminId, int $keptTokenId): int
+    {
+        return PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->where('id', '!=', $keptTokenId)->update(['revoked_at' => now()]);
+    }
+
     /** @return Collection<int, PlatformAdminToken> the sessions of an admin that are still open, newest first */
     public function openSessionsOf(int $adminId): Collection
     {
-        return PlatformAdminToken::query()->active()->where('admin_id', $adminId)->orderByDesc('id')->limit(self::LISTING_LIMIT)->get();
+        return PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->orderByDesc('id')->limit(self::LISTING_LIMIT)->get();
     }
 
     /** One of the open sessions of this admin, or null when there is none with that id: another admin's session is not found either. */
     public function openSessionOf(int $adminId, int $tokenId): ?PlatformAdminToken
     {
-        return PlatformAdminToken::query()->active()->where('admin_id', $adminId)->whereKey($tokenId)->first();
+        return PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->whereKey($tokenId)->first();
     }
 
     /** The SHA-256 of a password hash: what a session remembers of the password it was opened with, so any change of it ends every session. */
@@ -137,6 +173,47 @@ final class PlatformAdminTokenService
     private function principalOf(Admin $admin, PlatformAdminGrant $grant, PlatformAdminToken $token): PlatformAdminPrincipal
     {
         return new PlatformAdminPrincipal(admin: $admin, grant: $grant, token: $token, markets: $this->markets->allowedBy(grant: $grant));
+    }
+
+    /**
+     * Ends a session that has been idle too long, on the first request made with it after, and says so in the trail. Only the request that ends it says so: a
+     * session that is ended already is refused like any other and writes nothing.
+     */
+    private function endIdle(PlatformAdminToken $token, ?string $ip, ?string $userAgent): void
+    {
+        $ended = PlatformAdminToken::query()->whereKey($token->getKey())->whereNull('revoked_at')->update(['revoked_at' => now()]);
+
+        if ($ended === 1) {
+            $this->audit->record(
+                action: 'session.idle_ended',
+                adminId: (int) $token->admin_id,
+                tokenId: (int) $token->getKey(),
+                ip: $ip,
+                userAgent: $userAgent,
+                context: ['idle_minutes' => $this->settings->sessionIdleMinutes()],
+            );
+        }
+    }
+
+    /**
+     * Ends the open sessions of an admin that are not among the newest `$keep`.
+     *
+     * @return list<int> the ids of the sessions it ended, oldest first
+     */
+    private function endOldestBeyond(int $adminId, int $keep): array
+    {
+        $surplus = PlatformAdminToken::query()->active($this->settings->sessionIdleMinutes())->where('admin_id', $adminId)->orderByDesc('id')->pluck('id')
+            ->slice($keep)
+            ->map(static fn ($id): int => (int) $id)
+            ->reverse()
+            ->values()
+            ->all();
+
+        if ($surplus !== []) {
+            PlatformAdminToken::query()->whereIn('id', $surplus)->update(['revoked_at' => now()]);
+        }
+
+        return $surplus;
     }
 
     private function deleteLongEndedSessionsOf(int $adminId): void

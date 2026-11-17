@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RestAPI\PlatformAdmin\v1;
 use App\Exceptions\PlatformAdminApiException;
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
+use App\Services\PlatformAdmin\PlatformAdminAudit;
 use App\Services\PlatformAdmin\PlatformAdminPresenter;
 use App\Services\PlatformAdmin\PlatformAdminPrincipal;
 use App\Services\PlatformAdmin\PlatformAdminResponses;
@@ -27,6 +28,16 @@ class SessionController extends Controller
         return PlatformAdminResponses::data(
             data: $this->tokens->openSessionsOf(adminId: $principal->adminId())->map(fn ($token): array => PlatformAdminPresenter::session(token: $token, currentTokenId: $currentTokenId))->all(),
         );
+    }
+
+    #[ApiDoc(audience: ApiDoc::ADMIN, visibility: ApiDoc::INTERNAL, stability: ApiDoc::BETA, since: 'v1', group: 'platform_admin', summary: 'End every open session of yours but this one', description: 'A lost phone: every other session stops working on its next request. Answers how many it ended, and the one in use is not among them.', idempotent: false)]
+    public function endOthers(Request $request): JsonResponse
+    {
+        $principal = PlatformAdminPrincipal::fromRequest(request: $request);
+        $ended = $this->tokens->endAllExcept(adminId: $principal->adminId(), keptTokenId: (int) $principal->token->getKey());
+        $request->attributes->set(PlatformAdminAudit::DETAIL_ATTRIBUTE, ['ended' => $ended]);
+
+        return PlatformAdminResponses::data(data: ['ended' => $ended]);
     }
 
     #[ApiDoc(audience: ApiDoc::ADMIN, visibility: ApiDoc::INTERNAL, stability: ApiDoc::BETA, since: 'v1', group: 'platform_admin', summary: 'End one of your own open sessions', description: "A lost phone: its token stops working on the next request. Another admin's session, one that has already ended and one that does not exist all answer 404.", idempotent: false)]

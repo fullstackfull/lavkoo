@@ -38,7 +38,7 @@ class AuthenticatePlatformAdmin
             throw new PlatformAdminDormantException(path: $request->path());
         }
 
-        $principal = $this->tokens->principalFor(candidate: $this->bearerTokenOf(request: $request));
+        $principal = $this->tokens->principalFor(candidate: $this->bearerTokenOf(request: $request), ip: $request->ip(), userAgent: $request->userAgent());
 
         if ($principal === null) {
             return PlatformAdminResponses::unauthenticated();

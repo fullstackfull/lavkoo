@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Route;
 | off and 503 until its tables exist; `platform_admin_auth` accepts only a token of this API. The only routes without it are the two steps of the sign-in.
 |
 | Every route is named `platform_admin.<action>`, and the action is what the audit trail records. The only routes that are not reads are the
-| sign-in (two steps), the sign-out and the ending of a session; no route changes business data.
+| sign-in (two steps), the sign-out and the ending of sessions (one, or all but the one in use); no route changes business data.
 */
 Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform_admin.')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login'])->name('auth.login');
@@ -30,6 +30,7 @@ Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform
         Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
         Route::get('me', MeController::class)->name('me.view');
         Route::get('sessions', [SessionController::class, 'index'])->name('sessions.list');
+        Route::delete('sessions', [SessionController::class, 'endOthers'])->name('sessions.end_others');
         Route::delete('sessions/{id}', [SessionController::class, 'destroy'])->whereNumber('id')->name('session.revoke');
         Route::get('markets', MarketController::class)->name('markets.view');
         Route::get('overview', OverviewController::class)->name('overview.view');

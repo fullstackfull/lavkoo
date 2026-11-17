@@ -146,9 +146,10 @@ they have one), and warns every time it runs while `GCC_PLATFORM_ADMIN_MFA_REQUI
 * **Idle timeout.** A session that has not been used for 60 minutes (`GCC_PLATFORM_ADMIN_SESSION_IDLE_MINUTES`, at most 1440) is over: its next request is the uniform 401 and ends the
   session (`session.idle_ended` in the trail). The time of last use moves at most once a minute, so idleness is measured to the minute; a session that was never used counts from the moment it was opened.
 * **At most 5 open sessions per admin** (`GCC_PLATFORM_ADMIN_SESSION_MAX_CONCURRENT`, at most 20). When a sign-in would make one more, the oldest open sessions are ended to make room
-  (`session.evicted`, one line per session ended, naming the sessions). Sessions already ended, expired or idle do not count.
+  (`session.evicted`: one line for each session that was ended, which names it as the line's `token_id` and, in its context, the session that made room (`by_token_id`) and the limit). Sessions already ended, expired or idle do not count,
+  and two sign-ins of one admin at once cannot both find room (the grant is held while they are counted).
 * **Any change of the admin's password, made anywhere, ends every one of that admin's sessions on the next request, and a sign-in that was waiting for its second factor cannot be completed.** A session remembers the SHA-256 of the password hash it was
-  opened with. (A rehash of the same password, which Laravel does when the hashing cost changes, counts as a change.) Resetting the second factor, revoking the grant and `revoke-tokens` end the sessions and the pending challenges too.
+  opened with. (A rehash of the same password, which Laravel does when the hashing cost changes, counts as a change.) Resetting the second factor, revoking the grant, `revoke-tokens` and giving a revoked grant back (or making a grant over to a replaced row) end the sessions and the pending challenges too.
 * A session is also refused on the next request when its admin is deactivated, its grant is revoked, it expires or is idle. Nothing is cached, so there is nothing to wait for.
 * The admin sees their own sessions with `GET /sessions`, ends one with `DELETE /sessions/{id}` and ends all the others with `DELETE /sessions`.
 * If a token may have leaked: `revoke-tokens`, then ask the admin to change the password. A token starts with `lkpa_`, so one found in a log or a file can be recognised and revoked.

@@ -40,8 +40,24 @@ class PlatformAdminToken extends Model
         return MfaMethod::tryFrom((string) ($this->getAttributes()['mfa_method'] ?? ''));
     }
 
-    public function scopeActive(Builder $query): void
+    /**
+     * Whether it has gone unused for the idle time: counted from the last use, or from the moment it was opened when it was never used, and over at the very
+     * moment the time is up, as a session is at its expiry. A row with neither moment is idle: nothing says it was ever used.
+     */
+    public function isIdle(int $idleMinutes): bool
+    {
+        $lastActivity = $this->last_used_at ?? $this->created_at;
+
+        return $lastActivity === null || !$lastActivity->copy()->addMinutes($idleMinutes)->isFuture();
+    }
+
+    /** Open sessions: not revoked, not expired and, when the idle time is given, used or opened within it. */
+    public function scopeActive(Builder $query, ?int $idleMinutes = null): void
     {
         $query->whereNull('revoked_at')->where('expires_at', '>', now());
+
+        if ($idleMinutes !== null) {
+            $query->whereRaw('coalesce(last_used_at, created_at) > ?', [now()->subMinutes($idleMinutes)]);
+        }
     }
 }

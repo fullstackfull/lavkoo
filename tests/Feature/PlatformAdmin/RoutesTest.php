@@ -30,6 +30,7 @@ class RoutesTest extends PlatformAdminTestCase
         'platform_admin.auth.login' => 'POST',
         'platform_admin.auth.mfa' => 'POST',
         'platform_admin.auth.logout' => 'POST',
+        'platform_admin.sessions.end_others' => 'DELETE',
         'platform_admin.session.revoke' => 'DELETE',
     ];
 
@@ -91,7 +92,7 @@ class RoutesTest extends PlatformAdminTestCase
         $this->assertContains(RecordHttpTelemetry::class, $resolved, 'the probe proves the check above can see the api group');
     }
 
-    public function test_only_the_sign_in_its_second_step_the_sign_out_and_the_ending_of_a_session_are_not_reads(): void
+    public function test_only_the_sign_in_its_second_step_the_sign_out_and_the_ending_of_sessions_are_not_reads(): void
     {
         $writing = [];
         foreach ($this->platformRoutes() as $route) {
