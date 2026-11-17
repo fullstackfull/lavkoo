@@ -20,14 +20,18 @@ trait ReadsRouteMiddleware
         return array_values(array_diff($declared, array_map('strval', $route->excludedMiddleware())));
     }
 
-    /** @return list<string> the permissions the `module:` middleware of the route asks for */
+    /** @return list<string> the `module:` middleware the route really runs, as declared: `module:a,b` is one that passes the holder of `a` or `b`, two of them ask for both */
+    private function moduleMiddlewareOf(RoutingRoute $route): array
+    {
+        return array_values(array_filter($this->declaredMiddleware(route: $route), static fn (string $middleware): bool => str_starts_with($middleware, 'module:')));
+    }
+
+    /** @return list<string> every permission the `module:` middleware of the route asks for, each name of a list `module:a,b` on its own */
     private function modulePermissionsOf(RoutingRoute $route): array
     {
         $permissions = [];
-        foreach ($this->declaredMiddleware(route: $route) as $middleware) {
-            if (str_starts_with($middleware, 'module:')) {
-                $permissions[] = substr($middleware, strlen('module:'));
-            }
+        foreach ($this->moduleMiddlewareOf(route: $route) as $middleware) {
+            array_push($permissions, ...explode(',', substr($middleware, strlen('module:'))));
         }
 
         return $permissions;
