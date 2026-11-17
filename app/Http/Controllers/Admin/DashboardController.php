@@ -15,6 +15,7 @@ use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Contracts\Repositories\VendorWalletRepositoryInterface;
 use App\Http\Controllers\BaseController;
 use App\Services\DashboardService;
+use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -356,8 +357,12 @@ class DashboardController extends BaseController
 
     public function getRealTimeActivities(): JsonResponse
     {
-        $newOrder = $this->orderRepo->getListWhere(filters: ['checked' => 0], dataLimit: 'all')->count();
-        $restockProductList = $this->restockProductRepo->getListWhere(filters: ['added_by' => 'in_house'], dataLimit: 'all')->groupBy('product_id');
+        $newOrder = Helpers::module_permission_check(mod_name: 'orders')
+            ? $this->orderRepo->getListWhere(filters: ['checked' => 0], dataLimit: 'all')->count()
+            : 0;
+        $restockProductList = Helpers::module_permission_check(mod_name: 'catalog')
+            ? $this->restockProductRepo->getListWhere(filters: ['added_by' => 'in_house'], dataLimit: 'all')->groupBy('product_id')
+            : collect();
         $restockProduct = [];
         if (count($restockProductList) == 1) {
             $products = $this->restockProductRepo->getListWhere(orderBy: ['updated_at' => 'desc'], filters: ['added_by' => 'in_house'], relations: ['product'], dataLimit: 'all');
@@ -377,16 +382,19 @@ class DashboardController extends BaseController
                 'route' => route('admin.products.request-restock-list')
             ];
         }
-        $chatting = $this->chattingRepo->getListWhereNotNull(
-            filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
-            whereNotNull: ['admin_id'],
-        )->count();
+        $chatting = 0;
+        if (Helpers::module_permission_check(mod_name: 'people')) {
+            $chatting = $this->chattingRepo->getListWhereNotNull(
+                filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
+                whereNotNull: ['admin_id'],
+            )->count();
 
-        $this->chattingRepo->updateListWhereNotNull(
-            filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
-            whereNotNull: ['admin_id'],
-            data: ['seen_notification' => 1]
-        );
+            $this->chattingRepo->updateListWhereNotNull(
+                filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
+                whereNotNull: ['admin_id'],
+                data: ['seen_notification' => 1]
+            );
+        }
 
         return response()->json([
             'success' => 1,

@@ -33,7 +33,7 @@ class AdminRouteTableTest extends TestCase
     /** The routes that ask for no permission on purpose, as "METHOD path" => why. */
     private const OPEN_ON_PURPOSE = [
         'GET admin/dashboard' => 'The landing page: every refusal of the role middleware redirects to it, so a permission on it would send an employee round in a circle. The view shows its numbers only to the master admin and to a role that holds `dashboard`.',
-        'GET admin/dashboard/real-time-activities' => 'The poller in the layout of every admin page. It reports new orders, restock requests and unread chat messages, which belong to three permissions (orders, catalog, people).',
+        'GET admin/dashboard/real-time-activities' => 'The poller in the layout of every admin page. It answers every signed-in employee and reports only the sections whose permission their role holds: new orders (orders), restock requests (catalog) and unread chat messages (people).',
         'GET admin/logout' => 'Every signed-in employee must be able to sign out.',
         'GET admin/settings' => 'The searchable index of the settings pages. It lists only the groups whose module the employee holds (SettingsIndexService) and holds no data of its own.',
         'GET admin/design-system' => self::STATIC_GALLERY,
