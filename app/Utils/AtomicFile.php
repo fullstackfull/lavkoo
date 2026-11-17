@@ -168,8 +168,11 @@ final class AtomicFile
 
         $replaced = false;
         try {
+            // the attributes are set before the first byte is written, so that nobody can read secrets from a file that is open to everyone, and
+            // again after it: a write by a process without privileges takes the setuid and setgid bits off a file
             $replaced = self::copyAttributes(from: $handle, to: $temporary, temporaryPath: $temporaryPath)
                 && self::writeAll(handle: $temporary, content: $content)
+                && self::copyAttributes(from: $handle, to: $temporary, temporaryPath: $temporaryPath)
                 && @rename($temporaryPath, $realPath);
         } finally {
             fclose($temporary);
