@@ -59,7 +59,8 @@ final class PlatformAdminTokenService
 
     /**
      * Who holds this token, if anyone does. Every check is made on every request, and the answer to each is the same nothing:
-     * a token that is unknown, ended, expired, of an admin who is no longer active or whose password has changed since, or whose grant is gone.
+     * a token that is unknown, ended, expired, of an admin who is no longer active or whose password has changed since, or whose grant is gone
+     * or was made for another admin row (the row of the admin was deleted and another came to carry its id).
      */
     public function principalFor(string $candidate): ?PlatformAdminPrincipal
     {
@@ -73,7 +74,7 @@ final class PlatformAdminTokenService
             return null;
         }
 
-        $admin = Admin::query()->select(['id', 'name', 'status', 'password'])->find($token->admin_id);
+        $admin = Admin::query()->select(['id', 'name', 'status', 'password', 'created_at'])->find($token->admin_id);
 
         if ($admin === null || (int) $admin->getRawOriginal('status') !== 1) {
             return null;
@@ -81,7 +82,7 @@ final class PlatformAdminTokenService
 
         $grant = PlatformAdminGrant::query()->find($token->grant_id);
 
-        if ($grant === null || !$grant->isActive() || $grant->admin_id !== $token->admin_id) {
+        if ($grant === null || !$grant->isActive() || $grant->admin_id !== $token->admin_id || !$grant->isMadeFor(admin: $admin)) {
             return null;
         }
 

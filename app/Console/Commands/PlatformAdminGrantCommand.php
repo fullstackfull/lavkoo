@@ -42,6 +42,10 @@ class PlatformAdminGrantCommand extends Command
         $countries = $grant->countryList();
         $this->info(sprintf('Admin %d may use the platform admin API at level %d (monitor) for %s.', $adminId, $level, $countries === null ? 'every market' : implode(', ', $countries) . ' only'));
 
+        if ($grant->wasChanged('admin_fingerprint')) {
+            $this->warn('The grant that existed had been made for another admin row that carried this id. It now belongs to the row that carries the id, and the sessions of the old row have ended.');
+        }
+
         return self::SUCCESS;
     }
 

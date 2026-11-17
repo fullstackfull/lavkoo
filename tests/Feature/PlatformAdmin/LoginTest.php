@@ -116,6 +116,7 @@ class LoginTest extends PlatformAdminTestCase
         $revoked = $this->platformAdmin(grantOverrides: ['revoked_at' => now()]);
         $inactive = $this->platformAdmin(adminOverrides: ['status' => 0]);
         $withoutGrant = $this->makeAdmin();
+        $ofAnotherRow = $this->platformAdmin(grantOverrides: ['admin_fingerprint' => hash('sha256', 'the grant was made for another admin row')]);
         $unknownPassword = Str::random(20);
 
         $causes = [
@@ -124,6 +125,7 @@ class LoginTest extends PlatformAdminTestCase
             'inactive admin' => ['email' => $inactive['email'], 'password' => $inactive['password'], 'device_name' => 'Pixel'],
             'admin without a grant' => ['email' => $withoutGrant['email'], 'password' => $withoutGrant['password'], 'device_name' => 'Pixel'],
             'revoked grant' => ['email' => $revoked['email'], 'password' => $revoked['password'], 'device_name' => 'Pixel'],
+            'a grant made for another admin row' => ['email' => $ofAnotherRow['email'], 'password' => $ofAnotherRow['password'], 'device_name' => 'Pixel'],
             'no password' => ['email' => $active['email'], 'device_name' => 'Pixel'],
             'no e-mail' => ['password' => $unknownPassword, 'device_name' => 'Pixel'],
             'no device name' => ['email' => $active['email'], 'password' => $active['password']],
@@ -163,22 +165,33 @@ class LoginTest extends PlatformAdminTestCase
         $active = $this->platformAdmin();
         $revoked = $this->platformAdmin(grantOverrides: ['revoked_at' => now()]);
         $inactive = $this->platformAdmin(adminOverrides: ['status' => 0]);
+        $ofAnotherRow = $this->platformAdmin(grantOverrides: ['admin_fingerprint' => hash('sha256', 'the grant was made for another admin row')]);
         $withoutGrant = $this->makeAdmin();
 
         $this->signIn(['email' => $active['email'], 'password' => 'not the password']);
         $this->signIn($revoked);
         $this->signIn($inactive);
+        $this->signIn($ofAnotherRow);
         $this->signIn($withoutGrant);
         $this->signIn(['email' => 'nobody@example.test', 'password' => 'whatever']);
 
         $lines = DB::table('platform_admin_audit_logs')->orderBy('id')->get();
-        $this->assertSame(['auth.login_failed', 'auth.login_failed', 'auth.login_failed'], $lines->pluck('action')->all());
-        $this->assertSame([$active['id'], $revoked['id'], $inactive['id']], $lines->pluck('admin_id')->map(fn ($id) => (int) $id)->all());
-        $this->assertSame(['wrong_password', 'revoked_grant', 'inactive_admin'], $lines->map(fn ($line) => json_decode($line->context, true)['reason'])->all());
+        $this->assertSame(['auth.login_failed', 'auth.login_failed', 'auth.login_failed', 'auth.login_failed'], $lines->pluck('action')->all());
+        $this->assertSame([$active['id'], $revoked['id'], $inactive['id'], $ofAnotherRow['id']], $lines->pluck('admin_id')->map(fn ($id) => (int) $id)->all());
+        $this->assertSame(['wrong_password', 'revoked_grant', 'inactive_admin', 'grant_of_another_admin_row'], $lines->map(fn ($line) => json_decode($line->context, true)['reason'])->all());
         $this->assertSame(0, DB::table('platform_admin_tokens')->count());
 
         $reasons = array_map(static fn (LogRecord $record): string => $record->context['reason'] ?? '', $log->getRecords());
-        $this->assertSame(['wrong_password', 'revoked_grant', 'inactive_admin', 'no_grant', 'unknown_admin'], array_values(array_filter($reasons)), 'every failure reaches the log, with its reason');
+        $this->assertSame(['wrong_password', 'revoked_grant', 'inactive_admin', 'grant_of_another_admin_row', 'no_grant', 'unknown_admin'], array_values(array_filter($reasons)), 'every failure reaches the log, with its reason');
+    }
+
+    public function test_a_grant_made_by_the_command_is_one_the_admin_can_sign_in_on(): void
+    {
+        $admin = $this->makeAdmin();
+
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => $admin['id']])->assertExitCode(0);
+
+        $this->signIn($admin)->assertOk()->assertJsonPath('data.me.admin_id', $admin['id']);
     }
 
     public function test_unauthenticated_traffic_cannot_make_any_table_grow(): void

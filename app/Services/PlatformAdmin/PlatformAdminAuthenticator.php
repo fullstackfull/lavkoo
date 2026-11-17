@@ -10,8 +10,8 @@ use Illuminate\Support\Str;
 
 /**
  * Signing in as a platform admin: the admin's own e-mail and password, checked against the admins table without starting a session, and an
- * active grant. Whatever is wrong, the caller learns only that it was not accepted, and the work done is the same: one lookup of the admin,
- * one check of the password (against a dummy hash when there is no such admin) and one lookup of the grant.
+ * active grant made for that admin row. Whatever is wrong, the caller learns only that it was not accepted, and the work done is the same:
+ * one lookup of the admin, one check of the password (against a dummy hash when there is no such admin) and one lookup of the grant.
  */
 final class PlatformAdminAuthenticator
 {
@@ -30,7 +30,7 @@ final class PlatformAdminAuthenticator
 
     public function authenticate(LoginAttempt $attempt): ?PlatformAdminSession
     {
-        $admin = Admin::query()->select(['id', 'name', 'status', 'password'])->where('email', $attempt->email)->first();
+        $admin = Admin::query()->select(['id', 'name', 'status', 'password', 'created_at'])->where('email', $attempt->email)->first();
         $passwordMatches = $this->hasher->check($attempt->password, $admin === null ? $this->dummyHash() : (string) $admin->getAuthPassword());
         $grant = PlatformAdminGrant::query()->where('admin_id', $admin?->getKey() ?? 0)->first();
 
@@ -53,6 +53,7 @@ final class PlatformAdminAuthenticator
             !$passwordMatches => 'wrong_password',
             (int) $admin->getRawOriginal('status') !== 1 => 'inactive_admin',
             $grant === null => 'no_grant',
+            !$grant->isMadeFor(admin: $admin) => 'grant_of_another_admin_row',
             !$grant->isActive() => 'revoked_grant',
             default => null,
         };

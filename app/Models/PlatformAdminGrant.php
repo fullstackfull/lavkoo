@@ -12,7 +12,7 @@ class PlatformAdminGrant extends Model
     /** Read-only monitoring. The only level that exists; a later level includes it. */
     public const LEVEL_MONITOR = 1;
 
-    protected $fillable = ['admin_id', 'level', 'countries', 'granted_by', 'granted_at', 'revoked_at'];
+    protected $fillable = ['admin_id', 'admin_fingerprint', 'level', 'countries', 'granted_by', 'granted_at', 'revoked_at'];
 
     protected $casts = [
         'admin_id' => 'integer',
@@ -22,6 +22,22 @@ class PlatformAdminGrant extends Model
         'granted_at' => 'datetime',
         'revoked_at' => 'datetime',
     ];
+
+    /**
+     * What a grant remembers of the admin row it was made for: the id and the moment the row was created, hashed. The id alone would let a row
+     * that comes to carry it later inherit the grant (a deleted admin whose id is reused, a restored dump); the creation time of a row does not
+     * change when the admin edits it. A row without a creation time is told apart by its id alone. The admin must have been read with `created_at`.
+     */
+    public static function fingerprintOf(Admin $admin): string
+    {
+        return hash('sha256', $admin->getKey() . '|' . $admin->getRawOriginal('created_at'));
+    }
+
+    /** Whether this grant was made for exactly this admin row: a different row that merely has the same id is not the admin it was made for. */
+    public function isMadeFor(Admin $admin): bool
+    {
+        return hash_equals((string) $this->admin_fingerprint, self::fingerprintOf(admin: $admin));
+    }
 
     public function isActive(): bool
     {

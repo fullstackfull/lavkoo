@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\PlatformAdmin;
 
+use App\Models\Admin;
 use App\Models\PlatformAdminAuditLog;
 use App\Models\PlatformAdminGrant;
 use App\Models\PlatformAdminToken;
@@ -47,7 +48,7 @@ class ModelsTest extends TestCase
             }
         }
 
-        DB::table('platform_admin_grants')->insert(['admin_id' => 7, 'level' => 1, 'countries' => $stored, 'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('platform_admin_grants')->insert(['admin_id' => 7, 'admin_fingerprint' => $this->adminFingerprint(adminId: 7), 'level' => 1, 'countries' => $stored, 'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
         $this->assertSame($expected, PlatformAdminGrant::query()->firstOrFail()->countryList());
     }
@@ -61,6 +62,37 @@ class ModelsTest extends TestCase
         $this->assertFalse($grant->isActive());
 
         $this->assertFalse((new PlatformAdminGrant(['admin_id' => 7, 'level' => 0]))->isActive());
+    }
+
+    public function test_a_grant_is_made_for_one_admin_row_and_a_row_that_only_carries_the_same_id_is_not_that_admin(): void
+    {
+        DB::table('admins')->where('id', 7)->update(['created_at' => '2026-01-05 09:00:00']);
+        $original = Admin::query()->findOrFail(7);
+        $grant = new PlatformAdminGrant(['admin_id' => 7, 'admin_fingerprint' => PlatformAdminGrant::fingerprintOf(admin: $original)]);
+
+        $this->assertSame(hash('sha256', '7|2026-01-05 09:00:00'), PlatformAdminGrant::fingerprintOf(admin: $original), 'the formula is the id and the creation time of the row');
+        $this->assertTrue($grant->isMadeFor(admin: $original));
+
+        DB::table('admins')->where('id', 7)->update(['created_at' => '2026-02-01 10:00:00']);
+        $this->assertFalse($grant->isMadeFor(admin: Admin::query()->findOrFail(7)), 'the same id, created at another moment: another row');
+
+        DB::table('admins')->where('id', 7)->update(['created_at' => '2026-01-05 09:00:00']);
+        DB::table('admins')->insert(['id' => 8, 'name' => 'Other', 'email' => 'other@example.test', 'password' => 'x', 'created_at' => '2026-01-05 09:00:00']);
+        $this->assertFalse($grant->isMadeFor(admin: Admin::query()->findOrFail(8)), 'the same creation time, another id: another row');
+    }
+
+    public function test_the_fingerprint_does_not_move_when_the_admin_edits_the_row_and_a_row_without_a_creation_time_is_told_apart_by_its_id_alone(): void
+    {
+        $withoutCreationTime = Admin::query()->findOrFail(7);
+        $grant = new PlatformAdminGrant(['admin_id' => 7, 'admin_fingerprint' => PlatformAdminGrant::fingerprintOf(admin: $withoutCreationTime)]);
+
+        $this->assertSame(hash('sha256', '7|'), PlatformAdminGrant::fingerprintOf(admin: $withoutCreationTime));
+
+        DB::table('admins')->where('id', 7)->update(['name' => 'Renamed', 'email' => 'renamed@example.test', 'password' => 'another hash']);
+        $this->assertTrue($grant->isMadeFor(admin: Admin::query()->findOrFail(7)), 'a new e-mail, name or password is the same admin row');
+
+        DB::table('admins')->where('id', 7)->update(['created_at' => '2026-03-01 08:00:00']);
+        $this->assertFalse($grant->isMadeFor(admin: Admin::query()->findOrFail(7)), 'a row that has a creation time is not the one that had none');
     }
 
     public function test_a_token_is_active_until_it_expires_or_is_revoked_and_never_serialises_its_hash(): void
@@ -96,6 +128,6 @@ class ModelsTest extends TestCase
 
     private function grantId(): int
     {
-        return (int) DB::table('platform_admin_grants')->insertGetId(['admin_id' => 7, 'level' => 1, 'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        return (int) DB::table('platform_admin_grants')->insertGetId(['admin_id' => 7, 'admin_fingerprint' => $this->adminFingerprint(adminId: 7), 'level' => 1, 'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
     }
 }

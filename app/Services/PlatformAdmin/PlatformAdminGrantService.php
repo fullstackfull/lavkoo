@@ -29,11 +29,11 @@ final class PlatformAdminGrantService
      */
     public function grant(int $adminId, ?array $countries, int $level): PlatformAdminGrant
     {
-        $this->requireActiveAdmin(adminId: $adminId);
+        $admin = $this->activeAdminOf(adminId: $adminId);
         $this->requireKnownLevel(level: $level);
         $scope = $this->scopeOf(countries: $countries);
 
-        return DB::transaction(fn (): PlatformAdminGrant => $this->writeGrant(adminId: $adminId, scope: $scope, level: $level));
+        return DB::transaction(fn (): PlatformAdminGrant => $this->writeGrant(admin: $admin, scope: $scope, level: $level));
     }
 
     /**
@@ -73,23 +73,33 @@ final class PlatformAdminGrantService
         return $revoked;
     }
 
-    /** @param list<string>|null $scope */
-    private function writeGrant(int $adminId, ?array $scope, int $level): PlatformAdminGrant
+    /**
+     * A grant that was made for another row with this id (the admin was deleted, without a foreign key to take its grant with it, and another
+     * row came to carry the id) is made over to the row that carries it now, which is what the operator asked for; the sessions of the old row end.
+     *
+     * @param list<string>|null $scope
+     */
+    private function writeGrant(Admin $admin, ?array $scope, int $level): PlatformAdminGrant
     {
+        $adminId = (int) $admin->getKey();
         $grant = $this->lockedGrantOf(adminId: $adminId);
         $before = $grant === null ? null : ['level' => $grant->level, 'countries' => $grant->countryList(), 'revoked' => $grant->revoked_at !== null];
         $reactivating = $grant !== null && $grant->revoked_at !== null;
+        $replacedRow = $grant !== null && !$grant->isMadeFor(admin: $admin);
 
         $grant ??= new PlatformAdminGrant(['admin_id' => $adminId]);
-        $grant->fill(['level' => $level, 'countries' => $scope, 'revoked_at' => null]);
-        if (!$grant->exists || $reactivating) {
+        $grant->fill(['admin_fingerprint' => PlatformAdminGrant::fingerprintOf(admin: $admin), 'level' => $level, 'countries' => $scope, 'revoked_at' => null]);
+        if (!$grant->exists || $reactivating || $replacedRow) {
             $grant->granted_at = now();
         }
         $grant->save();
 
         $context = ['source' => self::SOURCE, 'before' => $before, 'after' => ['level' => $level, 'countries' => $scope]];
-        if ($reactivating) {
+        if ($reactivating || $replacedRow) {
             $context['tokens_revoked'] = $this->tokens->revokeAllFor(adminId: $adminId);
+        }
+        if ($replacedRow) {
+            $context['replaced_admin_row'] = true;
         }
 
         $this->audit->record(action: $this->actionOf(before: $before), adminId: $adminId, context: $context);
@@ -112,9 +122,9 @@ final class PlatformAdminGrantService
         return PlatformAdminGrant::query()->where('admin_id', $adminId)->lockForUpdate()->first();
     }
 
-    private function requireActiveAdmin(int $adminId): void
+    private function activeAdminOf(int $adminId): Admin
     {
-        $admin = Admin::query()->select(['id', 'status'])->find($adminId);
+        $admin = Admin::query()->select(['id', 'status', 'created_at'])->find($adminId);
 
         if ($admin === null) {
             throw new PlatformAdminGrantRefusedException("Admin {$adminId} does not exist.");
@@ -123,6 +133,8 @@ final class PlatformAdminGrantService
         if ((int) $admin->getRawOriginal('status') !== 1) {
             throw new PlatformAdminGrantRefusedException("Admin {$adminId} is not active: its status must be exactly 1, for the first admin too.");
         }
+
+        return $admin;
     }
 
     private function requireKnownLevel(int $level): void

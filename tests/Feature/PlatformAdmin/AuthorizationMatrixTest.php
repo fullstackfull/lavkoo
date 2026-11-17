@@ -12,6 +12,7 @@ use App\Services\Marketplace\SellerPrincipal;
 use App\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\LoadsPassportKeys;
@@ -312,11 +313,15 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
         $active = $this->platformAdmin();
         $other = $this->platformAdmin();
 
+        $borrowing = $this->platformAdmin(grantOverrides: ['admin_fingerprint' => $this->adminFingerprint(adminId: $active['id'])]);
+
         $pointsAtRevoked = $this->mintToken($active, ['grant_id' => $revoked['grant_id']]);
         $pointsAtAnActiveOne = $this->mintToken($active, ['grant_id' => $other['grant_id']]);
+        $pointsAtOneThatBorrowsTheFingerprint = $this->mintToken($active, ['grant_id' => $borrowing['grant_id']]);
 
         $this->assertEveryRouteRefuses(headers: $this->bearer($pointsAtRevoked), why: "a token of one admin on another's revoked grant");
         $this->assertEveryRouteRefuses(headers: $this->bearer($pointsAtAnActiveOne), why: "a token of one admin on another's active grant");
+        $this->assertEveryRouteRefuses(headers: $this->bearer($pointsAtOneThatBorrowsTheFingerprint), why: "a token of one admin on the grant of another that carries the first one's fingerprint");
     }
 
     public function test_a_token_of_an_admin_that_was_deleted(): void
@@ -327,6 +332,30 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
         DB::table('admins')->where('id', $admin['id'])->delete();
 
         $this->assertEveryRouteRefuses(headers: $this->bearer($token), why: 'a deleted admin');
+    }
+
+    public function test_a_token_whose_admin_row_is_gone_is_refused_even_when_nothing_removed_its_grant(): void
+    {
+        $admin = $this->platformAdmin();
+        $token = $this->mintToken($admin);
+        $this->deleteTheAdminRowAndNothingElse($admin);
+
+        $this->assertEveryRouteRefuses(headers: $this->bearer($token), why: 'an admin row that is gone while its grant and its session are not');
+    }
+
+    public function test_a_row_that_comes_to_carry_the_id_of_a_deleted_admin_inherits_neither_its_grant_nor_its_sessions(): void
+    {
+        $admin = $this->platformAdmin();
+        $oldSession = $this->mintToken($admin);
+        $this->deleteTheAdminRowAndNothingElse($admin);
+        $replacement = $this->makeAdmin(['id' => $admin['id'], 'created_at' => now()->addMinute()]);
+        $newSessionOnTheOldGrant = $this->mintToken(['id' => $replacement['id'], 'grant_id' => $admin['grant_id']]);
+
+        $this->assertEveryRouteRefuses(headers: $this->bearer($oldSession), why: 'the session of the admin that was deleted');
+        $this->assertEveryRouteRefuses(headers: $this->bearer($newSessionOnTheOldGrant), why: 'a session of the replacement row on the grant of the deleted admin');
+        $this->postJson(self::PREFIX . '/auth/login', ['email' => $replacement['email'], 'password' => $replacement['password'], 'device_name' => 'Pixel'])
+            ->assertStatus(401)
+            ->assertExactJson($this->uniformRefusal());
     }
 
     public function test_a_valid_token_in_the_query_string_or_the_body_is_not_a_credential(): void
@@ -377,6 +406,12 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
         }
 
         $this->assertSame($before, $this->ownTables(), "{$why}: a refused request wrote something");
+    }
+
+    /** What a database without the foreign key does when an admin is deleted: the row goes and its grant and sessions stay behind. */
+    private function deleteTheAdminRowAndNothingElse(array $admin): void
+    {
+        Schema::withoutForeignKeyConstraints(fn () => DB::table('admins')->where('id', $admin['id'])->delete());
     }
 
     private function assertTokenOfTheSameAdminWorks(array $admin): void

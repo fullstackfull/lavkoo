@@ -9,8 +9,8 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
-use Monolog\Handler\TestHandler;
 use Tests\Support\BuildsPlatformAdminWorld;
+use Tests\Support\CapturesLogRecords;
 use Tests\TestCase;
 
 /**
@@ -21,6 +21,7 @@ use Tests\TestCase;
 abstract class PlatformAdminTestCase extends TestCase
 {
     use BuildsPlatformAdminWorld;
+    use CapturesLogRecords;
 
     protected const PREFIX = '/api/platform-admin/v1';
 
@@ -57,7 +58,12 @@ abstract class PlatformAdminTestCase extends TestCase
             'updated_at' => now(),
         ], $overrides);
 
-        $id = (int) DB::table('admins')->insertGetId($row);
+        $id = isset($row['id']) ? (int) $row['id'] : null;
+        if ($id === null) {
+            $id = (int) DB::table('admins')->insertGetId($row);
+        } else {
+            DB::table('admins')->insert($row);
+        }
 
         return ['id' => $id, 'email' => $row['email'], 'password' => $password, 'name' => $row['name']];
     }
@@ -70,8 +76,11 @@ abstract class PlatformAdminTestCase extends TestCase
      */
     protected function grantTo(array|int $admin, ?array $countries = null, array $overrides = []): int
     {
+        $adminId = is_array($admin) ? $admin['id'] : $admin;
+
         return (int) DB::table('platform_admin_grants')->insertGetId(array_merge([
-            'admin_id' => is_array($admin) ? $admin['id'] : $admin,
+            'admin_id' => $adminId,
+            'admin_fingerprint' => $this->adminFingerprint(adminId: $adminId),
             'level' => 1,
             'countries' => $countries === null ? null : json_encode($countries),
             'granted_at' => now(),
@@ -158,15 +167,6 @@ abstract class PlatformAdminTestCase extends TestCase
         $action();
 
         return $statements;
-    }
-
-    /** The log, kept in memory for a test to read. */
-    protected function captureLog(): TestHandler
-    {
-        config(['logging.default' => 'capture', 'logging.channels.capture' => ['driver' => 'monolog', 'handler' => TestHandler::class]]);
-        app('log')->forgetChannel('capture');
-
-        return app('log')->channel('capture')->getLogger()->getHandlers()[0];
     }
 
     /**

@@ -55,6 +55,53 @@ class GrantCommandsTest extends TestCase
         $this->assertSame($this->sortedByKey(['source' => 'console', 'before' => null, 'after' => ['level' => 1, 'countries' => null]]), $this->contextOf($audit[0]));
     }
 
+    public function test_a_grant_remembers_the_admin_row_it_was_made_for(): void
+    {
+        DB::table('admins')->where('id', 7)->update(['created_at' => '2026-01-05 09:00:00']);
+
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->doesntExpectOutputToContain('another admin row')->assertExitCode(0);
+
+        $this->assertSame(hash('sha256', '7|2026-01-05 09:00:00'), DB::table('platform_admin_grants')->where('admin_id', 7)->value('admin_fingerprint'));
+    }
+
+    public function test_granting_again_to_the_same_row_leaves_its_sessions_and_its_grant_time_alone(): void
+    {
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->assertExitCode(0);
+        $this->insertToken(adminId: 7, grantId: (int) DB::table('platform_admin_grants')->value('id'), hash: str_repeat('a', 64));
+        Carbon::setTestNow('2026-11-18 10:00:00');
+
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--countries' => 'KW'])->doesntExpectOutputToContain('another admin row')->assertExitCode(0);
+
+        $this->assertNull(DB::table('platform_admin_tokens')->value('revoked_at'), 'the same admin keeps the sessions');
+        $this->assertSame('2026-11-17 10:00:00', DB::table('platform_admin_grants')->value('granted_at'));
+        $this->assertArrayNotHasKey('replaced_admin_row', $this->contextOf($this->auditLines()->last()));
+    }
+
+    public function test_granting_again_after_the_admin_row_was_replaced_adopts_the_new_row_and_ends_the_sessions_of_the_old_one(): void
+    {
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->assertExitCode(0);
+        $grantId = (int) DB::table('platform_admin_grants')->value('id');
+        $this->insertToken(adminId: 7, grantId: $grantId, hash: str_repeat('a', 64));
+        Schema::withoutForeignKeyConstraints(fn () => DB::table('admins')->where('id', 7)->delete());
+        DB::table('admins')->insert(['id' => 7, 'name' => 'Replacement', 'email' => 'replacement@example.test', 'password' => 'x', 'status' => 1, 'created_at' => '2026-05-01 12:00:00']);
+        Carbon::setTestNow('2026-11-18 10:00:00');
+
+        $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7])->expectsOutputToContain('another admin row')->assertExitCode(0);
+
+        $grant = DB::table('platform_admin_grants')->where('admin_id', 7)->first();
+        $this->assertSame(1, DB::table('platform_admin_grants')->count(), 'the grant is updated in place');
+        $this->assertSame($grantId, (int) $grant->id);
+        $this->assertSame(hash('sha256', '7|2026-05-01 12:00:00'), $grant->admin_fingerprint, 'the grant is now the replacement row\'s');
+        $this->assertSame('2026-11-18 10:00:00', $grant->granted_at);
+        $this->assertSame('2026-11-18 10:00:00', DB::table('platform_admin_tokens')->value('revoked_at'), 'a session of the row that was deleted ends');
+        $line = $this->auditLines()->last();
+        $this->assertSame('grant.updated', $line->action);
+        $this->assertSame(
+            $this->sortedByKey(['source' => 'console', 'before' => ['level' => 1, 'countries' => null, 'revoked' => false], 'after' => ['level' => 1, 'countries' => null], 'tokens_revoked' => 1, 'replaced_admin_row' => true]),
+            $this->contextOf($line),
+        );
+    }
+
     public function test_countries_are_normalised_deduplicated_and_kept_in_the_order_of_the_configuration(): void
     {
         $this->assertSame(0, $this->artisan('gcc:platform-admin:grant', ['admin_id' => 7, '--countries' => ' kw, AE ,kw'])->run());
@@ -235,7 +282,7 @@ class GrantCommandsTest extends TestCase
 
     private function grant(int $adminId): int
     {
-        return (int) DB::table('platform_admin_grants')->insertGetId(['admin_id' => $adminId, 'level' => 1, 'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        return (int) DB::table('platform_admin_grants')->insertGetId(['admin_id' => $adminId, 'admin_fingerprint' => $this->adminFingerprint(adminId: $adminId), 'level' => 1, 'granted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
     }
 
     private function insertToken(int $adminId, int $grantId, string $hash, ?string $revokedAt = null): void

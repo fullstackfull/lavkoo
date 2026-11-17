@@ -22,7 +22,8 @@ It is a **separate principal**. It is not a seller, a seller staff member, a sel
 How it is kept apart: its own sign-in endpoint, its own token table (`platform_admin_tokens`), its own middleware, no seller middleware, no seller table, no `Auth` guard, no
 Passport (`ReverseIsolationTest` scans the code for these). The identity is the admin's own e-mail and password, checked against the `admins` table **without starting a session**.
 Which admin may use it is decided by a row in `platform_admin_grants`, written only by a console command an operator runs on the server. There is no hard-coded admin id (not
-admin 1), no e-mail allow-list and no flag the client sends.
+admin 1), no e-mail allow-list and no flag the client sends. A grant is made for one admin **row**: it remembers the id and the creation time of the row, and a different row that
+merely comes to carry the same id (a deleted admin whose id is reused, a restored dump) is not that admin and gets no access.
 
 Level 1 only reads. The only things it writes are its own session rows (sign-in, sign-out, ending a session, the time a session was last used) and its own audit lines.
 
@@ -51,9 +52,11 @@ process of the platform for migrations and configuration.
 ### Before the first use
 
 1. Merge and deploy the code. With the flag off nothing changes.
-2. **Check `admins.id` before migrating a real database.** `platform_admin_grants.admin_id` is a foreign key to it with `ON DELETE CASCADE`, so a deleted admin takes its grant
-   and sessions with it and a reused id can never inherit a grant. The migration assumes `BIGINT UNSIGNED` (what `Schema::id()` and the installation dump make it). Run
-   `SHOW CREATE TABLE admins` and confirm the `id` type and the `InnoDB` engine; a mismatch makes the migration fail as a whole (MySQL error 3780 or 150) and change nothing.
+2. **Look at `admins.id` (informational: the migration does not depend on it).** `platform_admin_grants.admin_id` is tied to `admins.id` by a foreign key with `ON DELETE CASCADE`
+   when the real column can be referenced, and the migration checks that itself: `BIGINT UNSIGNED` on an InnoDB table (MySQL and MariaDB). The installation dump that creates `admins`
+   is not in this repository, so `SHOW CREATE TABLE admins` tells you beforehand which case you are in. If the key cannot be made (another type or engine, no `admins` table, or the
+   database refuses it for any other reason) **the migration still succeeds**: it creates the table without the key and writes one warning to the application log that says why.
+   Nothing else changes, because a grant is tied to the admin row it was made for by a fingerprint, not by the key (see "Deleting an admin who holds a grant" below).
 3. Run the three migrations `2026_11_27_100000_create_platform_admin_grants_table`, `..._100100_create_platform_admin_tokens_table` and `..._100200_create_platform_admin_audit_logs_table`.
    They only add tables. Rolling them back drops the three tables and nothing else; roll all three back together (the tokens table has a foreign key to the grants table, which
    MySQL refuses to drop while it is referenced).
@@ -88,12 +91,17 @@ work whether the flag is on or off, and each tells the operator to run the migra
 * A session is also refused on the next request when its admin is deactivated, its grant is revoked, or it expires. Nothing is cached, so there is nothing to wait for.
 * The admin sees their own sessions with `GET /sessions` and ends one with `DELETE /sessions/{id}`.
 * If a token may have leaked: `revoke-tokens`, then ask the admin to change the password. A token starts with `lkpa_`, so one found in a log or a file can be recognised and revoked.
+* **Deleting an admin who holds a grant.** With the foreign key the grant and its sessions go with the admin. Without it (the migration said so in the log) they stay behind, and
+  cannot be used: a grant remembers the id and the creation time of the row it was made for, so a row that comes to carry the same id later is a different admin and gets no access, at
+  sign-in or with a session that was already open. Run `gcc:platform-admin:revoke {admin_id}` before deleting the admin to leave nothing behind. If the new row is meant to have the
+  access, run `gcc:platform-admin:grant {admin_id}` again: the grant is made over to the row that carries the id now, the sessions of the old row end, the command says so, and the audit line (`grant.updated`) carries `replaced_admin_row`.
+  Changing an admin's e-mail or name does not touch the grant; replacing the row does.
 * To switch the whole API off: unset the flag. Every route answers 404 again at once.
 
 ### Watching it
 
-`GET /audit-logs` (platform owner: every line) and the table `platform_admin_audit_logs`. A refused sign-in is always in the application log, with its reason and a hash of the
-address, never the address itself. Only a refusal for an admin who holds a grant is also audited, and at most `failed_login_audit_per_hour` (10) lines per grant per hour, so
+`GET /audit-logs` (platform owner: every line) and the table `platform_admin_audit_logs`. A refused sign-in is always in the application log, with its reason (`malformed_input`, `unknown_admin`, `wrong_password`, `inactive_admin`, `no_grant`,
+`grant_of_another_admin_row`, `revoked_grant`) and a hash of the address, never the address itself. Only a refusal for an admin who holds a grant is also audited, and at most `failed_login_audit_per_hour` (10) lines per grant per hour, so
 traffic from the internet cannot make a table grow.
 
 ## 4. Conventions
@@ -138,7 +146,7 @@ Body (JSON or form; **a body only, credentials in the address are not read**): `
 }}
 ```
 
-The token is shown **once**; only its SHA-256 is stored. Success needs: the admin exists, the password matches, **`status` exactly 1 (no exemption for admin 1)** and an active grant.
+The token is shown **once**; only its SHA-256 is stored. Success needs: the admin exists, the password matches, **`status` exactly 1 (no exemption for admin 1)** and an active grant made for that admin row.
 Everything else, including a malformed body, is the same 401, with the same work done: one lookup of the admin, **one password check against a real bcrypt hash even when there is
 no such admin**, one lookup of the grant. Limits: 5 attempts a minute for one e-mail from one address (configurable), 15 for one address in all; every attempt counts, and a
 success starts the count of that e-mail from that address again. A sign-in also deletes that admin's sessions that ended more than 30 days ago.
@@ -297,8 +305,14 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 
 1. **Routes outside the `api` middleware group** (the way the webhooks are mapped): the group records a telemetry row, an analytics event and a response shape for every request and
    sets a visitor cookie. That would write outside the API's own tables, and record answers that are private.
-2. **Foreign keys.** The repository has no schema for `admins` (it comes from the installation dump) and none of its migrations declares a foreign key. This one does, with cascade, for
-   the reason in section 3. Verify the type before migrating (`BIGINT UNSIGNED`, InnoDB).
+2. **Foreign keys.** The repository has no schema for `admins` (it comes from the installation dump). The grants migration ties `admin_id` to `admins.id` with a foreign key
+   (`ON DELETE CASCADE`) only after checking that it can: `BIGINT UNSIGNED` on an InnoDB table (MySQL, MariaDB), or SQLite, which does not tell the types apart. Otherwise, or if the
+   database refuses the key for any other reason, it logs one warning and goes on: a feature that ships switched off must never fail the deploy of the whole application. The
+   tokens table is always tied to the grants table (its types match by construction). What the key gave, that a reused admin id cannot inherit a grant, does not depend on it: the
+   grant carries a fingerprint of the admin row it was made for (SHA-256 of the id and the row's `created_at`), and a grant whose fingerprint is not the row's is no grant, at
+   sign-in and on every request. The creation time is used rather than the e-mail because an admin may change their e-mail. A row without a creation time (the first admin of an
+   installation may have none) is told apart by its id alone, so for such a row the guard is as good as the id; a restored dump with the same ids and the same creation times is the
+   same admin. Changing the formula would end every grant that exists, and a test pins it.
 3. **Sign-in limits.** The same number for one address and for one address with one e-mail would make the second unreachable. One e-mail from one address gets the configured number;
    the address as a whole gets three times that. Distributed guessing from many addresses is not throttled by this, which is what MFA is for.
 4. **Audit of requests is written before the answer is returned**, in the same request: if the trail cannot be written, the request fails instead of being served unrecorded. The audit
@@ -342,4 +356,5 @@ no run against a real database, no production access, no migration on any real e
 Tests, in `tests/Feature/PlatformAdmin` (run on SQLite, SQLite with `APP_DEBUG=true` and MySQL 8; CI runs them on SQLite with the whole suite, and on MySQL and MariaDB with the storefront
 set): the authorization matrix (every route of the route table against every caller that is not the holder of a live token: no header, malformed headers, other schemes, a seller, a seller's
 staff, an API key, a customer, a panel session, expired, ended, deactivated, changed password, revoked or foreign grant), the reverse isolation tests, the flag and dormancy tests, login,
-sessions, request limit, markets, overview, alerts, audit logs, storefront isolation, read-only proof, routes and migrations, and the grant commands.
+sessions, request limit, markets, overview, alerts, audit logs, storefront isolation, read-only proof, routes and migrations (the grants migration against every shape of `admins`:
+`BIGINT UNSIGNED`, `INT UNSIGNED`, signed `BIGINT`, MyISAM, partitioned, missing), the grant fingerprint, and the grant commands.

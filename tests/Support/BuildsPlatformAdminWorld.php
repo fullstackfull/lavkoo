@@ -107,6 +107,15 @@ trait BuildsPlatformAdminWorld
         });
     }
 
+    /**
+     * What a grant remembers of the admin row it was made for: the id and the creation time of the row, hashed. The formula is spelled out here
+     * and not taken from the code under test, so that a change to it, which would end every grant that exists, fails a test.
+     */
+    protected function adminFingerprint(int $adminId): string
+    {
+        return hash('sha256', $adminId . '|' . DB::table('admins')->where('id', $adminId)->value('created_at'));
+    }
+
     protected function runPlatformAdminMigrations(): void
     {
         foreach (self::PLATFORM_ADMIN_MIGRATIONS as $file) {
