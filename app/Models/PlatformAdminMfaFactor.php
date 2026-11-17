@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\PlatformAdmin\Base32;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -36,6 +38,21 @@ class PlatformAdminMfaFactor extends Model
     public function isMadeFor(Admin $admin): bool
     {
         return hash_equals((string) $this->admin_fingerprint, PlatformAdminGrant::fingerprintOf(admin: $admin));
+    }
+
+    /**
+     * The secret as the bytes the code is computed from, or null when it cannot be read: it was encrypted with another application key, or it is damaged.
+     * The one place that lets go of it, and the one that tells the check of a code (which then fails closed) from a factor that works.
+     */
+    public function secretBytes(): ?string
+    {
+        try {
+            $bytes = Base32::decode(text: (string) $this->secret);
+        } catch (DecryptException) {
+            return null;
+        }
+
+        return $bytes === null || $bytes === '' ? null : $bytes;
     }
 
     /** How many recovery codes have not been used. */
