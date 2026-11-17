@@ -60,15 +60,15 @@ class PickerCountryLabelTest extends TestCase
         parent::tearDown();
     }
 
-    /** @return array<string, array{0: string, 1: string}> the view, and the variable that carries its products */
+    /** @return array<string, array{0: string, 1: string, 2: string}> the view, the variable that carries its products, and the element of a name exactly as it was before the label */
     public static function adminPickerViews(): array
     {
         return [
-            'the promotion and reviews picker rows' => ['admin-views.partials._search-product', 'products'],
-            'the chips of the promotion pickers' => ['admin-views.partials._select-product', 'selectedProducts'],
-            'the clearance sale picker rows' => ['admin-views.deal.clearance-sale.partials._search-product', 'products'],
-            'the chips of the clearance sale picker' => ['admin-views.deal.clearance-sale.partials._select-product', 'selectedProducts'],
-            'the order-edit picker rows' => ['admin-views.order.partials._search-product', 'products'],
+            'the promotion and reviews picker rows' => ['admin-views.partials._search-product', 'products', '<h5 class="text-capitalize mb-1 product-name">Serum</h5>'],
+            'the chips of the promotion pickers' => ['admin-views.partials._select-product', 'selectedProducts', '<h5 class="mb-1 product-name">Serum</h5>'],
+            'the clearance sale picker rows' => ['admin-views.deal.clearance-sale.partials._search-product', 'products', "<h4 class=\"mb-1 product-name line-1 text-start\">\n                                Serum\n                            </h4>"],
+            'the chips of the clearance sale picker' => ['admin-views.deal.clearance-sale.partials._select-product', 'selectedProducts', "<h4 class=\"mb-1 product-name line-1\">\n                                Serum\n\n                            </h4>"],
+            'the order-edit picker rows' => ['admin-views.order.partials._search-product', 'products', "<h4 class=\"mb-0 product-name line-1 text-start\">\n                                    Serum\n                                </h4>"],
         ];
     }
 
@@ -90,9 +90,10 @@ class PickerCountryLabelTest extends TestCase
     }
 
     #[DataProvider('adminPickerViews')]
-    public function test_with_the_switch_off_no_row_names_a_country_and_the_markup_is_the_old_one(string $view, string $variable): void
+    public function test_with_the_switch_off_no_row_names_a_country_and_the_markup_is_the_old_one(string $view, string $variable, string $oldName): void
     {
         $off = $this->render($view, $variable);
+        $this->assertSame(2, substr_count($off, $oldName), 'the element of the name is byte for byte what it was');
 
         $this->scopeCodesByCountry();
         $on = $this->render($view, $variable);
@@ -103,7 +104,7 @@ class PickerCountryLabelTest extends TestCase
     }
 
     #[DataProvider('adminPickerViews')]
-    public function test_with_the_switch_on_each_product_names_its_country_after_its_name(string $view, string $variable): void
+    public function test_with_the_switch_on_each_product_names_its_country_after_its_name(string $view, string $variable, string $oldName): void
     {
         $this->scopeCodesByCountry();
 
@@ -116,7 +117,7 @@ class PickerCountryLabelTest extends TestCase
     }
 
     #[DataProvider('adminPickerViews')]
-    public function test_a_missing_column_draws_nothing(string $view, string $variable): void
+    public function test_a_missing_column_draws_nothing(string $view, string $variable, string $oldName): void
     {
         $off = $this->render($view, $variable);
         $this->scopeCodesByCountry();
@@ -126,7 +127,7 @@ class PickerCountryLabelTest extends TestCase
     }
 
     #[DataProvider('adminPickerViews')]
-    public function test_a_product_whose_country_is_unknown_is_not_tagged(string $view, string $variable): void
+    public function test_a_product_whose_country_is_unknown_is_not_tagged(string $view, string $variable, string $oldName): void
     {
         $this->scopeCodesByCountry();
         DB::table('products')->where('id', 1)->update(['storefront_country' => '']);

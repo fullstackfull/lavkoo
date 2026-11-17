@@ -73,6 +73,8 @@ class ProductGalleryCountryTest extends TestCase
         $this->assertStringContainsString('Serum', $html);
         $this->assertStringNotContainsString(' · KW', $html);
         $this->assertStringNotContainsString(' · SA', $html);
+        $this->assertSame(2, substr_count($html, '<h3 class="text-capitalize mb-3 line-1">Serum</h3>'), 'the card headings are byte for byte what they were');
+        $this->assertSame(2, substr_count($html, '<h3 class="text-capitalize mb-0">Serum</h3>'), 'so are the headings of the details panels');
     }
 
     public function test_with_the_switch_on_each_card_and_each_details_panel_names_the_country_of_its_product(): void

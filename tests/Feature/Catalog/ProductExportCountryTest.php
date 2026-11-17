@@ -62,7 +62,10 @@ class ProductExportCountryTest extends TestCase
 
     private function taxIs(bool $productWise): void
     {
-        if ($productWise && !Schema::hasTable('taxables')) {
+        if ($productWise) {
+            foreach (['taxables', 'taxes'] as $table) {
+                Schema::dropIfExists($table);
+            }
             Schema::create('taxables', function ($table) {
                 $table->id();
                 $table->string('taxable_type');
