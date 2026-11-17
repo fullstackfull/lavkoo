@@ -640,6 +640,13 @@ class ProductRepository implements ProductRepositoryInterface
         })->pluck('id');
     }
 
+    public function addArrayAndGetIds(array $data): array
+    {
+        cacheRemoveByType(type: 'products');
+
+        return DB::transaction(static fn (): array => array_map(static fn (array $row): int => (int) DB::table('products')->insertGetId($row), $data));
+    }
+
     public function addArray(array $data): bool
     {
         cacheRemoveByType(type: 'products');

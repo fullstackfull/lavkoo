@@ -9,11 +9,12 @@ use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use Illuminate\Support\Str;
 use Rap2hpoutre\FastExcel\FastExcel;
+use App\Services\Catalog\ProductCodeScope;
 class ProductService
 {
     use FileManagerTrait;
 
-    public function __construct(private readonly Color $color)
+    public function __construct(private readonly Color $color, private readonly ProductCodeScope $codeScope)
     {
     }
 
@@ -765,11 +766,12 @@ class ProductService
         return $dataArray;
     }
 
-    public function getUniqueProductSKUCode(): string
+    /** A code nobody holds where the product is created: the sheet has no country column, so an import takes the default country of the table. */
+    public function getUniqueProductSKUCode(string $country = ProductCodeScope::TABLE_DEFAULT_COUNTRY): string
     {
         $code = strtoupper(Str::random('6'));
-        if (\App\Models\Product::where('code', $code)->exists()) {
-            return self::getUniqueProductSKUCode();
+        if (!$this->codeScope->generatedCodeIsFree(code: $code, country: $country)) {
+            return $this->getUniqueProductSKUCode(country: $country);
         }
         return $code;
     }
@@ -836,9 +838,9 @@ class ProductService
             }
             $thumbnail = explode('/', $collection['thumbnail']);
 
-            $productCode = self::getUniqueProductSKUCode();
+            $productCode = $this->getUniqueProductSKUCode();
 
-            $productsTax[$productCode] = $collection['tax_ids'];
+            $productsTax[] = $collection['tax_ids'];
 
             $products[] = [
                 'name' => $collection['name'],
