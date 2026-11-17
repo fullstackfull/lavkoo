@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * The countries the signed-in employee works with (GCC-14c, slices 1 and 2: the product screens, and the order, POS and refund screens, of the admin panel).
+ * The countries the signed-in employee works with (GCC-14c, slices 1 to 3: the product screens, the order, POS and refund screens, and the shared layout, the dashboard
+ * and the reports, of the admin panel).
  *
  * It is the only place that knows the switch (`gcc.staff.country_scopes`), the table of countries and how they become an employee's scope. The switch ships off and
  * acts as off until the table and `products.storefront_country` exist: nothing is read then, and every answer is the one the panel has always given.
@@ -61,10 +62,23 @@ final class StaffCountryScope
      */
     public function bind(Request $request, ?Admin $admin): ?array
     {
-        $countries = $admin !== null && $this->enabled() ? $this->resolve(adminId: (int) $admin->getKey(), roleId: $admin->admin_role_id) : null;
+        $countries = $admin !== null && !$this->isMasterAdmin(roleId: $admin->admin_role_id) && $this->enabled() ? $this->resolve(adminId: (int) $admin->getKey(), roleId: $admin->admin_role_id) : null;
         $request->attributes->set(self::REQUEST_ATTRIBUTE, $countries);
 
         return $countries;
+    }
+
+    /**
+     * What the shared layout of every admin page reads of the orders (the counters of its sidebar and the latest pending orders of its header) is narrowed to the employee's
+     * countries on the screens that no middleware bound: the layout is rendered after the screen, so it binds the request itself, once, when nothing has.
+     */
+    public function narrowLayout(Request $request, ?Admin $admin): void
+    {
+        if (!$request->attributes->has(self::REQUEST_ATTRIBUTE)) {
+            $this->bind(request: $request, admin: $admin);
+        }
+
+        $this->narrowTo(request: $request, subjects: [self::SUBJECT_ORDERS, self::SUBJECT_REFUNDS]);
     }
 
     /**
@@ -75,7 +89,7 @@ final class StaffCountryScope
      */
     public function resolve(int $adminId, ?int $roleId): ?array
     {
-        if ($roleId === self::MASTER_ADMIN_ROLE_ID) {
+        if ($this->isMasterAdmin(roleId: $roleId)) {
             return null;
         }
 
@@ -88,6 +102,11 @@ final class StaffCountryScope
         sort($granted);
 
         return $granted;
+    }
+
+    private function isMasterAdmin(?int $roleId): bool
+    {
+        return $roleId === self::MASTER_ADMIN_ROLE_ID;
     }
 
     /**
