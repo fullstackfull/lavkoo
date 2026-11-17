@@ -11,10 +11,12 @@
    <div class="search-list d-flex flex-column">
        @if (count($result) > 0)
            <?php
-           function highlightKeyword($text, $keyword)
-           {
-               $escapedKeyword = preg_quote($keyword, '/');
-               return preg_replace("/($escapedKeyword)/i", '<mark>$1</mark>', $text);
+           if (!function_exists('highlightKeyword')) {
+               function highlightKeyword($text, $keyword)
+               {
+                   $escapedKeyword = preg_quote($keyword, '/');
+                   return preg_replace("/($escapedKeyword)/i", '<mark>$1</mark>', $text);
+               }
            }
            ?>
            @foreach ($result as $groupKey => $resultItem)
