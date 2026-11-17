@@ -3,6 +3,8 @@
 namespace Tests\Feature\Security;
 
 use App\Services\Marketplace\InventoryService;
+use App\Services\SellerCenter\Lists\InventoryList;
+use Illuminate\Http\Request;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -22,8 +24,10 @@ class SellerApiInventoryMovementsScopeTest extends TestCase
     use BuildsSellerApiWorld;
 
     private const OWN_PRODUCT = 10;
+    private const LEGACY_PRODUCT = 11;
     private const OTHER_SELLERS_PRODUCT = 20;
     private const IN_HOUSE_PRODUCT = 30;
+    private const DELETED_PRODUCT = 999;
 
     protected function setUp(): void
     {
@@ -106,6 +110,58 @@ class SellerApiInventoryMovementsScopeTest extends TestCase
 
         $this->assertSame([self::OWN_PRODUCT], $this->movementsOf(self::SELLER));
         $this->assertSame(1, $this->sellerApi('GET', 'seller-center/inventory/movements')->json('total_size'));
+    }
+
+    public function test_a_sellers_own_history_stays_whatever_became_of_its_product_row_and_is_counted_with_it(): void
+    {
+        DB::table('products')->insert(['id' => self::LEGACY_PRODUCT, 'user_id' => self::SELLER, 'added_by' => null, 'name' => 'Legacy product, added_by never set', 'current_stock' => 5]);
+        DB::table('stock_movements')->insert([
+            ['product_id' => self::OWN_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'sale', 'qty_change' => -1, 'note' => 'own product'],
+            ['product_id' => self::LEGACY_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'sale', 'qty_change' => -1, 'note' => 'own product that has no added_by'],
+            ['product_id' => self::DELETED_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'sale', 'qty_change' => -1, 'note' => 'product that was deleted since'],
+        ]);
+
+        $overview = $this->sellerApi('GET', 'seller-center/inventory/overview');
+
+        $this->assertSame([self::DELETED_PRODUCT, self::LEGACY_PRODUCT, self::OWN_PRODUCT], $this->movementsOf(self::SELLER));
+        $this->assertSame(3, $overview->json('movements_recorded'));
+    }
+
+    public function test_the_history_of_a_sellers_own_product_is_still_there_after_the_product_is_deleted(): void
+    {
+        DB::table('stock_movements')->insert(['product_id' => self::OWN_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'sale', 'qty_change' => -1, 'note' => 'own sale']);
+        $before = $this->movementsOf(self::SELLER);
+
+        DB::table('products')->where('id', self::OWN_PRODUCT)->delete();
+
+        $this->assertSame([self::OWN_PRODUCT], $before);
+        $this->assertSame([self::OWN_PRODUCT], $this->movementsOf(self::SELLER));
+        $this->assertSame(1, $this->sellerApi('GET', 'seller-center/inventory/overview')->json('movements_recorded'));
+    }
+
+    public function test_a_movement_stamped_with_seller_ones_id_for_another_sellers_product_is_not_in_seller_ones_log_or_count(): void
+    {
+        DB::table('stock_movements')->insert([
+            ['product_id' => self::OTHER_SELLERS_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'adjustment', 'qty_change' => -1, 'note' => 'stamped with the wrong seller'],
+            ['product_id' => self::OWN_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'adjustment', 'qty_change' => 2, 'note' => 'own'],
+        ]);
+
+        $this->assertSame([self::OWN_PRODUCT], $this->movementsOf(self::SELLER));
+        $this->assertSame(1, $this->sellerApi('GET', 'seller-center/inventory/overview')->json('movements_recorded'));
+    }
+
+    public function test_the_seller_hubs_movement_list_shows_the_same_history_as_the_app(): void
+    {
+        DB::table('stock_movements')->insert([
+            ['product_id' => self::DELETED_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'sale', 'qty_change' => -1],
+            ['product_id' => self::IN_HOUSE_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'adjustment', 'qty_change' => -1],
+            ['product_id' => self::OTHER_SELLERS_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'adjustment', 'qty_change' => -1],
+            ['product_id' => self::OWN_PRODUCT, 'seller_id' => self::SELLER, 'type' => 'sale', 'qty_change' => -1],
+        ]);
+
+        $movements = app(InventoryList::class)->movements(sellerId: self::SELLER, request: Request::create('/'));
+
+        $this->assertSame([self::OWN_PRODUCT, self::DELETED_PRODUCT], collect($movements->items())->pluck('product_id')->all());
     }
 
     private function adjust(int $productId, string $note): void
