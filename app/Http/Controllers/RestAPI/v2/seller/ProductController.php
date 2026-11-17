@@ -9,11 +9,11 @@ use App\Models\DealOfTheDay;
 use App\Models\FlashDealProduct;
 use App\Models\Product;
 use App\Models\Translation;
+use App\Services\ProductBarcodeSheetService;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Traits\SellerOwnedRecords;
 use App\Utils\ImageManager;
-use Barryvdh\DomPDF\PDF;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -670,7 +670,7 @@ class ProductController extends Controller
         return response()->json(['message' => translate('successfully product deleted!')], 200);
     }
 
-    public function barcode_generate(Request $request):JsonResponse
+    public function barcode_generate(Request $request, ProductBarcodeSheetService $barcodeSheetService): JsonResponse
     {
         $request->validate([
             'id' => 'required',
@@ -697,10 +697,7 @@ class ProductController extends Controller
         }
         $quantity = $request->quantity ?? 30;
         if (isset($product->code)) {
-            $pdf = app()->make(PDF::class);
-            $pdf->loadView('vendor-views.product.barcode-pdf', compact('product', 'quantity'));
-            $pdf->save(storage_path('app/public/product/barcode.pdf'));
-            return response()->json(asset('storage/app/public/product/barcode.pdf'));
+            return response()->json($barcodeSheetService->getLink(product: $product, quantity: $quantity));
         } else {
             return response()->json(['message' => translate('Please update product code!')], 203);
         }
