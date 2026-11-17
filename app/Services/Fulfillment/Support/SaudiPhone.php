@@ -40,7 +40,8 @@ final class SaudiPhone
 
     /**
      * Whether two spellings are one phone number: a Saudi number by its national form (so +966 5..., 05... and 009665... agree, and
-     * nothing else agrees with them), any other number by its digits.
+     * nothing else agrees with them), any other number by its digits. A spelling of another country's number that holds a digit this class
+     * cannot read is no number, so it equals nothing, itself included.
      */
     public static function isSameNumber(string $first, string $second): bool
     {
@@ -65,10 +66,10 @@ final class SaudiPhone
         return $international && !str_starts_with($afterPrefix, '966') ? null : self::normalize($raw);
     }
 
-    /** Only the digits of a spelling, Arabic-Indic, Persian and full-width ones included, as ASCII digits. */
-    private static function asciiDigits(string $raw): string
+    /** The spelling with its Arabic-Indic, Persian and full-width digits written as ASCII digits. */
+    private static function withAsciiDigits(string $raw): string
     {
-        $digits = strtr($raw, [
+        return strtr($raw, [
             '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
             '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
             '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
@@ -76,13 +77,33 @@ final class SaudiPhone
             '０' => '0', '１' => '1', '２' => '2', '３' => '3', '４' => '4',
             '５' => '5', '６' => '6', '７' => '7', '８' => '8', '９' => '9',
         ]);
-
-        return preg_replace('/\D+/', '', $digits) ?? '';
     }
 
-    /** The digits of an international number without the one trunk zero some people keep straight after a country code of the list. */
+    /** Only the digits of a spelling, Arabic-Indic, Persian and full-width ones included, as ASCII digits. */
+    private static function asciiDigits(string $raw): string
+    {
+        return preg_replace('/\D+/', '', self::withAsciiDigits($raw)) ?? '';
+    }
+
+    /**
+     * Whether the spelling holds a decimal digit of a script that is not converted (Bengali, Devanagari, Thai...): reading the digits it
+     * knows and dropping that one would leave a shorter number, which is another phone. Text that cannot be inspected counts as holding one.
+     */
+    private static function holdsDigitsItCannotRead(string $raw): bool
+    {
+        return preg_match('/(?![0-9])\p{Nd}/u', self::withAsciiDigits($raw)) !== 0;
+    }
+
+    /**
+     * The digits of an international number without the one trunk zero some people keep straight after a country code of the list. A
+     * spelling that holds a digit this class cannot read has no digits to compare.
+     */
     private static function withoutTrunkZero(string $raw): string
     {
+        if (self::holdsDigitsItCannotRead($raw)) {
+            return '';
+        }
+
         $digits = self::asciiDigits($raw);
         if (str_starts_with($digits, '00')) {
             $digits = substr($digits, 2);
