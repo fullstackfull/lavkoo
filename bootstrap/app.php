@@ -134,6 +134,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'storefront' => \App\Http\Middleware\ResolveStorefront::class,
             'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
             'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
+            // The platform admin API (GCC-20): the door in front of every route of it, and the check of its own bearer token.
+            'platform_admin' => \App\Http\Middleware\PlatformAdminGate::class,
+            'platform_admin_auth' => \App\Http\Middleware\AuthenticatePlatformAdmin::class,
+            'platform_admin_can' => \App\Http\Middleware\EnsurePlatformAdminCapability::class,
         ]);
     })
     // The schedule itself lives in App\Console\ScheduleDefinition, so the monitoring page can

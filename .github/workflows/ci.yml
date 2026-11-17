@@ -105,7 +105,8 @@ jobs:
           - group: Address tests
             paths: tests/Feature/Address
           - group: Storefront tests
-            paths: tests/Unit/Storefront tests/Feature/Storefront
+            # Also the platform admin API tests: the SQL they run for orders, products and refund requests has to meet a real engine, MariaDB included.
+            paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin
     services:
       mysql:
         image: ${{ matrix.image }}
