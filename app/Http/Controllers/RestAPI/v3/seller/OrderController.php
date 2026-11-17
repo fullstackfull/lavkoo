@@ -34,6 +34,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Ramsey\Uuid\Uuid;
 use App\Services\Marketplace\SellerOrderBreakdownService;
 use App\Services\Marketplace\SellerOrderTimelineService;
@@ -365,6 +366,12 @@ class OrderController extends Controller
         } else {
             return response()->json(['success' => 0, 'message' => translate("File_upload_fail!")], 202);
         }
+    }
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLineOfSeller(sellerId: $request->seller['id'], id: $id))
+            ?? response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
     }
 
     public function order_detail_status(Request $request): JsonResponse

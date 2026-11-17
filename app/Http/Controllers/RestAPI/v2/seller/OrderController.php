@@ -21,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Ramsey\Uuid\Uuid;
 
 
@@ -48,6 +49,18 @@ class OrderController extends Controller
         });
 
         return response()->json($orders, 200);
+    }
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        $seller = Helpers::getSellerByToken($request);
+        if (!$seller) {
+            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
+        }
+        $digitalFiles = app(DigitalProductFileService::class);
+
+        return $digitalFiles->download(name: $digitalFiles->nameOfOrderLineOfSeller(sellerId: $seller['id'], id: $id))
+            ?? response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
     }
 
     public function details(Request $request, $id):JsonResponse

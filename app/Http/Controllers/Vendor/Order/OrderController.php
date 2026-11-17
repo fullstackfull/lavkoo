@@ -901,5 +901,10 @@ class OrderController extends BaseController
         return back();
     }
 
+    public function downloadDigitalFile(string|int $id): BinaryFileResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLineOfSeller(sellerId: auth('seller')->id(), id: $id)) ?? abort(404);
+    }
+
 
 }

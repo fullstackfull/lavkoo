@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\DigitalProductVariation;
 use App\Models\OrderDetail;
+use App\Models\Product;
 use App\Traits\FileManagerTrait;
 use App\Utils\PlainFileName;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -111,6 +114,26 @@ class DigitalProductFileService
         return $this->isReadyProduct(snapshot: $product) ? $product['digital_file_ready'] : $orderDetail['digital_file_after_sell'];
     }
 
+    /** The name of the file an order line delivers, when the line is one of a seller's own sales (not a sale of the shop that carries the seller's id). */
+    public function nameOfOrderLineOfSeller(int|string $sellerId, int|string $id): ?string
+    {
+        $orderDetail = OrderDetail::with('order')->where('seller_id', $sellerId)->find($id);
+
+        return $orderDetail?->order?->seller_is === 'seller' ? $this->nameOfOrderLine(orderDetail: $orderDetail) : null;
+    }
+
+    /** The name of the ready file of a product, when the product is one the seller added. */
+    public function nameOfProductOfSeller(int|string $sellerId, int|string $id): ?string
+    {
+        return $this->productsOfSeller(sellerId: $sellerId)->find($id)?->digital_file_ready;
+    }
+
+    /** The name of the file of a digital variation, when the product it belongs to is one the seller added. */
+    public function nameOfVariationOfSeller(int|string $sellerId, int|string $id): ?string
+    {
+        return DigitalProductVariation::whereIn('product_id', $this->productsOfSeller(sellerId: $sellerId)->select('id'))->find($id)?->file;
+    }
+
     /**
      * Where the buyer of an order line can fetch the file the line delivers, answered the way storageLink() answers (`key`, `path`, `status`). While the mode is off it
      * is the public address, as it always was. While it is on it is the signed address of the route that streams the file, and only for a paid order.
@@ -176,6 +199,12 @@ class DigitalProductFileService
     private function answerWith(?string $name, ?string $address): array
     {
         return ['key' => $name, 'path' => $address, 'status' => $address === null ? 404 : 200];
+    }
+
+    /** The products a seller added (a product of the shop carries the id of an admin in the same column). */
+    private function productsOfSeller(int|string $sellerId): Builder
+    {
+        return Product::withoutGlobalScopes()->where(['added_by' => 'seller', 'user_id' => $sellerId]);
     }
 
     private function diskOfNewFiles(): ?string

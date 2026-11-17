@@ -540,6 +540,22 @@ class ProductController extends BaseController
         ]);
     }
 
+    public function downloadDigitalFile(string|int $id): BinaryFileResponse
+    {
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id]);
+        abort_if($product === null, 404);
+
+        return $this->digitalFiles->download(name: $product['digital_file_ready']) ?? abort(404);
+    }
+
+    public function downloadDigitalVariationFile(string|int $id): BinaryFileResponse
+    {
+        $variation = $this->digitalProductVariationRepo->getFirstWhere(params: ['id' => $id]);
+        abort_if($variation === null, 404);
+
+        return $this->digitalFiles->download(name: $variation['file']) ?? abort(404);
+    }
+
     public function updateFeaturedStatus(Request $request): JsonResponse
     {
         $status = $request['status'];

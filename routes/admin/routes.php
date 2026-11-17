@@ -422,6 +422,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             Route::post('sku-combination', 'getSkuCombinationView')->name('sku-combination');
             Route::post('digital-variation-combination', 'getDigitalVariationCombinationView')->name('digital-variation-combination');
             Route::post('digital-variation-file-delete', 'deleteDigitalVariationFile')->name('digital-variation-file-delete');
+            Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('digital-file');
+            Route::get('digital-variation-file/{id}/{fileName?}', 'downloadDigitalVariationFile')->name('digital-variation-file');
             Route::post('featured-status', 'updateFeaturedStatus')->name('featured-status');
             Route::get('get-categories', 'getCategories')->name('get-categories');
             Route::post('status-update', 'updateStatus')->name('status-update');
@@ -481,6 +483,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             Route::post('payment-status', 'updatePaymentStatus')->name('payment-status');
             Route::get('inhouse-order-filter', 'filterInHouseOrder')->name('inhouse-order-filter');
             Route::post('digital-file-upload-after-sell', 'uploadDigitalFileAfterSell')->name('digital-file-upload-after-sell');
+            Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('digital-file');
             Route::post('status', 'updateStatus')->name('status');
             // Bulk status change. Delegates per order to updateStatus, so every guard
             // and side effect of a single change applies to each one in the batch.

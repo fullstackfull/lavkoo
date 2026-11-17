@@ -53,6 +53,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 class ProductController extends Controller
@@ -756,6 +757,21 @@ class ProductController extends Controller
         }
     }
 
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfProductOfSeller(sellerId: $request->seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    public function downloadDigitalVariationFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfVariationOfSeller(sellerId: $request->seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    private function fileNotFound(): JsonResponse
+    {
+        return response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
+    }
 
     public function deleteDigitalProduct(Request $request): JsonResponse
     {

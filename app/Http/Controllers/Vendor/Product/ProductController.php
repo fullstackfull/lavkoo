@@ -672,6 +672,16 @@ class ProductController extends BaseController
         ]);
     }
 
+    public function downloadDigitalFile(string|int $id): BinaryFileResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfProductOfSeller(sellerId: auth('seller')->id(), id: $id)) ?? abort(404);
+    }
+
+    public function downloadDigitalVariationFile(string|int $id): BinaryFileResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfVariationOfSeller(sellerId: auth('seller')->id(), id: $id)) ?? abort(404);
+    }
+
     public function getCategories(Request $request, ProductService $service): JsonResponse
     {
         $parentId = $request['parent_id'];

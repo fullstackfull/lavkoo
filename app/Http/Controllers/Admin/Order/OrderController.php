@@ -1000,6 +1000,14 @@ class OrderController extends BaseController
         return back();
     }
 
+    public function downloadDigitalFile(string|int $id): BinaryFileResponse
+    {
+        $orderDetails = $this->orderDetailRepo->getFirstWhere(['id' => $id]);
+        abort_if($orderDetails === null, 404);
+
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLine(orderDetail: $orderDetails)) ?? abort(404);
+    }
+
     public function getSearchEditOrderProductsView(Request $request): JsonResponse
     {
         $searchValue = $request['searchValue'] ?? null;
