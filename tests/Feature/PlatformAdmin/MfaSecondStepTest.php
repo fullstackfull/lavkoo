@@ -5,6 +5,7 @@ namespace Tests\Feature\PlatformAdmin;
 use App\Models\PlatformAdminMfaFactor;
 use App\Services\PlatformAdmin\MfaAttempt;
 use App\Services\PlatformAdmin\MfaVerdict;
+use App\Services\PlatformAdmin\PlatformAdminMfaFactors;
 use App\Services\PlatformAdmin\PlatformAdminMfaVerifier;
 use App\Services\PlatformAdmin\Totp;
 use Carbon\Carbon;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Monolog\LogRecord;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -231,6 +233,7 @@ class MfaSecondStepTest extends MfaTestCase
             'neither a code nor a recovery code' => ['neither'],
             'an admin who was deactivated' => ['inactive'],
             'a grant that was revoked' => ['revoked grant'],
+            'a grant that is gone' => ['no grant'],
             'a grant made for another admin row' => ['another row'],
             'a password that changed since the challenge' => ['password changed'],
             'a factor that was reset' => ['factor reset'],
@@ -615,6 +618,32 @@ class MfaSecondStepTest extends MfaTestCase
         $this->assertSame(0, DB::table('platform_admin_tokens')->count());
     }
 
+    public function test_a_challenge_consumed_by_somebody_else_after_the_first_look_is_not_completed_and_its_code_is_not_used_up(): void
+    {
+        $this->travelTo('2026-11-17 10:00:15');
+        $admin = $this->enrolledAdmin();
+        $challenge = $this->challengeFor($admin);
+        $raced = new class extends PlatformAdminMfaFactors {
+            public function forAdmin(int $adminId, bool $lock = false): ?PlatformAdminMfaFactor
+            {
+                if ($lock) {
+                    DB::table('platform_admin_mfa_challenges')->update(['consumed_at' => now()]);
+                }
+
+                return parent::forAdmin(adminId: $adminId, lock: $lock);
+            }
+        };
+        $this->app->instance(PlatformAdminMfaFactors::class, $raced);
+        foreach ($this->platformRoutes() as $route) {
+            $route->flushController();
+        }
+
+        $this->second(['challenge' => $challenge, 'code' => $this->totpFor($admin['factor'])])->assertStatus(401)->assertExactJson($this->uniformRefusal());
+
+        $this->assertSame(0, DB::table('platform_admin_tokens')->count());
+        $this->assertNull(DB::table('platform_admin_mfa_factors')->value('last_used_step'), 'the code was not used up by a sign-in that did not happen');
+    }
+
     public function test_the_second_step_does_not_depend_on_the_switch_being_on_when_the_challenge_is_completed(): void
     {
         $admin = $this->enrolledAdmin();
@@ -682,6 +711,21 @@ class MfaSecondStepTest extends MfaTestCase
             $reasons[$cause] = $line === null ? null : json_decode($line->context, true)['reason'];
             $this->assertSame($reason, $reasons[$cause], $cause);
         }
+    }
+
+    public function test_a_grant_that_is_gone_is_refused_and_only_logged_because_there_is_no_grant_to_audit_it_for(): void
+    {
+        $log = $this->captureLog();
+        $this->travelTo('2026-11-17 10:00:15');
+        [$body, $admin] = $this->bodyFor(cause: 'no grant');
+        DB::table('platform_admin_audit_logs')->delete();
+
+        $this->second($body)->assertStatus(401);
+
+        $this->assertSame(0, DB::table('platform_admin_audit_logs')->count());
+        $reasons = array_values(array_filter(array_map(static fn (LogRecord $record): string => $record->context['reason'] ?? '', $log->getRecords())));
+        $this->assertSame(['no_grant'], $reasons);
+        $this->assertNotNull($admin);
     }
 
     public function test_the_refusal_is_audited_after_the_answer_has_been_given(): void
@@ -819,6 +863,10 @@ class MfaSecondStepTest extends MfaTestCase
                 return [['challenge' => $challenge, 'code' => $right()], $admin];
             case 'revoked grant':
                 DB::table('platform_admin_grants')->where('id', $admin['grant_id'])->update(['revoked_at' => now()]);
+
+                return [['challenge' => $challenge, 'code' => $right()], $admin];
+            case 'no grant':
+                Schema::withoutForeignKeyConstraints(fn () => DB::table('platform_admin_grants')->where('id', $admin['grant_id'])->delete());
 
                 return [['challenge' => $challenge, 'code' => $right()], $admin];
             case 'another row':

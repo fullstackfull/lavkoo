@@ -5,7 +5,7 @@ namespace App\Services\PlatformAdmin;
 use App\Models\PlatformAdminMfaFactor;
 
 /** Where the second factor of an admin is looked up, so that a sign-in, a profile and a console command all read it the same way. */
-final class PlatformAdminMfaFactors
+class PlatformAdminMfaFactors
 {
     /**
      * The factor of the admin with this id, in whatever state, or null. An id that no admin has (0) finds none, and costs the read all the same.

@@ -295,6 +295,16 @@ class MfaSignInTest extends MfaTestCase
         }
     }
 
+    public function test_with_the_second_factor_not_required_the_sign_in_touches_nothing_of_it(): void
+    {
+        config(['gcc.platform_admin.mfa.required' => false]);
+        $admin = $this->enrolledAdmin();
+
+        $statements = $this->statementsRunBy(fn () => $this->login($admin)->assertOk());
+
+        $this->assertSame([], array_values(array_filter($this->withoutSchemaChecks($statements), static fn (string $sql): bool => str_contains($sql, 'platform_admin_mfa_'))), 'the same SQL as level 1, plus nothing');
+    }
+
     public function test_the_switch_is_read_at_every_sign_in(): void
     {
         $admin = $this->enrolledAdmin();

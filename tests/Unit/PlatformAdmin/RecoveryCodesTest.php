@@ -28,6 +28,9 @@ class RecoveryCodesTest extends TestCase
         }
 
         $this->assertSame(0, preg_match('/[ilo01]/', $seen));
+        foreach (str_split(RecoveryCodes::ALPHABET) as $character) {
+            $this->assertStringContainsString($character, $seen, "{$character} is a character a code can have");
+        }
         $this->assertSame('abcdefghjkmnpqrstuvwxyz23456789', RecoveryCodes::ALPHABET);
         $this->assertSame(31, strlen(RecoveryCodes::ALPHABET));
         $this->assertSame(10, RecoveryCodes::LENGTH);

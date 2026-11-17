@@ -8,15 +8,14 @@ use Illuminate\Http\Request;
 /**
  * What a request to the second step sent in its body, reduced to strings of a bounded size and a known shape. Whatever was sent, the lookups and the
  * check of a code that follow run on these, and whether the attempt was well formed is decided only at the end, so a malformed attempt does the work of
- * any other and costs the caller as much.
+ * any other and costs the caller as much. A challenge that is not the shape of one is not looked at for its shape: it is looked up like any other and
+ * finds nothing.
  *
  * Only the body counts, a form or JSON. The attempt is for a code or for a recovery code, never both and never neither; if it is neither or both, or the
- * one it is for is not the shape of one, it has no method and carries a placeholder to be checked in place of it.
+ * one it is for is not the shape of one, it has no method and carries a placeholder code to be checked in place of it.
  */
 final readonly class MfaAttempt
 {
-    private const CHALLENGE_SHAPE = '/^lkpc_[A-Za-z0-9]{48}\z/';
-
     private const CHALLENGE_LIMIT = 64;
 
     private const CODE_LIMIT = 32;
@@ -25,17 +24,14 @@ final readonly class MfaAttempt
 
     private const CODE_SHAPE = '/^[0-9]{6}\z/';
 
-    /** A code and a recovery code that no admin has: what a malformed attempt is checked as. */
+    /** What an attempt that is not for a code is checked as in place of one: the work is done, and the verifier then refuses it as malformed whatever it found. */
     private const PLACEHOLDER_CODE = '000000';
-
-    private const PLACEHOLDER_RECOVERY_CODE = 'aaaaaaaaaa';
 
     private function __construct(
         public string $challenge,
         public ?MfaMethod $method,
         public string $code,
         public string $recoveryCode,
-        public bool $wellFormed,
         public string $ip,
         public ?string $userAgent,
     ) {
@@ -56,14 +52,12 @@ final readonly class MfaAttempt
             $recoveryCode !== null && $code === null && $normalized !== null => MfaMethod::RecoveryCode,
             default => null,
         };
-        $challengeText = substr((string) $challenge, 0, self::CHALLENGE_LIMIT);
 
         return new self(
-            challenge: $challengeText,
+            challenge: substr((string) $challenge, 0, self::CHALLENGE_LIMIT),
             method: $method,
             code: $method === MfaMethod::Totp ? (string) $digits : self::PLACEHOLDER_CODE,
-            recoveryCode: $method === MfaMethod::RecoveryCode ? (string) $normalized : self::PLACEHOLDER_RECOVERY_CODE,
-            wellFormed: $method !== null && preg_match(self::CHALLENGE_SHAPE, $challengeText) === 1,
+            recoveryCode: $method === MfaMethod::RecoveryCode ? (string) $normalized : '',
             ip: (string) ($request->ip() ?? 'unknown'),
             userAgent: $request->userAgent(),
         );

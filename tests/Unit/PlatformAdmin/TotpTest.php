@@ -133,6 +133,9 @@ class TotpTest extends TestCase
             'a sign' => ['+87082'],
             'a decimal point' => ['287.82'],
             'the eight digit code of the same step' => ['94287082'],
+            'the right digits with a space before' => [' 287082'],
+            'the right digits with a line break after' => ["287082\n"],
+            'the right digits as a number with an exponent' => ['2.87082e5'],
         ];
     }
 

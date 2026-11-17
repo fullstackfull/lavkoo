@@ -8,6 +8,9 @@ namespace App\Services\PlatformAdmin;
  *
  * It encodes without padding, and decodes what a person or an app may have changed: lower case, spaces, the padding of the RFC. Anything else is not
  * Base32 and decodes to null, never to a guess.
+ *
+ * The bits are collected in one integer that is never narrowed: what has been written out moves up and falls off the end of it, and the bits that are
+ * still to be read are always the lowest ones.
  */
 final class Base32
 {
@@ -34,8 +37,6 @@ final class Base32
                 $bitsInBuffer -= self::BITS_PER_CHARACTER;
                 $encoded .= self::ALPHABET[($buffer >> $bitsInBuffer) & 0x1F];
             }
-
-            $buffer &= (1 << $bitsInBuffer) - 1;
         }
 
         if ($bitsInBuffer > 0) {
@@ -69,7 +70,6 @@ final class Base32
             if ($bitsInBuffer >= self::BITS_PER_BYTE) {
                 $bitsInBuffer -= self::BITS_PER_BYTE;
                 $decoded .= chr(($buffer >> $bitsInBuffer) & 0xFF);
-                $buffer &= (1 << $bitsInBuffer) - 1;
             }
         }
 

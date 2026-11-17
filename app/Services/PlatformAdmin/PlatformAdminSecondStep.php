@@ -81,7 +81,9 @@ final class PlatformAdminSecondStep
     }
 
     /**
-     * Checks the code against the factor with its row held, and when it is right uses it up, consumes the challenge and opens the session, all or nothing.
+     * Checks the code against the factor with its row held, and when it is right uses it up, opens the session and consumes the challenge, all or nothing. The
+     * order of what is held is the factor, then the grant (opening a session holds it), then the challenge: the order the console commands take them in too, so
+     * that an operator ending the sessions of an admin while they sign in cannot deadlock with them.
      *
      * @return array{0: MfaVerdict, 1: ?PlatformAdminSession}
      */
@@ -96,8 +98,8 @@ final class PlatformAdminSecondStep
                 return [$verdict, null];
             }
 
-            $this->challenges->consume(challenge: $challenge);
             $session = $this->sessions->open(admin: $admin, grant: $grant, deviceName: $challenge->device_name, ip: $attempt->ip, userAgent: $attempt->userAgent, mfaMethod: $verdict->method);
+            $this->challenges->consume(challenge: $challenge);
 
             if ($verdict->method === MfaMethod::RecoveryCode) {
                 $this->audit->record(

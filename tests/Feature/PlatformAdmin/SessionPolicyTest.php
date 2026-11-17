@@ -104,6 +104,29 @@ class SessionPolicyTest extends PlatformAdminTestCase
         }
     }
 
+    public function test_a_session_with_no_time_at_all_is_idle_because_nothing_says_it_was_ever_used(): void
+    {
+        $admin = $this->platformAdmin();
+        $token = $this->mintToken($admin);
+        DB::table('platform_admin_tokens')->update(['created_at' => null, 'last_used_at' => null]);
+
+        $this->getJson(self::PREFIX . '/me', $this->bearer($token))->assertStatus(401);
+    }
+
+    public function test_the_list_leaves_out_a_session_at_the_very_moment_its_idle_time_is_up_and_keeps_the_one_a_second_short_of_it(): void
+    {
+        $this->travelTo('2026-11-17 10:00:00');
+        $admin = $this->platformAdmin();
+        $mine = $this->mintToken($admin, ['device_name' => 'Mine']);
+        $this->mintToken($admin, ['device_name' => 'Just inside', 'last_used_at' => now()->subMinutes(60)->addSecond()]);
+        $this->mintToken($admin, ['device_name' => 'Just outside', 'last_used_at' => now()->subMinutes(60)]);
+
+        $listed = $this->getJson(self::PREFIX . '/sessions', $this->bearer($mine))->assertOk()->json('data.*.device_name');
+
+        sort($listed);
+        $this->assertSame(['Just inside', 'Mine'], $listed);
+    }
+
     public function test_an_idle_session_is_not_listed_cannot_be_ended_by_id_and_is_not_counted_as_open(): void
     {
         $this->travelTo('2026-11-17 10:00:00');
@@ -177,7 +200,10 @@ class SessionPolicyTest extends PlatformAdminTestCase
         $this->getJson(self::PREFIX . '/me', $this->bearer($third))->assertStatus(401);
         $this->getJson(self::PREFIX . '/me', $this->bearer($fourth))->assertOk();
         $this->assertSame(1, DB::table('platform_admin_tokens')->whereNull('revoked_at')->count());
-        $this->assertSame(3, DB::table('platform_admin_audit_logs')->where('action', 'session.evicted')->count(), 'one line for every session that was ended, naming it');
+        $lines = DB::table('platform_admin_audit_logs')->where('action', 'session.evicted')->orderBy('id')->get();
+        $this->assertSame(3, $lines->count(), 'one line for every session that was ended, naming it');
+        $ids = DB::table('platform_admin_tokens')->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $this->assertSame([$ids[0], $ids[1], $ids[2]], $lines->pluck('token_id')->map(fn ($id) => (int) $id)->all(), 'oldest first');
     }
 
     public function test_sessions_that_are_over_do_not_take_a_place_and_so_nobody_is_ended_for_them(): void

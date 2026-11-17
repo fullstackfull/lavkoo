@@ -7,6 +7,8 @@ use App\Models\Admin;
 use App\Models\PlatformAdminMfaChallenge;
 use App\Models\PlatformAdminMfaFactor;
 use App\Models\PlatformAdminToken;
+use App\Services\PlatformAdmin\Base32;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\BuildsPlatformAdminWorld;
 use Tests\TestCase;
@@ -34,6 +36,26 @@ class MfaModelsTest extends TestCase
         $this->assertStringNotContainsString(self::SECRET, $stored);
         $this->assertNotSame(self::SECRET, $stored);
         $this->assertSame(self::SECRET, PlatformAdminMfaFactor::query()->firstOrFail()->secret);
+    }
+
+    public function test_the_secret_is_read_as_the_bytes_the_code_is_made_from_or_not_at_all(): void
+    {
+        $factor = $this->makeFactor();
+        $this->assertSame((string) Base32::decode(text: self::SECRET), $factor->fresh()->secretBytes());
+
+        foreach (['not base32 !', 'MZX', ''] as $damaged) {
+            DB::table('platform_admin_mfa_factors')->update(['secret' => Crypt::encryptString($damaged)]);
+            $this->assertNull(PlatformAdminMfaFactor::query()->firstOrFail()->secretBytes(), "'{$damaged}' is no secret");
+        }
+
+        DB::table('platform_admin_mfa_factors')->update(['secret' => 'a payload that is not one']);
+        $this->assertNull(PlatformAdminMfaFactor::query()->firstOrFail()->secretBytes(), 'what the key cannot open is no secret');
+
+        DB::table('platform_admin_mfa_factors')->update(['secret' => Crypt::encryptString(self::SECRET)]);
+        config(['app.key' => 'base64:' . base64_encode(random_bytes(32))]);
+        app()->forgetInstance('encrypter');
+        Crypt::clearResolvedInstances();
+        $this->assertNull(PlatformAdminMfaFactor::query()->firstOrFail()->secretBytes(), 'what another key sealed is no secret');
     }
 
     public function test_neither_the_secret_nor_the_codes_nor_the_fingerprint_are_in_any_array_or_json_form_of_a_factor(): void
