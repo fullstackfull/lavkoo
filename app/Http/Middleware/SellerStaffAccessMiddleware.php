@@ -122,6 +122,9 @@ class SellerStaffAccessMiddleware
             // Catalogue.
             'products', 'product' => $isWrite ? 'products.manage' : 'products.view',
 
+            // The AI helpers of the auction product form: an auction product is a product of the shop. Nothing else under /vendor/auction is mapped, so it stays refused.
+            'auction' => $request->segment(3) === 'product' ? ($isWrite ? 'products.manage' : 'products.view') : self::DENY,
+
             // Orders and everything that acts on an order.
             'orders', 'get-order-data' => $isWrite ? 'orders.manage' : 'orders.view',
             'pos', 'refund' => 'orders.manage',

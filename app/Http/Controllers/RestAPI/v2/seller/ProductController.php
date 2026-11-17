@@ -13,7 +13,7 @@ use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Traits\SellerOwnedRecords;
 use App\Utils\ImageManager;
-use Barryvdh\DomPDF\PDF;
+use App\Services\ProductBarcodeSheetService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -670,7 +670,7 @@ class ProductController extends Controller
         return response()->json(['message' => translate('successfully product deleted!')], 200);
     }
 
-    public function barcode_generate(Request $request):JsonResponse
+    public function barcode_generate(Request $request, ProductBarcodeSheetService $barcodeSheetService): JsonResponse
     {
         $request->validate([
             'id' => 'required',
@@ -680,8 +680,8 @@ class ProductController extends Controller
             'quantity.required' => 'Barcode quantity is required',
         ]);
 
-        if ($request->limit > 270) {
-            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
+        if ($request->limit > 270 || !$barcodeSheetService->isAllowedQuantity(quantity: $request->quantity)) {
+            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode'], 403);
         }
 
         $data = Helpers::get_seller_by_token($request);
@@ -697,10 +697,7 @@ class ProductController extends Controller
         }
         $quantity = $request->quantity ?? 30;
         if (isset($product->code)) {
-            $pdf = app()->make(PDF::class);
-            $pdf->loadView('vendor-views.product.barcode-pdf', compact('product', 'quantity'));
-            $pdf->save(storage_path('app/public/product/barcode.pdf'));
-            return response()->json(asset('storage/app/public/product/barcode.pdf'));
+            return response()->json($barcodeSheetService->getLink(product: $product, quantity: $quantity));
         } else {
             return response()->json(['message' => translate('Please update product code!')], 203);
         }
