@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\CategoryShippingCost;
 use App\Models\ShippingType;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 use Illuminate\Http\JsonResponse;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Validator;
 
 class shippingController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function get_shipping_type(Request $request): JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -124,9 +127,14 @@ class shippingController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
         }
         if (isset($request->ids)) {
+            $categoryShippingCosts = CategoryShippingCost::where('seller_id', $seller_id)->whereIn('id', $request->ids)->get()->keyBy('id');
+            if ($categoryShippingCosts->count() < count(array_unique($request->ids))) {
+                return $this->recordNotFound(code: 'category_shipping_cost', message: 'category_shipping_cost_not_found');
+            }
+
             foreach ($request->ids as $key => $id) {
 
-                $category_shipping_cost = CategoryShippingCost::find($id);
+                $category_shipping_cost = $categoryShippingCosts[$id];
                 $category_shipping_cost->cost = Convert::usd($request->cost[$key]);
                 $category_shipping_cost->multiply_qty = $request->multiply_qty[$key];
                 $category_shipping_cost->save();

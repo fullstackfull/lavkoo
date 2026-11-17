@@ -92,8 +92,9 @@ class SellerOrderBreakdownService
         // returned with somebody else's margins in it.
         // Without the digital-file storage rows the model eager-loads by default: this reads
         // quantities and money, and nothing here ever looks at a download link.
-        return OrderDetail::withoutEagerLoads()
-            ->where(['order_id' => $orderId, 'seller_id' => $sellerId])
+        return OrderDetail::ofSeller(sellerId: $sellerId)
+            ->withoutEagerLoads()
+            ->where('order_id', $orderId)
             ->get();
     }
 

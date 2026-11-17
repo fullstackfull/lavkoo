@@ -23,11 +23,13 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\OrderEditService;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\OrderTax;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
@@ -182,8 +184,10 @@ trait OrderEditManager
         foreach (collect($order->details ?? []) as $detail) {
             $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, (int)($detail['qty'] ?? 0), 'increment');
         }
-        $keepIds = [];
-        $totalPrice = 0;
+        // A line without a product is kept as it is, with its rewards: it is never written, and it counts in the total the rewards are shared over.
+        $linesWithoutProduct = collect($order->details ?? [])->filter(fn ($detail) => empty($detail['product_id']));
+        $keepIds = $linesWithoutProduct->pluck('id')->all();
+        $totalPrice = $linesWithoutProduct->sum(fn ($detail) => $detail['price'] * $detail['qty'] - $detail['discount']);
         $rewardsData = [];
         $taxList = collect($taxSummary['applied_tax_cart_list'] ?? []);
         $now = Carbon::now();
@@ -299,11 +303,31 @@ trait OrderEditManager
         });
     }
 
+    /** The pages and the routes that print the summary's total read it from a refused summary too: it names the total the order holds, since nothing was priced. */
+    private function getRefusedEditOrderSummary(object|array $order, string $message): array
+    {
+        return ['status' => 'error', 'message' => $message, 'order_amount' => $order['order_amount'] ?? 0];
+    }
+
     public function generateEditOrderSummary(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
+        if (!app(OrderEditService::class)->areEditedLinesAllowedOnOrder(order: $order, editedLines: $editedOrder)) {
+            return $this->getRefusedEditOrderSummary(order: $order, message: translate('Product_is_unavailable'));
+        }
+
+        $linesWithoutProductRefusal = app(OrderEditService::class)->getRefusalOfLinesWithoutProduct(order: $order, editedLines: $editedOrder);
+        if ($linesWithoutProductRefusal !== null) {
+            return $this->getRefusedEditOrderSummary(order: $order, message: $linesWithoutProductRefusal);
+        }
+
         $productList = Product::whereIn('id', collect($editedOrder)->pluck('product_id')->toArray())->get();
 
         foreach ($editedOrder as $details) {
+            // A line without a product takes no stock: the edit keeps it as it is.
+            if (empty($details['product_id'])) {
+                continue;
+            }
+
             $product = json_decode($details['product_details'] ?? '', true);
             $activeProduct = $productList?->firstWhere('id', $details['product_id']) ?? $product;
             $currentStock = max(0, $activeProduct['current_stock']);
@@ -322,10 +346,7 @@ trait OrderEditManager
             }
 
             if ($currentStock <= 0) {
-                return [
-                    'status' => 'error',
-                    'message' => translate('Out of stock'),
-                ];
+                return $this->getRefusedEditOrderSummary(order: $order, message: translate('Out of stock'));
             }
         }
 
@@ -470,6 +491,19 @@ trait OrderEditManager
         ];
     }
 
+    /**
+     * The page's rule for offering the edit (OrderEditService::checkIsOrderEditable), asked of the writer too: the routes of the vendor panel and of
+     * the seller app take any order of the seller, whatever its page would offer. An edit that does not say it is the admin's is held to the sellers' rule.
+     *
+     * @return array{status: bool, message: string}
+     */
+    private function checkOrderIsEditableByTheEditor(object $order, object|array $data): array
+    {
+        $order->loadMissing(['details', 'latestEditHistory']);
+
+        return app(OrderEditService::class)->checkIsOrderEditable(order: $order, type: ($data['edit_by'] ?? null) === 'admin' ? 'admin' : 'vendor');
+    }
+
     public function generateEditOrder(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
         // Admin panel, vendor panel and seller API all save an edit through here. A provider-owned line cannot be
@@ -479,10 +513,13 @@ trait OrderEditManager
             return ['status' => 'error', 'message' => $providerBlock];
         }
 
-        $editOrderSummary = $this->generateEditOrderSummary(request: $request, order: $order, editedOrder: $editedOrder, data: $data);
+        // Nor can an order the page does not offer the edit for (its status, its type, only digital products, the sellers' switch, an unpaid offline payment).
+        $editable = $this->checkOrderIsEditableByTheEditor(order: $order, data: $data);
+        if (!$editable['status']) {
+            return ['status' => 'error', 'message' => $editable['message']];
+        }
 
-        $orderData = $editOrderSummary['order_data'];
-        $couponSummary = $editOrderSummary['coupon_summary'];
+        $editOrderSummary = $this->generateEditOrderSummary(request: $request, order: $order, editedOrder: $editedOrder, data: $data);
 
         if ($editOrderSummary['status'] != 'success') {
             return [
@@ -490,6 +527,9 @@ trait OrderEditManager
                 'message' => $editOrderSummary['message'],
             ];
         }
+
+        $orderData = $editOrderSummary['order_data'];
+        $couponSummary = $editOrderSummary['coupon_summary'];
 
         $minimumOrderAmount = $this->checkEditOrderMinimumOrderAmount(order: $order, totalCartAmount: $couponSummary['total_cart_amount'], data: $data);
         if ($minimumOrderAmount['status'] == 'error') {
@@ -513,11 +553,27 @@ trait OrderEditManager
             }
         }
 
+        DB::transaction(function () use ($order, $editedOrder, $editOrderSummary, $data) {
+            $this->writeEditedOrder(order: $order, editedOrder: $editedOrder, editOrderSummary: $editOrderSummary, data: $data);
+            DB::afterCommit(fn () => $this->dispatchOrderEditNotifications(order: $order, data: $data));
+        });
+
+        return [
+            'status' => 'success',
+            'message' => translate('Order_Edit_Successfully'),
+        ];
+    }
+
+    /** Every write of a saved edit, for the caller to make as one: an edit that fails halfway must leave the order, its lines, its stock and its records as they were. */
+    private function writeEditedOrder(object $order, object|array $editedOrder, array $editOrderSummary, object|array $data): void
+    {
+        $orderData = $editOrderSummary['order_data'];
+
         $taxConfig = self::getTaxSystemType();
         OrderTax::where('order_id', $order['id'])->where('tax_for', 'tax_for_orders')->delete();
         self::updateEditOrderTaxAmount(order: $order, taxConfig: $taxConfig, taxSummary: $editOrderSummary['tax_summary']);
 
-        Order::where('id', $order->id)->update($editOrderSummary['order_data']);
+        Order::where('id', $order->id)->update($orderData);
 
         self::addAndUpdateProductsInOrderDetails(order: $order, editedOrder: $editedOrder, taxSummary: $editOrderSummary['tax_summary']);
 
@@ -544,7 +600,11 @@ trait OrderEditManager
             'delivery_charge' => $orderData['shipping_cost'] - $orderData['extra_discount'],
             'tax' => $orderData['total_tax_amount'],
         ]);
+    }
 
+    /** Sent once the edit is committed: a listener, or a queued job, that ran before it would read an order that is not edited yet, or never will be. */
+    private function dispatchOrderEditNotifications(object $order, object|array $data): void
+    {
         $orderEditNotificationEvent = OrderManager::getEditOrderNotificationInfo(
             vendorType: $order['seller_is'],
             vendorId: $order['seller_id'],
@@ -558,11 +618,6 @@ trait OrderEditManager
                 event(new OrderEditEvent(notification: $orderEditEvent['notificationData']));
             }
         }
-
-        return [
-            'status' => 'success',
-            'message' => translate('Order_Edit_Successfully'),
-        ];
     }
 
     public function updateEditOrderTaxAmount(object|array $request = [], object|array $order = [], object|array|null $taxConfig = [], object|array $taxSummary = []): void
@@ -662,14 +717,15 @@ trait OrderEditManager
             if ($editedItem['active_product']) {
                 $totalDiscountPrice = ($editedItem['price'] - $editedItem['discount']) * $editedItem['qty'];
                 $appliedDiscountAmount = $totalDiscountOnProduct > 0 ? ($totalDiscountOnProduct * $totalDiscountPrice) / $totalDiscountProductPrice : 0;
-                $appliedTaxAmount = CartManager::getAppliedTaxAmount(
+                // A line without a product keeps the tax the order stored for it, none: an edit of an order whose such line carries tax is refused.
+                $appliedTaxAmount = empty($editedItem['product_id']) ? 0 : CartManager::getAppliedTaxAmount(
                     product: $editedItem['active_product'],
                     taxConfig: $taxConfig,
                     totalDiscountedPrice: $totalDiscountPrice,
                     appliedDiscountedAmount: $appliedDiscountAmount,
                 );
 
-                $appliedTaxIds = CartManager::getAppliedTaxIds(
+                $appliedTaxIds = empty($editedItem['product_id']) ? [] : CartManager::getAppliedTaxIds(
                     product: $editedItem['active_product'],
                     taxConfig: $taxConfig
                 );

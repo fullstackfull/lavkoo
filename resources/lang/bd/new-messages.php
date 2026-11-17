@@ -536,4 +536,12 @@ return [
 	"cdn" => "CDN",
 	"shoppers" => "Shoppers",
 	"unavailable" => "Unavailable",
+	'data_not_found' => 'তথ্য পাওয়া যায়নি',
+	'clearance_product_not_found' => 'ছাড়পত্র বিক্রয় পণ্য পাওয়া যায়নি',
+	'category_shipping_cost_not_found' => 'বিভাগ শিপিং খরচ পাওয়া যায়নি',
+	'restock_request_not_found' => 'পুনঃস্টক অনুরোধ পাওয়া যায়নি',
+	'payment_method_not_found' => 'অর্থপ্রদানের পদ্ধতি পাওয়া যায়নি',
+	'delivery_man_not_found' => 'ডেলিভারি ম্যান পাওয়া যায়নি',
+	"review_not_found" => "পর্যালোচনা পাওয়া যায়নি",
+	"order_not_found" => "অর্ডার পাওয়া যায়নি",
 ];

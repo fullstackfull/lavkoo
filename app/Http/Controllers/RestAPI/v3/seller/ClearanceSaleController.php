@@ -9,12 +9,16 @@ use App\Http\Controllers\Controller;
 use App\Services\ClearanceSaleService;
 use App\Services\ProductService;
 use App\Services\StockClearanceProductService;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Helpers;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ClearanceSaleController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function __construct(
         private readonly StockClearanceProductRepositoryInterface $stockClearanceProductRepo,
         private readonly ProductRepositoryInterface               $productRepo,
@@ -67,10 +71,15 @@ class ClearanceSaleController extends Controller
         $clearanceProductLists = $this->productRepo->getListWhere(
             filters: [
                 'productIds' => $productIds,
+                'added_by' => 'seller',
+                'seller_id' => $seller->id,
             ],
             relations: ['seller.shop'],
             dataLimit: 'all'
         );
+        if ($clearanceProductLists->count() < count(array_unique($productIds))) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
 
         $clearanceConfig = $this->stockClearanceSetupRepo->getFirstWhere(params: ['setup_by' => 'vendor', 'user_id' => $seller->id]);
         if ($clearanceConfig) {
@@ -121,14 +130,17 @@ class ClearanceSaleController extends Controller
 
     public function updateClearanceProductStatus(Request $request): JsonResponse
     {
-        $stockClearanceProduct = $this->stockClearanceProductRepo->getFirstWhere(params: ['product_id' => $request['product_id']], relations: ['setup']);
+        $stockClearanceProduct = $this->ownedClearanceProduct(request: $request, relations: ['setup']);
+        if (!$stockClearanceProduct) {
+            return $this->recordNotFound(code: 'clearance_product', message: 'clearance_product_not_found');
+        }
         if (!$this->productService->validateStockClearanceProductDiscount(stockClearanceProduct: $stockClearanceProduct)) {
             return response()->json([
                 'message' => translate('Your_products_unit_price_is_lower_then_offer_price'),
             ], 403);
         }
 
-        $this->stockClearanceProductRepo->updateByParams(params: ['product_id' => $request['product_id']], data: ['is_active' => $request['is_active'] ?? 0]);
+        $this->stockClearanceProductRepo->updateByParams(params: ['id' => $stockClearanceProduct['id']], data: ['is_active' => $request['is_active'] ?? 0]);
         $message = $request['is_active'] ? translate('your_item_status_is_active_for_clearance_sale') : translate('your_item_status_is_temporary_off_for_clearance_sale');
         return response()->json(['message' => $message], 200);
     }
@@ -136,8 +148,13 @@ class ClearanceSaleController extends Controller
     public function updateClearanceProductDiscount(Request $request): JsonResponse
     {
         $seller = $request['seller'];
+        $stockClearanceProduct = $this->ownedClearanceProduct(request: $request);
+        if (!$stockClearanceProduct) {
+            return $this->recordNotFound(code: 'clearance_product', message: 'clearance_product_not_found');
+        }
+
         $clearanceConfig = $this->stockClearanceSetupRepo->getFirstWhere(params: ['setup_by' => 'vendor', 'user_id' => $seller->id]);
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $request->get('product_id')]);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $stockClearanceProduct['product_id'], 'added_by' => 'seller', 'user_id' => $seller->id]);
         $condition = $this->stockClearanceProductService->checkConditions(request: $request, product: $product, config: $clearanceConfig);
 
         if ($condition['status']) {
@@ -146,7 +163,7 @@ class ClearanceSaleController extends Controller
                 'discount_type' => $request['discount_type'],
             ];
 
-            $this->stockClearanceProductRepo->updateByParams(params: ['product_id' => $request['product_id']], data: $dataArray);
+            $this->stockClearanceProductRepo->updateByParams(params: ['id' => $stockClearanceProduct['id']], data: $dataArray);
         }
         return response()->json([
             'status' => $condition['status'],
@@ -156,7 +173,12 @@ class ClearanceSaleController extends Controller
 
     public function deleteClearanceProduct(Request $request): JsonResponse
     {
-        $this->stockClearanceProductRepo->delete(params: ['product_id' => $request['product_id']]);
+        $stockClearanceProduct = $this->ownedClearanceProduct(request: $request);
+        if (!$stockClearanceProduct) {
+            return $this->recordNotFound(code: 'clearance_product', message: 'clearance_product_not_found');
+        }
+
+        $this->stockClearanceProductRepo->delete(params: ['id' => $stockClearanceProduct['id']]);
 
         return response()->json([
             'message' => translate('clearance_product_removed_successfully')
@@ -209,5 +231,13 @@ class ClearanceSaleController extends Controller
         return response()->json([
             'message' => translate('Setup_updated_successfully')
         ]);
+    }
+
+    private function ownedClearanceProduct(Request $request, array $relations = []): ?Model
+    {
+        return $this->stockClearanceProductRepo->getFirstWhere(
+            params: ['product_id' => $request['product_id'], 'added_by' => 'vendor', 'user_id' => $request->seller->id],
+            relations: $relations,
+        );
     }
 }

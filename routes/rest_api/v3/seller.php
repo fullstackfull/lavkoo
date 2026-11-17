@@ -76,7 +76,8 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             // member unable to see which shop they are signed in to.
             Route::put('language-change', 'language_change');
             Route::get('seller-info', 'getSellerInfo');
-            Route::put('cm-firebase-token', 'update_cm_firebase_token');
+            // The phone that receives the shop's order and chat alerts is one column of the owner's row: a staff member's phone would replace it.
+            Route::put('cm-firebase-token', 'update_cm_firebase_token')->middleware('seller_owner');
             Route::get('shop-info', 'shop_info');
             Route::get('seller-delivery-man', 'seller_delivery_man');
 

@@ -2904,4 +2904,11 @@ return [
 	'cart_empty_warning' => 'Cart empty warning',
 	'Discounted_Products' => 'Discounted Products',
 	'يجب_أن_يكون_الحد_الأدنى_لكمية_الطلب_موجبًا!' => 'يجب أن يكون الحد الأدنى لكمية الطلب موجبًا!',
+	'data_not_found' => 'لم يتم العثور على البيانات',
+	'clearance_product_not_found' => 'لم يتم العثور على منتج تخليص المخزون',
+	'category_shipping_cost_not_found' => 'لم يتم العثور على تكلفة شحن الفئة',
+	'restock_request_not_found' => 'لم يتم العثور على طلب إعادة التخزين',
+	'payment_method_not_found' => 'لم يتم العثور على طريقة الدفع',
+	'delivery_man_not_found' => 'لم يتم العثور على مندوب التوصيل',
+	'review_not_found' => 'لم يتم العثور على المراجعة',
 ];

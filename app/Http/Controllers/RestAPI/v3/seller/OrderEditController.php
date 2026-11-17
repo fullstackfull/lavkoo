@@ -30,13 +30,15 @@ use App\Services\CartService;
 use App\Services\OrderEditService;
 use App\Services\ProductService;
 use App\Traits\OrderEditManager;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Convert;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class OrderEditController extends Controller
 {
-    use OrderEditManager;
+    use OrderEditManager, SellerOwnedRecords;
 
     public function __construct(
         private readonly AuthorRepositoryInterface                       $authorRepo,
@@ -71,9 +73,15 @@ class OrderEditController extends Controller
     public function checkEditOrderValidation(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $order = $this->orderRepo->getFirstWhere(params: ['id' => $request['order_id']], relations: [
+        $order = $this->ownedOrder(request: $request, relations: [
             'details.productAllStatus', 'verificationImages', 'shipping', 'seller.shop', 'offlinePayments', 'deliveryMan'
         ]);
+        if (!$order) {
+            return $this->recordNotFound(code: 'order', message: 'order_not_found');
+        }
+        if (!$this->orderEditService->areRequestedProductsAllowedOnOrder(request: $request, order: $order)) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
 
         $colors = $this->colorRepo->getListWhereIn(whereIn: ['code' => (collect($request['products'])?->pluck('color')?->toArray() ?? [])]);
         $orderCombination = $this->orderEditService->getFormatAPIProductsForEditOrder(request: $request, order: $order, colors: $colors);
@@ -89,9 +97,15 @@ class OrderEditController extends Controller
     public function submitEditOrder(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $order = $this->orderRepo->getFirstWhere(params: ['id' => $request['order_id']], relations: [
+        $order = $this->ownedOrder(request: $request, relations: [
             'details.productAllStatus', 'verificationImages', 'shipping', 'seller.shop', 'offlinePayments', 'deliveryMan'
         ]);
+        if (!$order) {
+            return $this->recordNotFound(code: 'order', message: 'order_not_found');
+        }
+        if (!$this->orderEditService->areRequestedProductsAllowedOnOrder(request: $request, order: $order)) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
 
         $colors = $this->colorRepo->getListWhereIn(whereIn: ['code' => (collect($request['products'])?->pluck('color')?->toArray() ?? [])]);
 
@@ -122,13 +136,26 @@ class OrderEditController extends Controller
 
     public function assignOrderInCOD(Request $request): JsonResponse
     {
-        OrderEditHistory::where('order_id', $request['order_id'])->latest()->update([
+        $order = $this->ownedOrder(request: $request);
+        if (!$order) {
+            return $this->recordNotFound(code: 'order', message: 'order_not_found');
+        }
+
+        OrderEditHistory::where('order_id', $order['id'])->latest()->update([
             'order_due_payment_method' => "cash_on_delivery"
         ]);
         return response()->json([
             'status' => 'success',
             'message' => translate('Switched_to_COD_successfully'),
         ]);
+    }
+
+    private function ownedOrder(Request $request, array $relations = []): ?Model
+    {
+        return $this->orderRepo->getFirstWhere(
+            params: ['id' => $request['order_id'], 'seller_id' => $request->seller['id'], 'seller_is' => 'seller'],
+            relations: $relations,
+        );
     }
 
 }

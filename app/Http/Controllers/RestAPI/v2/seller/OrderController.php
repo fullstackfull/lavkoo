@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RestAPI\v2\seller;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
+use App\Models\DeliveryMan;
 use App\Models\DeliveryManTransaction;
 use App\Models\DeliverymanWallet;
 use App\Models\Order;
@@ -62,7 +63,7 @@ class OrderController extends Controller
             ], 401);
         }
 
-        $details = OrderDetail::with(['order'])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get();
+        $details = OrderDetail::ofSeller(sellerId: $seller['id'])->with(['order'])->where('order_id', $id)->get();
         foreach ($details as $det) {
             $det['product_details'] = Helpers::product_data_formatting(json_decode($det['product_details'], true));
         }
@@ -92,7 +93,13 @@ class OrderController extends Controller
             ], 401);
         }
 
-        $order = Order::where(['seller_id' => $seller['id'], 'id' => $request['order_id']])->first();
+        $order = Order::where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['order_id']);
+        if (!$order) {
+            return response()->json(['success' => 0, 'message' => translate('Order_not_found')], 404);
+        }
+        if (!DeliveryMan::where(['id' => $request['delivery_man_id'], 'seller_id' => $seller['id']])->exists()) {
+            return response()->json(['success' => 0, 'message' => translate('delivery_man_not_found')], 404);
+        }
 
         $order->delivery_man_id = $request['delivery_man_id'];
         $order->delivery_type = 'self_delivery';
@@ -172,7 +179,7 @@ class OrderController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
         }
 
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
+        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_id);
         if ($order_details) {
             $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
             $order_details->save();

@@ -248,6 +248,11 @@ class Product extends Model
             ->whereIn('product_type', $productType);
     }
 
+    public function scopeOfSeller($query, int|string $sellerId): void
+    {
+        $query->where(['added_by' => 'seller', 'user_id' => $sellerId]);
+    }
+
     public function scopeSellerApproved($query): void
     {
         $query->whereHas('seller', function ($query) {

@@ -27,6 +27,7 @@ use App\Events\OrderStatusEvent;
 use App\Exports\OrderExport;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\UploadDigitalFileAfterSellRequest;
+use App\Models\OrderDetail;
 use App\Models\OrderEditHistory;
 use App\Models\ReferralCustomer;
 use App\Repositories\WalletTransactionRepository;
@@ -479,13 +480,9 @@ class OrderController extends BaseController
         $linkedOrders = $this->orderRepo->getListWhereNotIn(filters: ['order_group_id' => $order['order_group_id']], whereNotIn: $whereNotIn, dataLimit: 'all');
         $totalDelivered = $this->orderRepo->getListWhere(filters: ['seller_id' => $order['seller_id'], 'order_status' => 'delivered', 'order_type' => 'default_type'], dataLimit: 'all')->count();
 
-        $sellerId = 0;
-        if ($order['shipping_responsibility'] == 'sellerwise_shipping') {
-            $sellerId = $order['seller_id'];
-        }
         $filters = [
             'is_active' => 1,
-            'seller_id' => $sellerId,
+            'seller_id' => $this->getDeliveryManPoolOwnerId(order: $order),
         ];
         $deliveryMen = $this->deliveryManRepo->getListWhere(filters: $filters, dataLimit: 'all');
         $isOrderOnlyDigital = $orderService->getCheckIsOrderOnlyDigital(order: $order);
@@ -865,7 +862,10 @@ class OrderController extends BaseController
             return response()->json([], 401);
         }
 
-        $order = $this->orderRepo->getFirstWhere(params: ['id' => $order_id]);
+        $order = $this->orderRepo->getFirstWhere(params: ['id' => $order_id, 'seller_id' => auth('seller')->id(), 'seller_is' => 'seller']);
+        if (!$order || !$this->deliveryManRepo->getFirstWhere(params: ['id' => $delivery_man_id, 'seller_id' => $this->getDeliveryManPoolOwnerId(order: $order)])) {
+            return response()->json(['status' => false], 404);
+        }
         if ($order['order_status'] == 'delivered') {
             return response()->json(['status' => false], 403);
         }
@@ -892,6 +892,9 @@ class OrderController extends BaseController
     {
         $userId = auth('seller')->id();
         $status = $this->orderRepo->updateAmountDate(request: $request, userId: $userId, userType: 'seller');
+        if (!$status) {
+            return response()->json(['status' => false, 'message' => ''], 403);
+        }
         $order = $this->orderRepo->getFirstWhere(params: ['id' => $request['order_id']], relations: ['customer', 'deliveryMan']);
 
         $fieldName = $request['field_name'];
@@ -904,14 +907,14 @@ class OrderController extends BaseController
             $message = translate("deliveryman_charge_added_successfully");
         }
 
-        return response()->json(['status' => $status, 'message' => $message], $status ? 200 : 403);
+        return response()->json(['status' => true, 'message' => $message], 200);
     }
 
     public function uploadDigitalFileAfterSell(UploadDigitalFileAfterSellRequest $request): RedirectResponse
     {
         // Scope to the seller's own order line — otherwise a seller could overwrite the delivered digital
-        // file on any order_detail by supplying another vendor's id.
-        $orderDetails = $this->orderDetailRepo->getFirstWhere(['id' => $request['order_id'], 'seller_id' => auth('seller')->id()]);
+        // file on any order_detail by supplying another vendor's id, or the in-house shop's line that shares the seller's id.
+        $orderDetails = OrderDetail::ofSeller(sellerId: auth('seller')->id())->find($request['order_id']);
         if (!$orderDetails) {
             ToastMagic::error(translate('access_denied'));
             return back();
@@ -925,5 +928,9 @@ class OrderController extends BaseController
         return back();
     }
 
-
+    /** The order page offers the shop's own delivery men when the shop ships the order, the in-house ones when the store does. */
+    private function getDeliveryManPoolOwnerId(object $order): int|string
+    {
+        return $order['shipping_responsibility'] == 'sellerwise_shipping' ? $order['seller_id'] : 0;
+    }
 }

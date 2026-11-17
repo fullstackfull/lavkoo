@@ -181,7 +181,7 @@ class ProductController extends BaseController
         // Ownership: restock_products has no seller column, so verify ownership through the product
         // (product.user_id == this seller). Without it a seller could delete another seller's restock rows.
         $restock = $this->restockProductRepo->getFirstWhere(params: ['id' => $id]);
-        if (!$restock || !$this->productRepo->getFirstWhere(params: ['id' => $restock->product_id, 'user_id' => auth('seller')->id()])) {
+        if (!$restock || !$this->productRepo->getFirstWhere(params: ['id' => $restock->product_id, 'user_id' => auth('seller')->id(), 'added_by' => 'seller'])) {
             ToastMagic::error(translate('product_restock_removed_failed'));
             return back();
         }
@@ -496,7 +496,7 @@ class ProductController extends BaseController
     public function getView(string|int $id): View|RedirectResponse
     {
         $vendorId = auth('seller')->id();
-        $productActive = $this->productRepo->getFirstWhereActive(params: ['id' => $id, 'user_id' => $vendorId]);
+        $productActive = $this->productRepo->getFirstWhereActive(params: ['id' => $id, 'user_id' => $vendorId, 'added_by' => 'seller']);
 
         $taxData = $this->getTaxSystemType();
         $productWiseTax = $taxData['productWiseTax'] && !$taxData['is_included'];
@@ -511,7 +511,7 @@ class ProductController extends BaseController
         }];
         $relations = array_merge($productWiseTaxRelation, $relations);
 
-        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id, 'user_id' => $vendorId], relations: $relations);
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id, 'user_id' => $vendorId, 'added_by' => 'seller'], relations: $relations);
         if (!$product) {
             return redirect()->route('vendor.products.list', ['type' => 'all']);
         }
@@ -638,14 +638,14 @@ class ProductController extends BaseController
 
     public function getSkuCombinationView(Request $request, ProductService $service): JsonResponse
     {
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['product_id']], relations: ['digitalVariation', 'seoInfo']);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['product_id'], 'user_id' => auth('seller')->id(), 'added_by' => 'seller'], relations: ['digitalVariation', 'seoInfo']);
         $combinationView = $service->getSkuCombinationView(request: $request, product: $product);
         return response()->json(['view' => $combinationView]);
     }
 
     public function getDigitalVariationCombinationView(Request $request, ProductService $service): JsonResponse
     {
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['product_id']], relations: ['digitalVariation']);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['product_id'], 'user_id' => auth('seller')->id(), 'added_by' => 'seller'], relations: ['digitalVariation']);
         $combinationView = $service->getDigitalVariationCombinationView(request: $request, product: $product);
         return response()->json([
             'view' => $combinationView['view'],
@@ -655,7 +655,8 @@ class ProductController extends BaseController
 
     public function deleteDigitalVariationFile(Request $request, ProductService $service): JsonResponse
     {
-        $variation = $this->digitalProductVariationRepo->getFirstWhere(params: ['product_id' => $request['product_id'], 'variant_key' => $request['variant_key']]);
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $request['product_id'], 'user_id' => auth('seller')->id(), 'added_by' => 'seller']);
+        $variation = $product ? $this->digitalProductVariationRepo->getFirstWhere(params: ['product_id' => $product['id'], 'variant_key' => $request['variant_key']]) : null;
         if ($variation) {
             $this->deleteFile(filePath: '/product/digital-product/' . $variation['file']);
             $this->digitalProductVariationRepo->updateByParams(params: ['id' => $variation['id']], data: ['file' => null]);
@@ -693,7 +694,7 @@ class ProductController extends BaseController
     {
         $status = $request['status'];
         $productId = $request['id'];
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $productId, 'user_id' => auth('seller')->id()]);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $productId, 'user_id' => auth('seller')->id(), 'added_by' => 'seller']);
         $success = 0;
 
         // The fetch is seller-scoped, but the elseif branch below writes by raw $productId. Guard on
@@ -725,7 +726,11 @@ class ProductController extends BaseController
             ToastMagic::warning(translate('you_can_not_generate_more_than_270_barcode'));
             return back();
         }
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $id, 'user_id' => auth('seller')->id()]);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $id, 'user_id' => auth('seller')->id(), 'added_by' => 'seller']);
+        if (!$product) {
+            ToastMagic::error(translate('product_not_found') . '!');
+            return redirect()->route('vendor.products.list', ['type' => 'all']);
+        }
         $rangeData = range(1, $request->limit ?? 4);
         $barcodes = array_chunk($rangeData, 21);
         return view('vendor-views.product.barcode', compact('product', 'barcodes'));
@@ -733,7 +738,7 @@ class ProductController extends BaseController
 
     public function delete(string|int $id, ProductService $service): RedirectResponse
     {
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $id, 'user_id' => auth('seller')->id()]);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $id, 'user_id' => auth('seller')->id(), 'added_by' => 'seller']);
 
         if ($product) {
             $this->translationRepo->delete(model: 'App\Models\Product', id: $id);
@@ -851,7 +856,10 @@ class ProductController extends BaseController
 
     public function getVariations(Request $request): JsonResponse
     {
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['id']]);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $request['id'], 'user_id' => auth('seller')->id(), 'added_by' => 'seller']);
+        if (!$product) {
+            return response()->json(['status' => 0, 'message' => translate('product_not_found')], 404);
+        }
         $restockId = $request['restock_id'];
         $restockVariants = $this->restockProductRepo->getListWhereBetween(filters: ['product_id' => $request['id']])?->pluck('variant')->toArray() ?? [];
 

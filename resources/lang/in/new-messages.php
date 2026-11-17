@@ -375,4 +375,12 @@ return [
 	"cdn" => "CDN",
 	"shoppers" => "Shoppers",
 	"unavailable" => "Unavailable",
+	'data_not_found' => 'डेटा नहीं मिला',
+	'clearance_product_not_found' => 'निकासी बिक्री उत्पाद नहीं मिला',
+	'category_shipping_cost_not_found' => 'श्रेणी शिपिंग लागत नहीं मिली',
+	'restock_request_not_found' => 'पुनः स्टॉक करने का अनुरोध नहीं मिला',
+	'payment_method_not_found' => 'भुगतान विधि नहीं मिली',
+	'delivery_man_not_found' => 'डिलीवरी मैन नहीं मिला',
+	"review_not_found" => "समीक्षा नहीं मिली",
+	"order_not_found" => "ऑर्डर नहीं मिला",
 ];

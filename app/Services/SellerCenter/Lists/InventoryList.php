@@ -2,6 +2,7 @@
 
 namespace App\Services\SellerCenter\Lists;
 
+use App\Models\OrderDetail;
 use App\Models\Product;
 use App\Models\StockMovement;
 use App\Services\Marketplace\InventoryService;
@@ -104,11 +105,9 @@ class InventoryList
             return 0;
         }
 
-        return (int) DB::table('order_details')
-            ->join('orders', 'orders.id', '=', 'order_details.order_id')
-            ->where('order_details.seller_id', $sellerId)
-            ->whereIn('orders.order_status', ['confirmed', 'processing', 'out_for_delivery'])
-            ->sum('order_details.qty');
+        return (int) OrderDetail::ofSeller(sellerId: $sellerId)
+            ->whereHas('order', fn ($query) => $query->whereIn('order_status', ['confirmed', 'processing', 'out_for_delivery']))
+            ->sum('qty');
     }
 
     /**
