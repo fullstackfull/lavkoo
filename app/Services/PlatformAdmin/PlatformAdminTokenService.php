@@ -48,7 +48,7 @@ final class PlatformAdminTokenService
             'password_fingerprint' => self::fingerprintOf(passwordHash: (string) $admin->getAuthPassword()),
             'device_name' => $deviceName,
             'ip' => $ip,
-            'user_agent' => $userAgent === null ? null : mb_substr($userAgent, 0, self::USER_AGENT_LIMIT),
+            'user_agent' => $userAgent === null ? null : PlatformAdminText::clipped(text: $userAgent, limit: self::USER_AGENT_LIMIT),
             'expires_at' => now()->addMinutes($this->settings->tokenTtlMinutes()),
         ]);
 

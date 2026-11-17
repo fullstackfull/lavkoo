@@ -38,7 +38,7 @@ final class PlatformAdminAudit
             'market' => $market,
             'token_id' => $tokenId,
             'ip' => $ip,
-            'user_agent' => $userAgent === null ? null : mb_substr($userAgent, 0, self::USER_AGENT_LIMIT),
+            'user_agent' => $userAgent === null ? null : PlatformAdminText::clipped(text: $userAgent, limit: self::USER_AGENT_LIMIT),
             'context' => $context === [] ? null : $context,
         ]);
     }
@@ -68,7 +68,7 @@ final class PlatformAdminAudit
 
         foreach (self::KEPT_PARAMETERS as $name) {
             if (is_scalar($given[$name] ?? null)) {
-                $kept[$name] = mb_substr((string) $given[$name], 0, self::PARAMETER_LENGTH_LIMIT);
+                $kept[$name] = PlatformAdminText::clipped(text: (string) $given[$name], limit: self::PARAMETER_LENGTH_LIMIT);
             }
         }
 
