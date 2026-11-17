@@ -15,6 +15,7 @@ use App\Http\Controllers\RestAPI\v3\seller\OrderController;
 use App\Http\Controllers\RestAPI\v3\seller\OrderEditController;
 use App\Http\Controllers\RestAPI\v3\seller\POSCartController;
 use App\Http\Controllers\RestAPI\v3\seller\POSController;
+use App\Http\Controllers\RestAPI\v3\seller\ProductBarcodeSheetController;
 use App\Http\Controllers\RestAPI\v3\seller\ProductController;
 use App\Http\Controllers\RestAPI\v3\seller\RefundController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerAnalyticsController;
@@ -68,6 +69,9 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             Route::post('/', 'store');
         });
     });
+
+    // Opened by the app in the phone's browser, which holds no token: the signature of the link says which seller's product it is for, and for how long.
+    Route::get('products/barcode/sheet', [ProductBarcodeSheetController::class, 'show'])->middleware('signed:relative')->name('seller-barcode-sheet');
 
     Route::group(['middleware' => ['seller_api_auth']], function () {
         Route::controller(SellerController::class)->group(function () {
