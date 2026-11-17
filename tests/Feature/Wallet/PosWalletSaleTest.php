@@ -10,14 +10,17 @@ use App\Http\Controllers\Vendor\POS\POSOrderController as VendorPOSOrderControll
 use App\Models\Seller;
 use App\Models\User;
 use App\Repositories\CustomerRepository;
+use App\Services\Address\OrderAddressService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Address\ApiAddressTestCase;
+use Tests\Support\BuildsPosSaleWorld;
 use Tests\Support\KeepsTranslateOffLanguageFiles;
 
 /**
@@ -26,6 +29,7 @@ use Tests\Support\KeepsTranslateOffLanguageFiles;
  */
 class PosWalletSaleTest extends ApiAddressTestCase
 {
+    use BuildsPosSaleWorld;
     use KeepsTranslateOffLanguageFiles;
 
     private const SELLER_ID = 5;
@@ -37,27 +41,7 @@ class PosWalletSaleTest extends ApiAddressTestCase
     {
         parent::setUp();
 
-        $this->createOrderPipelineTables();
-        $this->useTaxIncludedPrices();
-        Schema::create('wallet_transactions', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('user_id')->nullable();
-            $table->uuid('transaction_id');
-            $table->decimal('credit', 24, 3)->default(0);
-            $table->decimal('debit', 24, 3)->default(0);
-            $table->decimal('admin_bonus', 24, 3)->default(0);
-            $table->decimal('balance', 24, 3)->default(0);
-            $table->string('transaction_type', 191)->nullable();
-            $table->string('reference', 191)->nullable();
-            $table->string('payment_method')->nullable();
-            $table->timestamps();
-        });
-        DB::table('business_settings')->insert(['type' => 'wallet_status', 'value' => '1']);
-        DB::table('products')->insert([
-            ['id' => 1, 'name' => 'Paracetamol', 'added_by' => 'seller', 'user_id' => self::SELLER_ID, 'unit_price' => 30, 'current_stock' => self::STOCK],
-            ['id' => 2, 'name' => 'Vitamin C', 'added_by' => 'seller', 'user_id' => self::SELLER_ID, 'unit_price' => 20, 'current_stock' => self::STOCK],
-        ]);
-        $this->customer = $this->makeCustomer(['wallet_balance' => 100]);
+        $this->customer = $this->buildPosSaleWorld(sellerId: self::SELLER_ID);
         $this->keepTranslateOffLanguageFiles();
     }
 
@@ -114,16 +98,142 @@ class PosWalletSaleTest extends ApiAddressTestCase
     }
 
     /** @param list<array<string, mixed>> $lines */
-    private function sellerSale(array $lines, float $paidAmount): JsonResponse
+    private function sellerSale(array $lines, float $paidAmount, string $paymentMethod = 'wallet', ?string $idempotencyKey = null, int $sellerId = self::SELLER_ID): JsonResponse
     {
         $input = [
             'customer_id' => $this->customer->id, 'cart' => [], 'modified_cart' => $lines, 'fulfillment' => 'instant',
-            'payment_method' => 'wallet', 'paid_amount' => $paidAmount,
+            'payment_method' => $paymentMethod, 'paid_amount' => $paidAmount,
         ];
-        $request = Request::create('/api/v3/seller/pos/place-order', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], (string) json_encode($input));
-        $request['seller'] = (new Seller())->forceFill(['id' => self::SELLER_ID]);
+        $server = ['CONTENT_TYPE' => 'application/json'];
+        if ($idempotencyKey !== null) {
+            $server['HTTP_IDEMPOTENCY_KEY'] = $idempotencyKey;
+        }
+        $request = Request::create('/api/v3/seller/pos/place-order', 'POST', [], [], [], $server, (string) json_encode($input));
+        $request['seller'] = (new Seller())->forceFill(['id' => $sellerId]);
 
         return app(SellerApiPOSController::class)->place_order($request);
+    }
+
+    public function test_a_seller_app_wallet_sale_is_charged_the_server_total_whatever_the_client_says_it_paid(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 1.0);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(40.0, $this->walletBalance());
+        $this->assertSame(60.0, (float) DB::table('wallet_transactions')->value('debit'));
+        $this->assertSame([60.0, 60.0], [(float) DB::table('orders')->value('order_amount'), (float) DB::table('orders')->value('paid_amount')]);
+    }
+
+    public function test_a_seller_app_wallet_sale_the_wallet_cannot_cover_at_the_server_total_is_refused_even_when_the_client_paid_less(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 4, price: 30.0)], paidAmount: 10.0);
+
+        $this->assertTrue($response->getData(true)['need_balance'] ?? false, 'the operator is told the wallet does not cover the sale');
+        $this->assertNothingWasPersisted();
+    }
+
+    public function test_a_seller_app_cash_sale_paid_below_the_server_total_is_refused_with_nothing_written(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 50.0, paymentMethod: 'cash');
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(translate('paid_amount_is_less_than_total_amount'), $response->getData(true)['message']);
+        $this->assertNothingWasPersisted();
+    }
+
+    public function test_a_seller_app_cash_sale_paid_at_the_server_total_is_written_once_without_a_wallet_debit(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0, paymentMethod: 'cash');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(100.0, $this->walletBalance());
+        $this->assertSame(0, DB::table('wallet_transactions')->count());
+        $this->assertSame(1, DB::table('orders')->count());
+        $this->assertSame([60.0, 60.0], [(float) DB::table('orders')->value('order_amount'), (float) DB::table('orders')->value('paid_amount')]);
+    }
+
+    /** A 37.54 SAR sale is 10.010667 USD at 3.75 SAR to the dollar; the wallet is debited that once, not converted a second time to 2.67 USD. */
+    public function test_a_seller_app_wallet_sale_in_a_store_currency_debits_the_usd_value_of_the_server_total_once(): void
+    {
+        DB::table('business_settings')->where('type', 'currency_model')->update(['value' => json_encode('multi_currency')]);
+        DB::table('currencies')->where('id', 1)->update(['exchange_rate' => 3.75]);
+        DB::table('currencies')->insert(['id' => 2, 'name' => 'US Dollar', 'code' => 'USD', 'symbol' => '$', 'exchange_rate' => 1, 'status' => 1]);
+        Cache::flush();
+        $this->useTaxIncludedPrices();
+
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 1, price: 37.54)], paidAmount: 0.01);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([10.011, 89.99], [round((float) DB::table('wallet_transactions')->value('debit'), 3), round($this->walletBalance(), 2)]);
+    }
+
+    /** The order is written after the debit; a failure there takes the debit, the order, its lines and the stock back with it. */
+    public function test_a_seller_app_wallet_sale_that_fails_after_the_debit_rolls_back_the_debit_and_the_order(): void
+    {
+        $orderAddresses = Mockery::mock(OrderAddressService::class);
+        $orderAddresses->shouldReceive('snapshot')->andThrow(new \RuntimeException('the order could not be written'));
+        $this->app->instance(OrderAddressService::class, $orderAddresses);
+
+        try {
+            $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0);
+            $this->fail('the sale must not complete');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('the order could not be written', $exception->getMessage());
+        }
+
+        $this->assertNothingWasPersisted();
+    }
+
+    public function test_a_repeated_seller_app_wallet_sale_with_the_same_key_returns_the_first_order_and_debits_once(): void
+    {
+        $lines = [$this->sellerLine(productId: 1, quantity: 2, price: 30.0)];
+        $orderId = $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-1')->getData(true)['order_id'];
+
+        $second = $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-1');
+
+        $this->assertSame(200, $second->getStatusCode());
+        $this->assertSame($orderId, $second->getData(true)['order_id']);
+        $this->assertSame(40.0, $this->walletBalance(), 'the second submit would not have covered 60 from 40: it is answered, not charged');
+        $this->assertSame([1, 1], [DB::table('orders')->count(), DB::table('wallet_transactions')->count()]);
+        $this->assertSame([1 => 8, 2 => self::STOCK], $this->stock());
+    }
+
+    public function test_the_same_key_from_another_seller_is_a_sale_of_its_own(): void
+    {
+        $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0, idempotencyKey: 'sale-1');
+
+        $other = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 1, price: 30.0)], paidAmount: 30.0, idempotencyKey: 'sale-1', sellerId: 6);
+
+        $this->assertSame(200, $other->getStatusCode());
+        $this->assertSame(2, DB::table('orders')->count());
+        $this->assertSame(10.0, $this->walletBalance());
+    }
+
+    public function test_a_failed_attempt_does_not_use_up_its_key(): void
+    {
+        $lines = [$this->sellerLine(productId: 1, quantity: 2, price: 30.0)];
+        $orderAddresses = Mockery::mock(OrderAddressService::class);
+        $orderAddresses->shouldReceive('snapshot')->andThrow(new \RuntimeException('the order could not be written'));
+        $this->app->instance(OrderAddressService::class, $orderAddresses);
+        try {
+            $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-2');
+            $this->fail('the first attempt must not complete');
+        } catch (\RuntimeException) {
+        }
+        $this->app->forgetInstance(OrderAddressService::class);
+
+        $retry = $this->sellerSale($lines, paidAmount: 60.0, idempotencyKey: 'sale-2');
+
+        $this->assertSame(200, $retry->getStatusCode());
+        $this->assertSame([1, 40.0], [DB::table('orders')->count(), $this->walletBalance()]);
+    }
+
+    public function test_an_idempotency_key_longer_than_the_column_is_refused_with_nothing_written(): void
+    {
+        $response = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0, idempotencyKey: str_repeat('k', 192));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertNothingWasPersisted();
     }
 
     public function test_a_seller_app_wallet_sale_debits_the_wallet_and_writes_the_order_once(): void
