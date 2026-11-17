@@ -15,6 +15,9 @@ final class PlatformAdminAudit
     /** Where a controller leaves the market its answer was about (a two-letter code), for the line the middleware writes. */
     public const MARKET_ATTRIBUTE = 'platform_admin_audit_market';
 
+    /** Where a controller leaves what its answer did that the line of the request should say (such as how many sessions it ended), for the line the middleware writes. */
+    public const DETAIL_ATTRIBUTE = 'platform_admin_audit_detail';
+
     private const USER_AGENT_LIMIT = 255;
 
     /** The only parameters of a request that reach the trail. Anything else a request carries is not kept, and arrays are not kept at all. */
@@ -48,6 +51,7 @@ final class PlatformAdminAudit
     {
         $parameters = $this->keptParametersOf(request: $request);
         $market = $request->attributes->get(self::MARKET_ATTRIBUTE);
+        $detail = $request->attributes->get(self::DETAIL_ATTRIBUTE);
 
         return $this->record(
             action: Str::after((string) $request->route()?->getName(), 'platform_admin.'),
@@ -56,7 +60,7 @@ final class PlatformAdminAudit
             tokenId: (int) $principal->token->getKey(),
             ip: $request->ip(),
             userAgent: $request->userAgent(),
-            context: ['status' => $response->getStatusCode()] + ($parameters === [] ? [] : ['params' => $parameters]),
+            context: ['status' => $response->getStatusCode()] + ($parameters === [] ? [] : ['params' => $parameters]) + (is_array($detail) ? $detail : []),
         );
     }
 

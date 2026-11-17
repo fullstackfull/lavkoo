@@ -18,6 +18,7 @@ final class PlatformAdminGrantService
     public function __construct(
         private readonly PlatformMarkets $markets,
         private readonly PlatformAdminTokenService $tokens,
+        private readonly PlatformAdminMfaChallenges $challenges,
         private readonly PlatformAdminAudit $audit,
     ) {
     }
@@ -58,6 +59,7 @@ final class PlatformAdminGrantService
             }
 
             $result = ['tokens_revoked' => $this->tokens->revokeAllFor(adminId: $adminId), 'already_revoked' => $alreadyRevoked];
+            $this->challenges->endAllFor(adminId: $adminId);
             $this->audit->record(action: 'grant.revoked', adminId: $adminId, context: ['source' => self::SOURCE] + $result);
 
             return $result;
@@ -68,6 +70,7 @@ final class PlatformAdminGrantService
     public function revokeTokens(int $adminId): int
     {
         $revoked = $this->tokens->revokeAllFor(adminId: $adminId);
+        $this->challenges->endAllFor(adminId: $adminId);
         $this->audit->record(action: 'tokens.revoked', adminId: $adminId, context: ['source' => self::SOURCE, 'tokens_revoked' => $revoked]);
 
         return $revoked;
@@ -97,6 +100,7 @@ final class PlatformAdminGrantService
         $context = ['source' => self::SOURCE, 'before' => $before, 'after' => ['level' => $level, 'countries' => $scope]];
         if ($reactivating || $replacedRow) {
             $context['tokens_revoked'] = $this->tokens->revokeAllFor(adminId: $adminId);
+            $this->challenges->endAllFor(adminId: $adminId);
         }
         if ($replacedRow) {
             $context['replaced_admin_row'] = true;

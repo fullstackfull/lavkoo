@@ -21,7 +21,20 @@ final class PlatformAdminPresenter
         ];
     }
 
-    /** @return array{id: int, device_name: string, created_at: ?string, last_used_at: ?string, expires_at: ?string, current: bool} */
+    /**
+     * What `GET /me` answers: the admin as the sign-in shows them, and how this session stands with the second factor. `enrolled` is whether the admin has a
+     * factor they may sign in with, `verified` whether this session passed it, and `method` how.
+     *
+     * @return array<string, mixed>
+     */
+    public static function profile(PlatformAdminPrincipal $principal, bool $enrolled): array
+    {
+        $method = $principal->token->mfaMethod();
+
+        return self::me(principal: $principal) + ['mfa' => ['enrolled' => $enrolled, 'verified' => $method !== null, 'method' => $method?->value]];
+    }
+
+    /** @return array{id: int, device_name: string, created_at: ?string, last_used_at: ?string, expires_at: ?string, current: bool, mfa_method: ?string} */
     public static function session(PlatformAdminToken $token, int $currentTokenId): array
     {
         return [
@@ -31,6 +44,7 @@ final class PlatformAdminPresenter
             'last_used_at' => self::timestamp(moment: $token->last_used_at),
             'expires_at' => self::timestamp(moment: $token->expires_at),
             'current' => (int) $token->getKey() === $currentTokenId,
+            'mfa_method' => $token->mfaMethod()?->value,
         ];
     }
 

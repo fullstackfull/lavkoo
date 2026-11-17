@@ -28,9 +28,14 @@ class RoutesTest extends PlatformAdminTestCase
     /** The only routes of the API that change anything, and what they change: a session or a sign-in, never business data. */
     private const WRITING_ROUTES = [
         'platform_admin.auth.login' => 'POST',
+        'platform_admin.auth.mfa' => 'POST',
         'platform_admin.auth.logout' => 'POST',
+        'platform_admin.sessions.end_others' => 'DELETE',
         'platform_admin.session.revoke' => 'DELETE',
     ];
+
+    /** The two steps of the sign-in: the only routes that are not behind a token, because they are how one is got. */
+    private const SIGN_IN_ROUTES = ['platform_admin.auth.login', 'platform_admin.auth.mfa'];
 
     public function test_the_aliases_point_at_the_two_middleware(): void
     {
@@ -53,10 +58,10 @@ class RoutesTest extends PlatformAdminTestCase
         $this->assertSame($names, array_values(array_unique($names)), 'route names are unique');
     }
 
-    public function test_every_route_runs_the_gate_first_and_only_the_sign_in_runs_without_the_authentication(): void
+    public function test_every_route_runs_the_gate_first_and_only_the_two_steps_of_the_sign_in_run_without_the_authentication(): void
     {
         foreach ($this->platformRoutes() as $route) {
-            $expected = $route->getName() === 'platform_admin.auth.login' ? ['platform_admin'] : ['platform_admin', 'platform_admin_auth'];
+            $expected = in_array($route->getName(), self::SIGN_IN_ROUTES, true) ? ['platform_admin'] : ['platform_admin', 'platform_admin_auth'];
 
             $this->assertSame($expected, $route->gatherMiddleware(), $route->uri());
         }
@@ -87,7 +92,7 @@ class RoutesTest extends PlatformAdminTestCase
         $this->assertContains(RecordHttpTelemetry::class, $resolved, 'the probe proves the check above can see the api group');
     }
 
-    public function test_only_the_sign_in_the_sign_out_and_the_ending_of_a_session_are_not_reads(): void
+    public function test_only_the_sign_in_its_second_step_the_sign_out_and_the_ending_of_sessions_are_not_reads(): void
     {
         $writing = [];
         foreach ($this->platformRoutes() as $route) {
@@ -112,7 +117,7 @@ class RoutesTest extends PlatformAdminTestCase
             $this->assertSame('admin', $endpoint['audience'], $endpoint['path']);
             $this->assertSame('internal', $endpoint['visibility'], $endpoint['path']);
             $this->assertTrue($endpoint['documented'], $endpoint['path'] . ' carries an ApiDoc');
-            $this->assertSame(!in_array('platform_admin.auth.login', [$endpoint['name']], true), $endpoint['auth']['required'], $endpoint['path']);
+            $this->assertSame(!in_array($endpoint['name'], self::SIGN_IN_ROUTES, true), $endpoint['auth']['required'], $endpoint['path']);
             if ($endpoint['auth']['required']) {
                 $this->assertSame('bearer', $endpoint['auth']['scheme'], $endpoint['path']);
             }

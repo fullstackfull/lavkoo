@@ -18,6 +18,33 @@ final class PlatformAdminSettings
 
     private const DEFAULT_FAILED_LOGIN_AUDITS_PER_HOUR = 10;
 
+    private const DEFAULT_MFA_CHALLENGE_TTL_MINUTES = 5;
+
+    private const MAX_MFA_CHALLENGE_TTL_MINUTES = 15;
+
+    private const DEFAULT_MFA_MAX_CHALLENGE_ATTEMPTS = 5;
+
+    private const MAX_MFA_CHALLENGE_ATTEMPTS = 10;
+
+    private const DEFAULT_MFA_LOCKOUT_FAILURES = 10;
+
+    private const MAX_MFA_LOCKOUT_FAILURES = 20;
+
+    private const DEFAULT_MFA_LOCKOUT_MINUTES = 15;
+
+    private const MAX_MFA_LOCKOUT_MINUTES = 60;
+
+    private const DEFAULT_SESSION_IDLE_MINUTES = 60;
+
+    private const MAX_SESSION_IDLE_MINUTES = 1440;
+
+    private const DEFAULT_SESSION_MAX_CONCURRENT = 5;
+
+    private const MAX_SESSION_MAX_CONCURRENT = 20;
+
+    /** What an environment value of the second-factor switch may say to turn it off. Everything else, a typo or a blank included, leaves it on. */
+    private const SECOND_FACTOR_OFF_VALUES = ['0', 'false', 'off', 'no'];
+
     private const DEFAULT_WINDOW_DAYS = 30;
 
     private const DEFAULT_MAX_WINDOW_DAYS = 92;
@@ -36,6 +63,53 @@ final class PlatformAdminSettings
     public function enabled(): bool
     {
         return config('gcc.platform_admin.enabled') === true;
+    }
+
+    /**
+     * Whether a sign-in takes the second factor. It fails closed: only a real boolean false, or the text of one that an environment file can hold
+     * (`false`, `0`, `off`, `no`, in any case), switches it off; a typo, a blank value or a missing entry is on.
+     */
+    public function mfaRequired(): bool
+    {
+        $configured = config('gcc.platform_admin.mfa.required');
+
+        if (is_bool($configured)) {
+            return $configured;
+        }
+
+        return !is_scalar($configured) || !in_array(strtolower(trim((string) $configured)), self::SECOND_FACTOR_OFF_VALUES, true);
+    }
+
+    public function mfaChallengeTtlMinutes(): int
+    {
+        return min($this->positiveInteger(key: 'mfa.challenge_ttl_minutes', default: self::DEFAULT_MFA_CHALLENGE_TTL_MINUTES), self::MAX_MFA_CHALLENGE_TTL_MINUTES);
+    }
+
+    public function mfaMaxChallengeAttempts(): int
+    {
+        return min($this->positiveInteger(key: 'mfa.max_challenge_attempts', default: self::DEFAULT_MFA_MAX_CHALLENGE_ATTEMPTS), self::MAX_MFA_CHALLENGE_ATTEMPTS);
+    }
+
+    public function mfaLockoutFailures(): int
+    {
+        return min($this->positiveInteger(key: 'mfa.lockout_failures', default: self::DEFAULT_MFA_LOCKOUT_FAILURES), self::MAX_MFA_LOCKOUT_FAILURES);
+    }
+
+    public function mfaLockoutMinutes(): int
+    {
+        return min($this->positiveInteger(key: 'mfa.lockout_minutes', default: self::DEFAULT_MFA_LOCKOUT_MINUTES), self::MAX_MFA_LOCKOUT_MINUTES);
+    }
+
+    /** How long a session may go unused before it is over. */
+    public function sessionIdleMinutes(): int
+    {
+        return min($this->positiveInteger(key: 'session.idle_minutes', default: self::DEFAULT_SESSION_IDLE_MINUTES), self::MAX_SESSION_IDLE_MINUTES);
+    }
+
+    /** How many sessions of one admin may be open at once. */
+    public function sessionMaxConcurrent(): int
+    {
+        return min($this->positiveInteger(key: 'session.max_concurrent', default: self::DEFAULT_SESSION_MAX_CONCURRENT), self::MAX_SESSION_MAX_CONCURRENT);
     }
 
     public function tokenTtlMinutes(): int

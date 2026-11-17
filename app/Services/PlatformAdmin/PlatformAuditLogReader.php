@@ -22,13 +22,13 @@ final class PlatformAuditLogReader
         $lines = $query->get();
 
         return [
-            'lines' => $lines->take($pagination->perPage)->map(fn (PlatformAdminAuditLog $line): array => $this->presented(line: $line))->values()->all(),
+            'lines' => $lines->take($pagination->perPage)->map(fn (PlatformAdminAuditLog $line): array => $this->presented(line: $line, principal: $principal))->values()->all(),
             'has_more' => $lines->count() > $pagination->perPage,
         ];
     }
 
     /** @return array<string, mixed> */
-    private function presented(PlatformAdminAuditLog $line): array
+    private function presented(PlatformAdminAuditLog $line, PlatformAdminPrincipal $principal): array
     {
         return [
             'id' => (int) $line->getKey(),
@@ -38,8 +38,27 @@ final class PlatformAuditLogReader
             'token_id' => $line->token_id,
             'ip' => $line->ip,
             'user_agent' => $line->user_agent,
-            'context' => $line->context,
+            'context' => $this->contextShownTo(principal: $principal, context: $line->context),
             'created_at' => PlatformAdminPresenter::timestamp(moment: $line->created_at),
         ];
+    }
+
+    /**
+     * What a line says, less what the reader may not see: the operator of a console command (the user and the host it ran as) is for the platform owner,
+     * not for a restricted admin who is reading their own lines. Only the member at the top is taken away.
+     *
+     * @param array<string, mixed>|null $context
+     *
+     * @return array<string, mixed>|null
+     */
+    private function contextShownTo(PlatformAdminPrincipal $principal, ?array $context): ?array
+    {
+        if ($context === null || $principal->isPlatformOwner()) {
+            return $context;
+        }
+
+        unset($context['operator']);
+
+        return $context === [] ? null : $context;
     }
 }

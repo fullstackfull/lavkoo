@@ -20,7 +20,7 @@ class SessionsTest extends PlatformAdminTestCase
         $rows = $response->json('data');
         $this->assertSame(['Tablet', 'Phone'], array_column($rows, 'device_name'));
         $this->assertSame([true, false], array_column($rows, 'current'));
-        $this->assertSame(['id', 'device_name', 'created_at', 'last_used_at', 'expires_at', 'current'], array_keys($rows[0]), 'exactly the agreed fields, so no hash, address or user agent can slip in');
+        $this->assertSame(['id', 'device_name', 'created_at', 'last_used_at', 'expires_at', 'current', 'mfa_method'], array_keys($rows[0]), 'exactly the agreed fields, so no hash, address or user agent can slip in');
         $this->assertSame(Carbon::parse('2026-11-17 09:00:00')->utc()->toIso8601ZuluString(), $rows[0]['created_at']);
         $this->assertSame(Carbon::parse('2026-11-17 10:00:00')->utc()->toIso8601ZuluString(), $rows[0]['last_used_at'], 'the request being answered has just been counted: the last use was over a minute ago');
         $this->assertSame(Carbon::parse('2026-11-17 17:00:00')->utc()->toIso8601ZuluString(), $rows[0]['expires_at']);
@@ -156,11 +156,12 @@ class SessionsTest extends PlatformAdminTestCase
         $viewerToken = $this->mintToken($viewer, ['expires_at' => now()->addHours(4)]);
         $expiry = static fn (int $hours): string => Carbon::parse('2026-11-17 10:00:00')->addHours($hours)->utc()->toIso8601ZuluString();
 
+        $noFactor = ['enrolled' => false, 'verified' => false, 'method' => null];
         $this->getJson(self::PREFIX . '/me', $this->bearer($ownerToken))->assertOk()->assertExactJson(['data' => [
-            'admin_id' => $owner['id'], 'name' => 'Platform Owner', 'level' => 1, 'scope' => 'all', 'markets' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'], 'token_expires_at' => $expiry(3),
+            'admin_id' => $owner['id'], 'name' => 'Platform Owner', 'level' => 1, 'scope' => 'all', 'markets' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'], 'token_expires_at' => $expiry(3), 'mfa' => $noFactor,
         ]]);
         $this->getJson(self::PREFIX . '/me', $this->bearer($viewerToken))->assertOk()->assertExactJson(['data' => [
-            'admin_id' => $viewer['id'], 'name' => 'Kuwait Viewer', 'level' => 1, 'scope' => 'restricted', 'markets' => ['AE', 'KW'], 'token_expires_at' => $expiry(4),
+            'admin_id' => $viewer['id'], 'name' => 'Kuwait Viewer', 'level' => 1, 'scope' => 'restricted', 'markets' => ['AE', 'KW'], 'token_expires_at' => $expiry(4), 'mfa' => $noFactor,
         ]]);
     }
 

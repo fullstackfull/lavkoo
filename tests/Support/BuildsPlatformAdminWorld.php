@@ -16,10 +16,18 @@ trait BuildsPlatformAdminWorld
 {
     use BuildsFulfillmentSchema;
 
+    /** Level 1: the grants, the sessions and the audit trail. */
     private const PLATFORM_ADMIN_MIGRATIONS = [
         '2026_11_27_100000_create_platform_admin_grants_table.php',
         '2026_11_27_100100_create_platform_admin_tokens_table.php',
         '2026_11_27_100200_create_platform_admin_audit_logs_table.php',
+    ];
+
+    /** Phase 2, after level 1 and every one of them additive: the second factor, and what the sessions and the audit trail gained. */
+    private const PLATFORM_ADMIN_PHASE_TWO_MIGRATIONS = [
+        '2026_11_29_100000_create_platform_admin_mfa_factors_table.php',
+        '2026_11_29_100100_create_platform_admin_mfa_challenges_table.php',
+        '2026_11_29_100200_add_mfa_method_to_platform_admin_tokens_table.php',
     ];
 
     /** The store tables and the admin sign-in columns, without the tables of the platform admin API. */
@@ -53,6 +61,7 @@ trait BuildsPlatformAdminWorld
         $this->buildStoreTables();
         $this->buildSellerTables();
         $this->runPlatformAdminMigrations();
+        $this->runPlatformAdminPhaseTwoMigrations();
     }
 
     /** What the seller credentials need: a seller, its staff, their roles and the keys it issued. Inferred, like the rest of the store tables. */
@@ -123,9 +132,29 @@ trait BuildsPlatformAdminWorld
         }
     }
 
+    /** @param string|null $only the file of one migration of phase 2, to run it alone */
+    protected function runPlatformAdminPhaseTwoMigrations(?string $only = null): void
+    {
+        foreach (self::PLATFORM_ADMIN_PHASE_TWO_MIGRATIONS as $file) {
+            if ($only === null || $only === $file) {
+                (require database_path("migrations/{$file}"))->up();
+            }
+        }
+    }
+
+    /** Everything of the API, newest first, because what phase 2 added refers to what level 1 made. */
     protected function rollBackPlatformAdminMigrations(): void
     {
+        $this->rollBackPlatformAdminPhaseTwoMigrations();
+
         foreach (array_reverse(self::PLATFORM_ADMIN_MIGRATIONS) as $file) {
+            (require database_path("migrations/{$file}"))->down();
+        }
+    }
+
+    protected function rollBackPlatformAdminPhaseTwoMigrations(): void
+    {
+        foreach (array_reverse(self::PLATFORM_ADMIN_PHASE_TWO_MIGRATIONS) as $file) {
             (require database_path("migrations/{$file}"))->down();
         }
     }

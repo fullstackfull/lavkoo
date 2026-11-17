@@ -4,6 +4,10 @@
 document apply (GCC-20 privileged authentication needs a security review before merge or release, `AUTONOMOUS_DEVELOPMENT_CHARTER.md` section 5).
 **This document is the contract the Flutter seller-app shell is built on.** Business requirement: [GCC-20-SUPER-ADMIN-MOBILE.md](./GCC-20-SUPER-ADMIN-MOBILE.md).
 
+**Phase 2, delivery 1 (this revision): multi-factor authentication and session management.** Signing in takes a second factor by default (a TOTP code, or a one-time recovery
+code), and a session has an idle timeout and a limit on how many may be open at once. What changes for the seller app, in one place: sections 5 (the sign-in is now two steps, there is
+a new `POST /auth/mfa`, `GET /me` and `GET /sessions` gain members, `DELETE /sessions` ends every other session) and 3 (the runbook). Everything else of level 1 is as it was.
+
 ## 1. What it is
 
 A small JSON API under `/api/platform-admin/v1` with which the platform owner, signed in to the seller app as an **admin**, watches all six markets: whether each market is
@@ -25,7 +29,8 @@ Which admin may use it is decided by a row in `platform_admin_grants`, written o
 admin 1), no e-mail allow-list and no flag the client sends. A grant is made for one admin **row**: it remembers the id and the creation time of the row, and a different row that
 merely comes to carry the same id (a deleted admin whose id is reused, a restored dump) is not that admin and gets no access.
 
-Level 1 only reads. The only things it writes are its own session rows (sign-in, sign-out, ending a session, the time a session was last used) and its own audit lines.
+Level 1 only reads. The only things it writes are its own session rows (sign-in, sign-out, ending a session, the time a session was last used), its sign-in challenges, the
+counters of its limits and its own audit lines. **No HTTP route can enrol, reset or weaken a second factor**: that is done only by the console commands of section 3.
 
 ## 2. The flag and the three states
 
@@ -35,7 +40,7 @@ Level 1 only reads. The only things it writes are its own session rows (sign-in,
 | State | What every route of the API does |
 |---|---|
 | Flag off (default) | **404, exactly the answer of a route that does not exist** (same status, same message, same headers), before the database, the cache, the limiter or any other service is touched. Verified with a query listener: zero statements. Only a real boolean `true` switches it on: `"1"`, `"yes"` and `1` do not. |
-| Flag on, migrations not run | **503** `platform_admin_unavailable`, one stable JSON body, no write anywhere, no 500. One missing table of the three is enough. |
+| Flag on, migrations not run | **503** `platform_admin_unavailable`, one stable JSON body, no write anywhere, no 500. One missing table or column of the API's migrations is enough. |
 | Flag on, migrations run | Serves. |
 
 Whatever the state, nothing an existing API answers changes: `ReverseIsolationTest` compares the seller sign-in, the seller API's refusal, the customer API's refusal and the
@@ -43,6 +48,24 @@ storefront list with the API on and off, and the routes of every other API are a
 
 A request for another HTTP method on the same path answers the router's own 405 whatever the flag says, because the path is registered for the method that exists. Only the
 routes of the API answer 404 while it is off.
+
+**The second switch (not a fourth state).** `GCC_PLATFORM_ADMIN_MFA_REQUIRED` (`gcc.platform_admin.mfa.required`) decides whether a sign-in takes a second factor. It is **true by
+default and fails closed**: only a real boolean `false` (the environment values `false`, `0`, `off`, `no`) switches it off; a value that is not a boolean at all, such as a typo, leaves it
+on. False is for staging only: the sign-in is then exactly the level 1 sign-in (one step, the answer is byte for byte the one of section 5), and `gcc:platform-admin:grant` prints a warning
+every time it is run while the switch is off. It changes nothing while `GCC_PLATFORM_ADMIN_ENABLED` is off.
+
+The other numbers of this revision are configuration in the same block (`gcc.platform_admin.mfa.*` and `gcc.platform_admin.session.*`). A value that makes no sense (zero, negative, text) is the default, and the ones that
+weaken a protection when they grow have a ceiling that nothing configured can lift:
+
+| Environment | Default | Ceiling | What it is |
+|---|---|---|---|
+| `GCC_PLATFORM_ADMIN_MFA_REQUIRED` | `true` | n/a | Whether a sign-in takes the second factor (above) |
+| `GCC_PLATFORM_ADMIN_MFA_CHALLENGE_TTL_MINUTES` | 5 | 15 | How long a challenge is good for |
+| `GCC_PLATFORM_ADMIN_MFA_MAX_CHALLENGE_ATTEMPTS` | 5 | 10 | Tries a challenge allows before it is consumed |
+| `GCC_PLATFORM_ADMIN_MFA_LOCKOUT_FAILURES` | 10 | 20 | Wrong or replayed codes of one admin that lock the second step |
+| `GCC_PLATFORM_ADMIN_MFA_LOCKOUT_MINUTES` | 15 | 60 | The window those failures are counted in, and how long the lock lasts |
+| `GCC_PLATFORM_ADMIN_SESSION_IDLE_MINUTES` | 60 | 1440 | Unused for this long, a session is over |
+| `GCC_PLATFORM_ADMIN_SESSION_MAX_CONCURRENT` | 5 | 20 | Open sessions of one admin; a new one ends the oldest beyond this |
 
 ## 3. Operator runbook
 
@@ -57,18 +80,26 @@ process of the platform for migrations and configuration.
    is not in this repository, so `SHOW CREATE TABLE admins` tells you beforehand which case you are in. If the key cannot be made (another type or engine, no `admins` table, or the
    database refuses it for any other reason) **the migration still succeeds**: it creates the table without the key and writes one warning to the application log that says why.
    Nothing else changes, because a grant is tied to the admin row it was made for by a fingerprint, not by the key (see "Deleting an admin who holds a grant" below).
-3. Run the three migrations `2026_11_27_100000_create_platform_admin_grants_table`, `..._100100_create_platform_admin_tokens_table` and `..._100200_create_platform_admin_audit_logs_table`.
-   They only add tables. Rolling them back drops the three tables and nothing else; roll all three back together (the tokens table has a foreign key to the grants table, which
-   MySQL refuses to drop while it is referenced).
+3. Run the migrations of the API: `2026_11_27_100000_create_platform_admin_grants_table`, `..._100100_create_platform_admin_tokens_table` and `..._100200_create_platform_admin_audit_logs_table`
+   (level 1), and the three of the second factor: `2026_11_29_100000_create_platform_admin_mfa_factors_table`, `..._100100_create_platform_admin_mfa_challenges_table` and
+   `..._100200_add_mfa_method_to_platform_admin_tokens_table`. They only add tables and one nullable column. Rolling them back drops what they added and nothing else; roll all of them back
+   together, newest first (the tokens, the factors and the challenges have a foreign key to the grants table, which MySQL refuses to drop while it is referenced). None of the new tables
+   has a foreign key to `admins`: a factor and a challenge hang off the grant, which carries the conditional key of step 2, so deleting an admin takes them away exactly when it takes
+   the grant away. Until all six have run, a switched-on API answers 503 (section 2).
 4. **Behind a proxy or a load balancer, set `TRUSTED_PROXIES`** (`config/trustedproxy.php`) so that the address the API sees is the client's. The sign-in and request limits count
    addresses; if every client arrives as the proxy's address they share one limit.
-5. Grant access, then switch the flag on:
+5. Grant access, enrol the second factor, then switch the flag on:
 
 ```
 php artisan gcc:platform-admin:grant 7                       # admin 7 is the platform owner: every market
 php artisan gcc:platform-admin:grant 12 --countries=KW,AE    # admin 12 may see only Kuwait and the Emirates
+php artisan gcc:platform-admin:mfa:enroll 7                  # prints the secret, the otpauth URI and ten recovery codes, ONCE
+php artisan gcc:platform-admin:mfa:confirm 7 123456          # the first code the admin's authenticator app shows: only now is the factor active
 GCC_PLATFORM_ADMIN_ENABLED=true                              # then clear the configuration cache the way the deployment does
 ```
+
+   With `GCC_PLATFORM_ADMIN_MFA_REQUIRED` at its default (true) **an admin without a confirmed factor cannot sign in at all**: the sign-in answers the same 401 as any failure. Enrol every
+   admin who holds a grant before they try.
 
 ### Day to day
 
@@ -79,30 +110,65 @@ GCC_PLATFORM_ADMIN_ENABLED=true                              # then clear the co
 | End a stolen or lost token | `gcc:platform-admin:revoke-tokens {admin_id}` | Every session of that admin ends at once; the grant stays, so they can sign in again. |
 | Take access away | `gcc:platform-admin:revoke {admin_id}` | The grant is revoked and every session ends. Revoking twice is harmless and keeps the first time. |
 | Give it back | `gcc:platform-admin:grant {admin_id}` | A revoked grant is reactivated, and any session that survived a hand edit is ended first. |
+| Enrol the second factor | `gcc:platform-admin:mfa:enroll {admin_id} [--replace]` | Needs an active grant. Creates a **pending** factor and prints, once, the secret (base32), the otpauth URI and ten recovery codes. Refuses when the admin already has a factor, pending or active, unless `--replace`, which removes it first and ends the admin's sessions and challenges. |
+| Activate it | `gcc:platform-admin:mfa:confirm {admin_id} {code}` | The code the authenticator app shows for the secret just entered. Only a confirmed factor counts at sign-in. A wrong code changes nothing. |
+| Lost phone, lost codes | `gcc:platform-admin:mfa:reset {admin_id}` | Removes the factor (secret and recovery codes), ends every session and every challenge of the admin. They enrol again. |
+| Look | `gcc:platform-admin:mfa:status [{admin_id}]` | For every grant (or one admin): the state of the factor, when it was activated, how many recovery codes are left, whether its secret can still be read with the current key, and how many open sessions passed the second factor and how many did not. Never a secret. |
 
-Each of these writes one audit line (`grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`) with the scope before and after. The commands
-work whether the flag is on or off, and each tells the operator to run the migrations if the tables are missing instead of failing.
+Each of these writes one audit line (`grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`) with
+the scope before and after where there is one. **The lines of the MFA commands carry the identity of the operator**: the operating system user and the host name of the machine the command ran on
+(`context.operator.user`, `context.operator.host`), and `source: "console"`; never a secret. The commands work whether the flag is on or off, and each tells the operator to run the migrations
+if the tables are missing instead of failing. `gcc:platform-admin:grant` also says, after it succeeds, when the admin has no confirmed factor yet (and that they cannot sign in until
+they have one), and warns every time it runs while `GCC_PLATFORM_ADMIN_MFA_REQUIRED` is off.
+
+### The second factor
+
+* **What it is.** A time-based one-time password (RFC 6238: HMAC-SHA-1, 6 digits, 30 seconds) shown by any authenticator app, and ten one-time recovery codes. A code is accepted when it is
+  the code of the current 30-second step or of the step before or after it (so a phone whose clock is up to 30 seconds off still works), **once**: the step of the last accepted code is
+  kept for each admin and a code of that step or of an older one is refused. Two sign-ins in the same 30 seconds therefore need two different codes; the second waits for the next one.
+* **The secret** is 160 random bits, shown once by `mfa:enroll` as base32 and stored encrypted with the application key. **The recovery codes** are ten of `xxxxx-xxxxx` (ten characters from
+  the 31 of the letters without `i`, `l` and `o` and the digits 2 to 9; typing them in any case, with or without the hyphen, works), shown once and stored only as an HMAC-SHA-256 under a key derived from
+  the application key. A recovery code works once. Neither the secret, a code, nor anything derived from them is written to a log, to the audit trail, or to any answer of the API.
+* **Custody is the operator's.** `mfa:enroll` prints to the operator's terminal and nowhere else. Hand the secret and the codes to the admin over a channel the owner trusts, and have the admin
+  keep the codes apart from the phone. Type the secret into the authenticator app by hand: do not paste the otpauth URI into an online QR generator, because the secret would leave the server.
+* **Changing `APP_KEY` makes every factor unreadable** (the secret cannot be decrypted, the recovery codes no longer match): no admin can then pass the second step, which fails closed, and
+  `mfa:status` says `unreadable`. Reset and enrol again after rotating the key.
+* **Lockout.** Ten wrong or replayed codes for one admin within 15 minutes (whatever challenge or address they came from; the window starts at the first of them) lock that admin's second
+  step for the rest of the window. A lockout is one audit line (`auth.mfa_locked`). The numbers are `GCC_PLATFORM_ADMIN_MFA_LOCKOUT_FAILURES` (10, at most 20) and
+  `GCC_PLATFORM_ADMIN_MFA_LOCKOUT_MINUTES` (15, at most 60). A person who knows the password can lock the admin out for the window by guessing: that is the price of a lockout; changing the
+  password ends their access, and the audit lines show it.
+* **Staging only:** `GCC_PLATFORM_ADMIN_MFA_REQUIRED=false` (section 2). It is not a way to roll the second factor out: when the switch is turned back on, **a session that did not pass the second factor is
+  no longer a session** (the next request is the uniform 401), however it was opened, and an admin without a confirmed factor cannot sign in.
 
 ### Rotating and revoking
 
 * A token lives 480 minutes by default; the configured value is never more than 1440 and a value below 1 is the default. A session cannot be extended: the app signs in again.
-* **Any change of the admin's password, made anywhere, ends every one of that admin's sessions on the next request.** A session remembers the SHA-256 of the password hash it was
-  opened with. (A rehash of the same password, which Laravel does when the hashing cost changes, counts as a change.)
-* A session is also refused on the next request when its admin is deactivated, its grant is revoked, or it expires. Nothing is cached, so there is nothing to wait for.
-* The admin sees their own sessions with `GET /sessions` and ends one with `DELETE /sessions/{id}`.
+* **Idle timeout.** A session that has not been used for 60 minutes (`GCC_PLATFORM_ADMIN_SESSION_IDLE_MINUTES`, at most 1440) is over: its next request is the uniform 401 and ends the
+  session (`session.idle_ended` in the trail). The time of last use moves at most once a minute, so idleness is measured to the minute; a session that was never used counts from the moment it was opened.
+* **At most 5 open sessions per admin** (`GCC_PLATFORM_ADMIN_SESSION_MAX_CONCURRENT`, at most 20). When a sign-in would make one more, the oldest open sessions are ended to make room
+  (`session.evicted`: one line for each session that was ended, which names it as the line's `token_id` and, in its context, the session that made room (`by_token_id`) and the limit). Sessions already ended, expired or idle do not count,
+  and two sign-ins of one admin at once cannot both find room (the grant is held while they are counted).
+* **Any change of the admin's password, made anywhere, ends every one of that admin's sessions on the next request, and a sign-in that was waiting for its second factor cannot be completed.** A session remembers the SHA-256 of the password hash it was
+  opened with. (A rehash of the same password, which Laravel does when the hashing cost changes, counts as a change.) Resetting the second factor, revoking the grant, `revoke-tokens` and giving a revoked grant back (or making a grant over to a replaced row) end the sessions and the pending challenges too.
+* A session is also refused on the next request when its admin is deactivated, its grant is revoked, it expires or is idle. Nothing is cached, so there is nothing to wait for.
+* The admin sees their own sessions with `GET /sessions`, ends one with `DELETE /sessions/{id}` and ends all the others with `DELETE /sessions`.
 * If a token may have leaked: `revoke-tokens`, then ask the admin to change the password. A token starts with `lkpa_`, so one found in a log or a file can be recognised and revoked.
 * **Deleting an admin who holds a grant.** With the foreign key the grant and its sessions go with the admin. Without it (the migration said so in the log) they stay behind, and
   cannot be used: a grant remembers the id and the creation time of the row it was made for, so a row that comes to carry the same id later is a different admin and gets no access, at
-  sign-in or with a session that was already open. Run `gcc:platform-admin:revoke {admin_id}` before deleting the admin to leave nothing behind. If the new row is meant to have the
+  sign-in or with a session that was already open. Run `gcc:platform-admin:mfa:reset {admin_id}` (removes the secret) and `gcc:platform-admin:revoke {admin_id}` before deleting the admin to leave nothing behind. If the new row is meant to have the
   access, run `gcc:platform-admin:grant {admin_id}` again: the grant is made over to the row that carries the id now, the sessions of the old row end, the command says so, and the audit line (`grant.updated`) carries `replaced_admin_row`.
-  Changing an admin's e-mail or name does not touch the grant; replacing the row does.
+  A factor remembers the admin row it was enrolled for in the same way a grant does, so it is **not** inherited by the new row: the new row has no factor until `mfa:enroll --replace` is run for it.
+  Changing an admin's e-mail or name does not touch the grant or the factor; replacing the row does.
 * To switch the whole API off: unset the flag. Every route answers 404 again at once.
 
 ### Watching it
 
 `GET /audit-logs` (platform owner: every line) and the table `platform_admin_audit_logs`. A refused sign-in is always in the application log, with its reason (`malformed_input`, `unknown_admin`, `wrong_password`, `inactive_admin`, `no_grant`,
-`grant_of_another_admin_row`, `revoked_grant`) and a hash of the address, never the address itself. Only a refusal for an admin who holds a grant is also audited, and at most `failed_login_audit_per_hour` (10) lines per grant per hour, so
-traffic from the internet cannot make a table grow.
+`grant_of_another_admin_row`, `revoked_grant`, `mfa_not_enrolled`) and a hash of the address, never the address itself. Only a refusal for an admin who holds a grant is also audited, and at most `failed_login_audit_per_hour` (10) lines per grant per hour, so
+traffic from the internet cannot make a table grow. **A refused second step is treated the same way**: always in the application log with its reason (`malformed_input`, `unknown_challenge`, `expired_challenge`, `consumed_challenge`,
+`attempts_exhausted`, `wrong_code`, `replayed_code`, `unusable_factor`, `inactive_admin`, `no_grant`, `grant_of_another_admin_row`, `revoked_grant`, `password_changed`) and a hash of the challenge, never the challenge or the code; and, when the
+challenge belongs to an admin who holds a grant, one `auth.mfa_failed` line, at most `failed_login_audit_per_hour` per grant per hour (its own count, separate from the sign-in's). Seeing `auth.mfa_failed` lines the admin did not cause means
+somebody holds the password: change it. The lines the console commands write carry an `operator` in their context; **a restricted admin, who reads only their own lines, is never shown it** (the platform owner is).
 
 ## 4. Conventions
 
@@ -113,9 +179,15 @@ traffic from the internet cannot make a table grow.
   default zone, which the application sets at boot from the merchant's `timezone` setting (reported in the answer as `timezone`). See section 9, point 10.
 * Every answer of the API (except the 404 of a switched-off API) carries `Cache-Control: no-store, private` and `Vary: Authorization`.
 * Authentication: `Authorization: Bearer lkpa_<64 characters>`. The scheme is case-insensitive; **only** the header counts, not a query string, a body field or a cookie.
-* **Every failure to authenticate is the identical 401 `platform_admin_auth`**, with no hint which check failed: unknown or malformed token, expired, revoked, admin deactivated,
-  password changed, grant revoked, grant of another admin.
-* Limits: 120 requests a minute from one address to any route (`429 platform_admin_throttled` with `Retry-After`), counted before a token is looked up.
+* **Every failure to authenticate is the identical 401 `platform_admin_auth`**, with no hint which check failed: unknown or malformed token, expired, idle, revoked, admin deactivated,
+  password changed, grant revoked, grant of another admin, and at the sign-in an admin who has no confirmed second factor while one is required; at the second step (`POST /auth/mfa`) an unknown, expired, used-up or
+  consumed challenge, a wrong code, a code that was already used, a recovery code that was already used, and anything that is not well formed. **The one exception is the lockout** (see below), which is a 429.
+* Limits: 120 requests a minute from one address to any route (`429 platform_admin_throttled` with `Retry-After`), counted before a token is looked up. The sign-in has its own limits (section 5).
+  **The second step is limited per address** to three times the number of sign-in attempts a minute for one e-mail (15 by default), counted before the challenge is looked up, so that nothing about a challenge can
+  be learned from it; **per challenge**: a challenge allows `GCC_PLATFORM_ADMIN_MFA_MAX_CHALLENGE_ATTEMPTS` (5, at most 10) tries, every refusal on a challenge that is still good counts one, and after the last
+  the challenge is consumed (every later try with it is the uniform 401, a right code included); and **per admin**: the lockout of section 3. A locked admin who signs in with the right password gets
+  `429 platform_admin_throttled` with `Retry-After` (and no challenge), and a code sent with a challenge that is still good gets the same 429 without being checked or counted; every other request of the second step is
+  the uniform 401, locked or not, so that a 429 can only be seen by somebody who holds a good challenge.
 
 ### Error codes
 
@@ -128,16 +200,30 @@ traffic from the internet cannot make a table grow.
 | 422 | `invalid_market` | `market` is not `all` or a configured code; the error carries `valid` |
 | 422 | `invalid_window` | `from` or `to` is not a date written `YYYY-MM-DD`, or `from` is after `to` |
 | 422 | `invalid_severity` | `severity` is not `info`, `warning` or `critical`; the error carries `valid` |
-| 429 | `platform_admin_throttled` | Too many sign-in attempts or requests; `Retry-After` says when |
+| 429 | `platform_admin_throttled` | Too many sign-in attempts or requests, too many tries at the second step from one address, or the admin is locked out of the second step; `Retry-After` says when |
 | 503 | `platform_admin_unavailable` | The flag is on and the migrations have not run |
 
 ## 5. Endpoints
 
-All but `POST /auth/login` need the bearer token. Every request of a signed-in admin is written to the audit trail (action, market, address, user agent, status), refused ones too.
+All but `POST /auth/login` and `POST /auth/mfa` need the bearer token. Every request of a signed-in admin is written to the audit trail (action, market, address, user agent, status), refused ones too.
+
+**The sign-in, as the app sees it.** Two steps while the second factor is required (the default), one while it is not (staging):
+
+```
+POST /auth/login ──► 200 {"data": {"token", ...}}                          one step: MFA is not required. The answer is the one this document has always described.
+                 ──► 200 {"data": {"mfa_required": true, "challenge", ...}} password accepted, no session yet:
+                         └─► POST /auth/mfa {"challenge", "code" | "recovery_code"} ──► 200 {"data": {"token", ..., "mfa": {...}}}
+                 ──► 401 platform_admin_auth                                 every refusal, whatever the reason (an admin with no confirmed factor included)
+                 ──► 429 platform_admin_throttled                            too many attempts, or the admin is locked out of the second step
+```
+
+The app tells the two answers of a successful `POST /auth/login` apart by the member `mfa_required`: present and `true` means a code is wanted and there is **no token**; absent means `token` is there.
 
 ### `POST /auth/login`
 
 Body (JSON or form; **a body only, credentials in the address are not read**): `email` (up to 254 characters), `password` (up to 1024), `device_name` (1 to 100 characters of UTF-8).
+
+**While the second factor is not required** (`GCC_PLATFORM_ADMIN_MFA_REQUIRED=false`, staging only), and for every request before this revision, the answer is, byte for byte:
 
 ```json
 {"data": {
@@ -146,10 +232,44 @@ Body (JSON or form; **a body only, credentials in the address are not read**): `
 }}
 ```
 
-The token is shown **once**; only its SHA-256 is stored. Success needs: the admin exists, the password matches, **`status` exactly 1 (no exemption for admin 1)** and an active grant made for that admin row.
-Everything else, including a malformed body, is the same 401, with the same work done: one lookup of the admin, **one password check against a real bcrypt hash even when there is
-no such admin**, one lookup of the grant. Limits: 5 attempts a minute for one e-mail from one address (configurable), 15 for one address in all; every attempt counts, and a
-success starts the count of that e-mail from that address again. A sign-in also deletes that admin's sessions that ended more than 30 days ago.
+**While it is required** (the default) and the admin has a confirmed factor, a good password does not open a session. The answer is:
+
+```json
+{"data": {"mfa_required": true, "challenge": "lkpc_<48 random characters>", "challenge_expires_at": "2026-11-17T10:05:00Z", "methods": ["totp", "recovery_code"]}}
+```
+
+and **there is no `token`** in it. The challenge is shown once, is good for 5 minutes (`GCC_PLATFORM_ADMIN_MFA_CHALLENGE_TTL_MINUTES`, at most 15) and only its SHA-256 is stored. It is not a credential for anything but `POST /auth/mfa`.
+The `me` of the answer that opens the session (above, and the one of `POST /auth/mfa`) has the six members it has always had and nothing more: **read `GET /me` for everything else about the admin, as the app already does on every start.**
+
+The token is shown **once**; only its SHA-256 is stored. Success needs: the admin exists, the password matches, **`status` exactly 1 (no exemption for admin 1)**, an active grant made for that admin row and,
+while the second factor is required, a **confirmed factor made for that admin row**.
+Everything else, including a malformed body and an admin who has no confirmed factor while one is required, is the same 401, with the same work done: one lookup of the admin, **one password check against a real bcrypt hash even when there is
+no such admin**, one lookup of the grant and (while the second factor is required) one of the factor. What the caller cannot be told, because it is the answer of a wrong password too, is that the admin is not enrolled: the log and the trail have the reason (`mfa_not_enrolled`). Limits: 5 attempts a minute for one e-mail from one address (configurable), 15 for one address in all; every attempt counts, and a
+success starts the count of that e-mail from that address again (**while the second factor is required nothing starts it again**: a good password is not yet a sign-in, and the count ends by itself after a minute). A sign-in also deletes that admin's sessions that ended more than 30 days ago
+and the challenges that ended more than a day ago. **A locked-out admin** (section 3) who gives the right password gets `429 platform_admin_throttled` with `Retry-After`, and no challenge. Opening a session ends the oldest open ones when the admin
+would have more than 5 (section 3).
+
+### `POST /auth/mfa`
+
+Completes a sign-in that answered `mfa_required`. No bearer token. Body (JSON or form; **a body only**): `challenge` (the `lkpc_` value) and **exactly one of** `code` (a **string** of six digits, since a number would lose its
+leading zeros; spaces are ignored) or `recovery_code` (a string, `xxxxx-xxxxx`, in any case, with or without the hyphen). Both, neither, or a value that is not of that shape is a malformed attempt: the same 401 as any failure. A field that is present counts as sent whatever it holds (a list, a number), except
+that an empty string is read as absent, so `{"code": "123456", "recovery_code": ""}` is an attempt with a code and `{"code": "123456", "recovery_code": ["x"]}` is both.
+
+```json
+{"data": {
+  "token": "lkpa_<64 random characters>", "token_type": "Bearer", "expires_at": "2026-11-17T18:00:00Z",
+  "me": {"admin_id": 7, "name": "Platform Owner", "level": 1, "scope": "all", "markets": ["SA","AE","KW","QA","BH","OM"], "token_expires_at": "2026-11-17T18:00:00Z"},
+  "mfa": {"state": "verified", "method": "totp", "recovery_codes_left": 10}
+}}
+```
+
+This is the answer of a successful sign-in plus `mfa`: `method` is `totp` or `recovery_code`, and `recovery_codes_left` is how many recovery codes the admin still has (a sign-in with one has used it). **When it is 2 or fewer the app
+should say so**; at 0 the admin has to ask the operator for a new factor. The session records how it was opened (`GET /sessions`, `GET /me`).
+
+**Every failure is the same 401 `platform_admin_auth`, with the same work done** (a challenge that does not exist is checked against a dummy secret): an unknown, expired, consumed or used-up challenge, a wrong code, a code of a step that
+was already used or an older one, a recovery code that is wrong or was already used, an admin whose password has changed since the challenge was given, whose grant was revoked or who was deactivated, and anything malformed. The app cannot tell which, and must not try: it
+counts its own tries (5 per challenge) and reads `challenge_expires_at`, and when either is over it starts again from the password. Each refusal on a challenge that is still good counts one of its tries, and a wrong or replayed
+code counts one against the admin's lockout as well; the challenge is consumed by the last try or by the first success. Limits and the lockout: section 4 and section 3. A code is used once, so a second sign-in within the same 30 seconds needs the next code.
 
 ### `POST /auth/logout`
 
@@ -157,14 +277,25 @@ Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's o
 
 ### `GET /me`
 
-`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at"}}`. `scope` is `all` (the platform owner) or `restricted`; `markets` is what the server allows, in
-configuration order. **The app must never decide for itself what an admin may see; it reads this on every start.** No e-mail is returned.
+`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "mfa": {"enrolled", "verified", "method"}}}`. `scope` is `all` (the platform owner) or `restricted`; `markets` is what the server allows, in
+configuration order. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
 
-### `GET /sessions`, `DELETE /sessions/{id}`
+`mfa.enrolled` is whether the admin has a confirmed factor made for their own admin row (whether or not it is required just now); `mfa.verified` is whether **this session** passed the second factor, and `mfa.method`
+is how: `"totp"`, `"recovery_code"`, or `null` (`verified` is then `false`: a session opened while the second factor was not required, which can only be seen while it is still not required). With the second factor
+required `verified` is always `true` and there is always a method, because every other session is refused before it gets here.
 
-`GET` lists this admin's open sessions (not revoked, not expired), newest first, at most 100: `{"data": [{"id", "device_name", "created_at", "last_used_at", "expires_at", "current"}]}`.
-Never a token, a hash, an address or a user agent. `last_used_at` moves at most once a minute. `DELETE` ends one of them and answers `{"data": {"id": 12, "revoked": true}}`; it takes
-effect on that token's next request. Ending the session in use is allowed.
+```json
+{"data": {"admin_id": 7, "name": "Platform Owner", "level": 1, "scope": "all", "markets": ["SA","AE","KW","QA","BH","OM"], "token_expires_at": "2026-11-17T18:00:00Z", "mfa": {"enrolled": true, "verified": true, "method": "totp"}}}
+```
+
+### `GET /sessions`, `DELETE /sessions/{id}`, `DELETE /sessions`
+
+`GET` lists this admin's open sessions (not revoked, not expired, not idle), newest first, at most 100: `{"data": [{"id", "device_name", "created_at", "last_used_at", "expires_at", "current", "mfa_method"}]}`.
+`mfa_method` is how the session passed the second factor: `"totp"`, `"recovery_code"`, or `null`. Never a token, a hash, an address or a user agent. `last_used_at` moves at most once a minute. `DELETE /sessions/{id}`
+ends one of them and answers `{"data": {"id": 12, "revoked": true}}`; it takes effect on that token's next request. Ending the session in use is allowed.
+
+`DELETE /sessions` (no id) **ends every open session of this admin except the one making the request**, and answers `{"data": {"ended": 2}}` with how many it ended (0 when there was no other). It is the
+button for a lost phone. It is audited (`sessions.end_others`, with `ended` in its context).
 
 ### `GET /markets`
 
@@ -251,9 +382,11 @@ The counts and the age are in `config/gcc.php` (`platform_admin.alerts`). A crit
 
 `{"data": [{"id", "admin_id", "action", "market", "token_id", "ip", "user_agent", "context", "created_at"}], "meta": {"scope", "page", "per_page", "has_more"}}`. Newest first, 25 to a
 page, at most 100, and the page number is at most 1000. The **platform owner reads every line; a restricted admin reads only their own.** It never counts the table. `action` is one
-of `auth.login`, `auth.login_failed`, `auth.logout`, `me.view`, `sessions.list`, `session.revoke`, `markets.view`, `overview.view`, `alerts.view`, `audit_logs.view`, `grant.created`,
-`grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`. `context` of a request holds the status and the few parameters the API takes (`id`, `market`, `from`, `to`,
-`severity`, `page`, `per_page`); never a password, a token, an e-mail or any other value the request carried. `ip` is as sent; `user_agent` is cut at 255 characters.
+of `auth.login` (a session was opened; its context says how: `mfa` is `totp` or `recovery_code` when the second factor was passed), `auth.login_failed`, `auth.logout`, `auth.mfa_challenge` (a good password, a challenge given),
+`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `markets.view`, `overview.view`, `alerts.view`,
+`audit_logs.view`, `grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, and the console's `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`.
+`context` of a request holds the status and the few parameters the API takes (`id`, `market`, `from`, `to`, `severity`, `page`, `per_page`; `ended` for `sessions.end_others`); never a password, a token, a challenge, a code, an e-mail or
+any other value the request carried. `ip` is as sent; `user_agent` is cut at 255 characters. A line of the console carries `operator` (`user`, `host`) in its context, which only the platform owner is shown.
 
 ## 6. How a figure is put in a market, and what the schema cannot say
 
@@ -294,7 +427,7 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 
 * No write to any business data: orders, products, stock, settings, payments, wallets, sellers, markets. A test snapshots every table before and after a series of reads: only
   `platform_admin_tokens.last_used_at` and `platform_admin_audit_logs` change, and no statement that changes anything runs on another table.
-* **No multi-factor authentication yet** (see section 10). The sign-in is e-mail and password, throttled, behind a grant.
+* **No HTTP route to enrol, reset or change a second factor, and no passkeys, SMS or e-mail codes** (section 10). The factor is a TOTP app and recovery codes, managed from the console only.
 * No push notifications or topics, no exports, no step-up confirmation (there is nothing critical to confirm).
 * No level 2 (support, local operations) or level 3 (store status, payment accounts, legal publication, stock release, permissions, integrations). A grant of any level but 1 cannot
   be made, and level 1 is all that is read.
@@ -333,12 +466,24 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
     statuses and `request_status` of `products` may not be indexed; on a very large catalogue read the plans before enabling the flag.
 13. **Level 1 grants have one level.** `level` exists so level 2 and 3 can be added without a migration; a level above 1 cannot be granted now.
 14. **The monitoring that already counts every request** (route pattern and status, no body, no token) counts these routes like any other.
+15. **Where the second factor hangs.** The tables of the factor and of the challenge have a foreign key to the grants table only, not to `admins`: a conditional key (point 2) for each would have been a second and a third place to get the
+    types of a database one cannot see wrong. A factor remembers the admin row it was enrolled for exactly as a grant does (the same fingerprint), and a factor whose fingerprint is not the row's is no factor: so an `admins` id that is reused, with
+    or without the key to `admins`, inherits neither the grant nor the secret.
+16. **The code.** SHA-1, 6 digits, 30 seconds, what every authenticator app does; three steps are accepted (one either side), so a random guess is right three times in a million. The guesses are bounded at 5 a challenge and 10 an
+    admin in 15 minutes (about a thousand a day at the most, before anyone notices the `auth.mfa_locked` lines). Each step is accepted once per admin; the check and the marking of the step are one transaction on the factor's row, so two
+    requests with the same code cannot both succeed. A recovery code is single-use under the same lock.
+17. **A challenge is not bound to an address or a device**: a phone moves between networks in the middle of a sign-in. What binds it is that it is random, short-lived, used once, and that every try on it is counted.
+18. **The idle clock is coarse.** It reads the time of last use, which moves at most once a minute (section 5), so a session is ended up to a minute later than the exact idle time. It ends on its first use after: nothing sweeps the table.
+19. **The counters of the limits live in the application cache**, like the sign-in's. Behind several servers they need a shared cache store (database or Redis); with a store that is not shared, or that is cleared, a limit starts again.
+20. **Sessions without the second factor** are refused while it is required, however they were opened: turning the switch from false to true ends the staging sessions on their next request rather than letting them live out their eight hours.
+21. **The operator identity** in the console's audit lines (user and host) is what the process says about itself, not an authenticated identity: it tells a reader which machine and account ran the command, which is what the server's own login and
+    audit trail can then be asked about.
 
 ## 10. Open owner decisions
 
-1. **MFA before release?** The GCC-20 requirement prefers it for the owner account. Options: TOTP at sign-in, or a step-up before any level 2 or 3 action only. Level 1 is read-only but
-   it shows every market's operations.
-2. **Token lifetime.** 480 minutes (8 hours), no refresh, a new sign-in when it ends. A shorter life or a refresh token is a product decision.
+1. **MFA policy.** Built: TOTP at sign-in with recovery codes, required by default for everybody who holds a grant. Open: whether a restricted viewer (a country manager) is held to the same, a lighter or a different factor (the switch
+   is global today); whether level 2 and 3 will also want a step-up before an action; passkeys (WebAuthn) beside or in place of TOTP. SMS and e-mail codes are not offered, on purpose.
+2. **Token lifetime.** 480 minutes (8 hours) at the most, 60 minutes idle, 5 open sessions, no refresh, a new sign-in when it ends. Other numbers, or a refresh token, are a product decision (the three numbers are configuration).
 3. **Who holds a grant.** The platform owner (all markets) and, if wanted, country managers as restricted viewers. Should a restricted viewer ever see the unattributed bucket?
 4. **GCC-05: record the market and the currency on every order.** That is what would let `sales` be reported per market and currency. Until then no sales figure is given.
 5. **Alert thresholds** (zero stock 10 and 50, pending 24 hours, 1, 5 and 20) are placeholders for a Saudi-sized catalogue.
@@ -346,15 +491,25 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 7. **A panel screen** for an admin to see and end the sessions of an API (today: the console and the API itself).
 8. **Retention** of `platform_admin_audit_logs` (it grows with use and is never pruned).
 9. **Push topics** for global alerts, separate from marketing and seller topics (GCC-20), once there is something to push.
+10. **Recovery-code custody.** The ten codes are printed once, on the operator's terminal, and only a hash is kept. Who keeps them is the owner's to decide: the admin alone (the operator then sees them once, at enrolment), or the owner
+    as well (a second holder of every admin's way in). Also whether the codes should be allowed at all for the platform owner's own account, given that a code defeats the factor.
+11. **Lockout.** Ten wrong codes lock an admin's second step for 15 minutes, so somebody who knows the password can keep a real admin out. There is no `unlock` command (waiting out the window, or changing the password, is the way
+    today). Whether the owner wants one, or wants a lockout that slows rather than stops, is open.
 
 ## 11. Review gates before merge and release
 
 `AUTONOMOUS_DEVELOPMENT_CHARTER.md` section 5 requires a security review of GCC-20 privileged authentication before merge or release. This implementation is a draft for that review:
-what to read first is `AuthenticatePlatformAdmin`, `PlatformAdminTokenService::principalFor`, `PlatformAdminAuthenticator`, `PlatformAdminGate` and the migrations of the grants and tokens tables. Not done here:
-no run against a real database, no production access, no migration on any real environment, no push, no merge. G0 remains open.
+what to read first is `AuthenticatePlatformAdmin`, `PlatformAdminTokenService::principalFor`, `PlatformAdminAuthenticator`, `PlatformAdminSecondStep` (the check of a code), `PlatformAdminMfaVerifier`, `Totp`, `PlatformAdminGate` and the migrations of
+the grants, tokens, factors and challenges tables. Not done here: no run against a real database, no production access, no migration on any real environment, no push, no merge. G0 remains open.
 
 Tests, in `tests/Feature/PlatformAdmin` (run on SQLite, SQLite with `APP_DEBUG=true` and MySQL 8; CI runs them on SQLite with the whole suite, and on MySQL and MariaDB with the storefront
 set): the authorization matrix (every route of the route table against every caller that is not the holder of a live token: no header, malformed headers, other schemes, a seller, a seller's
 staff, an API key, a customer, a panel session, expired, ended, deactivated, changed password, revoked or foreign grant), the reverse isolation tests, the flag and dormancy tests, login,
 sessions, request limit, markets, overview, alerts, audit logs, storefront isolation, read-only proof, routes and migrations (the grants migration against every shape of `admins`:
 `BIGINT UNSIGNED`, `INT UNSIGNED`, signed `BIGINT`, MyISAM, partitioned, missing), the grant fingerprint, and the grant commands.
+
+**How the tests of this revision sign in.** The tests of level 1 (login, throttles, sessions, the matrix, read-only proof) run with `gcc.platform_admin.mfa.required` set to `false` by their test base, `PlatformAdminTestCase`,
+because what they pin is the one-step sign-in and the behaviour of a session, which MFA does not change; that is the staging mode of section 2 and it is also tested as such. Everything about the second factor is in its own
+tests, which switch it on: `Totp` and `Base32` against the vectors of RFC 4226 and RFC 6238 appendix B and RFC 4648 (`tests/Unit/PlatformAdmin`), and in `tests/Feature/PlatformAdmin` the migrations of the factor, the challenge and the session
+column, the console commands, the two-step sign-in (every refusal, the attempts, the replay, the lockout, the limits, what is stored and what is never stored), the session rules (idle, the number of sessions, ending the others, the
+refusal of a session without the factor), and the shape of every answer that changed. The test base provides `enrolFactor()` and `totpFor()` so that a test can sign in the way the app does.

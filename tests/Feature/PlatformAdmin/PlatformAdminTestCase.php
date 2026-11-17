@@ -3,6 +3,7 @@
 namespace Tests\Feature\PlatformAdmin;
 
 use App\Models\Admin;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -32,6 +33,12 @@ abstract class PlatformAdminTestCase extends TestCase
         $this->buildPlatformAdminWorld();
         config([
             'gcc.platform_admin.enabled' => true,
+            // The tests of level 1 pin the one-step sign-in and what a session may do, which the second factor does not change: they run in the staging
+            // mode of the switch. The second factor has its own tests, which turn it on (see MfaTestCase).
+            'gcc.platform_admin.mfa.required' => false,
+            // The tests of level 1 make their sessions with whatever times suit them (a session opened two hours ago and never used, say); the idle time is
+            // at its ceiling for them, and the rule has its own tests, which set it back to the 60 minutes it ships with (SessionPolicyTest).
+            'gcc.platform_admin.session.idle_minutes' => 1440,
             // A matrix of requests from one test address must not trip the limiters that have tests of their own.
             'gcc.platform_admin.requests_per_minute' => 1_000_000,
             'gcc.platform_admin.login_attempts_per_minute' => 1_000_000,
@@ -170,6 +177,19 @@ abstract class PlatformAdminTestCase extends TestCase
     }
 
     /**
+     * The statements that touch data: the ones that only ask the database what its schema looks like (the gate checks that the tables and columns of the
+     * API exist before it does anything else) are not a read of anything the API keeps.
+     *
+     * @param list<string> $statements
+     *
+     * @return list<string>
+     */
+    protected function withoutSchemaChecks(array $statements): array
+    {
+        return array_values(array_filter($statements, static fn (string $sql): bool => !str_contains($sql, 'sqlite_master') && !str_contains($sql, 'information_schema') && !str_contains($sql, 'pragma_table_xinfo')));
+    }
+
+    /**
      * What an answer says, so that two answers can be compared. With debug on, an error answer also carries the file, the line and the trace
      * of where it was thrown, which differ from one request to the next; there the status and the message are compared, and otherwise the whole body.
      * The path the request was for is taken out, because a missing route says which one it was.
@@ -185,5 +205,46 @@ abstract class PlatformAdminTestCase extends TestCase
         }
 
         return $response->getStatusCode() . ' ' . $content;
+    }
+
+    /** Counts the password checks the application makes, and remembers the hash each was made against. */
+    protected function countingHasher(): object
+    {
+        $hasher = new class($this->app->make(Hasher::class)) implements Hasher {
+            public int $checks = 0;
+
+            /** @var list<string> the hashes it was asked to check against */
+            public array $hashes = [];
+
+            public function __construct(private readonly Hasher $inner)
+            {
+            }
+
+            public function info($hashedValue): array
+            {
+                return $this->inner->info($hashedValue);
+            }
+
+            public function make($value, array $options = []): string
+            {
+                return $this->inner->make($value, $options);
+            }
+
+            public function check($value, $hashedValue, array $options = []): bool
+            {
+                $this->checks++;
+                $this->hashes[] = (string) $hashedValue;
+
+                return $this->inner->check($value, $hashedValue, $options);
+            }
+
+            public function needsRehash($hashedValue, array $options = []): bool
+            {
+                return $this->inner->needsRehash($hashedValue, $options);
+            }
+        };
+        $this->app->instance(Hasher::class, $hasher);
+
+        return $hasher;
     }
 }
