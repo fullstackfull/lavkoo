@@ -2005,7 +2005,7 @@ class ProductController extends Controller
         $color_image_arr = [];
         if ($colors && $color_image) {
             foreach ($color_image as $img) {
-                if (!$this->isRemovedColorImage(entry: $img, request: $request)) {
+                if (!$this->productService->isRemovedColorImage(entry: $img, color: $request['color'], name: $request['name'])) {
                     $color_image_arr[] = [
                         'color' => $img->color != null ? $img->color : null,
                         'image_name' => $img->image_name,
@@ -2039,16 +2039,6 @@ class ProductController extends Controller
         ]);
 
         return response()->json(translate('product_image_removed_successfully'), 200);
-    }
-
-    /** An entry is removed by the colour the request names or by its own image name; an entry without a colour is never matched by a request without one. */
-    private function isRemovedColorImage(object $entry, Request $request): bool
-    {
-        $color = $request['color'];
-        $name = $request['name'];
-
-        return (is_string($color) && $color !== '' && ($entry->color ?? null) === $color)
-            || (is_string($name) && $name !== '' && ($entry->image_name ?? null) === $name);
     }
 
     public function getStockLimitStatus(Request $request):JsonResponse
