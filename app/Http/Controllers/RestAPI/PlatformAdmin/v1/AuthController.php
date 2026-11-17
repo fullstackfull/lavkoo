@@ -31,33 +31,33 @@ class AuthController extends Controller
     )]
     public function login(Request $request): JsonResponse
     {
-        $attempt = LoginAttempt::fromRequest($request);
+        $attempt = LoginAttempt::fromRequest(request: $request);
 
-        if ($this->throttle->exceeded($attempt)) {
-            return PlatformAdminResponses::throttled($this->throttle->secondsUntilAvailable($attempt));
+        if ($this->throttle->exceeded(attempt: $attempt)) {
+            return PlatformAdminResponses::throttled(retryAfterSeconds: $this->throttle->secondsUntilAvailable(attempt: $attempt));
         }
-        $this->throttle->hit($attempt);
+        $this->throttle->hit(attempt: $attempt);
 
-        $session = $this->authenticator->authenticate($attempt);
+        $session = $this->authenticator->authenticate(attempt: $attempt);
 
         if ($session === null) {
             return PlatformAdminResponses::unauthenticated();
         }
-        $this->throttle->forgetPair($attempt);
+        $this->throttle->forgetPair(attempt: $attempt);
 
-        return PlatformAdminResponses::data([
+        return PlatformAdminResponses::data(data: [
             'token' => $session->plainToken,
             'token_type' => 'Bearer',
-            'expires_at' => PlatformAdminPresenter::timestamp($session->principal->token->expires_at),
-            'me' => PlatformAdminPresenter::me($session->principal),
+            'expires_at' => PlatformAdminPresenter::timestamp(moment: $session->principal->token->expires_at),
+            'me' => PlatformAdminPresenter::me(principal: $session->principal),
         ]);
     }
 
     #[ApiDoc(audience: ApiDoc::ADMIN, visibility: ApiDoc::INTERNAL, stability: ApiDoc::BETA, since: 'v1', group: 'platform_admin', summary: 'Sign out: end the session this token belongs to', description: 'The other sessions of the admin are not touched.', idempotent: false)]
     public function logout(Request $request): JsonResponse
     {
-        $this->tokens->revoke(PlatformAdminPrincipal::fromRequest($request)->token);
+        $this->tokens->revoke(token: PlatformAdminPrincipal::fromRequest(request: $request)->token);
 
-        return PlatformAdminResponses::data(['revoked' => true]);
+        return PlatformAdminResponses::data(data: ['revoked' => true]);
     }
 }

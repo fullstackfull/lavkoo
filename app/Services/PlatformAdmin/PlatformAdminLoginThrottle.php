@@ -26,24 +26,25 @@ final class PlatformAdminLoginThrottle
     {
         $limit = $this->settings->loginAttemptsPerMinute();
 
-        return $this->limiter->tooManyAttempts($this->addressKey($attempt), $limit * self::ADDRESS_ALLOWANCE) || $this->limiter->tooManyAttempts($this->pairKey($attempt), $limit);
+        return $this->limiter->tooManyAttempts(key: $this->addressKey(attempt: $attempt), maxAttempts: $limit * self::ADDRESS_ALLOWANCE)
+            || $this->limiter->tooManyAttempts(key: $this->pairKey(attempt: $attempt), maxAttempts: $limit);
     }
 
     public function hit(LoginAttempt $attempt): void
     {
-        $this->limiter->hit($this->addressKey($attempt), self::WINDOW_SECONDS);
-        $this->limiter->hit($this->pairKey($attempt), self::WINDOW_SECONDS);
+        $this->limiter->hit(key: $this->addressKey(attempt: $attempt), decaySeconds: self::WINDOW_SECONDS);
+        $this->limiter->hit(key: $this->pairKey(attempt: $attempt), decaySeconds: self::WINDOW_SECONDS);
     }
 
     public function secondsUntilAvailable(LoginAttempt $attempt): int
     {
-        return max(1, $this->limiter->availableIn($this->addressKey($attempt)), $this->limiter->availableIn($this->pairKey($attempt)));
+        return max(1, $this->limiter->availableIn(key: $this->addressKey(attempt: $attempt)), $this->limiter->availableIn(key: $this->pairKey(attempt: $attempt)));
     }
 
     /** A sign-in that succeeded starts the count of that e-mail from that address again. The count of the address does not start again: it is the one that stops a guess at many e-mails. */
     public function forgetPair(LoginAttempt $attempt): void
     {
-        $this->limiter->clear($this->pairKey($attempt));
+        $this->limiter->clear(key: $this->pairKey(attempt: $attempt));
     }
 
     private function addressKey(LoginAttempt $attempt): string

@@ -21,12 +21,12 @@ final class MarketSelector
      */
     public function select(Request $request, PlatformAdminPrincipal $principal): MarketSelection
     {
-        $requested = $this->requestedMarket($request->query('market'));
+        $requested = $this->requestedMarket(given: $request->query('market'));
 
         if ($requested !== MarketSelection::ALL) {
             $request->attributes->set(PlatformAdminAudit::MARKET_ATTRIBUTE, $requested);
 
-            if (!$principal->canSee($requested)) {
+            if (!$principal->canSee(market: $requested)) {
                 throw PlatformAdminApiException::marketNotAllowed();
             }
         }
@@ -51,6 +51,6 @@ final class MarketSelector
             return MarketSelection::ALL;
         }
 
-        return $this->markets->normalise($given) ?? throw PlatformAdminApiException::invalidMarket([MarketSelection::ALL, ...$this->markets->codes()]);
+        return $this->markets->normalise(value: $given) ?? throw PlatformAdminApiException::invalidMarket(valid: [MarketSelection::ALL, ...$this->markets->codes()]);
     }
 }

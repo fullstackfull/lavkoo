@@ -34,7 +34,7 @@ class OverviewController extends Controller
     )]
     public function __invoke(Request $request): JsonResponse
     {
-        $selection = $this->selector->select($request, PlatformAdminPrincipal::fromRequest($request));
+        $selection = $this->selector->select(request: $request, principal: PlatformAdminPrincipal::fromRequest(request: $request));
         $window = PlatformWindow::resolve(
             from: $request->query('from'),
             to: $request->query('to'),
@@ -42,6 +42,6 @@ class OverviewController extends Controller
             maxDays: $this->settings->windowDaysMax(),
         );
 
-        return PlatformAdminResponses::data($this->overview->build($selection, $window));
+        return PlatformAdminResponses::data(data: $this->overview->build(selection: $selection, window: $window));
     }
 }

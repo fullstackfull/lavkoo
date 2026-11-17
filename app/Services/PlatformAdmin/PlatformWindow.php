@@ -27,11 +27,11 @@ final readonly class PlatformWindow
     {
         $today = CarbonImmutable::now()->startOfDay();
 
-        $end = $to === null ? $today : self::parse($to);
-        $start = $from === null ? $end->subDays($defaultDays - 1) : self::parse($from);
+        $end = $to === null ? $today : self::parse(value: $to);
+        $start = $from === null ? $end->subDays($defaultDays - 1) : self::parse(value: $from);
 
         if ($start->greaterThan($end)) {
-            throw PlatformAdminApiException::invalidWindow('The start of the window must not be after its end.');
+            throw PlatformAdminApiException::invalidWindow(message: 'The start of the window must not be after its end.');
         }
 
         $earliestAllowed = $end->subDays($maxDays - 1);
@@ -76,7 +76,7 @@ final readonly class PlatformWindow
         $isDate = is_string($value) && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $parts) === 1 && checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]);
 
         if (!$isDate) {
-            throw PlatformAdminApiException::invalidWindow('The window must be given as dates written YYYY-MM-DD.');
+            throw PlatformAdminApiException::invalidWindow(message: 'The window must be given as dates written YYYY-MM-DD.');
         }
 
         return CarbonImmutable::create((int) $parts[1], (int) $parts[2], (int) $parts[3], 0, 0, 0);

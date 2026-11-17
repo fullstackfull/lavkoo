@@ -37,16 +37,16 @@ class PlatformAdminGate
         }
 
         if (!$this->schema->ready()) {
-            return $this->privately(PlatformAdminResponses::unavailable());
+            return $this->privately(response: PlatformAdminResponses::unavailable());
         }
 
         $key = 'platform-admin:requests:' . ($request->ip() ?? 'unknown');
-        if ($this->limiter->tooManyAttempts($key, $this->settings->requestsPerMinute())) {
-            return $this->privately(PlatformAdminResponses::throttled($this->limiter->availableIn($key)));
+        if ($this->limiter->tooManyAttempts(key: $key, maxAttempts: $this->settings->requestsPerMinute())) {
+            return $this->privately(response: PlatformAdminResponses::throttled(retryAfterSeconds: $this->limiter->availableIn(key: $key)));
         }
-        $this->limiter->hit($key, self::REQUEST_WINDOW_SECONDS);
+        $this->limiter->hit(key: $key, decaySeconds: self::REQUEST_WINDOW_SECONDS);
 
-        return $this->privately($next($request));
+        return $this->privately(response: $next($request));
     }
 
     private function privately(Response $response): Response

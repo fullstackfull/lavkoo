@@ -17,7 +17,7 @@ final class PlatformAdminPresenter
             'level' => $principal->level(),
             'scope' => $principal->scope(),
             'markets' => $principal->markets,
-            'token_expires_at' => self::timestamp($principal->token->expires_at),
+            'token_expires_at' => self::timestamp(moment: $principal->token->expires_at),
         ];
     }
 
@@ -27,9 +27,9 @@ final class PlatformAdminPresenter
         return [
             'id' => (int) $token->getKey(),
             'device_name' => $token->device_name,
-            'created_at' => self::timestamp($token->created_at),
-            'last_used_at' => self::timestamp($token->last_used_at),
-            'expires_at' => self::timestamp($token->expires_at),
+            'created_at' => self::timestamp(moment: $token->created_at),
+            'last_used_at' => self::timestamp(moment: $token->last_used_at),
+            'expires_at' => self::timestamp(moment: $token->expires_at),
             'current' => (int) $token->getKey() === $currentTokenId,
         ];
     }

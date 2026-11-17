@@ -22,7 +22,7 @@ final class PlatformAuditLogReader
         $lines = $query->get();
 
         return [
-            'lines' => $lines->take($pagination->perPage)->map(fn (PlatformAdminAuditLog $line): array => $this->presented($line))->values()->all(),
+            'lines' => $lines->take($pagination->perPage)->map(fn (PlatformAdminAuditLog $line): array => $this->presented(line: $line))->values()->all(),
             'has_more' => $lines->count() > $pagination->perPage,
         ];
     }
@@ -39,7 +39,7 @@ final class PlatformAuditLogReader
             'ip' => $line->ip,
             'user_agent' => $line->user_agent,
             'context' => $line->context,
-            'created_at' => PlatformAdminPresenter::timestamp($line->created_at),
+            'created_at' => PlatformAdminPresenter::timestamp(moment: $line->created_at),
         ];
     }
 }

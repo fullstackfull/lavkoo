@@ -38,14 +38,14 @@ class AuthenticatePlatformAdmin
             throw new PlatformAdminDormantException(path: $request->path());
         }
 
-        $principal = $this->tokens->principalFor($this->bearerTokenOf($request));
+        $principal = $this->tokens->principalFor(candidate: $this->bearerTokenOf(request: $request));
 
         if ($principal === null) {
             return PlatformAdminResponses::unauthenticated();
         }
 
         $request->attributes->set(PlatformAdminPrincipal::REQUEST_ATTRIBUTE, $principal);
-        $this->tokens->recordUse($principal->token);
+        $this->tokens->recordUse(token: $principal->token);
 
         $response = $next($request);
         $this->audit->recordRequest(principal: $principal, request: $request, response: $response);

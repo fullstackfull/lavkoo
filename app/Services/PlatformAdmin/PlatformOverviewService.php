@@ -32,23 +32,23 @@ final class PlatformOverviewService
     public function build(MarketSelection $selection, PlatformWindow $window): array
     {
         $figures = [
-            'orders' => $this->figures->orders($window->startsAt(), $window->endsBefore()),
+            'orders' => $this->figures->orders(from: $window->startsAt(), before: $window->endsBefore()),
             'backlog' => $this->figures->backlog(),
-            'refunds' => $this->figures->refundRequests($window->startsAt(), $window->endsBefore()),
+            'refunds' => $this->figures->refundRequests(from: $window->startsAt(), before: $window->endsBefore()),
             'stock' => $this->figures->stock(),
         ];
 
         return [
             'scope' => $selection->scope,
             'market' => $selection->requested,
-            'generated_at' => PlatformAdminPresenter::timestamp(now()),
+            'generated_at' => PlatformAdminPresenter::timestamp(moment: now()),
             'window' => $window->toArray(),
             'freshness' => ['mode' => 'live', 'cached' => false],
             'attribution' => $this->attribution(),
             'markets' => $this->marketsOf(
-                $selection,
-                $figures,
-                $this->alerts->countsBySeverity($this->alerts->forMarkets($selection->markets, stock: $figures['stock'], backlog: $figures['backlog'])),
+                selection: $selection,
+                figures: $figures,
+                alertCounts: $this->alerts->countsBySeverity(alerts: $this->alerts->forMarkets(selected: $selection->markets, stock: $figures['stock'], backlog: $figures['backlog'])),
             ),
             'unattributed' => $selection->includesUnattributed ? $this->figuresOf(market: null, figures: $figures) + ['reason' => self::NO_MARKET_REASON] : null,
         ];
@@ -82,18 +82,18 @@ final class PlatformOverviewService
      */
     private function figuresOf(?string $market, array $figures): array
     {
-        $orders = $this->rowsOf($figures['orders'], $market);
+        $orders = $this->rowsOf(rows: $figures['orders'], market: $market);
 
         return [
             'orders' => [
                 'total' => array_sum(array_column($orders, 'orders')),
-                'by_status' => $this->byStatus($orders),
-                'latest_at' => $this->latestOf($orders),
+                'by_status' => $this->byStatus(orders: $orders),
+                'latest_at' => $this->latestOf(orders: $orders),
             ],
             'sales' => ['by_currency' => null, 'reason' => self::NO_CURRENCY_REASON],
-            'pending_fulfilment' => ['count' => array_sum(array_column($this->rowsOf($figures['backlog'], $market), 'orders'))],
-            'returns' => $this->refundsOf($this->rowsOf($figures['refunds'], $market)),
-            'stock' => $this->stockOf($this->rowsOf($figures['stock'], $market)),
+            'pending_fulfilment' => ['count' => array_sum(array_column($this->rowsOf(rows: $figures['backlog'], market: $market), 'orders'))],
+            'returns' => $this->refundsOf(rows: $this->rowsOf(rows: $figures['refunds'], market: $market)),
+            'stock' => $this->stockOf(rows: $this->rowsOf(rows: $figures['stock'], market: $market)),
         ];
     }
 
@@ -134,7 +134,7 @@ final class PlatformOverviewService
     {
         $latest = array_filter(array_column($orders, 'latest_at'));
 
-        return $latest === [] ? null : PlatformAdminPresenter::timestamp(Carbon::parse(max($latest)));
+        return $latest === [] ? null : PlatformAdminPresenter::timestamp(moment: Carbon::parse(time: max($latest)));
     }
 
     /**

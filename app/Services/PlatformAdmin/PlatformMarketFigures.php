@@ -65,7 +65,7 @@ final class PlatformMarketFigures
      */
     public function backlog(): array
     {
-        $range = PlatformWindow::lastDays($this->settings->windowDaysMax());
+        $range = PlatformWindow::lastDays(days: $this->settings->windowDaysMax());
 
         return $this->groupedOrders(
             from: $range->startsAt(),

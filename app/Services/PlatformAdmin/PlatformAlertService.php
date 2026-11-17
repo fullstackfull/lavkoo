@@ -42,7 +42,7 @@ final class PlatformAlertService
 
         $severity = is_string($given) ? strtolower(trim($given)) : '';
 
-        return in_array($severity, self::SEVERITIES, true) ? $severity : throw PlatformAdminApiException::invalidSeverity(self::SEVERITIES);
+        return in_array($severity, self::SEVERITIES, true) ? $severity : throw PlatformAdminApiException::invalidSeverity(valid: self::SEVERITIES);
     }
 
     /**
@@ -56,7 +56,7 @@ final class PlatformAlertService
      */
     public function forMarkets(array $selected, ?array $stock = null, ?array $backlog = null): array
     {
-        $generatedAt = (string) PlatformAdminPresenter::timestamp(now());
+        $generatedAt = (string) PlatformAdminPresenter::timestamp(moment: now());
         $zeroStock = $this->countsByMarket(rows: $stock ?? $this->figures->stock(), column: 'zero');
         $pendingRows = array_filter($backlog ?? $this->figures->backlog(), static fn (array $row): bool => $row['status'] === 'pending');
         $stuckOrders = $this->countsByMarket(rows: $pendingRows, column: 'stuck');

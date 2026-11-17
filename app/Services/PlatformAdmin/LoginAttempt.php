@@ -32,9 +32,9 @@ final readonly class LoginAttempt
     public static function fromRequest(Request $request): self
     {
         $body = $request->request->all();
-        $email = self::textOf($body['email'] ?? null);
+        $email = self::textOf(value: $body['email'] ?? null);
         $password = is_string($body['password'] ?? null) ? $body['password'] : null;
-        $deviceName = self::textOf($body['device_name'] ?? null);
+        $deviceName = self::textOf(value: $body['device_name'] ?? null);
 
         $wellFormed = $email !== null && $email !== '' && strlen($email) <= self::EMAIL_LIMIT
             && $password !== null && $password !== '' && strlen($password) <= self::PASSWORD_LIMIT

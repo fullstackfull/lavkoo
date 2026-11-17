@@ -33,11 +33,11 @@ class AuditLogController extends Controller
     )]
     public function __invoke(Request $request): JsonResponse
     {
-        $principal = PlatformAdminPrincipal::fromRequest($request);
-        $pagination = PlatformPagination::fromRequest($request, defaultPerPage: self::DEFAULT_PER_PAGE, maxPerPage: self::MAX_PER_PAGE);
-        $page = $this->reader->page($principal, $pagination);
+        $principal = PlatformAdminPrincipal::fromRequest(request: $request);
+        $pagination = PlatformPagination::fromRequest(request: $request, defaultPerPage: self::DEFAULT_PER_PAGE, maxPerPage: self::MAX_PER_PAGE);
+        $page = $this->reader->page(principal: $principal, pagination: $pagination);
 
-        return PlatformAdminResponses::data($page['lines'], [
+        return PlatformAdminResponses::data(data: $page['lines'], meta: [
             'scope' => $principal->scope(),
             'page' => $pagination->page,
             'per_page' => $pagination->perPage,

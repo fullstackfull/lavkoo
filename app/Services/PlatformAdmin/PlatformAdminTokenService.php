@@ -17,11 +17,11 @@ use Illuminate\Support\Str;
  */
 final class PlatformAdminTokenService
 {
-    public const PREFIX = 'lkpa_';
+    private const PREFIX = 'lkpa_';
 
     private const SECRET_LENGTH = 64;
 
-    private const SHAPE = '/^lkpa_[A-Za-z0-9]{64}$/';
+    private const SHAPE = '/^' . self::PREFIX . '[A-Za-z0-9]{' . self::SECRET_LENGTH . '}$/';
 
     private const USER_AGENT_LIMIT = 255;
 

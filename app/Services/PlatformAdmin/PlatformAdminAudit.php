@@ -46,7 +46,7 @@ final class PlatformAdminAudit
     /** The line for one request of a signed-in admin: what it was, who asked, from where, the market it was about and how it ended. */
     public function recordRequest(PlatformAdminPrincipal $principal, Request $request, Response $response): PlatformAdminAuditLog
     {
-        $parameters = $this->keptParametersOf($request);
+        $parameters = $this->keptParametersOf(request: $request);
         $market = $request->attributes->get(self::MARKET_ATTRIBUTE);
 
         return $this->record(

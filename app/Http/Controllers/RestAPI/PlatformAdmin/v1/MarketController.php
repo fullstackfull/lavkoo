@@ -29,12 +29,12 @@ class MarketController extends Controller
     )]
     public function __invoke(Request $request): JsonResponse
     {
-        $principal = PlatformAdminPrincipal::fromRequest($request);
+        $principal = PlatformAdminPrincipal::fromRequest(request: $request);
 
-        return PlatformAdminResponses::data([
+        return PlatformAdminResponses::data(data: [
             'scope' => $principal->scope(),
-            'generated_at' => PlatformAdminPresenter::timestamp(now()),
-            'markets' => $this->directory->listFor($principal),
+            'generated_at' => PlatformAdminPresenter::timestamp(moment: now()),
+            'markets' => $this->directory->listFor(principal: $principal),
         ]);
     }
 }

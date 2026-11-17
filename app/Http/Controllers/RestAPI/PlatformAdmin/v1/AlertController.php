@@ -35,20 +35,20 @@ class AlertController extends Controller
     )]
     public function __invoke(Request $request): JsonResponse
     {
-        $selection = $this->selector->select($request, PlatformAdminPrincipal::fromRequest($request));
-        $severity = $this->alerts->severityOf($request->query('severity'));
-        $pagination = PlatformPagination::fromRequest($request, defaultPerPage: self::DEFAULT_PER_PAGE, maxPerPage: self::MAX_PER_PAGE);
+        $selection = $this->selector->select(request: $request, principal: PlatformAdminPrincipal::fromRequest(request: $request));
+        $severity = $this->alerts->severityOf(given: $request->query('severity'));
+        $pagination = PlatformPagination::fromRequest(request: $request, defaultPerPage: self::DEFAULT_PER_PAGE, maxPerPage: self::MAX_PER_PAGE);
 
-        $alerts = $this->alerts->forMarkets($selection->markets);
+        $alerts = $this->alerts->forMarkets(selected: $selection->markets);
         if ($severity !== null) {
             $alerts = array_values(array_filter($alerts, static fn (array $alert): bool => $alert['severity'] === $severity));
         }
 
-        return PlatformAdminResponses::data(array_slice($alerts, $pagination->offset(), $pagination->perPage), [
+        return PlatformAdminResponses::data(data: array_slice($alerts, $pagination->offset(), $pagination->perPage), meta: [
             'scope' => $selection->scope,
             'market' => $selection->requested,
             'severity' => $severity,
-            'generated_at' => PlatformAdminPresenter::timestamp(now()),
+            'generated_at' => PlatformAdminPresenter::timestamp(moment: now()),
             'page' => $pagination->page,
             'per_page' => $pagination->perPage,
             'total' => count($alerts),

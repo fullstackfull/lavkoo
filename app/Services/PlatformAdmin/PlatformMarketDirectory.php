@@ -24,7 +24,7 @@ final class PlatformMarketDirectory
         $listed = [];
 
         foreach ($this->markets->all() as $code => $market) {
-            if ($principal->canSee($code)) {
+            if ($principal->canSee(market: $code)) {
                 $listed[] = [
                     'code' => $code,
                     'path' => $market['path'],
