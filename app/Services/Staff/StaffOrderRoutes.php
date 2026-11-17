@@ -189,9 +189,9 @@ final class StaffOrderRoutes
             'getRealTimeActivities' => ['list:orders'],
         ],
         OrderReportController::class => [
-            'order_list' => ['list:orders'],
-            'orderReportExportExcel' => ['list:orders'],
-            'exportOrderReportInPDF' => ['list:orders'],
+            'order_list' => ['list:orders', 'list:order_transactions'],
+            'orderReportExportExcel' => ['list:orders', 'list:order_transactions'],
+            'exportOrderReportInPDF' => ['list:orders', 'list:order_transactions'],
         ],
         ReportController::class => [
             'admin_earning' => ['list:orders', 'list:order_transactions', 'list:refund_transactions'],
@@ -220,8 +220,8 @@ final class StaffOrderRoutes
             'getRefundTransactionPDF' => ['list:refund_transactions'],
         ],
         VendorProductSaleReportController::class => [
-            'vendorReport' => ['list:orders', 'list:order_lines', 'list:refund_transactions'],
-            'exportVendorReport' => ['list:orders', 'list:order_lines', 'list:refund_transactions'],
+            'vendorReport' => ['list:orders', 'list:refund_transactions'],
+            'exportVendorReport' => ['list:orders', 'list:refund_transactions'],
         ],
         ProductReportController::class => [
             'all_product' => ['list:order_lines'],

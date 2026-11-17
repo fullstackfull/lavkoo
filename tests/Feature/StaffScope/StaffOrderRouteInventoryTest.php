@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\StaffScope;
 
+use App\Http\Controllers\Admin\Report\RefundTransactionController;
 use App\Http\Controllers\Admin\TransactionController;
 use App\Services\Staff\StaffOrderRoutes;
 use Illuminate\Support\Facades\Route;
@@ -160,6 +161,47 @@ class StaffOrderRouteInventoryTest extends TestCase
             $this->assertSame('the search', $entry['by'], $controller);
             $this->assertSame([], StaffOrderRoutes::rulesOf(controller: $controller), $controller . ' narrows what it hands back: it registers no middleware (it would narrow the query that fills a cache every employee shares)');
             $this->assertStringNotContainsString('ScopeOrdersToStaffCountries', (string) file_get_contents((string) (new \ReflectionClass($controller))->getFileName()), $controller);
+        }
+    }
+
+    /** @return array<string, string> the subject a screen narrows a request for, and what in the source of a controller means that it reads those rows */
+    private function markersOfTheRowsASubjectNarrows(): array
+    {
+        return [
+            'orders' => '/(?<![A-Za-z])Order::|\bOrderRepositoryInterface\b|->orders\b|[\'"]orders[\'"]\s*(?:=>|,|\))|\bdeliveredOrders\b/',
+            'order_lines' => '/\bOrderDetail::|\borderDetails\b|\borderDetailRepo\b|\bOrderDetailRepositoryInterface\b/',
+            'order_transactions' => '/\bOrderTransaction::|\borderTransaction\b|\borderTransactionRepo\b|\bOrderTransactionRepositoryInterface\b/',
+            'refunds' => '/\bRefundRequest::|\brefundRequest\b|\brefundRequestRepo\b|\bRefundRequestRepositoryInterface\b|\brefundOrders\b/',
+            'refund_transactions' => '/\bRefundTransaction::|\brefundTransactionRepo\b|\bRefundTransactionRepositoryInterface\b/',
+        ];
+    }
+
+    /**
+     * Rows a controller reads on purpose through a row it has already narrowed, and must not narrow by themselves, with the reason.
+     *
+     * @var array<class-string, array<string, string>>
+     */
+    private const READ_THROUGH_A_NARROWED_ROW = [
+        RefundTransactionController::class => ['order_lines' => 'the line a refund money record is about is reached through the record, which the scope of the refund money records narrowed: the refund follows the line, so the line of a refund about a Kuwaiti line of a mixed order must not be hidden with the order'],
+    ];
+
+    public function test_the_rules_of_a_controller_of_slice_3_name_every_kind_of_row_its_file_reads(): void
+    {
+        foreach (StaffOrderRoutes::readScreenControllers() as $controller) {
+            if (array_values(array_unique(array_map('json_encode', StaffOrderRoutes::rulesOf(controller: $controller)))) === [json_encode(['unavailable'])]) {
+                continue;
+            }
+
+            $source = (string) file_get_contents((string) (new \ReflectionClass($controller))->getFileName());
+            $named = [];
+            foreach (StaffOrderRoutes::rulesOf(controller: $controller) as $rule) {
+                $named = [...$named, ...StaffOrderRoutes::subjectsOf(rule: $rule)];
+            }
+            $read = array_keys(array_filter($this->markersOfTheRowsASubjectNarrows(), static fn (string $pattern): bool => preg_match($pattern, $source) === 1));
+
+            $read = array_values(array_diff($read, array_keys(self::READ_THROUGH_A_NARROWED_ROW[$controller] ?? [])));
+
+            $this->assertSame([], array_values(array_diff($read, $named)), $controller . ' reads rows that no rule of it narrows a request for (name the subject in the rule of the actions that read them)');
         }
     }
 

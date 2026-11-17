@@ -163,6 +163,22 @@ class StaffSearchHitsTest extends TestCase
         $this->assertContains('admin/orders/details/101', $this->search(keyword: '101', adminId: 4), 'no country, so no restriction');
     }
 
+    public function test_the_employee_is_resolved_once_for_the_whole_search_whatever_the_number_of_tables_it_reads(): void
+    {
+        $this->switchStaffScopesOn();
+        $this->giveCountries(adminId: 4, countries: ['KW']);
+        $this->signInAsStaff(adminId: 4);
+        $this->search(keyword: '102', adminId: null);
+        Cache::flush();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->search(keyword: '102', adminId: null);
+
+        $reads = array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $query): bool => str_contains($query, 'admin_country_scopes') && !str_contains($query, 'sqlite_master') && !str_contains($query, 'information_schema'));
+        $this->assertCount(1, $reads, 'three tables are searched, and the rows of the employee are read once');
+    }
+
     public function test_the_search_of_the_header_narrows_what_it_hands_back_and_not_the_query_that_fills_the_cache(): void
     {
         $source = (string) file_get_contents(app_path('Packages/AdvanceSearch/AdvanceSearch.php'));

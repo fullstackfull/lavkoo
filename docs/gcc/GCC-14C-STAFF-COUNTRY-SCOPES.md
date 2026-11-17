@@ -465,13 +465,13 @@ constructors, after the sign-in check and the module permission of the route (th
 | `GET admin/report/vendor-earning` | `ReportController::vendorEarning` | `unavailable` | module:reports |
 | `GET admin/report/vendor-earning-excel-export` | `ReportController::exportVendorEarning` | `list:orders` + `list:order_transactions` + `list:refund_transactions` | module:reports |
 | `GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/report/set-date` | `ReportController::set_date` | `none` | module:reports |
-| `GET admin/report/order` | `OrderReportController::order_list` | `list:orders` | module:reports |
-| `GET admin/report/order-report-excel` | `OrderReportController::orderReportExportExcel` | `list:orders` | module:reports |
-| `GET admin/report/order-report-pdf` | `OrderReportController::exportOrderReportInPDF` | `list:orders` | module:reports |
+| `GET admin/report/order` | `OrderReportController::order_list` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/order-report-excel` | `OrderReportController::orderReportExportExcel` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/order-report-pdf` | `OrderReportController::exportOrderReportInPDF` | `list:orders` + `list:order_transactions` | module:reports |
 | `GET admin/report/all-product` | `ProductReportController::all_product` | `list:order_lines` | module:reports |
 | `GET admin/report/all-product-excel` | `ProductReportController::allProductExportExcel` | `list:order_lines` | module:reports |
-| `GET admin/report/vendor-report` | `VendorProductSaleReportController::vendorReport` | `list:orders` + `list:order_lines` + `list:refund_transactions` | module:reports |
-| `GET admin/report/vendor-report-export` | `VendorProductSaleReportController::exportVendorReport` | `list:orders` + `list:order_lines` + `list:refund_transactions` | module:reports |
+| `GET admin/report/vendor-report` | `VendorProductSaleReportController::vendorReport` | `list:orders` + `list:refund_transactions` | module:reports |
+| `GET admin/report/vendor-report-export` | `VendorProductSaleReportController::exportVendorReport` | `list:orders` + `list:refund_transactions` | module:reports |
 | `GET admin/transaction/order-transaction-list` | `TransactionReportController::order_transaction_list` | `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
 | `GET admin/transaction/pdf-order-wise-transaction` | `TransactionReportController::pdf_order_wise_transaction` | `order.input:order_id` + `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
 | `GET admin/transaction/order-transaction-export-excel` | `TransactionReportController::orderTransactionExportExcel` | `list:orders` + `list:order_lines` + `list:order_transactions` | module:reports |
