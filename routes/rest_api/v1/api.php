@@ -132,7 +132,6 @@ Route::get('/cash', function () {
             Route::post('verify-email', 'verifyEmail');
             Route::post('verify-phone', 'verifyPhone');
             Route::post('registration-with-otp', 'registrationWithOTP');
-            Route::post('existing-account-check', 'existingAccountCheck');
             Route::post('registration-with-social-media', 'registrationWithSocialMedia');
             Route::post('forgot-password', 'passwordResetRequest');
         });
