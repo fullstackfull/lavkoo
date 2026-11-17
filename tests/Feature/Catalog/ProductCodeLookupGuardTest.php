@@ -34,7 +34,7 @@ class ProductCodeLookupGuardTest extends TestCase
         ],
         'app/Http/Controllers/Admin/Product/ProductController.php' => [
             'count' => 2, 'sites' => ['C5', 'C6'], 'routed' => false,
-            'reason' => 'The reviews filter and the promotion pickers search products by code through ProductRepository::getListWhere: no country to narrow to, the rows show none (slice 2).',
+            'reason' => 'The reviews filter and the promotion pickers search products by code through ProductRepository::getListWhere: a promotion has no country to narrow to, so their rows and chips name the country instead (see LABELLED_BY).',
         ],
         'app/Http/Controllers/Admin/SalesChannels/Support/ProductDirectory.php' => [
             'count' => 2, 'sites' => ['D7'], 'routed' => false,
@@ -54,7 +54,7 @@ class ProductCodeLookupGuardTest extends TestCase
         ],
         'app/Repositories/ProductRepository.php' => [
             'count' => 12, 'sites' => ['C2', 'C3', 'C4', 'C5', 'C6', 'C7'], 'routed' => true,
-            'reason' => 'The list queries of the panels: LIKE filters of lists a person reads and pickers. The order-edit picker is narrowed by the storefront_country filter through ProductCodeScope::restrictToCountry; the rest are lists (id-keyed) or pickers that slice 2 narrows.',
+            'reason' => 'The list queries of the panels: LIKE filters of lists a person reads and pickers. The order-edit picker is narrowed by the storefront_country filter through ProductCodeScope::restrictToCountry; the rest are lists (id-keyed) or pickers whose rows name the country (see LABELLED_BY).',
         ],
         'app/Repositories/RestockProductRepository.php' => [
             'count' => 1, 'sites' => ['C8'], 'routed' => false,
@@ -107,6 +107,28 @@ class ProductCodeLookupGuardTest extends TestCase
         'app/Http/Controllers/Admin/Settings/LanguageController.php' => [
             'count' => 2, 'sites' => [], 'routed' => false,
             'reason' => 'Not a product: the `code` of a language, found in collections of languages and countries.',
+        ],
+    ];
+
+    /**
+     * The sites the registry calls labelled: the files that draw the country of a product in a picker, and the text each must hold. A labelled
+     * site that lists none, or a file that lost its call, fails the guard, so a label cannot be dropped without the registry saying so.
+     *
+     * @var array<string, array<string, string>>
+     */
+    private const LABELLED_BY = [
+        'C4' => [
+            'resources/views/admin-views/order/partials/_search-product.blade.php' => 'countryTag(',
+            'resources/views/admin-views/deal/clearance-sale/partials/_search-product.blade.php' => 'countryTag(',
+            'resources/views/admin-views/deal/clearance-sale/partials/_select-product.blade.php' => 'countryTag(',
+        ],
+        'C5' => [
+            'resources/views/admin-views/partials/_search-product.blade.php' => 'countryTag(',
+            'resources/views/admin-views/partials/_select-product.blade.php' => 'countryTag(',
+        ],
+        'C6' => [
+            'resources/views/admin-views/partials/_search-product.blade.php' => 'countryTag(',
+            'resources/views/admin-views/partials/_select-product.blade.php' => 'countryTag(',
         ],
     ];
 
@@ -208,6 +230,57 @@ class ProductCodeLookupGuardTest extends TestCase
                 $this->assertSame([], array_values(array_intersect($entry['sites'], $covered)), "{$file} is not routed through ProductCodeScope, so its sites are not covered");
             }
         }
+    }
+
+    /**
+     * What is wrong between the sites the registry calls labelled and the files that are said to draw their label.
+     *
+     * @param list<string> $labelled
+     * @param array<string, array<string, string>> $table
+     * @param callable(string): ?string $contentsOf the text of a file, or null when it does not exist
+     * @return list<string>
+     */
+    public static function labelProblemsOf(array $labelled, array $table, callable $contentsOf): array
+    {
+        $problems = [];
+        foreach (array_diff($labelled, array_keys($table)) as $site) {
+            $problems[] = "{$site} is labelled in the registry and names no file that draws its label.";
+        }
+        foreach (array_diff(array_keys($table), $labelled) as $site) {
+            $problems[] = "{$site} lists label files but is not labelled in the registry.";
+        }
+        foreach ($table as $site => $files) {
+            foreach ($files as $file => $needle) {
+                $text = $contentsOf($file);
+                if ($text === null) {
+                    $problems[] = "{$file} (a label file of {$site}) does not exist.";
+                } elseif (!str_contains($text, $needle)) {
+                    $problems[] = "{$file} no longer draws the country label of {$site}.";
+                }
+            }
+        }
+
+        return $problems;
+    }
+
+    public function test_every_labelled_site_names_the_files_that_draw_its_label_and_each_still_does(): void
+    {
+        $labelled = array_column(array_filter(ProductCodeSites::all(), static fn (array $site): bool => $site['status'] === ProductCodeSites::LABELLED), 'id');
+
+        $problems = self::labelProblemsOf($labelled, self::LABELLED_BY, static fn (string $file): ?string => is_file(base_path($file)) ? (string) file_get_contents(base_path($file)) : null);
+
+        $this->assertSame([], $problems, implode("\n", $problems));
+    }
+
+    public function test_a_labelled_site_without_label_files_or_with_a_file_that_lost_its_call_fails_the_guard(): void
+    {
+        $table = ['C5' => ['resources/views/x.blade.php' => 'countryTag(']];
+
+        $this->assertSame([], self::labelProblemsOf(['C5'], $table, static fn (): string => '{{ $tag->countryTag(product: $product) }}'));
+        $this->assertCount(1, self::labelProblemsOf(['C5', 'C6'], $table, static fn (): string => '{{ $tag->countryTag(product: $product) }}'), 'C6 names no file');
+        $this->assertCount(1, self::labelProblemsOf([], $table, static fn (): string => 'countryTag('), 'C5 is not labelled any more');
+        $this->assertCount(1, self::labelProblemsOf(['C5'], $table, static fn (): string => '{{ $product->name }}'), 'the call is gone');
+        $this->assertCount(1, self::labelProblemsOf(['C5'], $table, static fn (): ?string => null), 'the file is gone');
     }
 
     // ---- the scanner and the guard are not blind --------------------------------------------------------------------------------

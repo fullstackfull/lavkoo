@@ -16,8 +16,10 @@ class ProductCodeDocTest extends TestCase
     private const LABELS = [
         ProductCodeSites::COVERED => 'covered',
         ProductCodeSites::PARTIAL => 'partial',
+        ProductCodeSites::LABELLED => 'labelled',
         ProductCodeSites::ID_KEYED => 'not needed (id-keyed)',
         ProductCodeSites::NOT_COVERED => 'NOT covered',
+        ProductCodeSites::DEFERRED => 'deferred (owner)',
     ];
 
     private function doc(): string

@@ -5,7 +5,7 @@
         <img class="avatar avatar-xl border" width="75" src="{{ getStorageImages(path:$product->thumbnail_full_url , type: 'backend-basic') }}" alt="">
         <div class="media-body d-flex flex-column gap-1">
             <div>
-                <h5 class="mb-1 product-name">{{$product['name']}}</h5>
+                <h5 class="mb-1 product-name">{{$product['name']}}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}</h5>
             </div>
             <div class="fs-10">{{translate('price').' '.':'.' '}} <span>{{setCurrencySymbol(usdToDefaultCurrency(amount: $product['unit_price']))}}</span></div>
             @if ($product->added_by == "seller")

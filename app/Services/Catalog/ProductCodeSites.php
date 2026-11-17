@@ -17,11 +17,21 @@ final class ProductCodeSites
     /** Part of the site is covered and part is not: the note says which. */
     public const PARTIAL = 'partial';
 
+    /**
+     * A person picks a product from a list that can hold the products of two countries, and while the switch is on every row names its country
+     * (ProductCodeScope::countryTag). Nothing is narrowed: what is picked (a promotion, a cost layer, a listing link) has no country, and it is
+     * saved by the picked id.
+     */
+    public const LABELLED = 'labelled';
+
     /** Nothing resolves a product from the code there: it is keyed by an id, or it is a list a person reads. */
     public const ID_KEYED = 'id_keyed';
 
     /** The site still treats a code as one product. */
     public const NOT_COVERED = 'not_covered';
+
+    /** The site is safe as it is, and a feature that would change it waits for the owner's approval: the note says what it needs. */
+    public const DEFERRED = 'deferred';
 
     /**
      * @return list<array{id: string, where: string, status: string, note: string}>
@@ -34,12 +44,12 @@ final class ProductCodeSites
         );
     }
 
-    /** @return list<array{id: string, where: string, status: string, note: string}> the sites a code still identifies one product at, wholly or in part */
+    /** @return list<array{id: string, where: string, status: string, note: string}> the sites that are still open: a code is read as one product there, wholly or in part, or a feature waits for the owner */
     public static function notCovered(): array
     {
         return array_values(array_filter(
             self::all(),
-            static fn (array $site): bool => in_array($site['status'], [self::NOT_COVERED, self::PARTIAL], true),
+            static fn (array $site): bool => in_array($site['status'], [self::NOT_COVERED, self::PARTIAL, self::DEFERRED], true),
         ));
     }
 
@@ -59,9 +69,9 @@ final class ProductCodeSites
         ['C1', 'RestAPI v3 seller POSController::get_product_by_barcode', self::COVERED, 'Looks at the code and the barcode of the seller\'s own products, narrowed to the country of the request (`country`, else the default storefront); more than one match answers 409 ambiguous_code. Switch off: the first product with the code, as before.'],
         ['C2', 'ProductRepository::getListWithScope (search_from=pos)', self::PARTIAL, 'The admin POS search rows name the country in the SKU line. The vendor POS search rows have no SKU line and do not.'],
         ['C3', 'ProductRepository::getWebListWithScope', self::PARTIAL, 'The admin POS grid cards name the country after the title. The vendor POS grid, the exports and the gallery do not (the admin product list has its country column since GCC-14a).'],
-        ['C4', 'ProductRepository::getListWithScope (searchValue)', self::PARTIAL, 'The admin and vendor order-edit pickers offer the products of the order\'s country (it follows from the order lines). The clearance-sale pickers offer every country: a promotion has no country.'],
-        ['C5', 'ProductRepository::getListWhere (code filter)', self::NOT_COVERED, 'The code filter of the admin and vendor product searches (the reviews filter and the promotion pickers behind them): the rows show no country, and no country is known to narrow to.'],
-        ['C6', 'Flash deal and deal of the day pickers', self::NOT_COVERED, 'The promotion pickers offer every country: a promotion has no country to narrow to.'],
+        ['C4', 'ProductRepository::getListWithScope (searchValue)', self::LABELLED, 'The admin and vendor order-edit pickers offer the products of the order\'s country (it follows from the order lines), and the admin picker also names the country in each row, for an order whose lines do not name one. The admin clearance-sale picker offers every country (a promotion has no country) and names it in each row and chip. The vendor pickers list the seller\'s own products, all in the table default country.'],
+        ['C5', 'ProductRepository::getListWhere (code filter)', self::LABELLED, 'The code filter of the admin product searches (the reviews filter and the promotion pickers behind them) offers every country and names it in each row and chip. The vendor search lists the seller\'s own products.'],
+        ['C6', 'Flash deal and deal of the day pickers', self::LABELLED, 'The promotion pickers offer every country (a promotion has no country to narrow to) and name it in each row and chip; the discount is written by the picked id.'],
         ['C7', 'ProductRepository stock-limit list', self::ID_KEYED, 'A list a person reads (code LIKE); every action on a row is keyed by its id. The rows do not name the country.'],
         ['C8', 'RestockProductRepository', self::ID_KEYED, 'A list a person reads (code LIKE); every action on a row is keyed by its id. The rows do not name the country.'],
         ['C9', 'SellerCenter ProductList', self::ID_KEYED, 'A list a person reads (code LIKE); every action on a row is keyed by its id.'],
