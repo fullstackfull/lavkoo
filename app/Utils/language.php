@@ -1,9 +1,9 @@
 <?php
 
-use App\Utils\AtomicFile;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
+use App\Utils\AtomicFile;
 
 if (!function_exists('translate')) {
     function translate($key = null): string|null
@@ -148,14 +148,14 @@ if (!function_exists('isApiRequest')) {
     /** The API names its language in a header, which its middleware turns into the locale of the whole request. */
     function isApiRequest(): bool
     {
-        return str_contains(url()->current(), '/api');
+        return request()->segment(1) === 'api';
     }
 }
 
 if (!function_exists('getDefaultLanguage')) {
     function getDefaultLanguage(): string
     {
-        if (isApiRequest()) {
+        if (strpos(url()->current(), '/api')) {
             $lang = App::getLocale();
         } elseif (session()->has('local')) {
             $lang = session('local');

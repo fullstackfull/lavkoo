@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Rules\StoredFileNames;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -10,6 +9,7 @@ use Illuminate\Validation\Validator;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 use App\Http\Requests\Concerns\ChecksBrandEntitlement;
+use App\Rules\StoredFileNames;
 
 class ProductAddRequest extends Request
 {
