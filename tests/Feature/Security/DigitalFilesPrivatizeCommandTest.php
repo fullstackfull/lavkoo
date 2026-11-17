@@ -130,8 +130,8 @@ class DigitalFilesPrivatizeCommandTest extends TestCase
     {
         $this->artisan(self::COMMAND)
             ->expectsOutputToContain('files: 4, rows: 5, size: ' . Number::fileSize(array_sum(array_map('strlen', self::FILES)), maxPrecision: 1))
-            ->expectsOutputToContain('p-missing.pdf')
-            ->expectsOutputToContain('../../.env')
+            ->expectsOutputToContain('p-missing.pdf (products#7)')
+            ->expectsOutputToContain('../../.env (products#9)')
             ->assertExitCode(0);
     }
 
@@ -171,6 +171,7 @@ class DigitalFilesPrivatizeCommandTest extends TestCase
 
         $this->artisan(self::COMMAND, ['--execute' => true])
             ->expectsOutputToContain('Copied and verified')
+            ->expectsOutputToContain('run this as the user your web server\'s PHP runs as')
             ->assertExitCode(0);
 
         foreach (self::FILES as $name => $content) {

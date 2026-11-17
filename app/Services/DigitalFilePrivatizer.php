@@ -44,6 +44,9 @@ class DigitalFilePrivatizer
 
     private const ROWS_PER_QUERY = 500;
 
+    /** How many of the rows that hold a name the report names: enough to find them, not a list of every order line. */
+    private const ROWS_NAMED = 3;
+
     public function __construct(private readonly DigitalProductFileService $digitalFiles)
     {
     }
@@ -64,7 +67,7 @@ class DigitalFilePrivatizer
             $report['outcomes'][$outcome]['bytes'] += $bytes;
             $report['removed'] += (int) $removed;
             if (in_array($outcome, self::NEEDING_A_LOOK, true)) {
-                $report['names'][$outcome][] = (string) $name;
+                $report['names'][$outcome][] = $name . ' (' . implode(', ', $held['holders']) . ')';
             }
         }
         $report['unnamed'] = $this->filesOfThePublicFolderNoRowNames(namesHeldByRows: $namesHeldByRows);
@@ -110,37 +113,40 @@ class DigitalFilePrivatizer
     /**
      * Every name the rows hold, once, with how many rows hold it and whether one of them keeps its file locally.
      *
-     * @return array<string, array{rows: int, local: bool}>
+     * @return array<string, array{rows: int, local: bool, holders: list<string>}> `holders` names the first rows, as `table#id`
      */
     private function namesHeldByRows(): array
     {
         $names = [];
         foreach ($this->rowsThatNameAFile() as $row) {
-            $names[$row->name] ??= ['rows' => 0, 'local' => false];
+            $names[$row->name] ??= ['rows' => 0, 'local' => false, 'holders' => []];
             $names[$row->name]['rows']++;
             $names[$row->name]['local'] = $names[$row->name]['local'] || !$this->digitalFiles->isOnTheBucket(storageType: $row->storage_type);
+            if (count($names[$row->name]['holders']) < self::ROWS_NAMED) {
+                $names[$row->name]['holders'][] = $row->source_table . '#' . $row->id;
+            }
         }
 
         return $names;
     }
 
-    /** @return iterable<object{name: string, storage_type: ?string}> */
+    /** @return iterable<object{source_table: string, id: int, name: string, storage_type: ?string}> */
     private function rowsThatNameAFile(): iterable
     {
         yield from DB::table('products')
-            ->select(['id', 'digital_file_ready as name', 'digital_file_ready_storage_type as storage_type'])
+            ->select(['id', 'digital_file_ready as name', 'digital_file_ready_storage_type as storage_type', DB::raw("'products' as source_table")])
             ->where('digital_file_ready', '!=', '')
             ->lazyById(self::ROWS_PER_QUERY);
         yield from $this->rowsOfATableWithAStorageType(table: 'digital_product_variations', column: 'file', model: DigitalProductVariation::class);
         yield from $this->rowsOfATableWithAStorageType(table: 'order_details', column: 'digital_file_after_sell', model: OrderDetail::class);
     }
 
-    /** @return iterable<object{name: string, storage_type: ?string}> the rows of a table whose storage type is kept in a row of `storages` */
+    /** @return iterable<object{source_table: string, id: int, name: string, storage_type: ?string}> the rows of a table whose storage type is kept in a row of `storages` */
     private function rowsOfATableWithAStorageType(string $table, string $column, string $model): iterable
     {
         yield from DB::table($table . ' as holder')
             ->leftJoin('storages as storage', static fn (JoinClause $join) => $join->on('storage.data_id', '=', 'holder.id')->where('storage.data_type', $model)->where('storage.key', $column))
-            ->select(['holder.id as id', 'holder.' . $column . ' as name', 'storage.value as storage_type'])
+            ->select(['holder.id as id', 'holder.' . $column . ' as name', 'storage.value as storage_type', DB::raw("'" . $table . "' as source_table")])
             ->where('holder.' . $column, '!=', '')
             ->lazyById(self::ROWS_PER_QUERY, 'holder.id', 'id');
     }

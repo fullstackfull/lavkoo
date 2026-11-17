@@ -48,6 +48,9 @@ class PrivatizeDigitalFilesCommand extends Command
         }
 
         $this->components->info($execute ? ($removePublic ? 'Copying, checking and removing the public copies.' : 'Copying and checking; the public copies stay.') : 'Dry run: nothing is written. Add --execute to copy.');
+        if ($execute) {
+            $this->line('The private files can be read by their owner only: run this as the user your web server\'s PHP runs as.');
+        }
         $this->line('Private mode (DIGITAL_FILES_PRIVATE): ' . ($digitalFiles->isPrivate() ? 'on' : 'off') . '. Private disk: ' . config('filesystems.disks.' . DigitalProductFileService::PRIVATE_DISK . '.root'));
 
         $report = $privatizer->run(execute: $execute, removePublic: $removePublic);
