@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -40,6 +41,7 @@ class SellerApiOrderScopingTest extends TestCase
     {
         parent::setUp();
 
+        $this->startFromAnEmptyTestDatabase();
         $this->rememberLanguageFiles();
         Event::fake([OrderStatusEvent::class]);
         Storage::fake('public');
@@ -339,6 +341,26 @@ class SellerApiOrderScopingTest extends TestCase
             'order_details_id' => $orderDetailsId, 'order_id' => $orderId, 'customer_id' => 7,
             'status' => 'pending', 'amount' => 100, 'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    /**
+     * The default test database is an in-memory SQLite connection that starts empty. CI also runs this on a real MySQL or
+     * MariaDB service, whose tables survive between tests, so it is emptied first, but only when it is unmistakably a
+     * throwaway database. Never drops anything on a database that is not.
+     */
+    private function startFromAnEmptyTestDatabase(): void
+    {
+        $connection = DB::connection();
+        if ($connection->getDriverName() === 'sqlite') {
+            return;
+        }
+
+        $database = (string) $connection->getDatabaseName();
+        if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
+            throw new RuntimeException("Refusing to drop every table of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
+        }
+
+        Schema::dropAllTables();
     }
 
     private function createOrderTables(): void
