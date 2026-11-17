@@ -2,42 +2,15 @@
 
 namespace App\Traits;
 
+use App\Utils\EnvironmentFile;
+
 trait SettingsTrait
 {
     use StorageTrait;
 
     public function setEnvironmentValue($envKey, $envValue): mixed
     {
-        $envFile = app()->environmentFilePath();
-        $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-
-        if (preg_match('/[^a-zA-Z0-9]/', $envValue)) {
-            $formattedValue = "\"{$envValue}\"";
-        } else {
-            $formattedValue = $envValue;
-        }
-
-        $replacement = "{$envKey}={$formattedValue}";
-        $keyFound = false;
-        $newLines = [];
-
-        foreach ($lines as $line) {
-            if (trim($line) === '') {
-                continue;
-            }
-            if (preg_match("/^{$envKey}\s*=/i", trim($line))) {
-                $newLines[] = $replacement;
-                $keyFound = true;
-            } else {
-                $newLines[] = $line;
-            }
-        }
-
-        if (!$keyFound) {
-            $newLines[] = $replacement;
-        }
-        file_put_contents($envFile, implode(PHP_EOL, $newLines) . PHP_EOL);
-        return $formattedValue;
+        return EnvironmentFile::set(path: app()->environmentFilePath(), key: $envKey, value: $envValue);
     }
 
     public function getSettings($object, $type)

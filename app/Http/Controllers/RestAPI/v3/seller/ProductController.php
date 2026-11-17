@@ -35,6 +35,7 @@ use App\Models\Shop;
 use App\Models\StockClearanceProduct;
 use App\Models\Tag;
 use App\Models\Translation;
+use App\Rules\StoredFileNames;
 use App\Repositories\DigitalProductPublishingHouseRepository;
 use App\Services\Marketplace\BrandRegistryService;
 use App\Services\ProductService;
@@ -788,8 +789,11 @@ class ProductController extends Controller
             'category_id' => 'required',
             'product_type' => 'required',
             'unit' => 'required_if:product_type,==,physical',
-            'images' => 'required',
-            'thumbnail' => 'required',
+            'images' => ['required', new StoredFileNames()],
+            'thumbnail' => ['required', new StoredFileNames()],
+            'color_image' => [new StoredFileNames()],
+            'digital_file_ready' => [new StoredFileNames()],
+            'meta_image' => [new StoredFileNames()],
             'discount_type' => 'required|in:percent,flat',
             'lang' => 'required',
             'unit_price' => 'required|min:1',
@@ -1231,6 +1235,11 @@ class ProductController extends Controller
             'shipping_cost' => 'required_if:product_type,==,physical|gt:-1',
             'minimum_order_qty' => 'required|numeric|min:1',
             'code' => 'required|min:6|max:20|regex:/^[a-zA-Z0-9]+$/|unique:products,code,' . $product->id,
+            'images' => [new StoredFileNames()],
+            'thumbnail' => [new StoredFileNames()],
+            'color_image' => [new StoredFileNames()],
+            'digital_file_ready' => [new StoredFileNames()],
+            'meta_image' => [new StoredFileNames()],
         ], [
             'name.required' => 'Product name is required!',
             'category_id.required' => 'category  is required!',
@@ -1996,14 +2005,16 @@ class ProductController extends Controller
         $color_image_arr = [];
         if ($colors && $color_image) {
             foreach ($color_image as $img) {
-                if ($img->color != $request['color'] && $img->image_name != $request['name']) {
+                if (!$this->productService->isRemovedColorImage(entry: $img, color: $request['color'], name: $request['name'])) {
                     $color_image_arr[] = [
                         'color' => $img->color != null ? $img->color : null,
                         'image_name' => $img->image_name,
                         'storage' => $img?->storage ?? 'public',
                     ];
                 } else {
-                    $this->deleteFile('/product/' . $request['name']);
+                    if (is_string($img->image_name ?? null)) {
+                        $this->deleteFile('/product/' . $img->image_name);
+                    }
                     if ($img->color != null) {
                         $color_image_arr[] = [
                             'color' => $img->color,
@@ -2016,10 +2027,10 @@ class ProductController extends Controller
 
         foreach (json_decode($product['images']) as $image) {
             $imageName = $image->image_name ?? $image;
-            if ($imageName != $request['name']) {
+            if ($imageName !== $request['name']) {
                 array_push($array, $image);
             } else {
-                $this->deleteFile('/product/' . $request['name']);
+                $this->deleteFile('/product/' . $imageName);
             }
         }
         $product->update([

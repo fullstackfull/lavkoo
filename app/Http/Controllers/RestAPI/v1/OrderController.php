@@ -32,18 +32,24 @@ use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use App\Utils\OrderManager;
+use App\Utils\PlainFileName;
 use App\Utils\SMSModule;
 use Carbon\Carbon;
 use Carbon\CarbonInterval;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
     use CommonTrait, FileManagerTrait;
+
+    /** Wrong codes for one order line before the download is locked, and for how long: the code is four digits. */
+    private const DIGITAL_DOWNLOAD_OTP_ATTEMPTS = 5;
+    private const DIGITAL_DOWNLOAD_OTP_LOCK_SECONDS = 900;
 
     public function __construct(
         private readonly OrderService $orderService,
@@ -692,7 +698,7 @@ class OrderController extends Controller
                         $file_name = $order_details_data->digital_file_after_sell;
                     }
 
-                    if (File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
+                    if (PlainFileName::isPlain($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
                         return \response()->download($file_path);
                     } else {
                         return response()->json([
@@ -818,38 +824,58 @@ class OrderController extends Controller
 
     public function digital_product_download_otp_verify(Request $request)
     {
-        $verification = DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->first();
-        $order_details_data = OrderDetail::with('order.customer')->find($request->order_details_id);
+        $orderDetailsId = $request->input('order_details_id');
+        $otp = $request->input('otp');
+        $attemptsKey = 'digital-product-download-otp:' . (is_scalar($orderDetailsId) ? $orderDetailsId : '');
 
-        if ($verification) {
-            if ($order_details_data) {
-                if ($order_details_data->product->digital_product_type == 'ready_product' && $order_details_data->product->digital_file_ready) {
-                    $file_path = storage_path('app/public/product/digital-product/' . $order_details_data->product->digital_file_ready);
-                    $file_name = $order_details_data->product->digital_file_ready;
-                } else if ($order_details_data->digital_file_after_sell) {
-                    $file_path = storage_path('app/public/product/digital-product/' . $order_details_data->digital_file_after_sell);
-                    $file_name = $order_details_data->digital_file_after_sell;
-                }
-            }
+        if (RateLimiter::tooManyAttempts($attemptsKey, self::DIGITAL_DOWNLOAD_OTP_ATTEMPTS)) {
+            return response()->json([
+                'message' => translate('Too_Many_Requests'),
+            ], 429);
+        }
 
-            if ($request->has('action') && $request->action == "download") {
-                DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->delete();
-            }
+        $verification = is_scalar($orderDetailsId) && is_scalar($otp)
+            ? DigitalProductOtpVerification::where(['token' => $otp, 'order_details_id' => $orderDetailsId])->first()
+            : null;
+        if (!$verification) {
+            RateLimiter::hit($attemptsKey, self::DIGITAL_DOWNLOAD_OTP_LOCK_SECONDS);
 
-            if (isset($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
-                return \response()->download($file_path);
-            } else {
-                return response()->json([
-                    'status' => 0,
-                    'message' => translate('file_not_found'),
-                ]);
-            }
-
-        } else {
             return response()->json([
                 'message' => translate('The_OTP_is_incorrect'),
             ], 403);
         }
+
+        $order_details_data = OrderDetail::with('order.customer')->find($orderDetailsId);
+        if ($order_details_data && $order_details_data->order->payment_status !== 'paid') {
+            return response()->json([
+                'status' => 0,
+                'message' => translate('Payment_must_be_confirmed_first') . ' !!',
+            ]);
+        }
+
+        if ($order_details_data) {
+            if ($order_details_data->product->digital_product_type == 'ready_product' && $order_details_data->product->digital_file_ready) {
+                $file_name = $order_details_data->product->digital_file_ready;
+            } else if ($order_details_data->digital_file_after_sell) {
+                $file_name = $order_details_data->digital_file_after_sell;
+            }
+        }
+
+        if ($request->has('action') && $request->action == "download") {
+            DigitalProductOtpVerification::where(['token' => $otp, 'order_details_id' => $orderDetailsId])->delete();
+        }
+
+        $file_path = isset($file_name) && PlainFileName::isPlain($file_name) ? storage_path('app/public/product/digital-product/' . $file_name) : null;
+        if ($file_path !== null && File::exists($file_path)) {
+            RateLimiter::clear($attemptsKey);
+
+            return \response()->download($file_path);
+        }
+
+        return response()->json([
+            'status' => 0,
+            'message' => translate('file_not_found'),
+        ]);
     }
 
     public function digital_product_download_otp_resend(Request $request)
@@ -870,6 +896,12 @@ class OrderController extends Controller
             $token = rand(1000, 9999);
 
             $order_details_data = OrderDetail::with('order.customer')->find($request->order_details_id);
+            if (!$order_details_data || $order_details_data->order->payment_status !== 'paid') {
+                return response()->json([
+                    'status' => 0,
+                    'message' => translate('Payment_must_be_confirmed_first') . ' !!',
+                ]);
+            }
 
             try {
                 if ($order_details_data->order->shipping_address_data) {

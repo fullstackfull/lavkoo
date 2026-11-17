@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppCarouselSetting;
+use App\Utils\StoredFileExtension;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -54,6 +55,7 @@ class AppCarouselController extends Controller
                 'image',
                 'mimes:jpg,jpeg,png,webp',
                 'max:5120',
+                'dimensions:max_width=4096,max_height=4096',
             ],
         ]);
 
@@ -133,8 +135,9 @@ class AppCarouselController extends Controller
                     continue;
                 }
 
-                $extension = strtolower(
-                    $image->getClientOriginalExtension()
+                $extension = StoredFileExtension::of(
+                    clientExtension: '',
+                    file: $image
                 );
 
                 $fileName =

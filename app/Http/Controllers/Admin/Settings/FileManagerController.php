@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Admin\Settings;
 
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\FileManagerUploadRequest;
+use App\Services\FileManager\ArchiveReport;
 use App\Services\FileManagerService;
+use App\Services\Fulfillment\Support\SafeToast;
+use App\Utils\PlainFileName;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -29,8 +32,8 @@ class FileManagerController extends BaseController
      */
     public function index(Request|null $request, ?string $type = null): View
     {
-        $targetFolder = $request['targetFolder'] ?? "cHVibGlj";
-        $storage = $request['storage'] ?? 'public';
+        $targetFolder = $this->galleryFolder(request: $request);
+        $storage = $this->fileManagerService->galleryDisk(requested: $request['storage']);
 
         try {
             $cacheKey = "cache_all_files_for_{$storage}_storage";
@@ -86,19 +89,39 @@ class FileManagerController extends BaseController
             ToastMagic::info(translate('This_option_is_disabled_for_demo'));
             return back();
         }
-        $fileManagerService->uploadFileAndImages(request: $request);
+        $report = new ArchiveReport();
+        $isStored = $fileManagerService->uploadFileAndImages(request: $request, report: $report);
         cacheRemoveByType(type: 'file_manager');
 
-        if ($request->has('images')) {
-            ToastMagic::success(translate('image_uploaded_successfully'));
+        if (!$isStored) {
+            SafeToast::error(message: $report->refusalMessage(), detail: $report->skippedMessage());
+        } elseif ($request->has('images')) {
+            SafeToast::success(message: translate('image_uploaded_successfully'), detail: $report->skippedMessage());
         } else {
-            ToastMagic::success(translate('File_uploaded_successfully'));
+            SafeToast::success(message: translate('File_uploaded_successfully'), detail: $report->skippedMessage());
         }
         return back();
     }
 
     public function download(Request $request, $fileName): StreamedResponse
     {
-        return Storage::disk($request['storage'] == 'public' ? 'local' : $request['storage'])->download(base64_decode($fileName));
+        $disk = $this->fileManagerService->galleryDisk(requested: $request['storage']);
+        $path = (string)base64_decode(string: (string)$fileName);
+        $path = $disk === 'public' ? preg_replace('#^public/#', '', $path) : $path;
+
+        abort_unless(
+            $path !== '' && PlainFileName::staysInside(path: $path) && Storage::disk($disk)->exists($path) && !Storage::disk($disk)->directoryExists($path),
+            404
+        );
+
+        return Storage::disk($disk)->download($path);
+    }
+
+    /** The folder the page opens, base64-encoded: the main folder unless the request names a folder inside the disk. */
+    private function galleryFolder(Request $request): string
+    {
+        $targetFolder = $request['targetFolder'];
+
+        return is_string($targetFolder) && PlainFileName::staysInside(path: (string)base64_decode($targetFolder)) ? $targetFolder : 'cHVibGlj';
     }
 }
