@@ -2,9 +2,11 @@
 
 namespace Tests\Support;
 
+use App\Contracts\Repositories\CustomerRepositoryInterface;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Mockery;
 
 /**
  * The orders, their lines, the refund requests and the customers the staff country scope of the order screens reads (GCC-14c, slice 2), on top of the product and
@@ -27,7 +29,7 @@ trait BuildsStaffOrderWorld
         $this->runStaffScopeMigration();
         $this->addStaffOrderRoles();
 
-        foreach (['refund_requests', 'order_edit_histories', 'order_status_histories', 'order_expected_delivery_histories', 'orders', 'users'] as $table) {
+        foreach (['digital_product_variations', 'colors', 'stock_clearance_products', 'stock_clearance_setups', 'currencies', 'refund_statuses', 'order_details_rewards', 'delivery_men', 'refund_requests', 'order_edit_histories', 'order_status_histories', 'order_expected_delivery_histories', 'orders', 'users'] as $table) {
             Schema::dropIfExists($table);
         }
         Schema::dropIfExists('order_details');
@@ -116,6 +118,8 @@ trait BuildsStaffOrderWorld
             $table->decimal('tax', 24, 2)->default(0);
             $table->decimal('discount', 24, 2)->default(0);
             $table->string('tax_model')->nullable();
+            $table->string('discount_type')->nullable();
+            $table->unsignedBigInteger('shipping_method_id')->nullable();
             $table->string('delivery_status')->nullable();
             $table->string('payment_status')->nullable();
             $table->string('digital_file_after_sell')->nullable();
@@ -155,12 +159,101 @@ trait BuildsStaffOrderWorld
             $table->string('order_return_payment_status')->nullable();
             $table->timestamps();
         });
+        Schema::create('digital_product_variations', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->string('variant_key')->nullable();
+            $table->decimal('price', 24, 2)->default(0);
+            $table->string('sku')->nullable();
+            $table->string('file')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('colors', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('code')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('stock_clearance_setups', function (Blueprint $table) {
+            $table->id();
+            $table->boolean('is_active')->default(false);
+            $table->date('duration_start_date')->nullable();
+            $table->date('duration_end_date')->nullable();
+            $table->string('offer_active_time')->nullable();
+            $table->time('offer_active_range_start')->nullable();
+            $table->time('offer_active_range_end')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('stock_clearance_products', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('setup_id')->nullable();
+            $table->unsignedBigInteger('product_id');
+            $table->string('added_by')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->string('discount_type')->nullable();
+            $table->decimal('discount_amount', 24, 2)->default(0);
+            $table->timestamps();
+        });
+        Schema::create('currencies', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('symbol')->nullable();
+            $table->string('code')->nullable();
+            $table->decimal('exchange_rate', 24, 6)->default(1);
+            $table->boolean('status')->default(true);
+        });
+        DB::table('currencies')->insert([['id' => 1, 'name' => 'Saudi riyal', 'symbol' => 'SAR', 'code' => 'SAR', 'exchange_rate' => 1]]);
+        DB::table('business_settings')->insert([['type' => 'system_default_currency', 'value' => '1']]);
+        Schema::create('delivery_men', function (Blueprint $table) {
+            $table->id();
+            $table->string('f_name')->nullable();
+            $table->string('l_name')->nullable();
+            $table->string('phone')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+        DB::table('delivery_men')->insert([['id' => 1, 'f_name' => 'Courier', 'l_name' => 'One', 'phone' => '500000100', 'seller_id' => 0]]);
+        Schema::create('order_details_rewards', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('order_details_id')->nullable();
+            $table->string('reward_type')->nullable();
+            $table->decimal('reward_amount', 24, 2)->default(0);
+            $table->boolean('reward_delivered')->default(false);
+            $table->timestamps();
+        });
+        Schema::create('refund_statuses', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('refund_request_id')->nullable();
+            $table->string('change_by')->nullable();
+            $table->string('change_by_id')->nullable();
+            $table->string('status')->nullable();
+            $table->text('message')->nullable();
+            $table->timestamps();
+        });
         Schema::create('order_status_histories', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('order_id')->nullable();
             $table->string('status')->nullable();
             $table->timestamps();
         });
+    }
+
+    /** The list of customers a screen offers is written in MySQL (IF, CONCAT) and is not what these tests are about: it is answered empty. */
+    protected function answerNoCustomers(): void
+    {
+        $customers = Mockery::mock(app(CustomerRepositoryInterface::class))->makePartial();
+        $customers->shouldReceive('getCustomerNameList')->andReturn(collect());
+        $this->app->instance(CustomerRepositoryInterface::class, $customers);
+    }
+
+    /** The product search of the POS locates a keyword with LOCATE, a function MySQL has and SQLite has not. */
+    protected function teachSqliteWhatMysqlKnows(): void
+    {
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            DB::connection()->getPdo()->sqliteCreateFunction('LOCATE', static fn (?string $needle, ?string $haystack): int => ($position = strpos((string) $haystack, (string) $needle)) === false ? 0 : $position + 1, 2);
+        }
     }
 
     /** The roles of the employees who work with orders and the POS: the master admin and the catalog employees of BuildsStaffScopeWorld have none of these modules. */
