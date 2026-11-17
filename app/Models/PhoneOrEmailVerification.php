@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Utils\RequestText;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -41,4 +43,16 @@ class PhoneOrEmailVerification extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    /**
+     * The row that holds this code. The table also holds rows without a token (a note that a session was asked for), and a raw
+     * `where token = ?` takes a missing token for `IS NULL` and, under MySQL, the number 0 for every non-numeric token. A token that is not
+     * a non-empty text, or a number, matches nothing; a number is compared as the text it was typed as.
+     */
+    public function scopeHoldingToken(Builder $query, mixed $token): Builder
+    {
+        $code = RequestText::of($token);
+
+        return $code === '' ? $query->whereRaw('1 = 0') : $query->where('token', $code);
+    }
 }

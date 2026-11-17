@@ -11,10 +11,12 @@ use App\Events\CustomerRegisteredViaReferralEvent;
 use App\Events\EmailVerificationEvent;
 use App\Events\PasswordResetEvent;
 use App\Http\Controllers\Controller;
+use App\Services\CustomerPasswordResetService;
 use App\Services\ReferByEarnCustomerService;
 use App\Services\Web\CustomerAuthService;
 use App\Traits\CustomerTrait;
 use App\Utils\Helpers;
+use App\Utils\RequestText;
 use App\Utils\SMSModule;
 use Carbon\CarbonInterval;
 use Firebase\JWT\JWT;
@@ -39,6 +41,7 @@ class CustomerAPIAuthController extends Controller
         private readonly LoginSetupRepositoryInterface               $loginSetupRepo,
         private readonly CustomerAuthService                         $customerAuthService,
         private readonly ReferByEarnCustomerService                  $referByEarnCustomerService,
+        private readonly CustomerPasswordResetService                $customerPasswordResetService,
     )
     {
     }
@@ -569,18 +572,19 @@ class CustomerAPIAuthController extends Controller
             return response()->json(['errors' => $errors], 403);
         }
 
-        $user = $this->customerRepo->getByIdentity(filters: ['identity' => $responseData['phoneNumber']]);
+        if ($request['is_reset_token'] == 1) {
+            $customer = $this->customerPasswordResetService->findCustomer(identity: RequestText::of($request['phoneNumber']), kind: CustomerPasswordResetService::PHONE);
+            if (isset($customer)) {
+                $this->customerPasswordResetService->acceptVerifiedProof(
+                    customer: $customer,
+                    proof: RequestText::of($request['code']),
+                    verifiedPhone: (string)($responseData['phoneNumber'] ?? ''),
+                );
+            }
+        } else {
+            $user = $this->customerRepo->getByIdentity(filters: ['identity' => $responseData['phoneNumber']]);
 
-        if (isset($user)) {
-            if ($request['is_reset_token'] == 1) {
-                DB::table('password_resets')
-                    ->where('user_type', 'customer')
-                    ->updateOrInsert(['identity' => $request['phoneNumber']], [
-                        'identity' => $request['phoneNumber'],
-                        'token' => $request['code'],
-                        'created_at' => now(),
-                    ]);
-            } else {
+            if (isset($user)) {
                 $token = $user->createToken('LaravelAuthApp')->accessToken;
                 $user['is_phone_verified'] = 1;
                 $user->save();
@@ -869,15 +873,12 @@ class CustomerAPIAuthController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        if ($request['type'] == 'phone') {
-            $customer = $this->customerRepo->getFirstWhere(params: ['phone' => $request['email_or_phone']]);
-        } else {
-            $customer = $this->customerRepo->getFirstWhere(params: ['email' => $request['email_or_phone']]);
-        }
+        $identity = RequestText::of($request['email_or_phone']);
+        $customer = $this->customerPasswordResetService->findCustomer(identity: $identity, kind: $request['type']);
 
         if (isset($customer)) {
             $OTPIntervalTime = getWebConfig(name: 'otp_resend_time') ?? 60;
-            $passwordVerificationData = DB::table('password_resets')->where('identity', $request['email_or_phone'])->first();
+            $passwordVerificationData = DB::table('password_resets')->where('user_type', 'customer')->where('identity', $identity)->first();
 
             if (isset($passwordVerificationData) && Carbon::parse($passwordVerificationData?->created_at)->DiffInSeconds() < $OTPIntervalTime) {
                 $time = $OTPIntervalTime - Carbon::parse($passwordVerificationData?->created_at)->DiffInSeconds();
@@ -886,13 +887,10 @@ class CustomerAPIAuthController extends Controller
 
             $token = (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
 
-            DB::table('password_resets')->updateOrInsert(['identity' => $request['email_or_phone']], [
-                'token' => $token,
-                'created_at' => now(),
-            ]);
+            $this->customerPasswordResetService->issueCode(customer: $customer, kind: $request['type'], code: $token);
 
             DB::table('phone_or_email_verifications')->insert([
-                'phone_or_email' => $request['email_or_phone'],
+                'phone_or_email' => $identity,
                 'token' => $token,
                 'created_at' => now(),
             ]);
@@ -1047,10 +1045,7 @@ class CustomerAPIAuthController extends Controller
 
     public function firebaseAuthTokenStore(Request $request): JsonResponse
     {
-        $this->phoneOrEmailVerificationRepo->updateOrCreate(params: ['phone_or_email' => $request['identity']], value: [
-            'phone_or_email' => $request['identity'],
-            'token' => $request['token'],
-        ]);
+        $this->customerPasswordResetService->noteFirebaseSessionRequested(phone: RequestText::of($request['identity']));
         return response()->json(['message' => translate('Token_is_successfully_Saved')], 200);
     }
 
