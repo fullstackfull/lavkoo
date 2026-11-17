@@ -36,6 +36,8 @@ class AdminRouteGatesTest extends TestCase
 
     /** The routes that carry a permission, as "METHOD /path" => the permission of the menu entry that owns them. */
     private const GATES = [
+        'GET /admin/meta-app' => '3rd_party_setup',
+        'POST /admin/meta-app/store' => '3rd_party_setup',
         'GET /admin/messages/index/customer' => 'people',
         'GET /admin/messages/message' => 'people',
         'POST /admin/messages/message' => 'people',

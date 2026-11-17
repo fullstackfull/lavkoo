@@ -181,7 +181,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
 
 
-       Route::group(['prefix' => 'meta-app', 'as' => 'meta-app.'], function () {
+       Route::group(['prefix' => 'meta-app', 'as' => 'meta-app.', 'middleware' => ['module:3rd_party_setup']], function () {
     Route::controller(MetaAppIntegrationController::class)->group(function () {
         Route::get('/', 'index')->name('index');
         Route::post('store', 'store')->name('store');
