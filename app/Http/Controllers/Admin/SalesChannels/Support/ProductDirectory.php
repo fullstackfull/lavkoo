@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\SalesChannels\Support;
 
 use App\Models\Product;
+use App\Services\Catalog\ProductCodeScope;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -10,6 +11,10 @@ use Illuminate\Support\Facades\DB;
 final class ProductDirectory
 {
     private const SEARCH_LIMIT = 20;
+
+    public function __construct(private readonly ProductCodeScope $codeScope)
+    {
+    }
 
     /**
      * The products behind some ids, for showing their names.
@@ -27,14 +32,16 @@ final class ProductDirectory
         return Product::withoutGlobalScope('translate')->whereIn('id', $ids)->get(['id', 'name', 'code', 'barcode'])->keyBy('id');
     }
 
-    /** @return Collection<int, object{id: int, name: string, code: string|null, barcode: string|null}> */
+    /** @return Collection<int, object{id: int, name: string, code: string|null, barcode: string|null}|array{id: int, name: string, code: string|null, barcode: string|null, country_tag: string}> */
     public function search(string $term): Collection
     {
-        return DB::table('products')
+        $rows = DB::table('products')
             ->where('added_by', 'admin')->where('product_type', 'physical')
             ->where(static fn ($query) => $query->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")->orWhere('barcode', 'like', "%{$term}%"))
             ->orderBy('name')
             ->limit(self::SEARCH_LIMIT)
-            ->get(['id', 'name', 'code', 'barcode']);
+            ->get($this->codeScope->pickerColumns(['id', 'name', 'code', 'barcode']));
+
+        return $this->codeScope->tagPickerRows($rows);
     }
 }

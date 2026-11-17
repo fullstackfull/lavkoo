@@ -17,7 +17,7 @@
                                 var choice = document.createElement('button');
                                 choice.type = 'button';
                                 choice.className = 'btn btn-outline-secondary btn-sm';
-                                choice.textContent = '#' + product.id + ' ' + product.name + (product.code ? ' (' + product.code + ')' : '');
+                                choice.textContent = '#' + product.id + ' ' + product.name + (product.code ? ' (' + product.code + ')' : '') + (product.country_tag || '');
                                 choice.addEventListener('click', function () {
                                     target.value = product.id;
                                     results.replaceChildren();

@@ -29,16 +29,16 @@ class ProductCodeLookupGuardTest extends TestCase
             'reason' => 'The matching picker searches by name, SKU or barcode; ProductCodeScope::restrictToCountry keeps it to the provider\'s country.',
         ],
         'app/Http/Controllers/Admin/OperationalCosts/ProductCostController.php' => [
-            'count' => 2, 'sites' => ['F1'], 'routed' => false,
-            'reason' => 'The cost-layer picker offers every country and shows none: not covered by slice 1 (the layer is written by the picked product id).',
+            'count' => 2, 'sites' => ['F1'], 'routed' => true,
+            'reason' => 'The cost-layer picker offers every country; ProductCodeScope::tagPickerRows adds the country label to each row (the layer is written by the picked product id).',
         ],
         'app/Http/Controllers/Admin/Product/ProductController.php' => [
             'count' => 2, 'sites' => ['C5', 'C6'], 'routed' => false,
             'reason' => 'The reviews filter and the promotion pickers search products by code through ProductRepository::getListWhere: a promotion has no country to narrow to, so their rows and chips name the country instead (see LABELLED_BY).',
         ],
         'app/Http/Controllers/Admin/SalesChannels/Support/ProductDirectory.php' => [
-            'count' => 2, 'sites' => ['D7'], 'routed' => false,
-            'reason' => 'The listing-link picker shows no country; the link is saved by the picked id (slice 2).',
+            'count' => 2, 'sites' => ['D7'], 'routed' => true,
+            'reason' => 'The listing-link picker offers every country; ProductCodeScope::tagPickerRows adds the country label to each row (the link is saved by the picked id).',
         ],
         'app/Http/Controllers/Vendor/Product/ProductController.php' => [
             'count' => 1, 'sites' => ['C5'], 'routed' => false,
@@ -129,6 +129,14 @@ class ProductCodeLookupGuardTest extends TestCase
         'C6' => [
             'resources/views/admin-views/partials/_search-product.blade.php' => 'countryTag(',
             'resources/views/admin-views/partials/_select-product.blade.php' => 'countryTag(',
+        ],
+        'D7' => [
+            'app/Http/Controllers/Admin/SalesChannels/Support/ProductDirectory.php' => 'tagPickerRows(',
+            'resources/views/admin-views/sales-channels/partials/_product-picker-script.blade.php' => 'country_tag',
+        ],
+        'F1' => [
+            'app/Http/Controllers/Admin/OperationalCosts/ProductCostController.php' => 'tagPickerRows(',
+            'resources/views/admin-views/operational-costs/product-costs/index.blade.php' => 'country_tag',
         ],
     ];
 

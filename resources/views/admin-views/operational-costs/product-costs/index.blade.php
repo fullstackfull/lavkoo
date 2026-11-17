@@ -217,10 +217,10 @@
                                 var button = document.createElement('button');
                                 button.type = 'button';
                                 button.className = 'list-group-item list-group-item-action fs-12';
-                                button.textContent = '#' + product.id + ' ' + product.name + (product.code ? ' · ' + product.code : '');
+                                button.textContent = '#' + product.id + ' ' + product.name + (product.code ? ' · ' + product.code : '') + (product.country_tag || '');
                                 button.addEventListener('click', function () {
                                     idField.value = product.id;
-                                    chosen.textContent = product.name;
+                                    chosen.textContent = product.name + (product.country_tag || '');
                                     results.hidden = true;
                                 });
                                 item.appendChild(button);

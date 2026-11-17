@@ -88,12 +88,12 @@ marked partial or NOT covered are what the owner has to read before turning the 
 | D4 | `ChannelInventoryWriter` | not needed (id-keyed) | Keyed by the account's listing key. |
 | D5 | `StockPricePublisher` | not needed (id-keyed) | Keyed by the account's listing key. |
 | D6 | `RoutingRuleMatcher` | covered | A SKU condition also needs the line's product to be in the country the rule names, or in the default storefront's when it names none; an unknown product country matches no SKU rule. A rule keyed by a product id is untouched. |
-| D7 | `Admin SalesChannels ProductDirectory` | NOT covered | The listing-link picker shows no country; the link is saved by the picked id. |
+| D7 | `Admin SalesChannels ProductDirectory` | labelled | The listing-link picker (and the routing rule's product picker, which shares it) offers every country and names the country at the end of each row; the link is saved by the picked id. |
 | D8 | `LocationStockPage` | not needed (id-keyed) | A stock page filter (code LIKE); a list a person reads. |
 | E1 | `ProviderMappingService::suggestionsFor` | covered | Suggests only the products of the provider's country: the default storefront's, until provider connections have a country of their own. |
 | E2 | `TorodMatchingController::productSearch` | covered | Offers only the products of the provider's country (the default storefront's). |
 | E3 | `TorodChecks` | not needed (id-keyed) | A diagnostic that reads warehouse items, not store products. |
-| F1 | `Admin ProductCostController picker` | NOT covered | The cost-layer picker shows no country. |
+| F1 | `Admin ProductCostController picker` | labelled | The cost-layer picker offers every country and names the country at the end of each row and of the chosen product; the layer is written by the picked product id. |
 | G1 | `Printed labels and seller PDFs` | not needed (id-keyed) | Display only: the label prints the code of a product chosen by id. |
 | G2 | `Product screens and exports` | not needed (id-keyed) | Display only (the admin list has a country column since GCC-14a). |
 | G3 | `Storefront structured data (sku, gtin)` | not needed (id-keyed) | Display only, and a storefront shows its own country's products. |
