@@ -19,7 +19,15 @@ class FileManagerService
     /** An archive with more entries than a gallery needs, or one that is mostly empty space (a 200 KB zip that holds 100 MB), is a way to fill a disk. */
     private const MOST_ARCHIVE_ENTRIES = 5000;
 
+    /** What an archive may always unpack to, however little it takes compressed. */
     private const LARGE_ARCHIVE_BYTES = 50 * 1024 * 1024;
+
+    /**
+     * What an archive may unpack to at the most, whatever it holds and however much of it is compressed padding that raises the allowance of the
+     * ratio: the temporary directory of one upload never holds more than this (and one byte, the one that shows the limit is crossed), and neither
+     * does the gallery or the bucket.
+     */
+    private const MOST_ARCHIVE_BYTES = 64 * 1024 * 1024;
 
     private const MOST_COMPRESSION_RATIO = 100;
 
@@ -155,8 +163,9 @@ class FileManagerService
     }
 
     /**
-     * What an archive may unpack to: 50 MB, or 100 times what its stored entries take compressed. The compressed sizes are declared too (an
-     * entry listed again and again promises its data again and again), so they count for no more than the archive itself holds.
+     * What an archive may unpack to: 50 MB, or 100 times what its stored entries take compressed, and never more than 64 MB. The compressed sizes
+     * are declared too (an entry listed again and again promises its data again and again), so they count for no more than the archive itself
+     * holds.
      *
      * @param array<int, string> $entries
      */
@@ -167,7 +176,7 @@ class FileManagerService
             $compressedBytes += $zip->statIndex($index)['comp_size'];
         }
 
-        return max(self::LARGE_ARCHIVE_BYTES, self::MOST_COMPRESSION_RATIO * min($compressedBytes, $archiveBytes));
+        return min(self::MOST_ARCHIVE_BYTES, max(self::LARGE_ARCHIVE_BYTES, self::MOST_COMPRESSION_RATIO * min($compressedBytes, $archiveBytes)));
     }
 
     /** @return int|null the bytes written, one more than the limit at the most; nothing when the entry cannot be read to its end (an encrypted one, a damaged one) */

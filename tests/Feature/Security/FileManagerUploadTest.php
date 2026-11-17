@@ -19,6 +19,8 @@ use League\Flysystem\Filesystem;
 use League\Flysystem\Local\LocalFilesystemAdapter;
 use League\Flysystem\UnableToWriteFile;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionMethod;
+use SplFileInfo;
 use Tests\Support\BuildsFulfillmentSchema;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -37,6 +39,9 @@ class FileManagerUploadTest extends TestCase
     use RestoresLanguageFiles;
 
     private const FOLDER = 'probe-upload';
+
+    /** The most an archive may unpack to: 64 MiB, whatever its compressed padding pays for. */
+    private const CEILING = 64 * 1024 * 1024;
 
     /** @var list<string> */
     private array $directoriesToRemove = [];
@@ -667,6 +672,84 @@ class FileManagerUploadTest extends TestCase
         $this->assertSame(1, preg_match('/^The archive unpacks to more than (\d+) MB$/', $toast['message'], $matches), $toast['message']);
         $this->assertGreaterThan(55, (int) $matches[1]);
         $this->assertLessThan(60, (int) $matches[1]);
+    }
+
+    /**
+     * 3 MiB of noise that a zip keeps as it is, which pays at a hundred times for about 300 MiB, and zeros: the allowance of the ratio is far
+     * above the ceiling, so only the ceiling decides what such an archive may unpack to.
+     */
+    private function zipUploadWithPaddingAndZeros(int $zerosBytes): UploadedFile
+    {
+        $archive = $this->zipUpload(
+            ['padding.jpg' => random_bytes(3 * 1024 * 1024), 'zeros.txt' => str_repeat("\0", $zerosBytes)],
+            static fn (ZipArchive $zip): bool => $zip->setCompressionName('padding.jpg', ZipArchive::CM_STORE),
+        );
+        $this->assertGreaterThan(self::CEILING, 100 * $this->compressedSizeOfTheEntries($archive), 'the padding pays for more than the ceiling');
+
+        return $archive;
+    }
+
+    public function test_an_archive_that_unpacks_to_exactly_64_MiB_is_stored_however_much_its_padding_pays_for(): void
+    {
+        $archive = $this->zipUploadWithPaddingAndZeros(zerosBytes: self::CEILING - 3 * 1024 * 1024);
+
+        $stored = $this->service()->uploadFileAndImages($this->request(self::FOLDER, ['file' => $archive]));
+
+        $this->assertTrue($stored);
+        $this->assertSame(self::CEILING - 3 * 1024 * 1024, filesize(storage_path('app/public/' . self::FOLDER . '/zeros.txt')));
+        $this->assertSame(3 * 1024 * 1024, filesize(storage_path('app/public/' . self::FOLDER . '/padding.jpg')));
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_an_archive_whose_padding_pays_for_more_is_refused_whole_at_one_byte_over_64_MiB(): void
+    {
+        $archive = $this->zipUploadWithPaddingAndZeros(zerosBytes: self::CEILING - 3 * 1024 * 1024 + 1);
+
+        $toast = $this->toastAfterPosting(['file' => $archive]);
+
+        $this->assertSame(['type' => 'error', 'message' => 'The archive unpacks to more than 64 MB'], $toast);
+        $this->assertDirectoryDoesNotExist(storage_path('app/public/' . self::FOLDER));
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_on_s3_an_archive_over_the_ceiling_puts_no_object_on_the_bucket_and_leaves_no_temporary_file(): void
+    {
+        $archive = $this->zipUploadWithPaddingAndZeros(zerosBytes: 70 * 1024 * 1024);
+
+        $stored = $this->service()->uploadFileAndImages($this->bucketRequest(['file' => $archive]));
+
+        $this->assertFalse($stored);
+        $this->assertSame([], $this->storedOnTheBucket());
+        $this->assertSame([], glob(storage_path('app/temp-zip-*')) ?: []);
+    }
+
+    public function test_the_unpacking_directory_never_holds_more_than_the_ceiling_and_one_byte_whatever_the_archive_holds(): void
+    {
+        $archive = $this->zipUploadWithPaddingAndZeros(zerosBytes: 90 * 1024 * 1024);
+        $directory = storage_path('app/temp-zip-ceiling-' . uniqid());
+        $this->directoriesToRemove[] = $directory;
+        File::ensureDirectoryExists($directory);
+        $zip = new ZipArchive();
+        $zip->open($archive->getPathname());
+
+        $unpacked = (new ReflectionMethod(FileManagerService::class, 'unpackEntries'))
+            ->invoke($this->service(), $zip, [0 => 'padding.jpg', 1 => 'zeros.txt'], $directory, (int) $archive->getSize(), new ArchiveReport());
+        $zip->close();
+
+        $this->assertNull($unpacked, 'the archive is refused');
+        $onTheDisk = array_sum(array_map(static fn (SplFileInfo $file): int => $file->getSize(), File::allFiles($directory, true)));
+        $this->assertGreaterThan(self::CEILING - 1, $onTheDisk, 'the unpacking went on to the ceiling');
+        $this->assertLessThanOrEqual(self::CEILING + 1, $onTheDisk, 'the unpacking stopped one byte past the ceiling');
+    }
+
+    #[DataProvider('arabicLanguagesOfTheShop')]
+    public function test_the_admin_is_told_the_ceiling_in_arabic(string $language): void
+    {
+        session(['local' => $language]);
+
+        $toast = $this->toastAfterPosting(['file' => $this->zipUploadWithPaddingAndZeros(zerosBytes: self::CEILING)]);
+
+        $this->assertSame('يتجاوز حجم الأرشيف بعد فك الضغط 64 ميغابايت', $toast['message']);
     }
 
     public function test_the_admin_is_told_that_an_archive_holds_no_file_that_can_be_stored(): void
