@@ -105,6 +105,35 @@ class M5aznImporterCodeScopeTest extends M5aznTestCase
         $this->assertSame(ProductCodeScope::TABLE_DEFAULT_COUNTRY, DB::table('products')->where('id', $result->productId)->value('storefront_country'));
     }
 
+    /** @return list<string> the statements that wrote a product row */
+    private function productInserts(callable $import): array
+    {
+        $statements = [];
+        DB::listen(static function ($query) use (&$statements): void {
+            if (preg_match('/^insert into [`"]products[`"]/', $query->sql) === 1) {
+                $statements[] = $query->sql;
+            }
+        });
+        $import();
+
+        return $statements;
+    }
+
+    public function test_the_row_names_its_country_only_while_the_switch_is_on(): void
+    {
+        $off = $this->productInserts(fn () => $this->imported());
+        DB::table('products')->delete();
+        DB::table('provider_product_mappings')->delete();
+        ProviderCatalogItem::query()->update(['status' => ProviderCatalogItem::STATUS_NEW]);
+        $this->scopeCodesByCountry();
+        $on = $this->productInserts(fn () => $this->importer()->import($this->staged()->id));
+
+        $this->assertCount(1, $off);
+        $this->assertStringNotContainsString('storefront_country', $off[0], 'the row is what it always was');
+        $this->assertCount(1, $on);
+        $this->assertStringContainsString('storefront_country', $on[0], 'what was checked is what is written');
+    }
+
     public function test_a_missing_column_acts_as_off(): void
     {
         $this->scopeCodesByCountry();

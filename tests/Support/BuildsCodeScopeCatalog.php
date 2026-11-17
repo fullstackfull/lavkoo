@@ -6,6 +6,7 @@ use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 
 /**
  * The product table the SKU and barcode tests need: only the columns a code lookup, a seller scan and a bulk import touch. Like the other
@@ -16,6 +17,7 @@ trait BuildsCodeScopeCatalog
 {
     protected function buildCodeScopeProducts(bool $withCountryColumn = true): void
     {
+        $this->refuseToDropTablesOutsideATestDatabase();
         Schema::dropIfExists('products');
         Schema::create('products', function (Blueprint $table) {
             $table->id();
@@ -66,6 +68,7 @@ trait BuildsCodeScopeCatalog
     /** The two relations every loaded Product brings along, and the settings table the model reads while it loads. */
     protected function buildCodeScopeRelationTables(): void
     {
+        $this->refuseToDropTablesOutsideATestDatabase();
         foreach (['translations', 'reviews', 'business_settings'] as $table) {
             Schema::dropIfExists($table);
         }
@@ -94,6 +97,20 @@ trait BuildsCodeScopeCatalog
             $table->unsignedBigInteger('delivery_man_id')->nullable();
             $table->boolean('status')->default(true);
         });
+    }
+
+    /** A real engine keeps its tables between tests, so a database whose name does not say "test", or an environment that is not "testing", is refused before anything is dropped. */
+    protected function refuseToDropTablesOutsideATestDatabase(): void
+    {
+        $connection = DB::connection();
+        if ($connection->getDriverName() === 'sqlite') {
+            return;
+        }
+
+        $database = (string) $connection->getDatabaseName();
+        if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
+            throw new RuntimeException("Refusing to drop tables of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
+        }
     }
 
     /** Adds the column the way the migration adds it. */

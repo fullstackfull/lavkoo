@@ -58,6 +58,7 @@ class ProductCodeReadinessTest extends TestCase
         $this->assertMatchesRegularExpression('/KW\s+1/', $output);
         $this->assertStringContainsString('No product has an empty country', $output);
         $this->assertStringContainsString('No code or barcode is held twice inside one country', $output);
+        $this->assertStringContainsString('No code or barcode is shared by two countries', $output);
     }
 
     public function test_it_reports_the_state_of_the_switch_and_changes_nothing(): void
@@ -143,6 +144,7 @@ class ProductCodeReadinessTest extends TestCase
         $this->assertStringContainsString('SKU100', $output);
         $this->assertStringContainsString('SA', $output);
         $this->assertStringContainsString('KW', $output);
+        $this->assertSame([['kind' => 'code', 'value' => 'SKU100', 'countries' => ['KW', 'SA']]], app(ProductCodeReadiness::class)->report()['across_countries'], 'only what two countries share is listed');
     }
 
     public function test_a_country_that_is_not_configured_is_listed(): void

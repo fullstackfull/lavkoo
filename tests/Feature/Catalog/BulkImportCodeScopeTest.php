@@ -180,6 +180,18 @@ class BulkImportCodeScopeTest extends TestCase
         $this->assertSame([9], $this->taxesOf($kuwaiti), 'the Kuwaiti product keeps exactly the tax it had');
     }
 
+    public function test_the_taxes_follow_the_rows_whatever_their_generated_codes_are(): void
+    {
+        $this->generateTheseCodes(['abc123', 'abc123']);
+
+        $this->runImport(['1,2', '2']);
+
+        $imported = DB::table('products')->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $this->assertCount(2, $imported, 'two rows that were given one code are still two rows: the code is only a label');
+        $this->assertSame([1, 2], $this->taxesOf($imported[0]));
+        $this->assertSame([2], $this->taxesOf($imported[1]));
+    }
+
     public function test_the_import_inserts_nothing_for_a_product_when_the_sheet_names_no_valid_tax(): void
     {
         $this->runImport(['7']);
