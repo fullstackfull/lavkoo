@@ -32,7 +32,8 @@ trait AssertsNarrowedOrderReads
 
     /**
      * Whether a statement selects from a table of orders, not counting the tables the narrowing condition itself reads, and not the rows that hang off an order that a screen has
-     * already read, which are loaded by the key of that order (`where order_details.order_id in (102, 103)`): they are as narrow as the orders they come from.
+     * already read, which are loaded by the key of that order (`where order_details.order_id in (102, 103)`), nor the order or the line of a row that a screen has already read, which is loaded
+     * by the ids of those rows (`where orders.id in (101, 102)`): they are as narrow as the rows they come from.
      */
     protected function readsAnOrderTable(string $statement): bool
     {
@@ -40,7 +41,9 @@ trait AssertsNarrowedOrderReads
             return false;
         }
 
-        if (preg_match('/from\s+[`"]?(?:order_details|order_transactions|refund_transactions)[`"]?\s+where\s+[`"]?(?:order_details|order_transactions|refund_transactions)[`"]?\.[`"]?order_id[`"]?\s+(?:in\s*\(|=\s*\?)/i', $statement) === 1) {
+        $byTheKeyOfARowAlreadyRead = '/from\s+[`"]?(?:order_details|order_transactions|refund_transactions)[`"]?\s+where\s+[`"]?(?:order_details|order_transactions|refund_transactions)[`"]?\.[`"]?order_id[`"]?\s+(?:in\s*\(|=\s*\?)/i';
+        $theOrderOrLineOfARowAlreadyRead = '/from\s+[`"]?(orders|order_details)[`"]?\s+where\s+[`"]?\1[`"]?\.[`"]?id[`"]?\s+in\s*\(\s*\d+(?:\s*,\s*\d+)*\s*\)/i';
+        if (preg_match($byTheKeyOfARowAlreadyRead, $statement) === 1 || preg_match($theOrderOrLineOfARowAlreadyRead, $statement) === 1) {
             return false;
         }
 

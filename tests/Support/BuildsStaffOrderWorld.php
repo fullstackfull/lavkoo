@@ -292,6 +292,23 @@ trait BuildsStaffOrderWorld
         }
     }
 
+    /** The graphs and reports group by the date parts MySQL names (YEAR, MONTH, DAY, DAYNAME, DAYOFWEEK, DATE_FORMAT): SQLite has none of them. */
+    protected function teachSqliteTheDateFunctionsOfMysql(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            return;
+        }
+
+        $pdo = DB::connection()->getPdo();
+        $part = static fn (string $format): \Closure => static fn (?string $date): int|string|null => $date === null ? null : (ctype_alpha($format) && strlen($format) === 1 && in_array($format, ['Y', 'n', 'j', 'w'], true) ? (int) date($format, strtotime($date)) : date($format, strtotime($date)));
+        $pdo->sqliteCreateFunction('YEAR', $part('Y'), 1);
+        $pdo->sqliteCreateFunction('MONTH', $part('n'), 1);
+        $pdo->sqliteCreateFunction('DAY', $part('j'), 1);
+        $pdo->sqliteCreateFunction('DAYNAME', $part('l'), 1);
+        $pdo->sqliteCreateFunction('DAYOFWEEK', static fn (?string $date): ?int => $date === null ? null : (int) date('w', strtotime($date)) + 1, 1);
+        $pdo->sqliteCreateFunction('DATE_FORMAT', static fn (?string $date, string $format): ?string => $date === null ? null : date(strtr($format, ['%Y' => 'Y', '%y' => 'y', '%m' => 'm', '%d' => 'd', '%M' => 'F', '%D' => 'jS', '%W' => 'l', '%b' => 'M', '%a' => 'D', '%e' => 'j', '%H' => 'H', '%i' => 'i', '%s' => 's']), strtotime($date)), 2);
+    }
+
     /** The roles of the employees who work with orders and the POS: the master admin and the catalog employees of BuildsStaffScopeWorld have none of these modules. */
     private function addStaffOrderRoles(): void
     {

@@ -4,14 +4,25 @@ namespace App\Services\Staff;
 
 use App\Enums\SessionKey;
 use App\Http\Controllers\Admin\Customer\CustomerController;
+use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\Deliveryman\DeliveryManController;
+use App\Http\Controllers\Admin\ExpenseTransactionReportController;
+use App\Http\Controllers\Admin\InhouseProductSaleController;
 use App\Http\Controllers\Admin\Order\DeliverySyriaDispatchController;
 use App\Http\Controllers\Admin\Order\OrderController;
 use App\Http\Controllers\Admin\Order\OrderEditController;
 use App\Http\Controllers\Admin\Order\RefundController;
 use App\Http\Controllers\Admin\POS\CartController;
 use App\Http\Controllers\Admin\POS\POSController;
+use App\Http\Controllers\Admin\OrderReportController;
 use App\Http\Controllers\Admin\POS\POSOrderController;
+use App\Http\Controllers\Admin\ProductReportController;
+use App\Http\Controllers\Admin\ProductStockReportController;
+use App\Http\Controllers\Admin\ProductWishlistReportController;
+use App\Http\Controllers\Admin\Report\RefundTransactionController;
+use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Admin\TransactionReportController;
+use App\Http\Controllers\Admin\VendorProductSaleReportController;
 use App\Http\Controllers\Admin\Vendor\VendorController;
 use App\Services\OrderEditService;
 use Illuminate\Http\Request;
@@ -166,6 +177,63 @@ final class StaffOrderRoutes
             'withdrawStatus' => ['none'],
             'loadMoreStores' => ['none'],
             'destroy' => ['none'],
+        ],
+        DashboardController::class => [
+            'index' => ['list:orders', 'list:order_lines', 'list:order_transactions', 'list:refunds'],
+            'getOrderStatus' => ['list:orders'],
+            'getEarningStatistics' => ['list:order_transactions'],
+            'getOrderStatistics' => ['list:orders'],
+            'getRealTimeActivities' => ['list:orders'],
+        ],
+        OrderReportController::class => [
+            'order_list' => ['list:orders'],
+            'orderReportExportExcel' => ['list:orders'],
+            'exportOrderReportInPDF' => ['list:orders'],
+        ],
+        ReportController::class => [
+            'admin_earning' => ['list:orders', 'list:order_transactions', 'list:refund_transactions'],
+            'exportAdminEarning' => ['list:orders', 'list:order_transactions', 'list:refund_transactions'],
+            'admin_earning_duration_download_pdf' => ['list:orders', 'list:order_transactions', 'list:refund_transactions'],
+            'vendorEarning' => ['unavailable'],
+            'exportVendorEarning' => ['list:orders', 'list:order_transactions', 'list:refund_transactions'],
+            'set_date' => ['none'],
+        ],
+        TransactionReportController::class => [
+            'order_transaction_list' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
+            'pdf_order_wise_transaction' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
+            'orderTransactionExportExcel' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
+            'order_transaction_summary_pdf' => ['list:orders', 'list:order_lines', 'list:order_transactions'],
+            'wallet_bonus' => ['none'],
+        ],
+        ExpenseTransactionReportController::class => [
+            'getExpenseTransactionList' => ['list:orders', 'list:order_transactions'],
+            'generateOrderWiseExpenseTransactionPdf' => ['list:orders', 'list:order_transactions'],
+            'expenseTransactionExportExcel' => ['list:orders', 'list:order_transactions'],
+            'generateExpenseTransactionSummaryPDF' => ['list:orders', 'list:order_transactions'],
+        ],
+        RefundTransactionController::class => [
+            'index' => ['list:refund_transactions'],
+            'exportRefundTransaction' => ['list:refund_transactions'],
+            'getRefundTransactionPDF' => ['list:refund_transactions'],
+        ],
+        VendorProductSaleReportController::class => [
+            'vendorReport' => ['list:orders', 'list:order_lines', 'list:refund_transactions'],
+            'exportVendorReport' => ['list:orders', 'list:order_lines', 'list:refund_transactions'],
+        ],
+        ProductReportController::class => [
+            'all_product' => ['list:order_lines'],
+            'allProductExportExcel' => ['list:order_lines'],
+        ],
+        ProductStockReportController::class => [
+            'index' => ['none'],
+            'export' => ['none'],
+        ],
+        ProductWishlistReportController::class => [
+            'index' => ['none'],
+            'export' => ['none'],
+        ],
+        InhouseProductSaleController::class => [
+            'index' => ['list:order_lines'],
         ],
     ];
 

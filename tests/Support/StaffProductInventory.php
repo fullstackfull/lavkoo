@@ -172,36 +172,36 @@ final class StaffProductInventory
             'reason' => 'Places a POS order only when every product of the cart is the employee\'s, and reads a POS order by id. Every action has a rule in StaffOrderRoutes.',
         ],
         DashboardController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'Counters of products, stock and restock requests across every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The counters of products, stock and restock requests, and the top lists of products, narrowed to the employee\'s countries (the request is bound). Every action has a rule in StaffOrderRoutes.',
         ],
         ReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The earning and product counts of the reports are not split by country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The earning and product counts of the reports are narrowed to the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         ProductReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The all-products report and its export list every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The all-products report and its export list the products of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         ProductStockReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The stock report and its export list every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The stock report and its export list the products of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         ProductWishlistReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The wishlist report and its export list every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The wishlist report and its export list the products of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         InhouseProductSaleController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The in-house sales report lists every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The in-house sales report lists the in-house products of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         TransactionReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The transaction report counts the products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The transaction report counts the products of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         VendorProductSaleReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The vendor sales report lists the products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The vendor sales report lists the products of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         ReviewController::class => [
             'class' => self::OUT, 'slice' => 'slice 5',
@@ -300,6 +300,9 @@ final class StaffProductInventory
         'App\Http\Controllers\Admin\Order\DeliverySyriaDispatchController' => ['slice' => 'slice 2', 'reason' => 'Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Customer\CustomerController' => ['slice' => 'slice 3', 'reason' => 'Lists the orders and refund requests of a customer and counts the orders of each customer (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Deliveryman\DeliveryManController' => ['slice' => 'slice 3', 'reason' => 'Lists the orders, the earnings and the status history of a delivery man (StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\OrderReportController' => ['slice' => 'slice 3', 'reason' => 'The order report sums the orders of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\ExpenseTransactionReportController' => ['slice' => 'slice 3', 'reason' => 'The expense transaction report sums the discounts and delivery expenses of the orders of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\Report\RefundTransactionController' => ['slice' => 'slice 3', 'reason' => 'The refund transaction report lists the money records of the refunds about a line of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
     ];
 
     /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2 and 3, not needed, out */

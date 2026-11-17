@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Utils\Helpers;
 use App\Exports\ProductStockReportExport;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Seller;
@@ -14,6 +15,11 @@ use Rap2hpoutre\FastExcel\FastExcel;
 
 class ProductStockReportController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
+    }
+
     /**
      * Product stock report list show, search & filtering
      * @param Request $request

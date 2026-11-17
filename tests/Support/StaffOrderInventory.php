@@ -102,36 +102,36 @@ final class StaffOrderInventory
             'reason' => 'The orders of a vendor and their export, an order read by its number, the money records of a vendor and the order counts of the list of vendors, in the employee\'s countries. The request is bound for the whole controller, so the product tab of a vendor lists the employee\'s countries too. Every action has a rule in StaffOrderRoutes.',
         ],
         DashboardController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The dashboard counters, earnings and graphs, the top lists and the real-time poller read orders, their money records and wallets of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The counters, earnings and graphs, the top lists and the real-time poller of the dashboard read the orders, lines, money records and refunds of the employee\'s countries. The wallets (the admin wallet, the top vendors by earning, the auction wallet) cannot be told apart by country and are not shown to a restricted employee. Every action has a rule in StaffOrderRoutes.',
         ],
         OrderReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The order report, its totals and its charts sum the orders of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The order report, its totals and its charts sum the orders of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         ReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The earning reports sum the orders, their money records and refunds of every country, and the vendor earning report reads the wallets of the vendors.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The earning reports sum the orders, their money records and refunds of the employee\'s countries, and its export by vendor does the same. The vendor earning report is made of the wallets of the vendors and is unavailable to a restricted employee. Every action has a rule in StaffOrderRoutes.',
         ],
         TransactionReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The order transaction report lists and sums the money records of the orders of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The order transaction report lists and sums the money records of the orders of the employee\'s countries. The wallet bonus tab lists the bonuses of customers\' wallets, which carry no order and no country, and is not narrowed. Every action has a rule in StaffOrderRoutes.',
         ],
         ExpenseTransactionReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The expense transaction report lists and sums the discounts and delivery expenses of the orders of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The expense transaction report lists and sums the discounts and delivery expenses of the orders of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         RefundTransactionController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The refund transaction report lists the money records of the refunds of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The refund transaction report lists the money records of the refunds about a line of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         VendorProductSaleReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The vendor sales report sums the orders and refunds of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The vendor sales report sums the orders, lines and refund money records of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         ProductReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The all-products report sums the sales of the order lines of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The all-products report sums the sales of the order lines of the employee\'s countries, for the products of their countries. Every action has a rule in StaffOrderRoutes.',
         ],
         AnalyticsController::class => [
             'class' => self::OUT, 'slice' => 'slice 3',
@@ -207,7 +207,7 @@ final class StaffOrderInventory
      */
     public const READ_THROUGH_SERVICES = [
         'App\Http\Controllers\Admin\AdvancedSearchController' => ['slice' => 'slice 3', 'reason' => 'The header search of the classic layout finds an order by its number through AdvancedSearchService, whichever country it is in.'],
-        'App\Http\Controllers\Admin\InhouseProductSaleController' => ['slice' => 'slice 3', 'reason' => 'The in-house sales report counts the sales of the order lines of every country through the product repository.'],
+        'App\Http\Controllers\Admin\InhouseProductSaleController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The in-house sales report counts the sales of the order lines of the employee\'s countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Customer\CustomerWalletController' => ['slice' => 'owner', 'reason' => 'The wallet report and the wallet transactions of the customers carry no order and no country, so they cannot be told apart by country.'],
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['slice' => 'owner', 'reason' => 'The loyalty point transactions carry no order and no country, so they cannot be told apart by country.'],
         'App\Http\Controllers\Admin\Marketplace\SellerScorecardController' => ['slice' => 'slice 5', 'reason' => 'The scorecard of a seller is made of its orders of every country, through SellerScorecardService.'],
@@ -223,6 +223,8 @@ final class StaffOrderInventory
      */
     public const SCOPED_WITHOUT_ORDER_READS = [
         'App\Http\Controllers\Admin\POS\CartController' => ['slice' => 'slice 2', 'reason' => 'The POS cart takes, prices and counts a product by id and reads no order (StaffOrderRoutes).'],
+        'App\Http\Controllers\Admin\ProductStockReportController' => ['slice' => 'slice 3', 'reason' => 'The stock report and its export list the products of the employee\'s countries and read no order (StaffOrderRoutes).'],
+        'App\Http\Controllers\Admin\ProductWishlistReportController' => ['slice' => 'slice 3', 'reason' => 'The wishlist report and its export list the products of the employee\'s countries and read no order (StaffOrderRoutes).'],
     ];
 
     /** @return array<string, int> how many controllers there are of each status: scoped in slice 2, scoped in slice 3, not needed, out */

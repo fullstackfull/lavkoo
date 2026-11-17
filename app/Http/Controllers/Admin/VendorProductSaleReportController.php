@@ -7,6 +7,7 @@ use App\Enums\ExportFileNames\Admin\Report;
 use App\Exports\VendorReportExport;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\DeliveryMan;
 use App\Models\RefundTransaction;
 use App\Models\Order;
@@ -26,6 +27,7 @@ class VendorProductSaleReportController extends Controller
         private readonly VendorRepositoryInterface $vendorRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function vendorReport(Request $request): ViewResponse
