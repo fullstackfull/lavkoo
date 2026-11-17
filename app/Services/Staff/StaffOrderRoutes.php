@@ -21,10 +21,13 @@ use App\Http\Controllers\Admin\ProductStockReportController;
 use App\Http\Controllers\Admin\ProductWishlistReportController;
 use App\Http\Controllers\Admin\Report\RefundTransactionController;
 use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Admin\Telemetry\AnalyticsController;
 use App\Http\Controllers\Admin\TransactionReportController;
 use App\Http\Controllers\Admin\VendorProductSaleReportController;
 use App\Http\Controllers\Admin\Vendor\VendorController;
 use App\Services\OrderEditService;
+use Modules\TaxModule\app\Http\Controllers\Admin\Reports\AdminTaxReportController;
+use Modules\TaxModule\app\Http\Controllers\Admin\Reports\VendorTaxReportController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Session;
 
@@ -234,6 +237,26 @@ final class StaffOrderRoutes
         ],
         InhouseProductSaleController::class => [
             'index' => ['list:order_lines'],
+        ],
+        AdminTaxReportController::class => [
+            'getTaxReport' => ['list:orders', 'list:order_transactions'],
+            'getTaxDetails' => ['list:orders', 'list:order_transactions'],
+            'adminTaxDetailsExport' => ['list:orders', 'list:order_transactions'],
+            'adminTaxReportExport' => ['list:orders', 'list:order_transactions'],
+        ],
+        VendorTaxReportController::class => [
+            'vendorWiseTaxes' => ['list:orders', 'list:order_transactions'],
+            'vendorWiseTaxExport' => ['list:orders', 'list:order_transactions'],
+            'vendorTax' => ['list:orders', 'list:order_transactions'],
+            'vendorTaxExport' => ['list:orders', 'list:order_transactions'],
+        ],
+        AnalyticsController::class => [
+            'index' => ['unavailable'],
+            'live' => ['unavailable'],
+            'export' => ['unavailable'],
+            'campaignQr' => ['unavailable'],
+            'storeCampaign' => ['unavailable'],
+            'toggleCampaign' => ['unavailable'],
         ],
     ];
 

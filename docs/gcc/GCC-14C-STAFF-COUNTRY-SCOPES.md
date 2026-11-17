@@ -337,6 +337,13 @@ The rules of the screens of slice 3:
 | `GET admin/dashboard/earning-statistics` | `DashboardController::getEarningStatistics` | `list:order_transactions` | none |
 | `GET admin/dashboard/order-statistics` | `DashboardController::getOrderStatistics` | `list:orders` | none |
 | `GET admin/dashboard/real-time-activities` | `DashboardController::getRealTimeActivities` | `list:orders` | none |
+| `GET admin/analytics` | `AnalyticsController::index` | `unavailable` | module:reports |
+| `GET admin/analytics/live-feed` | `AnalyticsController::live` | `unavailable` | module:reports |
+| `GET admin/analytics/export/{dimension}` | `AnalyticsController::export` | `unavailable` | module:reports |
+| `GET admin/analytics/campaign/{id}/qr` | `AnalyticsController::campaignQr` | `unavailable` | module:reports |
+| `POST admin/analytics/campaign` | `AnalyticsController::storeCampaign` | `unavailable` | module:reports |
+| `POST admin/analytics/campaign/{id}/toggle` | `AnalyticsController::toggleCampaign` | `unavailable` | module:reports |
+| `GET admin/analytics/{section}` | `AnalyticsController::index` | `unavailable` | module:reports |
 | `GET admin/customer/list` | `CustomerController::index` | `list:orders` | module:people |
 | `GET admin/customer/view/{user_id}` | `CustomerController::getView` | `list:orders` + `list:refunds` | module:people |
 | `GET admin/customer/order-list-export/{user_id}` | `CustomerController::exportOrderList` | `list:orders` | module:people |
@@ -414,6 +421,14 @@ The rules of the screens of slice 3:
 | `GET admin/delivery-man/ajax-order-status-history/{order}` | `DeliveryManController::getOrderStatusHistory` | `order.route:order` | module:people |
 | `GET admin/business-settings/customer-settings` | `CustomerController::getCustomerSettingsView` | `none` | module:business_settings |
 | `POST admin/business-settings/customer-settings` | `CustomerController::updateCustomer` | `none` | module:business_settings |
+| `GET admin/report/get-tax-report` | `AdminTaxReportController::getTaxReport` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/get-tax-details` | `AdminTaxReportController::getTaxDetails` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/tax-details-report-export` | `AdminTaxReportController::adminTaxDetailsExport` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/admin-tax-report-export` | `AdminTaxReportController::adminTaxReportExport` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/vendor-wise-taxes` | `VendorTaxReportController::vendorWiseTaxes` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/vendor-wise-taxes-export` | `VendorTaxReportController::vendorWiseTaxExport` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/vendor-tax-report` | `VendorTaxReportController::vendorTax` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/vendor-tax-export` | `VendorTaxReportController::vendorTaxExport` | `list:orders` + `list:order_transactions` | none |
 <!-- slice-3-rules-end -->
 
 ## The survey: every admin route that reads products or names one
@@ -564,14 +579,16 @@ still an admin controller, nothing more), with what is done about them:
 
 | Controller | Status | Why it is not seen by the scan |
 |---|---|---|
-| `Admin\AdvancedSearchController` | out of slice 3 (slice 3) | The header search of the classic layout finds products of every country through AdvancedSearchService. |
-| `Admin\V2AdvancedSearchController` | out of slice 3 (slice 3) | The header search of the new layout finds products of every country through the same service. |
+| `Admin\AdvancedSearchController` | scoped in slice 3 | The header search of the classic layout finds a product only when it is one of the employee's countries' (StaffSearchHits), with no middleware: it fills a cache every employee shares. |
+| `Admin\V2AdvancedSearchController` | scoped in slice 3 | The header search of the new layout is the same search (StaffSearchHits). |
 | `Admin\Commerce\CollectionController` | out of slice 3 (slice 4) | The preview of a collection resolves its products through CollectionResolver. |
 | `Admin\Order\RefundController` | scoped in slice 2 | A refund request follows the country of the product of the order line it is about. The refund lists, their exports, the details and the decision on a request go through the scope of the refund requests and the rules of StaffOrderRoutes. |
-| `Admin\Telemetry\AnalyticsController` | out of slice 3 (slice 3) | The analytics export by product counts the products of every country. |
+| `Admin\Telemetry\AnalyticsController` | scoped in slice 3 | The analytics export by product counts the products of every country, so it is unavailable to a restricted employee (StaffOrderRoutes). |
 | `Admin\Order\DeliverySyriaDispatchController` | scoped in slice 2 | Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product. |
 | `Admin\Customer\CustomerController` | scoped in slice 3 | Lists the orders and refund requests of a customer and counts the orders of each customer (StaffOrderRoutes). It reads no product. |
 | `Admin\Deliveryman\DeliveryManController` | scoped in slice 3 | Lists the orders, the earnings and the status history of a delivery man (StaffOrderRoutes). It reads no product. |
+| `Modules\TaxModule\Admin\Reports\AdminTaxReportController` | scoped in slice 3 | The tax report sums the taxes of the orders of the employee's countries (StaffOrderRoutes). It reads no product. |
+| `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | scoped in slice 3 | The vendor tax reports sum the orders and taxes of the employee's countries (StaffOrderRoutes). They read no product. |
 | `Admin\OrderReportController` | scoped in slice 3 | The order report sums the orders of the employee's countries (StaffOrderRoutes). It reads no product. |
 | `Admin\ExpenseTransactionReportController` | scoped in slice 3 | The expense transaction report sums the discounts and delivery expenses of the orders of the employee's countries (StaffOrderRoutes). It reads no product. |
 | `Admin\Report\RefundTransactionController` | scoped in slice 3 | The refund transaction report lists the money records of the refunds about a line of the employee's countries (StaffOrderRoutes). It reads no product. |
@@ -584,8 +601,8 @@ It walks the real route table and fails for an admin controller that reads any o
 The scan reads the models, the repositories, the tables, the relations, the services that hold the sums, the wallets, and an order id in a request, in the source of each action and
 in the file of each controller. The scoped controllers are exactly the ones that have rules in `StaffOrderRoutes`, and a test keeps this document in step.
 
-**33 controllers: 6 scoped in slice 2, 11 scoped in slice 3, 4 not needed, 12 out of slice 3.**
-**113 routes read or name an order: 35 scoped in slice 2, 46 scoped in slice 3, 13 not needed, 19 out of slice 3.**
+**33 controllers: 6 scoped in slice 2, 15 scoped in slice 3, 4 not needed, 8 out of slice 3.**
+**113 routes read or name an order: 35 scoped in slice 2, 49 scoped in slice 3, 13 not needed, 16 out of slice 3.**
 
 | Slice | What it takes |
 |---|---|
@@ -614,10 +631,10 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Report\RefundTransactionController` | 3 | 3 | scoped in slice 3 | The refund transaction report lists the money records of the refunds about a line of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\VendorProductSaleReportController` | 2 | 2 | scoped in slice 3 | The vendor sales report sums the orders, lines and refund money records of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\ProductReportController` | 2 | 2 | scoped in slice 3 | The all-products report sums the sales of the order lines of the employee's countries, for the products of their countries. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Telemetry\AnalyticsController` | 7 | 1 | out of slice 3 (slice 3) | The analytics export by product counts the revenue of the order lines of every country. |
-| `Modules\TaxModule\Admin\Reports\AdminTaxReportController` | 4 | 0 | out of slice 3 (slice 3) | The tax report sums the taxes of the orders of every country. |
-| `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | 4 | 2 | out of slice 3 (slice 3) | The vendor tax reports sum the orders and taxes of every country. |
-| `Admin\V2AdvancedSearchController` | 1 | 0 | out of slice 3 (slice 3) | The header search of the new layout finds an order by its number, whichever country it is in. |
+| `Admin\Telemetry\AnalyticsController` | 7 | 1 | scoped in slice 3 | The analytics screens count visits, orders and revenue from rollups that carry no country of the shop, so they cannot be told apart by country: every action is unavailable to a restricted employee until the owner decides what they may see. Every action has a rule in StaffOrderRoutes. |
+| `Modules\TaxModule\Admin\Reports\AdminTaxReportController` | 4 | 0 | scoped in slice 3 | The tax report and its details and exports sum the taxes of the money records of the orders of the employee's countries. Every action has a rule in StaffOrderRoutes. |
+| `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | 4 | 2 | scoped in slice 3 | The vendor tax reports and their exports sum the orders and taxes of the employee's countries; the raw sum over the orders table is narrowed by the same rule. Every action has a rule in StaffOrderRoutes. |
+| `Admin\V2AdvancedSearchController` | 1 | 0 | scoped in slice 3 | The header search of the new layout finds an order or a refund request by its number only when it is the employee's, and a product only when it is one of their countries'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits). |
 | `Admin\Product\ProductController` | 38 | 2 | not needed | Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order. |
 | `Admin\Settings\BusinessSettingsController` | 15 | 2 | not needed | The refund setup page is a setting of the shop. It reads no order. |
 | `Admin\Settings\OrderSettingsController` | 2 | 2 | not needed | The order settings page is a setting of the shop. It reads no order. |
@@ -646,6 +663,10 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Report\RefundTransactionController` | `GET admin/report/transaction/refund-transaction-list`<br>`GET admin/report/transaction/refund-transaction-export`<br>`GET admin/report/transaction/refund-transaction-summary-pdf` |
 | `Admin\VendorProductSaleReportController` | `GET admin/report/vendor-report`<br>`GET admin/report/vendor-report-export` |
 | `Admin\ProductReportController` | `GET admin/report/all-product`<br>`GET admin/report/all-product-excel` |
+| `Admin\Telemetry\AnalyticsController` | `GET admin/analytics/export/{dimension}` |
+| `Modules\TaxModule\Admin\Reports\AdminTaxReportController` |  |
+| `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | `GET admin/report/vendor-tax-report`<br>`GET admin/report/vendor-tax-export` |
+| `Admin\V2AdvancedSearchController` |  |
 
 ### Routes that read or name an order, of the controllers that are not needed
 
@@ -662,10 +683,6 @@ A restricted employee who has the permission of one of these screens still sees 
 
 | Controller | Routes that read or name an order |
 |---|---|
-| `Admin\Telemetry\AnalyticsController` | `GET admin/analytics/export/{dimension}` |
-| `Modules\TaxModule\Admin\Reports\AdminTaxReportController` |  |
-| `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | `GET admin/report/vendor-tax-report`<br>`GET admin/report/vendor-tax-export` |
-| `Admin\V2AdvancedSearchController` |  |
 | `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
 | `Admin\Marketplace\FulfillmentController` | `GET admin/marketplace/fulfillments`<br>`POST admin/marketplace/fulfillments` |
 | `Admin\Marketplace\ReturnLogisticsController` | `POST admin/marketplace/returns` |
@@ -683,7 +700,7 @@ fails the day one reaches it.
 
 | Controller | Status | Why it is not seen by the scan |
 |---|---|---|
-| `Admin\AdvancedSearchController` | out of slice 3 (slice 3) | The header search of the classic layout finds an order by its number through AdvancedSearchService, whichever country it is in. |
+| `Admin\AdvancedSearchController` | scoped in slice 3 | The header search of the classic layout is the same search as the new one (StaffSearchHits): an order or a refund request is found only when it is the employee's, with no middleware. |
 | `Admin\InhouseProductSaleController` | scoped in slice 3 | The in-house sales report counts the sales of the order lines of the employee's countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerWalletController` | out of slice 3 (owner) | The wallet report and the wallet transactions of the customers carry no order and no country, so they cannot be told apart by country. |
 | `Admin\Customer\CustomerLoyaltyController` | out of slice 3 (owner) | The loyalty point transactions carry no order and no country, so they cannot be told apart by country. |

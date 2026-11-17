@@ -284,11 +284,11 @@ final class StaffProductInventory
      * @var array<class-string, array{slice: string, reason: string, class?: string}>
      */
     public const READ_THROUGH_SERVICES = [
-        'App\Http\Controllers\Admin\AdvancedSearchController' => ['slice' => 'slice 3', 'reason' => 'The header search of the classic layout finds products of every country through AdvancedSearchService.'],
-        'App\Http\Controllers\Admin\V2AdvancedSearchController' => ['slice' => 'slice 3', 'reason' => 'The header search of the new layout finds products of every country through the same service.'],
+        'App\Http\Controllers\Admin\AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the classic layout finds a product only when it is one of the employee\'s countries\' (StaffSearchHits), with no middleware: it fills a cache every employee shares.'],
+        'App\Http\Controllers\Admin\V2AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the new layout is the same search (StaffSearchHits).'],
         'App\Http\Controllers\Admin\Commerce\CollectionController' => ['slice' => 'slice 4', 'reason' => 'The preview of a collection resolves its products through CollectionResolver.'],
         'App\Http\Controllers\Admin\Order\RefundController' => ['class' => self::SCOPED, 'slice' => 'slice 2', 'reason' => 'A refund request follows the country of the product of the order line it is about. The refund lists, their exports, the details and the decision on a request go through the scope of the refund requests and the rules of StaffOrderRoutes.'],
-        'App\Http\Controllers\Admin\Telemetry\AnalyticsController' => ['slice' => 'slice 3', 'reason' => 'The analytics export by product counts the products of every country.'],
+        'App\Http\Controllers\Admin\Telemetry\AnalyticsController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The analytics export by product counts the products of every country, so it is unavailable to a restricted employee (StaffOrderRoutes).'],
     ];
 
     /**
@@ -300,6 +300,8 @@ final class StaffProductInventory
         'App\Http\Controllers\Admin\Order\DeliverySyriaDispatchController' => ['slice' => 'slice 2', 'reason' => 'Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Customer\CustomerController' => ['slice' => 'slice 3', 'reason' => 'Lists the orders and refund requests of a customer and counts the orders of each customer (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Deliveryman\DeliveryManController' => ['slice' => 'slice 3', 'reason' => 'Lists the orders, the earnings and the status history of a delivery man (StaffOrderRoutes). It reads no product.'],
+        'Modules\TaxModule\app\Http\Controllers\Admin\Reports\AdminTaxReportController' => ['slice' => 'slice 3', 'reason' => 'The tax report sums the taxes of the orders of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
+        'Modules\TaxModule\app\Http\Controllers\Admin\Reports\VendorTaxReportController' => ['slice' => 'slice 3', 'reason' => 'The vendor tax reports sum the orders and taxes of the employee\'s countries (StaffOrderRoutes). They read no product.'],
         'App\Http\Controllers\Admin\OrderReportController' => ['slice' => 'slice 3', 'reason' => 'The order report sums the orders of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\ExpenseTransactionReportController' => ['slice' => 'slice 3', 'reason' => 'The expense transaction report sums the discounts and delivery expenses of the orders of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Report\RefundTransactionController' => ['slice' => 'slice 3', 'reason' => 'The refund transaction report lists the money records of the refunds about a line of the employee\'s countries (StaffOrderRoutes). It reads no product.'],

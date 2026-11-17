@@ -76,6 +76,7 @@ class StaffOrderRouteInventoryTest extends TestCase
         foreach (StaffOrderInventory::CONTROLLERS as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller . ' is listed without a reason');
             $this->assertContains($entry['class'], [StaffOrderInventory::SCOPED, StaffOrderInventory::NOT_NEEDED, StaffOrderInventory::OUT], $controller);
+            $this->assertTrue(!isset($entry['by']) || $entry['class'] === StaffOrderInventory::SCOPED, $controller . ': only a scoped controller says what narrows it');
             $this->assertSame($entry['class'] === StaffOrderInventory::NOT_NEEDED, $entry['slice'] === null, $controller . ': a controller that needs no scope names no slice');
             if ($entry['class'] === StaffOrderInventory::OUT) {
                 $this->assertArrayHasKey($entry['slice'], StaffOrderInventory::SLICES, $controller . ': the slice that takes it, or the owner');
@@ -99,12 +100,12 @@ class StaffOrderRouteInventoryTest extends TestCase
     {
         $scoped = ['slice 2' => [], 'slice 3' => []];
         foreach (StaffOrderInventory::CONTROLLERS as $controller => $entry) {
-            if ($entry['class'] === StaffOrderInventory::SCOPED) {
+            if ($entry['class'] === StaffOrderInventory::SCOPED && !isset($entry['by'])) {
                 $scoped[$entry['slice']][] = $controller;
             }
         }
         foreach (StaffOrderInventory::READ_THROUGH_SERVICES as $controller => $entry) {
-            if (($entry['class'] ?? null) === StaffOrderInventory::SCOPED) {
+            if (($entry['class'] ?? null) === StaffOrderInventory::SCOPED && !isset($entry['by'])) {
                 $scoped[$entry['slice']][] = $controller;
             }
         }
@@ -136,7 +137,29 @@ class StaffOrderRouteInventoryTest extends TestCase
     public function test_a_controller_that_is_not_listed_as_scoped_has_no_rules_and_so_no_middleware(): void
     {
         foreach (StaffOrderInventory::CONTROLLERS as $controller => $entry) {
-            $this->assertSame($entry['class'] === StaffOrderInventory::SCOPED, StaffOrderRoutes::rulesOf(controller: $controller) !== [], $controller);
+            $hasRules = $entry['class'] === StaffOrderInventory::SCOPED && !isset($entry['by']);
+
+            $this->assertSame($hasRules, StaffOrderRoutes::rulesOf(controller: $controller) !== [], $controller);
+        }
+    }
+
+    public function test_a_controller_scoped_by_its_search_has_no_rules_and_no_middleware_and_says_what_narrows_it(): void
+    {
+        $bySearch = [];
+        foreach ([...StaffOrderInventory::CONTROLLERS, ...StaffOrderInventory::READ_THROUGH_SERVICES, ...\Tests\Support\StaffProductInventory::READ_THROUGH_SERVICES] as $controller => $entry) {
+            if (isset($entry['by'])) {
+                $bySearch[$controller] = $entry;
+            }
+        }
+
+        $names = array_keys($bySearch);
+        sort($names);
+
+        $this->assertSame(['App\Http\Controllers\Admin\AdvancedSearchController', 'App\Http\Controllers\Admin\V2AdvancedSearchController'], $names);
+        foreach ($bySearch as $controller => $entry) {
+            $this->assertSame('the search', $entry['by'], $controller);
+            $this->assertSame([], StaffOrderRoutes::rulesOf(controller: $controller), $controller . ' narrows what it hands back: it registers no middleware (it would narrow the query that fills a cache every employee shares)');
+            $this->assertStringNotContainsString('ScopeOrdersToStaffCountries', (string) file_get_contents((string) (new \ReflectionClass($controller))->getFileName()), $controller);
         }
     }
 

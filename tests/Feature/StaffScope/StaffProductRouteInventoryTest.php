@@ -95,7 +95,7 @@ class StaffProductRouteInventoryTest extends TestCase
             }
         }
         foreach (StaffProductInventory::READ_THROUGH_SERVICES as $controller => $entry) {
-            if (($entry['class'] ?? null) === StaffProductInventory::SCOPED) {
+            if (($entry['class'] ?? null) === StaffProductInventory::SCOPED && !isset($entry['by'])) {
                 $scoped[$entry['slice']][] = $controller;
             }
         }

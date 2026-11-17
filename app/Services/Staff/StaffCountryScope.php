@@ -4,6 +4,7 @@ namespace App\Services\Staff;
 
 use App\Models\Admin;
 use App\Services\Storefront\StorefrontCatalog;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -71,10 +72,21 @@ final class StaffCountryScope
      */
     public function bind(Request $request, ?Admin $admin): ?array
     {
-        $countries = $admin !== null && !$this->isMasterAdmin(roleId: $admin->admin_role_id) && $this->enabled() ? $this->resolve(adminId: (int) $admin->getKey(), roleId: $admin->admin_role_id) : null;
+        $countries = $this->countriesOf(admin: $admin);
         $request->attributes->set(self::REQUEST_ATTRIBUTE, $countries);
 
         return $countries;
+    }
+
+    /**
+     * The countries an employee is restricted to, resolved without binding anything to the request: for what reads shared data that every employee is served from, such as the
+     * search of the header, which must not narrow the query that fills a cache everybody shares and narrows what it hands back instead.
+     *
+     * @return list<string>|null null when the employee is not restricted
+     */
+    public function countriesOf(?Admin $admin): ?array
+    {
+        return $admin !== null && !$this->isMasterAdmin(roleId: $admin->admin_role_id) && $this->enabled() ? $this->resolve(adminId: (int) $admin->getKey(), roleId: $admin->admin_role_id) : null;
     }
 
     /**
@@ -163,6 +175,21 @@ final class StaffCountryScope
         if ($this->restricts()) {
             $request->attributes->set(self::SUBJECTS_ATTRIBUTE, array_values(array_unique([...$this->narrowedSubjects(), ...$subjects])));
         }
+    }
+
+    /**
+     * Narrows a read of the orders that is not made through the model (a sum or a count over the table), as the scope of the orders narrows the model, when the current request is
+     * narrowed for them. A request that is not narrowed gets the query back as it was.
+     */
+    public function narrowRawOrders(QueryBuilder $query, string $orderIdColumn): QueryBuilder
+    {
+        $countries = $this->narrowedCountries(subject: self::SUBJECT_ORDERS);
+
+        if ($countries !== null) {
+            StaffOrderVisibility::constrainOrders(query: $query, orderIdColumn: $orderIdColumn, countries: $countries);
+        }
+
+        return $query;
     }
 
     public function narrows(string $subject): bool

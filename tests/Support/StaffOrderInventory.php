@@ -134,20 +134,20 @@ final class StaffOrderInventory
             'reason' => 'The all-products report sums the sales of the order lines of the employee\'s countries, for the products of their countries. Every action has a rule in StaffOrderRoutes.',
         ],
         AnalyticsController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The analytics export by product counts the revenue of the order lines of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The analytics screens count visits, orders and revenue from rollups that carry no country of the shop, so they cannot be told apart by country: every action is unavailable to a restricted employee until the owner decides what they may see. Every action has a rule in StaffOrderRoutes.',
         ],
         AdminTaxReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The tax report sums the taxes of the orders of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The tax report and its details and exports sum the taxes of the money records of the orders of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         VendorTaxReportController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The vendor tax reports sum the orders and taxes of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 3',
+            'reason' => 'The vendor tax reports and their exports sum the orders and taxes of the employee\'s countries; the raw sum over the orders table is narrowed by the same rule. Every action has a rule in StaffOrderRoutes.',
         ],
         V2AdvancedSearchController::class => [
-            'class' => self::OUT, 'slice' => 'slice 3',
-            'reason' => 'The header search of the new layout finds an order by its number, whichever country it is in.',
+            'class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search',
+            'reason' => 'The header search of the new layout finds an order or a refund request by its number only when it is the employee\'s, and a product only when it is one of their countries\'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits).',
         ],
         ProductController::class => [
             'class' => self::NOT_NEEDED, 'slice' => null,
@@ -206,7 +206,7 @@ final class StaffOrderInventory
      * @var array<class-string, array{slice: string, reason: string, class?: string}>
      */
     public const READ_THROUGH_SERVICES = [
-        'App\Http\Controllers\Admin\AdvancedSearchController' => ['slice' => 'slice 3', 'reason' => 'The header search of the classic layout finds an order by its number through AdvancedSearchService, whichever country it is in.'],
+        'App\Http\Controllers\Admin\AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the classic layout is the same search as the new one (StaffSearchHits): an order or a refund request is found only when it is the employee\'s, with no middleware.'],
         'App\Http\Controllers\Admin\InhouseProductSaleController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The in-house sales report counts the sales of the order lines of the employee\'s countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Customer\CustomerWalletController' => ['slice' => 'owner', 'reason' => 'The wallet report and the wallet transactions of the customers carry no order and no country, so they cannot be told apart by country.'],
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['slice' => 'owner', 'reason' => 'The loyalty point transactions carry no order and no country, so they cannot be told apart by country.'],
