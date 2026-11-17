@@ -226,8 +226,11 @@ class SellerSecurityController extends Controller
         summary: 'Change what somebody may do, or switch them off',
         description: 'A full replacement, as PUT implies and as the vendor panel\'s form does: a '
             . 'request that omits seller_role_id removes the role rather than leaving it alone, so '
-            . 'send the whole member. Switching one off ends the session they are already in rather '
-            . 'than only stopping the next: their token is cleared with their status.',
+            . 'send the whole member. A request that omits status leaves the status as it is. Switching '
+            . 'one off ends the session they are already in rather than only stopping the next: their '
+            . 'token is cleared with their status. Switching one on gives their role its authority '
+            . 'back, so anybody but the owner may only do it for a role that grants nothing they do '
+            . 'not hold themselves.',
         audience: ApiDoc::VENDOR_APP,
         stability: ApiDoc::STABLE,
         since: 'v3',

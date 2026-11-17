@@ -142,7 +142,7 @@ class SellerTeamService
         $attributes = [
             'name' => $input['name'],
             'seller_role_id' => $input['seller_role_id'] ?? null,
-            'status' => $input['status'] ?? SellerStaff::STATUS_ACTIVE,
+            'status' => $input['status'] ?? $staff->status,
         ];
 
         if (!empty($input['password'])) {
@@ -277,12 +277,15 @@ class SellerTeamService
     }
 
     /**
-     * Giving somebody another role hands out that role, and setting somebody's password hands out their account, whatever role it holds: both are held to
-     * what the writer holds. Renaming or switching off a member who holds a richer role takes nothing from the writer and gives nothing to them.
+     * Giving somebody another role hands out that role, setting somebody's password hands out their account, whatever role it holds, and switching
+     * somebody on hands out their role again: all three are held to what the writer holds. Renaming or switching off a member who holds a richer role
+     * takes nothing from the writer and gives nothing to them, and a status that is left out keeps the member's own.
      */
     private function handsOutTheMembersAuthority(SellerStaff $staff, array $input): bool
     {
-        return (int) ($input['seller_role_id'] ?? 0) !== (int) $staff->seller_role_id || !empty($input['password']);
+        $isSwitchedOn = $staff->status !== SellerStaff::STATUS_ACTIVE && ($input['status'] ?? null) === SellerStaff::STATUS_ACTIVE;
+
+        return (int) ($input['seller_role_id'] ?? 0) !== (int) $staff->seller_role_id || !empty($input['password']) || $isSwitchedOn;
     }
 
     /** An owner may hand out anything in the catalogue; so may a caller that names no writer, which is how a test or a job reaches the service. */

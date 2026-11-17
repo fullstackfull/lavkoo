@@ -7,6 +7,7 @@ use App\Models\SellerStaff;
 use App\Services\Marketplace\SellerPermissionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsSellerApiStaff;
 use Tests\TestCase;
 
@@ -92,6 +93,58 @@ class SellerApiSecurityDeskGrantTest extends TestCase
         $this->assertSame(['Renamed accountant', 'inactive', $this->financeRoleId], [$accountant->name, $accountant->status, (int) $accountant->seller_role_id]);
     }
 
+    public function test_a_staff_member_who_manages_staff_cannot_switch_on_a_colleague_who_holds_a_richer_role(): void
+    {
+        $this->theOwnerSwitchesTheAccountantOff();
+
+        $response = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/staff/' . $this->financeColleagueId, $this->staffForm(roleId: $this->financeRoleId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('seller_role_id', $response->json('errors.0.code'));
+        $this->assertSame('inactive', SellerStaff::find($this->financeColleagueId)->status);
+    }
+
+    public function test_saving_a_colleague_who_is_switched_off_without_a_status_leaves_them_switched_off(): void
+    {
+        $this->theOwnerSwitchesTheAccountantOff();
+
+        $response = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/staff/' . $this->financeColleagueId, ['name' => 'accountant (renamed)', 'seller_role_id' => $this->financeRoleId]);
+
+        $accountant = SellerStaff::find($this->financeColleagueId);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['accountant (renamed)', 'inactive'], [$accountant->name, $accountant->status]);
+    }
+
+    public function test_saving_a_colleague_who_is_active_without_a_status_leaves_them_active(): void
+    {
+        $response = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/staff/' . $this->financeColleagueId, ['name' => 'accountant (renamed)', 'seller_role_id' => $this->financeRoleId]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('active', SellerStaff::find($this->financeColleagueId)->status);
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function colleaguesTheManagerMaySwitchOn(): iterable
+    {
+        yield 'a colleague with no role' => ['no_role'];
+        yield 'a colleague whose role grants no more than the manager holds' => ['role_within_the_managers'];
+    }
+
+    #[DataProvider('colleaguesTheManagerMaySwitchOn')]
+    public function test_a_staff_member_who_manages_staff_can_still_switch_on_a_colleague_who_holds_no_more_than_they_do(string $colleague): void
+    {
+        $roleId = $colleague === 'no_role' ? null : $this->insertSellerApiRole(name: 'Team leads', permissions: ['staff.manage']);
+        $colleagueId = DB::table('seller_staff')->insertGetId([
+            'seller_id' => self::SELLER, 'seller_role_id' => $roleId, 'name' => 'former colleague', 'email' => 'former@alpha.test', 'password' => 'former-hash',
+            'status' => 'inactive', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $response = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/staff/' . $colleagueId, ['name' => 'former colleague', 'seller_role_id' => $roleId, 'status' => 'active']);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('active', SellerStaff::find($colleagueId)->status);
+    }
+
     public function test_a_staff_member_who_manages_staff_cannot_set_a_new_password_for_a_colleague_who_holds_a_richer_role(): void
     {
         $response = $this->sellerApiAsStaff($this->managerToken, 'PUT', 'seller-center/security/staff/' . $this->financeColleagueId, [
@@ -155,6 +208,18 @@ class SellerApiSecurityDeskGrantTest extends TestCase
         $this->assertSame($this->everythingRoleId, (int) SellerStaff::where('email', 'newcomer@alpha.test')->value('seller_role_id'));
     }
 
+    public function test_the_owner_still_switches_a_colleague_on_whatever_role_they_hold_but_only_when_the_status_says_so(): void
+    {
+        $this->theOwnerSwitchesTheAccountantOff();
+
+        $renamed = $this->sellerApi('PUT', 'seller-center/security/staff/' . $this->financeColleagueId, ['name' => 'accountant', 'seller_role_id' => $this->financeRoleId]);
+        $statusAfterTheRename = SellerStaff::find($this->financeColleagueId)->status;
+        $switchedOn = $this->sellerApi('PUT', 'seller-center/security/staff/' . $this->financeColleagueId, $this->staffForm(roleId: $this->financeRoleId));
+
+        $this->assertSame([200, 200], [$renamed->getStatusCode(), $switchedOn->getStatusCode()]);
+        $this->assertSame(['inactive', 'active'], [$statusAfterTheRename, SellerStaff::find($this->financeColleagueId)->status]);
+    }
+
     public function test_the_owner_still_takes_every_permission_out_of_a_role_and_sets_a_colleagues_password(): void
     {
         $rewritten = $this->sellerApi('PUT', 'seller-center/security/roles/' . $this->financeRoleId, ['name' => 'Finance', 'permissions' => [], 'status' => 'active']);
@@ -184,6 +249,14 @@ class SellerApiSecurityDeskGrantTest extends TestCase
     }
 
     // ---- helpers ----
+
+    private function theOwnerSwitchesTheAccountantOff(): void
+    {
+        $response = $this->sellerApi('PUT', 'seller-center/security/staff/' . $this->financeColleagueId, ['name' => 'accountant', 'seller_role_id' => $this->financeRoleId, 'status' => 'inactive']);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('inactive', SellerStaff::find($this->financeColleagueId)->status);
+    }
 
     /** @return list<string> */
     private function everyPermission(): array

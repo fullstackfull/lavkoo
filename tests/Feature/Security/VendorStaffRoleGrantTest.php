@@ -7,6 +7,7 @@ use App\Models\SellerStaff;
 use App\Services\Marketplace\SellerPermissionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * The panel handed SellerTeamService no principal ("the panel is the owner's own door, so nothing is withheld"), but the staff middleware lets any
@@ -103,6 +104,51 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
         $this->assertSame(['Renamed accountant', 'inactive', $this->financeRoleId], [$accountant->name, $accountant->status, (int) $accountant->seller_role_id]);
     }
 
+    public function test_a_staff_member_who_manages_staff_cannot_switch_on_a_colleague_who_holds_a_richer_role(): void
+    {
+        $this->theAccountantIsSwitchedOff();
+
+        $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/' . $this->financeColleagueId, $this->staffForm(roleId: $this->financeRoleId))->assertRedirect();
+
+        $this->assertSame(['error'], $this->toastTypes());
+        $this->assertSame('inactive', SellerStaff::find($this->financeColleagueId)->status);
+    }
+
+    public function test_saving_a_colleague_who_is_switched_off_without_a_status_leaves_them_switched_off(): void
+    {
+        $this->theAccountantIsSwitchedOff();
+
+        $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/' . $this->financeColleagueId, [
+            'name' => 'accountant (renamed)', 'seller_role_id' => $this->financeRoleId,
+        ])->assertRedirect();
+
+        $accountant = SellerStaff::find($this->financeColleagueId);
+        $this->assertSame(['success'], $this->toastTypes());
+        $this->assertSame(['accountant (renamed)', 'inactive'], [$accountant->name, $accountant->status]);
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function colleaguesTheManagerMaySwitchOn(): iterable
+    {
+        yield 'a colleague with no role' => ['no_role'];
+        yield 'a colleague whose role grants no more than the manager holds' => ['role_within_the_managers'];
+    }
+
+    #[DataProvider('colleaguesTheManagerMaySwitchOn')]
+    public function test_a_staff_member_who_manages_staff_can_still_switch_on_a_colleague_who_holds_no_more_than_they_do(string $colleague): void
+    {
+        $roleId = $colleague === 'no_role' ? null : $this->insertSellerRole(name: 'Team leads', permissions: ['staff.manage']);
+        $colleagueId = DB::table('seller_staff')->insertGetId([
+            'seller_id' => self::SELLER, 'seller_role_id' => $roleId, 'name' => 'former colleague', 'email' => 'former@alpha.test', 'password' => 'former-hash',
+            'status' => 'inactive', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/' . $colleagueId, ['name' => 'former colleague', 'seller_role_id' => $roleId, 'status' => 'active'])->assertRedirect();
+
+        $this->assertSame(['success'], $this->toastTypes());
+        $this->assertSame('active', SellerStaff::find($colleagueId)->status);
+    }
+
     public function test_a_staff_member_who_manages_staff_cannot_set_a_new_password_for_a_colleague_who_holds_a_richer_role(): void
     {
         $this->signInAsStaff($this->managerId)->put('/vendor/business-settings/staff/' . $this->financeColleagueId, [
@@ -162,6 +208,18 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
         $this->assertTrue(Hash::check(self::PASSWORD, SellerStaff::find($this->financeColleagueId)->password));
     }
 
+    public function test_the_owner_still_switches_a_colleague_on_whatever_role_they_hold_but_only_when_the_status_says_so(): void
+    {
+        $this->theAccountantIsSwitchedOff();
+        $this->signInAs(self::SELLER);
+
+        $this->put('/vendor/business-settings/staff/' . $this->financeColleagueId, ['name' => 'accountant', 'seller_role_id' => $this->financeRoleId])->assertRedirect();
+        $statusAfterTheRename = SellerStaff::find($this->financeColleagueId)->status;
+        $this->put('/vendor/business-settings/staff/' . $this->financeColleagueId, $this->staffForm(roleId: $this->financeRoleId))->assertRedirect();
+
+        $this->assertSame(['inactive', 'active'], [$statusAfterTheRename, SellerStaff::find($this->financeColleagueId)->status]);
+    }
+
     public function test_the_owner_still_hands_out_every_permission(): void
     {
         $this->signInAs(self::SELLER);
@@ -174,6 +232,11 @@ class VendorStaffRoleGrantTest extends VendorPanelTestCase
         $this->assertEqualsCanonicalizing($this->everyPermission(), $this->permissionsOfRoleNamed('Self made'));
         $this->assertEqualsCanonicalizing($this->everyPermission(), $this->permissionsOf(staffId: $this->colleagueId));
         $this->assertSame($this->everythingRoleId, (int)SellerStaff::where('email', 'newcomer@alpha.test')->value('seller_role_id'));
+    }
+
+    private function theAccountantIsSwitchedOff(): void
+    {
+        DB::table('seller_staff')->where('id', $this->financeColleagueId)->update(['status' => 'inactive']);
     }
 
     /** @return list<string> */
