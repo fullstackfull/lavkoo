@@ -24,7 +24,7 @@ class AddonController extends BaseController
      */
     public function index(Request|null $request, ?string $type = null): View
     {
-        $addons = self::getDirectories();
+        $addons = app(AddonService::class)->installedAddonPaths();
         return view('admin-views.system-setup.addons.index', compact('addons'));
     }
 
@@ -100,26 +100,5 @@ class AddonController extends BaseController
         }
 
         return back();
-    }
-
-    function getDirectories(): array
-    {
-        $scan = scandir(base_path('Modules/'));
-        $addonsFolders = array_diff($scan, ['.', '..', '.DS_Store']);
-        $collection = collect($addonsFolders);
-
-        $addonsFolders = $collection->reject(function ($value, $key) {
-            return $value === "doc.txt";
-        });
-        $addons = [];
-
-        foreach ($addonsFolders as $directory) {
-            if (!in_array($directory, ['Blog', 'TaxModule', 'AI'])) {
-                if (file_exists(base_path('Modules/' . $directory . '/Addon/info.php'))) {
-                    $addons[] = 'Modules/' . $directory;
-                }
-            }
-        }
-        return $addons;
     }
 }

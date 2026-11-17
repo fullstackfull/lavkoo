@@ -25,6 +25,7 @@ use App\Models\User;
 use App\Repositories\OrderTransactionRepository;
 use App\Services\DashboardService;
 use App\Traits\FileManagerTrait;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\BackEndHelper;
 use App\Utils\Convert;
 use App\Utils\Helpers;
@@ -43,7 +44,7 @@ use phpDocumentor\Reflection\Types\Boolean;
 
 class SellerController extends Controller
 {
-    use FileManagerTrait;
+    use FileManagerTrait, SellerOwnedRecords;
 
     public function __construct(
         private readonly OrderTransactionRepository $orderTransactionRepo,
@@ -163,6 +164,10 @@ class SellerController extends Controller
     public function shopProductReviewReply(Request $request): JsonResponse
     {
         $seller = $request->seller;
+        if (!Review::whereHas('product', fn ($query) => $query->ofSeller(sellerId: $seller['id']))->whereKey($request['review_id'])->exists()) {
+            return $this->recordNotFound(code: 'review', message: 'review_not_found');
+        }
+
         $review = ReviewReply::where(['review_id' => $request['review_id'], 'added_by' => 'seller', 'added_by_id' => $seller['id']])->first();
         if (!$review) {
             ReviewReply::insert([
@@ -191,11 +196,9 @@ class SellerController extends Controller
     {
         // A review that has since been deleted used to fatal here rather than answer, so the app
         // received a 500 HTML page in place of a JSON error it could show.
-        $review = Review::find($request['id']);
+        $review = Review::whereHas('product', fn ($query) => $query->ofSeller(sellerId: $request->seller['id']))->find($request['id']);
         if (!$review) {
-            return response()->json(['errors' => [
-                ['code' => 'review', 'message' => translate('review_not_found')],
-            ]], 404);
+            return $this->recordNotFound(code: 'review', message: 'review_not_found');
         }
 
         $review->status = $request['status'];
@@ -209,7 +212,7 @@ class SellerController extends Controller
         $seller = $request->seller;
         $data = Seller::with(['wallet'])->withCount(['product', 'orders' => function ($query) use ($seller) {
             $query->where(['seller_id' => $seller['id'], 'seller_is' => ($seller['id'] == 0 ? 'admin' : 'seller')]);
-        }])->find($seller['id']);
+        }])->find($seller['id'])->makeVisible(Seller::OWNER_ONLY_ATTRIBUTES);
 
         $data['free_delivery_features_status'] = getWebConfig(name: 'free_delivery_status');
         $data['free_delivery_responsibility'] = getWebConfig(name: 'free_delivery_responsibility');
@@ -493,13 +496,13 @@ class SellerController extends Controller
         $seller = $request->seller;
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
-        $withdrawRequest = WithdrawRequest::where(['id' => $request['withdraw_request_id']])->first();
-        if ($withdrawRequest) {
+        $withdrawRequest = WithdrawRequest::ofSeller(sellerId: $seller['id'])->find($request['withdraw_request_id']);
+        if ($withdrawRequest && $withdrawRequest['approved'] == 0) {
             $totalEarning = $wallet->total_earning + $withdrawRequest['amount'];
             $pendingWithdraw = $wallet->pending_withdraw - $withdrawRequest['amount'];
 
             if (($totalEarning) >= Convert::usd($request['amount']) && $request['amount'] > 0) {
-                WithdrawRequest::where(['id' => $request['withdraw_request_id']])->update([
+                WithdrawRequest::where(['id' => $withdrawRequest['id']])->update([
                     'seller_id' => $seller['id'],
                     'amount' => Convert::usd($request['amount']),
                     'transaction_note' => null,
@@ -522,7 +525,7 @@ class SellerController extends Controller
     {
         $seller = $request->seller;
 
-        $withdraw_request = WithdrawRequest::find($request['id']);
+        $withdraw_request = WithdrawRequest::ofSeller(sellerId: $seller['id'])->find($request['id']);
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {

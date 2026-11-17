@@ -78,7 +78,7 @@ class SellerInventoryController extends Controller
                 ->where('current_stock', '<=', $threshold)->count(),
             'units_on_hand' => (int) (clone $products)->sum('current_stock'),
             'movements_recorded' => Schema::hasTable('stock_movements')
-                ? StockMovement::where('seller_id', $sellerId)->count()
+                ? StockMovement::ofSeller($sellerId)->count()
                 : 0,
             'reasons' => StockMovement::REASONS,
             'movement_types' => [

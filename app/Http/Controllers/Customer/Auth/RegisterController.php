@@ -112,12 +112,14 @@ class RegisterController extends Controller
             if ($phoneVerification && !$user->is_phone_verified) {
                 $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $user?->phone]);
                 $this->getCustomerVerificationCheck($user, 'phone');
+                $this->customerAuthService->rememberPendingVerification(userId: $user['id']);
                 return response()->json([
                     'redirect_url' => route('customer.auth.check-verification', ['identity' => base64_encode($user['phone']), 'type' => base64_encode('phone_verification')]),
                 ]);
             } else if ($emailVerification && !$user->is_email_verified) {
                 $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $user?->email]);
                 $this->getCustomerVerificationCheck($user, 'email');
+                $this->customerAuthService->rememberPendingVerification(userId: $user['id']);
                 return response()->json([
                     'redirect_url' => route('customer.auth.check-verification', ['identity' => base64_encode($user['email']), 'type' => base64_encode('email_verification')]),
                 ]);
@@ -134,11 +136,13 @@ class RegisterController extends Controller
             if ($phoneVerification && !$user->is_phone_verified) {
                 $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $user?->phone]);
                 $this->getCustomerVerificationCheck($user, 'phone');
+                $this->customerAuthService->rememberPendingVerification(userId: $user['id']);
                 return redirect(route('customer.auth.check-verification', ['identity' => base64_encode($user['phone']), 'type' => base64_encode('phone_verification')]));
             }
             if ($emailVerification && !$user->is_email_verified) {
                 $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $user?->email]);
                 $this->getCustomerVerificationCheck($user, 'email');
+                $this->customerAuthService->rememberPendingVerification(userId: $user['id']);
                 return redirect(route('customer.auth.check-verification', ['identity' => base64_encode($user['email']), 'type' => base64_encode('email_verification')]));
             }
             auth('customer')->login($user);
@@ -188,12 +192,18 @@ class RegisterController extends Controller
         return $response ?? [];
     }
 
-    public function verificationCheckView(Request $request): View
+    public function verificationCheckView(Request $request): View|RedirectResponse
     {
+        $identity = $this->customerAuthService->decodeIdentity(encodedIdentity: $request['identity']);
+        $user = $this->customerRepo->getByIdentity(filters: ['identity' => $identity]);
+        if (!$user || !$this->customerAuthService->hasPendingVerification(userId: $user['id'])) {
+            Toastr::error(translate('invalid_request'));
+            return redirect()->route('customer.auth.login');
+        }
+
         $phoneVerification = getLoginConfig(key: 'phone_verification');
         $emailVerification = getLoginConfig(key: 'email_verification');
 
-        $user = $this->customerRepo->getByIdentity(filters: ['identity' => base64_decode($request['identity'])]);
         $getTime = 0;
         $userVerify = 1;
         $verifyType = '';
@@ -308,6 +318,7 @@ class RegisterController extends Controller
                 $this->customerRepo->updateWhere(params: ['id' => $customer['id']], data: $data);
                 $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $identity]);
                 $customer = $this->customerRepo->getFirstWhere(params: ['id' => $customer['id']]);
+                $this->customerAuthService->forgetPendingVerification(userId: $customer['id']);
                 auth('customer')->login($customer);
                 CustomerManager::updateCustomerSessionData(userId: auth('customer')->id());
                 Toastr::success(translate('verification_done_successfully'));
@@ -414,7 +425,7 @@ class RegisterController extends Controller
         $phone_status = getLoginConfig(key: 'phone_verification');
 
         $user = $this->customerRepo->getFirstWhere(params: ['id' => $request['id']]);
-        $verify = PhoneOrEmailVerification::where(['phone_or_email' => $user['email'], 'token' => $request['token']])->first();
+        $verify = PhoneOrEmailVerification::where(['phone_or_email' => $user['email']])->holdingToken($request['token'])->first();
 
         $maxOTPHit = getWebConfig(name: 'maximum_otp_hit') ?? 5;
         $temp_block_time = getWebConfig(name: 'temporary_block_time') ?? 5; //minute

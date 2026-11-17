@@ -4,10 +4,6 @@ namespace App\Enums\ViewPaths\Vendor;
 
 enum POSOrder
 {
-    const ORDER_DETAILS = [
-        URI => 'order-details',
-        VIEW => 'vendor-views.pos.order.order-details',
-    ];
     const ORDER_PLACE = [
       VIEW => 'vendor-views.pos.order.order-details',
       URI => 'order-place'

@@ -151,6 +151,10 @@ class PaymentMethodController extends BaseController
         collect(['status'])->each(fn($item, $key) => $request[$item] = $request->has($item) ? (int)$request[$item] : 0);
         $settings = $this->settingRepo->getFirstWhere(params: ['key_name' => $request['gateway'], 'settings_type' => 'payment_config']);
         $additionalDataImage = $settings['additional_data'] != null ? json_decode($settings['additional_data']) : null;
+        $request->validate(['gateway_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif']], [
+            'gateway_image.file' => translate('upload_file_must_be_jpeg_jpg_png_gif_webp_format'),
+            'gateway_image.mimes' => translate('upload_file_must_be_jpeg_jpg_png_gif_webp_format'),
+        ]);
         if ($request->has('gateway_image')) {
             $gatewayImage = $this->file_uploader('payment_modules/gateway_image/', 'png', $request['gateway_image'], $additionalDataImage != null ? $additionalDataImage->gateway_image : '');
         } else {

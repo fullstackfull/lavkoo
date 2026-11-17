@@ -92,8 +92,11 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(502, 'Upstream fetch failed');
     }
 
-    $contentType = (string) $response->header('Content-Type');
-    if (!str_starts_with(strtolower($contentType), 'image/')) {
+    // The upstream chooses its own Content-Type, and what is answered here is on the shop's own origin: an SVG is a page that runs script, so only
+    // raster images are proxied, and the answer says it is not to be sniffed into anything else or to run anything.
+    $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+    $rasterImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon'];
+    if (!in_array($contentType, $rasterImageTypes, true)) {
         abort(415, 'Only image responses are proxied');
     }
 
@@ -102,7 +105,12 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(413, 'Image too large');
     }
 
-    return response($body, 200)->header('Content-Type', $contentType);
+    return response($body, 200)->withHeaders([
+        'Content-Type' => $contentType,
+        'X-Content-Type-Options' => 'nosniff',
+        'Content-Security-Policy' => "default-src 'none'; sandbox",
+        'Content-Disposition' => 'inline',
+    ]);
 })->middleware('throttle:30,1');
 
 /*
@@ -190,6 +198,8 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::get('shop-cart', 'shop_cart')->name('shop-cart');
         Route::post('order_note', 'order_note')->name('order_note');
         Route::get('digital-product-download/{id}', 'getDigitalProductDownload')->name('digital-product-download');
+        // The address is signed (relative, so a proxy that changes the scheme or the host cannot break it) and the file's name is its last part, which is what the browser saves it under.
+        Route::get('digital-product-download-file/{id}/{fileName?}', 'getDigitalProductDownloadFile')->middleware('signed:relative')->name('digital-product-download-file');
         Route::post('digital-product-download-otp-verify', 'getDigitalProductDownloadOtpVerify')->name('digital-product-download-otp-verify');
         Route::post('digital-product-download-otp-reset', 'getDigitalProductDownloadOtpReset')->name('digital-product-download-otp-reset');
         Route::get('pay-offline-method-list', 'pay_offline_method_list')->name('pay-offline-method-list')->middleware('guestCheck');

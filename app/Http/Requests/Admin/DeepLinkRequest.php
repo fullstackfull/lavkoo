@@ -14,7 +14,7 @@ class DeepLinkRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'type' => 'nullable|string',
+            'type' => 'nullable|in:app_deep_link',
 
             // ANDROID
             'android_package_name' => [

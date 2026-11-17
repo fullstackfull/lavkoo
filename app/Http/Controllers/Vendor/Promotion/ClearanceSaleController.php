@@ -16,6 +16,7 @@ use App\Services\StockClearanceProductService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -143,6 +144,8 @@ class ClearanceSaleController extends BaseController
         $selectedProducts = $this->productRepo->getListWhere(
             filters: [
                 'productIds' => $request['productIds'],
+                'added_by' => 'seller',
+                'seller_id' => auth('seller')->id(),
             ],
             dataLimit: 'all'
         );
@@ -158,10 +161,18 @@ class ClearanceSaleController extends BaseController
         $clearanceProductLists = $this->productRepo->getListWhere(
             filters: [
                 'productIds' => $request['productIds'],
+                'added_by' => 'seller',
+                'seller_id' => auth('seller')->id(),
             ],
             relations: ['shop'],
             dataLimit: 'all'
         );
+        if ($clearanceProductLists->count() < count(array_unique((array) $request['productIds']))) {
+            return response()->json([
+                'status' => false,
+                'message' => translate('product_not_found')
+            ], 200);
+        }
         $clearanceConfig = $this->stockClearanceSetupRepo->getFirstWhere(params: ['setup_by' => 'vendor', 'user_id' => auth('seller')->id()]);
         foreach ($clearanceProductLists as $key => $clearanceProductList) {
             $stockClearanceProduct = $this->stockClearanceProductRepo->getFirstWhere(params: ['product_id' => $clearanceProductList->id]);
@@ -211,8 +222,16 @@ class ClearanceSaleController extends BaseController
 
     public function updateDiscountAmount(Request $request)
     {
-        $clearanceConfig = $this->stockClearanceSetupRepo->getFirstWhere(params: ['setup_by' => 'admin']);
-        $product = $this->productRepo->getFirstWhere(params: ['id' => $request->get('product_id')]);
+        $stockClearanceProduct = $this->getOwnClearanceProduct(productId: $request['product_id']);
+        if (!$stockClearanceProduct) {
+            return response()->json([
+                'status' => false,
+                'message' => translate('product_not_found')
+            ]);
+        }
+
+        $clearanceConfig = $this->stockClearanceSetupRepo->getFirstWhere(params: ['setup_by' => 'vendor', 'user_id' => auth('seller')->id()]);
+        $product = $this->productRepo->getFirstWhere(params: ['id' => $stockClearanceProduct['product_id'], 'added_by' => 'seller', 'user_id' => auth('seller')->id()]);
         $condition = $this->stockClearanceProductService->checkConditions(request: $request, product: $product, config: $clearanceConfig);
 
         if ($condition['status']) {
@@ -220,7 +239,7 @@ class ClearanceSaleController extends BaseController
                 'discount_amount' => $request['discount_type'] == 'percentage' ? $request['discount_amount'] : currencyConverter(amount: $request['discount_amount']),
                 'discount_type' => $request['discount_type'],
             ];
-            $this->stockClearanceProductRepo->updateByParams(params: ['product_id' => $request['product_id']], data: $dataArray);
+            $this->stockClearanceProductRepo->updateByParams(params: ['id' => $stockClearanceProduct['id']], data: $dataArray);
         }
         return response()->json([
             'status' => $condition['status'],
@@ -230,7 +249,13 @@ class ClearanceSaleController extends BaseController
 
     public function updateProductStatus(Request $request): JsonResponse
     {
-        $stockClearanceProduct = $this->stockClearanceProductRepo->getFirstWhere(params: ['product_id' => $request['product_id']], relations: ['setup']);
+        $stockClearanceProduct = $this->getOwnClearanceProduct(productId: $request['product_id'], relations: ['setup']);
+        if (!$stockClearanceProduct) {
+            return response()->json([
+                'status' => 0,
+                'message' => translate('product_not_found'),
+            ]);
+        }
         if ($request['status'] == 1 && !$this->productService->validateStockClearanceProductDiscount(stockClearanceProduct: $stockClearanceProduct)) {
             return response()->json([
                 'status' => 0,
@@ -239,7 +264,7 @@ class ClearanceSaleController extends BaseController
         }
 
         $this->stockClearanceProductRepo->updateByParams(
-            params: ['product_id' => $request['product_id']],
+            params: ['id' => $stockClearanceProduct['id']],
             data: ['is_active' => $request->get('status', 0)]
         );
 
@@ -251,7 +276,12 @@ class ClearanceSaleController extends BaseController
 
     public function deleteClearanceProduct(string|int $productId): RedirectResponse
     {
-        $this->stockClearanceProductRepo->delete(params: ['product_id' => $productId]);
+        $stockClearanceProduct = $this->getOwnClearanceProduct(productId: $productId);
+        if (!$stockClearanceProduct) {
+            ToastMagic::error(translate('product_not_found'));
+            return back();
+        }
+        $this->stockClearanceProductRepo->delete(params: ['id' => $stockClearanceProduct['id']]);
         ToastMagic::success(translate('stock_clearance_product_removed_successfully'));
         return back();
     }
@@ -261,5 +291,13 @@ class ClearanceSaleController extends BaseController
         $this->stockClearanceProductRepo->delete(params: ['added_by' => 'vendor', 'user_id' => auth('seller')->id()]);
         ToastMagic::success(translate('all_stock_clearance_products_removed_successfully'));
         return back();
+    }
+
+    private function getOwnClearanceProduct(string|int|null $productId, array $relations = []): ?Model
+    {
+        return $this->stockClearanceProductRepo->getFirstWhere(
+            params: ['product_id' => $productId, 'added_by' => 'vendor', 'user_id' => auth('seller')->id()],
+            relations: $relations,
+        );
     }
 }

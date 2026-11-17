@@ -34,7 +34,7 @@ class DigitalProductFileUploadAfterSell extends FormRequest
     {
         return [
             'order_id' => 'required',
-            'digital_file_ready' => [
+            'digital_file_after_sell' => [
                 'required',
                 'file',
                 new DisallowedExtension(),
@@ -50,8 +50,8 @@ class DigitalProductFileUploadAfterSell extends FormRequest
     {
         return [
             'order_id.required' => translate('Order ID is required'),
-            'digital_file_ready.required' => translate('The digital file is required'),
-            'digital_file_ready.mimes' => translate('The digital file format is not supported. Allowed formats: jpg, jpeg, png, gif, zip, pdf.'),
+            'digital_file_after_sell.required' => translate('The digital file is required'),
+            'digital_file_after_sell.mimes' => translate('The digital file format is not supported. Allowed formats: jpg, jpeg, png, gif, zip, pdf.'),
         ];
     }
 

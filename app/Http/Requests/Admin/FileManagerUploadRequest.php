@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Utils\PlainFileName;
+use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 
 
@@ -28,7 +30,11 @@ class FileManagerUploadRequest extends FormRequest
                 'max:' . getFileUploadMaxSize(unit: 'kb'),
             ],
             'file' => 'required_without:images',
-            'path' => 'required',
+            'path' => ['required', 'string', static function (string $attribute, mixed $value, Closure $fail): void {
+                if (!is_string($value) || !PlainFileName::staysInside(path: $value)) {
+                    $fail(translate('the_path_is_not_valid'));
+                }
+            }],
         ];
     }
 

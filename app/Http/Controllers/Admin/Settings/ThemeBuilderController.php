@@ -602,6 +602,13 @@ class ThemeBuilderController extends BaseController
      */
     public function uploadMedia(Request $request): JsonResponse
     {
+        if (config('app.mode') == 'demo') {
+            return $this->fail(translate('you_can_not_update_this_on_demo_mode'));
+        }
+        if (!app(ThemePermissionService::class)->canEdit()) {
+            return $this->fail(translate('you_do_not_have_permission_to_edit_a_theme'));
+        }
+
         $theme = $this->resolveThemeFor($request);
         if (!$theme) {
             return $this->fail(translate('theme_not_found'));

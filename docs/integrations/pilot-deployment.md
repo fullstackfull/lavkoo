@@ -130,7 +130,9 @@ steps 4 and 8.
 
 **What the web server will hand out.** This platform can be served from the application's root directory instead of `public/`
 (`index.php` defines `DOMAIN_POINTED_DIRECTORY = 'root'`), and there any existing file is downloadable by its address: the root
-`.htaccess` only blocks `.env`. Check, from any machine:
+`.htaccess` only blocks the files whose name starts with `.env` (the environment file, and the `.env.tmp` that is written beside it while a settings
+screen replaces it) and the files that end in `.php.tmp` (written in the same way beside the licence configuration and an add-on's `info.php`).
+Check, from any machine:
 
 ```bash
 for path in .env storage/logs/laravel.log composer.json .git/config \

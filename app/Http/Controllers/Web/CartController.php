@@ -62,7 +62,7 @@ class CartController extends Controller
         $discountedUnitPrice = 0;
         $color_name = '';
         $requestQuantity = $request['quantity'];
-        $product = Product::with(['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->where(['id' => $request['id']])->first();
         abort_if(!$product, 404);
@@ -472,7 +472,16 @@ class CartController extends Controller
         ])->first();
 
         if (isset($cart) == false) {
-            $cart = Cart::find($request->id);
+            // The row being changed has to be this customer's own row of this product: its price is taken from the product asked for.
+            $cart = Cart::where([
+                'id' => $request->id,
+                'product_id' => $request['product_id'],
+                'customer_id' => $user == 'offline' ? session('guest_id') : $user->id,
+                'is_guest' => $user == 'offline' ? 1 : '0',
+            ])->first();
+            if (!$cart) {
+                return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+            }
             $cart['color'] = $request->has('color') ? $request['color'] : null;
             $cart['choices'] = json_encode($choices);
 
@@ -591,7 +600,10 @@ class CartController extends Controller
 
     function update_variation(Request $request)
     {
-        $product = Product::where(['id' => $request['product_id']])->first();
+        $product = Product::active()->where(['id' => $request['product_id']])->first();
+        if (!$product) {
+            return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+        }
         if ($product['product_type'] == 'digital') {
             return self::addToCartDigitalProduct($request, $product);
         } else {

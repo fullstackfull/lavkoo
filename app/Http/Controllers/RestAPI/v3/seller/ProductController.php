@@ -35,22 +35,26 @@ use App\Models\Shop;
 use App\Models\StockClearanceProduct;
 use App\Models\Tag;
 use App\Models\Translation;
+use App\Rules\StoredFileNames;
 use App\Repositories\DigitalProductPublishingHouseRepository;
+use App\Services\DigitalProductFileService;
 use App\Services\Marketplace\BrandRegistryService;
+use App\Services\ProductBarcodeSheetService;
 use App\Services\ProductService;
 use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Utils\ProductManager;
-use Barryvdh\DomPDF\PDF;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 class ProductController extends Controller
@@ -59,7 +63,7 @@ class ProductController extends Controller
         delete as deleteFile;
         update as updateFile;
     }
-    use CacheManagerTrait, ProductTrait;
+    use CacheManagerTrait, ProductTrait, SellerOwnedRecords;
     use VatTaxManagement;
 
     public function __construct(
@@ -74,6 +78,7 @@ class ProductController extends Controller
         private readonly ProductService                            $productService,
         private readonly RestockProductRepositoryInterface         $restockProductRepo,
         private readonly RestockProductCustomerRepositoryInterface $restockProductCustomerRepo,
+        private readonly DigitalProductFileService                 $digitalFiles,
     )
     {
     }
@@ -745,7 +750,7 @@ class ProductController extends Controller
     {
         $seller = $request->seller;
         try {
-            $file = $this->fileUpload('product/digital-product/', $request->digital_file_ready->getClientOriginalExtension(), $request->file('digital_file_ready'));
+            $file = $this->digitalFiles->store(file: $request->file('digital_file_ready'));
 
             return response()->json(['digital_file_ready_name' => $file], 200);
         } catch (\Exception $e) {
@@ -753,6 +758,21 @@ class ProductController extends Controller
         }
     }
 
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfProductOfSeller(sellerId: $request->seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    public function downloadDigitalVariationFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfVariationOfSeller(sellerId: $request->seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    private function fileNotFound(): JsonResponse
+    {
+        return response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
+    }
 
     public function deleteDigitalProduct(Request $request): JsonResponse
     {
@@ -763,6 +783,10 @@ class ProductController extends Controller
 
         if ($validator->errors()->count() > 0) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
+        }
+
+        if (!$this->ownsProduct(request: $request, productId: $request['product_id'])) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
         }
 
         $variation = DigitalProductVariation::where(['product_id' => $request['product_id'], 'variant_key' => $request['variant_key']])->first();
@@ -788,8 +812,11 @@ class ProductController extends Controller
             'category_id' => 'required',
             'product_type' => 'required',
             'unit' => 'required_if:product_type,==,physical',
-            'images' => 'required',
-            'thumbnail' => 'required',
+            'images' => ['required', new StoredFileNames()],
+            'thumbnail' => ['required', new StoredFileNames()],
+            'color_image' => [new StoredFileNames()],
+            'digital_file_ready' => [new StoredFileNames()],
+            'meta_image' => [new StoredFileNames()],
             'discount_type' => 'required|in:percent,flat',
             'lang' => 'required',
             'unit_price' => 'required|min:1',
@@ -1162,7 +1189,7 @@ class ProductController extends Controller
                 $fileItem = $request->file('digital_files_' . $uniqueKey);
                 $uploadedFile = '';
                 if ($fileItem) {
-                    $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                    $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                 }
                 $digitalFiles[] = [
                     'product_id' => $product->id,
@@ -1207,7 +1234,10 @@ class ProductController extends Controller
 
     public function edit(Request $request, $id)
     {
-        $product = Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews')->find($id);
+        $product = Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $product = Helpers::product_data_formatting($product);
 
         return response()->json($product, 200);
@@ -1217,7 +1247,10 @@ class ProductController extends Controller
     {
         $storage = config('filesystems.disks.default') ?? 'public';
         $seller = $request->seller;
-        $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->find($id);
+        $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->ofSeller(sellerId: $seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $oldProductData = $product;
         $validator = Validator::make($request->all(), [
             'name' => 'required',
@@ -1231,6 +1264,11 @@ class ProductController extends Controller
             'shipping_cost' => 'required_if:product_type,==,physical|gt:-1',
             'minimum_order_qty' => 'required|numeric|min:1',
             'code' => 'required|min:6|max:20|regex:/^[a-zA-Z0-9]+$/|unique:products,code,' . $product->id,
+            'images' => [new StoredFileNames()],
+            'thumbnail' => [new StoredFileNames()],
+            'color_image' => [new StoredFileNames()],
+            'digital_file_ready' => [new StoredFileNames()],
+            'meta_image' => [new StoredFileNames()],
         ], [
             'name.required' => 'Product name is required!',
             'category_id.required' => 'category  is required!',
@@ -1713,7 +1751,7 @@ class ProductController extends Controller
                     $fileItem = $request->file('digital_files_' . $uniqueKey);
                     $uploadedFile = '';
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     DigitalProductVariation::insert([
                         'product_id' => $product['id'],
@@ -1739,7 +1777,7 @@ class ProductController extends Controller
                     $uploadedFile = $variation['file'] ?? '';
                     $variation = DigitalProductVariation::where(['product_id' => $product['id'], 'variant_key' => $variation['variant_key']])->first();
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     DigitalProductVariation::where(['product_id' => $product['id'], 'variant_key' => $variation['variant_key']])->update([
                         'variant_key' => $getRequestVariationKey[$uniqueKey],
@@ -1804,7 +1842,10 @@ class ProductController extends Controller
 
     public function delete(Request $request, $id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($id);
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         foreach (json_decode($product['images'], true) as $image) {
             $imageName = is_string($image) ? $image : $image['image_name'];
             $this->deleteFile('/product/' . $imageName);
@@ -1818,7 +1859,7 @@ class ProductController extends Controller
         return response()->json(['message' => translate('successfully product deleted!')], 200);
     }
 
-    public function barcode_generate(Request $request): JsonResponse
+    public function barcode_generate(Request $request, ProductBarcodeSheetService $barcodeSheetService): JsonResponse
     {
         $request->validate([
             'id' => 'required',
@@ -1828,17 +1869,17 @@ class ProductController extends Controller
             'quantity.required' => 'Barcode quantity is required',
         ]);
 
-        if ($request['limit'] > 270) {
-            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
+        if ($request['limit'] > 270 || !$barcodeSheetService->isAllowedQuantity(quantity: $request['quantity'])) {
+            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode'], 403);
         }
-        $product = Product::withCount('reviews')->where('id', $request->id)->first();
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->where('id', $request->id)->first();
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $quantity = $request->quantity ?? 30;
 
         if (isset($product->code)) {
-            $pdf = app()->make(PDF::class);
-            $pdf->loadView('vendor-views.product.barcode-pdf', compact('product', 'quantity'));
-            $pdf->save(storage_path('app/public/product/barcode.pdf'));
-            return response()->json(asset('storage/app/public/product/barcode.pdf'));
+            return response()->json($barcodeSheetService->getLink(product: $product, quantity: $quantity));
         } else {
             return response()->json(['message' => translate('Please update product code!')], 203);
         }
@@ -1919,10 +1960,12 @@ class ProductController extends Controller
             ->where(['seller_id' => $seller['id']])
             ->when(!empty($request['search']), function ($query) use ($request) {
                 $key = searchTerms($request['search']);
-                foreach ($key as $value) {
-                    $query->where('f_name', 'like', "%{$value}%")
-                        ->orWhere('l_name', 'like', "%{$value}%");
-                }
+                $query->where(function ($query) use ($key) {
+                    foreach ($key as $value) {
+                        $query->orWhere('f_name', 'like', "%{$value}%")
+                            ->orWhere('l_name', 'like', "%{$value}%");
+                    }
+                });
             })
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 
@@ -1936,7 +1979,10 @@ class ProductController extends Controller
 
     public function review_list(Request $request, $product_id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($product_id);
+        $product = Product::withCount('reviews')->ofSeller(sellerId: $request->seller->id)->find($product_id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $average_rating = count($product->rating) > 0 ? number_format($product->rating[0]->average, 2, '.', ' ') : 0;
         $reviews = Review::with(['customer', 'product', 'reply'])->where(['product_id' => $product_id])
             ->latest('updated_at')
@@ -1996,14 +2042,16 @@ class ProductController extends Controller
         $color_image_arr = [];
         if ($colors && $color_image) {
             foreach ($color_image as $img) {
-                if ($img->color != $request['color'] && $img->image_name != $request['name']) {
+                if (!$this->productService->isRemovedColorImage(entry: $img, color: $request['color'], name: $request['name'])) {
                     $color_image_arr[] = [
                         'color' => $img->color != null ? $img->color : null,
                         'image_name' => $img->image_name,
                         'storage' => $img?->storage ?? 'public',
                     ];
                 } else {
-                    $this->deleteFile('/product/' . $request['name']);
+                    if (is_string($img->image_name ?? null)) {
+                        $this->deleteFile('/product/' . $img->image_name);
+                    }
                     if ($img->color != null) {
                         $color_image_arr[] = [
                             'color' => $img->color,
@@ -2016,10 +2064,10 @@ class ProductController extends Controller
 
         foreach (json_decode($product['images']) as $image) {
             $imageName = $image->image_name ?? $image;
-            if ($imageName != $request['name']) {
+            if ($imageName !== $request['name']) {
                 array_push($array, $image);
             } else {
-                $this->deleteFile('/product/' . $request['name']);
+                $this->deleteFile('/product/' . $imageName);
             }
         }
         $product->update([
@@ -2134,8 +2182,14 @@ class ProductController extends Controller
 
     public function deleteRestockRequest(Request $request): JsonResponse
     {
-        $this->restockProductRepo->delete(params: ['id' => $request['id']]);
-        $this->restockProductCustomerRepo->delete(params: ['restock_product_id' => $request['id']]);
+        // restock_products has no seller column: the request is the seller's when its product is.
+        $restockProduct = $this->restockProductRepo->getFirstWhere(params: ['id' => $request['id']]);
+        if (!$restockProduct || !$this->ownsProduct(request: $request, productId: $restockProduct['product_id'])) {
+            return $this->recordNotFound(code: 'restock_request', message: 'restock_request_not_found');
+        }
+
+        $this->restockProductRepo->delete(params: ['id' => $restockProduct['id']]);
+        $this->restockProductCustomerRepo->delete(params: ['restock_product_id' => $restockProduct['id']]);
         return response()->json([
             'message' => translate('product_restock_removed_successfully')
         ], 200);
@@ -2202,6 +2256,11 @@ class ProductController extends Controller
         return response()->json([
             'brands' => $brands,
         ], 200);
+    }
+
+    private function ownsProduct(Request $request, mixed $productId): bool
+    {
+        return Product::ofSeller(sellerId: $request->seller->id)->whereKey($productId)->exists();
     }
 
     /**

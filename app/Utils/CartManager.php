@@ -29,12 +29,14 @@ class CartManager
             foreach ($cartList as $cart) {
                 $databaseCart = Cart::where([
                     'customer_id' => $user['id'],
+                    'is_guest' => 0,
                     'seller_id' => $cart['seller_id'],
                     'seller_is' => $cart['seller_is']
                 ])->first();
 
                 Cart::where([
                     'customer_id' => $user['id'],
+                    'is_guest' => 0,
                     'product_id' => $cart['product_id'],
                     'variant' => $cart['variant'],
                     'seller_id' => $cart['seller_id'],
@@ -752,11 +754,11 @@ class CartManager
     {
         cacheRemoveByType(type: 'carts');
 
-        $product = Product::with(['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->where(['id' => $request['id']])->first();
 
-        if($product['status'] == 0){
+        if (!$product) {
             return ['status' => 0, 'message' => translate('Product_is_unavailable')];
         }
 
@@ -803,7 +805,9 @@ class CartManager
         $guest_id = session('guest_id') ?? ($request->guest_id ?? 0);
         $status = 1;
         $qty = 0;
-        $cart = Cart::where(['id' => $request->key, 'customer_id' => ($user == 'offline' ? $guest_id : $user['id'])])->first();
+        // Guests and customers count their ids separately, so a number alone names no owner.
+        $ownCarts = ['customer_id' => ($user == 'offline' ? $guest_id : $user['id']), 'is_guest' => ($user == 'offline' ? 1 : 0)];
+        $cart = Cart::where($ownCarts + ['id' => $request->key])->first();
 
         if (!$cart) {
             return [
@@ -873,9 +877,8 @@ class CartManager
         $cart->save();
 
         if ($request['buy_now'] == 1) {
-            Cart::where(['customer_id' => ($user == 'offline' ? $guest_id : $user['id']), 'is_guest' => ($user == 'offline' ? 1 : 0)])
-                ->update(['is_checked' => 0]);
-            Cart::where(['id' => $request->key, 'customer_id' => ($user == 'offline' ? $guest_id : $user['id'])])->update(['is_checked' => 1]);
+            Cart::where($ownCarts)->update(['is_checked' => 0]);
+            Cart::where($ownCarts + ['id' => $request->key])->update(['is_checked' => 1]);
         }
 
         // Analytics: recorded here rather than in the two controllers that call this, because web
