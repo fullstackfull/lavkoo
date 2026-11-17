@@ -166,17 +166,34 @@ class EnvironmentWriterTest extends TestCase
     /** @return array<string, array{0: string, 1: string, 2: string, 3: string}> the file, the key written, the value written, and the file after */
     public static function filesThatAreChangedLineByLine(): array
     {
+        $key = "PRIVATE_KEY=\"-----BEGIN KEY-----\nAAAA\n\nBBBB\n-----END KEY-----\"\n";
+
         return [
-            'lines that end in CRLF' => ["APP_NAME=Shop\r\nAPP_DEBUG=false\r\nDB_PASSWORD=secret\r\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\nDB_PASSWORD=secret\n"],
+            'lines that end in CRLF' => ["APP_NAME=Shop\r\nAPP_DEBUG=false\r\nDB_PASSWORD=secret\r\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\r\nAPP_DEBUG=true\r\nDB_PASSWORD=secret\r\n"],
+            'a key that is added to a file of CRLF lines' => ["APP_NAME=Shop\r\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\r\nAPP_DEBUG=true\r\n"],
             'a key with a character that a pattern reads as its own' => ["AXB=keep\nA.B=old\n", 'A.B', 'new', "AXB=keep\nA.B=new\n"],
             'a key with a parenthesis' => ["A=keep\nA(B=old\n", 'A(B', 'new', "A=keep\nA(B=new\n"],
             'the key in lower case in the file' => ["app_debug=false\nAPP_NAME=Shop\n", 'APP_DEBUG', 'true', "APP_DEBUG=true\nAPP_NAME=Shop\n"],
             'a key that is the start of another key' => ["APP_NAME=Shop\n", 'APP', 'x', "APP_NAME=Shop\nAPP=x\n"],
             'a key that is the end of another key' => ["OTHER_APP_DEBUG=1\n", 'APP_DEBUG', 'true', "OTHER_APP_DEBUG=1\nAPP_DEBUG=true\n"],
             'spaces around the equals sign' => ["APP_DEBUG = false\n", 'APP_DEBUG', 'true', "APP_DEBUG=true\n"],
-            'a comment and blank lines' => ["# the shop\n\nAPP_NAME=Shop\n\n", 'APP_DEBUG', 'true', "# the shop\nAPP_NAME=Shop\nAPP_DEBUG=true\n"],
+            'a comment and blank lines' => ["# the shop\n\nAPP_NAME=Shop\n\n", 'APP_DEBUG', 'true', "# the shop\n\nAPP_NAME=Shop\n\nAPP_DEBUG=true\n"],
+            'a blank line between two variables' => ["APP_NAME=Shop\n\nAPP_DEBUG=false\n", 'APP_DEBUG', 'true', "APP_NAME=Shop\n\nAPP_DEBUG=true\n"],
+            'the indentation and the trailing spaces of another line' => ["  APP_NAME=Shop  \nAPP_DEBUG=false\n", 'APP_DEBUG', 'true', "  APP_NAME=Shop  \nAPP_DEBUG=true\n"],
             'a file without a final line break' => ['APP_NAME=Shop', 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\n"],
+            'a last line that is the key, without a final line break' => ["APP_NAME=Shop\nAPP_DEBUG=false", 'APP_DEBUG', 'true', "APP_NAME=Shop\nAPP_DEBUG=true\n"],
             'an empty file' => ['', 'APP_DEBUG', 'true', "APP_DEBUG=true\n"],
+            // the value of another variable that goes on over several lines is not the writer's to touch
+            'a blank line inside the value of another variable' => ["APP_NAME=Shop\n" . $key, 'APP_MODE', 'live', "APP_NAME=Shop\n" . $key . "APP_MODE=live\n"],
+            'a blank line inside the value of another variable, before the key' => [$key . "APP_MODE=dev\n", 'APP_MODE', 'live', $key . "APP_MODE=live\n"],
+            'a line inside the value of another variable that starts with the key' => ["PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\n", 'APP_MODE', 'live', "PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\nAPP_MODE=live\n"],
+            'a line inside the value of another variable that starts with the key, before the key' => ["PRIVATE_KEY=\"first\napp_mode = inside\nlast\"\nAPP_MODE=dev\n", 'APP_MODE', 'live', "PRIVATE_KEY=\"first\napp_mode = inside\nlast\"\nAPP_MODE=live\n"],
+            'a value whose closing quote is alone on its line' => ["CERT=\"line one\nline two\n\"\nAPP_MODE=dev\n", 'APP_MODE', 'live', "CERT=\"line one\nline two\n\"\nAPP_MODE=live\n"],
+            'a value with an escaped quote that goes on' => ["NOTE=\"say \\\"hi\\\"\n\nAPP_MODE=inside\"\nAPP_NAME=Shop\n", 'APP_MODE', 'live', "NOTE=\"say \\\"hi\\\"\n\nAPP_MODE=inside\"\nAPP_NAME=Shop\nAPP_MODE=live\n"],
+            'lines of CRLF inside a value' => ["CERT=\"one\r\n\r\ntwo\"\r\nAPP_MODE=dev\r\n", 'APP_MODE', 'live', "CERT=\"one\r\n\r\ntwo\"\r\nAPP_MODE=live\r\n"],
+            'a value in quotes that closes on its own line' => ["NAME=\"My Shop\"\n\nAPP_MODE=dev\n", 'APP_MODE', 'live', "NAME=\"My Shop\"\n\nAPP_MODE=live\n"],
+            'a comment that holds a quoted word' => ["# the value is =\"x\" here\n\nAPP_MODE=dev\n", 'APP_MODE', 'live', "# the value is =\"x\" here\n\nAPP_MODE=live\n"],
+            'the key itself holds a value over several lines' => ["APP_MODE=\"one\ntwo\n\nthree\"\nAPP_NAME=Shop\n", 'APP_MODE', 'live', "APP_MODE=live\nAPP_NAME=Shop\n"],
         ];
     }
 
@@ -188,6 +205,34 @@ class EnvironmentWriterTest extends TestCase
         $this->write($key, $value);
 
         $this->assertSame($after, file_get_contents($this->directory . '/.env'));
+    }
+
+    /** @return array<string, array{0: string}> files that the framework reads, with a value that goes on over several lines or lines that look as if one did */
+    public static function filesWhoseVariablesTheFrameworkReads(): array
+    {
+        return [
+            'a value with a blank line inside' => ["APP_NAME=Shop\nPRIVATE_KEY=\"-----BEGIN KEY-----\nAAAA\n\nBBBB\n-----END KEY-----\"\nDB_PASSWORD=secret\n"],
+            'a value with a line that starts with the key' => ["PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\nAPP_MODE=dev\n"],
+            'a value with a line that starts with the key, and no variable of that key' => ["PRIVATE_KEY=\"first\nAPP_MODE=inside\nlast\"\nAPP_NAME=Shop\n"],
+            'a value closed by a line that holds only a quote' => ["CERT=\"line one\n\nline two\n\"\nAPP_MODE=dev\n"],
+            'a value with an escaped quote that goes on' => ["NOTE=\"say \\\"hi\\\"\n\nAPP_MODE=inside\"\nAPP_NAME=Shop\n"],
+            'a value with an escaped backslash before its closing quote' => ["NOTE=\"path\\\\\"\n\nAPP_MODE=dev\n"],
+            'a value in single quotes' => ["JSON='{\"type\": \"service_account\"}'\n\nAPP_MODE=dev\n"],
+            'lines of CRLF with a value that goes on' => ["APP_NAME=Shop\r\nCERT=\"one\r\n\r\ntwo\"\r\nAPP_MODE=dev\r\n"],
+            'comments, blank lines and a variable of the key' => ["# the shop\n\nAPP_NAME=Shop\n\n# the mode\nAPP_MODE=dev\n\n"],
+            'the key itself with a value over several lines' => ["APP_MODE=\"one\ntwo\n\nthree\"\nAPP_NAME=Shop\n"],
+        ];
+    }
+
+    #[DataProvider('filesWhoseVariablesTheFrameworkReads')]
+    public function test_every_variable_but_the_one_written_is_read_back_exactly_as_it_was(string $before): void
+    {
+        file_put_contents($this->directory . '/.env', $before);
+        $readBefore = $this->read();
+
+        $this->write('APP_MODE', 'live');
+
+        $this->assertSame(array_merge($readBefore, ['APP_MODE' => 'live']), $this->read());
     }
 
     // ---- a file the writer cannot write is an error, never a success -------------------------------------------------------------
@@ -394,14 +439,15 @@ class EnvironmentWriterTest extends TestCase
         return $status === 0;
     }
 
-    public function test_the_web_server_hides_the_temporary_file_as_it_hides_the_environment_file(): void
+    public function test_the_web_server_hides_the_temporary_files_as_it_hides_the_environment_file(): void
     {
         $this->assertSame(1, preg_match('/<FilesMatch "([^"]+)">\s*Order allow,deny\s*Deny from all\s*<\/FilesMatch>/', (string) file_get_contents(base_path('.htaccess')), $rule), 'no rule hides a pattern of files');
 
-        foreach (['.env', '.env.tmp'] as $hidden) {
+        // the files that are written beside a PHP file every request includes (the licence configuration, an add-on's info file) are plain text to the web server
+        foreach (['.env', '.env.tmp', 'system-addons.php.tmp', 'info.php.tmp', 'new-messages.php.tmp'] as $hidden) {
             $this->assertSame(1, preg_match('/' . $rule[1] . '/', $hidden), $hidden);
         }
-        foreach (['index.php', '.htaccess', 'sitemap.xml'] as $served) {
+        foreach (['index.php', '.htaccess', 'sitemap.xml', 'system-addons.php', 'info.php', 'archive.tmp'] as $served) {
             $this->assertSame(0, preg_match('/' . $rule[1] . '/', $served), $served);
         }
     }
@@ -431,26 +477,28 @@ class EnvironmentWriterTest extends TestCase
         $this->assertSame($original, file_get_contents($path), 'a write that did not finish cut the file short');
     }
 
-    public function test_a_write_that_fails_halfway_raises_and_leaves_the_old_file_whole(): void
+    public function test_a_write_that_fails_in_the_copy_and_in_place_raises_and_leaves_the_old_file_whole(): void
     {
         $this->skipUnlessTheSizeOfAFileCanBeLimited();
         $path = $this->directory . '/.env';
-        $original = $this->fileLongerThanTheLimit();
+        $original = $this->fileJustUnderTheLimit();
         file_put_contents($path, $original);
 
-        $writer = $this->startPhp(self::LIMIT_THE_SIZE_OF_A_FILE . self::SURVIVE_THE_LIMIT . 'App\\Utils\\EnvironmentFile::set($argv[1], "APP_DEBUG", "true");', $path);
+        // the copy passes the limit and fails, the write in place that follows passes it too, and the old content is put back
+        $writer = $this->startPhp(self::LIMIT_THE_SIZE_OF_A_FILE . self::SURVIVE_THE_LIMIT . 'App\\Utils\\EnvironmentFile::set($argv[1], "APP_DEBUG", str_repeat("x", 300));', $path);
         $error = stream_get_contents($writer['pipes'][2]);
 
         $this->assertNotSame(0, proc_close($writer['process']), 'the writer answered as if it had written');
         $this->assertStringContainsString('cannot be written', $error);
         $this->assertSame($original, file_get_contents($path));
+        $this->assertSame(['.env'], array_values(array_diff(scandir($this->directory), ['.', '..'])), 'a temporary file stayed');
     }
 
     public function test_a_write_in_place_that_fails_halfway_raises_and_puts_the_old_content_back(): void
     {
         $this->skipUnlessTheSizeOfAFileCanBeLimited();
         $path = $this->directory . '/.env';
-        $original = str_repeat("# a comment that keeps the file just under the limit\n", 18) . "APP_KEY=base64:abc\nDB_PASSWORD=secret\n";
+        $original = $this->fileJustUnderTheLimit();
         file_put_contents($path, $original);
         mkdir($path . '.tmp'); // no replacement is possible: the file is written in place, and the new content passes the limit
 
@@ -472,5 +520,11 @@ class EnvironmentWriterTest extends TestCase
     private function fileLongerThanTheLimit(): string
     {
         return str_repeat("# a comment that makes the file longer than the limit\n", 30) . "APP_KEY=base64:abc\nDB_PASSWORD=secret\n";
+    }
+
+    /** A file that fits under the limit, so that the old content can be put back after a write that passes the limit. */
+    private function fileJustUnderTheLimit(): string
+    {
+        return str_repeat("# a comment that keeps the file just under the limit\n", 18) . "APP_KEY=base64:abc\nDB_PASSWORD=secret\n";
     }
 }

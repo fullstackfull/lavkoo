@@ -23,8 +23,8 @@
 #    Header set Access-Control-Allow-Origin "*"
 #</IfModule>
 
-# Hide the environment file and the files written beside it (.env.tmp while it is replaced)
-<FilesMatch "^\.env">
+# Hide the environment file and the files written beside it while they are replaced (.env.tmp, system-addons.php.tmp, info.php.tmp)
+<FilesMatch "^\.env|\.php\.tmp$">
     Order allow,deny
     Deny from all
 </FilesMatch>

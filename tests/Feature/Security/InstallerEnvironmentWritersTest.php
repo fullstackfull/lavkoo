@@ -8,13 +8,15 @@ use Dotenv\Dotenv;
 use Illuminate\Support\Facades\File;
 use RuntimeException;
 use Tests\TestCase;
+use Throwable;
 
 /**
  * The installer and the updater rewrite the whole .env file: the installer merges the database and licence settings into it, and the updater
  * removes the lines that a run of writers left twice. Both read the file, changed it and put it back with file_put_contents(), without the lock
  * the settings screens take, so a write of theirs that overlapped another writer cut the other's lines off (the updater calls the cleanup right
  * after nine locked writes), and the file was empty for any request that read it meanwhile. They write through the same locked, replacing writer
- * as the settings screens now.
+ * as the settings screens now. The licence configuration (config/system-addons.php) is PHP that every request includes, and it was written the
+ * same way: a request that included it while the updater or the licence form wrote it got an empty file.
  */
 class InstallerEnvironmentWritersTest extends TestCase
 {
@@ -179,5 +181,77 @@ class InstallerEnvironmentWritersTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         $this->installer()::updateEnvironmentFile($this->databaseForm());
+    }
+
+    // ---- the licence configuration ----------------------------------------------------------------------------------------------
+
+    private function licenceConfigurationAt(string $directory, array $configuration): string
+    {
+        File::ensureDirectoryExists($directory . '/config');
+        file_put_contents($directory . '/config/system-addons.php', '<?php return ' . var_export($configuration, true) . ';');
+
+        return $directory . '/config/system-addons.php';
+    }
+
+    public function test_the_licence_configuration_is_replaced_in_one_step_and_keeps_what_it_held(): void
+    {
+        $path = $this->licenceConfigurationAt($this->directory, ['admin_panel' => ['active' => '1']]);
+        $inodeBefore = fileinode($path);
+        $basePath = $this->app->basePath();
+
+        $this->app->setBasePath($this->directory);
+        try {
+            $this->cleaner()->updateActivationConfig('vendor_panel', ['active' => '0']);
+        } finally {
+            $this->app->setBasePath($basePath);
+        }
+
+        clearstatcache();
+        $this->assertNotSame($inodeBefore, fileinode($path), 'the file was rewritten in place');
+        $this->assertSame(['admin_panel' => ['active' => '1'], 'vendor_panel' => ['active' => '0']], include $path);
+        $this->assertSame(['system-addons.php'], array_values(array_diff(scandir($this->directory . '/config'), ['.', '..'])));
+    }
+
+    public function test_the_licence_configuration_is_made_when_there_is_none(): void
+    {
+        File::ensureDirectoryExists($this->directory . '/config');
+        $basePath = $this->app->basePath();
+
+        $this->app->setBasePath($this->directory);
+        try {
+            $this->cleaner()->updateActivationConfig('admin_panel', ['active' => '1']);
+        } finally {
+            $this->app->setBasePath($basePath);
+        }
+
+        $this->assertSame('1', (include $this->directory . '/config/system-addons.php')['admin_panel']['active']);
+    }
+
+    public function test_a_reader_never_sees_the_licence_configuration_empty_while_it_is_written_over_and_over(): void
+    {
+        $path = $this->licenceConfigurationAt($this->directory, ['admin_panel' => ['active' => '1']]);
+        $script = 'require ' . var_export(base_path('vendor/autoload.php'), true) . '; new Illuminate\\Foundation\\Application($argv[1]);'
+            . '$writer = new class { use App\\Traits\\ActivationClass; };'
+            . 'for ($round = 0; $round < 1500; $round++) { $writer->updateActivationConfig("vendor_panel", ["active" => (string) $round]); }';
+        $writer = proc_open([PHP_BINARY, '-r', $script, '--', $this->directory], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+
+        $reads = 0;
+        $brokenReads = 0;
+        do {
+            $status = proc_get_status($writer);
+            $reads++;
+            try {
+                $configuration = include $path;
+            } catch (Throwable) {
+                $configuration = null;
+            }
+            if (!is_array($configuration) || ($configuration['admin_panel']['active'] ?? null) !== '1') {
+                $brokenReads++;
+            }
+        } while ($status['running']);
+
+        $this->assertSame(0, $status['exitcode'], (string) stream_get_contents($pipes[2]));
+        $this->assertGreaterThan(50, $reads, 'the reader did not overlap with the writer');
+        $this->assertSame(0, $brokenReads, "{$brokenReads} of {$reads} reads saw a file that was empty or cut off");
     }
 }

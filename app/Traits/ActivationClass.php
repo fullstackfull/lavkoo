@@ -122,7 +122,12 @@ trait ActivationClass
         $config = $this->getAddonsConfig();
         $config[$app] = $response;
         $configContents = "<?php return " . var_export($config, true) . ";";
-        file_put_contents(base_path('config/system-addons.php'), $configContents);
+        AtomicFile::rewrite(
+            path: base_path('config/system-addons.php'),
+            change: fn (): string => $configContents,
+            createWhenMissing: true,
+            lockIsRequired: false,
+        );
     }
 
     public function cleanupEnvFileContext(?string $envPath = null): bool

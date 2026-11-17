@@ -2,8 +2,12 @@
 
 namespace Tests\Feature\Security;
 
+use App\Http\Controllers\Admin\Settings\LanguageController;
 use App\Services\LanguageService;
+use Closure;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsFulfillmentSchema;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -129,6 +133,42 @@ class LanguageMessagesWriterTest extends TestCase
         app(LanguageService::class)->getAllMessagesTranslateProcess(language: self::LANGUAGE, count: 50);
 
         $this->assertSame("<?php\n\nreturn [\n\t'first_key' => 'first key',\n];\n", file_get_contents($this->directory . '/messages.php'));
+    }
+
+    // ---- the screens write a language file in one step --------------------------------------------------------------------------
+
+    /** @return array<string, array{0: Closure(): void, 1: string, 2: array<string, string>}> what the screen does, the file it writes, and what the file holds after */
+    public static function screensThatWriteALanguageFile(): array
+    {
+        $key = static fn (string $name): string => base64_encode($name);
+        $controller = static fn (): LanguageController => app(LanguageController::class);
+
+        return [
+            'deleting a translated message' => [static fn () => $controller()->deleteTranslateKey(Request::create('/', 'POST', ['key' => 'a_key']), self::LANGUAGE), 'messages.php', ['b_key' => 'B']],
+            'editing a translated message' => [static fn () => $controller()->updateTranslate(Request::create('/', 'POST', ['key' => $key('a_key'), 'value' => 'Edited']), self::LANGUAGE), 'messages.php', ['a_key' => 'Edited', 'b_key' => 'B']],
+            'editing a message that is not translated yet' => [static fn () => $controller()->updateTranslate(Request::create('/', 'POST', ['key' => $key('c_key'), 'value' => 'Edited']), self::LANGUAGE), 'new-messages.php', ['c_key' => 'Edited']],
+            'translating a message by the service' => [static fn () => $controller()->getAutoTranslate(Request::create('/', 'POST', ['key' => $key('a_key')]), self::LANGUAGE), 'messages.php', ['a_key' => 'a key', 'b_key' => 'B']],
+            'translating a message that is not translated yet by the service' => [static fn () => $controller()->getAutoTranslate(Request::create('/', 'POST', ['key' => $key('c_key')]), self::LANGUAGE), 'new-messages.php', ['c_key' => 'c key']],
+            'taking a message off the list of those still to translate' => [static fn () => app(LanguageService::class)->getAddTranslateNewKey(base_path('resources/lang/' . self::LANGUAGE . '/new-messages.php'), base_path('resources/lang/' . self::LANGUAGE . '/new-messages.php'), [$key('c_key')]), 'new-messages.php', []],
+        ];
+    }
+
+    /** @param array<string, string> $expected */
+    #[DataProvider('screensThatWriteALanguageFile')]
+    public function test_a_screen_replaces_the_language_file_it_writes_in_one_step(Closure $screen, string $file, array $expected): void
+    {
+        $this->plant('messages.php', ['a_key' => 'A', 'b_key' => 'B']);
+        $this->plant('new-messages.php', ['c_key' => 'C']);
+        $this->fakeTranslationService();
+        $path = $this->directory . '/' . $file;
+        $inodeBefore = fileinode($path);
+
+        $screen();
+
+        clearstatcache();
+        $this->assertNotSame($inodeBefore, fileinode($path), 'the language file was rewritten in place');
+        $this->assertSame($expected, include $path);
+        $this->assertSame(['messages.php', 'new-messages.php'], array_values(array_diff(scandir($this->directory), ['.', '..'])), 'a temporary file stayed');
     }
 }
 
