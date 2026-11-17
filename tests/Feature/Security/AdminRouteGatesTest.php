@@ -38,6 +38,9 @@ class AdminRouteGatesTest extends TestCase
     private const GATES = [
         'GET /admin/meta-app' => '3rd_party_setup',
         'POST /admin/meta-app/store' => '3rd_party_setup',
+        'GET /admin/business-settings/priority-setup' => 'business_settings',
+        'POST /admin/business-settings/priority-setup' => 'business_settings',
+        'POST /admin/business-settings/priority-setup/update-by-type' => 'marketing',
         'GET /admin/messages/index/customer' => 'people',
         'GET /admin/messages/message' => 'people',
         'POST /admin/messages/message' => 'people',

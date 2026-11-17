@@ -1625,9 +1625,12 @@ Route::get(
 
         Route::group(['prefix' => 'priority-setup', 'as' => 'priority-setup.'], function () {
             Route::controller(PrioritySetupController::class)->group(function () {
-                Route::get('', 'index')->name('index');
-                Route::post('', 'update');
-                Route::post('update-by-type', 'updateByType')->name('update-by-type');
+                Route::middleware('module:business_settings')->group(function () {
+                    Route::get('', 'index')->name('index');
+                    Route::post('', 'update');
+                });
+                // Posted by the priority modals of the flash-deal and featured-deal pages, so it asks for the permission of those pages.
+                Route::post('update-by-type', 'updateByType')->middleware('module:marketing')->name('update-by-type');
             });
         });
     });
