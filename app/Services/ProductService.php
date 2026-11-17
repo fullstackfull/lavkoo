@@ -14,7 +14,7 @@ class ProductService
 {
     use FileManagerTrait;
 
-    public function __construct(private readonly Color $color, private readonly ProductCodeScope $codeScope)
+    public function __construct(private readonly Color $color)
     {
     }
 
@@ -769,7 +769,7 @@ class ProductService
     public function getUniqueProductSKUCode(): string
     {
         $code = strtoupper(Str::random('6'));
-        if (!$this->codeScope->generatedCodeIsFree(code: $code, country: ProductCodeScope::TABLE_DEFAULT_COUNTRY)) {
+        if (!app(ProductCodeScope::class)->generatedCodeIsFree(code: $code, country: ProductCodeScope::TABLE_DEFAULT_COUNTRY)) {
             return self::getUniqueProductSKUCode();
         }
         return $code;
