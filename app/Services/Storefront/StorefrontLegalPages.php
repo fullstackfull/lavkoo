@@ -50,6 +50,14 @@ final class StorefrontLegalPages
         return $pages->map(fn (BusinessPage $page) => $this->withStorefrontText(page: $page, texts: $texts))->filter()->values();
     }
 
+    /** A link to a business page that keeps the visitor in the storefront: a page opened in a new tab is otherwise served by the default one. */
+    public function pageUrl(string $slug): string
+    {
+        $country = $this->countryWithOwnTexts();
+
+        return route('business-page.view', ['slug' => $slug] + ($country === null ? [] : ['storefront' => $country]));
+    }
+
     /** Each storefront and each language it serves has a list of its own. The default storefront keeps the key it has always had. */
     public function listCacheKey(): string
     {

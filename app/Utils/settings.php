@@ -452,6 +452,14 @@ if (!function_exists('storefrontCacheKey')) {
     }
 }
 
+if (!function_exists('businessPageUrl')) {
+    /** The link to a business page. A visitor of a storefront other than the default one is sent to that storefront's own page, which carries its own text. */
+    function businessPageUrl(string $slug): string
+    {
+        return app(StorefrontLegalPages::class)->pageUrl(slug: $slug);
+    }
+}
+
 if (!function_exists('cacheForgetInEveryStorefront')) {
     function cacheForgetInEveryStorefront(string $key): void
     {
