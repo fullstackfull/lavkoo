@@ -268,7 +268,7 @@ class ThemeManagementController extends BaseController
             $version->forceFill(['publish_at' => null])->save();
 
             if ($previousMoment !== null) {
-                $this->recordScheduleChange(action: 'theme.scheduled_publish_cancelled', version: $version, before: $previousMoment, after: null);
+                $this->recordScheduleChange(action: 'theme.scheduled_publish_unset', version: $version, before: $previousMoment, after: null);
             }
 
             ToastMagic::success(translate('scheduled_publish_cancelled'));
@@ -306,17 +306,27 @@ class ThemeManagementController extends BaseController
         return $this->backToIndex();
     }
 
-    /** The audit line of a schedule set, changed or cancelled by hand, which names the storefront of the theme the way the lines of ThemeManager do. */
+    /**
+     * The audit line of a schedule set, changed or unset by hand, which names the storefront of the theme the way the lines of ThemeManager do. A lookup of the storefront that fails is
+     * reported and adds nothing: the schedule is saved by now, and the line is not worth an error page.
+     */
     private function recordScheduleChange(string $action, ThemeVersion $version, ?CarbonInterface $before, ?CarbonInterface $after): void
     {
-        $theme = $this->storefrontThemes->keepsThemesByStorefront() ? $version->theme : null;
+        $storefront = rescue(
+            callback: function () use ($version): array {
+                $theme = $this->storefrontThemes->keepsThemesByStorefront() ? $version->theme : null;
+
+                return $theme === null ? [] : $this->storefrontThemes->auditContextOf(theme: $theme);
+            },
+            rescue: [],
+        );
 
         $this->audit->record(
             action: $action,
             subject: $version,
             before: ['publish_at' => $before?->toIso8601String()],
             after: ['publish_at' => $after?->toIso8601String()],
-            context: ['theme_id' => $version->theme_id] + ($theme === null ? [] : $this->storefrontThemes->auditContextOf(theme: $theme)),
+            context: ['theme_id' => $version->theme_id] + $storefront,
         );
     }
 

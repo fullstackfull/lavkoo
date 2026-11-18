@@ -125,14 +125,20 @@ class ThemePublishDue extends Command
 
     /**
      * What an audit line about a version adds to say which storefront its theme is for, the way ThemeManager adds it to its own: nothing while themes are not kept by storefront.
+     * A lookup that fails adds nothing either and is reported: as with the write in AuditLogger::record, an audit line never fails the run it records.
      *
      * @return array<string, string>
      */
     private function storefrontContextOf(ThemeVersion $version): array
     {
-        $themes = app(StorefrontThemeResolver::class);
-        $theme = $themes->keepsThemesByStorefront() ? $version->theme : null;
+        return rescue(
+            callback: function () use ($version): array {
+                $themes = app(StorefrontThemeResolver::class);
+                $theme = $themes->keepsThemesByStorefront() ? $version->theme : null;
 
-        return $theme === null ? [] : $themes->auditContextOf(theme: $theme);
+                return $theme === null ? [] : $themes->auditContextOf(theme: $theme);
+            },
+            rescue: [],
+        );
     }
 }
