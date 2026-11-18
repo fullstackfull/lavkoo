@@ -10,6 +10,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\ShippingMethod;
 use Carbon\Carbon;
 use App\Models\Cart;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use App\Models\Shop;
 use App\Models\User;
 use App\Models\Admin;
@@ -2784,6 +2785,20 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     }
 
 
+    /**
+     * The one cart line that stands for a cart group in the checkout validation: the first checked line by id, as the statement returned it when
+     * it was `select *` with a bare GROUP BY, which a server enforcing ONLY_FULL_GROUP_BY refuses. Which lines of the group the stock check should
+     * cover is a separate question; this keeps what it did.
+     */
+    public static function firstCheckedCartLineOfGroup(string|int $groupId): EloquentCollection
+    {
+        return Cart::whereHas('product', function ($query) {
+            return $query->active();
+        })->with(['product' => function ($query) {
+            return $query->active();
+        }])->where(['cart_group_id' => $groupId, 'is_checked' => 1])->orderBy('id')->limit(1)->get();
+    }
+
     public static function checkValidationForCheckoutPages(Request $request): array
     {
         $response['status'] = 1;
@@ -2835,11 +2850,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 }
             }
 
-            $cartList = Cart::whereHas('product', function ($query) {
-                return $query->active();
-            })->with(['product' => function ($query) {
-                return $query->active();
-            }])->groupBy('cart_group_id')->where(['cart_group_id' => $groupId, 'is_checked' => 1])->get();
+            $cartList = self::firstCheckedCartLineOfGroup(groupId: $groupId);
             $productStockCheck = CartManager::product_stock_check($cartList);
             if (!$productStockCheck) {
                 $productStockStatus = false;
