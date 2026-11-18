@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Services\Storefront\CouponCountry;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CouponAddRequest extends FormRequest
@@ -41,7 +42,7 @@ class CouponAddRequest extends FormRequest
         if (isset($this['discount_type']) && $this['discount_type'] == 'percentage' && empty($this['max_discount'])) {
             $data['max_discount'] = 'required';
         }
-        return $data;
+        return $data + CouponCountry::newCouponRules();
     }
 
     /**

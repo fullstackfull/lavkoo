@@ -11269,4 +11269,7 @@ return [
 	'Blog_not_found' => 'Blog not found',
 	'Please_add_item_to_cart' => 'Please add item to cart',
 	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
+	'the_currency_of_this_storefront_is_not_active_so_a_coupon_cannot_be_typed_for_it' => 'The currency of this storefront is not active, so a coupon cannot be typed for it',
+	'coupon_storefront' => 'Storefront',
+	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'The amounts of a coupon are in the currency of its storefront. It cannot be changed after the coupon is added.',
 ];

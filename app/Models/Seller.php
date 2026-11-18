@@ -133,6 +133,7 @@ class Seller extends Authenticatable
     public function coupon(): HasMany
     {
         return $this->hasMany(Coupon::class, 'seller_id')
+            ->forStorefront()
             ->where(['coupon_bearer' => 'seller', 'status' => 1])
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'));

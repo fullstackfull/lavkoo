@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\CouponCountry;
 use DateTime;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -23,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property float $discount
  * @property string $discount_type
  * @property integer $limit
+ * @property string|null $storefront_country the storefront whose currency the amounts are typed in; null is the default storefront's (GCC-05)
  */
 class Coupon extends Model
 {
@@ -41,7 +44,11 @@ class Coupon extends Model
         'discount',
         'discount_type',
         'limit',
+        'storefront_country',
     ];
+
+    /** The country is the shop's own business: a coupon is serialised for the apps and the seller API exactly as it was. */
+    protected $hidden = ['storefront_country'];
 
     protected $casts = [
         'id' => 'integer',
@@ -70,6 +77,12 @@ class Coupon extends Model
         return $query->when($businessMode == 'single', function ($query) {
             $query->where(['added_by' => 'admin']);
         })->where(['status' => 1]);
+    }
+
+    /** The coupons the storefront may offer (GCC-05 slice 5): its own, and the default storefront also those with no country. Off by default. */
+    public function scopeForStorefront(Builder $query, ?string $country = null): Builder
+    {
+        return CouponCountry::narrow(query: $query, country: $country);
     }
 
     public function order(): HasMany

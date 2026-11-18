@@ -4885,4 +4885,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'order_not_found' => 'لم يتم العثور على الطلب',
 	'Please_add_item_to_cart' => 'Please add item to cart',
 	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
+	'the_currency_of_this_storefront_is_not_active_so_a_coupon_cannot_be_typed_for_it' => 'عملة هذا المتجر غير مفعّلة، لذلك لا يمكن إدخال قسيمة له',
+	'coupon_storefront' => 'المتجر',
+	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'مبالغ الكوبون بعملة متجره، ولا يمكن تغييره بعد إضافة الكوبون.',
 ];

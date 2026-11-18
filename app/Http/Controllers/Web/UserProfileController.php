@@ -1020,7 +1020,7 @@ class UserProfileController extends Controller
 
     public function user_coupons(Request $request): View
     {
-        $coupons = Coupon::active()->with('seller')
+        $coupons = Coupon::active()->forStorefront()->with('seller')
             ->whereIn('customer_id', [auth('customer')->id(), '0'])
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))

@@ -10,6 +10,7 @@ use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\CouponAddRequest;
 use App\Http\Requests\Admin\CouponUpdateRequest;
 use App\Services\CouponService;
+use App\Services\Storefront\CouponCountry;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Exception;
 use Illuminate\Contracts\View\View;
@@ -164,7 +165,7 @@ class CouponController extends BaseController
     {
         $coupon = $this->couponRepo->getFirstWhere(params: ['id' => $request['id'], 'added_by' => 'admin']);
         return response()->json([
-            'view' => view('admin-views.coupon.details-quick-view', compact('coupon'))->render(),
+            'view' => CouponCountry::inMoneyOf(coupon: $coupon, callback: fn (): string => view('admin-views.coupon.details-quick-view', ['coupon' => $coupon])->render()),
         ]);
     }
 

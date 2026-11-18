@@ -1032,7 +1032,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
     // Coupon
-    Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'middleware' => ['module:marketing']], function () {
+    Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'middleware' => ['module:marketing', 'money.market:coupon']], function () {
         Route::controller(CouponController::class)->group(function () {
             Route::get('add', 'getAddListView')->name('add');
             Route::post('add', 'add');
