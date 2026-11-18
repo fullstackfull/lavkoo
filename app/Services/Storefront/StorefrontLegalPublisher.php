@@ -155,7 +155,9 @@ final class StorefrontLegalPublisher
     public function publish(int $textId, int $publisher, ?DateTimeInterface $effectiveFrom = null): StorefrontLegalDocument
     {
         $this->knownPerson($publisher);
-        $effective = CarbonImmutable::instance($effectiveFrom ?? CarbonImmutable::now());
+        // The model keeps the moment as the digits of its own time zone and reads them back in the application's, so a moment given in UTC (the console command and the admin screen read
+        // theirs as UTC) is converted first: stored as it came, it would be read back hours early or late and the text would take effect at the wrong time.
+        $effective = CarbonImmutable::instance($effectiveFrom ?? CarbonImmutable::now())->setTimezone(date_default_timezone_get());
 
         if ($effective->lessThan(CarbonImmutable::now()->subMinutes(self::TOLERATED_LATENESS_IN_MINUTES))) {
             throw new InvalidArgumentException('A text does not take effect in the past: name a day that is now or later.');
