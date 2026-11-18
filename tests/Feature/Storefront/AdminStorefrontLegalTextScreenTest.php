@@ -40,7 +40,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
     private function publishedThroughTheScreen(string $type = 'terms', string $locale = 'en'): int
     {
         $this->signInAs(self::LEGAL_WRITER);
-        $id = $this->draftThroughTheScreen($type, $locale);
+        $id = $this->draftThroughTheScreen(type: $type, locale: $locale);
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
         $this->approveThroughTheScreen($id);
@@ -229,13 +229,13 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->signInAs(self::LEGAL_APPROVER);
         $this->approveThroughTheScreen($id);
 
-        $this->publishThroughTheScreen($id, ['effective_from' => '2020-01-01 00:00']);
+        $this->publishThroughTheScreen(id: $id, form: ['effective_from' => '2020-01-01 00:00']);
         $this->assertToastContains('does not take effect in the past');
-        $this->publishThroughTheScreen($id, ['effective_from' => 'tomorrow'])->assertSessionHasErrors('effective_from');
+        $this->publishThroughTheScreen(id: $id, form: ['effective_from' => 'tomorrow'])->assertSessionHasErrors('effective_from');
         $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status);
 
         $day = CarbonImmutable::now('UTC')->addDays(3)->setTime(8, 0);
-        $this->publishThroughTheScreen($id, ['effective_from' => $day->format('Y-m-d H:i')]);
+        $this->publishThroughTheScreen(id: $id, form: ['effective_from' => $day->format('Y-m-d H:i')]);
 
         $text = $this->text($id);
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $text->status);
@@ -259,12 +259,12 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->approveThroughTheScreen($id);
         $linesBefore = DB::table('audit_logs')->count();
 
-        $this->publishThroughTheScreen($id, ['effective_from' => $day])->assertSessionHasErrors(['effective_from' => translate('the_day_is_too_late_the_latest_moment_a_text_can_take_effect_utc') . ': ' . StorefrontLegalPublisher::LATEST_EFFECTIVE_MOMENT_UTC]);
+        $this->publishThroughTheScreen(id: $id, form: ['effective_from' => $day])->assertSessionHasErrors(['effective_from' => translate('the_day_is_too_late_the_latest_moment_a_text_can_take_effect_utc') . ': ' . StorefrontLegalPublisher::LATEST_EFFECTIVE_MOMENT_UTC]);
 
         $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status);
         $this->assertSame($linesBefore, DB::table('audit_logs')->count());
 
-        $this->publishThroughTheScreen($id, ['effective_from' => '2037-12-31 23:59'])->assertSessionHasNoErrors();
+        $this->publishThroughTheScreen(id: $id, form: ['effective_from' => '2037-12-31 23:59'])->assertSessionHasNoErrors();
 
         $text = $this->text($id);
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $text->status);
@@ -284,7 +284,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
             $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
             $this->signInAs(self::LEGAL_APPROVER);
             $this->approveThroughTheScreen($id);
-            $this->publishThroughTheScreen($id, ['effective_from' => $day->format('Y-m-d H:i')]);
+            $this->publishThroughTheScreen(id: $id, form: ['effective_from' => $day->format('Y-m-d H:i')]);
             $this->travelTo($day->addHour());
             $this->signInAs(self::MASTER);
 
@@ -338,13 +338,13 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
 
-        $hashOnTheApproveForm = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.approve', $id);
+        $hashOnTheApproveForm = $this->hashOnTheFormOf(page: $this->page(), route: 'admin.storefronts.legal-texts.approve', id: $id);
         $this->assertSame($this->text($id)->body_hash, $hashOnTheApproveForm, 'the form carries the whole hash, not the twelve characters the page shows');
         $this->assertSame(64, strlen($hashOnTheApproveForm));
         $this->post(route('admin.storefronts.legal-texts.approve', $id), ['body_hash' => strtoupper($hashOnTheApproveForm)])->assertRedirect();
         $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status);
 
-        $hashOnThePublishForm = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.publish', $id);
+        $hashOnThePublishForm = $this->hashOnTheFormOf(page: $this->page(), route: 'admin.storefronts.legal-texts.publish', id: $id);
         $this->assertSame($this->text($id)->body_hash, $hashOnThePublishForm);
         $this->post(route('admin.storefronts.legal-texts.publish', $id), ['body_hash' => $hashOnThePublishForm])->assertRedirect();
 
@@ -359,7 +359,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $id = $this->draftThroughTheScreen();
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
-        $hashThatWasRead = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.approve', $id);
+        $hashThatWasRead = $this->hashOnTheFormOf(page: $this->page(), route: 'admin.storefronts.legal-texts.approve', id: $id);
 
         $this->signInAs(self::LEGAL_WRITER);
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => '<p>The terms of Kuwait, changed after the approver read them.</p>']);
@@ -374,7 +374,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->assertCount(0, $this->auditLines('storefront.legal_text.approved'));
         $this->assertSame($linesBefore, DB::table('audit_logs')->count(), 'a refused approval leaves no audit line');
 
-        $this->post(route('admin.storefronts.legal-texts.approve', $id), ['body_hash' => $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.approve', $id)]);
+        $this->post(route('admin.storefronts.legal-texts.approve', $id), ['body_hash' => $this->hashOnTheFormOf(page: $this->page(), route: 'admin.storefronts.legal-texts.approve', id: $id)]);
 
         $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status, 'read again, the words are approved');
         $this->assertCount(1, $this->auditLines('storefront.legal_text.approved'));
@@ -387,7 +387,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
         $this->approveThroughTheScreen($id);
-        $hashThatWasRead = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.publish', $id);
+        $hashThatWasRead = $this->hashOnTheFormOf(page: $this->page(), route: 'admin.storefronts.legal-texts.publish', id: $id);
 
         $this->signInAs(self::LEGAL_WRITER);
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => '<p>The terms of Kuwait, changed after the approval was read.</p>']);

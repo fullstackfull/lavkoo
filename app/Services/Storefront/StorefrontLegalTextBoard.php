@@ -54,10 +54,10 @@ final class StorefrontLegalTextBoard
             'country' => $country,
             'is_grandfathered' => $this->readiness->isGrandfathered($country),
             'required' => array_map(
-                fn (array $pair): array => ['type' => $pair[0], 'locale' => $pair[1], 'in_force' => $this->tableExists() ? $this->readiness->currentTextFor($country, $pair[0], $pair[1]) : null],
+                fn (array $pair): array => ['type' => $pair[0], 'locale' => $pair[1], 'in_force' => $this->tableExists() ? $this->readiness->currentTextFor(countryCode: $country, documentType: $pair[0], locale: $pair[1]) : null],
                 $this->readiness->requiredPairsOf($country),
             ),
-            'texts' => $texts->map(fn (StorefrontLegalDocument $text): array => ['text' => $text, 'steps' => $this->stepsOf($text, $this->newestPublishedVersionOf($text, $texts))])->all(),
+            'texts' => $texts->map(fn (StorefrontLegalDocument $text): array => ['text' => $text, 'steps' => $this->stepsOf(text: $text, newestPublishedVersion: $this->newestPublishedVersionOf(text: $text, texts: $texts))])->all(),
             'people' => Admin::query()->whereIn('id', $texts->pluck('created_by')->merge($texts->pluck('approved_by'))->filter()->unique())->pluck('name', 'id')->all(),
         ];
     }
