@@ -2,9 +2,11 @@
 
 namespace App\Services\Storefront;
 
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
 
 /**
  * The storefront a coupon belongs to (GCC-05 slice 5). A coupon is three numbers with no unit (the discount, the minimum purchase, the cap), typed in one
@@ -86,10 +88,34 @@ final class CouponCountry
         return [self::COLUMN => $country !== '' && $country !== StorefrontResolver::fromConfig()->defaultCountry() && in_array($country, $configured, true) ? $country : null];
     }
 
+    /**
+     * The validation of the storefront field of a new coupon: a configured country, and for a storefront with its own currency, one whose currency is
+     * active, because the amounts are typed in that currency and stored as typed. Nothing is validated while coupons are not tracked.
+     *
+     * @return array<string, list<mixed>>
+     */
+    public static function newCouponRules(): array
+    {
+        if (!self::isTracked()) {
+            return [];
+        }
+
+        return [self::COLUMN => ['bail', 'nullable', Rule::in(ProductCountry::options()), self::mustHaveAnActiveCurrency(...)]];
+    }
+
     /** Forgets what was learnt about the schema, for a test that builds its own tables. */
     public static function flush(): void
     {
         self::$columnAnswer = null;
+    }
+
+    private static function mustHaveAnActiveCurrency(string $attribute, mixed $country, Closure $fail): void
+    {
+        $country = is_string($country) ? strtoupper($country) : '';
+
+        if (!app(StorefrontCurrency::class)->isReady(country: $country, currencyCode: StorefrontResolver::fromConfig()->currencyOf($country))) {
+            $fail(translate('the_currency_of_this_storefront_is_not_active_so_a_coupon_cannot_be_typed_for_it'));
+        }
     }
 
     private static function columnReady(): bool

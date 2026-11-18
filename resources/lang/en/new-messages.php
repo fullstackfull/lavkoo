@@ -11241,4 +11241,5 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'the_currency_of_this_storefront_is_not_active_so_a_coupon_cannot_be_typed_for_it' => 'The currency of this storefront is not active, so a coupon cannot be typed for it',
 ];

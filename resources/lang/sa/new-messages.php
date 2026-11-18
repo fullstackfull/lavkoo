@@ -4858,4 +4858,5 @@ ____________________________________________________on_search_engines_and_see_th
 	'_this_page_will_be_unavailable_throughout_the_user_section.' => ' this page will be unavailable throughout the user section.',
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
+	'the_currency_of_this_storefront_is_not_active_so_a_coupon_cannot_be_typed_for_it' => 'عملة هذا المتجر غير مفعّلة، لذلك لا يمكن إدخال قسيمة له',
 ];
