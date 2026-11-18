@@ -18,16 +18,16 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 173 | 83 | 30 | 60 | 65% | 48% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 32 | 6 | 46 | 45% | 38% | 7% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 32 | 7 | 45 | 46% | 38% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 20 | 28 | 26 | 65% | 27% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
-| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 77 | 38 | 68 | 63% | 42% | 3% | all |
+| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 79 | 36 | 68 | 63% | 43% | 3% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 42 | 27 | 24 | 74% | 45% | 5% | all |
-| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 9 | 38 | 44 | 52% | 10% | 3% | all |
+| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 11 | 38 | 42 | 54% | 12% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 100 | 104 | 85 | 71% | 35% | 3% | all |
-| **All axes (pooled)** | **359** | **1675** | **730** | **351** | **594** | **65%** | **44%** | **8%** | |
+| **All axes (pooled)** | **359** | **1675** | **734** | **350** | **591** | **65%** | **44%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -268,7 +268,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-08](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/1/1 | Old movements preserved: append-only ledgers, account deletion keeps records |
 | [E-09](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 4/0/0 | Balance writes serialised per customer (row lock), wallet and loyalty |
 | [E-10](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 5/0/0 | Overdraft floor inside the lock; callers honour a refused debit or credit |
-| [E-11](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4/0/2 | POS wallet sales: atomic, server total, guarded amount, idempotent |
+| [E-11](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4/1/1 | POS wallet sales: atomic, server total, guarded amount, idempotent |
 | [E-12](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 5/0/1 | Seller wallet and withdrawals: scoped, locked, POST with CSRF, one conversion |
 | [E-13](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/5 | Refunds, return amounts and cancellations paid to the wallet |
 | [E-14](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/4 | Loyalty redeem and earn: atomic conversion, one formula, one rule |
@@ -386,7 +386,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I1-18](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 0/3/0 | Communications audit (axis J): e-mail, SMS, WhatsApp, push, audiences, templates |
 | [I2-01](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/2 | Per-country legal text store: versions, approval and effective dates, history |
 | [I2-02](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 5/1/0 | Legal readiness: current effective approved text for every required type and locale |
-| [I2-03](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/1 | Legal publishing workflow: template copy is a draft, local text never auto-published |
+| [I2-03](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 5/0/1 | Legal publishing workflow: template copy is a draft, local text never auto-published |
 | [I2-04](tracker/axis-i-marketing-policies-and-operations.md) | INTEGRATED AND TESTED | 6/0/0 | Storefront shows its own country legal text on web and in the apps |
 | [I2-05](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/2 | Acceptance receipts: proof of the legal text a customer accepted, tied to the order |
 | [I2-06](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/2 | Legal pages kept separate from the PolicyRegistry operating rules |
@@ -394,7 +394,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I2-08](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Sale gate on the customer API and web checkout for a storefront that may not sell |
 | [I2-09](tracker/axis-i-marketing-policies-and-operations.md) | NOT STARTED | 0/0/4 | Sale gate on POS, seller API and marketplace order writers |
 | [I2-10](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Customer app follows the server answer: browse-only storefront cannot order or pay |
-| [I2-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Store lifecycle states Draft, Ready, Active, Paused, managed by admin |
+| [I2-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 5/0/0 | Store lifecycle states Draft, Ready, Active, Paused, managed by admin |
 | [I2-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/0/1 | Readiness preflight before a country is activated |
 | [I2-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/0 | Stop mode Browse Only |
 | [I2-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Stop mode Maintenance per storefront |
@@ -439,11 +439,11 @@ Executable on an isolated branch without production access, ordered by the prior
 | [K-04](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/0/2 | Per-market data in seller screens (orders, products, stock, finance) |
 | [K-05](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/4/1 | POS scan with country-scoped codes |
 | [K-06](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/3/1 | POS sale safety: retries, offline outbox and customer id |
-| [K-07](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 0/4/1 | Order edit refusal handling and approved-only review average |
+| [K-07](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/4/0 | Order edit refusal handling and approved-only review average |
 | [K-08](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/3/1 | Seller owner and staff roles keep working; the app shows what a role may use |
 | [K-09](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/4 | Country and entity scopes for sellers and seller staff (GCC-14, seller side) |
 | [K-10](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 0/2/3 | Per-market currency, decimals and no app-side conversion |
-| [K-11](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/0/4 | Seller push: tokens, topics, payload market and routing |
+| [K-11](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/0/3 | Seller push: tokens, topics, payload market and routing |
 | [K-12](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 0/2/3 | Session and token handling in the seller app |
 | [K-13](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 0/2/2 | Arabic strings awaiting a native reader |
 | [K-14](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 0/2/3 | Version gate and force-update flow (record only) |
