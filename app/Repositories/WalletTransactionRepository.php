@@ -8,6 +8,7 @@ use App\Models\WalletTransaction;
 use App\Models\BusinessSetting;
 use App\Models\User;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Wallet\WalletOverdraft;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -136,6 +137,9 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
 
             $credit_amount = currencyConverter(amount: $credit);
             $debit_amount = currencyConverter(amount: $debit);
+            if (WalletOverdraft::refuses($currentBalance, $debit_amount)) {
+                return false;
+            }
             $wallet_transaction['credit'] = $credit_amount;
             $wallet_transaction['debit'] = $debit_amount;
             $wallet_transaction['balance'] = $currentBalance + $credit_amount - $debit_amount;

@@ -44,6 +44,7 @@ use App\Models\DigitalProductVariation;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\DeliverySyria\DeliverySyriaClient;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Wallet\WalletOverdraft;
 use App\Services\DeliverySyria\DeliverySyriaRateCalculator;
 use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
@@ -2329,6 +2330,9 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 
             $creditAmount = currencyConverter($credit);
             $debitAmount = currencyConverter($debit);
+            if (WalletOverdraft::refuses($currentBalance, $debitAmount)) {
+                return false;
+            }
             $walletTransaction->credit = $creditAmount;
             $walletTransaction->debit = $debitAmount;
             $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
