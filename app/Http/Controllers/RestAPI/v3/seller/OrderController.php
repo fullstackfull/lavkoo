@@ -7,6 +7,7 @@ use App\Services\DigitalFileAddressService;
 use App\Services\DigitalProductFileService;
 use App\Services\OrderAddressUpdateService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Referral\ReferralRewardService;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
@@ -54,6 +55,7 @@ class OrderController extends Controller
         private readonly OrderAddressUpdateService $addressUpdates,
         private readonly DigitalProductFileService $digitalFiles,
         private readonly DigitalFileAddressService $digitalFileAddresses,
+        private readonly ReferralRewardService $referralRewards,
     )
     {
     }
@@ -493,7 +495,12 @@ class OrderController extends Controller
             $referredByUser = User::find($customer->referred_by);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                $this->referralRewards->creditOnce(
+                    refereeId: $customer->id,
+                    beneficiaryId: $referredByUser->id,
+                    orderId: $order->id,
+                    credit: fn () => CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral'),
+                );
             }
         }
 
@@ -793,7 +800,12 @@ class OrderController extends Controller
                     $referredByUser = User::find($customer->referred_by);
 
                     if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                        CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                        $this->referralRewards->creditOnce(
+                            refereeId: $customer->id,
+                            beneficiaryId: $referredByUser->id,
+                            orderId: $order['id'],
+                            credit: fn () => CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral'),
+                        );
                     }
                 }
 

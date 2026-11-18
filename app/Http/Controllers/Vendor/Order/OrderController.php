@@ -42,6 +42,7 @@ use App\Services\OrderEditReturnAmountService;
 use App\Services\OrderEditService;
 use App\Services\OrderService;
 use App\Services\OrderStatusHistoryService;
+use App\Services\Referral\ReferralRewardService;
 use App\Traits\CustomerTrait;
 use App\Traits\OrderEditManager;
 use App\Traits\PdfGenerator;
@@ -95,6 +96,7 @@ class OrderController extends BaseController
         private readonly OrderEditHistoryRepositoryInterface        $orderEditHistoryRepo,
         private readonly AdminWalletRepositoryInterface             $adminWalletRepo,
         private readonly DigitalProductFileService                  $digitalFiles,
+        private readonly ReferralRewardService                      $referralRewards,
     )
     {
     }
@@ -694,11 +696,16 @@ class OrderController extends BaseController
             $referredByUser = $this->customerRepo->getFirstWhere(params: ['id' => $order['customer_id']]);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                $this->walletTransactionRepo->addWalletTransaction(
-                    user_id: $referredByUser['id'],
-                    amount: floatval($refEarningExchangeRate),
-                    transactionType: 'add_fund_by_admin',
-                    reference: 'earned_by_referral');
+                $this->referralRewards->creditOnce(
+                    refereeId: $customer['id'],
+                    beneficiaryId: $referredByUser['id'],
+                    orderId: $order['id'],
+                    credit: fn () => $this->walletTransactionRepo->addWalletTransaction(
+                        user_id: $referredByUser['id'],
+                        amount: floatval($refEarningExchangeRate),
+                        transactionType: 'add_fund_by_admin',
+                        reference: 'earned_by_referral'),
+                );
             }
         }
 
