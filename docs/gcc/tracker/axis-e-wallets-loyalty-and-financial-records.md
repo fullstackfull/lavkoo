@@ -1,6 +1,6 @@
 # Axis E: Wallets, loyalty and financial records
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 31, CODED 7, MISSING 46). Code completion 45%, proven by a passing test 37%, release readiness 7%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 32, CODED 6, MISSING 46). Code completion 45%, proven by a passing test 38%, release readiness 7%.
 
 Independent verification: done for unit(s) E.
 
@@ -53,7 +53,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### E-03. No automatic transfer or conversion of balances between markets
 
-- **State: NOT STARTED** | plan lines 362 | GCC-15; DECISIONS: no automatic transfers between legal companies | reviews: finance, security
+- **State: IN PROGRESS** | plan lines 362 | GCC-15; DECISIONS: no automatic transfers between legal companies | reviews: finance, security
 - **(2) Functional requirement.** No code path moves or converts a balance between markets, legal entities or currencies: no job, admin action, API, refund or points conversion crosses from one market's wallet or points account to another's.
 - **(3) Exists now in code (main).** Impossible today only because one global balance exists. Amounts are held in a USD base and shown in the platform default currency by rate (Convert::usd, usdToDefaultCurrency), so a balance is implicitly spendable at any rate. Six places write the balances (four wallet writers, two points writers), none takes a market.
 - **(4) Done in the draft PRs.** Nothing. PR 10's PointsToWalletConversion keeps a conversion inside one customer account but is not market-aware.
@@ -66,10 +66,10 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A debit tagged storefront AE cannot reduce a KW account (no market in any writer)
   - [MISSING] Points of market A cannot be converted into the wallet of market B (PointsToWalletConversion has no market)
   - [MISSING] No route, command or schedule changes two market accounts of one customer in one operation (no market accounts exist)
-  - [CODED] A source-scan test fails when code assigns wallet_balance or loyalty_point outside the single writer (PR 95 (draft, main based, 56a2280a): WalletBalanceWritersTest fails when code other than the four writers of users.wallet_balance and the two of users.loyalty_point writes either column; passes locally on main and on the integration tree, a temporary writer is caught; CI of the head not read)
+  - [MET] A source-scan test fails when code assigns wallet_balance or loyalty_point outside the single writer (PR 95 (draft, main based, 56a2280a): WalletBalanceWritersTest fails when code other than the four writers of users.wallet_balance and the two of users.loyalty_point writes either column; passes locally on main and on the integration tree, a temporary writer is caught. CI run 342 (the all-in-one integration, head a5f7de59, which holds this pull request's code), read per job on 2026-11-18: 'Tests, SQLite' on PHP 8.2 and on PHP 8.3 (the whole suite), the Storefront, Address, Catalog, Staff scope, Checkout/payment/permission, Fulfillment + security, Saudi baseline and Wallet/Loyalty groups on MySQL 8.0 and on MariaDB 11.4.2 and the strict-mode job on MariaDB: success (32 jobs: 29 success, 2 skipped by design, 1 still running, the sales-channel group A to M on MySQL, which holds none of these tests); the pull request's own run is not read)
 - **(10) Next coding task.** Write the red tests first on a branch from main: MarketBalanceIsolationTest (six markets, two currencies) against the E-01 service interface, and a source-scan test listing the only allowed writers of wallet_balance and loyalty_point.
 - **Open owner decisions.** none open (decided: no automatic transfer between legal companies); manual goodwill transfers stay out of scope until separately approved.
-- **Update after the assessment.** PR 95 (draft, main based, 56a2280a): WalletBalanceWritersTest reads the source of app, Modules, routes and config and fails when code other than the four writers of users.wallet_balance and the two of users.loyalty_point writes either column; passes locally on main and on the integration tree, a temporary writer is caught. Run 307 on ce4d2950 was red on the SQLite jobs, the strict-mode job and the sales-channel jobs N to Z for one clock-dependent test that is not this pull request's (TorodShipmentDiscoveryTest: its fixture ingested an order at a fixed instant that is now older than the 36 hour window); the one-line fix that the other branches carry is cherry-picked on 56a2280a, CI of that head not read.
+- **Update after the assessment.** PR 95 (draft, main based, 56a2280a): WalletBalanceWritersTest reads the source of app, Modules, routes and config and fails when code other than the four writers of users.wallet_balance and the two of users.loyalty_point writes either column; passes locally on main and on the integration tree, a temporary writer is caught. Run 307 on ce4d2950 was red on the SQLite jobs, the strict-mode job and the sales-channel jobs N to Z for one clock-dependent test that is not this pull request's (TorodShipmentDiscoveryTest: its fixture ingested an order at a fixed instant that is now older than the 36 hour window); the one-line fix that the other branches carry is cherry-picked on 56a2280a (the integration run 342 is read and green; the pull request's own run is not).
 
 #### E-04. Wallet and loyalty readers show one market's balance, API keys keep meaning
 
