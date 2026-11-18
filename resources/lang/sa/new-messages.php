@@ -4874,7 +4874,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'performance' => 'Performance',
 	'go_to_slide' => 'Go to slide',
 	'abandoned_cart_recovery' => 'Abandoned cart recovery',
-	'commercial_registration_number' => 'Commercial registration number',
+	'commercial_registration_number' => 'رقم السجل التجاري',
 	'business_platform_number' => 'Business platform number',
 	'an_address_is_legally_required_in_every_country_and_builds_trust_with_your_customers_online._' => 'An address is legally required in every country and builds trust with your customers online. ',
 	'_this_page_will_be_available_throughout_the_user_section.' => ' this page will be available throughout the user section.',
@@ -4888,4 +4888,5 @@ ____________________________________________________on_search_engines_and_see_th
 	'the_currency_of_this_storefront_is_not_active_so_a_coupon_cannot_be_typed_for_it' => 'عملة هذا المتجر غير مفعّلة، لذلك لا يمكن إدخال قسيمة له',
 	'coupon_storefront' => 'المتجر',
 	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'مبالغ الكوبون بعملة متجره، ولا يمكن تغييره بعد إضافة الكوبون.',
+	'tax_registration_number' => 'رقم التسجيل الضريبي',
 ];
