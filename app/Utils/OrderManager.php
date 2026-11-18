@@ -1299,7 +1299,7 @@ class OrderManager
             foreach ($vendorCart['applied_tax_cart_list'] as $cartItem) {
                 if ($cartItem['seller_id'] == $cartSingleItem['seller_id'] && $cartItem['seller_is'] == $cartSingleItem['seller_is']) {
                     $appliedTaxAmount = collect($vendorCart['applied_tax_cart_list'])->where('cart_id', $cartSingleItem['id'])->sum('applied_tax_amount') ?? 0;
-                    foreach ($cartItem['applied_tax_ids'] as $taxItem) {
+                    foreach ($cartItem['cart_id'] == $cartSingleItem['id'] ? $cartItem['applied_tax_ids'] : [] as $taxItem) {
                         if ($taxItem) {
                             $appliedTaxRate += $taxItem['tax_rate'];
                         }
@@ -1647,43 +1647,29 @@ class OrderManager
             $order_id = OrderManager::generateNewOrderID();
             $orderPlacedIds[] = $order_id;
 
-            $appliedTaxAmount = 0;
-            $appliedTaxRate = 0;
             foreach ($vendorWiseCart['applied_tax_cart_list'] as $cartItem) {
-                if ($cartItem['seller_id'] == $vendorWiseCart['seller_id'] && $cartItem['seller_is'] == $vendorWiseCart['seller_is']) {
-                    $appliedTaxAmount = collect($vendorWiseCart['applied_tax_cart_list'])->where('cart_id', $cartItem['cart_id'])->sum('applied_shipping_cost_tax') ?? 0;
-                    foreach ($cartItem['applied_shipping_cost_tax_ids'] as $taxIdGroup) {
-                        foreach ($taxIdGroup['tax_ids'] as $taxId) {
-                            $taxItem = $taxConfig['taxVats']->firstWhere('id', $taxId);
-                            if ($taxItem) {
-                                $appliedTaxRate += $taxItem['tax_rate'];
-                            }
-                        }
-                    }
-                }
-            }
+                $shippingTaxes = collect($cartItem['applied_shipping_cost_tax_ids'])
+                    ->flatMap(static fn ($taxGroup): array => collect($taxGroup['tax_ids'])
+                        ->map(static fn ($taxId): array => ['group' => $taxGroup['name'], 'tax' => $taxConfig['taxVats']->firstWhere('id', $taxId)])
+                        ->all())
+                    ->filter(static fn (array $shippingTax): bool => (bool) $shippingTax['tax']);
+                $shippingTaxRate = $shippingTaxes->sum(static fn (array $shippingTax) => $shippingTax['tax']['tax_rate']);
 
-            foreach (collect($vendorWiseCart['applied_tax_cart_list'])->pluck('applied_shipping_cost_tax_ids')->toArray() as $taxGroups) {
-                foreach ($taxGroups as $taxGroup) {
-                    foreach ($taxGroup['tax_ids'] as $taxId) {
-                        $taxItem = $taxConfig['taxVats']->firstWhere('id', $taxId);
-                        if ($taxItem) {
-                            self::getAddOrderTaxDetails(
-                                systemTaxVat: $taxConfig['SystemTaxVat'],
-                                taxRate: $taxItem,
-                                orderId: $order_id,
-                                data: [
-                                    'tax_amount' => ($appliedTaxAmount > 0 && $appliedTaxRate > 0) ? ($appliedTaxAmount * $taxItem['tax_rate']) / $appliedTaxRate : 0,
-                                    'before_tax_amount' => $vendorWiseCart['order_amount_with_tax'] - $vendorWiseCart['total_tax_amount'],
-                                    'after_tax_amount' => $vendorWiseCart['order_amount_with_tax'],
-                                    'quantity' => 0,
-                                    'seller_id' => $vendorWiseCart['seller_id'],
-                                    'seller_type' => $vendorWiseCart['seller_is'],
-                                ],
-                                taxOn: $taxGroup['name'],
-                            );
-                        }
-                    }
+                foreach ($shippingTaxes as $shippingTax) {
+                    self::getAddOrderTaxDetails(
+                        systemTaxVat: $taxConfig['SystemTaxVat'],
+                        taxRate: $shippingTax['tax'],
+                        orderId: $order_id,
+                        data: [
+                            'tax_amount' => ($cartItem['applied_shipping_cost_tax'] > 0 && $shippingTaxRate > 0) ? ($cartItem['applied_shipping_cost_tax'] * $shippingTax['tax']['tax_rate']) / $shippingTaxRate : 0,
+                            'before_tax_amount' => $vendorWiseCart['order_amount_with_tax'] - $vendorWiseCart['total_tax_amount'],
+                            'after_tax_amount' => $vendorWiseCart['order_amount_with_tax'],
+                            'quantity' => 0,
+                            'seller_id' => $vendorWiseCart['seller_id'],
+                            'seller_type' => $vendorWiseCart['seller_is'],
+                        ],
+                        taxOn: $shippingTax['group'],
+                    );
                 }
             }
 
