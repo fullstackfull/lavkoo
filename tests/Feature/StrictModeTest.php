@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Utils\OrderManager;
+use ArrayObject;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -75,6 +77,58 @@ class StrictModeTest extends TestCase
             $this->assertSame(1, OrderManager::countCouponUses(customerId: 7, couponCode: 'OTHER'));
             $this->assertSame(0, OrderManager::countCouponUses(customerId: 9, couponCode: 'SAVE'));
         } finally {
+            Schema::dropIfExists('orders');
+        }
+    }
+
+    /**
+     * The coupon of one checkout group asks the same question before it prices the group (the payment settlement and the API checkout both
+     * come through it). It used to repeat the bare `select *` with a GROUP BY, so a strict server answered 1055 there too; it now asks the
+     * helper above. The customer used the code in two checkouts (three orders), the code allows three, so the coupon still applies.
+     */
+    public function test_the_group_wise_coupon_reads_its_use_count_without_a_bare_group_by(): void
+    {
+        Schema::dropIfExists('orders');
+        Schema::dropIfExists('coupons');
+        Schema::create('orders', function (Blueprint $table): void {
+            $table->unsignedBigInteger('id')->primary();
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->string('coupon_code')->nullable();
+            $table->string('order_group_id')->nullable();
+        });
+        Schema::create('coupons', function (Blueprint $table): void {
+            $table->id();
+            $table->string('code');
+            $table->string('coupon_type');
+            $table->string('coupon_bearer')->default('inhouse');
+            $table->integer('limit')->default(1);
+            $table->integer('status')->default(1);
+            $table->date('start_date');
+            $table->date('expire_date');
+            $table->unsignedBigInteger('seller_id')->nullable();
+        });
+        DB::table('orders')->insert([
+            ['id' => 1, 'customer_id' => 7, 'coupon_code' => 'SAVE', 'order_group_id' => 'G1'],
+            ['id' => 2, 'customer_id' => 7, 'coupon_code' => 'SAVE', 'order_group_id' => 'G1'],
+            ['id' => 3, 'customer_id' => 7, 'coupon_code' => 'SAVE', 'order_group_id' => 'G2'],
+        ]);
+        DB::table('coupons')->insert([
+            'code' => 'SAVE', 'coupon_type' => 'discount_on_purchase', 'limit' => 3,
+            'start_date' => now()->subDay()->toDateString(), 'expire_date' => now()->addDay()->toDateString(),
+        ]);
+        $request = Request::create('/checkout');
+        $request->setUserResolver(fn (): ArrayObject => new ArrayObject(['id' => 7]));
+        $cartListGroup = collect(['G9' => collect([
+            ['price' => 60, 'discount' => 0, 'quantity' => 1, 'seller_is' => 'admin', 'seller_id' => 1],
+        ])]);
+
+        try {
+            $coupon = OrderManager::getGroupWiseCouponArray($request, 'SAVE', 100, 10, 'G9', $cartListGroup);
+
+            $this->assertSame('SAVE', $coupon['coupon_code']);
+            $this->assertSame(6.0, (float) $coupon['discount'], 'sixty of the hundred is eligible, a tenth of it is the discount');
+        } finally {
+            Schema::dropIfExists('coupons');
             Schema::dropIfExists('orders');
         }
     }

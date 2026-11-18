@@ -676,8 +676,7 @@ class OrderManager
             ];
         }
 
-        $couponLimit = Order::where(['customer_id' => $user['id'], 'coupon_code' => $couponCode])
-            ->groupBy('order_group_id')->get()->count();
+        $couponLimit = self::countCouponUses(customerId: $user['id'], couponCode: $couponCode);
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
             ->where('status', 1)
