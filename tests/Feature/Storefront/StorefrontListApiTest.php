@@ -53,9 +53,9 @@ class StorefrontListApiTest extends TestCase
                 'enabled' => true,
                 'default_country' => 'SA',
                 'storefronts' => [
-                    ['country' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'is_default' => true, 'sellable' => true],
-                    ['country' => 'AE', 'path' => 'ae', 'currency' => 'AED', 'is_default' => false, 'sellable' => false],
-                    ['country' => 'OM', 'path' => 'om', 'currency' => 'OMR', 'is_default' => false, 'sellable' => false],
+                    ['country' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'is_default' => true, 'sellable' => true, 'state' => 'active'],
+                    ['country' => 'AE', 'path' => 'ae', 'currency' => 'AED', 'is_default' => false, 'sellable' => false, 'state' => 'draft'],
+                    ['country' => 'OM', 'path' => 'om', 'currency' => 'OMR', 'is_default' => false, 'sellable' => false, 'state' => 'draft'],
                 ],
             ]);
     }

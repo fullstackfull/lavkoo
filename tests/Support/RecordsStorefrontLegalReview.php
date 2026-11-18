@@ -11,12 +11,17 @@ use App\Services\Storefront\StorefrontLegalReview;
  */
 trait RecordsStorefrontLegalReview
 {
+    use ActivatesStorefront;
     use BuildsStorefrontDecisionTables;
 
-    /** For a test about something else than the legal texts and their review: every storefront keeps the documents it has always had, so the gate and the readiness report ask for neither. */
+    /**
+     * For a test about something else than the legal texts and their review: every storefront keeps the documents it has always had, so the gate and the readiness report ask for
+     * neither, and every storefront is active, so its lifecycle is not what the test is about either.
+     */
     protected function leaveTheLegalTextsOutOfThisTest(): void
     {
         config(['gcc.storefronts.legal.grandfathered' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM']]);
+        $this->activateStorefrontFor('SA', 'AE', 'KW', 'QA', 'BH', 'OM');
     }
 
     protected function recordLegalReviewFor(string ...$countries): void

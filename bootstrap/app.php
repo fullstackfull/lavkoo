@@ -134,6 +134,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'storefront' => \App\Http\Middleware\ResolveStorefront::class,
             'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
             'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
+            // Adopted only by the routes that browse a storefront, never by the ones that serve what a customer already has (I2-14, I2-16).
+            'storefront.available' => \App\Http\Middleware\EnsureStorefrontIsAvailable::class,
             'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
             // Adopted by the admin screens that work on the products of one country, so their money is that country's (GCC-05).
             'money.market' => \App\Http\Middleware\ScopeMoneyToMarket::class,

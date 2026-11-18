@@ -7225,5 +7225,6 @@ return [
 	"zip_Code" => "الرمز البريدي",
 	"zip_code" => "الرمز البريدي",
 	"storefront_not_open_for_checkout_yet" => "هذا المتجر غير متاح للشراء حتى الآن.",
+	"storefront_is_in_maintenance" => "هذا المتجر تحت الصيانة حاليًا. طلباتك السابقة ومدفوعاتك لا تتأثر.",
 	"payment_method_not_available_in_the_currency_of_this_storefront" => "طريقة الدفع هذه غير متاحة بعملة هذا المتجر.",
 ];

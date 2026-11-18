@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Services\Storefront\StorefrontLifecycle;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ class StorefrontNotSellableException extends RuntimeException
 
     public function render(Request $request): JsonResponse|RedirectResponse
     {
-        $message = translate('storefront_not_open_for_checkout_yet');
+        $message = app(StorefrontLifecycle::class)->customerMessageOf($this->countryCode) ?? translate('storefront_not_open_for_checkout_yet');
 
         if ($request->expectsJson()) {
             return response()->json(['code' => 'storefront_not_sellable', 'message' => $message], 422);
