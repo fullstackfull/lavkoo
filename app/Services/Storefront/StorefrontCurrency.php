@@ -41,18 +41,11 @@ final class StorefrontCurrency
      */
     public function override(string $setting): string|int|null
     {
-        if (!(bool) config('gcc.storefronts.currency.enabled') || !in_array($setting, self::OVERRIDDEN_SETTINGS, true)) {
+        if (!in_array($setting, self::OVERRIDDEN_SETTINGS, true)) {
             return null;
         }
 
-        $country = StorefrontCatalog::country();
-        $resolver = StorefrontResolver::fromConfig();
-
-        if ($country === null || $country === $resolver->defaultCountry()) {
-            return null;
-        }
-
-        $currency = $this->activeCurrency($resolver->currencyOf($country));
+        $currency = $this->currencyInForce();
 
         if ($currency === null) {
             return null;
@@ -63,6 +56,12 @@ final class StorefrontCurrency
             'currency_model' => self::SINGLE_CURRENCY_MODEL,
             'decimal_point_settings' => $this->decimalsOf($currency->code),
         };
+    }
+
+    /** The code of the currency the request's storefront trades in, or null while the platform's own settings stand. */
+    public function currencyCodeInForce(): ?string
+    {
+        return $this->currencyInForce()?->code;
     }
 
     /** Whether a storefront has the currency it trades in. Every storefront is ready while the switch is off, and so is the default one. */
@@ -141,6 +140,22 @@ final class StorefrontCurrency
             !$row->status => 'inactive: switch the currency on in the admin panel',
             default => 'ready',
         };
+    }
+
+    private function currencyInForce(): ?Currency
+    {
+        if (!(bool) config('gcc.storefronts.currency.enabled')) {
+            return null;
+        }
+
+        $country = StorefrontCatalog::country();
+        $resolver = StorefrontResolver::fromConfig();
+
+        if ($country === null || $country === $resolver->defaultCountry()) {
+            return null;
+        }
+
+        return $this->activeCurrency($resolver->currencyOf($country));
     }
 
     private function tradesInOwnCurrency(string $country): bool

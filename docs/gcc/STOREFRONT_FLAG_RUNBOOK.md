@@ -34,10 +34,11 @@ seller APIs (`api/v2`, `api/v3`), queues and the console are never narrowed and 
    visitor picks another one. GCC-05 is a separate stack of draft pull requests behind `GCC_STOREFRONT_CURRENCY` (off by default). Slice 1: a
    storefront other than the default one reads its own currency, as stored, with its own symbol and decimals, and may not sell until that
    currency exists (`docs/gcc/GCC-05-STOREFRONT-CURRENCY.md`, `php artisan gcc:storefront:currency-readiness`). Slice 2: an order records its
-   storefront, currency and rate (an additive migration of `orders`). Slices 3 to 5 are not built: a price entered through the admin or seller
-   tools is still converted with the platform's settings, payment amounts and wallets have no currency of their own, and invoices, e-mails and
-   exports do not read the order's record yet (see `docs/gcc/audits/2026-11-16-price-stock-map/`). Do not turn the storefronts on with a priced
-   non-Saudi catalog before they land.
+   storefront, currency and rate (an additive migration of `orders`). Slice 3: a payment the gateway cannot take in the storefront's currency (and
+   any currency with three decimals, until a gateway is verified for it) is refused before it starts. Slices 4 and 5 are not built: a price
+   entered through the admin or seller tools is still converted with the platform's settings, wallets have no currency of their own, and invoices,
+   e-mails and exports do not read the order's record yet (see `docs/gcc/audits/2026-11-16-price-stock-map/`). Do not turn the storefronts on
+   with a priced non-Saudi catalog before slice 4 lands.
 6. **Run `php artisan cache:clear` once**, after the migration is deployed and again every time the flag is flipped, in either direction.
    Products cached by the previous release do not hide the new column from JSON (`$hidden` is part of the cached object), and the
    per-storefront copies written while the flag was on are not cleared by a product edit made while it was off, so they would be served again

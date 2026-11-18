@@ -6732,4 +6732,5 @@ return [
 	"issue_updated" => "Issue updated",
 	"issue_not_found" => "Issue not found",
 	"storefront_not_open_for_checkout_yet" => "This storefront is not open for checkout yet.",
+	"payment_method_not_available_in_the_currency_of_this_storefront" => "This payment method is not available in the currency of this storefront.",
 ];

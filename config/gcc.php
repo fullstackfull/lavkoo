@@ -35,6 +35,10 @@ return [
             'enabled' => filter_var(env('GCC_STOREFRONT_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
             // The currencies that do not use two decimals (ISO 4217). Every other currency uses two.
             'decimals' => ['KWD' => 3, 'BHD' => 3, 'OMR' => 3],
+            // A payment gateway takes the amount of a storefront with its own currency only when that currency exists in the gateway's list of currencies
+            // (App\Traits\PaymentGatewayTrait) and has two decimals. A currency with three (KWD, BHD, OMR) goes only to a gateway listed here, after
+            // somebody has read what that gateway does with a third decimal. Empty until then: a payment in such a currency is refused before it starts.
+            'verified_three_decimal_gateways' => [],
         ],
 
         'legal' => [

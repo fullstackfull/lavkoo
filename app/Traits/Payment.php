@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Services\Storefront\GatewayCurrencyPolicy;
 use App\Services\Storefront\PaymentStorefront;
 use Illuminate\Contracts\Routing\UrlGenerator;
 use Illuminate\Foundation\Application;
@@ -19,6 +20,8 @@ trait Payment
         if (!is_array($payment_info->getAdditionalData())) {
             throw new InvalidArgumentException(translate('Additional data should be in a valid array'));
         }
+
+        app(GatewayCurrencyPolicy::class)->assertAcceptable(gateway: (string) $payment_info->getPaymentMethod(), currencyCode: (string) $payment_info->getCurrencyCode());
 
         $payment = new PaymentRequest();
         $payment->payment_amount = $payment_info->getPaymentAmount();
