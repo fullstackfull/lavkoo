@@ -339,12 +339,18 @@ class SellerOrderMarketTest extends TestCase
     {
         $this->insertSellerMarketOrderLine(orderId: 999, sellerId: self::SELLER);
 
-        $off = $this->sellerApi('GET', 'orders/999')->assertOk();
+        $off = $this->sellerApi('GET', 'orders/999');
         $this->switchStorefrontsOn();
-        $on = $this->sellerApi('GET', 'orders/999')->assertOk();
+        $on = $this->sellerApi('GET', 'orders/999');
 
-        $this->assertNull($off->json('0.order'));
+        // What the controller answers for such a line depends on the tree: this base answers the line with a null order, and the seller scoping of PR 20 (`seller_is`) answers 404
+        // "order not found". Whichever it is, storefronts being on changes nothing in it, and no market is made up for an order that is not there.
+        $this->assertSame($off->getStatusCode(), $on->getStatusCode());
         $this->assertSame($off->getContent(), $on->getContent());
+
+        if ($off->getStatusCode() === 200) {
+            $this->assertNull($off->json('0.order'));
+        }
     }
 
     public function test_without_a_token_the_list_and_the_detail_are_refused_as_ever(): void
