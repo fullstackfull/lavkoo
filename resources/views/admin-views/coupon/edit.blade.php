@@ -47,6 +47,7 @@
                                        data-required-msg="{{ translate('coupon_code_is_required') }}"
                                        placeholder="{{translate('ex')}}: EID100" >
                             </div>
+                            @include('admin-views.coupon.partials._storefront-country', ['coupon' => $coupon])
                             <div class="col-md-6 col-lg-4 first_order">
                                 <label for="name" class="form-label">{{translate('coupon_bearer')}}<span class="text-danger">*</span></label>
                                 <div class="select-wrapper">

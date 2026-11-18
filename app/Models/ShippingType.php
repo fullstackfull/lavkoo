@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontCurrency;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -41,6 +42,12 @@ class ShippingType extends Model
         'shipping_type' => 'string',
     ];
 
+
+    /** A storefront with its own currency prices shipping from the product alone (GCC-05): the stored type is the platform's, its tables are in the platform's money. */
+    public function getShippingTypeAttribute(?string $value): ?string
+    {
+        return app(StorefrontCurrency::class)->shippingTypeInForce($value);
+    }
 
     protected static function boot(): void
     {

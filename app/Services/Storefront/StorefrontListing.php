@@ -4,18 +4,18 @@ namespace App\Services\Storefront;
 
 /**
  * The list an app reads before it offers a storefront. While storefronts are on, each listed storefront says whether it may sell yet
- * (GCC-11). While they are off the list keeps its original shape, so Saudi clients see no change.
+ * (GCC-11, GCC-05). While they are off the list keeps its original shape, so Saudi clients see no change.
  */
 final class StorefrontListing
 {
     public function __construct(
         private readonly StorefrontResolver $resolver,
-        private readonly StorefrontLegalReadiness $legalReadiness,
+        private readonly StorefrontSellingGate $sellingGate,
     ) {}
 
-    public static function fromConfig(StorefrontLegalReadiness $legalReadiness): self
+    public static function fromConfig(StorefrontSellingGate $sellingGate): self
     {
-        return new self(resolver: StorefrontResolver::fromConfig(), legalReadiness: $legalReadiness);
+        return new self(resolver: StorefrontResolver::fromConfig(), sellingGate: $sellingGate);
     }
 
     /**
@@ -36,7 +36,7 @@ final class StorefrontListing
     private function withSellability(): array
     {
         return array_map(
-            fn (array $storefront): array => $storefront + ['sellable' => $this->legalReadiness->isReady($storefront['country'])],
+            fn (array $storefront): array => $storefront + ['sellable' => $this->sellingGate->maySell(country: $storefront['country'], currencyCode: $storefront['currency'])],
             $this->resolver->activeStorefronts(),
         );
     }

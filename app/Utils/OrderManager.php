@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Analytics\Analytics;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Models\OrderDetailsRewards;
@@ -48,6 +49,7 @@ use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
 use App\Services\Address\OrderAddressService;
@@ -512,6 +514,7 @@ class OrderManager
             ->groupBy('order_group_id')->get()->count();
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -670,6 +673,7 @@ class OrderManager
             ->groupBy('order_group_id')->get()->count();
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -857,6 +861,9 @@ class OrderManager
 
             if ($referralCustomer->customer_discount_amount_type === 'percentage') {
                 return ($groupAmount * $discountAmount) / 100;
+            }
+            if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
+                return 0;
             }
             return ($discountAmount * $groupAmount) / $totalAmount;
         }
@@ -1665,6 +1672,8 @@ class OrderManager
                 orderId: $order_id,
                 vendorCart: $vendorWiseCart
             );
+
+            app(OrderStorefrontSnapshot::class)->record(orderId: $order_id);
 
             $order = Order::with('customer', 'seller.shop', 'details')->find($order_id);
             

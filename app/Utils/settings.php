@@ -6,6 +6,7 @@ use App\Models\LoginSetup;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +19,14 @@ if (!function_exists('getWebConfig')) {
             && function_exists('getCheckAddonPublishedStatus')
             && !getCheckAddonPublishedStatus(moduleName: 'Auction')) {
             return null;
+        }
+
+        if (in_array($name, StorefrontCurrency::OVERRIDDEN_SETTINGS, true)) {
+            $storefrontValue = app(StorefrontCurrency::class)->override(setting: $name);
+
+            if ($storefrontValue !== null) {
+                return $storefrontValue;
+            }
         }
 
         $config = null;
