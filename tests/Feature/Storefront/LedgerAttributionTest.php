@@ -23,6 +23,9 @@ class LedgerAttributionTest extends TestCase
 {
     use BuildsLedgerWorld;
 
+    /** The id of a payment that was never made: a well-formed uuid, so that a uuid column (a native type on MariaDB) is never asked about a value that is not one. */
+    private const GONE = '5b1c1c9a-0000-4000-8000-0000000000ff';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -322,7 +325,7 @@ class LedgerAttributionTest extends TestCase
         $garbled = $this->ledgerPayment(id: '5b1c1c9a-0000-4000-8000-000000000003', additionalData: ['storefront' => ['KW']]);
         $invalid = $this->ledgerPayment(id: '5b1c1c9a-0000-4000-8000-000000000004', additionalData: ['storefront' => 'KUWAIT']);
 
-        $this->assertSame(['source_type' => 'payment', 'source_id' => 'missing'], $this->attribute(origin: LedgerOrigin::payment(id: 'missing')));
+        $this->assertSame(['source_type' => 'payment', 'source_id' => self::GONE], $this->attribute(origin: LedgerOrigin::payment(id: self::GONE)));
         $this->assertSame(['source_type' => 'payment', 'source_id' => $garbled], $this->attribute(origin: LedgerOrigin::payment(id: $garbled)));
         $this->assertSame(['source_type' => 'payment', 'source_id' => $invalid], $this->attribute(origin: LedgerOrigin::payment(id: $invalid)));
     }
