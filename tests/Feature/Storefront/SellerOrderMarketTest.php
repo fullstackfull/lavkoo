@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Models\Order;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use stdClass;
@@ -127,7 +128,7 @@ class SellerOrderMarketTest extends TestCase
 
         $this->assertCount(1, $lines);
         $this->assertSame(['AE', 'AED'], [$lines[0]['order']['storefront_country'], $lines[0]['order']['currency_code']]);
-        $this->assertSame([null, null], $this->marketOfOrderDetail(104), 'an order with no record carries none');
+        $this->assertSame([null, null], $this->marketOfOrderDetail(orderId: 104), 'an order with no record carries none');
     }
 
     public function test_with_storefronts_on_the_detail_adds_nothing_else_once_the_orders_migration_has_run(): void
@@ -219,6 +220,20 @@ class SellerOrderMarketTest extends TestCase
         $this->assertSame([103], array_column($answer->json('orders'), 'id'));
     }
 
+    public function test_the_market_filter_is_one_more_condition_beside_the_other_filters_of_the_list(): void
+    {
+        $this->switchStorefrontsOn();
+        DB::table('orders')->where('id', 101)->update(['order_status' => 'delivered']);
+
+        $delivered = ['order_current_status' => '["delivered"]'];
+        $searched = ['search_value' => 'ref'];
+
+        $this->assertSame([101], array_column($this->sellerApi('POST', 'orders/list', self::FIRST_PAGE + $delivered + ['storefront' => 'SA'])->assertOk()->json('orders'), 'id'));
+        $this->assertSame([], array_column($this->sellerApi('POST', 'orders/list', self::FIRST_PAGE + $delivered + ['storefront' => 'AE'])->assertOk()->json('orders'), 'id'));
+        $this->assertSame([102], array_column($this->sellerApi('POST', 'orders/list', self::FIRST_PAGE + $searched + ['storefront' => 'AE'])->assertOk()->json('orders'), 'id'), 'a search narrows within the market, and finds no order of another seller');
+        $this->assertSame([105, 104, 101], array_column($this->sellerApi('POST', 'orders/list', self::FIRST_PAGE + $searched + ['storefront' => 'SA'])->assertOk()->json('orders'), 'id'));
+    }
+
     public function test_the_narrowed_list_is_paged_over_the_narrowed_orders(): void
     {
         $this->switchStorefrontsOn();
@@ -288,8 +303,8 @@ class SellerOrderMarketTest extends TestCase
     public function test_a_staff_member_who_may_see_orders_sees_the_market_of_the_orders_of_their_employer_only(): void
     {
         $this->switchStorefrontsOn();
-        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(self::SELLER, 'Order viewer', ['orders.view']), token: 'staff-viewer-token-that-is-longer-than-thirty-characters');
-        $this->insertStaff(sellerId: self::OTHER_SELLER, roleId: $this->insertRole(self::OTHER_SELLER, 'Order viewer', ['orders.view']), token: 'staff-other-token-that-is-longer-than-thirty-characters');
+        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(sellerId: self::SELLER, name: 'Order viewer', permissions: ['orders.view']), token: 'staff-viewer-token-that-is-longer-than-thirty-characters');
+        $this->insertStaff(sellerId: self::OTHER_SELLER, roleId: $this->insertRole(sellerId: self::OTHER_SELLER, name: 'Order viewer', permissions: ['orders.view']), token: 'staff-other-token-that-is-longer-than-thirty-characters');
 
         $mine = $this->sellerApi('POST', 'orders/list', self::FIRST_PAGE + ['storefront' => 'AE'], token: 'staff-viewer-token-that-is-longer-than-thirty-characters')->assertOk();
         $theirs = $this->sellerApi('POST', 'orders/list', self::FIRST_PAGE + ['storefront' => 'AE'], token: 'staff-other-token-that-is-longer-than-thirty-characters')->assertOk();
@@ -303,7 +318,7 @@ class SellerOrderMarketTest extends TestCase
     public function test_a_staff_member_whose_role_does_not_cover_orders_is_refused_exactly_as_before_and_a_market_filter_changes_nothing(): void
     {
         $this->switchStorefrontsOn();
-        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(self::SELLER, 'Products only', ['products.view']), token: 'staff-products-token-that-is-longer-than-thirty-characters');
+        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(sellerId: self::SELLER, name: 'Products only', permissions: ['products.view']), token: 'staff-products-token-that-is-longer-than-thirty-characters');
 
         $this->sellerApi('POST', 'orders/list', self::FIRST_PAGE + ['storefront' => 'AE'], token: 'staff-products-token-that-is-longer-than-thirty-characters')->assertStatus(403);
         $this->sellerApi('GET', 'orders/102', token: 'staff-products-token-that-is-longer-than-thirty-characters')->assertStatus(403);

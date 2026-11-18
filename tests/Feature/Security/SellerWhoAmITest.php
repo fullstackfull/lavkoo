@@ -68,7 +68,7 @@ class SellerWhoAmITest extends TestCase
 
     public function test_a_staff_member_is_told_who_they_are_which_shop_they_work_in_and_what_their_role_grants(): void
     {
-        $roleId = $this->insertRole(self::SELLER, 'Order clerk', ['orders.view', 'products.view', 'unknown.permission', 'orders.view']);
+        $roleId = $this->insertRole(sellerId: self::SELLER, name: 'Order clerk', permissions: ['orders.view', 'products.view', 'unknown.permission', 'orders.view']);
         $staffId = $this->insertStaff(sellerId: self::SELLER, roleId: $roleId, token: self::STAFF_TOKEN);
 
         $answer = $this->sellerApi('GET', self::ME, token: self::STAFF_TOKEN)->assertOk();
@@ -83,7 +83,7 @@ class SellerWhoAmITest extends TestCase
 
     public function test_a_staff_member_of_the_other_shop_is_told_about_that_shop(): void
     {
-        $this->insertStaff(sellerId: self::OTHER_SELLER, roleId: $this->insertRole(self::OTHER_SELLER, 'Cashier', ['orders.manage']), token: self::STAFF_TOKEN);
+        $this->insertStaff(sellerId: self::OTHER_SELLER, roleId: $this->insertRole(sellerId: self::OTHER_SELLER, name: 'Cashier', permissions: ['orders.manage']), token: self::STAFF_TOKEN);
 
         $answer = $this->sellerApi('GET', self::ME, token: self::STAFF_TOKEN)->assertOk();
 
@@ -94,7 +94,7 @@ class SellerWhoAmITest extends TestCase
 
     public function test_a_role_that_grants_nothing_can_still_ask_who_it_is_while_every_gated_route_refuses_it(): void
     {
-        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(self::SELLER, 'Nothing', []), token: self::STAFF_TOKEN);
+        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(sellerId: self::SELLER, name: 'Nothing', permissions: []), token: self::STAFF_TOKEN);
 
         $answer = $this->sellerApi('GET', self::ME, token: self::STAFF_TOKEN)->assertOk();
 
@@ -113,7 +113,7 @@ class SellerWhoAmITest extends TestCase
 
     public function test_a_role_that_was_switched_off_holds_nothing_but_is_still_named(): void
     {
-        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(self::SELLER, 'Retired', ['orders.view'], status: 'inactive'), token: self::STAFF_TOKEN);
+        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(sellerId: self::SELLER, name: 'Retired', permissions: ['orders.view'], status: 'inactive'), token: self::STAFF_TOKEN);
 
         $answer = $this->sellerApi('GET', self::ME, token: self::STAFF_TOKEN)->assertOk();
 
@@ -122,7 +122,7 @@ class SellerWhoAmITest extends TestCase
 
     public function test_what_a_role_grants_is_read_on_every_request_and_not_from_the_session(): void
     {
-        $roleId = $this->insertRole(self::SELLER, 'Order clerk', ['orders.view']);
+        $roleId = $this->insertRole(sellerId: self::SELLER, name: 'Order clerk', permissions: ['orders.view']);
         $this->insertStaff(sellerId: self::SELLER, roleId: $roleId, token: self::STAFF_TOKEN);
         $this->assertSame(['orders.view'], $this->sellerApi('GET', self::ME, token: self::STAFF_TOKEN)->json('permissions'));
 
@@ -160,7 +160,7 @@ class SellerWhoAmITest extends TestCase
 
     public function test_a_staff_member_who_was_switched_off_and_a_shop_that_is_not_approved_any_more_are_refused(): void
     {
-        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(self::SELLER, 'Order clerk', ['orders.view']), token: self::STAFF_TOKEN, status: 'inactive');
+        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(sellerId: self::SELLER, name: 'Order clerk', permissions: ['orders.view']), token: self::STAFF_TOKEN, status: 'inactive');
         $this->sellerApi('GET', self::ME, token: self::STAFF_TOKEN)->assertStatus(401);
 
         DB::table('sellers')->where('id', self::OTHER_SELLER)->update(['status' => 'pending']);
@@ -195,7 +195,7 @@ class SellerWhoAmITest extends TestCase
     public function test_it_says_that_no_market_is_granted_and_names_none_even_where_the_shop_sells_in_several(): void
     {
         $this->switchStorefrontsOn();
-        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(self::SELLER, 'Order clerk', ['orders.view']), token: self::STAFF_TOKEN);
+        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(sellerId: self::SELLER, name: 'Order clerk', permissions: ['orders.view']), token: self::STAFF_TOKEN);
 
         foreach ([self::SELLER_TOKEN, self::STAFF_TOKEN] as $token) {
             $answer = $this->sellerApi('GET', self::ME, token: $token)->assertOk();
@@ -219,7 +219,7 @@ class SellerWhoAmITest extends TestCase
 
     public function test_it_carries_no_credential_and_no_contact_detail(): void
     {
-        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(self::SELLER, 'Order clerk', ['orders.view']), token: self::STAFF_TOKEN);
+        $this->insertStaff(sellerId: self::SELLER, roleId: $this->insertRole(sellerId: self::SELLER, name: 'Order clerk', permissions: ['orders.view']), token: self::STAFF_TOKEN);
 
         foreach ([self::SELLER_TOKEN, self::STAFF_TOKEN] as $token) {
             $content = (string) $this->sellerApi('GET', self::ME, token: $token)->assertOk()->getContent();

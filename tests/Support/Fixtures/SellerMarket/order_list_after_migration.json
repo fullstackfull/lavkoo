@@ -38,6 +38,7 @@
                 "f_name": "Customer",
                 "l_name": "One",
                 "email": "customer-one@example.test",
+                "phone": null,
                 "created_at": null,
                 "updated_at": null,
                 "image_full_url": {
@@ -112,6 +113,7 @@
                 "f_name": "Customer",
                 "l_name": "One",
                 "email": "customer-one@example.test",
+                "phone": null,
                 "created_at": null,
                 "updated_at": null,
                 "image_full_url": {
@@ -186,6 +188,7 @@
                 "f_name": "Customer",
                 "l_name": "One",
                 "email": "customer-one@example.test",
+                "phone": null,
                 "created_at": null,
                 "updated_at": null,
                 "image_full_url": {
@@ -260,6 +263,7 @@
                 "f_name": "Customer",
                 "l_name": "One",
                 "email": "customer-one@example.test",
+                "phone": null,
                 "created_at": null,
                 "updated_at": null,
                 "image_full_url": {
@@ -334,6 +338,7 @@
                 "f_name": "Customer",
                 "l_name": "One",
                 "email": "customer-one@example.test",
+                "phone": null,
                 "created_at": null,
                 "updated_at": null,
                 "image_full_url": {

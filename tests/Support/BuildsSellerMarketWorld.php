@@ -17,7 +17,8 @@ use RuntimeException;
  *
  * Seller 1 is the caller and seller 2 the other seller. The orders carry what the snapshot writes: a storefront, a currency and a rate, or nothing
  * when the order is older than the snapshot or its lines span two countries. Every amount and every number the answers carry is an integer or a
- * cast float, so an answer is the same bytes on SQLite and on MySQL, and a recorded answer can be compared as text.
+ * cast float, so an answer is the same on SQLite and on MySQL and a recorded one can be compared as text, but for the rate of the snapshot: a decimal
+ * the order model does not cast, which the test that compares writes the short way.
  *
  * Every table is dropped before it is built, so on a real engine the database must be unmistakably a throwaway one. translate() writes a placeholder
  * for a key it does not know into the tracked language files, so they are put back after every test.
@@ -38,7 +39,7 @@ trait BuildsSellerMarketWorld
     protected const IN_HOUSE_ORDER = 301;
 
     private const SELLER_MARKET_TABLES = [
-        'business_settings', 'sellers', 'seller_roles', 'seller_staff', 'seller_api_keys', 'users', 'storages', 'orders', 'order_details',
+        'business_settings', 'sellers', 'shops', 'seller_roles', 'seller_staff', 'seller_api_keys', 'users', 'storages', 'orders', 'order_details',
         'shipping_methods', 'delivery_men', 'offline_payments', 'order_delivery_verifications', 'order_edit_histories', 'products', 'colors',
     ];
 
@@ -179,6 +180,13 @@ trait BuildsSellerMarketWorld
             $table->softDeletes();
         });
 
+        Schema::create('shops', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('name')->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('seller_roles', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('seller_id');
@@ -226,6 +234,7 @@ trait BuildsSellerMarketWorld
             $table->string('f_name')->nullable();
             $table->string('l_name')->nullable();
             $table->string('email')->nullable();
+            $table->string('phone')->nullable();
             $table->timestamps();
         });
 
