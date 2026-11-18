@@ -1,6 +1,6 @@
 # Lavkoo GCC — Current Project Status & Handoff Index
 
-**Last update:** 2026-11-18. **Current phase:** autonomous implementation under the owner's charters: continuous development and release preparation on draft pull requests, with nothing merged, deployed or run on production data. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 99 draft pull requests of `lavkoo` (and 9 of `lavkooapp`, 6 of `lavkooappseller`), all dormant behind switches that ship off.
+**Last update:** 2026-11-18. **Current phase:** autonomous implementation under the owner's charters: continuous development and release preparation on draft pull requests, with nothing merged, deployed or run on production data. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 101 draft pull requests of `lavkoo` (and 9 of `lavkooapp`, 6 of `lavkooappseller`), all dormant behind switches that ship off.
 
 ## Read these first
 

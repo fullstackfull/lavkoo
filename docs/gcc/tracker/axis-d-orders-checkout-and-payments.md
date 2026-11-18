@@ -1,6 +1,6 @@
 # Axis D: Orders, checkout and payments
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 167 (MET 72, CODED 33, MISSING 62). Code completion 63%, proven by a passing test 43%, release readiness 8%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 168 (MET 72, CODED 34, MISSING 62). Code completion 63%, proven by a passing test 43%, release readiness 8%.
 
 Independent verification: done for unit(s) D1, D2.
 
@@ -214,17 +214,18 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### D1-10. Historical refunds in the original currency and merchant account
 
-- **State: NOT STARTED** | plan lines 287 | Foundation: separate settlements per legal entity (DECISIONS.md); price-stock map gap 12 | reviews: finance, legal
+- **State: IN PROGRESS** | plan lines 287 | Foundation: separate settlements per legal entity (DECISIONS.md); price-stock map gap 12 | reviews: finance, legal
 - **(2) Functional requirement.** A refund or cancellation after the fact returns what the buyer paid, in the original currency, through the merchant account and company that took the payment, whatever the rate or settings are now.
 - **(3) Exists now in code (main).** main: refunds are per order line (getRefundAmountFromOrderDetails: line total plus tax minus discount, coupon and referral share, shipping excluded). RefundRequest and RefundTransaction carry an amount only, no currency, rate or account. A wallet refund credit converts the stored amount at the current rate (usdToDefaultCurrency); otherwise the money is a manual note. The MyFatoorah refund row has its own currency (gateway work).
 - **(4) Done in the draft PRs.** Nothing for currency or account. #15 only characterizes today's sequential refund guards.
 - **(5) What remains.** 1) currency_code, rate basis and entity or account reference on refund_requests and refund_transactions; 2) refund computed in the order's own currency; 3) refund routed to the merchant account that took the payment (D2); 4) tests across a rate change and a 3-decimal currency.
-- **(6) PRs and commits.** none
+- **(6) PRs and commits.** [lavkoo#101](https://github.com/fullstackfull/lavkoo/pull/101) `1447d433`
 - **(7) Tests.**
   - `none` Any test of a refund in the original currency or merchant account (none)
 - **(8) Dependencies and blockers.** Needs D1-06 (order currency) and D1-03 (entity); gateway accounts per entity belong to D2; financial review.
 - **(9) Acceptance criteria.**
-  - [MISSING] A refund request or transaction stores the currency and merchant account of the original payment (RefundTransactionService data has amount only)
+  - [CODED] A refund request or transaction stores the currency and the selling company of the original payment (PR 101 (draft, stacked on PR 90, 1447d433): RefundOrderMoney copies the order's storefront, currency, rate and legal_entity_id into the refund request (customer API and web) and the refund transaction (RefundTransactionService::getData); RefundOrderMoneyTest (12) and StorefrontRefundRecordTest (4, through the real API after a real checkout) pass on SQLite and MySQL 8.0.46, CI not read)
+  - [MISSING] A refund request or transaction stores the merchant account of the original payment (gateway accounts for each company belong to D2 and do not exist; nothing records which account took the payment)
   - [MISSING] A refund amount is computed in the order's own currency, not re-converted at the refund-time rate (price-stock map gap 12: refunds carry no currency or rate snapshot)
   - [MISSING] A refund goes back through the merchant account and company that took the payment (no entity or account on refund rows)
   - [MISSING] Refunding after an exchange-rate or settings change returns exactly the amount paid (no rate snapshot)
@@ -232,6 +233,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **Open owner decisions.** Refund policy across currency movements (original amount versus current rate); credit notes; whether refunds may only return to the original merchant account.
 - **Verifier note (not applied automatically).** refs: Cites price-stock map gap 12, which is 'API v2 seller product writes unit_price and discount; low-stock read'. The text 'Refund amounts carry no currency or rate snapshot' is gap 15 (API v2 seller refunds computed from base line amounts). Proposed: Foundation: separate settlements per legal entity (DECISIONS.md); price-stock map gap 15
 - **Verifier note (not applied automatically).** ac[1].e: Same wrong gap number in the evidence of the criterion 'A refund amount is computed in the order's own currency'. Proposed: price-stock map gap 15: refunds carry no currency or rate snapshot
+- **Update after the assessment.** PR 101 (draft, stacked on PR 90, 1447d433): a refund request and a refund transaction copy from their order's own record the storefront, the currency, the rate and the selling company when the row is made (App\Services\Storefront\RefundOrderMoney; migration 2026_12_03_100000: four nullable columns on both tables, a rollback refused while a refund carries a record; the customer API, the customer web and RefundTransactionService::getData ask it; RefundTransaction::$fillable names the columns). The amount, its computation and the account a refund goes back to are untouched. 16 tests, three mutations each caught. Still missing: the refund computed in the order's own currency, the merchant account of the company (D2), the owner's rule across currency movements.
+- **Next coding task today (supersedes item 10 above).** Read the CI of PR 101; then, with the owner's rule on refunds across currency movements and the gateway accounts of each company (D2), compute a refund in the order's own currency and route it through the merchant account of the company that took the payment.
 
 #### D1-11. Operations on placed orders survive store state and run once
 
