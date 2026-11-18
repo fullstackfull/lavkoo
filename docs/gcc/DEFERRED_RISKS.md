@@ -7,7 +7,7 @@ Last updated 2026-11-18.
 | ID | Risk | Owner decision | Status | Where it is described |
 |---|---|---|---|---|
 | DR-1 | Credentials and key material that are tracked in the repository (key files, a licence record) | 2026-11-18: no rotation, revocation or replacement now, for the Apple key, the application key, the payment keys, Firebase or any other credential | Deferred. Open. Not considered safe | `docs/integrations/security-findings.md` (SEC-15); plan decisions 11 and 15 |
-| DR-2 | The application key on the live server may be the example key | Same decision (no change). The read-only comparison stays in the server preflight list for the authorized administrator | Deferred. Open | plan, server preflight |
+| DR-2 | The application key on the live server may be the example key | Same decision (no change). The read-only comparison is section E of [`SERVER_PREFLIGHT.md`](SERVER_PREFLIGHT.md), for the authorized administrator | Deferred. Open | plan, server preflight |
 | DR-3 | The three repositories are public | Not decided | Open | plan decision 15 |
 | DR-4 | `main` has no branch protection in the three repositories | Not decided | Open | owner guide, section 7 |
 | DR-5 | A private repository would cost CI minutes: one full CI run is about 460 runner-minutes | Information for DR-3 | Open | plan decision 15 |

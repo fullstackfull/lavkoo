@@ -95,6 +95,8 @@ Test-only: `#1`, `#4`, `#6`, `#15`, `#18`, `#24`, `#25`, `#26`, `#31`, `#34`. Sm
 
 ## 8. Merge order and the conflicts to expect (dry-run merges of every pair of the open security branches, 2026-11-17)
 
+**Update 2026-11-18:** [`MERGE_ORDER.md`](MERGE_ORDER.md) replaces the table below with every pair of all the open main-based pull requests (3,240 dry-run merges: 99 pairs conflict, 75 of them only by inheritance through stacking, 24 in their own right) and names where each was settled in the all-in-one integration; [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md) lists what breaks when the sets meet even where no text conflicts; [`SERVER_PREFLIGHT.md`](SERVER_PREFLIGHT.md) is the read-only list of what only the administrator can read on the live server.
+
 Every pair of open branches was merged with `git merge-tree`; these are the only pairs that conflict textually. A conflict is the second pull request's to settle, and settling it needs the tests of both to be run once afterwards: ask and I push the merge commit.
 
 | Pair | File and place | What to keep |
