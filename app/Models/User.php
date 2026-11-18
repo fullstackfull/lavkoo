@@ -55,6 +55,9 @@ use Laravel\Passport\HasApiTokens;
  */
 class User extends Authenticatable
 {
+    /** What a customer's wallet, loyalty and referral say about them: never part of a customer embedded in somebody else's payload (HidesCustomerBalances). */
+    public const BALANCE_ATTRIBUTES = ['wallet_balance', 'loyalty_point', 'referral_code'];
+
     use Notifiable, HasApiTokens,StorageTrait, DemoMaskingTrait;
 
     /**

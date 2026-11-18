@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HidesCustomerBalances;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -29,6 +30,7 @@ use Illuminate\Support\Carbon;
  * */
 class Review extends Model
 {
+    use HidesCustomerBalances;
     use StorageTrait;
     /**
      * The attributes that are mass assignable.

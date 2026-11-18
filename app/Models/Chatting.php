@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HidesCustomerBalances;
 use App\Traits\StorageTrait;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
@@ -36,6 +37,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class Chatting extends Model
 {
+    use HidesCustomerBalances;
     use StorageTrait;
     protected $casts = [
         'id' => 'integer',
