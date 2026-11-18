@@ -1,6 +1,6 @@
 # I2-01 and I2-03: how the legal text of a storefront is written
 
-Status: coded and tested on SQLite and on MySQL 8.0.46 (branch `gcc/p1-legal-text-publisher`, stacked on the legal review of PR 105; no MariaDB run). It needs **no migration** (it writes the table `storefront_legal_documents`, whose migrations are already in the stack) and **no switch**: nothing reads a text of a storefront other than the Saudi one until storefronts are on, and the service is called by a command only. Nothing is MET until CI has run on a pushed head.
+Status: coded and tested on SQLite and on MySQL 8.0.46 (branch `gcc/p1-legal-text-publisher`, stacked on the legal review of PR 105; no MariaDB run). It needs **no migration** (it writes the table `storefront_legal_documents`, whose migrations are already in the stack) and **no switch**: nothing reads a text of a storefront other than the Saudi one until storefronts are on, and the service is called by the command and by the admin screens (`docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md`). Nothing is MET until CI has run on a pushed head.
 
 ## What was missing
 
@@ -56,7 +56,7 @@ Eleven mutations of the service (the author may approve, a template approved as 
 
 ## Decisions that remain with the owner
 
-1. Who may take each step: the permission, and whether publishing needs two people (I2-03 criterion 2).
+1. Whether publishing needs a second person or a step-up (I2-03 criterion 5); who holds the three permissions is decision 1 of `docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md`.
 2. Where templates come from (the Saudi page of the same type, a file kept by legal counsel, or a library).
 3. Whether a new version of a text needs a new independent review.
 4. How long texts and acceptance rows are kept (I2-01 criterion 2).

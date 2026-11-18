@@ -336,6 +336,19 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->assertSame(CarbonImmutable::parse('2037-12-31 23:59', 'UTC')->getTimestamp(), $text->effective_from->getTimestamp(), 'the last minute of 2037 is kept as the instant that was typed');
     }
 
+    public function test_the_form_as_the_page_posts_it_with_the_day_left_empty_publishes_the_text_now(): void
+    {
+        $this->signInAs(self::LEGAL_WRITER);
+        $id = $this->draftThroughTheScreen();
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $this->approveThroughTheScreen($id);
+
+        $this->publishThroughTheScreen(id: $id, form: ['effective_from' => ''])->assertSessionHasNoErrors();
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $this->text($id)->status);
+    }
+
     public function test_the_days_of_the_page_are_in_utc_with_the_suffix_whatever_the_time_zone_of_the_application_is(): void
     {
         $original = date_default_timezone_get();
@@ -730,6 +743,21 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->get(route('admin.storefronts.legal-texts.index', 'KW'))->assertOk();
         $this->signInAs(self::LEGAL_APPROVER);
         $this->get(route('admin.storefronts.legal-texts.index', 'KW'))->assertOk();
+    }
+
+    #[DataProvider('languagesOfThePanel')]
+    public function test_the_message_of_a_day_after_the_end_of_2037_is_defined_in_each_language_of_the_panel(string $language): void
+    {
+        $this->withSession(['local' => $language]);
+        $this->signInAs(self::LEGAL_WRITER);
+        $id = $this->draftThroughTheScreen();
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $this->approveThroughTheScreen($id);
+
+        $this->publishThroughTheScreen(id: $id, form: ['effective_from' => '2038-01-01 00:00'])->assertSessionHasErrors('effective_from');
+
+        $this->assertStringContainsString(StorefrontLegalPublisher::LATEST_EFFECTIVE_MOMENT_UTC, session('errors')->getBag('default')->first('effective_from'));
     }
 
     private function textIdOf(string $type): int
