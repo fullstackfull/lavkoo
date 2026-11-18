@@ -206,6 +206,7 @@ The lists above were made from the pull requests that existed then (up to #90). 
 | #105 (a market needs an independent legal review before it sells) | #99 | after #99; see the gate conflict below |
 | #106 (one-time codes out of the log of `main`) | `main` | independent; the same lines are removed by stage 0 of the hotfix, which is not for `main` |
 | #107 (each storefront serves its own active theme) | #87 | after #87; one migration (`themes.storefront_country`); conflicts with #90 and #105 only in the `gcc.storefronts` block of `config/gcc.php` |
+| #112 (publish per storefront, slice 1) | #107 | after #107; no conflict expected (touches `ThemeManager`, the two theme flushes, `StorefrontContext`) |
 | #108 (the seller app can ask who it is; the seller order list carries the market) | #87 | after #87; touches the constructor of the seller `OrderController` |
 | #109 (a wallet or loyalty ledger row says what stands behind it) | #90 | after #90; **awaits the finance review before any merge** ([R6](reviews/R6-legal-finance-gcc-money.md)); one migration; **conflicts with the wallet pull requests (#9 and #10) in 15 files**, see below |
 | #110 (a storefront's business pages carry its own legal texts) | #87 | after #87; conflicts with #40 in `PageController::getPageView` |

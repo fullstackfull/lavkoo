@@ -4,11 +4,11 @@ Sanitized. Nothing here is a secret or personal data. Every pull request is a **
 
 ## What moved since 14:00 (measured on the criteria, not on the pull request count)
 
-Against the tracker published at `f2fa60d3` (1,675 criteria: 665 MET, 362 CODED, 648 MISSING) the regenerated tracker has **1,675 criteria: 666 MET, 392 CODED, 617 MISSING** (implemented 63.2%, proven by a passing test 39.8%, release readiness 7.5%).
+Against the tracker published at `f2fa60d3` (1,675 criteria: 665 MET, 362 CODED, 648 MISSING) the regenerated tracker has **1,675 criteria: 666 MET, 394 CODED, 615 MISSING** (implemented 63.3%, proven by a passing test 39.8%, release readiness 7.5%).
 
 | Movement | Count | Which |
 |---|---:|---|
-| MISSING to CODED, a whole criterion | 30 | F-01 criteria 0 to 3 (#107); I2-04 criteria 0 to 5 (#110); I2-11 criteria 2 and 3, I2-12 criteria 1, 3 and 4, I2-13 criteria 3 and 4, I2-14 criteria 1 to 4, I2-15 criterion 4, I2-16 criterion 4, I2-17 criterion 5 (#111); E-05 criteria 1, 2 and 5 (#109); K-04 criterion 0, K-08 criterion 3 and K-17 criterion 1 (#108) |
+| MISSING to CODED, a whole criterion | 32 | F-01 criteria 0 to 3 (#107); F-02 criteria 0 and 3 (#112); I2-04 criteria 0 to 5 (#110); I2-11 criteria 2 and 3, I2-12 criteria 1, 3 and 4, I2-13 criteria 3 and 4, I2-14 criteria 1 to 4, I2-15 criterion 4, I2-16 criterion 4, I2-17 criterion 5 (#111); E-05 criteria 1, 2 and 5 (#109); K-04 criterion 0, K-08 criterion 3 and K-17 criterion 1 (#108) |
 | MISSING to MET | 1 | J-17 criterion 3: the update gate is pinned by tests and `release_version_test.dart` exists (lavkooapp #14, app CI run 20 on `49b63de`, read job by job) |
 | CODED to MET | 0 | the criteria that wait for a green job wait for the integration run |
 | Partly moved, still MISSING | 3 | I2-11 criterion 4 (audited, not permission-gated), I2-12 criterion 2 (four of the six checks), I2-15 criterion 1 (no web redirect without country paths) |
@@ -18,6 +18,7 @@ No whole requirement became READY FOR OWNER REVIEW: every one still has criteria
 ## What was built
 
 - **#107, one active theme per storefront (`62b8e4ad`, stacked on #87).** `themes.storefront_country` and one `StorefrontThemeResolver` that fourteen readers ask; activating one storefront's theme no longer deactivates another's; the admin list shows what each storefront serves. Off by default (`GCC_STOREFRONT_THEMES`). Built by a delegated agent, then read in full and run again here.
+- **#112, publish per storefront, slice 1 (`5afda458`, stacked on #107).** A publish, an activation or a restore of one storefront's theme touches that storefront only: another storefront's published version, revision and checksum stay as they are, only the cached pages of the theme's own storefront are forgotten (every storefront's for the default storefront's theme), and the audit lines name the storefront. Written here; ten tests and four mutations. The one FCM topic that wakes every app is not changed.
 - **#108, the seller market contract (`11a9707f`, stacked on #87).** `GET api/v3/seller/seller-center/security/me` (who is signed in: owner or staff, role, permissions, markets), and the seller order list and detail carry `storefront_country` and `currency_code` with a market filter. Off by default. Built by an agent, read and run again here; one test of it was made independent of the seller scoping of #20.
 - **#109, ledger attribution (`bb55ab83`, stacked on #90).** Thirteen nullable columns on the wallet and loyalty ledgers say what stands behind a row, who made a manual top-up and which market it was made in; recording only, dormant until its migration has run. **Awaits the finance review** ([R6](../reviews/R6-legal-finance-gcc-money.md)). Not in the integration (15 files conflict with the wallet pull requests, listed in [MERGE_ORDER.md](../MERGE_ORDER.md) section 8).
 - **#110, legal pages per storefront (`13eda6f1`, stacked on #87).** A storefront other than the Saudi one shows its own current legal text in the visitor's language, or nothing, on the website and in the page list of the apps; the agreement links name the storefront. Nothing writes the texts yet (I2-03).

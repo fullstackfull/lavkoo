@@ -19,7 +19,7 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 173 | 79 | 33 | 61 | 65% | 46% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 31 | 7 | 46 | 45% | 37% | 7% | all |
-| [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 10 | 32 | 32 | 57% | 14% | 1% | all |
+| [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 10 | 34 | 30 | 59% | 14% | 1% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 48 | 63 | 72 | 61% | 26% | 2% | all |
@@ -27,7 +27,7 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 5 | 36 | 50 | 45% | 5% | 2% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 92 | 112 | 85 | 71% | 32% | 3% | all |
-| **All axes (pooled)** | **359** | **1675** | **666** | **392** | **617** | **63%** | **40%** | **7%** | |
+| **All axes (pooled)** | **359** | **1675** | **666** | **394** | **615** | **63%** | **40%** | **7%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -282,7 +282,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | Id | State | M/C/X | Requirement |
 |---|---|---|---|
 | [F-01](tracker/axis-f-themes-and-brand.md) | NOT STARTED | 0/4/0 | One active published theme per country storefront |
-| [F-02](tracker/axis-f-themes-and-brand.md) | NOT STARTED | 0/0/4 | Independent drafts, versions and publish per storefront |
+| [F-02](tracker/axis-f-themes-and-brand.md) | NOT STARTED | 0/2/2 | Independent drafts, versions and publish per storefront |
 | [F-03](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/2/3 | Web and customer-app customisation, per-platform publish |
 | [F-04](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 1/4/1 | Theme caches isolated per storefront |
 | [F-05](tracker/axis-f-themes-and-brand.md) | IMPLEMENTED IN DRAFT | 2/4/0 | Storefront context reaches the theme API and the web theme |

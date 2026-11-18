@@ -1,6 +1,6 @@
 # Axis F: Themes and brand
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 16. Acceptance criteria: 74 (MET 10, CODED 32, MISSING 32). Code completion 57%, proven by a passing test 14%, release readiness 1%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 16. Acceptance criteria: 74 (MET 10, CODED 34, MISSING 30). Code completion 59%, proven by a passing test 14%, release readiness 1%.
 
 Independent verification: done for unit(s) F.
 
@@ -35,19 +35,21 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(3) Exists now in code (main).** Versions belong to a theme row: ThemeManager::publish archives only the same theme's previous version, the revision is max+1 per theme under a lock, and flush, beacon and audit run after the commit. All of it is platform-wide: one FCM topic (theme_updates_user_app) wakes every app, and publish registers theme banners into the one global banners table (ThemeBannerLink).
 - **(4) Done in the draft PRs.** PR 37 makes every publish flush every storefront's cache copy (pinned by StorefrontCacheScopeTest): right while one theme serves all, the opposite of independent publish. No branch makes publish, revision, beacon, audit or the banner link storefront-aware.
 - **(5) What remains.** Publish target per storefront (needs F-01); flush only that storefront; beacon topic or payload naming the storefront (keep the Saudi topic); revision and checksum compared per storefront; storefront in the audit context; stop draft edits pushing into live banner rows shown elsewhere; scope campaigns and experiments; tests.
-- **(6) PRs and commits.** [lavkoo#37](https://github.com/fullstackfull/lavkoo/pull/37) `2344fa3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(6) PRs and commits.** [lavkoo#37](https://github.com/fullstackfull/lavkoo/pull/37) `2344fa3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkoo#112](https://github.com/fullstackfull/lavkoo/pull/112) `5afda458`
 - **(7) Tests.**
   - `none` StorefrontCacheScopeTest::test_a_theme_flush_clears_the_copy_of_every_storefront pins that a publish reaches every storefront. (refuted by the verifier: The test calls StorefrontThemeRenderer::flush(['home']) directly and checks the page and global-settings keys of '', AE and OM; its sibling does the same for Th)
   - `none` No test of ThemeManager::publish, revision stamping or ThemeSyncBeacon exists in any tree.
 - **(8) Dependencies and blockers.** F-01 (a theme tied to a storefront); banners are catalogue content (unit B); campaigns and experiments are central by page slug and section uuid (GCC-17 unit); theme schema is in no migration.
 - **(9) Acceptance criteria.**
-  - [MISSING] Publishing in AE archives only AE's previous version and leaves SA's published version, revision and checksum unchanged
-  - [MISSING] A publish in AE does not clear SA's cached theme and does not wake SA's apps (flush forgets every storefront (a test pins that); one FCM topic)
+  - [CODED] Publishing in AE archives only AE's previous version and leaves SA's published version, revision and checksum unchanged (PR 112 (draft, stacked on PR 107, 5afda458, off by default): publishing in one storefront archives the previous version of that storefront's theme only and leaves another storefront's published version, revision and checksum as they were, and the revisions of two storefronts are counted apart (StorefrontThemePublishTest, 10 tests; four mutations fail it); the eight theme-related classes (259 tests) pass on SQLite; CI not read)
+  - [MISSING] A publish in AE does not clear SA's cached theme and does not wake SA's apps (PR 112 (5afda458): a publish or an activation in one storefront forgets that storefront's cached pages (the renderer's and the delivery's keys) and no other's, and every storefront's for the default storefront's theme, which the others fall back to; a publish still announces on the one FCM topic, so every app is woken (each asks /theme/version for its own storefront's revision), and a topic per storefront needs the apps to subscribe to it)
   - [MISSING] Editing an AE draft cannot change a banner row an SA section shows (ThemeBannerLink pushes draft edits to the global banners row)
-  - [MISSING] Publish, restore and schedule audit lines name the storefront
+  - [CODED] Publish, restore and schedule audit lines name the storefront (PR 112 (5afda458): the audit lines theme.published, theme.activated and theme.restored carry the storefront while themes are kept by storefront and carry nothing new otherwise (StorefrontThemePublishTest); the scheduled publish goes through ThemeManager::publish; CI not read)
 - **(10) Next coding task.** After F-01: pass the storefront into ThemeManager::publish, restore and ThemePublishDue; ThemeDelivery::flush(storefront) and a per-storefront beacon (old topic kept for Saudi); ThemeBannerLink writes only rows of the same storefront; tests/Feature/Storefront/ThemePublishIsolationTest.php on a hand-built schema.
 - **Open owner decisions.** Decided (GCC-07): independent drafts, versions and publishing per storefront; no cross-country accidental publication. Open (Q-19, proposed option a): copy, not share, banners and assets; whether the website and the customer app publish separately per store.
 - **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
+- **Update after the assessment.** PR 112 (draft, stacked on PR 107, 5afda458, off by default): a publish, an activation or a restore of one storefront's theme touches that storefront only: another storefront's published version, revision and checksum are untouched, only the cached pages of the theme's own storefront are forgotten (every storefront's for the default storefront's theme), and the audit lines name the storefront. Not done: the one FCM topic that wakes every app, the global banners row a draft edit writes to (F-02.2), and F-04, F-07, F-09, F-11, F-15.
+- **Next coding task today (supersedes item 10 above).** Read the CI of PR 112 per job (MySQL and MariaDB included); then F-02.2 (a draft edit of one storefront cannot change a banner row another storefront shows) and F-04 (the caches of the campaign, experiment and section-reach screens per storefront or declared global).
 
 #### F-03. Web and customer-app customisation, per-platform publish
 
