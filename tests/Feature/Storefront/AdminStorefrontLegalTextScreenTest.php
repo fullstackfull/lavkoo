@@ -241,6 +241,34 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->assertNull(app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en'), 'a text scheduled for a later day is not in force yet');
     }
 
+    public function test_the_days_of_the_page_are_in_utc_with_the_suffix_whatever_the_time_zone_of_the_application_is(): void
+    {
+        $original = date_default_timezone_get();
+        date_default_timezone_set('Asia/Dhaka');
+        config(['app.timezone' => 'Asia/Dhaka']);
+
+        try {
+            $day = CarbonImmutable::now('UTC')->addDays(2)->setTime(7, 30);
+            $this->signInAs(self::LEGAL_WRITER);
+            $id = $this->draftThroughTheScreen();
+            $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
+            $this->signInAs(self::LEGAL_APPROVER);
+            $this->approveThroughTheScreen($id);
+            $this->publishThroughTheScreen($id, ['effective_from' => $day->format('Y-m-d H:i')]);
+            $this->travelTo($day->addHour());
+            $this->signInAs(self::MASTER);
+
+            $page = $this->page();
+
+            $this->assertStringContainsString('data-required="terms.en" data-in-force="yes"', $page, 'the text is in force on its day');
+            $this->assertSame(2, substr_count($page, $day->format('Y-m-d H:i') . ' UTC'), 'the table of what is in force and the list of versions both print the UTC minute that was typed, with its suffix');
+            $this->assertStringNotContainsString($day->setTimezone('Asia/Dhaka')->format('Y-m-d H:i'), $page, 'the application\'s own time zone is not printed as if it were the day that was typed');
+        } finally {
+            $this->travelBack();
+            date_default_timezone_set($original);
+        }
+    }
+
     public function test_a_text_published_without_a_day_is_in_force_now_and_the_page_says_so(): void
     {
         $this->publishedThroughTheScreen();
