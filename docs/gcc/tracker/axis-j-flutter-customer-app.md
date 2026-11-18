@@ -1,6 +1,6 @@
 # Axis J: Flutter customer app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 93 (MET 38, CODED 27, MISSING 28). Code completion 70%, proven by a passing test 41%, release readiness 5%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 93 (MET 39, CODED 27, MISSING 27). Code completion 71%, proven by a passing test 42%, release readiness 5%.
 
 Independent verification: done for unit(s) J.
 
@@ -339,7 +339,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(3) Exists now in code (main).** main: SplashScreen._updateIsRequired compares user_app_version_control (per platform, status 1, minimum) with AppConstants.appVersion 16.2.1 (pubspec says 3.0.6+48) and routes to UpdateScreen, which opens the configured store link or a fallback. The shop publishes floor 14.1 with an empty link (comment in app_constants.dart, read 2026-11-11).
 - **(4) Done in the draft PRs.** Nothing changes it, by design: the diff of #7 against main leaves _updateIsRequired, UpdateScreen, appVersion, pubspec.yaml, android/ and ios/ untouched; the 2026-11-17 audit confirms no PR touches X-App-Version or the gate.
 - **(5) What remains.** (1) No test pins the gate or the appVersion-versus-floor rule: app_constants.dart cites test/release_version_test.dart, which exists on no ref. (2) The gate logic sits in a widget State, so it cannot be unit tested. (3) The shop floor (14.1) and the app's real version (3.0.6) disagree: owner decision. (4) UpdateScreen passes the configured link unchanged: an empty link fails canLaunchUrlString and a missing one hits appUrl!.
-- **(6) PRs and commits.** none
+- **(6) PRs and commits.** [lavkooapp#14](https://github.com/fullstackfull/lavkooapp/pull/14) `49b63de`
 - **(7) Tests.**
   - `none` none: no test of _updateIsRequired, UpdateScreen or appVersion (test/release_version_test.dart, cited in app_constants.dart, exists on no ref)
 - **(8) Dependencies and blockers.** Owner decision on aligning the shop's published floor with the app's numbering; the lavkoo user_app_version_control setting. Release of any build is separate from this branch work.
@@ -347,7 +347,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] A build below the published minimum (status 1, the platform's entry) is routed to the update screen before maintenance or login (splash_screen.dart _updateIsRequired and the two route branches; no test)
   - [CODED] No update is forced when status is not 1 or the minimum is empty (Same method; no test)
   - [CODED] The GCC branches leave the gate, appVersion, pubspec version, package id and Firebase settings untouched (git diff main..#7 over splash_screen.dart shows only the storefront refresh; pubspec, android and ios are identical (diff stat empty))
-  - [MISSING] A regression test pins the gate (equal, lower, higher, status off, empty, non-numeric) and the appVersion-versus-floor rule (test/release_version_test.dart is cited but absent)
+  - [MET] A regression test pins the gate (equal, lower, higher, status off, empty, non-numeric) and the appVersion-versus-floor rule (lavkooapp (draft, stacked on #13, 49b63de): the rule moves unchanged out of the splash screen's state into UpdateGate.isRequired and UpdateGate.compare; test/update_gate_test.dart pins equal, lower, higher, switch off or not 1, missing row, blank, non-version and per-platform rows, and a table of 19 version pairs, and test/release_version_test.dart refuses an appVersion below the live floor of 14.1; run 20 of the app CI on 49b63de read job by job on 2026-11-18: storefront-header (analyze of the changed files, the errors-only analyses, Test storefront, Test storefront with storefronts on) and analyze-whole-project are success)
   - [MISSING] The update screen offers a usable target when the config link is empty (UpdateScreen passes the link unchanged: an empty link fails canLaunchUrlString)
 - **(10) Next coding task.** Extract the comparison from SplashScreen into a pure UpdateGate (same semantics), add test/release_version_test.dart with the cases above and list it in ci.yml; do not change appVersion, the shop floor or pubspec.
 - **Open owner decisions.** Which way to align the version numbers (lower the shop's floor to at most 3.0.6 and set appVersion to match, or renumber the app at or above 14.1). The charter forbids bumping a version or lowering a minimum on a test constant alone.
