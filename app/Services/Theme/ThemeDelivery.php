@@ -158,17 +158,23 @@ class ThemeDelivery
         }
     }
 
-    /** Drop every cached delivery — called on publish, alongside the storefront's own flush. */
-    public function flush(): void
+    /**
+     * Drop every cached delivery — called on publish, alongside the storefront's own flush. For the storefronts given only (F-02), or for every storefront when none is given.
+     *
+     * @param list<string>|null $storefronts
+     */
+    public function flush(?array $storefronts = null): void
     {
-        foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_PREFIX . 'revision') as $key) {
+        $keysOf = static fn (string $key): array => $storefronts === null ? StorefrontContext::keysForEveryStorefront($key) : StorefrontContext::keysForStorefronts(countries: $storefronts, key: $key);
+
+        foreach ($keysOf(self::CACHE_PREFIX . 'revision') as $key) {
             Cache::forget($key);
         }
 
         // Per-client payloads are keyed by a capability fingerprint nobody enumerates, so they
         // cannot be forgotten one by one. They carry the revision in their key instead: a publish
         // moves the revision, which strands every old entry to expire on its own TTL.
-        foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_PREFIX . 'home_index') as $key) {
+        foreach ($keysOf(self::CACHE_PREFIX . 'home_index') as $key) {
             Cache::forget($key);
         }
     }

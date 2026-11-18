@@ -96,13 +96,16 @@ class ThemeManager
 
         // AFTER the commit, and BOTH caches: flushing inside the transaction let a request racing
         // the commit re-cache the old theme, and forgetting only the web renderer left every
-        // installed app on the previous theme for a full delivery TTL.
-        app(StorefrontThemeRenderer::class)->flush();
-        app(ThemeDelivery::class)->flush();
+        // installed app on the previous theme for a full delivery TTL. While themes are kept by
+        // storefront, only the copies of the storefront this theme is for go stale (F-02).
+        $themes = app(StorefrontThemeResolver::class);
+        $storefronts = $themes->storefrontsAffectedBy(theme: $activated);
+        app(StorefrontThemeRenderer::class)->flush(storefronts: $storefronts);
+        app(ThemeDelivery::class)->flush(storefronts: $storefronts);
 
         // After the commit, like every audit line here: a rolled-back activation never happened,
         // and the trail must not say otherwise.
-        app(AuditLogger::class)->record(action: 'theme.activated', subject: $activated);
+        app(AuditLogger::class)->record(action: 'theme.activated', subject: $activated, context: $themes->auditContextOf(theme: $activated) ?: null);
 
         return $activated;
     }
@@ -146,9 +149,13 @@ class ThemeManager
         });
 
         // Flushed AFTER the commit, never inside it: a request racing the commit could re-cache
-        // the pre-publish page, and it would then be served for a full TTL.
-        app(StorefrontThemeRenderer::class)->flush();
-        app(ThemeDelivery::class)->flush();
+        // the pre-publish page, and it would then be served for a full TTL. While themes are kept
+        // by storefront, a publish for one storefront leaves the cached pages of the others alone.
+        $themes = app(StorefrontThemeResolver::class);
+        $theme = $themes->keepsThemesByStorefront() ? $published->theme : null;
+        $storefronts = $theme === null ? null : $themes->storefrontsAffectedBy(theme: $theme);
+        app(StorefrontThemeRenderer::class)->flush(storefronts: $storefronts);
+        app(ThemeDelivery::class)->flush(storefronts: $storefronts);
 
         // Announced AFTER the commit, never inside it: a client woken by the beacon must find the
         // new revision, and a rolled-back transaction must announce nothing.
@@ -164,7 +171,7 @@ class ThemeManager
                 'label' => $published->label,
                 'change_note' => $published->change_note ?? null,
             ], static fn ($value) => $value !== null),
-            context: ['theme_id' => $published->theme_id],
+            context: ['theme_id' => $published->theme_id] + ($theme === null ? [] : $themes->auditContextOf(theme: $theme)),
         );
 
         return $published;
@@ -223,10 +230,13 @@ class ThemeManager
     {
         $draft = $this->createDraftFrom($source, 'Restored from #' . $source->id);
 
+        $themes = app(StorefrontThemeResolver::class);
+        $theme = $themes->keepsThemesByStorefront() ? $source->theme : null;
+
         app(AuditLogger::class)->record(
             action: 'theme.restored',
             subject: $draft,
-            context: ['restored_from_version_id' => $source->id, 'theme_id' => $source->theme_id],
+            context: ['restored_from_version_id' => $source->id, 'theme_id' => $source->theme_id] + ($theme === null ? [] : $themes->auditContextOf(theme: $theme)),
         );
 
         return $draft;
