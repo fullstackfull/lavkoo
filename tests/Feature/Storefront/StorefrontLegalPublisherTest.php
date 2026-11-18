@@ -241,6 +241,41 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->assertTrue($this->ready());
     }
 
+    /** @return array<string, array{string}> */
+    public static function applicationTimeZones(): array
+    {
+        return ['east of UTC' => ['Asia/Dhaka'], 'west of UTC' => ['America/New_York'], 'UTC itself' => ['UTC']];
+    }
+
+    #[DataProvider('applicationTimeZones')]
+    public function test_a_moment_given_in_utc_takes_effect_at_that_instant_whatever_the_time_zone_of_the_application_is(string $zone): void
+    {
+        $original = date_default_timezone_get();
+        date_default_timezone_set($zone);
+        config(['app.timezone' => $zone]);
+
+        try {
+            $this->publishEveryRequiredText();
+            $first = StorefrontLegalDocument::query()->where('document_type', 'terms')->where('locale', 'en')->firstOrFail();
+
+            $second = $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR);
+            $this->publisher()->edit(textId: $second->id, body: 'The terms of Kuwait, version 2.', editor: self::AUTHOR);
+            $this->publisher()->approve(textId: $second->id, approver: self::APPROVER);
+            $this->publisher()->publish(textId: $second->id, publisher: self::APPROVER, effectiveFrom: CarbonImmutable::now('UTC')->addHours(3));
+
+            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "three hours before it takes effect, the first text is still in force ({$zone})");
+
+            $this->travelTo(CarbonImmutable::now()->addHours(2));
+            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "two hours later it is still the first ({$zone})");
+
+            $this->travelTo(CarbonImmutable::now()->addHours(2));
+            $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "four hours later the second is in force ({$zone})");
+        } finally {
+            $this->travelBack();
+            date_default_timezone_set($original);
+        }
+    }
+
     public function test_a_text_does_not_take_effect_in_the_past(): void
     {
         $approved = $this->approvedText();
