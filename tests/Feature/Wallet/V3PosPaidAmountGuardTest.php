@@ -12,8 +12,10 @@ use Tests\Feature\Address\ApiAddressTestCase;
 /**
  * The seller app's point of sale taking payment from the customer's wallet, through the real route and its middleware.
  *
- * The wallet is debited before the order is written, so a paid amount that is not positive has to be refused before anything at all:
- * a negative one would turn the debit into a credit of the customer's wallet, and a zero one would write an empty ledger row.
+ * The wallet is debited before the order is written, so a debit that is not positive has to be refused before anything at all: a negative
+ * one would turn the debit into a credit of the customer's wallet, and a zero one would write an empty ledger row. The debit is the server's
+ * total of the lines (PR 35, gcc/p0-pos-wallet-server-total), never the amount the client says it was paid, so a negative or zero amount
+ * from the client cannot reach the wallet, and the guard refuses a sale whose own lines total nothing.
  */
 class V3PosPaidAmountGuardTest extends ApiAddressTestCase
 {
@@ -57,10 +59,10 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         ]);
     }
 
-    private function placeOrder(mixed $paymentMethod, float|int $paidAmount, int $customerId = self::CUSTOMER_ID): TestResponse
+    private function placeOrder(mixed $paymentMethod, float|int $paidAmount, int $customerId = self::CUSTOMER_ID, float|int $linePrice = 40): TestResponse
     {
         $cartLine = [
-            'id' => self::PRODUCT_ID, 'quantity' => 1, 'variant' => null, 'variation' => [], 'price' => 40, 'discounted_price' => 40,
+            'id' => self::PRODUCT_ID, 'quantity' => 1, 'variant' => null, 'variation' => [], 'price' => $linePrice, 'discounted_price' => $linePrice,
             'discount' => 0, 'applied_tax_amount' => 0,
         ];
 
@@ -89,6 +91,16 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         $this->assertSame(self::WALLET_BALANCE, $this->walletBalance(), 'the wallet is untouched');
     }
 
+    /** One order, one unit of stock taken, and one debit of the server total (40) in the store currency: no credit, whatever the client said. */
+    private function assertTheServerTotalWasDebitedOnce(): void
+    {
+        $this->assertSame(1, DB::table('orders')->count());
+        $this->assertSame(self::STOCK - 1, $this->stock());
+        $this->assertSame(self::WALLET_BALANCE - currencyConverter(amount: 40), $this->walletBalance());
+        $entry = DB::table('wallet_transactions')->sole();
+        $this->assertSame(['order_place', 40.0, 0.0], [$entry->transaction_type, (float) $entry->debit, (float) $entry->credit]);
+    }
+
     private function assertRefusedAsAWrongPaidAmount(TestResponse $response): void
     {
         $response->assertStatus(403);
@@ -96,21 +108,31 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         $this->assertNotEmpty($response->json('errors.0.message'));
     }
 
-    public function test_a_wallet_payment_with_a_negative_paid_amount_is_refused_before_anything_is_written(): void
+    public function test_a_wallet_payment_is_charged_the_server_total_even_when_the_client_says_it_paid_a_negative_amount(): void
     {
         $this->assertNothingWasWritten();
 
         $response = $this->placeOrder(paymentMethod: 'wallet', paidAmount: -50);
 
-        $this->assertRefusedAsAWrongPaidAmount($response);
-        $this->assertNothingWasWritten();
+        $response->assertOk();
+        $this->assertTheServerTotalWasDebitedOnce();
     }
 
-    public function test_a_wallet_payment_of_zero_is_refused_before_anything_is_written(): void
+    public function test_a_wallet_payment_is_charged_the_server_total_even_when_the_client_says_it_paid_nothing(): void
     {
         $this->assertNothingWasWritten();
 
         $response = $this->placeOrder(paymentMethod: 'wallet', paidAmount: 0);
+
+        $response->assertOk();
+        $this->assertTheServerTotalWasDebitedOnce();
+    }
+
+    public function test_a_wallet_payment_for_lines_that_total_nothing_is_refused_before_anything_is_written(): void
+    {
+        $this->assertNothingWasWritten();
+
+        $response = $this->placeOrder(paymentMethod: 'wallet', paidAmount: 40, linePrice: 0);
 
         $this->assertRefusedAsAWrongPaidAmount($response);
         $this->assertNothingWasWritten();
@@ -123,25 +145,18 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         $response = $this->placeOrder(paymentMethod: 'wallet', paidAmount: 40);
 
         $response->assertOk();
-        $this->assertSame(1, DB::table('orders')->count());
-        $this->assertSame(self::STOCK - 1, $this->stock());
-        $this->assertSame(self::WALLET_BALANCE - currencyConverter(amount: 40), $this->walletBalance());
-        $entry = DB::table('wallet_transactions')->sole();
-        $this->assertSame(['order_place', 40.0, 0.0], [$entry->transaction_type, (float) $entry->debit, (float) $entry->credit]);
+        $this->assertTheServerTotalWasDebitedOnce();
     }
 
-    public function test_a_cash_payment_with_a_negative_paid_amount_is_currently_placed_as_before(): void
+    public function test_a_cash_payment_with_a_negative_paid_amount_is_refused_as_below_the_total_before_anything_is_written(): void
     {
         $this->assertNothingWasWritten();
 
         $response = $this->placeOrder(paymentMethod: 'cash', paidAmount: -50);
 
-        $response->assertOk();
-        $order = DB::table('orders')->sole();
-        $this->assertSame(['cash', -50.0], [$order->payment_method, (float) $order->paid_amount]);
-        $this->assertSame(self::STOCK - 1, $this->stock());
-        $this->assertSame(0, DB::table('wallet_transactions')->count());
-        $this->assertSame(self::WALLET_BALANCE, $this->walletBalance());
+        $response->assertStatus(403);
+        $this->assertNotEmpty($response->json('message'));
+        $this->assertNothingWasWritten();
     }
 
     public function test_a_wallet_payment_method_in_another_case_debits_the_wallet_and_is_stored_as_wallet(): void
@@ -157,14 +172,15 @@ class V3PosPaidAmountGuardTest extends ApiAddressTestCase
         $this->assertSame(['order_place', 40.0], [$entry->transaction_type, (float) $entry->debit]);
     }
 
-    public function test_a_wallet_payment_method_in_another_case_with_a_negative_paid_amount_is_refused_before_anything_is_written(): void
+    public function test_a_wallet_payment_method_in_another_case_with_a_negative_paid_amount_is_charged_the_server_total(): void
     {
         $this->assertNothingWasWritten();
 
         $response = $this->placeOrder(paymentMethod: 'Wallet', paidAmount: -50);
 
-        $this->assertRefusedAsAWrongPaidAmount($response);
-        $this->assertNothingWasWritten();
+        $response->assertOk();
+        $this->assertSame('wallet', DB::table('orders')->sole()->payment_method);
+        $this->assertTheServerTotalWasDebitedOnce();
     }
 
     public function test_a_wallet_payment_method_with_surrounding_spaces_is_treated_as_wallet(): void

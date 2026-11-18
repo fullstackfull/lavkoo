@@ -10,6 +10,7 @@ use App\Services\Address\OrderAddressService;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\DigitalFileAddressService;
 use App\Services\DigitalProductFileService;
+use App\Services\Customer\WalletOrderDebit;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
@@ -30,7 +31,6 @@ use App\Traits\FileManagerTrait;
 use App\Traits\SmsGateway;
 use App\Models\User;
 use App\Utils\CartManager;
-use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
@@ -453,7 +453,8 @@ class OrderController extends Controller
             return $refusal;
         }
 
-        if ($paymentAmount > $user->wallet_balance) {
+        $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
+        if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
             return $this->insufficientWalletBalance();
         } else {
             $physical_product = false;
@@ -497,7 +498,7 @@ class OrderController extends Controller
                     'order_note' => $request['order_note'],
                     'coupon_code' => $request['coupon_code'],
                     'requestObj' => $request,
-                    'walletPayment' => ['customerId' => $user->id, 'amount' => Convert::default($paymentAmount)],
+                    'walletPayment' => ['customerId' => $user->id, 'amount' => $walletDebit->amountInUsd(), 'amountInUsd' => true],
                 ]);
             } catch (WalletPaymentRefused) {
                 return $this->insufficientWalletBalance();

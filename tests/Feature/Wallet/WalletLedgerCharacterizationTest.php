@@ -155,23 +155,23 @@ class WalletLedgerCharacterizationTest extends TestCase
     }
 
     /**
-     * Not endorsed. The REST order path refuses a wallet payment above the balance before it reaches this method. The repository
-     * itself does not check, so a caller that skips the check takes the wallet below zero.
+     * The repository refuses a payment above the balance itself (WalletOverdraft, tests/Feature/Wallet/WalletOverdraftTest.php), so a caller
+     * that skips the check of the order path cannot take the wallet below zero. Before the overdraft guard this was accepted.
      */
-    public function test_current_behaviour_a_payment_above_the_balance_is_accepted_and_the_wallet_goes_negative(): void
+    public function test_a_payment_above_the_balance_is_refused_and_leaves_the_wallet_and_the_ledger_untouched(): void
     {
         $this->customerWithBalance(30.0);
 
-        $entry = $this->repository()->addWalletTransaction(
+        $result = $this->repository()->addWalletTransaction(
             user_id: (string) self::CUSTOMER_ID,
             amount: 40.0,
             transactionType: 'order_place',
             reference: 'order-1002',
         );
 
-        $this->assertInstanceOf(WalletTransaction::class, $entry);
-        $this->assertSame(-10.0, $this->walletOf(self::CUSTOMER_ID));
-        $this->assertSame(-10.0, (float) $entry->balance);
+        $this->assertFalse($result);
+        $this->assertSame(30.0, $this->walletOf(self::CUSTOMER_ID));
+        $this->assertSame(0, DB::table('wallet_transactions')->count());
     }
 
     /**

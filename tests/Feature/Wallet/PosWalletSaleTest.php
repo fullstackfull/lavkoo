@@ -200,9 +200,10 @@ class PosWalletSaleTest extends ApiAddressTestCase
 
     public function test_the_same_key_from_another_seller_is_a_sale_of_its_own(): void
     {
+        DB::table('products')->insert(['id' => 3, 'name' => 'Paracetamol', 'added_by' => 'seller', 'user_id' => 6, 'unit_price' => 30, 'current_stock' => 10]);
         $this->sellerSale([$this->sellerLine(productId: 1, quantity: 2, price: 30.0)], paidAmount: 60.0, idempotencyKey: 'sale-1');
 
-        $other = $this->sellerSale([$this->sellerLine(productId: 1, quantity: 1, price: 30.0)], paidAmount: 30.0, idempotencyKey: 'sale-1', sellerId: 6);
+        $other = $this->sellerSale([$this->sellerLine(productId: 3, quantity: 1, price: 30.0)], paidAmount: 30.0, idempotencyKey: 'sale-1', sellerId: 6);
 
         $this->assertSame(200, $other->getStatusCode());
         $this->assertSame(2, DB::table('orders')->count());

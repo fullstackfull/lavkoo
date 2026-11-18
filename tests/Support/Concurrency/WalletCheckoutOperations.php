@@ -6,9 +6,14 @@ use App\Enums\Address\AddressChannel;
 use App\Models\User;
 use App\Services\Wallet\WalletPaymentRefused;
 use App\Utils\OrderManager;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Http\Request;
 use Tests\Support\BuildsApiAddressSchema;
 
-/** A wallet checkout run through the order writer the way the REST checkout calls it, one per process, against one customer. */
+/**
+ * What a worker process does in the wallet checkout concurrency tests: a wallet checkout run through the order writer the way the REST
+ * checkout calls it, or one REST v1 wallet order through the HTTP kernel, one per process, against one customer.
+ */
 final class WalletCheckoutOperations
 {
     /**
@@ -34,6 +39,31 @@ final class WalletCheckoutOperations
         }
 
         return $orderIds === [] ? 'empty' : 'placed';
+    }
+
+    /**
+     * @param array{customer: int} $args
+     * @return array{status: int, body: mixed}
+     */
+    public static function placeApiWalletOrder(array $args): array
+    {
+        (new class {
+            use BuildsApiAddressSchema;
+
+            public function prepare(): void
+            {
+                $this->useThrowawayPassportKeys();
+                $this->useTaxIncludedPrices();
+            }
+        })->prepare();
+
+        auth()->guard('api')->setUser(User::findOrFail((int) $args['customer']));
+        auth()->shouldUse('api');
+
+        $request = Request::create('/api/v1/customer/order/place-by-wallet', 'GET', server: ['HTTP_ACCEPT' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer test-token']);
+        $response = app(HttpKernel::class)->handle($request);
+
+        return ['status' => $response->getStatusCode(), 'body' => json_decode((string) $response->getContent(), true)];
     }
 
     /** The tax set-up the parent test put in its own cache, which a worker process does not share. */

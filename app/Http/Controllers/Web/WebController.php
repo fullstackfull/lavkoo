@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\Customer\WalletOrderDebit;
 use App\Services\Analytics\Analytics;
 use App\Services\DigitalFileAddressService;
 use App\Services\DigitalProductFileService;
@@ -49,7 +50,6 @@ use App\Models\Wishlist;
 use App\Traits\CommonTrait;
 use App\Traits\SmsGateway;
 use App\Utils\CartManager;
-use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
 use App\Utils\ProductManager;
@@ -831,7 +831,8 @@ class WebController extends Controller
         $paymentAmount = collect($vendorWiseCartList)->sum('order_amount_with_tax');
 
         $user = Helpers::getCustomerInformation($request);
-        if ($paymentAmount > $user->wallet_balance) {
+        $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
+        if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
             Toastr::warning(translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!');
             return back();
         } else {
@@ -870,7 +871,7 @@ class WebController extends Controller
                     'address_id' => session('address_id'),
                     'billing_address_id' => session('billing_address_id'),
                     'requestObj' => $request,
-                    'walletPayment' => ['customerId' => $user->id, 'amount' => Convert::default($paymentAmount)],
+                    'walletPayment' => ['customerId' => $user->id, 'amount' => $walletDebit->amountInUsd(), 'amountInUsd' => true],
                 ]);
             } catch (WalletPaymentRefused) {
                 Toastr::warning(translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!');

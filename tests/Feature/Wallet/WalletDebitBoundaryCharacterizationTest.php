@@ -293,7 +293,7 @@ class WalletDebitBoundaryCharacterizationTest extends TestCase
         $this->assertSame(37.53, usdToDefaultCurrency(amount: 10.01), 'floored to the decimal setting');
     }
 
-    public function test_api_wallet_order_in_another_default_currency_currently_debits_the_rounded_amount_not_the_order_amount(): void
+    public function test_api_wallet_order_in_another_default_currency_debits_the_usd_order_amount(): void
     {
         $this->useMultiCurrency();
         $customer = $this->shopperWithCart(walletBalance: 100, price: 10.01);
@@ -302,11 +302,12 @@ class WalletDebitBoundaryCharacterizationTest extends TestCase
 
         $this->assertEquals(10.01, DB::table('orders')->where('id', 100001)->value('order_amount'));
         $transaction = DB::table('wallet_transactions')->first();
-        $this->assertSame([10.010667, 89.989333], [round((float) $transaction->debit, 6), round((float) $transaction->balance, 6)], 'Convert::usd(Convert::default(10.01)) is 37.54 / 3.75');
-        $this->assertSame(89.989333, round($this->ledgerOf(customerId: $customer->id)['wallet_balance'], 6));
+        $this->assertSame([10.01, 89.99], [round((float) $transaction->debit, 6), round((float) $transaction->balance, 6)]);
+        $this->assertSame(89.99, round($this->ledgerOf(customerId: $customer->id)['wallet_balance'], 6));
     }
 
-    public function test_api_wallet_order_for_exactly_the_balance_in_another_default_currency_currently_leaves_the_wallet_below_zero(): void
+    /** A 10.01 USD order debits 10.01 USD whatever the store currency, so a balance of exactly 10.01 USD pays for it and empties the wallet. */
+    public function test_api_wallet_order_for_exactly_the_balance_in_another_default_currency_is_placed_and_empties_the_wallet(): void
     {
         $this->useMultiCurrency();
         $customer = $this->shopperWithCart(walletBalance: 10.01, price: 10.01);
@@ -316,9 +317,7 @@ class WalletDebitBoundaryCharacterizationTest extends TestCase
         $ledger = $this->ledgerOf(customerId: $customer->id);
         $this->assertSame([1, 1, 1], [$ledger['orders'], $ledger['order_details'], $ledger['wallet_transactions']]);
         $this->assertSame(['paid', 'pay_by_wallet'], [DB::table('orders')->value('payment_status'), DB::table('orders')->value('payment_method')]);
-        $this->assertSame(10.010667, round((float) DB::table('wallet_transactions')->value('debit'), 6));
-        $this->assertSame(-0.000667, round($ledger['wallet_balance'], 6));
-        $this->assertSame(-0.000667, round((float) DB::table('wallet_transactions')->value('balance'), 6));
+        $this->assertSame(0.0, round($ledger['wallet_balance'], 6));
     }
 
     private function putPosProductOnTheShelf(): void

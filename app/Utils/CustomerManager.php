@@ -34,11 +34,11 @@ class CustomerManager
     }
 
     /**create_wallet_transaction -> function on Customer trait -> createWalletTransaction*/
-    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [])
+    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], bool $amountInUsd = false)
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data, $amountInUsd) {
             $current_balance = $user->wallet_balance;
 
             $wallet_transaction = new WalletTransaction();
@@ -69,17 +69,19 @@ class CustomerManager
             } else if ($transaction_type == 'order_place') {
                 $debit = $amount;
             }
-            $credit_amount = Convert::usd($credit);
-            $debit_amount = Convert::usd($debit);
-            if (WalletOverdraft::refuses($current_balance, $debit_amount)) {
+            $credit_amount = $amountInUsd ? $credit : Convert::usd($credit);
+            $debit_amount = $amountInUsd ? $debit : Convert::usd($debit);
+            $balance_before = $amountInUsd ? round((float) $current_balance, 2) : $current_balance;
+            if (WalletOverdraft::refuses($balance_before, $debit_amount)) {
                 return false;
             }
+            $settle = static fn (float $balance): float => $amountInUsd ? round($balance, 2) : $balance;
             $wallet_transaction->credit = $credit_amount;
             $wallet_transaction->debit = $debit_amount;
-            $wallet_transaction->balance = $current_balance + $credit_amount - $debit_amount;
+            $wallet_transaction->balance = $settle($balance_before + $credit_amount - $debit_amount);
             $wallet_transaction->created_at = now();
             $wallet_transaction->updated_at = now();
-            $user->wallet_balance = $current_balance + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount;
+            $user->wallet_balance = $settle($balance_before + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount);
 
             $user->save();
             $wallet_transaction->save();

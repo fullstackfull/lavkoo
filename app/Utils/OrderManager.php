@@ -1577,7 +1577,11 @@ class OrderManager
         // A wallet checkout pays inside this transaction: the debit is written with the order, and a refused debit rolls the order
         // back. Debiting after the commit would leave a paid order behind whenever the debit is refused.
         $walletPayment = isset($data['walletPayment'])
-            ? ['customerId' => $data['walletPayment']['customerId'], 'amount' => (float) $data['walletPayment']['amount']]
+            ? [
+                'customerId' => $data['walletPayment']['customerId'],
+                'amount' => (float) $data['walletPayment']['amount'],
+                'amountInUsd' => (bool) ($data['walletPayment']['amountInUsd'] ?? false),
+            ]
             : null;
 
         // Order ids are chosen by generateNewOrderID(), not by the database, so two checkouts that
@@ -1747,7 +1751,7 @@ class OrderManager
         }
 
                 if ($walletPayment !== null) {
-                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment');
+                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment', amountInUsd: $walletPayment['amountInUsd']);
                     if ($walletDebit === false) {
                         throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
                     }
