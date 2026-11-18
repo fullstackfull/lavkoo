@@ -34,6 +34,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Redirector;
 use App\Traits\PaymentGatewayTrait;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Web\UserProfileController;
 use Brian2694\Toastr\Facades\Toastr;
 use Illuminate\Http\RedirectResponse;
 use App\Library\Payment as PaymentInfo;
@@ -582,10 +583,18 @@ class PaymentController extends Controller
             return back();
         }
 
-        $orderEditHistory = OrderEditHistory::where('order_id', $validated['order_id'])->latest('created_at')->first();
-        $customer = Helpers::getCustomerInformation($request);
+        $customer = auth('customer')->user() ?? 'offline';
+        if (!$this->mayPayEditOrderDue(order: $order, customer: $customer, paymentMethod: $validated['payment_method'])) {
+            if ($request->payment_request_from === 'app') {
+                return response()->json(['errors' => [['code' => 'order_id', 'message' => translate('Order_not_found')]]]);
+            }
+            Toastr::error(translate('Order_not_found'));
+            return back();
+        }
 
-        if ($validated['payment_method'] === 'wallet' && $customer != 'offline') {
+        $orderEditHistory = OrderEditHistory::where('order_id', $validated['order_id'])->latest('created_at')->first();
+
+        if ($validated['payment_method'] === 'wallet') {
             if (getWebConfig('wallet_status') != 1 && $request['payment_method'] == 'wallet') {
                 Toastr::error(translate('wallet_is_deactivated'));
                 return back();
@@ -658,5 +667,16 @@ class PaymentController extends Controller
         return back();
     }
 
+    private function mayPayEditOrderDue(Order $order, User|string $customer, string $paymentMethod): bool
+    {
+        if ($customer instanceof User) {
+            return !$order['is_guest'] && (int)$order['customer_id'] === (int)$customer['id'];
+        }
 
+        $verifiedTrackingOrderId = session(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY);
+
+        return $paymentMethod !== 'wallet'
+            && $verifiedTrackingOrderId !== null
+            && (int)$verifiedTrackingOrderId === (int)$order['id'];
+    }
 }
