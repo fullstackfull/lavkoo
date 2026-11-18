@@ -305,6 +305,7 @@ trait CacheManagerTrait
                 });
 
             $inHouseCoupon = Coupon::where(['added_by' => 'admin', 'coupon_bearer' => 'inhouse', 'status' => 1])
+                ->forStorefront()
                 ->whereDate('start_date', '<=', date('Y-m-d'))
                 ->whereDate('expire_date', '>=', date('Y-m-d'))->get();
 

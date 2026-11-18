@@ -514,6 +514,7 @@ class OrderManager
             ->groupBy('order_group_id')->get()->count();
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -672,6 +673,7 @@ class OrderManager
             ->groupBy('order_group_id')->get()->count();
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
