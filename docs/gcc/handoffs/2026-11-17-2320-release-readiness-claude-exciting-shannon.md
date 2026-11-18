@@ -25,6 +25,8 @@ Read these first: `docs/gcc/SECURITY_RELEASE_PLAN.md` (two ways to ship, five st
 | #81 | `gcc/release/security-hotfix-ci` | `e1f083cc` | `gcc/release/security-hotfix-base` | the same tree with a longer CI timeout, evidence only |
 | #75 | `gcc/release/security-integration` | `47b78ab8` | `main` | CI-only merge of every open security branch, never merged |
 | #83 | `gcc/release/gcc-integration-ci` | `8ff34109` | `main` | CI-only merge of the GCC stacks, never merged |
+| #85 | `gcc/release/security-hotfix-stage0` | `b83fd189` | `gcc/release/security-hotfix-base` | stage 0 of the baseline hotfix: the maintenance routes and the log calls that wrote one-time codes are removed (deployment branch, not for merge into `main`) |
+| #86 | `gcc/release/security-hotfix-ci-mariadb` | `57900ccb` | `gcc/release/security-hotfix-base` | CI evidence only: the hotfix tree on MariaDB 11.4.2 and MySQL 8, never merged |
 
 Apps: `lavkooapp#7` (`gcc/p1-customer-storefront-caches`, `56deea72`, on `gcc/p1-customer-storefront-cache-key`); `lavkooappseller#4` (`gcc/p1-seller-platform-admin-shell`, `716f84d9`, on `main`), `lavkooappseller#5` (`gcc/seller-pos-ambiguous-code`, `90b9d334`, on `gcc/p1-seller-market-choice`) and `lavkooappseller#6` (`gcc/p1-seller-platform-admin-mfa`, `e4d7d029`, on lavkooappseller#4's branch).
 
@@ -42,9 +44,9 @@ Older pull requests touched today, each by fast-forward pushes with the leak gua
 - Seller app: `analyze-and-test` is red on lavkooappseller#1, lavkooappseller#3 and lavkooappseller#4 for one test only, `test/app_version_gate_test.dart` (it pins a backend minimum of 2.0.1 against the shipped 1.0.0+3). Untouched, see the guide's section on the version gate. lavkooappseller#5 and lavkooappseller#6 are stacked, so the workflow does not run for them (it runs on pull requests to `main` and on pushes to `claude/**`); their evidence is the clean-export run in each body.
 - Customer app: the workflow runs a scoped analyze and the storefront tests on pushes to `gcc/**`; `lavkooapp#7` is green. `lavkooapp#4` has no workflow run at all.
 
-## Read on 2026-11-18 at 00:27Z
+## Read on 2026-11-18 at 02:26Z
 
-The pushes of #20, #21, #22, #23, #24 and #35 started full CI runs that were queued behind the integration runs. #21 and #35: every job green except the overlay job. #20, #22, #23 and #24: one to three jobs still running, no red other than the overlay job so far. Read the last jobs before calling them green; any other red is a real failure of that head.
+#20, #21, #22, #23, #24 and #35 (the pushes of 2026-11-17) finished at 01:48Z at the latest: every job green except the overlay job, which is red as on every branch cut from `main`. PR 85 finished all green; PR 86 finished green except its overlay job (it refuses the 17 files an overlay cannot carry).
 
 ## Independent verification of this batch (2026-11-18)
 
@@ -70,7 +72,8 @@ All three repositories are public (checked 2026-11-18: not private, created on 2
 
 - Stage 0 exists: draft PR 85 (`gcc/release/security-hotfix-stage0`, cut from the baseline) removes the maintenance routes and the log calls that wrote one-time codes, with two guard tests. The five stages of the plan do not. Read its CI before trusting it.
 - 16 of the 84 heads make the overlay job refuse more than the three known files; the list is in the guide's section 6 and is the by-hand list for those pull requests.
-- The hotfix tree (PR 78 and PR 81) ran on SQLite and MySQL 8 only; the baseline's workflow has no MariaDB job. The only MariaDB result for the security set is the main-based integration (PR 75). A CI-only MariaDB job for the hotfix tree is open.
+- The hotfix tree (PR 78 and PR 81) ran on SQLite and MySQL 8 in its own CI; the baseline's workflow has no MariaDB job. PR 86 (CI evidence only) ran the Fulfillment and security group of the same tree on MariaDB 11.4.2 and on MySQL 8: 5,121 tests on each, all green. Its first run failed one test, the baseline's `CiDatabaseTest`, which only knows MySQL 8; main's version of that test was taken into the evidence branch.
+- Stage 0 (PR 85): all 7 CI jobs green, the overlay job included; its MySQL group ran 1,320 tests.
 - PR 75 and PR 83 are disjoint: a merge of their heads conflicts in five files, and no tree combines the security set with the GCC chain. A combined CI-only integration with the five resolutions recorded is open.
 - Staff country isolation (PR 77, PR 82) and the SKU and barcode work (PR 72, PR 76) are partial; the switches stay off until the owner accepts what is left.
 - Could not be verified from here: repository secrets, variables, hooks and protection rules (the proxy refuses them); what production runs; the published seller app version; the local MySQL, unprivileged-user and clean-export runs quoted from pull request bodies (no CI log exists for them); the owner's GitHub plan and its Actions minutes.
@@ -81,9 +84,9 @@ The plan's section 6 (15 decisions: the verification codes and `APP_MODE`, route
 
 ## What the next session should do
 
-1. Read CI for #20, #23 and #24 (one long job each was still running at 00:46Z) and for PR 85; fix a real red, never skip a test, never touch the overlay job or the version gate.
+1. Nothing is pending in CI. If a head moves, read its CI first; fix a real red, never skip a test, never touch the overlay job or the version gate.
 2. Do not report any pending job as green.
-3. Build a CI-only MariaDB job for the hotfix tree (a copy of the PR 81 branch with the matrix entry) and a combined CI-only integration of the security set and the GCC chain with its five resolutions; both are drafts that are never merged.
+3. Build a combined CI-only integration of the security set and the GCC chain with its five resolutions (a draft that is never merged), and, once the owner decides on stage 0, build its package with the plan's tooling.
 4. Keep the stack in sync by merge commits (a change to #71 goes to #79, #80, #84; to #74 to #77, #82, #84).
 5. When a base of a seller or customer app pull request merges, retarget it so its CI runs.
 6. Write "PR 13", never a number sign and a number, in commit messages; no status comments on pull requests.

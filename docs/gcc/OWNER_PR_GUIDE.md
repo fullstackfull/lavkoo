@@ -1,6 +1,6 @@
 # Owner guide to the open draft pull requests (2026-11-17)
 
-More than eighty draft PRs are open against `fullstackfull/lavkoo` (the newest are #75 to #84; #71 to #74 are in sections 4 and 7) and nothing is merged or deployed. This page says which to read first, which go together, and what to do at deploy. Each PR body repeats its own rule at the top; if this page and a PR body disagree, the PR body is newer.
+More than eighty draft PRs are open against `fullstackfull/lavkoo` (the newest are #75 to #86; #71 to #74 are in sections 4 and 7) and nothing is merged or deployed. This page says which to read first, which go together, and what to do at deploy. Each PR body repeats its own rule at the top; if this page and a PR body disagree, the PR body is newer.
 
 ## 1. The security set: merge and deploy together
 
@@ -70,7 +70,7 @@ Test-only: `#1`, `#4`, `#6`, `#15`, `#18`, `#24`, `#25`, `#26`, `#31`, `#34`. Sm
 ## 7. Decisions that are the owner's
 
 - **The three repositories are public** (checked 2026-11-18: not private, and the plan opens without signing in). The plan, this guide, the audits and the pull request bodies describe flaws that are not fixed on the server yet. Decide whether to make them private (decision 15 of the plan). Deploying stage 1 is the remedy; visibility only limits who reads about it, and it does not recall copies already made. Documents added from now on stay generic about how a flaw is used.
-- **Stage 0 of the hotfix** (PR 85, draft, cut from the baseline): removes the maintenance routes a web request could trigger and the log calls that wrote one-time codes. Read it before stage 1. Credentials that are tracked in the repository must be rotated or revoked by you (`docs/integrations/security-findings.md`, SEC-15): making a repository private recalls nothing.
+- **Stage 0 of the hotfix** (PR 85, draft, cut from the baseline): removes the maintenance routes a web request could trigger and the log calls that wrote one-time codes. Read it before stage 1. Its CI is green (SQLite on PHP 8.2 and 8.3, MySQL 8, and its overlay job builds). PR 86 (CI evidence only) ran the hotfix tree on MariaDB 11.4.2 and on MySQL 8: 5,121 tests on each, green. Credentials that are tracked in the repository must be rotated or revoked by you (`docs/integrations/security-findings.md`, SEC-15): making a repository private recalls nothing.
 - `APP_MODE=live` (above) and when to deploy the security set: until then `main` is exposed to everything in section 1.
 - Customer reset codes have no lifetime, on purpose: the same table holds the "choose your password" links panels and the point of sale send, which are used days later.
 - Two sellers holding one phone cannot recover a password by SMS or Firebase; a unique phone rule on seller registration and profile updates, and a report of the existing duplicates, would remove it.
