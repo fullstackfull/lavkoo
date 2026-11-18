@@ -607,13 +607,13 @@ NEXT_CURRENT['K-06'] = "K-06.2 (a queued sale is replayed only under the seller 
 
 # ---- PR 115 run 349 on f5913ab7, read job by job on 2026-11-18 ----
 _RUN_349 = (" CI: run 349 on f5913ab7 (PR 115's own run, which holds PR 111 and PR 114), read job by job on 2026-11-18: Tests, SQLite on PHP 8.2 (7,264 tests, 99 skipped as on its base) and on PHP 8.3, and the Storefront tests on MySQL 8 and on MariaDB 11.4.2 (975 tests, 3,505 assertions each, the 6 skipped being the side-bar test, SQLite only by design): success; "
-            "Address tests and Fulfillment and security tests on both engines and the secret scan success. The deployment overlay is red by design; the strict-mode job and four sales-channel jobs, which hold none of these tests, were still running and are not claimed.")
+            "Address tests and Fulfillment and security tests on both engines and the secret scan success, and the strict-mode MariaDB job success (it ended at 18:18 UTC). The deployment overlay is red by design; two sales-channel MySQL jobs, which hold none of these tests, were still running when read and are not claimed.")
 for _rid in ('I2-11', 'I2-03'):
     _state, _text = CRITERIA[_rid][4]
     assert _state == 'CODED', (_rid, _state)
     CRITERIA[_rid][4] = ('MET', _text.replace('; SQLite here, MySQL and MariaDB not run); CI not read', ').').replace('SQLite here, MySQL and MariaDB not run); CI not read', ').').rstrip(' .;') + '.' + _RUN_349)
-NEXT_CURRENT['I2-11'] = "The GCC-20 step-up for activate and pause; the owner's decisions in docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md; read the strict-mode job of PR 115 run 349 when it ends."
-NEXT_CURRENT['I2-03'] = "The GCC-20 step-up for publishing and revoking (I2-03.5), where templates come from (owner), and a scope by country; read the strict-mode job of PR 115 run 349 when it ends."
+NEXT_CURRENT['I2-11'] = "The GCC-20 step-up for activate and pause; the owner's decisions in docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md."
+NEXT_CURRENT['I2-03'] = "The GCC-20 step-up for publishing and revoking (I2-03.5), where templates come from (owner), and a scope by country."
 
 # ---- lavkooappseller #9, run 23 on 8a25336d, read per step on 2026-11-18 ----
 _SELLER_RUN_23 = (" CI: run 23 on 8a25336d (PR #9's own run), read per step on 2026-11-18: install, analyze and the translation check success; the named step 'Test the push route and the rating rule (K-07, K-11)' success, 21 tests passed (the decision of the route and the rule of the rating are run, the handler and the two screens are read as source); "
@@ -624,6 +624,34 @@ for _rid, _idx in (('K-11', 3), ('K-07', 4)):
     CRITERIA[_rid][_idx] = ('MET', _NOT_READ.sub('', _text).rstrip(' .;') + '.' + _SELLER_RUN_23)
 NEXT_CURRENT['K-11'] = "K-11.1 and K-11.2 (the market of a topic, a token and a push; they need the market choice of lavkooappseller #1 and #2 and the server's topics), K-11.4 (the lavkooseller:// link has no Dart handler); read the CI of lavkooappseller #9 again after a push."
 NEXT_CURRENT['K-07'] = "The edit icon's gate in order_top_section_widget.dart against the server rules; lavkooappseller #3 (the refusal handling) and #9 (the POS dialog) are to be merged together without a conflict."
+
+# ---- lavkooapp #18 (7cc5e176): the wallet and the points follow a change of storefront (E-04 criterion 3) ----
+CRITERIA.setdefault('E-04', {}).update({
+    3: ('CODED', "lavkooapp #18 (draft, stacked on #17, 7cc5e176, off by default, client only): WalletController and LoyaltyPointController follow the storefront change notifier like the wishlist: what is held for the storefront the customer left (the ledger, the wallet bonuses, the filters) is dropped before the first await and the screens told, a signed-in customer's ledgers are asked for again and a guest's are not, and an answer is judged by the storefront the request was made for and dropped when the customer has moved on, however late it arrives; the container builds both with the notifier (test/storefront_wallet_reload_test.dart, 12 tests; the inventory and registry tests count both among the 20 that are told; eleven mutations each fail it; flutter analyze finds nothing in the changed files and the whole project stays at the 255 recorded); CI not read"),
+})
+EXTRA_LINKS['E-04'] = EXTRA_LINKS.get('E-04', []) + [{'repo': 'lavkooapp', 'pr': 18, 'sha': '7cc5e176'}]
+UPDATES['E-04'] = UPDATES.get('E-04', '') + " lavkooapp #18 (draft, 7cc5e176): the app drops the wallet, the bonuses, the points and their filters when the customer moves to another storefront, asks for them again for a signed-in customer, and never shows an answer for the storefront they left. Not done: a wallet and points ledger per market on the server (E-01), the statement per storefront (E-04.0), the seller POS lookup (E-04.1), the staff scope of the reports (E-04.4)."
+
+# ---- lavkooappseller #10 (1b6f9550): every pull request gets the CI run (K-15 criterion 1) ----
+CRITERIA.setdefault('K-15', {}).update({
+    1: ('CODED', "lavkooappseller #10 (draft, stacked on #9, 1b6f9550, one line of ci.yml): the workflow ran for pull requests whose base is main only, so a pull request stacked on another had no run; pull_request has no filter on its base now (pushes to main and claude/** run as before). #10 is itself a pull request whose base is a branch, not main; CI not read"),
+})
+EXTRA_LINKS['K-15'] = EXTRA_LINKS.get('K-15', []) + [{'repo': 'lavkooappseller', 'pr': 10, 'sha': '1b6f9550'}]
+UPDATES['K-15'] = UPDATES.get('K-15', '') + " lavkooappseller #10 (draft, 1b6f9550): a pull request stacked on another gets the CI run, because the workflow no longer filters pull requests by their base. The older stacked pull requests (#2, #5, #6 and the others) get a run once their branch contains the line."
+
+# ---- lavkooapp run 29 on 7cc5e176 and lavkooappseller run 24 on 1b6f9550, read per step on 2026-11-18 ----
+_APP_RUN_29 = (" CI: run 29 on 7cc5e176 (lavkooapp #18's own run, on push to a gcc branch), read per step on 2026-11-18: both jobs success: the analysis of the changed files and the three errors-only analyses, the step 'Test storefront' with storefronts off "
+               "(527 tests passed, 23 skipped), the step 'Test storefront with storefronts on' (305 tests passed, 11 skipped), and the analysis of the whole project, which stays at the 255 recorded findings. The wallet and points tests ran in both settings; the controllers' wiring in the container is read as source and nothing was run on a device.")
+_state, _text = CRITERIA['E-04'][3]
+assert _state == 'CODED'
+CRITERIA['E-04'][3] = ('MET', _NOT_READ.sub('', _text).rstrip(' .;') + '.' + _APP_RUN_29)
+_SELLER_RUN_24 = (" CI: run 24 on 1b6f9550 (lavkooappseller #10's own run, event pull_request, base gcc/p1-seller-push-route-and-rating and not main), read per step on 2026-11-18: the same job ran as for a pull request on main: install, analyze and the translation check success, the named step 'Test the push route and the rating rule' success (21 tests), "
+                  "the full 'Test' step ended 162 passed, 1 failed, the one failure being the known app_version_gate_test; the Android build was skipped because that job is red for it. The older stacked pull requests (#2, #5, #6 and the others) get a run once their branch contains the line.")
+_state, _text = CRITERIA['K-15'][1]
+assert _state == 'CODED'
+CRITERIA['K-15'][1] = ('MET', _NOT_READ.sub('', _text).rstrip(' .;') + '.' + _SELLER_RUN_24)
+NEXT_CURRENT['E-04'] = "E-04.0 (a statement request under a storefront returns that storefront's ledger and balance: needs the per-market accounts of E-01), E-04.1 (the seller POS customer lookup), E-04.4 (the staff scope of the wallet reports)."
+NEXT_CURRENT['K-15'] = "K-15.2 (the whole flutter test green on every head: the version-gate test is the owner's decision A, B or C), K-15.3 (a debug APK builds after the tests), K-15.4 (a named step for each feature); merge #10's line into the older stacked pull requests so that they have a run."
 
 def apply_override(requirement, override):
     requirement['state'] = override['state']
