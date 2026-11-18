@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Schema;
 #[Singleton]
 final class OrderStorefrontSnapshot
 {
-    private const COLUMN = 'storefront_country';
+    public const COLUMN = 'storefront_country';
 
     /** How long a "no" is remembered, so a worker started before the migration notices it without a restart. A "yes" lasts for the process. */
     private const NEGATIVE_ANSWER_SECONDS = 30;
@@ -65,7 +65,8 @@ final class OrderStorefrontSnapshot
         return $countries->count() === 1 ? strtoupper((string) $countries->first()) : null;
     }
 
-    private function columnReady(): bool
+    /** Whether the orders migration has run, that is whether an order can hold a record at all. */
+    public function columnReady(): bool
     {
         $answer = $this->columnAnswer;
 

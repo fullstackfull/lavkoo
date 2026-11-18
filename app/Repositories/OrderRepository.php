@@ -16,6 +16,7 @@ use App\Models\Shop;
 use App\Models\Transaction;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
+use App\Services\Storefront\OrderStorefront;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
@@ -363,6 +364,9 @@ class OrderRepository implements OrderRepositoryInterface
                 }
             )->when(isset($filters['whereIn_payment_status']) && $filters['whereIn_payment_status'] !== 'all', function ($query) use ($filters) {
                     $query->whereIn('payment_status', $filters['whereIn_payment_status']);
+                }
+            )->when(isset($filters['storefront_country']), function ($query) use ($filters) {
+                    app(OrderStorefront::class)->narrow(orders: $query, country: $filters['storefront_country']);
                 }
             )->when(!empty($whereIn), function ($query) use ($whereIn) {
                 foreach ($whereIn as $column => $values) {

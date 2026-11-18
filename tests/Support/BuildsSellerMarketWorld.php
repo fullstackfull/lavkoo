@@ -96,7 +96,7 @@ trait BuildsSellerMarketWorld
     protected function insertStaff(int $sellerId, ?int $roleId, string $token, string $status = 'active'): int
     {
         return DB::table('seller_staff')->insertGetId([
-            'seller_id' => $sellerId, 'seller_role_id' => $roleId, 'name' => 'Staff ' . $token[0], 'email' => 'staff-' . $token[0] . '@example.test',
+            'seller_id' => $sellerId, 'seller_role_id' => $roleId, 'name' => 'Staff member', 'email' => 'staff-' . substr(sha1($token), 0, 8) . '@example.test',
             'password' => 'not-a-real-hash', 'auth_token' => $token, 'status' => $status,
             'created_at' => '2026-11-01 09:00:00', 'updated_at' => '2026-11-01 09:00:00',
         ]);
