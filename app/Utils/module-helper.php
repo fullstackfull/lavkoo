@@ -167,36 +167,6 @@ request()->merge($requestObj);
                 'stock_policy' => 'allow_oversell',
             ]);
 
-
-file_put_contents(
-    storage_path('logs/order_generate_test.txt'),
-
-    "customer_id: " . var_export($customerId ?? null, true) . "\n"
-    . "guest_id: " . var_export(
-        ($additionalData['is_guest_in_order'] ?? 0)
-            ? ($customerId ?? null)
-            : null,
-        true
-    ) . "\n"
-    . "is_guest: " . var_export(
-        $additionalData['is_guest_in_order'] ?? 0,
-        true
-    ) . "\n"
-    . "address_id: " . var_export(
-        $additionalData['address_id'] ?? null,
-        true
-    ) . "\n"
-    . "orderIds: " . var_export($orderIds, true) . "\n"
-    . "--------------------------\n",
-
-    FILE_APPEND
-);
-
-
-
-
-
-
             foreach ($orderIds as $orderId) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $orderId);
             }
