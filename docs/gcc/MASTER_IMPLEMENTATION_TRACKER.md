@@ -22,12 +22,12 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 19 | 29 | 26 | 65% | 26% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
-| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 76 | 39 | 68 | 63% | 42% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 42 | 27 | 24 | 74% | 45% | 5% | all |
+| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 79 | 36 | 68 | 63% | 43% | 3% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 43 | 26 | 24 | 74% | 46% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 36 | 16 | 39 | 57% | 40% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 99 | 105 | 85 | 71% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1675** | **757** | **331** | **587** | **65%** | **45%** | **8%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 100 | 105 | 84 | 71% | 35% | 3% | all |
+| **All axes (pooled)** | **359** | **1675** | **762** | **327** | **586** | **65%** | **45%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -377,7 +377,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I1-09](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Notification sends are idempotent and logged |
 | [I1-10](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/1 | Existing notification classes and senders are kept and pinned |
 | [I1-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/1 | Coupon and CouponService logic is kept, its boundary pinned and its messages defined |
-| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/3/1 | Coupon amounts in each store's currency; legacy conversions verified |
+| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/2/1 | Coupon amounts in each store's currency; legacy conversions verified |
 | [I1-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/1 | Coupons name their eligible products and store |
 | [I1-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Per-store coupon limits and budget |
 | [I1-15](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/0/4 | Campaigns: central ones choose stores, local ones belong to one store |
@@ -399,7 +399,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I2-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/0 | Stop mode Browse Only |
 | [I2-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Stop mode Maintenance per storefront |
 | [I2-15](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/0/3 | Stop mode Redirect to the default storefront |
-| [I2-16](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/3/0 | Stop never loses earlier orders or breaks webhooks, refunds, settlements, shipments, support |
+| [I2-16](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Stop never loses earlier orders or breaks webhooks, refunds, settlements, shipments, support |
 | [I2-17](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/0/2 | Saudi Arabia is the default storefront; a default must stay valid and operational |
 | [I2-18](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/2 | Safe first-launch migration plan that confirms current Saudi work continues |
 | [I2-V1](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 0/1/0 | Audit axis J, legal half: the legal documents and their versions are reviewed with file evidence (da... |
@@ -424,7 +424,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-14](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/0/3 | Address eligibility per storefront |
 | [J-15](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/1/3 | Legal policy screens and consent scopes |
 | [J-16](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 3/2/0 | Language, RTL and strings |
-| [J-17](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 1/3/1 | Version gate and update flow (never bypassed) |
+| [J-17](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 2/2/1 | Version gate and update flow (never bypassed) |
 | [J-18](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/0/2 | App tests, CI and device verification |
 | [J-V1](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/0/1 | Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home... |
 | [J-V2](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/0/1 | Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to... |
@@ -507,7 +507,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/1 | Saudi continuity: the Saudi baseline stays as it was (test plan 1) |
 | [M2-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/1 | Isolation of the six countries (test plan 2) |
 | [M2-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/1/1 | Staff permissions and country scopes (test plan 3) |
-| [M2-04](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/1/2 | Unified customer account across countries (test plan 4) |
+| [M2-04](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/2 | Unified customer account across countries (test plan 4) |
 | [M2-05](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/2 | Carts, wallets and loyalty per storefront (test plan 5) |
 | [M2-06](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/2 | Checkout in one store and one selling company (test plan 6) |
 | [M2-07](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/2 | Independent prices and currencies (test plan 7) |
@@ -517,7 +517,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-11](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/0/2 | Payments, refunds and webhooks (test plan 11) |
 | [M2-12](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/0/3 | Sales channels and stock sync (test plan 12) |
 | [M2-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/2 | Notifications and legal policies (test plan 13) |
-| [M2-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/0/2 | Stopping a store and handling its earlier orders (test plan 14) |
+| [M2-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/1/1 | Stopping a store and handling its earlier orders (test plan 14) |
 | [M2-15](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/2 | Six-country integration test matrix and CI gates |
 | [M2-16](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/4/2 | Migration files and change discipline: Preserve, Extend, Isolate, Verify |
 | [M2-17](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/3/2 | Historical Saudi data: ids preserved, backfill, reconciliation, staged upgrade, rollback |

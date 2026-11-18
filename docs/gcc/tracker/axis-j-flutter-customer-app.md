@@ -1,6 +1,6 @@
 # Axis J: Flutter customer app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 93 (MET 42, CODED 27, MISSING 24). Code completion 74%, proven by a passing test 45%, release readiness 5%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 93 (MET 43, CODED 26, MISSING 24). Code completion 74%, proven by a passing test 46%, release readiness 5%.
 
 Independent verification: done for unit(s) J.
 
@@ -346,8 +346,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `none` none: no test of _updateIsRequired, UpdateScreen or appVersion (test/release_version_test.dart, cited in app_constants.dart, exists on no ref)
 - **(8) Dependencies and blockers.** Owner decision on aligning the shop's published floor with the app's numbering; the lavkoo user_app_version_control setting. Release of any build is separate from this branch work.
 - **(9) Acceptance criteria.**
-  - [CODED] A build below the published minimum (status 1, the platform's entry) is routed to the update screen before maintenance or login (splash_screen.dart _updateIsRequired and the two route branches; no test)
-  - [CODED] No update is forced when status is not 1 or the minimum is empty (Same method; no test)
+  - [CODED] A build below the published minimum (status 1, the platform's entry) is routed to the update screen before maintenance or login (the rule is pinned (UpdateGate.isRequired is true for a build below the minimum: test/update_gate_test.dart, run 20 of the app CI on 49b63de, read job by job on 2026-11-18); the order of the two route branches in the splash screen (the update screen before maintenance or login) is not pinned: no test pumps the splash screen)
+  - [MET] No update is forced when status is not 1 or the minimum is empty (lavkooapp (draft, stacked on #13, 49b63de): the same test/update_gate_test.dart pins that no update is forced when the switch is not on however high the minimum, when the shop sends no setting or no row for the platform, when the minimum is missing or blank and when it is not a version, and that each platform reads its own row; run 20 of the app CI on 49b63de, read job by job on 2026-11-18 (the steps named for criterion 3))
   - [CODED] The GCC branches leave the gate, appVersion, pubspec version, package id and Firebase settings untouched (git diff main..#7 over splash_screen.dart shows only the storefront refresh; pubspec, android and ios are identical (diff stat empty))
   - [MET] A regression test pins the gate (equal, lower, higher, status off, empty, non-numeric) and the appVersion-versus-floor rule (lavkooapp (draft, stacked on #13, 49b63de): the rule moves unchanged out of the splash screen's state into UpdateGate.isRequired and UpdateGate.compare; test/update_gate_test.dart pins equal, lower, higher, switch off or not 1, missing row, blank, non-version and per-platform rows, and a table of 19 version pairs, and test/release_version_test.dart refuses an appVersion below the live floor of 14.1; run 20 of the app CI on 49b63de read job by job on 2026-11-18: storefront-header (analyze of the changed files, the errors-only analyses, Test storefront, Test storefront with storefronts on) and analyze-whole-project are success)
   - [MISSING] The update screen offers a usable target when the config link is empty (UpdateScreen passes the link unchanged: an empty link fails canLaunchUrlString)
