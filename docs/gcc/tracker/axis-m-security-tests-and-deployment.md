@@ -71,8 +71,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Each of the five resolutions is pinned by a test (recorded in the local commit message only)
 - **(10) Next coding task.** Push 88d63c22 as gcc/release/security-gcc-integration-ci (draft, never merged) and read its CI; then merge #7, #16, #21, #27, #33 (clean) and #20, #22, #23, #32 (resolve against #52/#68, #62, #56), re-run, and add tests that pin the cart is_guest rule, the settlement scope in module-helper and the product code rule.
 - **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
-- **Update after the assessment.** The combined tree now exists: gcc/release/security-gcc-integration-ci (f6fb03af) and gcc/release/all-integration-ci (55487514, 82 of 86 main-based pull requests together, conflicts resolved in 16 files plus a set of tests that pin behaviour a sibling pull request changed). CI runs 275 and 278 were dispatched; the criteria stay MISSING until they are green on SQLite, MySQL 8 and MariaDB 11.4.
-- **Next coding task today (supersedes item 10 above).** Read the CI of runs 275 (security-gcc-integration-ci) and 278 (all-integration-ci) per job; fix any red job on the integration branch only; write docs/gcc/audits/2026-11-18-all-in-one-integration/README.md with every conflict and the tests that follow; then run the six-country matrix on the three engines.
+- **Update after the assessment.** The combined tree now exists: gcc/release/security-gcc-integration-ci (f6fb03af) and gcc/release/all-integration-ci (c30390d1, 82 of 86 main-based pull requests together, 15 of 35 merges conflicted in 28 files, plus the tests and the guarded document that pin behaviour a sibling pull request changed; see audits/2026-11-18-all-in-one-integration). CI runs 275 and 279 were dispatched; the criteria stay MISSING until they are green on SQLite, MySQL 8 and MariaDB 11.4.
+- **Next coding task today (supersedes item 10 above).** Read the CI of runs 275 (security-gcc-integration-ci) and 279 (all-integration-ci) per job; fix any red job on the integration branch only; write docs/gcc/audits/2026-11-18-all-in-one-integration/README.md with every conflict and the tests that follow; then run the six-country matrix on the three engines.
 
 #### M1-04. Stage 0: open maintenance routes removed and one-time codes kept out of the log
 
@@ -165,7 +165,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **Open owner decisions.** Whether these ship in the hotfix or only through main; D20 (status check inside get_seller_by_token); a guest token for guest orders (PERM-05); who sets PAYMERA_SECRET_KEY.
 - **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 - **Update after the assessment.** All of PR 7, 16, 20 to 23, 27 and 29 to 36 are merged into gcc/release/all-integration-ci with their conflicts against the security set and the GCC chain resolved (the resolutions and the tests that had to follow are written in the commit messages of that branch); the release path itself is still the staged hotfix of the baseline for the security set only.
-- **Next coding task today (supersedes item 10 above).** Read the CI of the all-in-one run 278; then decide with the owner which of these fixes join the staged hotfix as net changes (the method of the hotfix plan) and which wait for the merge of the main-based set.
+- **Next coding task today (supersedes item 10 above).** Read the CI of the all-in-one run 279; then decide with the owner which of these fixes join the staged hotfix as net changes (the method of the hotfix plan) and which wait for the merge of the main-based set.
 
 #### M1-08. Stage 3: the permissions the admin menus promise are enforced
 
@@ -755,7 +755,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **Open owner decisions.** Branch protection and the required checks (DR-4); whether the Catalog and Staff scope groups join the main workflow; closing #75, #78, #81, #83 once their results are read.
 - **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 - **Update after the assessment.** See M1-03: both integration trees are built; the six-country matrix is not yet a CI group, and the all-in-one run is pending.
-- **Next coding task today (supersedes item 10 above).** Add the six-country matrix as a CI group on the all-in-one branch once run 278 is read.
+- **Next coding task today (supersedes item 10 above).** Add the six-country matrix as a CI group on the all-in-one branch once run 279 is read.
 
 #### M2-16. Migration files and change discipline: Preserve, Extend, Isolate, Verify
 

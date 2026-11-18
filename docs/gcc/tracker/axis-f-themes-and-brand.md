@@ -1,8 +1,8 @@
 # Axis F: Themes and brand
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 15. Acceptance criteria: 73 (MET 12, CODED 26, MISSING 35). Code completion 52%, proven by a passing test 16%, release readiness 1%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 16. Acceptance criteria: 74 (MET 10, CODED 28, MISSING 36). Code completion 51%, proven by a passing test 14%, release readiness 1%.
 
-Independent verification: not done yet.
+Independent verification: done for unit(s) F.
 
 Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
 
@@ -23,8 +23,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Every reader of the active theme goes through one storefront-aware resolver (a code scan fails on a new direct read) (14 direct readers at PR 83 8ff3410)
   - [MISSING] The admin theme list shows which theme each storefront serves
 - **(10) Next coding task.** On a branch from PR 83's tree: add ActiveThemeResolver::forStorefront(StorefrontContext) and a guarded migration adding themes.storefront_country (CHAR(2), NULL = default storefront; pattern of the products migration 2026_11_25_100000); scope ThemeManager::activate; move the 14 readers behind GCC_STOREFRONTS_ENABLED; tests/Feature/Storefront/ThemePerStorefrontTest.php on a hand-built schema.
-- **Open owner decisions.** Fallback for a storefront without its own theme (the default storefront's theme, or the built-in templates); which existing theme becomes Saudi's. Q-19 proposes an independent theme per storefront; it is proposed, not decided.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** Decided (DECISIONS.md GCC-07, GCC-19): independent theme per country on a shared component library; Saudi Arabia is the initial default storefront. Still open: what a storefront without its own theme serves (the default storefront's theme or the built-in templates), which existing theme becomes Saudi's, and the Q-19 details (copy or share banners and assets; website and customer app published separately or together).
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
 
 #### F-02. Independent drafts, versions and publish per storefront
 
@@ -35,7 +35,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(5) What remains.** Publish target per storefront (needs F-01); flush only that storefront; beacon topic or payload naming the storefront (keep the Saudi topic); revision and checksum compared per storefront; storefront in the audit context; stop draft edits pushing into live banner rows shown elsewhere; scope campaigns and experiments; tests.
 - **(6) PRs and commits.** [lavkoo#37](https://github.com/fullstackfull/lavkoo/pull/37) `2344fa3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
 - **(7) Tests.**
-  - `ci` StorefrontCacheScopeTest::test_a_theme_flush_clears_the_copy_of_every_storefront pins that a publish reaches every storefront. (PR 37 2344fa3 'Tests, SQLite (PHP 8.2)' and '(PHP 8.3)'; PR 83 8ff3410 'Storefront tests, MySQL 8' and 'MariaDB 11.4.2')
+  - `none` StorefrontCacheScopeTest::test_a_theme_flush_clears_the_copy_of_every_storefront pins that a publish reaches every storefront. (refuted by the verifier: The test calls StorefrontThemeRenderer::flush(['home']) directly and checks the page and global-settings keys of '', AE and OM; its sibling does the same for Th)
   - `none` No test of ThemeManager::publish, revision stamping or ThemeSyncBeacon exists in any tree.
 - **(8) Dependencies and blockers.** F-01 (a theme tied to a storefront); banners are catalogue content (unit B); campaigns and experiments are central by page slug and section uuid (GCC-17 unit); theme schema is in no migration.
 - **(9) Acceptance criteria.**
@@ -44,8 +44,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Editing an AE draft cannot change a banner row an SA section shows (ThemeBannerLink pushes draft edits to the global banners row)
   - [MISSING] Publish, restore and schedule audit lines name the storefront
 - **(10) Next coding task.** After F-01: pass the storefront into ThemeManager::publish, restore and ThemePublishDue; ThemeDelivery::flush(storefront) and a per-storefront beacon (old topic kept for Saudi); ThemeBannerLink writes only rows of the same storefront; tests/Feature/Storefront/ThemePublishIsolationTest.php on a hand-built schema.
-- **Open owner decisions.** Q-19 proposes a separate publish per storefront and copying, not sharing, banners and assets. Not decided.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** Decided (GCC-07): independent drafts, versions and publishing per storefront; no cross-country accidental publication. Open (Q-19, proposed option a): copy, not share, banners and assets; whether the website and the customer app publish separately per store.
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
 
 #### F-03. Web and customer-app customisation, per-platform publish
 
@@ -61,12 +61,12 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(9) Acceptance criteria.**
   - [CODED] A section limited to customer_app is absent from the web page and one limited to web is absent from the app payload (SectionVisibility and Channel::permits; no test)
   - [CODED] A page whose channel is customer_app is not served at /p/{slug}, and a web page is a 404 for the app (ExperiencePageService::servableSlugs; no test)
-  - [CODED] The seller app and a vendor_app client receive no theme sections (Channel::RENDERABLE excludes vendor_app; the seller app makes no theme call; no test)
+  - [MISSING] The seller app and a vendor_app client receive no theme sections (Channel::RENDERABLE excludes vendor_app; the seller app makes no theme call; no test)
   - [MISSING] Web and app can be published separately for one storefront
   - [MISSING] A change to a section's channels alone moves the stored checksum (checksumFor hashes platforms and audience, not channels (E07-F18))
 - **(10) Next coding task.** Test-only first, on a branch from main: tests/Feature/Theme/ChannelTargetingTest.php pinning SectionVisibility, Channel and ExperiencePageService::servableSlugs on a hand-built schema, plus a failing test for the checksum ignoring channels; then add channels to ThemeDelivery::checksumFor.
 - **Open owner decisions.** Plan line 319 asks for independent publish per store and platform; GCC-09 only says sections and layout may differ. Decide whether a separate web and app publish is required. Q-43: the seller app shows no theme (proposed option a).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** exists_now (sentence: vendor_app is registered but not renderable ...): Omits two facts that contradict the criteria text. (1) The registry's rule that vendor_app draws nothing (ComponentCapabilityRegistry::servableToChannel returns [] for vendor_app) has no caller: git grep servableTo outside the registry file finds 0 hits in as-main, gcc-ci and as-sec. Channel::RENDERABLE is used only by AppBuilderController:85 (channel picker), ExperiencePageService:181 (page creation) and PublishValidator:220 (a publish warning). ThemeDelivery::build runs only SectionVisibility::passes and clientHolds, neither of which looks at vendor_app, so a client sending X-UI-Channel: vendor_app to /api/v1/theme/home is delivered every unrestricted app-safe section. (2) The legacy /api/v1/theme/sections (ApiDoc audience CUSTOMER_APP, STABLE; the app keeps themeSectionsUri 'for reference' and does not call it) go
 
 #### F-04. Theme caches isolated per storefront
 
@@ -82,14 +82,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `none` No test reads the key that sectionsFor, revision() or payload() actually write.
 - **(8) Dependencies and blockers.** A two-storefront isolation proof needs a theme that can differ per storefront (F-01); the theme tables are in no migration, so such a test builds them by hand.
 - **(9) Acceptance criteria.**
-  - [MET] A publish clears the theme page, global-settings and revision caches of every storefront (StorefrontCacheScopeTest flush tests; PR 37 2344fa3 SQLite; PR 83 8ff3410 Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - [CODED] A publish clears the theme page, global-settings and revision caches of every storefront (StorefrontCacheScopeTest flush tests; PR 37 2344fa3 SQLite; PR 83 8ff3410 Storefront tests MySQL 8 and MariaDB 11.4.2)
   - [MET] The helper behind every theme key returns storefront:AE:<key> for AE and the legacy key for SA or while storefronts are off (StorefrontCacheKeysTest and StorefrontContextTest; PR 83 8ff3410)
   - [CODED] The renderer and the delivery service write their entries under that scoped key (call sites changed in PR 37; no test reads the written key)
   - [CODED] A delivery payload cached for one language is never served for another (ThemeDelivery::fingerprint holds the locale; no test)
-  - [MISSING] A payload cached for AE is not served to SA for the same page and client (no two-theme test; needs F-01)
+  - [CODED] A payload cached for AE is not served to SA for the same page and client (no two-theme test; needs F-01)
   - [MISSING] Section reach, campaign overlay and experiment caches are storefront-aware or declared global (keys carry no market at PR 83)
 - **(10) Next coding task.** Extend tests/Feature/Storefront/StorefrontCacheScopeTest.php on a follow-up to PR 37: call StorefrontThemeRenderer::sectionsFor and ThemeDelivery::revision() and payload() under an AE context on a hand-built theme schema and assert the key written is storefront:AE:...; add a scan test listing every Cache::remember under app/Services/Theme and app/Services/Commerce with a scoped or global verdict.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-05. Storefront context reaches the theme API and the web theme
 
@@ -104,14 +103,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `none` No test requests a theme route itself with X-Storefront and checks the Vary header or the bound context.
 - **(8) Dependencies and blockers.** Capped at IMPLEMENTED IN DRAFT: routes/rest_api/v1/api.php (holds the theme route group) is changed by both the security set (PR 75) and the GCC chain (PR 83), and no tree or CI run has combined them. Web path routing belongs to units A and C.
 - **(9) Acceptance criteria.**
-  - [MET] api/v1/theme sections, home and version resolve the storefront from ?storefront, X-Storefront, the path, else the default, and bind the context (ResolveStorefrontMiddlewareTest and StorefrontCacheScopeTest; PR 83 8ff3410 Storefront tests MySQL 8, MariaDB 11.4.2, SQLite)
+  - [CODED] api/v1/theme sections, home and version resolve the storefront from ?storefront, X-Storefront, the path, else the default, and bind the context (ResolveStorefrontMiddlewareTest and StorefrontCacheScopeTest; PR 83 8ff3410 Storefront tests MySQL 8, MariaDB 11.4.2, SQLite)
   - [MET] An unknown or inactive country, or an array-valued ?storefront, is ignored and the next source or the Saudi default applies, never an error (ResolveStorefrontMiddlewareTest; PR 83 8ff3410)
   - [MET] With storefronts off every request resolves to SA and no Vary header is added (ResolveStorefrontMiddlewareTest, StorefrontCacheScopeTest; PR 83 8ff3410)
   - [CODED] While storefronts are on the theme answers say Vary: X-Storefront once (v1 group middleware; tested on /api/v1/storefronts and probe routes, not on a theme route)
   - [CODED] The web storefront routes bind the storefront (beta web group) (RouteServiceProvider::mapBetaWebRoutes; no web theme render test)
   - [CODED] The country input cannot be read as the language (lang: sa means Arabic) (APILocalizationMiddleware folds sa to ar; storefront has its own header and parameter; no test)
 - **(10) Next coding task.** Add tests/Feature/Storefront/ThemeRoutesStorefrontTest.php: GET /api/v1/theme/version and /theme/home with X-Storefront: AE (flag on, AE active) assert Vary, the bound country and the Saudi fallback for an unknown code (empty payload path needs no theme tables); re-run it on the combined security and GCC tree once one exists.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-06. Customer app theme cache follows the storefront and the language
 
@@ -133,7 +131,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A language switch still drops held pages and refetches by force (dynamic_theme_controller_test, storefront_theme_reload_test; PR 7 56deea7)
   - [MISSING] After a switch the app renders the page the real server serves for the new storefront (two themes, a device) (fixtures hand-written; no device run)
 - **(10) Next coding task.** On lavkooapp PR 7's branch: add test/dynamic_theme_registry_test.dart, dynamic_theme_schema_test.dart and theme_action_resolver_test.dart to the storefront CI steps and triage the two failing render-matrix tests; once F-01 exists, add fixtures recorded from backend tests for two storefronts and run PR 7's manual plan on a staging build.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-07. Theme preview isolated from shoppers, caches and other storefronts
 
@@ -153,7 +150,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] Session preview works only for an admin allowed to view themes (ThemePermissionService::canView in activePreviewVersionId; no test)
   - [MISSING] A token minted for AE's draft does not render in SA's storefront or app calls (the token holds a version id and an expiry only)
 - **(10) Next coding task.** Test-only first, on a branch from main: tests/Feature/Theme/PreviewTokenTest.php (mint, verify, tamper, expiry, preview header and no ETag on /theme/home, NoIndexThemePreview) on a hand-built schema; after F-01 add the storefront claim and its refusal test.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** ac[2].t (Any response carrying a preview token is noindex and no-store): Overstates. NoIndexThemePreview is registered in the web group only (bootstrap/app.php) and reads only ?theme_preview. The API preview answer (?preview=) gets Cache-Control no-store, private from ThemeSectionController::home but no X-Robots-Tag. Proposed: A web response carrying ?theme_preview is noindex, nofollow and no-store, private (NoIndexThemePreview, web group only); the API preview answer (?preview=) is no-store, private (controller) and carries no noindex header.
 
 #### F-08. Scheduled publish and rollback, safe and per storefront
 
@@ -174,7 +171,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A schedule for AE fires on AE's clock and publishes only AE's theme
 - **(10) Next coding task.** Test-only first, on a branch from main: tests/Feature/Theme/PublishLifecycleTest.php (publish archives the same theme's version only, revision increments, restore makes a draft, ThemePublishDue claim and blocked cancel) on a hand-built schema; then pass the storefront through publish after F-02.
 - **Open owner decisions.** Which time zone a scheduled publish and section windows use per storefront (one clock today; AE and OM are an hour ahead of SA, KW, QA and BH).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** reviews_required: Lists none while owner_decisions names an open decision (which time zone a scheduled publish and section windows use per storefront; AE and OM are an hour ahead of SA, KW, QA and BH). An open owner decision is a required review. Proposed: ["owner-decision"]
 
 #### F-09. App-version compatibility of the theme contract
 
@@ -196,7 +193,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] An app upgrade replaces a payload cached for the previous build (cache row key is the page (+ storefront); no engine or schema in it (E17))
   - [MISSING] A backend contract test pins the /theme/home and /theme/version shapes and ApiDoc names X-Storefront
 - **(10) Next coding task.** Backend, branch from main: tests/Feature/Theme/ThemeContractTest.php pinning the keys of /api/v1/theme/version and /theme/home, 304 on If-None-Match and the withheld list for a declared component set (hand-built schema), plus ApiDoc text for X-Storefront; app: store engine and schema in the cached row header and drop a mismatching row (follow-up on lavkooapp PR 7).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-10. Shared section library serving each storefront's own data
 
@@ -217,7 +213,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] An internal link with a country prefix opens a native screen, not a URL (ActionResolver default branch returns type URL)
   - [MISSING] price_tiles uses the storefront currency with decimals (KWD, BHD, OMR) (integer bounds, one currency (E07-F16); GCC-05)
 - **(10) Next coding task.** On a branch from PR 83's tree: tests/Feature/Storefront/ThemeSectionDataTest.php with an SA and a KW product and banner, calling SectionDataResolver (product_slider, store_banner, store_stats) under both contexts; then reuse BannerPlacementService::offeredByTheStorefront in dashboardBanners and make storeStats storefront-aware.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** tests: The list omits the one CI-proven test that backs the done_in_drafts claim about PR 46: HiddenProductExposureTest::test_the_flash_deal_section_of_a_theme_counts_the_products_a_customer_may_see calls SectionDataResolver::flashDeal and flashDealProducts and asserts only customer-visible products are counted and listed. It exists in the PR 46 head tree (c07cd36; jobs 'Tests, SQLite (PHP 8.2)' and '(PHP 8.3)' success) and in the PR 83 tree (8ff3410; SQLite jobs plus 'Fulfillment + security tests, MySQL 8' and 'MariaDB 11.4.2' success). It tests visibility under one storefront, not storefront scoping, so the 'two storefronts' none-entry stays true. Proposed: Add: {"what":"HiddenProductExposureTest::test_the_flash_deal_section_of_a_theme_counts_the_products_a_customer_may_see pins that the flash-deal section counts and lists only products a customer may see (PR 46); it does not test a st
 
 #### F-11. Template library and optional theme copy between storefronts
 
@@ -237,7 +233,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A copy duplicates or shares assets and banner rows as decided and reports catalogue ids absent in AE (assets and banner rows do not travel today)
 - **(10) Next coding task.** Test-only first, on a branch from main: tests/Feature/Theme/ThemePortabilityTest.php (presets valid, import inactive and draft, unknown types skipped); after F-01 add ThemePortabilityService::copyToStorefront(Theme, storefront) reusing export and import, re-minting uuids and listing missing catalogue ids.
 - **Open owner decisions.** Q-19: when a theme is copied between countries, copy or share the banners and assets (proposed option a: copy).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-12. Shared design identity with per-storefront override
 
@@ -257,7 +252,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A storefront override changes only that storefront
 - **(10) Next coding task.** Pure unit test first, on a branch from main: tests/Unit/Theme/ThemeSettingsResolutionTest.php for resolveSettings deep merge and the tokens() mapping (no database); then design the inheritance parent in the settings resolver once F-01 exists.
 - **Open owner decisions.** What a storefront may override (colours, fonts, layout) and who owns the shared default identity.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-13. Brand name, logo and identity: global default, country override
 
@@ -277,7 +271,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] E-mails and notifications for a storefront order carry that storefront's brand
 - **(10) Next coding task.** On a branch from PR 83's tree: BrandIdentity::forStorefront() with field-level fallback to getWebConfig, a storefront_brand setting keyed by country (written through the existing business-settings path), used by the web layout and by /config (storefront bound there, guard test updated); tests/Feature/Storefront/StorefrontBrandTest.php.
 - **Open owner decisions.** Which brand fields a country may override, who approves them, the fallback rule, and any trademark or registration limit per country.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-14. Visible brand separate from the legal company name on invoices and contracts
 
@@ -298,7 +291,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Changing a storefront's brand name does not change the legal name on existing invoices
 - **(10) Next coding task.** On a branch from PR 83's tree: gcc.storefronts.legal.entities.<CC> (name, registration, tax id) and LegalIdentity::forStorefront(); the admin invoice view prints it while storefronts are on; tests/Feature/Storefront/StorefrontInvoiceIdentityTest.php; the order snapshot waits for the order storefront column.
 - **Open owner decisions.** Legal entity names, registration and tax numbers per storefront; whether the brand may appear beside the legal name on invoices; which fields an order snapshots.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### F-15. Existing Theme Editor extended with a storefront selector, not rebuilt
 
@@ -309,7 +301,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(5) What remains.** Storefront selector in the theme list, builder and app builder; default draft chosen for the selected storefront (resolveEditableDraft); pickers narrowed to that storefront's catalogue; capabilities scoped by staff country (slice 4); PR 66's open point that section add, update and delete skip canEdit().
 - **(6) PRs and commits.** [lavkoo#66](https://github.com/fullstackfull/lavkoo/pull/66) `7bdc7d9`; [lavkoo#82](https://github.com/fullstackfull/lavkoo/pull/82) `d1fc5f4`
 - **(7) Tests.**
-  - `none` No test covers the admin theme screens or their permissions; the route-permission guard of PR 67 only checks that a new admin route asks for a module permission.
+  - `none` No test covers the admin theme screens or their permissions; the route-permission guard of PR 67 only checks that a new admin route asks for a module permission. (refuted by the verifier: PR 66 adds AdminHandlerAllowlistsTest::test_the_theme_builder_media_upload_needs_the_edit_permission_like_the_delete: it mocks ThemePermissionService::canEdit t)
 - **(8) Dependencies and blockers.** F-01 for the selector to mean anything; staff scope slice 4 (not built, owner decisions listed in PR 82); the theme builder's JavaScript and views were not reviewed here.
 - **(9) Acceptance criteria.**
   - [CODED] No new theme editor, route group or view tree is added by any PR (diff of routes/admin, admin theme views and admin Settings controllers is empty at PR 83; no test pins it)
@@ -318,4 +310,18 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A staff member scoped to AE cannot edit, publish or restore SA's theme (ThemePermissionService has no data scope)
 - **(10) Next coding task.** After F-01: add a storefront parameter (default SA) to ThemeManagementController and ThemeBuilderController and thread it through resolveEditableDraft and resolveThemeFor; add one select to the existing theme index view; tests/Feature/Storefront/AdminThemeStorefrontTest.php. Staff-scope slice 4 stays a separate PR.
 - **Open owner decisions.** Whether theme_view is read-only for the whole builder (PR 66 note) and who may publish a storefront's theme (staff scope, slice 4).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts (staff-scope document sentence): Quotes the document as 'out of slice 2' for both PR 82 and PR 84. PR 82's copy (p1-staff-scope-reports) reads '| Admin\Settings\ThemeBuilderController | 25 | 2 | out of slice 3 (slice 4) | The pickers of the theme builder list and name products of every country.'; only PR 84's older copy says slice 2. Proposed: The staff-scope document lists ThemeBuilderController as out of slice 3 (slice 4) in PR 82 (PR 84's older copy says slice 2): its pickers list and name the products of every country.
+
+#### F-V1. Builder draft mutations (ThemeBuilderService: add, update, duplicate, delete and reorder sections an...
+
+- **State: IN PROGRESS** | plan lines 325 (review list: ThemeBuilderService), 319, 515-517 | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** Builder draft mutations (ThemeBuilderService: add, update, duplicate, delete and reorder sections and blocks, delivery rules, visibility) act only on a draft of the theme of the storefront being edited, never on a published version, and their writes into the global banners table (ThemeBannerLink::syncBlock) stay inside that storefront.
+- **(3) Exists now in code (main).** ThemeBuilderService is named in plan line 325 and in none of the 15 requirements (grep count in assess-F.json = 0). Code exists: isEditable (status must be draft) guards every mutation. Missing: any storefront scope (the service receives ThemeVersion and ThemeSection objects the controller loads by id), PR 66 notes that section add, update and delete skip canEdit(), ThemeBannerLink::syncBlock pushes block edits into the global banners row, no test of the service in any tree. Overlaps F-02 (drafts, banner write) and F-15 (selector, permissions); may be folded into F-15 if the owner prefers one row.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] Builder draft mutations (ThemeBuilderService: add, update, duplicate, delete and reorder sections and blocks, delivery rules, visibility) act only on a draft of (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).

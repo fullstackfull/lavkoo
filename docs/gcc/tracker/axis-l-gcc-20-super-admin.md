@@ -1,8 +1,8 @@
 # Axis L: GCC-20 Super Admin
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 94 (MET 46, CODED 17, MISSING 31). Code completion 67%, proven by a passing test 49%, release readiness 7%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 94 (MET 45, CODED 18, MISSING 31). Code completion 67%, proven by a passing test 48%, release readiness 7%.
 
-Independent verification: not done yet.
+Independent verification: done for unit(s) L.
 
 Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
 
@@ -10,9 +10,9 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 - **State: IMPLEMENTED IN DRAFT** | plan lines GCC-20 doc 3-4, 13-22, 71-79, 84, 86; DECISIONS 65-67 | GCC-20 doc 'Two principals'; DECISIONS GCC-20; charter s.3 item 2, s.5 | reviews: security, owner-decision
 - **(2) Functional requirement.** The platform owner signs in to the seller app as a separate platform principal, through the backend admin identity and dedicated admin endpoints, never through the seller login or a widened seller token. The server alone decides who is one (no client flag, e-mail list or fixed id) and a seller can never become one.
-- **(3) Exists now in code (main).** Nothing for the platform on main: no admin API, grant, token or principal. Main has only the seller-scoped control tower (SellerControlTowerController forSeller), the seller token middleware and the web-only admin guard (AdminMiddleware); no platform_admin code exists in any of the three main branches. The Discovery-02 audit (docs branch claude/exciting-shannon-4mh2ok, s.2.2) maps the admin guard: no admin API existed.
-- **(4) Done in the draft PRs.** #71: /api/platform-admin/v1 (login, logout, me, sessions, markets, overview, alerts, audit-logs; 11 routes at #84), own token table (lkpa_ prefix, only SHA-256 kept), grants made only by console gcc:platform-admin:grant and bound to the admin row, flag GCC_PLATFORM_ADMIN_ENABLED off by default. #79 MFA, #80 capabilities, expiry and audit chain, #84 staff-scope intersection. app#4 signs in to it. The API contract is docs/gcc/GCC-20-PLATFORM-ADMIN-API.md (first commit of #79).
-- **(5) What remains.** Security review of privileged auth (charter s.5); owner decision on who holds a grant; combined security+GCC tree never built; address allow-list or separate host; the grant, not admin_role, makes the owner (confirm with owner); contract checked only against hand-made or captured app fixtures, no real app-to-server round trip.
+- **(3) Exists now in code (main).** Nothing for the platform on main: no admin API, grant, token or principal. Main has only the seller-scoped control tower (SellerControlTowerController forSeller), the seller token middleware and the web-only admin guard (AdminMiddleware); no platform_admin code exists in any of the three main branches. The Discovery-02 audit (docs branch claude/exciting-shannon-4mh2ok, 05-gcc20-superadmin-audit.md) maps the admin guard in s.2.2 and finds in s.2.3 (and F-01) that no admin API existed.
+- **(4) Done in the draft PRs.** #71: /api/platform-admin/v1 (login, logout, me, sessions, markets, overview, alerts, audit-logs; 11 routes at #84), own token table (lkpa_ prefix, only SHA-256 kept), grants made only by console gcc:platform-admin:grant and bound to the admin row, flag GCC_PLATFORM_ADMIN_ENABLED off by default. #79 MFA, #80 capabilities, expiry and audit chain, #84 staff-scope intersection. app#4 signs in to it. The API contract is docs/gcc/GCC-20-PLATFORM-ADMIN-API.md: created by #71 (accb18cf), rewritten for the second factor and sessions by the first commit of #79 (da450262), extended by #80 (ed50d013, cb3db363) and by #84 (630d28e1, section 12).
+- **(5) What remains.** Security review of privileged auth (charter s.5); owner decision on who holds a grant; no CI-proven combined security+GCC tree; address allow-list or separate host; the grant, not admin_role, makes the owner (confirm with owner): up to #80 no platform code reads a role or compares an admin id with a constant, but from #84 PlatformAdminGrantCommand and PlatformEffectiveMarkets read admin_role_id and StaffCountryScope::MASTER_ADMIN_ROLE_ID (a hard-coded role 1) exempts the master admin from the staff-country narrowing, so 'no id or role check' holds for who may sign in (nothing but the grant admits anybody) and not for the owner-or-restricted scope of an every-market grant; contract checked only against hand-made or captured app fixtures, no real app-to-server round trip.
 - **(6) PRs and commits.** [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#79](https://github.com/fullstackfull/lavkoo/pull/79) `ebf59d2`; [lavkoo#80](https://github.com/fullstackfull/lavkoo/pull/80) `cb3db36`; [lavkoo#84](https://github.com/fullstackfull/lavkoo/pull/84) `630d28e`; [lavkooappseller#4](https://github.com/fullstackfull/lavkooappseller/pull/4) `716f84d`
 - **(7) Tests.**
   - `ci` LoginTest (26), GrantCommandsTest (17), GrantOptionsCommandsTest (21), PlatformSignInIsolationTest, ReverseIsolationTest (10), RoutesTest (8) (tests/Feature/PlatformAdmin; #84 630d28e and #83 8ff3410: Tests SQLite PHP 8.2/8.3 and Storefront tests MySQL 8 / MariaDB 11.4.2 success)
@@ -26,7 +26,9 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] App platform sign-in posts only to /api/platform-admin/v1, never calls the seller login and starts no seller session (test/platform_admin/platform_admin_isolation_test.dart at app#4 716f84d; analyze-and-test red, step result UNVERIFIED)
 - **(10) Next coding task.** Cross-repo contract proof: in lavkoo (branch stacked on #84) add ContractFixturesTest that renders every platform answer and error code from the test world into docs/gcc/platform-admin-fixtures/*.json and fails on drift; in lavkooappseller (stacked on #6) load those files in test/platform_admin/support/fixtures.dart instead of hand-written JSON.
 - **Open owner decisions.** Who holds a grant (owner only, or country managers as restricted viewers; whether an every-market grant needs the master role); address allow-list or a separate host (contract s.10 items 3 and 6, s.12 item 3).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
 
 #### L-02. Second factor (MFA) for the platform principal
 
@@ -49,14 +51,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] App second step: six-digit entry, recovery-code alternative, tries left and throttle wait; challenge and code never logged, stored or put in a route (platform_admin_second_factor_*_test at app#6 e4d7d02; no CI run)
 - **(10) Next coding task.** Add a real two-connection race test for single use of a TOTP step and of a recovery code (tests/Feature/Concurrency/PlatformAdminSecondFactorRaceTest.php, run by the existing concurrency group on MySQL 8 and MariaDB 11.4.2), because #79 only simulates the race; then retarget lavkooappseller#6 to main so its flag-on test step runs in CI.
 - **Open owner decisions.** MFA policy for restricted viewers and for levels 2/3, passkeys, recovery-code custody (including whether the owner's own account has codes), lockout without an unlock command (contract s.10 items 1, 10, 11).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-03. Short-lived sessions, device list and remote revocation
 
 - **State: IMPLEMENTED IN DRAFT** | plan lines GCC-20 doc 20, 69 ('remote revocation'), 89 (revoked sessions) | GCC-20 doc; charter s.5 | reviews: security, native-arabic, owner-decision
 - **(2) Functional requirement.** Platform sessions are short-lived and revocable: token expiry, idle timeout, a cap on open sessions, a session list that names the device and that the admin can end remotely (one or all others), automatic end on password change, deactivation, grant revoke or expiry, and console revocation for a lost phone.
 - **(3) Exists now in code (main).** Nothing for admins. Seller tokens on main are stored and looked up as plain auth_token with no expiry condition; there is no session list or remote end for a login token (the only revoke route on seller v3 is for API keys; Discovery-02 F-02, F-03).
-- **(4) Done in the draft PRs.** #71: token life 480 min by default (at most 1440), SHA-256 only, GET/DELETE sessions, console revoke and revoke-tokens, password-change fingerprint. #79: idle 60 min, at most 5 open sessions (oldest ended and audited), DELETE /sessions ends all others. #80: an ended grant ends sessions at the first request. app#4/#6: sessions screen, End all other sessions, token only in Keystore/Keychain under its own key, no remember-me. Dormant: the backend flag GCC_PLATFORM_ADMIN_ENABLED and the app dart-define are off by default.
+- **(4) Done in the draft PRs.** #71: token life 480 min by default (at most 1440), SHA-256 only; an expired token is the uniform 401 and writes nothing, not even an audit line (AuthorizationMatrixTest asserts that a refused request writes nothing); GET/DELETE sessions, console revoke and revoke-tokens, password-change fingerprint. #79: idle 60 min (an idle end is audited as session.idle_ended), at most 5 open sessions (the oldest is ended and audited as session.evicted), DELETE /sessions ends all others. #80: an ended grant ends sessions at the first request (audited once as session.grant_expired). app#4/#6: sessions screen, End all other sessions, token only in Keystore/Keychain under its own key, no remember-me. Dormant: the backend flag GCC_PLATFORM_ADMIN_ENABLED and the app dart-define are off by default.
 - **(5) What remains.** Owner decision on lifetime (8 h, no refresh) and limits; no refresh or rotation design; no device binding (device_name is a label); no panel screen to end sessions; no app lock after inactivity (Discovery-02 F-18); the session-cap lock is not tested with two real connections; app CI and device checks outstanding.
 - **(6) PRs and commits.** [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#79](https://github.com/fullstackfull/lavkoo/pull/79) `ebf59d2`; [lavkoo#80](https://github.com/fullstackfull/lavkoo/pull/80) `cb3db36`; [lavkooappseller#4](https://github.com/fullstackfull/lavkooappseller/pull/4) `716f84d`; [lavkooappseller#6](https://github.com/fullstackfull/lavkooappseller/pull/6) `e4d7d02`
 - **(7) Tests.**
@@ -71,7 +72,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] App sessions screen marks this device, ends another or all others after confirmation; sign-out revokes on the server and clears only the platform key (platform_admin_sessions_screen_test, platform_admin_isolation_test at app#6 e4d7d02; no CI run)
 - **(10) Next coding task.** Add tests/Feature/Concurrency/PlatformAdminSessionCapRaceTest.php: two real connections sign in at once; assert at most 5 open sessions and one eviction line per ended session, on MySQL 8 and MariaDB 11.4.2 (the concurrency group), since the grant lock is only reasoned about today.
 - **Open owner decisions.** Token lifetime and refresh (480 min, 60 idle, 5 sessions), a panel screen to end sessions, whether sessions is always inside a capability set (contract s.10 items 2, 7, 12).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 
 #### L-04. Tamper-evident account audit trail
 
@@ -79,7 +80,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Every sign-in, sign-out, read, session change and grant or MFA change of the platform API is written to an append-only trail that cannot be silently altered and that fails closed; the owner reads it in the app, a restricted viewer only their own lines.
 - **(3) Exists now in code (main).** Main has AuditLogger for web admin actions, which by default does not fail the action when a line cannot be written (Discovery-02 F-14); nothing exists for a platform principal.
 - **(4) Done in the draft PRs.** #71: platform_admin_audit_logs, every request audited before the answer (refused ones too), GET /audit-logs (owner all, restricted own). #79: console lines carry the operator, shown only to the owner. #80: SHA-256 hash chain with a locked tail row, immutable model, audit:verify (exit 1 names the first bad line), audit:prune --confirm (verifies first, never the newest, checkpoint, never scheduled). app#4/#6: audit screen, 14 new actions worded. Dormant: the backend flag GCC_PLATFORM_ADMIN_ENABLED and the app dart-define are off by default.
-- **(5) What remains.** Owner decisions: retention days, who records the head hash and where, export; the business audit_logs of the admin panel are not readable per market (doc line 55 says 'audit logs': owner to confirm the own trail is enough); checkpoint row not chained; hash needs a fixed DB time zone; nothing audits level 2/3 yet; real concurrent writers untested.
+- **(5) What remains.** Owner decisions: retention days, who records the head hash and where, export; the business audit_logs of the admin panel are not readable per market (doc line 55 says 'audit logs': owner to confirm the own trail is enough); checkpoint row not chained; hash needs a fixed DB time zone; nothing audits level 2/3 yet; real concurrent writers untested; no HTTP-level test makes the audit write fail and checks that the request then fails instead of being served unrecorded (AuthenticatePlatformAdmin writes the line after the controller and does not catch, but only the writer's refusal on a missing tail row is asserted, in AuditChainTest).
 - **(6) PRs and commits.** [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#79](https://github.com/fullstackfull/lavkoo/pull/79) `ebf59d2`; [lavkoo#80](https://github.com/fullstackfull/lavkoo/pull/80) `cb3db36`; [lavkooappseller#4](https://github.com/fullstackfull/lavkooappseller/pull/4) `716f84d`; [lavkooappseller#6](https://github.com/fullstackfull/lavkooappseller/pull/6) `e4d7d02`
 - **(7) Tests.**
   - `ci` AuditChainTest (11), AuditVerifyCommandTest (24), AuditPruneCommandTest (22), AuditImmutabilityTest, AuditLogsTest (9), DeadlockRetryTest, unit AuditChainHashTest (10) (tests/Feature|Unit/PlatformAdmin; #84 630d28e and #83 8ff3410 SQLite 8.2/8.3 (Unit only there) and Storefront MySQL 8 / MariaDB 11.4.2; lock tests run on the DB groups only)
@@ -89,12 +90,12 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] Every request of a signed-in admin (refused ones too), sign-in, sign-out, session end and grant or MFA console change writes one audit line that never holds a password, token, code or e-mail (AuditLogsTest, ReadOnlyProofTest, AlertsTest::test_every_read_is_audited_with_the_market_that_was_asked, LoginTest, SessionPolicyTest, GrantOptionsCommandsTest, MfaCommandsTest; CI #84 630d28e + #83 8ff3410)
   - [MET] Lines are chained (prev_hash plus SHA-256 of canonical JSON); audit:verify exits 1 naming a changed, removed or inserted line, or removed newest lines (AuditVerifyCommandTest, AuditChainTest, unit AuditChainHashTest (SQLite job only); CI #84 630d28e)
   - [MET] The model and its queries refuse update and delete; prune runs only from the console with --confirm, after a passing verify, never takes the newest line and is never scheduled (AuditImmutabilityTest, AuditPruneCommandTest; CI #84 630d28e)
-  - [MET] A missing tail row makes the writer refuse, so a request that must be audited fails instead of being served unrecorded (AuditChainTest::test_a_trail_with_no_tail_row_refuses_to_take_a_line_and_writes_nothing; CI #84 630d28e)
+  - [CODED] A missing tail row makes the writer refuse, so a request that must be audited fails instead of being served unrecorded (AuditChainTest::test_a_trail_with_no_tail_row_refuses_to_take_a_line_and_writes_nothing; CI #84 630d28e)
   - [MET] GET /audit-logs: the owner reads every line, a restricted viewer only their own lines without the console operator (AuditLogsTest::test_a_restricted_viewer_sees_only_their_own_lines_whatever_the_market; CI #84 630d28e)
   - [CODED] App audit screen pages newest first and words each action, unknown actions shown by name (platform_admin_audit_screen_test at app#6 e4d7d02; no CI run)
 - **(10) Next coding task.** Add tests/Feature/Concurrency/PlatformAdminAuditTailRaceTest.php: two real connections append lines at once; assert audit:verify still passes and no two lines share a prev_hash, on MySQL 8 and MariaDB 11.4.2 (concurrency group).
 - **Open owner decisions.** Retention in days, export before prune, who records the head hash and where it is kept out of the DB administrator's reach (contract s.10 item 8); whether the panel's business audit_logs should also be readable per market.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
 
 #### L-05. Authorization matrix: nobody else reaches the admin API, the platform token reaches nothing else
 
@@ -115,7 +116,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] Different-country contexts: a market outside the viewer's markets is 403 with one body whichever list forbids it, and storefront selectors (X-Storefront, ?country, cookie) change no answer (OverviewTest, StorefrontIsolationTest, StaffScopeEffectiveMarketsTest; CI #84 630d28e + #83)
   - [MISSING] Exports and push topics appear in the matrix (seller and staff cannot reach them) (No export or push code exists (L-14, L-16))
 - **(10) Next coding task.** Task B: build the integration-only branch of #75 and #83, resolve the five conflicting files, run tests/Feature/PlatformAdmin and tests/Feature/Security on SQLite, MySQL 8 and MariaDB 11.4.2; then add data-provider rows for export and push-topic credentials (skipped with a reason) so the matrix fails when those routes appear unprotected.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-06. Seller-app shell: separate navigation and state per principal
 
@@ -123,7 +123,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** The seller app gets a separate Super Admin shell (own entry, screens, HTTP client, token store and in-memory state) that never reuses the seller session, headers or interceptors, while seller and seller-staff sign-in, menus and screens stay exactly as they are.
 - **(3) Exists now in code (main).** Main seller app: seller login, dashboard, More menu and control tower, all seller-scoped; no platform admin code. The splash screen force-updates before the login screen (seller_app_version_control). The Discovery-02 audit (docs branch claude/exciting-shannon-4mh2ok, s.2.1, F-04..F-10) maps its login, token storage, navigation, session and push handling.
 - **(4) Done in the draft PRs.** app#4 (716f84d): lib/features/platform_admin compiled in only with --dart-define=GCC_PLATFORM_ADMIN_ENABLED=true; entry is a text button on the login screen; own Dio without interceptors or seller headers; own secure-storage namespace; two seller files touched by three lines each (di_container, login_screen); 94 en/ar keys. app#6 (e4d7d02) adds three optional switches to CustomTextFieldWidget.
-- **(5) What remains.** app#4 job analyze-and-test is red on the known app_version_gate_test (result of the flag-on test step UNVERIFIED) and app#6 has no CI; no device or server run; a flag-on build shows the entry to every seller on the login screen; no role-based root; the 43 Arabic keys of app#6 wait for a native reader (none requested for the 94 of app#4); no app lock after inactivity.
+- **(5) What remains.** app#4 job analyze-and-test is red on the known app_version_gate_test (result of the flag-on test step UNVERIFIED) and app#6 has no CI; the source rule that the rest of the app reaches the shell through two files only exists from app#6 (e4d7d02) on, at app#4 (716f84d) the two touched seller files (di_container.dart and login_screen.dart, three lines each, besides ci.yml and the two language files) are visible in the diff but no test pins them; no device or server run; a flag-on build shows the entry to every seller on the login screen; no role-based root; the 43 Arabic keys of app#6 wait for a native reader (none requested for the 94 of app#4); no app lock after inactivity.
 - **(6) PRs and commits.** [lavkooappseller#4](https://github.com/fullstackfull/lavkooappseller/pull/4) `716f84d`; [lavkooappseller#6](https://github.com/fullstackfull/lavkooappseller/pull/6) `e4d7d02`
 - **(7) Tests.**
   - `pr-body` platform_admin_isolation_test, platform_admin_source_rules_test, platform_admin_flag_test, platform_admin_entry_button_test, platform_admin_dependencies_test, platform_admin_api_client_test, platform_admin_token_store_test (test/platform_admin at app#4 716f84d / #6 e4d7d02; analyze-and-test red (known gate test), no CI run for #6; PR bodies claim 611 and 865 passed locally)
@@ -135,7 +135,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] [GCC-20 AC3] The rest of the app reaches the shell through two files (dependency registration, login-screen entry; #6 adds one shared text field that keeps its old behaviour); seller More and Dashboard screens gain no Super Admin item (platform_admin_source_rules_test 'reaches the shell through two files only'; app#4 716f84d / #6 e4d7d02, no CI proof)
 - **(10) Next coding task.** lavkooappseller: add test/platform_admin/seller_screens_unchanged_test.dart that pumps the real LoginScreen, MoreScreen and DashboardScreen with the flag on and off and asserts only the login screen differs (one extra widget); retarget #6 to main so CI runs the flag-on step.
 - **Open owner decisions.** Whether a build with the flag on may reach sellers' phones (the entry shows on every seller login screen) or a separate build is wanted; an inactivity lock for the shell (Discovery-02 F-18).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
 
 #### L-07. All-markets overview: market state, orders, returns, stock health
 
@@ -158,7 +158,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] App shows one card per market with these facts and the bucket as its own card (platform_admin_overview_screen_test at app#6 e4d7d02; no CI run)
 - **(10) Next coding task.** Add stock.reserved and stock.oversold per market to PlatformMarketFigures::stock() from the inventory pool and reservation tables (read InventoryIntegrityPanel for the queries), with OverviewTest cases on SQLite and MySQL/MariaDB, a statement-count assertion and a contract update; then show them on the market card.
 - **Open owner decisions.** GCC-05 (record market and currency on every order); whether a restricted viewer may ever see the unattributed bucket (contract s.10 items 3, 4).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-08. Money by legal entity and currency, never summed
 
@@ -180,7 +179,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] [GCC-20 AC2 identity] Legal entity is per market, partitions the figures where a country has several, and is visible in the app (One config value for all markets; the app parses legal_entity and never shows it)
 - **(10) Next coding task.** Add a per-market legal entity to the config (gcc.storefronts.countries.XX.legal_entity, default null) and expose it in GET /markets with MarketsTest and contract text; show it under the market name in PlatformMarketCard with a widget test. This needs no order data; sales by currency follow once GCC-05 lands.
 - **Open owner decisions.** GCC-05 (record market and currency on every order; contract s.10 item 4); the legal entity of each market (DECISIONS: separate selling company per country).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-09. Operational health: payments, integrations, staff issues and approvals
 
@@ -200,7 +198,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Each signal can raise a market-scoped alert and is gated by its own capability (No code)
 - **(10) Next coding task.** Branch stacked on #84: PlatformHealthService and GET /health?market= (capability health, excluded from grants that name none) returning per market failed payment callbacks of the last 24 h and sales-channel sync last-success and failed counts by channel account mapped to a market; reuse the PaymentsPanel and IntegrationsPanel queries; counts only; HealthTest with restricted-viewer 403 and a statement-count bound.
 - **Open owner decisions.** Which signals the owner wants first and their thresholds (all placeholders today); the default capability rule for the new part.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-10. Global alerts with deep links, dedup and privacy
 
@@ -223,7 +220,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Alerts for payment, webhook, integration, oversell and approval events, and a deep link to the entity (order, product, seller) (Only market-level links and three codes exist)
 - **(10) Next coding task.** Add GET /alerts/{id} (capability alerts) that recomputes the viewer's alerts and returns the one with that id, with a 404 identical to an unknown id for a market the viewer cannot see, audited as alerts.open; the app opens alerts through it; tests for owner, restricted viewer, unknown id and the staff-scope intersection.
 - **Open owner decisions.** Alert thresholds (zero stock 10 and 50, pending 24 h, 1, 5 and 20 are placeholders for a Saudi-sized catalogue; contract s.10 item 5).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-11. Market selector, propagation and cache isolation
 
@@ -244,7 +240,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] Sign-out, a 401, a scope change and five minutes in the background clear all held answers and nothing is written to disk (platform_admin_controller_test, platform_admin_source_rules_test; app#6 e4d7d02, no CI run)
   - [MISSING] The selected market propagates to exports, mutations and notifications (None of them exists (L-14, L-15, L-16))
 - **(10) Next coding task.** Add RoutesTest::test_every_route_that_reads_market_data_goes_through_MarketSelector (route-table driven, fails for a future route that does not) and the matching rule in the app's platform_admin_source_rules_test (every client call returning market data names market); this guards the drill-down endpoints of L-13 before they are written.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-12. Country-scoped permissions for country managers
 
@@ -266,7 +261,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The app offers only the screens GET /me lists, tells a restricted viewer so and shows the grant end (platform_admin_capabilities_*_test at app#6 e4d7d02; no CI run)
 - **(10) Next coding task.** After #82 merges into the stack, switch PlatformEffectiveMarkets to StaffCountryScope::countriesOf and remove countriesOfAdmin (the two-line follow-up in #84 'Things to know' 1), keeping StaffCountryOfAdminTest as the pin; run the PlatformAdmin and StaffScope groups on MySQL 8 and MariaDB 11.4.2.
 - **Open owner decisions.** Contract s.12 items 1-7 (switch of its own, trail for a restricted employee, every-market grant holder, no-market sign-in, telling the app why, ending sessions on scope change, a scope that is on but not enforced) and s.10 item 12 (capability sets and end dates as policy).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-13. Country drill-down content and storefront activation state
 
@@ -288,7 +282,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A written classification names which admin workflows are useful on mobile and which stay desktop-only (Not in the Discovery-02 audit or the contract)
 - **(10) Next coding task.** Add GET /markets/{code}/orders (capability orders): id, status, created_at, line count, no customer data, cursor paging at most 50, only that market's orders, 403/422 like the overview; tests for attribution, a restricted viewer, a statement-count bound, MySQL/MariaDB; contract update; an orders screen from the market card. In the same branch write docs/gcc/GCC-20-MOBILE-SCOPE.md classifying mobile versus desktop-only workflows.
 - **Open owner decisions.** Which per-market views the owner wants first, which workflows stay desktop-only (Discovery item 9), and what personal data a list may show.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-14. Reports and exports per market
 
@@ -308,7 +301,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] An export holds only the selected market and only markets the viewer may see (No code)
 - **(10) Next coding task.** Branch stacked on #84: GET /markets/{code}/reports/orders.csv (capability export, excluded from grants that name none): order counts by day and status from PlatformMarketFigures (no money), streamed from memory with a watermark header, one audit line export.requested with the row count, 3 per hour per admin; tests for 403 on another market, no file on disk, the audit line, the throttle; MySQL/MariaDB.
 - **Open owner decisions.** Which reports the owner needs, the watermark and retention policy, and whether a restricted viewer may export.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-15. Levels 2 and 3: write actions, step-up and approvals
 
@@ -329,7 +321,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Payment account, settlement destination, legal policy publication, stock release, permission change, large refund and integration toggle each need dual approval (No code)
 - **(10) Next coding task.** Step-up primitive only: POST /auth/step-up {code|recovery_code} sets step_up_until (now + 5 min) on the token (additive nullable column) and a middleware platform_admin_step_up that later write routes will carry; reuse the TOTP single-use rule; tests for expiry, per-session scope, replay and 401 uniformity; a test-only route proves the middleware; dormant behind the flag; no business action.
 - **Open owner decisions.** Separate authorization for each action class (level 2 later, level 3 per class), the dual-approval policy, who may hold level 2/3, and whether step-up replaces or adds to MFA (contract s.10 item 1).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-16. Admin push notifications on their own topics
 
@@ -349,7 +340,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Sign-out, session revoke, idle end and eviction unsubscribe the device and invalidate its token (No code)
 - **(10) Next coding task.** Backend: platform_admin_devices table (token_id FK, platform, encrypted push token), POST /devices and DELETE /devices/{id} (capability alerts), server-built topic names (lavkoo_pa_{market}), removal when the session ends; tests with a fake FCM client that seller and staff tokens and seller topics can never be registered (T-15, T-16 of the Discovery-02 audit) and that a revoke removes the token.
 - **Open owner decisions.** Whether push is wanted and for which severities (contract s.10 item 9); topic naming and per-market subscription; which FCM project to use.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-17. Safe rollout: flag, rollback, version gate, Saudi and three-repo regression
 
@@ -372,7 +362,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] [GCC-20 AC7] Saudi regression: the seller app suite (analyze, translations, flag-on shell tests, full test) and the backend suite pass on the combined security + GCC tree (app#4 job red (known gate test), app#6 no CI, no combined tree)
 - **(10) Next coding task.** Add X-Platform-Admin-Contract: 1 from the shell's client and GET /me contract {version, min_supported} on the server (min unset by default, config GCC_PLATFORM_ADMIN_MIN_CONTRACT), with the app showing one update-required state when the server's minimum exceeds its level; tests on both sides; leave the seller version gate and app_version_gate_test untouched; retarget lavkooappseller#6 to main.
 - **Open owner decisions.** The live backend seller_app_version_control minimum and whether 1.0.0+3 shipped (docs/gcc/audits/2026-11-12-seller-version-verification.md); whether the shell needs its own minimum version; whether a flag-on build may be released.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### L-18. Bounded performance and visible data freshness
 
@@ -395,4 +384,3 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] [GCC-20 AC6] Measured plans or latency on a Saudi-size dataset stay within a stated budget (Only small test data was used (CI and local runs))
 - **(10) Next coding task.** Add tests/Feature/PlatformAdmin/Performance (MySQL/MariaDB only, own CI group): seed 200k orders, 600k order lines, 50k products and 20k refund requests across the six countries, assert EXPLAIN of the overview queries uses an index range on created_at and the overview stays under a stated budget; add an additive refund_requests(created_at) index migration only if EXPLAIN shows a scan; cache the positive readiness answer for 60 s.
 - **Open owner decisions.** Alert thresholds sized for the real catalogue, the acceptable latency budget, and whether a short server cache is wanted (contract s.10 item 5).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.

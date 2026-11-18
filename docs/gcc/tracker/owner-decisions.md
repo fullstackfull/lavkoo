@@ -123,8 +123,8 @@ Taken from the "Open owner decisions" field of each requirement card, as of 2026
 
 ## Axis F: Themes and brand
 
-- **F-01:** Fallback for a storefront without its own theme (the default storefront's theme, or the built-in templates); which existing theme becomes Saudi's. Q-19 proposes an independent theme per storefront; it is proposed, not decided.
-- **F-02:** Q-19 proposes a separate publish per storefront and copying, not sharing, banners and assets. Not decided.
+- **F-01:** Decided (DECISIONS.md GCC-07, GCC-19): independent theme per country on a shared component library; Saudi Arabia is the initial default storefront. Still open: what a storefront without its own theme serves (the default storefront's theme or the built-in templates), which existing theme becomes Saudi's, and the Q-19 details (copy or share banners and assets; website and customer app published separately or together).
+- **F-02:** Decided (GCC-07): independent drafts, versions and publishing per storefront; no cross-country accidental publication. Open (Q-19, proposed option a): copy, not share, banners and assets; whether the website and the customer app publish separately per store.
 - **F-03:** Plan line 319 asks for independent publish per store and platform; GCC-09 only says sections and layout may differ. Decide whether a separate web and app publish is required. Q-43: the seller app shows no theme (proposed option a).
 - **F-08:** Which time zone a scheduled publish and section windows use per storefront (one clock today; AE and OM are an hour ahead of SA, KW, QA and BH).
 - **F-11:** Q-19: when a theme is copied between countries, copy or share the banners and assets (proposed option a: copy).

@@ -1,8 +1,8 @@
 # Axis J: Flutter customer app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 91 (MET 35, CODED 23, MISSING 33). Code completion 64%, proven by a passing test 38%, release readiness 6%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 93 (MET 32, CODED 26, MISSING 35). Code completion 62%, proven by a passing test 34%, release readiness 5%.
 
-Independent verification: not done yet.
+Independent verification: done for unit(s) J.
 
 Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
 
@@ -25,7 +25,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] When the server changes default_country the app's fallback follows it (StorefrontCountry.tryParse reads country, path, currency and sellable only; the fallback is the const saudiArabia)
   - [MISSING] A stored storefront the server no longer lists falls back to the default and rebuilds header and caches (No reconcile after StorefrontController.refresh; the server resolves an unlisted country to the default (StorefrontResolver))
 - **(10) Next coding task.** On the #7 branch keep default_country and enabled in StorefrontCountry.parseList and StoredStorefronts; add StorefrontChoice.reconcile() after each refresh that moves an unlisted stored code to the server default through StorefrontSwitcher; tests in storefront_choice_test and storefront_switcher_test (flag-on run).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-02. Country chooser and storefront switch
 
@@ -47,7 +46,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The switch completes in bounded time on a bad network (StorefrontController.choose awaits refresh(); PR 7 body: up to 60 s in Loading)
 - **(10) Next coding task.** On the #7 branch make StorefrontController.choose save and return, refreshing in the background; add a test with a never-completing refresh asserting switchTo completes; add a GoRouter test for the dashboard route after a switch.
 - **Open owner decisions.** Arabic wording of the ten new strings and the six country names; the shared 'select' button reads as 'he chooses' in Arabic; bn, es, hi lines are unreviewed.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-03. X-Storefront header on every API request
 
@@ -68,7 +66,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Multipart uploads carry X-Storefront (Review, refund, support ticket, profile and chat repositories build http.MultipartRequest with Authorization only)
   - [CODED] The real backend resolves the same market from the header (StorefrontResolver::HEADER and ResolveStorefrontMiddlewareTest green on lavkoo PR 83 8ff3410; no app-with-backend run)
 - **(10) Next coding task.** On the #7 branch add a flag-gated StorefrontRequestHeaders helper used by DioClient and the five multipart repositories, with tests for both flags; make dio_storefront_header_test flag-agnostic so the flag-on CI step can run it.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** remaining (1): 'The five multipart uploads' undercounts: git grep finds six http.MultipartRequest call sites in five repositories at 56deea7 (support_ticket_repository.dart builds two, create and reply). The audit 2026-11-17-customer-app-compat-security-prs.md also says '5 multipart uploads', so the miscount is inherited, but the code has six. Proposed: (1) The six multipart upload calls (chat_repository.dart:69, profile_repository.dart:41, refund_repository.dart:23, review_repository.dart:34, support_ticket_repository.dart:24 and :74) send only Authorization, so the server resolves the default storefront; reviews/submit sits behind the storefront middleware (effect UNVERIFIED). The five repositories in next_task and the AC evidence stay as they are.
 
 #### J-04. Caches and local storage keyed by storefront
 
@@ -88,7 +86,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A new cache, store or ChangeNotifier fails a test until it is classified as storefront data or not (storefront_cache_inventory_test; #7 56deea7)
   - [CODED] The shop config (currencies, payment methods) is requested again after a switch (SplashController.onStorefrontChanged calls initConfig; no test (needs the GetX context, PR 7 body))
 - **(10) Next coding task.** On the #7 branch: inject the context into SplashController.onStorefrontChanged (no Get.context) and test that a switch re-requests /config while the held config stays until the answer arrives; after security review stop persisting the Authorization header in DataSyncRepo and test it.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-05. Per-storefront currency and price formatting
 
@@ -108,7 +105,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Cart, checkout, order, wallet and coupon amounts all use one formatter (51 lines with toStringAsFixed( in lib (PR 7 head))
 - **(10) Next coding task.** New branch from the #7 head: pure CurrencyFormat (code to minor units, symbol, position), PriceConverter methods use it when StorefrontConfig.enabled (flag-off output stays byte-identical), selector hidden with the flag on; tests with golden strings for six currencies, rounding and the flag-off pin.
 - **Open owner decisions.** Currency symbol or code per language (for example KWD or the Arabic symbol), trailing zeros and rounding mode: finance to confirm.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** plan_lines: Lines 175-180 are only the list of countries and currencies. The functional text's 'no automatic conversion between storefronts' and local pricing are plan lines 284-285 (section 5.5 Checkout and pricing). Proposed: 175-180, 284-285
 
 #### J-06. Theme rendering per storefront and platform
 
@@ -130,7 +127,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The request tells the server which section types this build draws, so a storefront's sections are filtered per app build (capability_registry.dart on main; dynamic_theme_registry_test exists but runs in no CI job)
   - [CODED] A storefront that publishes different app and web sections is drawn from the app payload only (Server filters by platform in ThemeDelivery; the app asks with the device class; no app test with per-platform payloads)
 - **(10) Next coding task.** On the #7 branch add the four non-CI theme test files to ci.yml, fix or quarantine with a reason the two render-matrix failures, and test a switch to a storefront whose revision is 0 (built-in home shown, not the old storefront's).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-07. Cart and wishlist per storefront
 
@@ -150,7 +146,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The applied coupon, shipping choices and product-details choices derived from the cart are dropped (storefront_cart_reload_test 'what is derived from the cart'; #7 56deea7)
   - [CODED] A cart row added under one storefront is not visible or purchasable under another (Server scope lavkoo #48, StorefrontCartIsolationTest green on PR 83 8ff3410; the app adds no filter of its own)
 - **(10) Next coding task.** Record real cart and wishlist answers for SA and KW from the backend integration tree (lavkoo PR 83 with the flag on, disposable database) and replace the hand-written fakes in storefront_cart_reload_test; add a guest-login merge test per storefront.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-08. Sellable gate and paused-storefront modes
 
@@ -167,12 +162,11 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] With the flag off every storefront may sell and no request or element is added (storefront_can_sell_test; storefront_controller_test 'while storefronts are off'; lavkooapp #7 56deea7, job storefront-header)
   - [MET] With the flag on SA sells before any answer, every other storefront is browse-only until the server marks it sellable, and the server's answer wins (storefront_can_sell_test; #7 56deea7)
   - [MET] The gate can switch a button off but never on, and the notice shows exactly while the storefront may not sell (checkout_sale_gate_test; storefront_browse_only_notice_test; #7 56deea7)
-  - [MET] A 422 storefront_not_sellable shows the server's own localized message, not the generic 422 or payment-not-configured text (api_error_handler_storefront_test; #5 5526c4b, #7 56deea7)
+  - [CODED] A 422 storefront_not_sellable shows the server's own localized message, not the generic 422 or payment-not-configured text (api_error_handler_storefront_test; #5 5526c4b, #7 56deea7)
   - [CODED] On a browse-only storefront no order, payment or wallet top-up request leaves the app (Guards in CheckoutController (2) and WalletController (1); no controller or screen test)
   - [MISSING] Maintenance and redirect-to-default storefront modes are honoured by the app (No app code; the backend list carries no mode field)
 - **(10) Next coding task.** On the #7 branch add controller tests (scripted adapter, browse-only gate) proving placeOrder, digitalPaymentPlaceOrder and addFundToWallet send no request; with the backend unit define a mode key (browse_only, maintenance, redirect) in StorefrontListing, parse it in StorefrontCountry, then add the maintenance screen and redirect-to-default.
 - **Open owner decisions.** Approve the Arabic notice wording (PR 5 asks) and the bn, es, hi lines; the app screens for Maintenance and Redirect wait for a backend mode field.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-09. Payment and wallet flows per storefront
 
@@ -189,17 +183,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(9) Acceptance criteria.**
   - [CODED] A MyFatoorah return is accepted only on the shop's host with a reference, the outcome comes from the server status, and an unresolved status never reads as a failure (myfatoorah_return_url_test and myfatoorah_payment_status_test on main, in no CI job)
   - [CODED] No payment or wallet top-up request leaves the app on a browse-only storefront (Guards in CheckoutController.digitalPaymentPlaceOrder and WalletController.addFundToWallet; no controller test)
-  - [MET] A refused payment shows the server's own message (api_error_handler_storefront_test; lavkooapp #7 56deea7, job storefront-header)
+  - [CODED] A refused payment shows the server's own message (api_error_handler_storefront_test; lavkooapp #7 56deea7, job storefront-header)
   - [MISSING] Only the gateways and methods enabled for the current storefront (currency, legal entity, merchant) are offered (config_model.dart reads the global payment_methods; ConfigController is not storefront-aware (lavkoo PR 83))
   - [CODED] A payment started in one storefront finishes there even if the customer switched meanwhile (X-Storefront on POST /digital-payment; server PaymentStorefront (lavkoo #53); no app test)
   - [MISSING] The wallet balance, ledger and top-up show the current storefront's wallet and currency (Wallet and profile are customer-global; the inventory test marks the wallet controller not storefront data)
 - **(10) Next coding task.** Add the myfatoorah and deep-link tests to ci.yml; add a widget test of DigitalPaymentOrderPlaceScreen with a scripted adapter (return URL, status poll carries X-Storefront, unresolved, paid); wire the method list to a storefront-aware payment_methods once the backend exposes it.
 - **Open owner decisions.** Per-market gateway and BNPL eligibility (Paymob, MyFatoorah, Tabby, Tamara) per legal entity and merchant account (plan lines 303-307).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-10. Deep links, App Links and old links
 
-- **State: NOT STARTED** | plan lines 193 | none | reviews: owner-decision, security
+- **State: IN PROGRESS** | plan lines 193 | none | reviews: owner-decision, security
 - **(2) Functional requirement.** Existing Saudi links keep opening the app; links with a storefront path (/ae/..., /kw/...) open the right product, brand or order under a defined storefront rule; Android App Links and iOS universal links are declared for the production host.
 - **(3) Exists now in code (main).** main: Android intent filter (autoVerify, host lavkoo.com; paths /, /track-order, /referral-login, /product/, /vendor-shop/, /brand/, /products, /go/); iOS entitlement applinks:pharmacyksa.com; DeepLinkResolver asks /api/v1/deep-link/resolve and falls back to reading the path; routes /brand/:slug, /products, /track-order/:orderId, /go/:code; deep_link_resolver_test.
 - **(4) Done in the draft PRs.** Nothing for links. lavkooapp #5 only refreshes the storefront list when a launch from a link loads the config (main.dart). No branch touches AndroidManifest, entitlements, DeepLinkResolver or the routes.
@@ -216,11 +209,11 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The resolver's offline fallback and the server's /deep-link/resolve agree on prefixed paths (Backend config/deeplinks.php lists unprefixed paths only)
 - **(10) Next coding task.** Branch from main: DeepLinkResolver.readLocally strips a leading storefront segment (sa, ae, kw, qa, bh, om) into ResolvedDeepLink.storefront; add the six pathPrefix entries and routes; apply the owner rule through StorefrontSwitcher; extend deep_link_resolver_test and add it to ci.yml; backend: publish the prefixed paths in config/deeplinks.php.
 - **Open owner decisions.** What a link that names another storefront does (switch, ask, or open as the current one; manual choice precedes inference, plan line 189). Which host is production for iOS (pharmacyksa.com or lavkoo.com).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** ac[0].t and ac[4].e (criteria 1 and 5): Criterion 1 lists /track-order/{id} among 'the published Saudi paths' that open the matching screen. The backend does not publish it: config/deeplinks.php (PR 83 8ff34109) lists only /, /product/*, /brand/*, /products and /go/*, and its comment says /track-order is DELIBERATELY ABSENT. With the shop reachable, DeepLinkResolver.resolve takes the server answer (target web, reason this_path_is_not_published_as_an_app_link) and deep_link_gateway_screen.dart opens the browser; readLocally maps it to order_tracking only when the call fails. The manifest also declares /referral-login and /vendor-shop/, which neither side maps to a screen. So the app fallback and the server already disagree on unprefixed paths, not only on prefixed ones (criterion 5). Proposed: Criterion 1: 'The published Saudi paths (/, /product/{slug}, /brand/{slug}, /products, /go/{code
 
 #### J-11. Push topics and notifications per storefront
 
-- **State: NOT STARTED** | plan lines 405-418 | plan 5.13 | reviews: legal
+- **State: IN PROGRESS** | plan lines 405-418 | plan 5.13 | reviews: legal
 - **(2) Functional requirement.** A push reaches only the audience of its storefront: topics are scoped per storefront, an order push opens the right order even when the storefront is paused, a push names its storefront so the app opens the right context, and marketing pushes respect the customer's consent.
 - **(3) Exists now in code (main).** main subscribes every install to global topics: sixvalley (twice), maintenance_mode_start_user_app, theme_updates_user_app, plus server-named cart and restock topics, and registers one token (/customer/cm-firebase-token). NotificationHelper routes order, wallet, chatting, restock and referral payloads; NotificationBody has no storefront. No consent control beyond the OS prompt and iOS ATT.
 - **(4) Done in the draft PRs.** Nothing: lavkooapp #1 to #7 leave topic, token and notification code untouched. The theme, maintenance and marketing topics stay global.
@@ -237,7 +230,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Marketing consent is captured per scope and respected (No consent state or screen in lib)
 - **(10) Next coding task.** New branch from the #7 head: StorefrontTopics (names such as lavkoo_{code}_{kind}) over an injectable messaging wrapper, subscribe at login and splash, move on switch and logout; optional storefront key in NotificationBody and a tap rule; unit tests with a fake wrapper. Backend: topic and audience contract.
 - **Open owner decisions.** Topic naming and whether the legacy sixvalley topic stays for SA; default marketing consent per storefront (legal).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-12. One login across storefronts and auth security compatibility
 
@@ -258,7 +250,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] Existing sign-ins survive the upgrade: the token, guest id and user-data pref keys are untouched by #1 to #7 (git diff main..#7 touches no auth file; storefront_cache_inventory_test lists the sign-in keys)
 - **(10) Next coding task.** On gcc/security-social-confirmation-token add a unit test of the temporary_token hand-off (kept from the answer with user, sent once, absent when not given) and a minimal analyze-and-test workflow so the PR gets a CI run; security review before it ships first.
 - **Open owner decisions.** D1 of the owner guide: deploy lavkoo #60 without waiting for adoption of #4, or wait.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-13. Order history across storefronts
 
@@ -277,7 +268,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] Details, tracking, refund, support and chat of an existing order work on any storefront, including a browse-only one (The gate asks only about new sales (checkout_sale_gate.dart); no test)
   - [MET] The cached orders row of one storefront is never shown on another (storefront_local_caches_test 'the delivered orders row'; lavkooapp #7 56deea7, job storefront-header)
 - **(10) Next coding task.** On the #7 branch parse optional currency and storefront_country in OrderModel behind the flag, format order totals with J-05's formatter, add a two-storefront history test on hand-made fixtures, and re-record them once the backend order snapshot lands.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** plan_lines: 'each in the currency ... it was placed in' rests on plan lines 286-287 (orders keep a snapshot of company, currency, tax, prices; refunds in the original currency), which are not cited. Lines 350 and 352 do not say it. Proposed: 286-287, 350, 352
 
 #### J-14. Address eligibility per storefront
 
@@ -296,11 +287,11 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A visitor outside the active markets browses the default storefront but cannot order with an ineligible address (The gate is per storefront only (sellable), never per address)
 - **(10) Next coding task.** Read docs/address/README.md and design.md, then on a new branch add AddressCatalogRepository for GET /api/v1/address/regions and /cities behind a GCC_UNIFIED_ADDRESS dart-define and a config-driven mode, with tests on hand-made fixtures; leave the legacy form untouched while the mode is off.
 - **Open owner decisions.** none (address design decisions are in docs/address)
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** ac[1].e (criterion 'An address outside the current storefront's deliverable area is refused ...'): 'No eligibility code in lib/features/address' is false. origin/main already has a shop-wide delivery restriction: config delivery_country_restriction, AddressController.getRestrictedDeliveryCountryList and getRestrictedDeliveryZipList, called from add_new_address_screen.dart lines 105-107 and used at lines 197-201, 488 and 543 to limit the country and zip pick lists. It is not per storefront, region or city, and it refuses nothing at save or checkout with a message, so the mark stays MISSING. Proposed: Only the shop-wide delivery_country_restriction country and zip pick lists exist (add_new_address_screen.dart 105-107, 197-201, 488, 543; address_controller.dart restrictedCountryList). Nothing is per storefront, region, city or courier coverage, and nothing refuses an address at save or chec
 
 #### J-15. Legal policy screens and consent scopes
 
-- **State: NOT STARTED** | plan lines 354, 393-399 | GCC-11 | reviews: legal, native-arabic
+- **State: IN PROGRESS** | plan lines 354, 393-399 | GCC-11 | reviews: legal, native-arabic
 - **(2) Functional requirement.** The app shows each storefront's approved legal documents (terms, privacy, refund, return) in the customer's language, requires acceptance before an order, records which version was accepted in which storefront, and keeps marketing consent in its proper scope.
 - **(3) Exists now in code (main).** main: checkout and sign-up checkboxes open pages by slug (terms-and-conditions, privacy, refund, return) from the global /api/v1/business-pages list loaded at dashboard start; acceptance is a local checkbox; nothing is sent to record a document version.
 - **(4) Done in the draft PRs.** Only indirectly: lavkooapp #5 honours the server's sellable flag (lavkoo #38, #39 set it from legal readiness), so an unready storefront is browse-only. Business pages sit in the response cache, whose key carries the storefront (#6).
@@ -316,7 +307,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] Business pages cached for one storefront are never shown for another (/api/v1/business-pages is in DioClient's cacheable list and ApiCacheKey adds the storefront; no endpoint-specific test)
 - **(10) Next coding task.** Backend first (unit I1): a public GET legal-documents route per storefront and an accepted-documents field on order placement; then in the app a LegalDocumentRepository and a checkout acceptance payload behind the flag, tested with fakes.
 - **Open owner decisions.** Which document types need explicit acceptance per storefront and whether the customer's identity is stored with the acceptance (config gcc.storefronts.legal): legal and privacy review.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-16. Language, RTL and strings
 
@@ -330,14 +320,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `ci` localization_keys_test, storefront_chooser_sheet_test ('the language files', 'the layout'), storefront_browse_only_notice_test (ar, en, narrow, RTL icon) (lavkooapp #7 56deea7, job storefront-header)
 - **(8) Dependencies and blockers.** A native-Arabic reader; J-05 and J-15 add more strings. No tree combines app and backend, so the state stops at IMPLEMENTED IN DRAFT.
 - **(9) Acceptance criteria.**
-  - [MET] Every storefront string exists, non-empty, in ar, en, bn, es and hi (localization_keys_test; storefront_chooser_sheet_test 'carry every word the chooser says, in all five languages'; lavkooapp #7 56deea7, job storefront-header)
+  - [CODED] Every storefront string exists, non-empty, in ar, en, bn, es and hi (localization_keys_test; storefront_chooser_sheet_test 'carry every word the chooser says, in all five languages'; lavkooapp #7 56deea7, job storefront-header)
   - [MET] The chooser and the notice read in Arabic in words (not keys) and put the mark and icon at the right end in RTL and LTR (storefront_chooser_sheet_test; storefront_browse_only_notice_test; #7 56deea7)
   - [MET] No overflow at 320x640 with 2x text in either language, light and dark (storefront_chooser_sheet_test 'the layout'; storefront_browse_only_notice_test; #7 56deea7)
   - [MET] The lang header carries the language code (ar or en) and follows a language switch (dio_cache_key_order_test asserts the lang header 'ar' after a switch; #7 56deea7)
   - [CODED] A language switch with storefronts on clears every cached answer and refreshes the theme (LocalizationController.setLanguage; only the theme part is tested (storefront_theme_reload_test 'a language switch behaves as it did'))
 - **(10) Next coding task.** Native-reader review table in the PR body; add a test that every new storefront_ key in bn, es and hi is non-empty and marked untranslated; add an end-to-end language-switch test with storefronts on (HTTP cache, Drift rows, theme).
 - **Open owner decisions.** Native-Arabic approval of the new Arabic strings and the six country names; wording of the shared select button.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### J-17. Version gate and update flow (never bypassed)
 
@@ -358,7 +347,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The update screen offers a usable target when the config link is empty (UpdateScreen passes the link unchanged: an empty link fails canLaunchUrlString)
 - **(10) Next coding task.** Extract the comparison from SplashScreen into a pure UpdateGate (same semantics), add test/release_version_test.dart with the cases above and list it in ci.yml; do not change appVersion, the shop floor or pubspec.
 - **Open owner decisions.** Which way to align the version numbers (lower the shop's floor to at most 3.0.6 and set appVersion to match, or renumber the app at or above 14.1). The charter forbids bumping a version or lowering a minimum on a test constant alone.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** refs: DECISIONS.md guardrail 4 ('audit API v3/seller and seller app version gate') is about the seller app's gate, not the customer app's. The Charter section 4 reference is right. The rule that covers this app is DISCOVERY_PROMPT_01.md line 25 ('do not rename ... release version gates') and the app's own CLAUDE.md ('do not automatically rename package IDs, bundle IDs, Firebase settings, imports or version numbers'). Proposed: Charter section 4 (version gates); DISCOVERY_PROMPT_01.md line 25 and lavkooapp CLAUDE.md (no version, package id or Firebase change); DECISIONS.md guardrail 4 names the seller app's gate and is context only.
 
 #### J-18. App tests, CI and device verification
 
@@ -369,7 +358,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(5) What remains.** (1) CI analyses listed files only; the whole app has 255 findings and cart_screen.dart is checked for errors only. (2) The full flutter test run is in no job: nine of main's 11 test files run nowhere (banner model, deep link, MyFatoorah x2, five theme); dynamic_theme_render_matrix_test has two known RenderFlex failures. (3) Five tests assume a flag-off build and fail with the flag on. (4) No device or emulator run, no real backend. (5) #4 has no workflow run; stacked PRs get CI only from pushes to gcc/**.
 - **(6) PRs and commits.** [lavkooapp#1](https://github.com/fullstackfull/lavkooapp/pull/1) `2a8c84c`; [lavkooapp#2](https://github.com/fullstackfull/lavkooapp/pull/2) `6b74524`; [lavkooapp#3](https://github.com/fullstackfull/lavkooapp/pull/3) `eda7814`; [lavkooapp#4](https://github.com/fullstackfull/lavkooapp/pull/4) `08b9b9d`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`; [lavkooapp#6](https://github.com/fullstackfull/lavkooapp/pull/6) `547c9d9`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`
 - **(7) Tests.**
-  - `ci` storefront-header job: scoped analyze, 30 test files flag off, 15 flag on (lavkooapp #1 2a8c84c, #2 6b74524, #3 eda7814, #5 5526c4b, #6 547c9d9, #7 56deea7: success (ci-table.md); #4 has no run)
+  - `none` storefront-header job: scoped analyze, 30 test files flag off, 15 flag on (refuted by the verifier: The counts are true only at #7 56deea7. ci.yml at #1 runs 2 test files, #2 and #3 run 3, #5 runs 13 and #6 runs 15, all flag off only; the flag-on step (15 file)
 - **(8) Dependencies and blockers.** Backend integration tree (lavkoo PR 83 8ff3410, CI green except the known overlay job) for any app-with-backend run; a staging backend with fake data and devices for the manual plan in PR 7.
 - **(9) Acceptance criteria.**
   - [MET] The storefront tests run in CI on pushes to gcc/** and pull requests to main with Flutter 3.47.0, flag off and flag on (ci.yml at #7 56deea7; job storefront-header success (ci-table.md))
@@ -379,4 +368,32 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Every app pull request gets a CI run (#4 08b9b9d: no-runs in ci-table.md)
   - [MISSING] Cart, checkout, chooser, RTL and payment return are run on a device or emulator against the backend integration tree (None run; fixtures hand-written (PR 7 body))
 - **(10) Next coding task.** Extend ci.yml: whole-project flutter analyze with the 255-finding baseline as a ratchet, a full flutter test job, the five flag-off assumption tests made flag-agnostic, the two render-matrix failures fixed or quarantined with a reason; rebase #4 on the workflow so it gets a run.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** plan_lines: Lines 700-716 are the report-quality rules (section 9), not the test plan. The plan's regression and test list is Report 10, lines 655-672 (line 668 'themes and the Flutter cache'); of section 9 only line 710 (CI success does not prove a real merchant integration) bears on this requirement. Proposed: 655-672, 710
+
+#### J-V1. Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home...
+
+- **State: NOT STARTED** | plan lines 320 (section 5.7: preview among the capabilities to preserve); 313-319 | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home from a signed preview token (backend GET /api/v1/theme/home with the preview parameter), per storefront, never cached and never sent with an ETag, so a merchant can check a draft on a real phone before publishing.
+- **(3) Exists now in code (main).** ThemeSectionController::home in PR 83 8ff34109 accepts a signed preview query token and answers with Cache-Control no-store; lavkooapp main and all seven heads have no preview parameter or token code in lib/features/dynamic_theme or DynamicThemeRepository (git grep -i preview finds only image assets and unrelated chat and health widgets). J-06 remaining (2) mentions the gap but no requirement or criterion tracks it.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home from a signed preview token (backend GET /api/v1/theme/home (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+
+#### J-V2. Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to...
+
+- **State: NOT STARTED** | plan lines 351 and 359-370 (section 5.10, GCC-15 country-local loyalty, next to the wallet bullet) | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to the current storefront: shown, earned and converted only there, with no automatic transfer between storefronts.
+- **(3) Exists now in code (main).** assess-J cross_axis_notes say the app side of wallet and points is 'J-09 criterion 6', but that criterion names only the wallet balance, ledger and top-up, so no J requirement covers the points. storefront_cache_inventory_test at 56deea7 classifies lib/features/loyaltyPoint/controllers/loyalty_point_controller.dart as 'the customer's own points ledger, loaded when its screen opens' (not storefront data); no draft or test scopes points by storefront. Outside the unit's listed plan lines, but the result claims it covered.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to the current storefront: shown, earned and converted only th (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
