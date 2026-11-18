@@ -103,6 +103,36 @@ final class CouponCountry
         return [self::COLUMN => ['bail', 'nullable', Rule::in(ProductCountry::options()), self::mustHaveAnActiveCurrency(...)]];
     }
 
+    /**
+     * The storefronts the admin may type a coupon for: the default one, and every other that trades in its own currency and has it active.
+     *
+     * @return list<string>
+     */
+    public static function options(): array
+    {
+        $currency = app(StorefrontCurrency::class);
+        $resolver = StorefrontResolver::fromConfig();
+
+        return array_values(array_filter(
+            ProductCountry::options(),
+            static fn (string $country): bool => $currency->isReady(country: $country, currencyCode: $resolver->currencyOf($country)),
+        ));
+    }
+
+    /** The mark the amounts of a coupon of this storefront are typed with: its currency's, else the platform's, which is what the form prints without a market. */
+    public static function currencySymbolOf(string $country): string
+    {
+        $currency = app(StorefrontCurrency::class)->currencyOfSales($country);
+
+        return (string) ($currency?->symbol ?? getCurrencySymbol(currencyCode: getCurrencyCode()));
+    }
+
+    /** Runs the callback in the money of the storefront the coupon belongs to, so an amount typed in dinars is shown as dinars. */
+    public static function inMoneyOf(mixed $coupon, Closure $callback): mixed
+    {
+        return app(StorefrontCurrency::class)->within(country: data_get($coupon, self::COLUMN), callback: $callback);
+    }
+
     /** Forgets what was learnt about the schema, for a test that builds its own tables. */
     public static function flush(): void
     {
