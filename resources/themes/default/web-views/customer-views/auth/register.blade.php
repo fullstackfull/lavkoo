@@ -137,7 +137,7 @@ background-image: url('{{ asset("public/assets/backend/libs/intl-tel-input/img/f
                                         <span class="custom-control-label">
                                             <span>{{ translate('i_agree_to_Your') }}</span>
                                             <a class="font-size-sm text-primary text-force-underline" target="_blank"
-                                                href="{{ route('business-page.view', ['slug' => 'terms-and-conditions']) }}">{{ translate('terms_and_condition') }}</a>
+                                                href="{{ businessPageUrl(slug: 'terms-and-conditions') }}">{{ translate('terms_and_condition') }}</a>
                                         </span>
                                     </label>
                                 </div>

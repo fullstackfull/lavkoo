@@ -15,6 +15,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\RefundRequest;
 use App\Models\StockClearanceSetup;
+use App\Models\StorefrontLegalDocument;
 use App\Models\VendorPayoutRequest;
 use App\Models\WithdrawalMethod;
 use App\Observers\AuditTrailObserver;
@@ -22,6 +23,7 @@ use App\Observers\AutomationClaimObserver;
 use App\Observers\ProductPriceObserver;
 use App\Observers\ProductSearchIndexObserver;
 use App\Observers\SellerWebhookEventObserver;
+use App\Observers\StorefrontLegalDocumentObserver;
 use Illuminate\Support\ServiceProvider;
 
 class ObserverServiceProvider extends ServiceProvider
@@ -61,6 +63,9 @@ class ObserverServiceProvider extends ServiceProvider
         Order::observe(SellerWebhookEventObserver::class);
         RefundRequest::observe(SellerWebhookEventObserver::class);
         VendorPayoutRequest::observe(SellerWebhookEventObserver::class);
+
+        // The business-page lists of the storefronts are built from their legal texts, so a text saved or deleted through the model clears them.
+        StorefrontLegalDocument::observe(StorefrontLegalDocumentObserver::class);
 
         // Who changed what a customer pays, which gateway takes the money, and who may sign in to
         // the panel. Same argument as the two above: a coupon is edited from the admin panel and

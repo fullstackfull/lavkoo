@@ -99,6 +99,17 @@ return [
             'required_locales' => ['ar', 'en'],
             // A country that does not present English may drop 'en' here. Changing this needs the same review as the documents.
             'locales_by_country' => [],
+            // The business page (its slug) that stands for each document type. In a storefront other than the default one such a page shows that
+            // storefront's own current text in the visitor's locale, or nothing; a page that is not listed here (about-us, the pages an admin adds)
+            // stays the same in every storefront. The default storefront keeps serving its pages as they are.
+            'page_slugs' => [
+                'terms' => 'terms-and-conditions',
+                'privacy' => 'privacy-policy',
+                'refund' => 'refund-policy',
+                'return' => 'return-policy',
+                'cancellation' => 'cancellation-policy',
+                'shipping' => 'shipping-policy',
+            ],
             // The default storefront keeps the documents it has always had, so it never becomes unusable (GCC-19).
             'grandfathered' => ['SA'],
             // Explicit acceptance is recorded only for the document types listed here (GCC-11). Nothing is assumed to need a checkbox.
