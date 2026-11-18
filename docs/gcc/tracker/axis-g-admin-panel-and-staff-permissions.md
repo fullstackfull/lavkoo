@@ -1,8 +1,8 @@
 # Axis G: Admin panel and staff permissions
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 94 (MET 60, CODED 4, MISSING 30). Code completion 68%, proven by a passing test 64%, release readiness 14%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 96 (MET 57, CODED 7, MISSING 32). Code completion 67%, proven by a passing test 59%, release readiness 13%.
 
-Independent verification: not done yet.
+Independent verification: done for unit(s) G.
 
 Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
 
@@ -24,7 +24,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] No route of the admin prefix is reachable without the admin guard (AdminRouteAuthenticationTest::test_no_admin_route_is_reachable_without_the_admin_guard; #83 8ff3410 Fulfillment + security MySQL 8/MariaDB 11.4.2)
   - [MET] An inactive role, a missing role or a role with no module_access holds nothing; only role 1 passes (ModulePermissionMiddlewareTest in #73 4174972 (SQLite 8.2/8.3); the behaviour is in main, the pin is not merged)
 - **(10) Next coding task.** From main add tests for the four finer capability services (Theme, Monitoring, Analytics, DeveloperPortal PermissionService) and for EmployeeController refusing role 1 on add and update: tests/Unit/Services and tests/Feature/Security/AdminEmployeeFormTest.php. No production change.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-02. Staff country scope: table, resolution rules, console assignment, default-off switch, the server decides
 
@@ -45,14 +44,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The migration is additive and cannot fail a deploy on any shape of admins (BIGINT UNSIGNED, INT UNSIGNED, signed BIGINT, MyISAM, partitioned, missing) (StaffCountryMigrationTest; #83 8ff3410 Staff scope tests MySQL 8 and MariaDB 11.4.2)
 - **(10) Next coding task.** On #74 add a Staff scope tests matrix group (tests/Feature/StaffScope) to the MySQL 8 and MariaDB 11.4.2 jobs of .github/workflows/ci.yml, as #83 already does, so each staff pull request proves it on both engines; then write the audit line for assign and revoke (G-15).
 - **Open owner decisions.** #74 decision 3 (may the master admin restrict itself) and 6 (entity dimension; the intersection with platform grants is built in #84); who may assign scopes (console only today) and whether a panel screen with audit and step-up is wanted.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-03. Product screens, pickers, import and moderation follow the employee's countries (GCC-14a, 14c slice 1)
 
 - **State: IMPLEMENTED IN DRAFT** | plan lines 374, 380, 382, 389 | DECISIONS GCC-14; docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md slice 1 | reviews: security, native-arabic, owner-decision
 - **(2) Functional requirement.** A restricted employee lists, searches, exports, adds, edits, restocks and moderates only the products of their countries. A product of another country, an unknown id and a junk id answer the same 404, never 403. A route added later is refused to them until it has a rule.
 - **(3) Exists now in code (main).** Main: the admin product screens (38 routes) and the seller-product moderation (4 routes) show every product; products carry no country; module permission only.
-- **(4) Done in the draft PRs.** #64 (base): country chosen on add, read-only on edit, list column and filter. #74: a Product global scope (every query, safe for the search OR), ScopeProductsToStaffCountries on the two controllers, 42 id rules with a uniform 404 and whole-list refusal, NewProductCountryInStaffScope on the add form, import in the employee's one country (several refused), route-table guard and doc test. Off by default.
+- **(4) Done in the draft PRs.** #64 (base): country chosen on add, read-only on edit, list column and filter. #74: a Product global scope (every query, safe for the search OR), ScopeProductsToStaffCountries on the two controllers, a rule on each of their 42 actions (23 of them name a product id and get a uniform 404 with whole-list refusal; 13 are lists, 4 name nothing, 2 make new products), NewProductCountryInStaffScope on the add form, import in the employee's one country (several refused), route-table guard and doc test. Off by default.
 - **(5) What remains.** Once #69 merges its two digital-file routes have no rule (the guard fails until added). Seller products are SA, so a restricted employee without SA neither sees nor moderates them. The bought-together ids are stored unchecked (doc assumption 9); copying between countries from the gallery is an owner decision. Real product pages are not rendered by tests (stub views). Slice 4-6 product readers: G-09.
 - **(6) PRs and commits.** [lavkoo#64](https://github.com/fullstackfull/lavkoo/pull/64) `216c279`; [lavkoo#74](https://github.com/fullstackfull/lavkoo/pull/74) `712509a`
 - **(7) Tests.**
@@ -67,7 +65,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A country chosen in a list filter, a form field or a URL never widens the scope: the filter cannot go past it and an add in a foreign country is refused on the server (a screen choice is not authorization) (StaffProductListScopeTest::test_the_country_filter_cannot_widen_the_list_past_the_scope; StaffNewProductCountryTest::test_the_add_route_refuses_a_country_outside_the_scope_and_says_which_field_it_is; #83)
 - **(10) Next coding task.** On #74 (or on the combined branch of task B once #69 is in) add route:id rules for GET admin/products/digital-file and digital-variation-file in StaffProductRoutes, update the doc table and StaffProductIdRoutesTest; then render the real product list, add and update pages once for a restricted employee instead of tests/Support/staff-views stubs.
 - **Open owner decisions.** #74 decisions 1 (import for several countries: refuse now or add a country field), 4 (moderating seller products, all SA), 5 (copy between countries from the gallery) and 7 (read the three Arabic strings in new-messages.php).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 
 #### G-04. Order, POS and refund screens follow the employee's countries (GCC-14c slice 2)
 
@@ -79,7 +77,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** [lavkoo#77](https://github.com/fullstackfull/lavkoo/pull/77) `81a2836`; [lavkoo#74](https://github.com/fullstackfull/lavkoo/pull/74) `712509a`
 - **(7) Tests.**
   - `ci` StaffOrderScopeTest, StaffOrderRoutesTest, StaffOrderScreensTest, StaffPosAndRefundScreensTest, StaffSixCountryMatrixTest, StaffOrderRowScopesTest (tests/Feature/StaffScope; #77 81a2836 SQLite 8.2/8.3 green; #83 8ff3410 Staff scope tests MySQL 8 and MariaDB 11.4.2 green)
-- **(8) Dependencies and blockers.** Stacked on #74 and #64 (the country comes from products.storefront_country). OrderController is also changed by #69 and AppServiceProvider by #51: no combined tree, so capped. A stored order country and currency (unit D1) would replace the line-based rule. Security and finance review before merge.
+- **(8) Dependencies and blockers.** Stacked on #74 and #64 (the country comes from products.storefront_country). OrderController is also changed by #69 and AppServiceProvider by #51: no combined tree with a CI result, so capped. #69 also adds GET admin/orders/digital-file/{id}/{fileName?} (OrderController::downloadDigitalFile), which StaffOrderRoutes has no rule for: the order route walk, the inventory and the doc tests fail once #69 and #77 meet, until it gets a line.route:id rule. A stored order country and currency (unit D1) would replace the line-based rule. Security and finance review before merge.
 - **(9) Acceptance criteria.**
   - [MET] Order lists, counters, details, neighbours and exports hold only orders with a line and every line in the employee's countries; a mixed order needs all its countries; no line, a deleted product or a product without a country is hidden (StaffOrderScopeTest, StaffOrderScreensTest, StaffSixCountryMatrixTest; #77 81a2836 SQLite; #83 8ff3410 Staff scope MySQL 8/MariaDB 11.4.2)
   - [MET] On all 48 routes a foreign, unknown or junk order, line, refund or product id gets the same 404, never 403; a list with one foreign id is refused whole (StaffOrderRoutesTest::test_every_route_answers_something_of_another_country_with_the_bytes_it_answers_something_unknown_and_never_with_a_403; #83)
@@ -89,7 +87,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] Every list is one statement whatever the number of orders, and nothing changes for the master admin, an employee with no row or the switch off (StaffOrderScopeTest::test_a_narrowed_list_is_one_query_whatever_the_number_of_orders, StaffOrderRoutesTest::test_nothing_changes_for_the_master_admin_an_employee_without_countries_or_a_switch_that_is_off; #83)
 - **(10) Next coding task.** On #77 add tests/Feature/StaffScope/StaffRealOrderViewsTest.php rendering the real admin order list, order details, POS and refund views for a restricted employee (today tests/Support/staff-views stubs stand in); then run it on the combined branch of task B.
 - **Open owner decisions.** #77 decisions 1 (unattributed orders need a permission, not a country), 2 (mixed-country orders: refuse them in the POS for everybody?), 3 (refund about one line of a mixed order), 5 (POS refusal wording), 6 (layout counter cost: cache, or stamp the country on the order).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### G-05. Dashboard, reports, shared layout counters, tax reports and analytics follow the employee's countries (GCC-14c slice 3)
 
@@ -101,17 +99,18 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** [lavkoo#82](https://github.com/fullstackfull/lavkoo/pull/82) `d1fc5f4`; [lavkoo#77](https://github.com/fullstackfull/lavkoo/pull/77) `81a2836`
 - **(7) Tests.**
   - `ci` StaffReportScreensTest (figures equal an unrestricted request over a shop pruned to the employee's orders), StaffSixCountryReportMatrixTest, StaffLayoutTest, StaffTaxAndAnalyticsTest, StaffOrderRouteInventoryTest (tests/Feature/StaffScope; #82 d1fc5f4 SQLite 8.2/8.3; #83 8ff3410 Staff scope tests MySQL 8 and MariaDB 11.4.2)
-- **(8) Dependencies and blockers.** Stacked on #77, #74, #64. DashboardController, VendorController, AdvanceSearch.php and AppServiceProvider are also changed by the security set (#73, #44, #70, #51): no combined tree, so capped. StaffScopeDocTest pins the Permission column of covered routes that #67 and #73 change (dashboard widgets, invoice). Order country and currency (unit D1) are open.
+- **(8) Dependencies and blockers.** Stacked on #77, #74, #64. DashboardController, VendorController, AdvanceSearch.php and AppServiceProvider are also changed by the security set (#73, #44, #70, #51): no combined tree with a CI result, so capped. StaffScopeDocTest pins the Permission column of covered routes that the gate PRs change: eight tax-report routes (#65, module:reports), three dashboard widgets (#67, module:dashboard) and the order invoice (#73, module:orders,pos,people), twelve rows in all. Order country and currency (unit D1) are open.
 - **(9) Acceptance criteria.**
-  - [MET] Each covered dashboard and report screen of a restricted employee returns the figures an unrestricted request gives over a shop holding only their orders; no statement over an order table lacks the narrowing condition (StaffReportScreensTest (two data-provider tests), StaffSixCountryReportMatrixTest; #82 d1fc5f4 SQLite; #83 8ff3410 Staff scope MySQL 8/MariaDB 11.4.2)
+  - [CODED] Each covered dashboard and report screen of a restricted employee returns the figures an unrestricted request gives over a shop holding only their orders; no statement over an order table lacks the narrowing condition (StaffReportScreensTest (two data-provider tests), StaffSixCountryReportMatrixTest; #82 d1fc5f4 SQLite; #83 8ff3410 Staff scope MySQL 8/MariaDB 11.4.2)
   - [MET] Sidebar counters and latest pending orders are narrowed on every admin page of a restricted employee; the master admin and the switch off cost no extra statement (StaffLayoutTest; #82 SQLite; #83 Staff scope MySQL 8/MariaDB 11.4.2)
   - [MET] Money that cannot be told apart by country (admin wallet, vendor earning report, delivery-man wallet and ratings, analytics) is not read or answers a 404 like an unknown page (StaffReportScreensTest::test_the_wallets_of_the_dashboard_are_not_shown_to_a_restricted_employee, StaffTaxAndAnalyticsTest::test_every_analytics_screen_is_unavailable_to_a_restricted_employee; #83)
-  - [MET] The tax reports and the one raw sum over the order table are narrowed by the same rule (StaffTaxAndAnalyticsTest::test_the_sum_over_the_table_of_orders_counts_the_employees_orders_only; #83)
+  - [CODED] The tax reports and the one raw sum over the order table are narrowed by the same rule (StaffTaxAndAnalyticsTest::test_the_sum_over_the_table_of_orders_counts_the_employees_orders_only; #83)
   - [MET] A new admin controller that reads orders and is neither scoped nor listed with its slice fails the build (StaffOrderRouteInventoryTest::test_every_admin_controller_that_reads_orders_or_names_one_is_classified; #83)
   - [CODED] The real layout, dashboard and people pages render for a restricted employee, and the dashboard poller combines the role's sections (#73) with the country scope (Tests render pages to nothing; three Blade conditions checked from source; #73 and #82 never run together)
-- **(10) Next coding task.** On #82 add tests/Feature/StaffScope/StaffRealViewsTest.php rendering the real layout, dashboard, vendor and delivery-man pages for a restricted employee with the real Blade views; on the combined branch of task B regenerate the Permission column of the doc tables for the routes #67 and #73 gate and run StaffScope with Security.
+- **(10) Next coding task.** On #82 add tests/Feature/StaffScope/StaffRealViewsTest.php rendering the real layout, dashboard, vendor and delivery-man pages for a restricted employee with the real Blade views; add cases that visit the eight tax-report routes, the four stock and wishlist report routes and the five report PDF routes as a restricted employee; on the combined branch of task B regenerate the twelve Permission cells of the doc tables that #65, #67 and #73 change and run StaffScope with Security.
 - **Open owner decisions.** #82 decisions 12 (cache the layout counters or keep per-country counts), 13 (hide, show to an all-country employee, or split by line share), 14 (sales of a product in a mixed order), 15 (customer wallet and loyalty reports), 16 (delivery-man ratings), 17 (recent searches).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
 
 #### G-06. The admin header search shows only what the role and the country scope allow
 
@@ -133,7 +132,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Recent searches saved before the employee was restricted are filtered by country (#82 decision 17: they are not filtered)
 - **(10) Next coding task.** On the combined branch of task B add tests/Feature/StaffScope/StaffSearchRoleAndCountryTest.php (an employee holding only orders with countries KW, both routes, fresh and recent hits) and extend StaffSearchHits to filter stored recent hits by country (decision 17, default: filter).
 - **Open owner decisions.** #82 decision 17 (recent searches that predate the restriction).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-07. A local manager cannot see a customer's transactions of other countries without permission
 
@@ -154,7 +152,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A named permission lets a role (for example finance) see customer transactions of every country; without it only the employee's countries show (No such permission or capability key exists in the role form or the capability services)
 - **(10) Next coding task.** On #82 (slice 3b) hide wallet_balance and loyalty_point on admin-views/customer/customer-view.blade.php for a restricted employee and answer unavailable (404) on CustomerWalletController, CustomerLoyaltyController and the wallet bonus tab, tests in StaffPeopleScreensTest; add a capability key like the analytics ones for all-country customer money once the owner decides.
 - **Open owner decisions.** #82 decisions 15 (wallet and loyalty reports are not narrowed today) and 13 (hide, show to an all-country employee, or split); the name and holder of the cross-country permission.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-08. Stock and inventory screens follow the employee's countries
 
@@ -168,14 +165,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `ci` StaffProductListScopeTest (stock-limit list and count, restock list and export), StaffProductActionsTest (stock of a foreign product cannot be changed or read), StaffReportScreensTest (stock and wishlist reports) (tests/Feature/StaffScope; #74 712509a and #82 d1fc5f4 SQLite; #83 8ff3410 Staff scope tests MySQL 8/MariaDB 11.4.2)
 - **(8) Dependencies and blockers.** Stock ownership per storefront and country (unit C: C-05) must give locations and pools an owner; slices 5 and 6 are not started; the product and order controllers lie in files the security set also changes (cap).
 - **(9) Acceptance criteria.**
-  - [MET] The stock-limit list and count, restock requests, their export and the stock and wishlist reports hold only the employee's countries' products (StaffProductListScopeTest, StaffReportScreensTest; #74 712509a, #82 d1fc5f4 SQLite; #83 Staff scope MySQL 8/MariaDB 11.4.2)
+  - [CODED] The stock-limit list and count, restock requests, their export and the stock and wishlist reports hold only the employee's countries' products (StaffProductListScopeTest, StaffReportScreensTest; #74 712509a, #82 d1fc5f4 SQLite; #83 Staff scope MySQL 8/MariaDB 11.4.2)
   - [MET] A stock quantity change, a restock delete or a product read for another country's product answers 404 and writes nothing (StaffProductActionsTest::test_the_stock_of_a_product_of_another_country_cannot_be_changed_or_read and ::test_the_restock_requests_of_other_countries_cannot_be_deleted; #83)
   - [MISSING] Warehouse placements and transfers, inventory adjustments, batches and purchase orders refuse a product of another country (Listed out of slice 5 in tests/Support/StaffProductInventory.php)
   - [MISSING] Channel inventory, stock pools, Torod and M5AZN matching and cost layers list only the employee's countries (Listed out of slice 6)
   - [MISSING] Inventory locations and warehouses have an owner country the scope can use (Only products carry the column (migration 2026_11_25_100000_add_storefront_country_to_products))
 - **(10) Next coding task.** Slice 5a branch on #82: rules for WarehouseController, InventoryAdjustmentController, BatchController and PurchaseOrderController in StaffProductRoutes (route:id or input:product_id, 404), register ScopeProductsToStaffCountries in their constructors, move them from out to scoped in tests/Support/StaffProductInventory.php, tests in tests/Feature/StaffScope/StaffMarketplaceStockTest.php.
 - **Open owner decisions.** #74 decision 2 (which out-of-slice screens are acceptable on the day the switch is turned on) and how inventory locations get a country (unit C).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-09. Screens that still show every country: promotions, content, reviews, marketplace, integrations, costs (slices 4 to 6)
 
@@ -187,7 +183,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** [lavkoo#82](https://github.com/fullstackfull/lavkoo/pull/82) `d1fc5f4`; [lavkoo#74](https://github.com/fullstackfull/lavkoo/pull/74) `712509a`; [lavkoo#77](https://github.com/fullstackfull/lavkoo/pull/77) `81a2836`
 - **(7) Tests.**
   - `ci` StaffProductRouteInventoryTest and StaffOrderRouteInventoryTest (a new controller is found, an unlisted one fails, entries need a reason and a slice), StaffScopeDocTest (doc in step with the tables) (tests/Feature/StaffScope; #82 d1fc5f4 SQLite 8.2/8.3; #83 8ff3410 Staff scope tests MySQL 8/MariaDB 11.4.2)
-- **(8) Dependencies and blockers.** Promotions, banners, themes and listings need an owner country first (GCC-17; units B, F, C, H2). Until the slices land the guide (section 7) says keep GCC_STAFF_COUNTRY_SCOPES off. StaffScopeDocTest must be regenerated once the gate PRs (#67, #73) merge.
+- **(8) Dependencies and blockers.** Promotions, banners, themes and listings need an owner country first (GCC-17; units B, F, C, H2). Until the slices land the guide (section 7) says keep GCC_STAFF_COUNTRY_SCOPES off. StaffScopeDocTest and the two route registries must be updated once the security set merges: twelve Permission cells change with #65, #67 and #73, and #69 adds three admin routes (two on ProductController, one on OrderController) that have no rule.
 - **(9) Acceptance criteria.**
   - [MET] Every admin controller that reads products or orders is classified as scoped, not needed or out with a slice and a reason; an unlisted new one fails the build (StaffProductRouteInventoryTest, StaffOrderRouteInventoryTest; #82 d1fc5f4 SQLite; #83 8ff3410 Staff scope MySQL 8/MariaDB 11.4.2)
   - [MISSING] Slice 4 screens (deals, banners, themes, SEO, site map) show only the employee's countries (Listed out of slice 3 (slice 4) in tests/Support/StaffProductInventory.php)
@@ -196,7 +192,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Employee, role, audit-log and integration-secret screens are covered by an inventory and a rule (Not in either scan)
 - **(10) Next coding task.** Slice 4 branch on #82: scope FlashDealController, DealOfTheDayController, ClearanceSaleController, MostDemandedController, BannerController, InhouseShopController and the ThemeBuilder pickers (rules in StaffProductRoutes, constructor middleware), move them to scoped in StaffProductInventory, update the doc table; add a third scan for the employee, role and audit-log routes.
 - **Open owner decisions.** #74 decision 2 (which out-of-slice screens are acceptable on the day the switch is turned on).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### G-10. Exports carry the same scope as the screen they come from
 
@@ -217,7 +213,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A scan of the route table fails for an export route that is neither scoped nor listed (No export inventory exists)
 - **(10) Next coding task.** Add tests/Feature/StaffScope/StaffExportRouteInventoryTest.php: a StaffRouteScanner walk over every admin route whose action returns Excel::download, FastExcel or a PDF download, each listed as scoped, not needed or out with a slice (reviews, employees and the wallet reports first), plus the doc table.
 - **Open owner decisions.** #82 decision 15 (wallet and loyalty reports and the wallet bonus tab are not narrowed); whether an export needs an audit line and a watermark (L-14).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-11. Bulk operations and background jobs honour the scope
 
@@ -238,7 +233,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Every bulk route, queued job, listener and scheduled command of the admin side is classified (scoped, system-level or not country-owned) and a new one fails the build (No bulk or job inventory exists)
 - **(10) Next coding task.** Add tests/Feature/StaffScope/StaffJobInventoryTest.php scanning app/Jobs, queued listeners, every dispatch from app/Http/Controllers/Admin and the bulk routes (coupon bulk-status, exchange-rates bulk-update, vendors, customers), each listed as scoped, system or not country-owned; then a StaffJobContext (actor id, scope re-resolved in handle(), modelled on RunSellerBulkJob) for the first staff-started job.
 - **Open owner decisions.** none (technical); whether queued exports and mail render per storefront is the A1-14 owner question.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-12. Different permissions per country and a company (legal entity) dimension on staff scopes
 
@@ -256,14 +250,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A scope row records who granted it and when it ends (Migration 2026_11_28_100000 has no granted_by or expires_at)
 - **(10) Next coding task.** After the owner chooses reading (a) or (b): an additive migration on the #74 stack adding nullable granted_by and expires_at (and role_id for reading b) to admin_country_scopes, StaffCountryScope::resolve ignoring expired rows, tests in StaffCountryScopeTest and StaffCountryMigrationTest; the entity column waits for the entity table.
 - **Open owner decisions.** Reading of plan line 374: one role with a set of countries (built) or a different role per country and company; whether an entity scope is wanted before launch (#74 decision 6).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-13. API principals reach only the markets that both their grant and their staff scope allow
 
 - **State: INTEGRATED AND TESTED** | plan lines 381, 391 | DECISIONS GCC-14 (enforce in backend and APIs), GCC-20 and docs/gcc/GCC-20-SUPER-ADMIN-MOBILE.md; #74 decision 6 | reviews: security, owner-decision
 - **(2) Functional requirement.** An admin who signs in to the platform admin API reaches only the markets their grant names that their staff countries also hold. An empty intersection is a principal that sees nothing. The master admin and an employee with no row keep the grant's markets. A scope change applies at the next request.
 - **(3) Exists now in code (main).** Main: no admin API and no staff scope; the admin panel's AJAX routes are session routes under the same module and admin-guard middleware.
-- **(4) Done in the draft PRs.** #84 (on #80, carries #77): PlatformEffectiveMarkets, one seam where the principal is built, so /me, /markets, /overview, /alerts and the audit trail read the effective list; one 403 market_not_allowed for a market either list forbids; a restricted employee is never the platform owner (no unattributed bucket, own audit lines only); console list and grant warn; dormant while both switches are off.
+- **(4) Done in the draft PRs.** #84 (on #80, carries #77): PlatformEffectiveMarkets, one seam where the principal is built, so /me, /markets, /overview and /alerts read the effective list; one 403 market_not_allowed for a market either list forbids; a restricted employee is never the platform owner (no unattributed bucket, own audit lines only: the audit trail does not read the market list, it is whole only for an admin the staff scope does not restrict); console list and grant warn; dormant while both switches are off.
 - **(5) What remains.** Owner decisions 1 to 7 of the contract section 12 (a switch of its own, trail for a restricted employee, who may hold an every-market grant, no-market sign-in or a uniform 401, telling the app why markets shrink, ending sessions on scope change, a staff switch on but not enforced). The two-line follow-up to call StaffCountryScope::countriesOf once #82 merges.
 - **(6) PRs and commits.** [lavkoo#84](https://github.com/fullstackfull/lavkoo/pull/84) `630d28e`; [lavkoo#80](https://github.com/fullstackfull/lavkoo/pull/80) `cb3db36`
 - **(7) Tests.**
@@ -278,7 +271,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A seller, customer or panel session of a scoped employee opens nothing of the platform API (StaffScopeOtherIdentitiesTest; #84 630d28e; #83)
 - **(10) Next coding task.** After #82 merges into the stack, change PlatformEffectiveMarkets to StaffCountryScope::countriesOf and delete countriesOfAdmin (the two-line follow-up named in #84), keep StaffScopeEffectiveMarketsTest as the pin, and run the PlatformAdmin and StaffScope groups on MySQL 8 and MariaDB 11.4.2 on the integration branch.
 - **Open owner decisions.** Section 12 items 1 to 7 of GCC-20-PLATFORM-ADMIN-API.md as listed in #84: own switch, trail for a restricted employee, every-market grant holder, no-market sign-in, telling the app, ending sessions on scope change, a staff switch on but not enforced.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 
 #### G-14. Sensitive actions are scoped, confirmed and audited
 
@@ -300,7 +293,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Every sensitive action writes an audit line with actor, country scope and before and after, and the action fails if the line cannot be written (AuditLogger::record swallows failures; recordOrFail has one call site (sales-channel attention actions))
 - **(10) Next coding task.** A panel-wide step-up guard (fresh password confirmation valid for ten minutes) behind a default-off switch GCC_ADMIN_STEP_UP, applied first to employee add, update and status, role add and update, and the database clean; tests in tests/Feature/Security/AdminStepUpTest.php. Dual approval waits for the owner policy.
 - **Open owner decisions.** Which admin actions need step-up or dual approval and who approves; the open points of #66 (the theme builder section add, update and delete do not ask canEdit; the people module can create a role with any module grant).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-15. Audit logs: who changed what, and in which country
 
@@ -322,7 +314,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] audit_logs exists on every installation by migration (No migration creates it; only tests create it; the dump is not in the repository)
 - **(10) Next coding task.** Branch from main: an additive migration that creates audit_logs only if missing and adds nullable storefront_country and legal_entity with an index; AuditLogger stamps the country from the bound request or the subject; StaffCountryAssignments assign and revoke call recordOrFail; AuditLogController narrows by StaffCountryScope; tests in tests/Feature/Security/AuditTrailTest.php (observer, redaction, country, scope lines).
 - **Open owner decisions.** Retention and tamper evidence of the panel audit trail; whether the own trail is enough or the panel's audit_logs must also be readable per market (L-04); who may read every country's lines.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-16. Provider secrets in the admin panel: who may read or change them and what is shown
 
@@ -345,7 +336,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The sitemap download, the gateway logo field and the file manager cannot read or copy server files such as the .env or the private storage tree (SitemapFilesTest::test_a_link_that_leaves_the_sitemap_directory_downloads_and_deletes_nothing, GatewayImageUploadTest::test_the_form_refuses_a_text_field_that_names_a_file_and_copies_nothing, FileManagerAccessTest::test_a_private_file_of_storage_app_is_not_downloaded_whatever_disk_the_request_names; #63 de0a7d5; #75 47b78ab)
 - **(10) Next coding task.** Branch from main: mask the credential inputs of _payment-gateways-offcanvas.blade.php and sms-index.blade.php, and check the SMTP form (masked tail, a blank save keeps the stored value, as GatewayConfigRepository does for MyFatoorah), with tests/Feature/Security/AdminSecretsNotRenderedTest.php rendering each page with a canary credential and failing if it appears; then a secrets_view capability key beside the 3rd_party_setup module.
 - **Open owner decisions.** Where each company's secrets live and who may see them (D2-08, GCC-14 scope). DR-1 and DR-2 are decided as deferred (no rotation) and only referenced here.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-17. Super admin rules and the management of employees and roles
 
@@ -368,25 +358,55 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A role editor cannot grant a module the editor does not hold (CustomRoleController stores modules as posted (#66 note))
 - **(10) Next coding task.** On the #74 stack extend EmployeeController add, update and updateStatus and CustomRoleController: refuse a target the caller may not manage (id 1, a wider scope), copy the creator's countries to a new employee in one transaction through StaffCountryAssignments, refuse modules the caller lacks; add a scan of the employee and role routes like the inventories; tests in tests/Feature/StaffScope/StaffEmployeeManagementTest.php.
 - **Open owner decisions.** Whether people managers may edit master #1 (#57); whether a role editor is limited to the modules it holds (#66 note: may be intended, then it should be said); who may widen an employee's scope.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### G-18. Every admin route asks for the permission of its menu, or is listed with a reason
 
 - **State: INTEGRATED AND TESTED** | plan lines 24, 376, 519 | DECISIONS GCC-14 (keep role and module authorization); audit 2026-11-16-admin-routes-without-module-permission; SECURITY_RELEASE_PLAN stage 3 and decision 5 | reviews: security, owner-decision
 - **(2) Functional requirement.** A route of the admin panel asks for the module permission of the menu entry that owns it (a list means any of them) or is listed with the reason it is open to every employee. A new route with neither fails the build, and the role editor offers every permission a route asks for.
 - **(3) Exists now in code (main).** Main: routes/admin/routes.php carries module: gates, but the static listing at c5c04b7b found 80 admin routes with only the admin guard (AI settings, VAT and tax, tax reports, pickers, chat, priority setup, dashboard widgets, add-on screens, search, profile). module:a,b,c asks only for a because PHP drops the other arguments.
-- **(4) Done in the draft PRs.** #65: 22 routes (AI settings, VAT and tax, tax reports) ask 3rd_party_setup, business_settings, reports. #67 (on #65): 28 more (inbox, Meta app, priority setup, product and blog AI buttons, pickers, dashboard widgets) and AdminRouteTableTest (a route with no permission and no listed reason fails). #73 (on #67): module:a,b,c is any-of; products/search needs marketing or people, the order invoice orders, pos or people. #63: the five add-on routes need themes_and_addons.
-- **(5) What remains.** 24 routes stay open on purpose (landing page, logout, settings index, static galleries, own pins and profile, the header searches, the poller). Employees who use the gated screens need the keys before release (plan decision 5). Modules/AI and Modules/TaxModule route files are deployed by hand. No tree holds the gates and the staff chain together.
+- **(4) Done in the draft PRs.** #65: 22 routes (AI settings, VAT and tax, tax reports) ask 3rd_party_setup, business_settings, reports. #67 (on #65): 28 more (inbox, Meta app, priority setup, product and blog AI buttons, pickers, dashboard widgets) and AdminRouteTableTest (a route with no permission and no listed reason fails). #73 (on #67): module:a,b,c is any-of; products/search needs marketing or people, the order invoice orders, pos or people; the header poller reports a section only to a role that holds its permission (AdminRealTimeActivitiesTest). #63: the five add-on routes need themes_and_addons.
+- **(5) What remains.** 24 routes stay open on purpose (landing page, logout, settings index, static galleries, own pins and profile, the header searches, the poller, and eight Auction add-on AI auto-fill routes that have no menu permission to take). Employees who use the gated screens need the keys before release (plan decision 5). Modules/AI and Modules/TaxModule route files are deployed by hand. A CI-only combined tree exists (gcc/release/security-gcc-integration-ci f6fb03af, #75 plus #83 with five textual conflicts resolved, and gcc/release/all-integration-ci) but no CI run of either is in the data pack, so no state may rest on it.
 - **(6) PRs and commits.** [lavkoo#65](https://github.com/fullstackfull/lavkoo/pull/65) `8e3479d`; [lavkoo#67](https://github.com/fullstackfull/lavkoo/pull/67) `822e16c`; [lavkoo#73](https://github.com/fullstackfull/lavkoo/pull/73) `4174972`; [lavkoo#63](https://github.com/fullstackfull/lavkoo/pull/63) `de0a7d5`
 - **(7) Tests.**
   - `ci` AdminModuleGatesTest, AdminRouteGatesTest, AdminRouteTableTest, ModulePermissionMiddlewareTest, AdminAddonSurfaceTest (tests/Feature/Security and tests/Unit/Http/Middleware; #65 8e3479d, #67 822e16c, #73 4174972, #63 de0a7d5 SQLite 8.2/8.3 + Fulfillment + security MySQL 8/MariaDB 11.4.2; #75 47b78ab green except overlay)
-- **(8) Dependencies and blockers.** #65 before #67 before #73 (stacked). Roles that lose access need the keys first (release plan decision 5). Overlay job red on every head (known, not bypassed; Modules route files by hand). The route files and the middleware are not changed by the GCC chain, but StaffScopeDocTest pins the Permission column of rows that #67 and #73 change: regenerate it in the first combined tree.
+- **(8) Dependencies and blockers.** #65 before #67 before #73 (stacked). Roles that lose access need the keys first (release plan decision 5). Overlay job red on every head (known, not bypassed; Modules route files by hand). The route files and the middleware are not changed by the GCC chain, but StaffScopeDocTest pins the Permission column of twelve rows that #65, #67 and #73 change (eight tax reports, three dashboard widgets, the invoice): regenerate them in the first combined tree.
 - **(9) Acceptance criteria.**
   - [MET] The AI settings, VAT and tax settings and tax reports routes (22) ask for 3rd_party_setup, business_settings and reports; a role without the permission is sent to the dashboard (AdminModuleGatesTest; #65 8e3479d SQLite + Fulfillment + security MySQL 8/MariaDB 11.4.2; #75 47b78ab)
   - [MET] Twenty-eight further routes ask for the permission of their menu entry; the holder and the master admin reach them (AdminRouteGatesTest; #67 822e16c; #75 47b78ab)
   - [MET] module:a,b,c passes a role holding any listed permission, a bare module list refuses everyone, a single permission answers as before (ModulePermissionMiddlewareTest, AdminRouteGatesTest (any-of); #73 4174972; #75)
   - [MET] An admin route with neither a module permission nor a listed reason fails the build, and every permission named exists in the role form (AdminRouteTableTest; #67 822e16c and #73 4174972; #75)
   - [MET] The five add-on routes ask for themes_and_addons (AdminAddonSurfaceTest::test_every_addon_screen_sits_behind_the_themes_and_addons_permission_under_both_prefixes; #63 de0a7d5; #75 47b78ab)
-- **(10) Next coding task.** On the combined integration branch of task B regenerate the Permission column of docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md for the routes #67 and #73 gate (three dashboard widgets, the order invoice) and run tests/Feature/Security with tests/Feature/StaffScope together on SQLite, MySQL 8 and MariaDB 11.4.2; give the owner the two role queries of release plan decision 5.
+- **(10) Next coding task.** On the combined integration branch of task B regenerate the Permission column of docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md for the routes #65, #67 and #73 gate (eight tax-report routes, three dashboard widgets, the order invoice) and run tests/Feature/Security with tests/Feature/StaffScope together on SQLite, MySQL 8 and MariaDB 11.4.2; give the owner the two role queries of release plan decision 5.
 - **Open owner decisions.** Release plan decision 5 (roles that lose access: add the keys to the roles before stage 3); the 24 routes left open on purpose; whether the any-of lists for products/search and the invoice are accepted.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
+
+#### G-V1. A written data-isolation design (the concept the plan asks for) with a rule for each of the eight la...
+
+- **State: IN PROGRESS** | plan lines 378-387 (lead-in of the eight layers) and 389 | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** A written data-isolation design (the concept the plan asks for) with a rule for each of the eight layers: backend authorization, API, queries, exports, reports, jobs, sensitive actions and audit logs, each naming the slice, owner decision or requirement that builds it.
+- **(3) Exists now in code (main).** docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md at #83 (984 lines) carries the switch, who is restricted, queries (slices 1 to 3), exports and reports inside those slices and the platform API as a consumer of the staff scope; its only statement on jobs is one sentence (line 32: a queue worker and a console command start unbound); grep for audit, sensitive, step-up and approval finds no section, and the eight layers are listed nowhere. The discovery audit (03-data-ownership-isolation-matrix.md) proposes a staff_scopes table and says jobs carry entity ids only. G-11, G-14 and G-15 track the code gaps, but no requirement tracks the design the plan asks for first.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] A written data-isolation design (the concept the plan asks for) with a rule for each of the eight layers: backend authorization, API, queries, exports, reports, (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+
+#### G-V2. The current security systems around staff stay in force, in the same order, when scope code is added...
+
+- **State: IN PROGRESS** | plan lines 376 | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** The current security systems around staff stay in force, in the same order, when scope code is added: the admin sign-in throttle (throttle:auth on the login group), the status check of AdminMiddleware (admin 1 exempt), the activation check and the admin guard, with the module middleware before any scope middleware; each pinned by a test.
+- **(3) Exists now in code (main).** G-01 covers only the role and module gate. Pinned today: the admin guard on every admin route (AdminRouteAuthenticationTest in main) and the module permission running before the scope middleware (StaffProductIdRoutesTest::test_the_middleware_of_the_scope_runs_after_the_permission_of_the_route_on_every_covered_route, #74). Not pinned in main, #75 or #83: the login throttle (routes/admin/routes.php line 174, throttle:auth; the only throttle assertions in tests are for address routes) and the AdminMiddleware status check.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] The current security systems around staff stay in force, in the same order, when scope code is added: the admin sign-in throttle (throttle:auth on the login gro (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).

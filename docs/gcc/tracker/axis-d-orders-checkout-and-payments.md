@@ -1,6 +1,6 @@
 # Axis D: Orders, checkout and payments
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 165 (MET 72, CODED 27, MISSING 66). Code completion 60%, proven by a passing test 44%, release readiness 8%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 165 (MET 72, CODED 29, MISSING 64). Code completion 61%, proven by a passing test 44%, release readiness 8%.
 
 Independent verification: done for unit(s) D1, D2.
 
@@ -60,19 +60,18 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **State: IN PROGRESS** | plan lines 10, 199-201, 282, 286 | Foundation: separate legal selling company per country (DECISIONS.md); provisional single-selling-entity checkout | reviews: legal, finance, owner-decision
 - **(2) Functional requirement.** Each country has its own selling company that owns invoices, tax obligations, bank and gateway accounts; an order names exactly one such company and keeps a frozen copy of its identity, which the invoice prints.
 - **(3) Exists now in code (main).** main: no legal-entity model. The invoice reads shop_address and invoice_settings from live global settings at print time; the invoice number is the order id; one platform wallet (admin_id 1); the seller's gst is read live.
-- **(4) Done in the draft PRs.** PR 43 adds config gcc.storefronts.legal.legal_entity (env GCC_LEGAL_ENTITY, one global value) recorded on legal-acceptance rows by StorefrontLegalAcceptanceRecorder, which the checkout does not call yet. #71 shows the same label in the platform-admin markets list. Both are labels, not a model, and nothing reaches an order or an invoice.
-- **(5) What remains.** 1) legal_entities table (country, legal name, tax id, invoice-series key, status) and one entity per storefront; 2) orders.legal_entity_id plus a JSON identity snapshot written in getOrderAddData; 3) invoice reads the snapshot, per-entity numbering, Saudi order numbers kept; 4) POS and marketplace paths stamp it; 5) per-entity accounts belong to D2, E and H2.
-- **(6) PRs and commits.** [lavkoo#43](https://github.com/fullstackfull/lavkoo/pull/43) `82b6dfa`; [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(4) Done in the draft PRs.** PR 43 adds the single global label gcc.storefronts.legal.legal_entity recorded on legal-acceptance rows; PR 71 shows the same label in the platform-admin markets list. PR 90 (draft, stacked on #87, 3eb54456) adds the registry: legal_entities (one row for each country: legal name, trade name, tax and commercial registration, invoice series key, address, active flag; ships empty), orders.legal_entity_id and orders.entity_snapshot (nullable, additive, rollbacks refused while data exists), LegalEntityRegistry and OrderLegalEntitySnapshot (asked from OrderStorefrontSnapshot, so every order path stamps the same thing; written once), the commands gcc:legal-entity:upsert and gcc:legal-entity:list, and an optional rule that a storefront without a company may not sell (GCC_LEGAL_ENTITIES_REQUIRED, off). Off by default behind GCC_LEGAL_ENTITIES.
+- **(5) What remains.** CI of the head; the invoice printing the frozen identity, the tax number and the currency, numbered per company with Saudi order numbers unchanged (a change to the invoice views of both themes); POS and marketplace channel paths other than the seller app POS; per-company accounts (D2, E, H2); the companies themselves (owner and counsel); an admin screen; replacing the single label recorded on legal acceptances.
+- **(6) PRs and commits.** [lavkoo#43](https://github.com/fullstackfull/lavkoo/pull/43) `82b6dfa`; [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkoo#90](https://github.com/fullstackfull/lavkoo/pull/90) `3eb54456`
 - **(7) Tests.**
-  - `ci` StorefrontLegalAcceptanceTest (8 tests): acceptance records text version, hash and the configured legal entity name (PR 83 8ff3410: Tests SQLite; Storefront tests MySQL 8 and MariaDB 11.4.2)
-  - `none` A test that an order or an invoice carries a frozen selling-company identity (none)
+  - `feature` LegalEntityRegistryTest (20), OrderLegalEntitySnapshotTest (stamping for each of the six storefronts, written once, a later change never rewrites it, the switches, before either migration), LegalEntityCommandsTest (11), LegalEntitySellingGateTest (5) (tests/Feature/Storefront; 451 tests of the Storefront group on SQLite and 70 legal entity and snapshot tests on MySQL 8.0.46 strict, locally on 3eb54456; CI of that head not read)
 - **(8) Dependencies and blockers.** Needs D1-01 for the storefront-to-entity mapping; legal facts per country (names, tax ids, e-invoicing duties) come from the owner and counsel.
 - **(9) Acceptance criteria.**
-  - [MISSING] A legal-entity record exists (country, legal name, tax id, invoice-series key) and each storefront maps to exactly one (only a single global env label exists)
-  - [MISSING] Each order stores its selling entity id and an identity snapshot at placement (orders has no entity column)
-  - [MISSING] The invoice prints the order's frozen entity identity, tax number and currency, numbered per entity, Saudi order numbers unchanged (invoice blade reads live settings; E09-F03)
-  - [MET] A legal acceptance receipt names the legal entity from configuration (StorefrontLegalAcceptanceTest::test_the_acceptance_names_the_legal_entity_from_configuration, PR 83 8ff3410)
-- **(10) Next coding task.** Stacked on #53/#64: additive migrations for legal_entities and nullable orders.legal_entity_id with entity_snapshot JSON; config maps each storefront country to an entity key; getOrderAddData stamps both behind a default-off GCC flag; invoice view prefers the snapshot and falls back to live settings for old orders; tests over six fixture entities on SQLite, MySQL 8 and MariaDB 11.4.2.
+  - [CODED] A legal-entity record exists (country, legal name, tax id, invoice-series key) and each storefront maps to exactly one (legal_entities has one row per country (unique) with the facts of the company; the storefront-to-company mapping is the country itself; tests pass locally, CI of 3eb54456 not read)
+  - [CODED] Each order stores its selling entity id and an identity snapshot at placement (orders.legal_entity_id and entity_snapshot are stamped at placement by OrderStorefrontSnapshot for every order path; OrderLegalEntitySnapshotTest; CI not read)
+  - [MISSING] The invoice prints the order's frozen entity identity, tax number and currency, numbered per entity, Saudi order numbers unchanged (the invoice still reads live shop settings at print time)
+  - [MET] A legal acceptance receipt names the legal entity from configuration (StorefrontLegalAcceptanceTest::test_the_acceptance_names_the_legal_entity_from_configuration (unchanged))
+- **(10) Next coding task.** Read the CI of PR 90 per job; then the invoice slice: the order invoice view prefers entity_snapshot and falls back to the live shop settings for an order with none, with the per-company invoice series; tests over six fixture companies.
 - **Open owner decisions.** Legal name, tax registration, invoice-series and e-invoicing duties of each country's company; whether the first launch has one entity per country (the plan says so).
 
 #### D1-04. Country, storefront, legal entity, seller and shop kept as separate keys
@@ -94,6 +93,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(10) Next coding task.** Docs and test PR on the storefront chain: add the key table to docs/gcc/STOREFRONT_FLAG_RUNBOOK.md and a unit test (tests/Unit/Storefront/EntityKeysTest) that scans app/Services/Storefront, Staff and PlatformAdmin for seller_id or shop_id used as a country source; the order keys follow with D1-01 and D1-03.
 - **Open owner decisions.** Whether storefronts stay config entries or become a table with ids; naming of the keys.
 - **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
+- **Update after the assessment.** PR 87 and PR 90 (3eb54456): an order now carries storefront_country (GCC-05) and legal_entity_id with a frozen entity_snapshot (GCC-13), both separate from seller_id and shop_id; the key table and the guard test that no GCC code derives a country or company from seller_id or shop_id are still missing.
 
 #### D1-05. Local independent pricing at checkout, frozen on the order lines
 

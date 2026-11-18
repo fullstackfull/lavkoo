@@ -1,6 +1,6 @@
 # Axis E: Wallets, loyalty and financial records
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 26, CODED 3, MISSING 55). Code completion 35%, proven by a passing test 31%, release readiness 2%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 26, CODED 8, MISSING 50). Code completion 40%, proven by a passing test 31%, release readiness 3%.
 
 Independent verification: done for unit(s) E.
 
@@ -114,22 +114,22 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### E-06. Historical balances reconciled against the ledgers (read-only proof)
 
-- **State: NOT STARTED** | plan lines 23, 366, 370, 513 | GCC-15; DECISIONS: careful reconciliation of historical Saudi balances; 07 migration plan sections 3.1 and 3.2 | reviews: finance, security, owner-decision
+- **State: IMPLEMENTED IN DRAFT** | plan lines 23, 366, 370, 513 | GCC-15; DECISIONS: careful reconciliation of historical Saudi balances; 07 migration plan sections 3.1 and 3.2 | reviews: finance, security, owner-decision
 - **(2) Functional requirement.** A read-only report proves that, per customer, the ledger sum equals users.wallet_balance and users.loyalty_point, classifies every difference and blocks any migration while one is unexplained. It runs on a test or authorised copy and prints no personal data.
 - **(3) Exists now in code (main).** Only the Discovery method: balance = sum(credit + admin_bonus - debit), points = sum(credit - debit), judged computable but UNKNOWN on production (E04 5.1; 07 plan 3.1/3.2). No command, query or test does it. A legacy customer_wallets system with a GET route (RewardPointController::convert) holds a second balance outside the ledger.
-- **(4) Done in the draft PRs.** Nothing coded on any branch. Concurrency tests assert the final wallet value after simultaneous writes, which is not a reconciliation tool.
-- **(5) What remains.** Artisan command (dry, counts and sums only) with database-side decimal sums; classes: orphan rows, deleted user, NULL balance, float residue, manual edit, unexplained; debit rows matched to pay_by_wallet orders by reference, time and amount; legacy customer_wallets included or frozen; fixtures on SQLite and MySQL; a go/no-go rule of zero unexplained.
-- **(6) PRs and commits.** none
+- **(4) Done in the draft PRs.** PR 88 (draft, main based, c07c3f6d): php artisan wallet:reconcile compares users.wallet_balance with the wallet ledger and users.loyalty_point with the loyalty ledger in database decimals up to the highest ledger row at the start, classes A to F (only F fails the run, exit 1), an evidence file of user ids for class E, a tolerance that defaults to a millionth of a unit and is written into the report when widened, POS cancellations refunded more than once, wallet debits matched to the order group they paid (customer, amount, time), the legacy customer_wallets tables reported. The session is locked read-only and the report proves it; counts and sums only; refused in production without --allow-production-read-only and on a database other than --expect-database. Guide: docs/gcc/WALLET-RECONCILE.md.
+- **(5) What remains.** CI of the head on MySQL 8 and MariaDB 11.4 (the test sits in tests/Feature/Fulfillment, so both run it); a run on a restored copy by a named operator (charter section 4); the storage unit of the old balances (E04-F02) is still unknown; the debit match uses customer, amount and time because the ledger holds no order id, so a converted or edited amount counts as unmatched; the legacy tables are reported, not reconciled.
+- **(6) PRs and commits.** [lavkoo#88](https://github.com/fullstackfull/lavkoo/pull/88) `c07c3f6d`
 - **(7) Tests.**
-  - `none` No test or tool reconciles ledger and balance
+  - `feature` WalletReconcileCommandTest, 30 tests: equal balances, residue at the default and at a widened and a narrowed tolerance, unexplained differences fail the run, the evidence file, classes A, B and C, the loyalty ledger, repeated POS refunds, the legacy tables, debit matching over 405 customers, no personal data, refusals (tests/Feature/Fulfillment/WalletReconcileCommandTest.php; passed on SQLite and MySQL 8.0.46 locally on c07c3f6d, CI of that head not read)
 - **(8) Dependencies and blockers.** Charter section 4: no production access without a named operator and scope; storage unit of old balances (E04-F02) UNKNOWN; a restored copy is needed to run it for real.
 - **(9) Acceptance criteria.**
-  - [MISSING] A read-only report compares, per customer, the ledger sums with users.wallet_balance and users.loyalty_point using database decimals (no command on any branch)
-  - [MISSING] Every difference falls in a named class and zero unexplained differences are allowed to pass (classes exist only in 07 plan 3.1/3.2)
-  - [MISSING] Debit rows are matched to pay_by_wallet orders by reference, time and amount, unmatched ones counted (no matcher)
-  - [MISSING] The report writes nothing, prints no names or contact data and refuses to run outside a test or authorised copy (no report)
-  - [MISSING] The legacy customer_wallets and customer_wallet_histories tables are included or declared frozen (RewardPointController::convert still live on a GET route)
-- **(10) Next coding task.** New read-only artisan command wallet:reconcile implementing 07-plan 3.1 and 3.2 (decimal sums in SQL, classes A-F, counts only), with tests on a seeded SQLite and MySQL fixture: equal, float residue, orphan rows, deleted user, NULL balance, legacy customer_wallets. Run on test databases only until the owner authorises a named operator.
+  - [CODED] A read-only report compares, per customer, the ledger sums with users.wallet_balance and users.loyalty_point using database decimals (BalanceReconciler compares both ledgers with the stored balances in database decimals; passes locally on SQLite and MySQL 8.0.46, CI of c07c3f6d not read)
+  - [CODED] Every difference falls in a named class and zero unexplained differences are allowed to pass (classes A to F exist and only F fails the run; the evidence file makes class E; tests for each, CI not read)
+  - [CODED] Debit rows are matched to pay_by_wallet orders by reference, time and amount, unmatched ones counted (WalletPaymentMatcher matches by customer, amount and time (the ledger holds no order id, so no reference is used); unmatched debits and groups are counted)
+  - [CODED] The report writes nothing, prints no names or contact data and refuses to run outside a test or authorised copy (the session is locked read-only and the report proves it; counts and sums only; refused in production without the flag and for another database; a test asserts no name, contact detail or note in the output)
+  - [CODED] The legacy customer_wallets and customer_wallet_histories tables are included or declared frozen (the legacy tables are reported with their row counts and sums; they are not part of the comparison and not declared frozen)
+- **(10) Next coding task.** Read the CI of PR 88 per job; then E-07 step 1: the expand-only per-market account tables behind GCC_MARKET_WALLETS, which may not backfill before a clean wallet:reconcile run exists on a restored copy.
 - **Open owner decisions.** Who runs the read-only check, on which copy and when; the storage unit (E04-F02); whether any unexplained difference blocks go-live.
 
 #### E-07. Saudi balances migrated into per-market accounts without loss

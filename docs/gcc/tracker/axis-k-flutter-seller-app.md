@@ -1,8 +1,8 @@
 # Axis K: Flutter seller app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 86 (MET 5, CODED 34, MISSING 47). Code completion 45%, proven by a passing test 6%, release readiness 2%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 23. Acceptance criteria: 91 (MET 5, CODED 33, MISSING 53). Code completion 42%, proven by a passing test 5%, release readiness 2%.
 
-Independent verification: not done yet.
+Independent verification: done for unit(s) K.
 
 Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
 
@@ -12,7 +12,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** The seller app can name one of the six GCC markets (SA, AE, KW, QA, BH, OM) as the storefront of its requests through an X-Storefront header. All Markets is a viewing scope that never selects a storefront and has no currency. With the build flag off, every request is exactly today's Saudi request.
 - **(3) Exists now in code (main).** Nothing on main. DioClient sends Authorization, Content-Type, Accept and three language headers only; the seller app has no market type, flag or header. In lavkoo main nothing reads X-Storefront either (git grep of app, config and routes finds no hit).
 - **(4) Done in the draft PRs.** app#1 (964557e): MarketScope enum (six markets plus All Markets, one currency each, default SA), StorefrontConfig (dart-define GCC_STOREFRONTS_ENABLED, default false), DioClient adds X-Storefront from the stored market only when the flag is on (missing, unknown or All Markets fall back to SA). 13 tests in 2 files. Backend header: lavkoo#28 and the storefront chain (customer routes), default off.
-- **(5) What remains.** (1) The header is read once when the DioClient singleton is built and is not on the nine http.MultipartRequest sites (K-03). (2) Seller API v3 never reads it (K-17). (3) No test builds a DioClient with the flag on: the compile-time flag is only exercised at resolver level. (4) No CI result for #1 beyond the red job; PR body says Dart was not run locally. (5) Owner choice Q-18.
+- **(5) What remains.** (4) The job is red. The 2026-11-13 handoff section 28 records 155 tests run on #1, 154 passed and 1 failed (app_version_gate_test), so the 13 new tests ran and passed; the criteria stay CODED because the job conclusion is failure and per-test results are not in the data pack. PR body: Dart not run locally.
 - **(6) PRs and commits.** [lavkooappseller#1](https://github.com/fullstackfull/lavkooappseller/pull/1) `964557e`; [lavkoo#28](https://github.com/fullstackfull/lavkoo/pull/28) `8c8d32a`
 - **(7) Tests.**
   - `pr-body` dio_storefront_header_test (8: flag off keeps today's header keys and values; resolver falls back to SA) and market_scope_test (5: six currencies, All Markets has none) (lavkooappseller#1 964557e; analyze-and-test red, handoff 2026-11-17 says only the version-gate test fails (step log not in the data pack, UNVERIFIED); PR body: Dart not run locally)
@@ -24,7 +24,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The flag is off in every default build and needs an explicit dart-define to turn on (bool.fromEnvironment(..., defaultValue: false) in storefront_config.dart; test 'the storefront flag is off by default')
 - **(10) Next coding task.** app#1 branch gcc/p1-seller-storefront-header: make the flag an injectable DioClient parameter (default StorefrontConfig.enabled, as CartRepository already does), add flag-on header tests and the SA fallback through DioClient, and add a CI step running test/dio_storefront_header_test.dart with --dart-define=GCC_STOREFRONTS_ENABLED=true (see K-15).
 - **Open owner decisions.** Q-18: one seller app with a market switcher (header or scoped token) or one build per country; whether any seller works in more than one market (U6).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
 
 #### K-02. Seller market choice: storage and manual precedence
 
@@ -45,7 +45,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The market is never inferred from IP, GPS or locale: a manual choice always wins (git grep of lib on app#5 finds no IP, GPS or locale lookup that sets a market; dial codes come from config.country_code; no test pins it)
 - **(10) Next coding task.** Retarget app#2 to main once #1 merges (or add 'gcc/**' to the workflow's pull_request branches, K-15) and add a named CI step for test/seller_market_choice_test.dart so its seven tests get a CI result. No code change needed.
 - **Open owner decisions.** Q-18 and U6: whether the seller app has a market switcher and whether a seller may work in more than one market.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-03. Market selector, live header update and market-switch hygiene
 
@@ -65,7 +64,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A switch drops market-scoped state (POS cart, lists, notifications); a queued offline sale keeps the market it was taken in (cart_list and offline_pos_orders are device-global keys)
 - **(10) Next coding task.** New branch stacked on gcc/p1-seller-market-choice: add DioClient.useStorefront(MarketScope) (updates the header map and the stored choice together), one StorefrontHeaders helper used by the nine multipart call sites, and tests in test/dio_storefront_header_test.dart for a live switch and for each multipart site. No UI yet; flag stays off.
 - **Open owner decisions.** Q-18 (switcher or separate builds); whether All Markets is a view in the seller app at all (the owner overview is the Super Admin shell, unit L).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-04. Per-market data in seller screens (orders, products, stock, finance)
 
@@ -77,14 +75,14 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** [lavkoo#76](https://github.com/fullstackfull/lavkoo/pull/76) `0ad49d2`; [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`
 - **(7) Tests.**
   - `ci` SellerSurfacesCountryTest (pins that no seller path writes a country and fails when a seller can hold two countries) (lavkoo#83 8ff3410: Catalog tests MySQL 8 and MariaDB 11.4.2, Tests SQLite PHP 8.2/8.3 success; also #76 0ad49d2 SQLite)
-- **(8) Dependencies and blockers.** Owner decision Q-18/U6. Backend: the order market and currency slice (storefront currency work, in progress, not in the data pack) for orders. ProductController v3 and Product.php are touched by both the security set and the GCC set and no combined tree exists.
+- **(8) Dependencies and blockers.** Owner decision Q-18/U6. Backend: the order market and currency slice (GCC-05, now lavkoo PR 87, head 4af1c305, slices 1-4, not read in this unit) for orders. ProductController v3 and Product.php are touched by both the security set and the GCC set; a combined tree exists on gcc/release/security-gcc-integration-ci (f6fb03af, no pull request) but its CI is not read, so there is no CI-proven joint behaviour yet.
 - **(9) Acceptance criteria.**
   - [MISSING] The seller order list and detail carry the storefront and currency of each order and can be filtered by market (seller v3 is never narrowed (STOREFRONT_FLAG_RUNBOOK); no storefront field on order answers)
   - [MISSING] A product added or edited from the app is saved in the market the seller works in, not the table default SA (GCC-14B doc: no seller path writes a country; SellerSurfacesCountryTest pins the status quo)
   - [MISSING] Stock and finance screens total per market and per currency; an All Markets view never adds figures across currencies (no market dimension in any seller model; MarketScope has no consumer on these screens)
 - **(10) Next coding task.** lavkoo, stacked on gcc/p1-country-scoped-codes-2: return storefront_country on the seller product list and detail answers (additive; hidden today, identical with the flag off) with a six-market test in tests/Feature/Catalog; app: show it as a tag on the product list behind GCC_STOREFRONTS_ENABLED. Orders wait for the order market and currency slice.
 - **Open owner decisions.** Q-18 and U6: does one seller account trade in several markets (switcher), or does each market get its own seller account and legal entity; which seller data is global (profile, bank) and which per market.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### K-05. POS scan with country-scoped codes
 
@@ -92,12 +90,12 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** A POS scan resolves the code in the seller's own market. A code held twice answers 409 with candidates and the app asks the seller which product, never picking one; a country the server does not know answers 422 and is explained. With the flag off the request is today's ?code=<code> only.
 - **(3) Exists now in code (main).** Main sends GET api/v3/seller/pos/products?code=<code> and treats only 200 as a product. The camera scanner is restricted to Code 128. An empty answer reaches Product.fromJson, which throws, so nothing is shown.
 - **(4) Done in the draft PRs.** app#5 (90b9d33, stacked on #2): the scan adds &country=<market> only with the flag on, reads 409 ambiguous_code (candidate sheet; tap a country to rescan, or open the product list) and 422 country (server text or a localized fallback), 11 new en/ar keys, 106 tests. Server: lavkoo#72 (GCC_COUNTRY_SCOPED_CODES, off) and #76.
-- **(5) What remains.** (1) A scan that finds nothing stays silent (key product_not_found unused). (2) The camera reads Code 128 only, so retail EAN/UPC cannot be scanned. (3) The code is not percent-encoded. (4) With the backend as written all candidates of one 409 share a country. (5) No CI run for #5. (6) Owner: who changes the app and when.
+- **(5) What remains.** (1) A scan that finds nothing stays silent: the existing key product_not_found (en and ar, already used by the action center and the restock list) is not used by the scan flow. Criterion 5 evidence: 'app#5 body: the empty answer is unchanged on purpose; product_not_found exists but the scan does not use it'.
 - **(6) PRs and commits.** [lavkooappseller#5](https://github.com/fullstackfull/lavkooappseller/pull/5) `90b9d33`; [lavkooappseller#2](https://github.com/fullstackfull/lavkooappseller/pull/2) `e5fd716`; [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`; [lavkoo#76](https://github.com/fullstackfull/lavkoo/pull/76) `0ad49d2`
 - **(7) Tests.**
   - `pr-body` test/pos_scan (106: request per flag state, 409 and 422 parsing, candidate sheet in en and ar, light and dark, 320x640 at 2x text, controller, strings, source rules) (lavkooappseller#5 90b9d33: no CI (stacked); PR body: flutter test 267 pass, 1 fail (version gate) on a clean export)
   - `ci` PosScanCodeScopeTest and SixCountryPosScanTest (switch off and on, 409 candidates, 422, six countries) (lavkoo#83 8ff3410 Catalog tests MySQL 8 and MariaDB 11.4.2, Tests SQLite 8.2/8.3; #72 1c779d2 and #76 0ad49d2 SQLite)
-- **(8) Dependencies and blockers.** Backend switch GCC_COUNTRY_SCOPED_CODES stays off until the app sends country and handles 409 and 422 (#72 and #76 guides). Stacked on #2 and #1. POSController.php is changed by both #52 (security) and #72 (GCC): no combined tree, so the joint behaviour has no CI.
+- **(8) Dependencies and blockers.** Backend switch GCC_COUNTRY_SCOPED_CODES stays off until the app sends country and handles 409 and 422 (#72 and #76 guides). Stacked on #2 and #1. POSController.php is changed by both #52 (security) and #72 (GCC); a combined tree now exists (gcc/release/security-gcc-integration-ci, f6fb03af, no pull request) but its CI run is not read, so the joint behaviour has no CI record.
 - **(9) Acceptance criteria.**
   - [CODED] Flag off: the scan request is ?code=<code> with no country, whatever market is stored (test/pos_scan/cart_repository_scan_test.dart on app#5 90b9d33; no CI run, PR-body run only)
   - [CODED] Flag on: the request carries &country=<working market> (SA while nothing is stored); a country picked in the sheet is sent on that one rescan (cart_repository_scan_test and pos_scan_source_rules_test (country query pinned))
@@ -107,20 +105,21 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A retail EAN-13 or UPC-A code can be read by the camera (barcode_scan_controller.dart: restrictFormat: [BarcodeFormat.code128])
 - **(10) Next coding task.** app#5 (gcc/seller-pos-ambiguous-code): show product_not_found for an empty answer only when the flag is on (default build unchanged and pinned), allow EAN-13, UPC-A and Code 128 in restrictFormat behind the flag with controller tests, percent-encode code and country, and add a named CI step for test/pos_scan (K-15).
 - **Open owner decisions.** GCC-14B open decision 2: who changes the seller app to send country and handle 409 and 422, and when; whether a not-found scan should speak; whether Code 128 only is acceptable once two countries share an EAN.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
 
 #### K-06. POS sale safety: retries, offline outbox and customer id
 
 - **State: IN PROGRESS** | plan lines 241-252; 277-289; 499-500 | GCC-13; guardrail 4 | reviews: finance, security
 - **(2) Functional requirement.** A POS sale is placed once even when the answer is lost and the sale is replayed. A queued offline sale is replayed only under the seller and market that took it. A refusal answered with HTTP 200 is not shown as a placed order. A registered customer is never sent as a walk-in.
-- **(3) Exists now in code (main).** Main parks a sale in the device-global outbox (offline_pos_orders) when the response is null and replays the same body up to 10 times; any 200 counts as success or synced; the app sends no Idempotency-Key; a customer whose id has four digits is sent as user_id 0 (pos_screen.dart).
+- **(3) Exists now in code (main).** Main parks a sale in the device-global outbox (offline_pos_orders) when the response is null and replays the same body up to 10 times, after which the entry is dropped from the outbox without any message to the seller (offline_sales_controller.dart:139,142); any 200 counts as success or synced; the app sends no Idempotency-Key; a customer whose id has four digits is sent as user_id 0 (pos_screen.dart:827).
 - **(4) Done in the draft PRs.** App: nothing. Server half: lavkoo#35 (7c75b7f) charges the server total in the store currency and answers a repeated Idempotency-Key with the first order, debited once (table pos_sale_idempotency_keys); #30 refuses a non-positive wallet amount. Neither is in the PR 75 or PR 83 tree.
 - **(5) What remains.** App sends a stable Idempotency-Key per sale (kept in PendingPosOrder, replayed unchanged); outbox entries record seller and market and replay only under them; 200 product_not_available is read as a refusal and not marked synced; the four-digit walk-in test becomes an explicit null check; flow tests; finance review of the wallet sale.
 - **(6) PRs and commits.** [lavkoo#35](https://github.com/fullstackfull/lavkoo/pull/35) `7c75b7f`; [lavkoo#30](https://github.com/fullstackfull/lavkoo/pull/30) `4f66dce`
 - **(7) Tests.**
   - `ci` PosWalletSaleTest (17) and PosSaleIdempotencyConcurrencyTest (two submits, one key) (lavkoo#35 7c75b7f: Tests SQLite 8.2/8.3, concurrency group MySQL 8.0 and MariaDB 11.4.2 success; not in #75 or #83)
   - `pr-body` pending_pos_order_test (encode and decode round trip, copyWith) (main; main CI at 9ea6423 had 141 pass and only the gate test red (seller-version audit s.3); step log not in the data pack)
-- **(8) Dependencies and blockers.** Backend #35 is not merged and sits in no integration tree; finance review before merge (charter s.5). POSController.php is touched by both the security and the GCC set.
+- **(8) Dependencies and blockers.** Backend #35 (7c75b7f) is not merged and is in neither the PR 75 nor the PR 83 tree; it is only in gcc/release/all-integration-ci (built 2026-11-18, CI not read). Finance review before merge (charter s.5). POSController.php is touched by both the security and the GCC set.
 - **(9) Acceptance criteria.**
   - [MET] Server: a repeated Idempotency-Key answers the first order and debits the wallet once; a wallet sale debits the server total in the store currency, not the client's paid_amount (PosWalletSaleTest, PosSaleIdempotencyConcurrencyTest; lavkoo#35 7c75b7f CI (SQLite, MySQL 8.0, MariaDB 11.4.2 concurrency))
   - [MISSING] The app sends one stable Idempotency-Key per sale and replays it unchanged from the offline outbox (no 'Idempotency' string in lib or test on main or any seller head (git grep))
@@ -129,7 +128,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A registered customer whose id has four digits is not sent as a walk-in (pos_screen.dart: customerId.toString().length == 4 ? 0 : customerId (Discovery E20-F14))
 - **(10) Next coding task.** app, new branch off main (independent of the market chain): add Idempotency-Key (one UUID per sale stored in PendingPosOrder), read 200 product_not_available as a refusal, replace the four-digit walk-in test with an explicit null check, with tests in test/pos_sale using the scripted adapter of test/pos_scan/support. Servers without #35 ignore the header.
 - **Open owner decisions.** Finance owner: wallet debit rounding (D18) and the units of paid_amount (PR 35 'Not changed, open'); how long unsent outbox entries are kept.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### K-07. Order edit refusal handling and approved-only review average
 
@@ -151,7 +151,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Every place that averages product reviews (POS variation dialog, product_widget) counts approved reviews only (product_variation_selection_dialog_widget.dart:144 and product_widget.dart:40 unchanged on app#3)
 - **(10) Next coding task.** app#3 (gcc/seller-order-edit-refusal): reuse ProductHelper.getApprovedReviewAverage in product_variation_selection_dialog_widget.dart and product_widget.dart with a test each, then align the edit icon's gate in order_top_section_widget.dart with the server rules. No version, pubspec or gate file.
 - **Open owner decisions.** Refusal channel for #52 (audit row 10): keep HTTP 200 + status error (API-key integrators read it) or answer 403 with errors[0].message. The app reads both.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-08. Seller owner and staff roles keep working; the app shows what a role may use
 
@@ -173,7 +172,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The app hides screens and buttons a role cannot use (more_screen.dart lists the Security centre for everyone; no permission check outside the security feature)
 - **(10) Next coding task.** lavkoo, stacked on gcc/security-seller-product-ownership: add GET api/v3/seller/seller-center/security/me returning principal type, role name and permission keys (additive; the owner gets every key) with a test per principal type. App: a PermissionScope read once after login that hides entries the role lacks, behind a flag, with widget tests for the owner and two staff roles.
 - **Open owner decisions.** Hide by role in the app or keep the 403 toast (the study doc's phase 4 was never done); staff push tokens (#52 row 8): accept owner-only or build per-staff device tokens.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-09. Country and entity scopes for sellers and seller staff (GCC-14, seller side)
 
@@ -185,7 +183,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** none
 - **(7) Tests.**
   - `none` none for seller or staff market scopes (-)
-- **(8) Dependencies and blockers.** Owner decision Q-18/U6; GCC-14 legal-entity table does not exist yet (14C doc); security review; the seller routes file and SellerPermissionService are touched by the security set.
+- **(8) Dependencies and blockers.** Owner decision Q-18/U6; GCC-14 legal-entity table does not exist yet (14C doc); security review; routes/rest_api/v3/seller.php, SellerTeamService and the vendor SellerStaffController are touched by the security set (#52, #75), while SellerPermissionService and SellerPrincipal are touched by no open branch.
 - **(9) Acceptance criteria.**
   - [MISSING] A seller or staff token carries the markets and entities it may use; a request for a market outside the grant is refused by the server whatever the app sends (SellerPrincipal has no market or entity member (app/Services/Marketplace/SellerPrincipal.php))
   - [MISSING] Choosing a market in the app never grants access: X-Storefront outside the grant gets 403 and no data (X-Storefront does not reach api/v3 (GCC-14B doc))
@@ -193,7 +191,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Exports, reports, bulk jobs, automation rules and audit logs of a staff member contain only their markets (seller APIs are never narrowed (STOREFRONT_FLAG_RUNBOOK))
 - **(10) Next coding task.** lavkoo docs/gcc: write GCC-14D-SELLER-MARKET-SCOPES.md (principal gains a markets list, default [SA]; staff roles gain per-market permission sets) with a six-market x owner/staff test matrix committed as skipped tests, so the first slice starts from acceptance tests. No runtime code until Q-18 is answered.
 - **Open owner decisions.** Q-17 and Q-18: whether sellers trade in several markets with one login; who holds the top scope; entity scope as a second dimension (14C: entities have no table yet).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### K-10. Per-market currency, decimals and no app-side conversion
 
@@ -214,7 +212,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] All Markets shows no figure summed across currencies (MarketScope.allMarkets has no currency and no aggregate helper exists)
 - **(10) Next coding task.** lavkoo: return currency, symbol, symbol position and decimals for the requested storefront in a seller-scoped config answer (additive; the shared config stays Saudi). App: PriceConverter.forMarket(MarketScope, decimals) used by one screen (finance statement) with KWD, BHD and OMR three-decimal tests, and replace the 2-decimal regex of the payout field by the market's decimals.
 - **Open owner decisions.** Where decimals live (server per storefront or an app table); whether multi_currency is dropped for GCC builds.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-11. Seller push: tokens, topics, payload market and routing
 
@@ -234,14 +231,14 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Opening a push routes by type or data, not by the English title text (my_notification.dart: message.notification!.title!.contains('Order'))
   - [MISSING] The lavkooseller:// deep link opens its target screen (scheme declared in AndroidManifest.xml and Info.plist, no Dart handler (Discovery E19-F11))
 - **(10) Next coding task.** lavkoo (notification unit) first: add storefront to the seller order push data and to notification list items (additive). App: NotificationBody.storefront, route on type and data only (drop the title check) with tests for English and Arabic titles, and a lavkooseller:// handler for order and refund ids. Decide the topic with the owner.
-- **Open owner decisions.** Remove or feed the lavkoo_seller topic (U7); per-staff push tokens (#52 row 8); whether pushes for necessary order notices continue while a market is paused (GCC-12).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** Q-44 (D-14): remove or feed the lavkoo_seller topic (E19 U7 asks whether it was ever sent to by hand); per-staff push tokens (#52 row 8); whether pushes for necessary order notices continue while a market is paused (GCC-12).
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
 
 #### K-12. Session and token handling in the seller app
 
 - **State: IN PROGRESS** | plan lines 345-348; 389; 482-485 | GCC-14; charter s.5 (seller session tokens need security review) | reviews: security
 - **(2) Functional requirement.** Sign-out and a 401 drop the credential once and cleanly; a blank token never replaces a live session; the session token, and everything scoped to the previous account or market (stored market, POS cart), is not inherited by another login; unsent sales are never lost silently.
-- **(3) Exists now in code (main).** Main: one token per account (each login replaces it), kept in SharedPreferences (the password is in secure storage), header set at construction; clearAuthToken on sign-out; ApiChecker signs out once on a 401 (latch); no server-side logout call; cart_list, currency and the offline POS outbox survive sign-out; 9 multipart sites set Authorization by hand (registration none).
+- **(3) Exists now in code (main).** 8 of the 9 http.MultipartRequest sites set Authorization by hand; the registration site sets no header. (rest of the field unchanged)
 - **(4) Done in the draft PRs.** Nothing in the market chain changes sessions (#1, #2, #3 and #5 touch no auth file). app#4 and #6 keep a separate platform admin session in its own secure-storage key (unit L).
 - **(5) What remains.** Token in the platform secure store with a migration; stored market and POS cart bound to the seller or cleared at sign-out and account switch while unsent sales stay safe; server-side session end on sign-out (restricted item SEC-E19-04, UNVERIFIED); one header path for the nine multipart sites; tests; security review.
 - **(6) PRs and commits.** none
@@ -256,7 +253,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Sign-out ends the session on the server (no logout route or call in the app or in lavkoo seller v3 routes; token lifecycle is a restricted item, UNVERIFIED)
 - **(10) Next coding task.** app, branch off main: move the session token to flutter_secure_storage with the migration pattern of SecureCredentialStore.prime (read old key, write secure, remove old); key the stored market, cart_list and the POS outbox view by seller id; add tests next to dio_auth_header_test; open for security review, no merge.
 - **Open owner decisions.** Where queued offline sales live after sign-out; whether a stored market is per account or per device.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
 
 #### K-13. Arabic strings awaiting a native reader
 
@@ -277,7 +274,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The translation-key check passes on the head of every PR that adds keys (app#5 body: OK 1228 used, 1849 defined (local run); CI step result UNVERIFIED, #5 has no CI)
 - **(10) Next coding task.** app: add tool/list_new_strings.dart that prints the keys present in ar.json but not on main, with the English text and the screen that uses each; run the candidate sheet in RTL at 320x640 and 2x text for screenshots; hand the sheet plus the two server texts to the reader, then apply the answer in one commit.
 - **Open owner decisions.** Wording of scan: المسح or المسح الضوئي (the app#5 body points to the existing scan_item_or_add_from_item).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-14. Version gate and force-update flow (record only)
 
@@ -295,10 +291,9 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The shipped version clears the live published minimum, so login is reachable (app_version_gate_test red: 1.0.0+3 against a pinned 2.0.1; live value UNKNOWN)
   - [MISSING] The live seller_app_version_control values and the store versions are recorded with a date (audit 2026-11-12 s.2 lists them as UNKNOWN)
   - [CODED] No market, POS or order-edit change touches the version, the minimum or the gate (git diff of #1, #2, #3 and #5 against main shows no pubspec, lock, version_helper, gate test or ci.yml change)
-  - [CODED] An installed build that sends no X-Storefront is treated as the Saudi default (StorefrontResolver::resolve falls to the default country (lavkoo#83 tree); app flag off sends no header)
+  - [MISSING] An installed build that sends no X-Storefront is treated as the Saudi default (StorefrontResolver::resolve falls to the default country (lavkoo#83 tree); app flag off sends no header)
 - **(10) Next coding task.** Record-only: when the owner provides the live seller_app_version_control values and the store versions, add them to docs/gcc/audits/2026-11-12-seller-version-verification.md as a dated addendum. No change to pubspec.yaml, test/app_version_gate_test.dart, the backend setting or the gate. The other tests are made visible separately by the CI work in K-15.
 - **Open owner decisions.** Options A, B or C of the 2026-11-12 audit: correct the test constant with evidence, release a build at or above the minimum, or lower the production minimum.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-15. Tests and CI of the seller app
 
@@ -319,20 +314,19 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Each GCC feature's tests run as a named CI step before the full run (only app#4 adds a step (platform admin, flag on); none for market, POS scan or order edit)
   - [CODED] flutter analyze stays at the main baseline (39 infos, no warnings) (PR bodies #3, #4, #5, #6: 39 infos identical to main on clean exports)
 - **(10) Next coding task.** app, new branch off main: edit only .github/workflows/ci.yml: add 'gcc/**' to pull_request.branches, add named steps before the full test for test/dio_storefront_header_test.dart, market_scope_test, seller_market_choice_test, the order_edit tests and test/pos_scan (also with --dart-define=GCC_STOREFRONTS_ENABLED=true where it matters). Keep the full step and the gate test untouched and red.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### K-16. Seller workflows keep working (orders, products, stock, POS, withdrawals, reviews)
 
 - **State: IN PROGRESS** | plan lines 537-562; 713-716 | DECISIONS guardrail 4; charter s.5 | reviews: none
 - **(2) Functional requirement.** With every GCC flag off, the seller app sends the same requests and handles the same answers as main for login, orders, products, stock, POS, withdrawals and reviews, and keeps working against the open backend security PRs for an owner account.
-- **(3) Exists now in code (main).** Main: about 190 API path constants, 19 contract and model test files (order breakdown, pricing policy, inventory, statements, security and others) and a header test. There is no flow test of product add or edit, order list or detail, stock update, withdrawals or review reply.
+- **(3) Exists now in code (main).** about 190 API path constants and 19 test files in total (14 contract tests, plus the auth header, pending POS order, version helper, version gate and export helper tests); no flow test of product add or edit, order list or detail, stock update, withdrawals or review reply. tests[1].what: '14 contract tests and 5 other tests (incl. dio_auth_header_test) on main'.
 - **(4) Done in the draft PRs.** The audit of 2026-11-17 reads the app against #44, #51, #52, #58, #61 and #63 line by line: nothing breaks for an owner account except one conditional (#58 Firebase reset, fixed in #58's head). app#1, #2, #3 and #5 are additive: flag-off parity is tested for the header (#1) and the scan request (#5).
 - **(5) What remains.** Flow tests for the six workflows with a stub adapter; the audit's manual tests T1-T13 on staging (UNKNOWN until run); the app tested on one tree holding the security set and the GCC chain (none exists: a merge of #75 and #83 conflicts in five backend files); a device smoke run.
 - **(6) PRs and commits.** [lavkooappseller#1](https://github.com/fullstackfull/lavkooappseller/pull/1) `964557e`; [lavkooappseller#5](https://github.com/fullstackfull/lavkooappseller/pull/5) `90b9d33`; [lavkoo#52](https://github.com/fullstackfull/lavkoo/pull/52) `ead8e2a`; [lavkoo#44](https://github.com/fullstackfull/lavkoo/pull/44) `61798e8`; [lavkoo#58](https://github.com/fullstackfull/lavkoo/pull/58) `40020ae`; [lavkoo#63](https://github.com/fullstackfull/lavkoo/pull/63) `de0a7d5`
 - **(7) Tests.**
   - `ci` Seller API ownership and flow tests (orders, POS, payouts, products, shipping, promotions) with owner and staff tokens, incl. 'the seller can still sell their own product' (lavkoo#75 47b78ab: Tests SQLite 8.2/8.3 and Fulfillment + security MySQL 8 / MariaDB 11.4.2 success (security set only))
   - `pr-body` 19 model-contract test files and dio_auth_header_test on main (main baseline 141 pass (seller-version audit s.3); step log not in the data pack)
-- **(8) Dependencies and blockers.** No combined security + GCC tree; manual tests T1-T13 pending; the seller version gate blocks release.
+- **(8) Dependencies and blockers.** A combined security + GCC tree exists (gcc/release/security-gcc-integration-ci, f6fb03af, no pull request) but its CI is not read; manual tests T1-T13 pending; the seller version gate blocks release.
 - **(9) Acceptance criteria.**
   - [CODED] With the flags off the headers and the POS scan request equal main's (dio_storefront_header_test (#1) and cart_repository_scan_test (#5); no CI run proves them)
   - [MET] A seller's own orders, POS sales, payouts, products, shipping methods and promotions are still served after the security fixes (SellerApiPosOwnershipTest, SellerApiPayoutOwnershipTest, SellerApiOrderOwnershipTest, SellerApiCatalogueOwnershipTest; lavkoo#75 47b78ab CI)
@@ -341,7 +335,10 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Orders, products, stock, withdrawals and reviews have app-side flow tests of the request and the handling of the answer (the 19 test files on main pin models and the auth header only)
   - [MISSING] The seller flows pass on one tree that holds the security set and the GCC chain (no such tree: #75 and #83 conflict in five files)
 - **(10) Next coding task.** app, new branch off main: add flow tests (scripted Dio adapter as in test/pos_scan/support) for orders list and detail, product add and edit, stock update, withdrawal request and review reply, asserting path, body and the handling of 200, 401, 403 and 404; run the audit's T1-T13 on a staging backend that has the security set.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** ac[5].e (The seller flows pass on one tree that holds the security set and the GCC chain): Evidence 'no such tree: #75 and #83 conflict in five files' is stale; the criterion stays MISSING for a different reason. Proposed: A tree holding both sets exists (gcc/release/security-gcc-integration-ci, f6fb03af, five conflicts resolved, no pull request) but no CI result for it is in the pack and no seller-flow test is known to run on it; MISSING until that run is read.
+- **Verifier note (not applied automatically).** ac[1].e (A seller's own orders, POS sales, payouts, products, shipping methods and promotions are still served): The four named classes do not cover shipping methods or promotions: SellerApiCatalogueOwnershipTest has restock requests, digital-product files and category shipping COST, and no promotion test. The 'still served' tests for those areas are in other classes of the PR 75 tree, so the MET stands but the evidence list is incomplete. Proposed: SellerApiPosOwnershipTest, SellerApiPayoutOwnershipTest, SellerApiOrderOwnershipTest, SellerApiCatalogueOwnershipTest, SellerApiShippingMethodOwnershipTest (methods), SellerApiPromotionOwnershipTest (clearance and coupons), SellerProductOwnershipTest (products); all in tests/Feature/Security of the PR 75 tree; lavkoo#75 47b78ab CI (Tests SQLite 8.2/8.3, Fulfillment + security MySQL 8 and MariaDB 11.4.2).
 
 #### K-17. Backend contracts and decisions the seller app depends on
 
@@ -354,7 +351,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(7) Tests.**
   - `ci` PosScanCodeScopeTest, SixCountryPosScanTest, SellerSurfacesCountryTest (contract pins) (lavkoo#83 8ff3410 Catalog tests MySQL 8, MariaDB 11.4.2 and Tests SQLite success)
   - `ci` DigitalFilesStaffDownloadTest (seller app v2 and v3 authenticated routes) (lavkoo#75 47b78ab Tests SQLite success (#69 31d9186 is in the PR 75 tree))
-- **(8) Dependencies and blockers.** The owner decisions listed; #35 and #69 sit in at most one integration tree; the security and GCC sets conflict in five backend files.
+- **(8) Dependencies and blockers.** The owner decisions listed; #35 is in neither the PR 75 nor the PR 83 tree (only in gcc/release/all-integration-ci), #69 is in the PR 75 tree; the combined tree gcc/release/security-gcc-integration-ci (f6fb03af, five conflicts resolved, no pull request) has no CI record in the pack.
 - **(9) Acceptance criteria.**
   - [MISSING] Seller API v3 resolves the storefront (header or the principal's scope) behind a default-off flag, and an absent header means SA (GCC-14B doc: X-Storefront does not reach api/v3; the storefront middleware sits on customer v1 API and web routes, not on seller v3)
   - [MISSING] The app can ask who it is: principal type, role, permissions and allowed markets (login answers {token}; no who-am-I route)
@@ -363,8 +360,10 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The app follows the authenticated digital-file path before the private-disk switch is turned on (#69) (#69 routes digital-file/{id}/{fileName?}; no app code reads them)
   - [MISSING] Staff devices have their own push tokens, or the owner accepts owner-only registration (#52 makes cm-firebase-token owner-only; one token column per seller)
 - **(10) Next coding task.** lavkoo docs/gcc: write GCC-21-SELLER-APP-CONTRACT.md listing each backend answer the app needs (storefront on v3, principal, per-market config, market in push data, digital-file path), its default-off flag and one contract test per item, so the backend and app slices share acceptance tests; send the six owner questions with it.
-- **Open owner decisions.** Q-18 and U6; refusal channel (#52 row 10); staff push tokens (row 8); admin-assigned coupons (row 15); digital file types (row 35); the lavkoo_seller topic (U7).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** Q-18 and U6; refusal channel (#52 row 10); staff push tokens (row 8); admin-assigned coupons (row 15); digital file types (row 35); the lavkoo_seller topic (Q-44 / D-14).
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** links: PR 69 is listed at 31d9186. Its branch head moved on 2026-11-18 07:08Z to 4096f1be (a serialization fix in DigitalFileAddressService and one test). The PR 75 tree still holds 31d9186, so the DigitalFilesStaffDownloadTest CI claim stands, but the head and its CI are not in the pack. Proposed: lavkoo PR 69 head 4096f1be (was 31d9186 at the time of the CI table); the PR 75 tree holds 31d9186; CI of 4096f1be not read.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### K-18. Seller-app theme and API impact of per-country themes (GCC-09 audit)
 
@@ -382,5 +381,75 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Shop banner and logo rules in registration and shop update do not depend on the single global active_theme (shop_update_screen.dart: configModel?.activeTheme == "theme_aster")
   - [MISSING] A source test fails if any lib file calls a theme endpoint (no such test in any seller tree)
 - **(10) Next coding task.** app, branch off main: add a source-rule test (pattern of test/pos_scan/pos_scan_source_rules_test.dart) that fails when any lib file calls a theme endpoint, and move the shop image size rule from active_theme to a constant table keyed by image slot; no UI change; record the owner's R-117 answer in the PR.
-- **Open owner decisions.** R-117: the seller app's theme scope (own static theme versus consuming the theme contract) and whether the app shows the market's brand (GCC-10).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** Q-43 (D-12; risk R-117): the seller app's theme scope (own static theme versus consuming the theme contract, or only image rules) and whether the app shows the market's brand (GCC-10).
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
+
+#### K-V1. Seller app compatibility with the open backend PRs that change seller v3 answers but were not read i...
+
+- **State: NOT STARTED** | plan lines 537-562; 700-716 (DECISIONS guardrail 4: audit API v3/seller) | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** Seller app compatibility with the open backend PRs that change seller v3 answers but were not read in the 2026-11-17 audit: #20 (order and refund lookups scoped to the seller), #32 (seller withdraw updates and closes scoped to the owning seller), #29 (referral reward in the seller order status path) and #13 (POS wallet atomicity), plus the staged hotfix line (PR 78, 81, 86: 21 seller v3 files each)
+- **(3) Exists now in code (main).** The audit lists only #44, #51, #52, #58, #61 and #63 in its section 0. git diff against each merge-base: #20 changes v3 OrderController, POSController and RefundController; #32 changes v3 SellerController (65 lines) and the withdraw handling; #29 changes v3 OrderController; #13 changes v3 POSController. #20, #29, #32 and #13 are in neither the PR 75 nor the PR 83 tree, and none of them appears anywhere in assess-K.json, although withdrawals and orders are named seller workflows.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] Seller app compatibility with the open backend PRs that change seller v3 answers but were not read in the 2026-11-17 audit: #20 (order and refund lookups scoped (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+
+#### K-V2. Sensitive actions of a seller or seller staff (payout and bank details, staff management, account de...
+
+- **State: NOT STARTED** | plan lines 386; 389-391 (GCC-14: sensitive actions; all markets only for the general manager) | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** Sensitive actions of a seller or seller staff (payout and bank details, staff management, account deletion, verification) are scoped by market and entity, and only the platform owner sees every market
+- **(3) Exists now in code (main).** K-09's functional text lists sensitive actions, but its four criteria cover authorization, X-Storefront, per-market permissions and exports, reports, jobs and audit logs only. Owner-only routes exist on main (seller_owner groups for seller-update, account-delete, payout methods, verification) with no market dimension.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] Sensitive actions of a seller or seller staff (payout and bank details, staff management, account deletion, verification) are scoped by market and entity, and o (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+
+#### K-V3. A queued POS sale that has failed ten replays is never dropped silently: it stays visible with its l...
+
+- **State: NOT STARTED** | plan lines 537-562; 713-716 (preserve seller behaviour); K-12 functional text 'unsent sales are never lost silently' | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** A queued POS sale that has failed ten replays is never dropped silently: it stays visible with its last error until the seller removes it
+- **(3) Exists now in code (main).** lib/features/pos/controllers/offline_sales_controller.dart lines 139 and 142 drop the entry (if (retried.attempts < _maxAttempts) remaining.add(retried)) and persist the shorter list; git grep finds no screen that reads attempts or lastError. K-06 criterion 3 and K-12 criterion 4 only cover replay under the right seller and sign-out.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] A queued POS sale that has failed ten replays is never dropped silently: it stays visible with its last error until the seller removes it (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+
+#### K-V4. Seller app behaviour when a market is paused: maintenance or pause of one market keeps order handlin...
+
+- **State: NOT STARTED** | plan lines 445-459 (GCC-12: browse only, maintenance, redirect; old orders, refunds, payouts keep working) | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** Seller app behaviour when a market is paused: maintenance or pause of one market keeps order handling, refunds and payouts of that market working, instead of one global vendor_app switch that replaces the whole app
+- **(3) Exists now in code (main).** cross_axis_notes says K-04 and K-11 'need a paused-market state in the app', but no requirement or criterion carries it. Today splash_screen.dart sends every seller to MaintenanceScreen when maintenanceStatus == 1 and selectedMaintenanceSystem.vendorApp == 1.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] Seller app behaviour when a market is paused: maintenance or pause of one market keeps order handling, refunds and payouts of that market working, instead of on (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+
+#### K-V5. The seller version gate can be switched off per platform without a release (the published status hon...
+
+- **State: NOT STARTED** | plan lines 167; 193; 537-562 (guardrail 4: audit the seller app version gate); GCC-20 doc item 8 | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** The seller version gate can be switched off per platform without a release (the published status honoured), so a wrong minimum cannot lock every seller out (Discovery E19-F06, P1)
+- **(3) Exists now in code (main).** lib/features/splash/domain/models/config_model.dart parses PlatformVersion.status, but splash_screen.dart reads only .version (lines 79 and 81) before AppVersion.isUpdateRequired; K-14 records the unknown minimum and the red test but not that the gate has no off switch. Lower priority than the other four; no code or test change is proposed while the charter forbids touching the gate.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [MISSING] The seller version gate can be switched off per platform without a release (the published status honoured), so a wrong minimum cannot lock every seller out (Dis (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).

@@ -1,8 +1,8 @@
 # Axis I: Marketing, policies and operations
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 183 (MET 51, CODED 33, MISSING 99). Code completion 46%, proven by a passing test 28%, release readiness 2%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 183 (MET 48, CODED 36, MISSING 99). Code completion 46%, proven by a passing test 26%, release readiness 2%.
 
-Independent verification: done for unit(s) I2; not done yet for I1.
+Independent verification: done for unit(s) I1, I2.
 
 Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
 
@@ -16,7 +16,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** none
 - **(7) Tests.**
   - `none` No test of MailConfigServiceProvider, sendingMail or the mail settings in main, PR 83 or PR 75
-- **(8) Dependencies and blockers.** Order storefront record (GCC-05 slice 2 is on a branch without a PR). Production mail identity UNVERIFIED (Q-32). A secret-storage pattern exists to reuse: integration_settings credentials are encrypted for Chatwoot. EmailTemplateTrait is a shared file (A1-17 reads it too).
+- **(8) Dependencies and blockers.** Order storefront record (GCC-05 slice 2, PR 87, stacked on PR 64, not in the PR 83 tree). Production mail identity UNVERIFIED (Q-32). A secret-storage pattern exists to reuse: integration_settings credentials are encrypted for Chatwoot (Crypt in ChatwootService) and ZenderSetting.secret is an encrypted cast. EmailTemplateTrait is a shared file (A1-17 reads it too).
 - **(9) Acceptance criteria.**
   - [MISSING] An e-mail about a KW order leaves through the KW profile's host and from address (no per-store mail profile in any tree)
   - [MISSING] A queued listener uses the account of the storefront recorded on its order, not the account its worker booted with (the account is set once at boot (MailConfigServiceProvider::boot))
@@ -24,7 +24,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] An admin sends a test e-mail through a chosen store profile and sees the real result (only the one shared account can be tested today)
 - **(10) Next coding task.** Branch gcc/p1-notification-profiles off the PR 64 head: additive migration notification_channel_profiles (storefront_country, channel, settings JSON, credentials via Crypt as integration_settings does, active) and NotificationProfileResolver::for(channel, country), null unless GCC_NOTIFICATION_PROFILES is on; sendingMail asks it. Tests: mailer config per storefront, fallback, queued send, flag-off identical config.
 - **Open owner decisions.** One shared sender or one per store at launch, and who owns each market's sender domain (SPF, DKIM). Production's mail identity is UNVERIFIED (Discovery Q-32); no owner document answers it.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### I1-02. SMS, WhatsApp and push profiles per store
 
@@ -45,7 +45,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A market with no profile falls back to the shared one, and a missing credential is reported by a readiness check before launch (no readiness check for notification accounts exists)
 - **(10) Next coding task.** Same branch as I1-01: extend NotificationProfileResolver to sms, whatsapp and push; SMSModule::sendCentralizedSMS, ZenderOtpService::send, the ChatwootService constructor (named argument storefront) and PushNotificationTrait::sendNotificationToHttp read it behind GCC_NOTIFICATION_PROFILES. Tests with Http::fake: URL and token per storefront, FCM token cached per credential, fallback, flag-off identical requests.
 - **Open owner decisions.** Whether each market gets its own Firebase project (needs separate app builds) or one shared project with per-market topics (A1-17 lists it as open), and which SMS and WhatsApp accounts each market uses (Q-24, Q-32). No owner document answers either.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** refs; deps_blockers; owner_decisions: Cites Q-24 for 'which SMS, Zender, Chatwoot and WhatsApp accounts each market uses'. Q-24 (11-open-decisions-for-owner.md) asks which sales channels (Amazon, Noon, Trendyol, Odoo) and shipping providers (Delivery Syria) run per market; it does not mention SMS, Zender, Chatwoot or the mail sender. Proposed: Drop Q-24 on this card. refs: 'Discovery E06-F06, E06 section 7 item 1, Q-32, Q-44'. deps_blockers: 'Production values UNVERIFIED: which SMS, Zender, Chatwoot and Firebase accounts exist per market (E06 section 7 item 1; Q-32 covers the Firebase project and domains). Needs the profile resolver of I1-01. A Firebase project change is an app-build decision for the customer and seller apps (Q-18).' owner_decisions: '... which SMS and WhatsApp accounts each market uses (no Discovery owner question covers it; Q-32 covers the Firebase project). No owner d
 
 #### I1-03. Notification templates: global, with country and language overrides
 
@@ -57,7 +57,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** none
 - **(7) Tests.**
   - `none` No test of EmailTemplate translation, the template service, NotificationMessage lookup or the WhatsApp mapping in main, PR 83 or PR 75
-- **(8) Dependencies and blockers.** GCC-10 brand per country (unit F) supplies name, logo and URL; the order's storefront record (GCC-05 slice 2, branch without a PR) decides which override applies; WhatsApp templates need per-sender approval at the provider. Texts in the database are production data, UNVERIFIED.
+- **(8) Dependencies and blockers.** GCC-10 brand per country (unit F) supplies name, logo and URL; the order's storefront record (GCC-05 slice 2, PR 87, stacked on PR 64) decides which override applies; WhatsApp templates need per-sender approval at the provider. Texts in the database are production data, UNVERIFIED.
 - **(9) Acceptance criteria.**
   - [MISSING] A KW order's push text comes from the KW override, else the recipient-language text, else the global message (no storefront column on notification_messages or email_templates)
   - [CODED] A push body is in the recipient's app_language when a translation exists, else the global message (PushNotificationTrait::pushNotificationMessage selects NotificationMessage translations by locale; no test)
@@ -66,7 +66,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Default templates carry no market-specific company name or URL (EmailTemplateService writes company_name and url('/') into the stored text)
 - **(10) Next coding task.** Test-first on a branch cut from main: tests/Feature/Notifications/EmailTemplateLanguageTest (Mail::fake, in-memory tables) pinning today's output and the swapped footer and copyright as a failing-then-fixed test. Then the recipient locale as a named argument of sendingMail and the override tables behind GCC_NOTIFICATION_TEMPLATES; add tests/Feature/Notifications to the Fulfillment + security CI paths.
 - **Open owner decisions.** Which texts must differ per country (brand, currency, legal wording, Gulf Arabic) and who approves each variant. No owner document answers it; DECISIONS only allows inheritable branding defaults.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### I1-04. Marketing audiences are isolated by store
 
@@ -88,7 +88,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] An employee restricted to KW can target only KW in a broadcast or campaign (no staff-scope rule covers the notification, cart-marketing or campaign screens)
 - **(10) Next coding task.** On the PR 64 head add GCC_NOTIFICATION_AUDIENCES (off): nullable storefront_country on notifications and subscriptions; Admin NotificationController::add saves the chosen store; RestAPI v1 NotificationController::list and WebController::subscription read StorefrontCatalog::country(). Tests in tests/Feature/Storefront: a KW-only row is not listed in SA, NULL is listed everywhere, signup records the storefront, flag-off unchanged.
 - **Open owner decisions.** How a broadcast chooses its audience: one store, several or all, and whether 'all' stays possible for the platform owner. No owner document answers it (Discovery E06-F08).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### I1-05. Push topics do not overlap between markets
 
@@ -103,14 +102,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `none` No test in the backend or the customer app names or asserts a topic
 - **(8) Dependencies and blockers.** Owner choice of one topic or one per market. The app change is a customer-app release (unit J); the seller topic lavkoo_seller has no sender (Q-44, unit K); the broadcast target depends on I1-04.
 - **(9) Acceptance criteria.**
-  - [MET] A restock topic subscription exists only for a product the request's storefront sells (StorefrontCartEdgesTest::test_a_restock_request_for_a_product_only_another_storefront_sells_is_refused_and_creates_nothing; PR 83 @8ff3410: SQLite 8.2/8.3, Storefront MySQL 8, MariaDB 11.4.2)
+  - [CODED] A restock topic subscription exists only for a product the request's storefront sells (StorefrontCartEdgesTest::test_a_restock_request_for_a_product_only_another_storefront_sells_is_refused_and_creates_nothing; PR 83 @8ff3410: SQLite 8.2/8.3, Storefront MySQL 8, MariaDB 11.4.2)
   - [MISSING] Each market has its own marketing topic, and a broadcast to KW is published to KW's topic only (sendPushNotificationToTopic defaults to 'sixvalley' and the admin broadcast passes no topic)
   - [MISSING] The customer app subscribes to its storefront's topic and unsubscribes from the previous one when the storefront changes (auth_repository subscribes to AppConstants.topic only; the app has no unsubscribe call)
   - [CODED] The topics Saudi apps already hold keep receiving messages (topic names are unchanged in the backend and in every customer-app branch; no test names a topic)
   - [MISSING] A maintenance or theme-update beacon of one market does not wake another market's apps, or is documented as global (ThemeSyncBeacon::TOPIC and the maintenance topics are single names)
 - **(10) Next coding task.** After the owner picks one topic or one per market: on the PR 64 head add StorefrontTopics::marketing(country) ('sixvalley' for SA, a suffix for others, off by default); use it in Admin NotificationController::add and resend and in getFCMTopicListToSubscribe; in lavkooapp PR 7's branch subscribe and unsubscribe in the storefront-change notifier. Tests: name per storefront, SA unchanged, flag-off identical, Dart test with a fake messaging client.
 - **Open owner decisions.** One topic or one per market (A1-17 records it as open; no owner document answers it); whether the seller topic lavkoo_seller gets a sender (Discovery Q-44); which Firebase project each app uses (Q-32).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### I1-06. Order notifications are built from the store that created the order
 
@@ -130,7 +128,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Amounts shown in a push (cash collect, due payment, refund) are in the order's currency (cashCollectNotification uses usdToDefaultCurrency and getCurrencyCode())
 - **(10) Next coding task.** When the GCC-05 slice 2 PR exists: OrderNotificationContext::for(Order) (default storefront without a record) and OrderPlacedListener, OrderStatusListener, RefundListener and OrderEditListener::handle wrapped in StorefrontContext::serve. Tests: fake queue, two orders of different storefronts on one worker, context bound per job and restored. Until then a test-only branch can pin today's inline versus queued split.
 - **Open owner decisions.** none beyond the GCC-05 decisions (Discovery Q-07 rounding, Q-08 conversion policy).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts; deps_blockers; next_task: Says the order storefront record (GCC-05 slice 2) is on a branch without a PR, CI not read. The branch gcc/p1-storefront-currency is PR 87 (head 4af1c305, slices 1 to 4, stacked on PR 64; context.json). Verified on that head: migration 2026_11_26_100000 adds orders.storefront_country, currency_code and currency_rate, OrderManager gains 3 lines (OrderStorefrontSnapshot::record) and PushNotificationTrait, EmailTemplateTrait and the listeners are unchanged. Proposed: done_in_drafts: 'Nothing in the notification path. PR 53 (in PR 83) records the storefront with a payment and serves it again while the paid order is built, the only job-like path bound to a storefront; listeners are not wrapped. PR 87 (GCC-05 slices 1 to 4, head 4af1c305, stacked on PR 64, CI not in this data pack) adds orders.storefront_country, currency_code and currency_rate and rec
 
 #### I1-07. Necessary notifications for old orders continue when a store stops selling
 
@@ -151,7 +149,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A registry lists every notification type as necessary or marketing, and a test fails for an unclassified type (no classification exists in code)
 - **(10) Next coding task.** On the PR 42 head add tests/Feature/Storefront/StorefrontNecessaryNotificationsTest: a storefront without approved legal texts, real listeners, Http::fake for FCM and Mail::fake; fire OrderStatusEvent, RefundEvent and OrderPlacedEvent for its order and assert push and mail still go out. Then a NotificationClass registry and AbandonedCartService::findAbandoned skipping non-sellable storefronts behind the flag.
 - **Open owner decisions.** Which obligations continue during a pause and whether support replies and one-time codes count as necessary (Discovery Q-40, open). The necessary-versus-marketing line needs a legal reading per country.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### I1-08. Marketing sends respect consent
 
@@ -171,7 +168,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Order status, refund, payment and one-time-code messages are sent whatever the marketing consent (no consent gate exists to test against)
 - **(10) Next coding task.** After A2-13's recorder exists (branch off PR 43): MarketingConsentGate::allows(customer, storefront, channel, purpose) called in AbandonedCartService::findAbandoned and the CartMarketingController send, behind GCC_MARKETING_CONSENT (off). Tests: skipped without consent, sent with it, unsubscribe link signed, necessary messages unaffected. The rule stays configuration until the legal answer.
 - **Open owner decisions.** Opt-in model per channel and market, and whether abandoned-cart reminders may run before consent is recorded (Discovery Q-15, open; its proposal is explicit opt-in per channel and market and no cart reminders in new markets until approved).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### I1-09. Notification sends are idempotent and logged
 
@@ -186,14 +182,14 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `none` No test of the abandoned-cart ledger, of a duplicate order event, of a failed FCM, SMS or mail send, or of any delivery log
 - **(8) Dependencies and blockers.** Retention and redaction rules for logs are not decided. I1-01 to I1-03 supply profile, store and template fields; the order storefront record (GCC-05 slice 2); PushNotificationTrait and EmailTemplateTrait are shared files.
 - **(9) Acceptance criteria.**
-  - [MET] The first order of a referred customer completes and notifies the referrer once (ReferredCustomersFirstOrderTest (2 tests); PR 55 @cbd976a and PR 75 @47b78ab: Tests SQLite 8.2/8.3)
+  - [CODED] The first order of a referred customer completes and notifies the referrer once (ReferredCustomersFirstOrderTest (2 tests); PR 55 @cbd976a and PR 75 @47b78ab: Tests SQLite 8.2/8.3)
   - [CODED] An abandoned-cart reminder for one cart group and stage is sent once, also after a run that died halfway (SendAbandonedCartReminders writes the ledger row first, unique on (cart_group_id, stage); no test)
   - [MISSING] A replay of the same business event gives one push and one e-mail per recipient (OrderManager dispatches order events with no idempotency key)
   - [MISSING] Every attempt is stored with channel, store, template key, status and provider error, without raw phone or e-mail (sendNotificationToHttp stores nothing and sendingMail swallows the exception)
   - [MISSING] A failed send is retried within a stated budget, and the final failure is visible to that store's admin (retry settings exist for mail listeners only, and sendingMail catches the exception first)
 - **(10) Next coding task.** Test-first on a branch off main: tests/Feature/Notifications/NotificationAttemptTest with Http::fake and Mail::fake pinning today's silent failures. Then migration notification_deliveries, NotificationDeliveryLedger::attempt(key, channel, storefront) and a decorator used by sendNotificationToHttp and sendingMail behind GCC_NOTIFICATION_LOG (off). Tests: duplicate event sends once, a failure is recorded and retried, PII hashed.
 - **Open owner decisions.** Retention period and redaction rule for delivery logs (not decided), and whether the log is per store or central.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** exists_now and ac[1].e: States as fact that abandoned_cart_reminders is unique on (cart_group_id, stage). No migration or SQL in the repository defines that table or key (E06 section 2.11 lists it among tables without a tracked definition); the only source is the command's own comment, so it is UNVERIFIED against the live schema. The guard that is in code is AbandonedCartService::findAbandoned, which drops every cart group that already has a ledger row for the stage. Proposed: Two ledgers exist for single features: abandoned_cart_reminders is written before the mail leaves and findAbandoned skips groups that already have a row for the stage (the command's comment says the table is unique on (cart_group_id, stage), but no migration in the repository defines the table or the key: UNVERIFIED against the live schema); seller_notification_deliveries has a unique digest key (per its own docume
 
 #### I1-10. Existing notification classes and senders are kept and pinned
 
@@ -216,7 +212,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The push payload per order-status key and user type, the admin broadcast to topic sixvalley and the seller tokens, the e-mail variable substitution and the SMS provider order equal today's while storefronts are off (PushNotificationTrait, NotificationController, EmailTemplateTrait and SMSModule are identical to main in the PR 83 tree)
   - [MISSING] A characterization test pins each of those behaviours, on SQLite, MySQL 8 and MariaDB 11.4.2 (no test in main, PR 83 or PR 75 references them)
 - **(10) Next coding task.** Test-only branch off main: tests/Feature/Notifications/{PushPayloadTest,AdminBroadcastTest,EmailTemplateTest,SmsProviderOrderTest}.php with Http::fake for fcm.googleapis.com and Mail::fake, no source change; add tests/Feature/Notifications to the Fulfillment + security paths of .github/workflows/ci.yml so it also runs on MySQL 8 and MariaDB 11.4.2.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### I1-11. Coupon and CouponService logic is kept, its boundary pinned and its messages defined
 
@@ -232,17 +227,18 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `ci` ApiOrderPlacementTest::test_the_money_of_an_order_is_what_the_cart_says_whatever_the_address_and_the_mode: an amount coupon of 15 reduces an API order of 210 (origin/main tests/Feature/Address; PR 83 @8ff3410: Address tests MySQL 8 and MariaDB 11.4.2, Tests SQLite 8.2/8.3)
   - `ci` SellerApiPromotionOwnershipTest and VendorCouponChatAndPosShopOwnershipTest: a seller changes and views only their own coupons (PR 52 @ead8e2a: SQLite, Fulfillment + security MySQL 8 and MariaDB 11.4.2; PR 75 @47b78ab)
   - `none` No test of percentage cap, free delivery, first order, per-customer limit or vendor bearer
-- **(8) Dependencies and blockers.** OrderManager.php is changed by both the security set and the GCC chain and no combined tree has been tested, so no state above IMPLEMENTED IN DRAFT. Arabic wording needs a native reader. Seller-app decision on admin-assigned seller-bearer coupons (PR 52, seller-app audit row 15).
+- **(8) Dependencies and blockers.** OrderManager.php is changed by the security set (PR 75, 2 lines in the referral notification block, far from getTotalCouponAmount) and by PR 87 (3 lines, the order storefront record), not by the PR 83 stack. No state above IMPLEMENTED IN DRAFT because PR 2, 4 and 5, which carry the coupon tests and keys, are in neither integration tree and no combined run of them has been read (the all-in-one branch holds them, its CI run is unread). Arabic wording needs a native reader. Seller-app decision on admin-assigned seller-bearer coupons (PR 52, seller-app audit row 15).
 - **(9) Acceptance criteria.**
   - [MET] An eligible subtotal below min_purchase is refused with the minimum message, equal or above is accepted, after the product's own discount, on the shared rule, the web form and the customer API (CouponMinimumPurchaseBoundaryTest (12 tests); PR 4 @1d000df: Tests SQLite 8.2/8.3 (no MySQL or MariaDB group covers tests/Feature/Coupon))
   - [MET] An amount coupon reduces the order total of an API cash-on-delivery order by its amount (ApiOrderPlacementTest (SAVE15, discount_amount 15 of 210); PR 83 @8ff3410: Address tests MySQL 8, MariaDB 11.4.2, SQLite 8.2/8.3)
   - [MET] The minimum-purchase refusal of the coupon service and the admin controller use the defined Arabic or English text, and a refused empty cart or percentage coupon writes no language file (AdminCouponMinimumMessageTest (4) PR 2 @1ca1c4d; CouponMessageKeysTest (3) PR 5 @cf7d3e2; SQLite 8.2/8.3)
-  - [MET] A seller or vendor edits, switches and views only their own coupons; a platform coupon is not theirs (SellerApiPromotionOwnershipTest, VendorCouponChatAndPosShopOwnershipTest; PR 52 @ead8e2a (SQLite, Fulfillment + security MySQL 8, MariaDB 11.4.2); PR 75 @47b78ab)
+  - [CODED] A seller or vendor edits, switches and views only their own coupons; a platform coupon is not theirs (SellerApiPromotionOwnershipTest, VendorCouponChatAndPosShopOwnershipTest; PR 52 @ead8e2a (SQLite, Fulfillment + security MySQL 8, MariaDB 11.4.2); PR 75 @47b78ab)
   - [CODED] Percentage cap (max_discount), free delivery, first order, per-customer limit and vendor-bearer coupons behave as today (OrderManager::getTotalCouponAmount; no test in main, PR 83 or PR 75 asserts these types)
   - [MISSING] A fixed discount above the eligible subtotal is refused with its own accurate customer message, in Arabic and English (OrderManager returns the 'minimum not reached' text for three conditions; PR 4 proposes a dedicated key and does not apply it)
 - **(10) Next coding task.** On PR 4's branch (gcc/p0-coupon-minimum-boundary) add tests/Feature/Coupon/CouponTypesTest pinning percentage with max_discount, free_delivery, first_order and the per-customer limit through OrderManager::getTotalCouponAmount (same harness), then move the Coupon directory into a MySQL and MariaDB group of ci.yml. Copy fix: a new key for the discount-above-subtotal refusal in OrderManager and the seven locales, Arabic flagged for review.
 - **Open owner decisions.** Copy only: a dedicated customer message for a discount above the subtotal (PR 4); whether the admin wording 'must be greater than' should say 'at least' since equality is accepted (PR 2); Arabic text for the two defined refusal keys (PR 5); the seller-app decision on admin-assigned seller-bearer coupons (PR 52).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** links: AC2 (ApiOrderPlacementTest) cites PR 83 @8ff3410 as its CI evidence but PR 83 is not in links. Proposed: add {"repo":"lavkoo","pr":83,"sha":"8ff3410"} to links
 
 #### I1-12. Coupon amounts in each store's currency; legacy conversions verified
 
@@ -263,7 +259,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Existing coupon rows keep their values and redeem exactly as before after the store column is added (no migration and no test yet)
 - **(10) Next coding task.** Test-only branch off main, executable now: tests/Feature/Coupon/CouponCurrencyRoundTripTest creates coupons through CouponService::getAddData under currency_model single and multi (rates for USD, SAR, KWD, OMR), shows them with webCurrencyConverter, redeems them through OrderManager::getTotalCouponAmount, and asserts stored value, shown value and discount agree. Then coupons.storefront_country once the GCC-05 slice 2 PR exists.
 - **Open owner decisions.** Open Discovery questions Q-04 (limits and first order per store or per identity), Q-07 (rounding and decimals per currency), Q-08 (conversion policy for new stores), Q-38 (no automatic conversion against the existing multi-currency model); and whether one coupon code may exist in two stores (today unique across the table).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts; deps_blockers; next_task: Says the GCC-05 branch has no PR and 'stores a non-default storefront's amounts as they are' so CouponService must skip the conversion. The branch is PR 87 (head 4af1c305, slices 1 to 4, stacked on PR 64; context.json). On that head StorefrontCurrency overrides system_default_currency, currency_model (single) and decimals for a request served from a non-default storefront, so currencyConverter() returns amounts unchanged inside such requests; only the admin products routes carry the new money.market scope. Coupon.php, CouponService.php and the coupon routes are unchanged and docs/gcc/GCC-05-STOREFRONT-CURRENCY.md lists coupons as left for slice 5. Proposed: done_in_drafts: 'Nothing for coupons: Coupon.php and CouponService.php are identical to main in the PR 83 tree and in PR 87. PR 87 (GCC-05 slices 1 to 4, head 4af1c305, stacked on PR 64, CI no
+- **Verifier note (not applied automatically).** tests[0].what and ac[2].e: Says no currency-conversion test exists. True for currencyConverter, usdToDefaultCurrency, webCurrencyConverter, CouponService and coupon amounts, but tests/Feature/Fulfillment/PilotServerMoneyTest (main, Fulfillment group on MySQL 8 and MariaDB 11.4.2) pins ProviderCurrency::fromStored under the single- and multi-currency models with text rates. Proposed: No test of currencyConverter, usdToDefaultCurrency, webCurrencyConverter, CouponService or a converted coupon exists in main, PR 83 or PR 75; the only conversion tests are the provider-facing ProviderCurrency::fromStored ones in tests/Feature/Fulfillment/PilotServerMoneyTest.
 
 #### I1-13. Coupons name their eligible products and store
 
@@ -285,8 +282,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The eligible subtotal of a coupon is made from the request storefront's cart rows only (Cart has StorefrontCartScope and getCartListQueryAPI reads through Cart; StorefrontCartIsolationTest pins the cart rows, no coupon-specific test)
   - [MET] The customer app drops the applied coupon and the coupon lists when the storefront changes (storefront_cart_reload_test 'the applied coupon and the coupon lists are dropped'; lavkooapp #7 @56deea7: job storefront-header)
 - **(10) Next coding task.** Test-first on the PR 48 head: tests/Feature/Storefront/StorefrontCouponCartTest asserting that with storefronts on a coupon applied in SA computes its eligible subtotal from SA rows only and the same code applied in AE sees AE rows (pins what exists). After the owner answers Q-04: additive coupon_rules table and storefront_country column behind GCC_COUPON_RULES (off), with refusal and list narrowing tested in the Storefront group.
-- **Open owner decisions.** Whether eligible items are set per store (GCC-17 says each store has its own; Discovery Q-04 proposes everything per store), whether a store may copy another store's coupon definition (copy, no sync), and the Arabic and English refusal wording.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** GCC-17 (DECISIONS.md) already says each store has its own eligible items. Open: whether a store may copy another store's coupon definition (copy, no sync) and the Arabic and English refusal wording for a coupon of another store (Discovery Q-04 proposes everything per store).
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
 
 #### I1-14. Per-store coupon limits and budget
 
@@ -298,7 +295,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** none
 - **(7) Tests.**
   - `none` No test of the limit, the first-order rule or any cap in main, PR 83 or PR 75
-- **(8) Dependencies and blockers.** Q-04 and the GCC-17 details are open (per-store counting, what a budget caps). Currency units are I1-12's. The concurrency harness in tests/Feature/Concurrency exists for stock and wallet writes and can be reused.
+- **(8) Dependencies and blockers.** Q-04 and the budget meaning of GCC-17 are open. Currency units are I1-12's. The concurrency harness (tests/Feature/Concurrency: ConcurrencyHarnessTest and the stock, MyFatoorah, Noon order, Odoo posting, order ingestion, package split, return decision and attention suites) is in main and runs in the MySQL 8 and MariaDB 11.4.2 'concurrency' jobs and can be reused; wallet concurrency tests exist only on gcc/p0-wallet-concurrency-lock, not in main, PR 83 or PR 75.
 - **(9) Acceptance criteria.**
   - [CODED] A customer cannot redeem a coupon more often than its limit (OrderManager::getTotalCouponAmount compares Coupon.limit with the customer's order groups; the applicable-coupon list filters on the customer's order count; no test)
   - [CODED] A first_order coupon is refused once the customer has an order (OrderManager::getTotalCouponAmount; no test)
@@ -306,8 +303,9 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A coupon with a total cap refuses the next redemption, also under two concurrent checkouts (no cap field and no atomic counter)
   - [MISSING] A coupon with a budget stops when the discounts given reach it, and the admin sees the spend in the store's currency (no budget or spend field exists)
 - **(10) Next coding task.** Test-first on a branch off main: tests/Feature/Coupon/CouponLimitTest pinning the per-customer limit (two orders, the second refused) and the first-order rule through OrderManager::getTotalCouponAmount, plus a two-process redemption test in tests/Feature/Concurrency with the existing harness that today shows both pass; then the additive coupon_redemptions ledger with a unique key per order group behind GCC_COUPON_RULES (off).
-- **Open owner decisions.** Q-04 (limit and first order per store or per identity; the GCC-17 text says per store) and what a budget caps (discounts given per store and period, who may raise it). No owner document answers either.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** GCC-17 (DECISIONS.md) says each store has its own limits and redemption. Still open: whether first order and the per-customer limit are counted per store or per customer identity (Discovery Q-04; its proposal is per store), what a budget caps (discounts given per store and period) and who may raise it.
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### I1-15. Campaigns: central ones choose stores, local ones belong to one store
 
@@ -320,7 +318,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(7) Tests.**
   - `ci` StaffTaxAndAnalyticsTest: every analytics screen (7 routes, campaign tools included) answers 404 to an employee restricted to KW and is unchanged for one with no country (tests/Feature/StaffScope/StaffTaxAndAnalyticsTest.php; PR 82 @d1fc5f4: Tests SQLite 8.2/8.3; PR 83 @8ff3410: Staff scope tests MySQL 8 and MariaDB 11.4.2)
   - `none` No test of a campaign, deal or coupon limited to a market
-- **(8) Dependencies and blockers.** GCC-17 details are not written in any owner document. Local campaigns need GCC-14c slice 4 (unit G). The overlay cache key is B-16's remaining item (2). Coupon rules of I1-12 to I1-14 come first.
+- **(8) Dependencies and blockers.** GCC-17 sets the principle (DECISIONS.md) but not the local-campaign, budget and flash-deal details. Local campaigns need GCC-14c slice 4 (unit G, G-09). The overlay cache key is B-16's remaining item (2). Coupon rules of I1-12 to I1-14 come first.
 - **(9) Acceptance criteria.**
   - [MISSING] A central campaign can select one, several or all markets and runs only in the selected ones (ExperienceCampaign has no market field)
   - [MISSING] Each selected market has its own coupon amounts, currency, limits, eligible products and budget (see I1-12 to I1-14; no campaign-to-rules link exists)
@@ -328,8 +326,10 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The experience-campaign overlay is cached per storefront (CampaignResolver keys 'commerce_campaign_overrides_' . page with no storefront)
   - [MET] The analytics campaign screens are unavailable to a country-restricted employee (StaffTaxAndAnalyticsTest::test_every_analytics_screen_is_unavailable_to_a_restricted_employee; PR 82 @d1fc5f4 SQLite; PR 83 @8ff3410 Staff scope MySQL 8, MariaDB 11.4.2)
 - **(10) Next coding task.** Executable now on the PR 64 chain: key CampaignResolver's commerce_campaign_overrides_<page> with the storefront cache key and clear it for every storefront, with a test that a KW overlay is not served in SA. After the owner confirms GCC-17: additive campaign_markets (campaign_id, storefront_country) behind GCC_CAMPAIGN_MARKETS (off), CampaignResolver filtering by it, tests for central selection and flag-off identity.
-- **Open owner decisions.** GCC-17 details are not written in any owner document: whether a campaign belongs to one market or selects several (Discovery proposal: the central campaign only selects markets, rules stay local, Q-04), who may create a local campaign, and one active flash deal system-wide or per store (B-16).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Open owner decisions.** GCC-17 (DECISIONS.md) decides that a central campaign may select markets and that each store has its own amounts, currency, limits, eligible items and redemption. Not written down: who may create and run a local campaign (plan line 426), what a campaign budget caps and who may raise it, and whether the one active flash deal stays system-wide or becomes per store (B-16).
+- **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** ac[2].e (the same wording is in I1-04 ac[4].e): Evidence says no staff-scope rule covers the 'campaign' screens, but StaffOrderRoutes carries storeCampaign, toggleCampaign and campaignQr as 'unavailable' (PR 82), which is the MET criterion of the same card. Proposed: no staff-scope rule covers the coupon, notification, cart-marketing, flash-deal or experience-campaign screens (only the analytics campaign tools carry one, 'unavailable', PR 82)
 
 #### I1-16. Languages per market
 
@@ -353,14 +353,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] Arabic shows right-to-left and English left-to-right on the website and in the customer app (direction comes from the language list; LocalizationController sets isLtr false for 'ar'; no test)
 - **(10) Next coding task.** On gcc/p1-storefront-api-header (PR 28) add 'languages' and 'default_language' (ar, en for all six) to each entry of config('gcc.storefronts.countries') and to StorefrontListing, additive and off by default; APILocalizationMiddleware and SharedController choose against the storefront's list while the flag is on. Tests: six markets, unlisted code falls back, flag-off byte-identical.
 - **Open owner decisions.** The plan names no language list: which languages each market offers (Arabic and English assumed), whether Gulf Arabic variants are needed, one Arabic code ('ar' or the live 'sy'), and whether language follows the market or the customer. No owner document answers it.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### I1-17. Customer-facing text is translated per market, and tests never rewrite language files
 
 - **State: IN PROGRESS** | plan lines 409; owner axis word 'languages' | Charter section 3 item 6 (copy; tests must not write into resources/lang); owner axis word languages | reviews: native-arabic
 - **(2) Functional requirement.** Every customer-facing string of the coupon, notification, checkout and storefront flows has an English and an Arabic text in each market's locale, read by a native speaker. A test fails when a key those flows use is missing from a locale, and no test lets translate() append a key to a tracked file under resources/lang.
 - **(3) Exists now in code (main).** translate() appends a humanised English placeholder to resources/lang/<locale>/new-messages.php for any unknown key at run time. Measured on main by a line-based count: en 17,818 keys; sa 11,970 (95% in Arabic); ks 11,985 (94%); ae 17,726 but only 15% in Arabic, the rest English placeholders. Push and e-mail texts are database rows, UNVERIFIED. Fulfillment and sales-channel keys have per-locale tests; the customer app has localization_keys_test (en, ar).
-- **(4) Done in the draft PRs.** PR 5 defines the empty-cart and percentage refusal keys in seven locales (English text everywhere, no Arabic added); PR 2 fixes the admin key; the tests of PR 2, 4, 5 and 45 digest resources/lang and fail on a write; PR 63 makes translate() write atomically, refuse markup keys and use var_export. Customer app PR 5 and 7 and seller app PR 6 add Arabic strings listed for a native reader. PR 2, 4 and 5 are in neither integration tree.
+- **(4) Done in the draft PRs.** PR 5 defines the empty-cart and percentage refusal keys in seven locales (English text everywhere, no Arabic added); PR 2 fixes the admin key; the tests of PR 2, 4, 5 and 45 digest resources/lang and fail on a write; PR 63 makes translate() add a key under a lock and replace the file in one step (AtomicFile), refuse a key that carries markup or a control character, and leave the locale the API middleware chose for the whole request (var_export was already used on main). Customer app PR 5 and 7 and seller app PR 6 add Arabic strings listed for a native reader. PR 2, 4 and 5 are in neither integration tree.
 - **(5) What remains.** (1) a key-coverage test for the coupon, notification, checkout and storefront messages in en, sa and ae (the pattern of TranslationsTest); (2) Arabic for the two PR 5 keys and for the ae locale; (3) native Arabic review of the GCC strings the PR bodies list; (4) a rule for keys written at run time on the server; (5) notification texts per language in the database for each market.
 - **(6) PRs and commits.** [lavkoo#2](https://github.com/fullstackfull/lavkoo/pull/2) `1ca1c4d`; [lavkoo#4](https://github.com/fullstackfull/lavkoo/pull/4) `1d000df`; [lavkoo#5](https://github.com/fullstackfull/lavkoo/pull/5) `cf7d3e2`; [lavkoo#45](https://github.com/fullstackfull/lavkoo/pull/45) `d78ef20`; [lavkoo#63](https://github.com/fullstackfull/lavkoo/pull/63) `de0a7d5`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`; [lavkooappseller#6](https://github.com/fullstackfull/lavkooappseller/pull/6) `e4d7d02`
 - **(7) Tests.**
@@ -378,7 +377,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The Arabic wording of the GCC strings is approved by a native reader (strings awaiting review are listed in the bodies of lavkooapp #5 and #7 and lavkooappseller #6 (43 keys); UNVERIFIED)
 - **(10) Next coding task.** On a branch off main add tests/Feature/Notifications/CustomerMessagesTranslatedTest: scan OrderManager, CouponService, the coupon controllers and views and the PushNotificationService keys for translate('...') literals; assert each exists in en, sa and ae with Arabic in sa and ae, against a baseline of today's English-only keys that only shrinks. Add Arabic for Please_add_item_to_cart and the percentage refusal, flagged for native review.
 - **Open owner decisions.** Arabic wording of the GCC strings (backend PR 5, customer app PR 5 and 7, seller app PR 6), and whether keys may keep being written at run time on the server. No owner document answers either.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** ac[4].e: '(43 keys)' after three PRs reads as a total. The PR bodies give 43 keys only for lavkooappseller #6 (Platform Super Admin sign-in, session and audit texts); lavkooapp #7 lists 10 (4 sentences and 6 country names) and lavkooapp #5 one sentence plus Bengali, Spanish and Hindi lines. Proposed: strings awaiting review are listed in the bodies of lavkooappseller #6 (43 keys, Platform Super Admin screens), lavkooapp #7 (10 keys: 4 sentences and 6 country names) and lavkooapp #5 (1 sentence); UNVERIFIED
 
 #### I1-18. Communications audit (axis J): e-mail, SMS, WhatsApp, push, audiences, templates
 
@@ -396,7 +396,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] The FCM topic inventory lists every send and subscribe site in the backend and both apps (E06 section 2.2 (seven topic names, with the sender and subscriber lines))
   - [CODED] The open questions of the channels (consent model, Firebase project, seller topic, coupon limits) are written for the owner (11-open-decisions-for-owner.md: Q-04, Q-15, Q-32, Q-44)
 - **(10) Next coding task.** Optional, test-only branch off main: tests/Unit/Notifications/SendSiteInventoryTest scans app/ (as RequestAreaTest does) for calls to sendPushNotificationToDevice and ToTopic, sendingMail, Mail::to, SMSModule::send, SmsGateway::send, ZenderOtpService::send and the Chatwoot senders, and compares them with a committed registry of channel, store handling, consent class and log. Merging the docs branch stays with the owner.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### I2-01. Per-country legal text store: versions, approval and effective dates, history
 

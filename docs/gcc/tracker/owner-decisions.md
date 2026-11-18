@@ -194,9 +194,9 @@ Taken from the "Open owner decisions" field of each requirement card, as of 2026
 - **I1-09:** Retention period and redaction rule for delivery logs (not decided), and whether the log is per store or central.
 - **I1-11:** Copy only: a dedicated customer message for a discount above the subtotal (PR 4); whether the admin wording 'must be greater than' should say 'at least' since equality is accepted (PR 2); Arabic text for the two defined refusal keys (PR 5); the seller-app decision on admin-assigned seller-bearer coupons (PR 52).
 - **I1-12:** Open Discovery questions Q-04 (limits and first order per store or per identity), Q-07 (rounding and decimals per currency), Q-08 (conversion policy for new stores), Q-38 (no automatic conversion against the existing multi-currency model); and whether one coupon code may exist in two stores (today unique across the table).
-- **I1-13:** Whether eligible items are set per store (GCC-17 says each store has its own; Discovery Q-04 proposes everything per store), whether a store may copy another store's coupon definition (copy, no sync), and the Arabic and English refusal wording.
-- **I1-14:** Q-04 (limit and first order per store or per identity; the GCC-17 text says per store) and what a budget caps (discounts given per store and period, who may raise it). No owner document answers either.
-- **I1-15:** GCC-17 details are not written in any owner document: whether a campaign belongs to one market or selects several (Discovery proposal: the central campaign only selects markets, rules stay local, Q-04), who may create a local campaign, and one active flash deal system-wide or per store (B-16).
+- **I1-13:** GCC-17 (DECISIONS.md) already says each store has its own eligible items. Open: whether a store may copy another store's coupon definition (copy, no sync) and the Arabic and English refusal wording for a coupon of another store (Discovery Q-04 proposes everything per store).
+- **I1-14:** GCC-17 (DECISIONS.md) says each store has its own limits and redemption. Still open: whether first order and the per-customer limit are counted per store or per customer identity (Discovery Q-04; its proposal is per store), what a budget caps (discounts given per store and period) and who may raise it.
+- **I1-15:** GCC-17 (DECISIONS.md) decides that a central campaign may select markets and that each store has its own amounts, currency, limits, eligible items and redemption. Not written down: who may create and run a local campaign (plan line 426), what a campaign budget caps and who may raise it, and whether the one active flash deal stays system-wide or becomes per store (B-16).
 - **I1-16:** The plan names no language list: which languages each market offers (Arabic and English assumed), whether Gulf Arabic variants are needed, one Arabic code ('ar' or the live 'sy'), and whether language follows the market or the customer. No owner document answers it.
 - **I1-17:** Arabic wording of the GCC strings (backend PR 5, customer app PR 5 and 7, seller app PR 6), and whether keys may keep being written at run time on the server. No owner document answers either.
 - **I2-01:** Retention period and deletion rules for legal texts and acceptances (Q-16). Whether seller terms are a separate document from customer terms (Q-16). Whether Saudi gets imported history or stays grandfathered only.
@@ -243,12 +243,12 @@ Taken from the "Open owner decisions" field of each requirement card, as of 2026
 - **K-08:** Hide by role in the app or keep the 403 toast (the study doc's phase 4 was never done); staff push tokens (#52 row 8): accept owner-only or build per-staff device tokens.
 - **K-09:** Q-17 and Q-18: whether sellers trade in several markets with one login; who holds the top scope; entity scope as a second dimension (14C: entities have no table yet).
 - **K-10:** Where decimals live (server per storefront or an app table); whether multi_currency is dropped for GCC builds.
-- **K-11:** Remove or feed the lavkoo_seller topic (U7); per-staff push tokens (#52 row 8); whether pushes for necessary order notices continue while a market is paused (GCC-12).
+- **K-11:** Q-44 (D-14): remove or feed the lavkoo_seller topic (E19 U7 asks whether it was ever sent to by hand); per-staff push tokens (#52 row 8); whether pushes for necessary order notices continue while a market is paused (GCC-12).
 - **K-12:** Where queued offline sales live after sign-out; whether a stored market is per account or per device.
 - **K-13:** Wording of scan: المسح or المسح الضوئي (the app#5 body points to the existing scan_item_or_add_from_item).
 - **K-14:** Options A, B or C of the 2026-11-12 audit: correct the test constant with evidence, release a build at or above the minimum, or lower the production minimum.
-- **K-17:** Q-18 and U6; refusal channel (#52 row 10); staff push tokens (row 8); admin-assigned coupons (row 15); digital file types (row 35); the lavkoo_seller topic (U7).
-- **K-18:** R-117: the seller app's theme scope (own static theme versus consuming the theme contract) and whether the app shows the market's brand (GCC-10).
+- **K-17:** Q-18 and U6; refusal channel (#52 row 10); staff push tokens (row 8); admin-assigned coupons (row 15); digital file types (row 35); the lavkoo_seller topic (Q-44 / D-14).
+- **K-18:** Q-43 (D-12; risk R-117): the seller app's theme scope (own static theme versus consuming the theme contract, or only image rules) and whether the app shows the market's brand (GCC-10).
 
 ## Axis L: GCC-20 Super Admin
 

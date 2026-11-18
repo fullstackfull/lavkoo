@@ -1,14 +1,14 @@
 # Axis H: Shipping and integrations
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 34. Acceptance criteria: 152 (MET 80, CODED 9, MISSING 63). Code completion 59%, proven by a passing test 53%, release readiness 16%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 34. Acceptance criteria: 152 (MET 79, CODED 10, MISSING 63). Code completion 59%, proven by a passing test 52%, release readiness 16%.
 
-Independent verification: done for unit(s) H2; not done yet for H1.
+Independent verification: done for unit(s) H1, H2.
 
 Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
 
 #### H1-01. Cross-border selling is allowed per storefront by setting, default off
 
-- **State: NOT STARTED** | plan lines 26, 262 | GCC-16; GCC-19; Discovery owner question Q-13 | reviews: owner-decision, legal
+- **State: IN PROGRESS** | plan lines 26, 262 | GCC-16; GCC-19; Discovery owner question Q-13 | reviews: owner-decision, legal
 - **(2) Functional requirement.** A storefront may take an order for a destination country other than its own only when an explicit setting allows that source-to-destination pair. The setting ships off, so each store sells inside its own country until the owner opens a pair.
 - **(3) Exists now in code (main).** main has no per-storefront rule. The only destination rule is global: business setting delivery_country_restriction plus table delivery_country_codes, judged at web checkout (SystemController), REST address add and update, and REST order routes. When that setting is off any country text passes (live value UNVERIFIED). main has no config/gcc.php; in the PR 83 tree it holds no shipping key.
 - **(4) Done in the draft PRs.** Nothing for destinations. The storefront chain (#8, #19, #28, #37, #42, #47 to #50, #53) fixes the source side only: country-owned products, a cart that holds one storefront's rows, a legal-readiness sale gate and payment completion in the starting storefront. It adds no destination rule and no cross-border key.
@@ -24,13 +24,12 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Changing a pair is audited and allowed only to staff of the source country (no setting, no screen)
 - **(10) Next coding task.** New branch stacked on #53: config gcc.shipping.cross_border (env GCC_CROSS_BORDER_SHIPPING, default false) with allowed destinations per source country, and App\Services\Shipping\CrossBorderPolicy::allows(source, destination). Add tests/Unit/Storefront/CrossBorderPolicyTest: off, own country, enabled pair, other pair refused, unknown code, letter case. No checkout wiring yet (H1-06).
 - **Open owner decisions.** Which source-to-destination pairs may open first, who may switch a pair on, and whether any pair needs a legal check first (Discovery Q-13).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### H1-02. A carrier declares the routes it serves; checkout and dispatch honour them
 
 - **State: NOT STARTED** | plan lines 26, 266 | GCC-16; DECISIONS (support future country-specific providers); Discovery E11-F01, E11-F04, E11-F11; owner question Q-33 | reviews: owner-decision
 - **(2) Functional requirement.** Each carrier or fulfillment provider declares the source-to-destination country routes it serves and whether cash on delivery works on them. Checkout refuses a route no provider of the cart's items serves, and dispatch holds an order whose destination lies outside its provider's routes.
-- **(3) Exists now in code (main).** main has no route concept. ProviderCode is a closed two-case enum. M5AZN sends country and country_code from one provider setting (default SA), not from the order. provider_cities has no country. provider_city_mappings.country_code exists and nothing writes it. Preflight checks mapping, address, Saudi phone and city only, so nothing compares the order's destination with the provider's country.
+- **(3) Exists now in code (main).** Preflight checks product mapping and approval, known stock, address text, Saudi phone, the Torod city mapping and the cash-on-delivery setting, so nothing compares the order's destination with the provider's country.
 - **(4) Done in the draft PRs.** No route data in any draft. #72 and #76 only record in ProductCodeScope that provider connections have no country of their own and all serve the default storefront (Torod suggestions, its picker and the M5AZN import are narrowed to it, switch off by default).
 - **(5) What remains.** (1) a route declaration (config or table: provider, source, destination, services, cash on delivery); (2) a RouteSupport service read by cart assignment, checkout and preflight; (3) a new hold reason for an unsupported route; (4) write and filter provider_city_mappings.country_code; (5) each carrier's real coverage in writing.
 - **(6) PRs and commits.** none
@@ -44,7 +43,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A mapping row carries the country of its city and candidates are filtered by it (provider_city_mappings.country_code is never written)
 - **(10) Next coding task.** Branch from main (the adapters are touched by neither integration tree): config fulfillment.providers.<code>.routes (Torod and M5AZN: SA to SA), App\Services\Fulfillment\ProviderRouteSupport and HoldReason::ROUTE_UNSUPPORTED checked in the dispatcher before adapter preflight. tests/Feature/Fulfillment/RouteSupportTest: a config-declared SA to AE route passes, SA to KW holds, Saudi orders unchanged.
 - **Open owner decisions.** Q-33: which carrier serves which country under which contract and company id, and whether one provider code may serve two countries.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** ac[2].e (Dispatch preflight holds ... with a named reason): Evidence text 'today only phone and city holds' is inaccurate for the same reason (HoldReason also has mapping, stock, address and cash-on-delivery holds). Proposed: HoldReason has no route reason; today the preflight holds for mapping, known stock, address, phone, city mapping and the cash-on-delivery setting
 
 #### H1-03. Product shipping, export and import permission; no permission means no foreign shipping
 
@@ -61,13 +61,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A product with no permission record is refused for a destination outside its country (no record exists)
   - [MISSING] An authorised admin sets shipping, export and import permission per product or category and destination, and the change is audited (no form, no table)
   - [MISSING] Weight and customs data (HS code, origin country) exist on the product for rates and duty (no such column on products)
-- **(10) Next coding task.** Stacked on #64: additive migration for a product_destination_permissions table (product_id, destination_country, may_ship, may_export, may_import, recorded_by, recorded_at, unique on product and destination) and a Product relation; no UI. tests/Feature/Catalog/ProductDestinationPermissionTest on SQLite and the Catalog MySQL group: no row means denied, a row allows only its destination, the unique key holds.
+- **(10) Next coding task.** Stacked on #64: additive migration for a product_destination_permissions table (product_id, destination_country, may_ship, may_export, may_import, recorded_by, recorded_at, unique on product and destination) and a Product relation; no UI. tests/Feature/Storefront/ProductDestinationPermissionTest, which runs on SQLite and in the Storefront MySQL 8 and MariaDB group that #64's workflow has (or stack on #72 and add the Catalog group to that branch's ci.yml): no row means denied, a row allows only its destination, the unique key holds.
 - **Open owner decisions.** Who decides and maintains the permission lists, and whether the default is deny for every foreign destination (Discovery Q-13, option a).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
 
 #### H1-04. Regulated health and pharmaceutical goods fail closed, whatever the courier covers
 
-- **State: NOT STARTED** | plan lines 268 | GCC-16; DECISIONS ('Checkout validates product eligibility independently of courier coverage'); Discovery E11-F12; owner question Q-13 | reviews: legal, owner-decision
+- **State: IN PROGRESS** | plan lines 268 | GCC-16; DECISIONS ('Checkout validates product eligibility independently of courier coverage'); Discovery E11-F12; owner question Q-13 | reviews: legal, owner-decision
 - **(2) Functional requirement.** A medicine, supplement or medical device, or any product nobody classified, cannot cross a border unless a recorded clearance exists for its class and the destination. A carrier that covers the route never overrides this.
 - **(3) Exists now in code (main).** main: RegulatedProductGate, default off, for sales-channel listings only. The owner's lists (categories, brands, name patterns, per channel) mark a product as regulated; strict mode refuses an unclassified product and requires a clearance with a reference, recorded by a person whose role holds the sales_channels module. No store checkout, REST or POS path calls it.
 - **(4) Done in the draft PRs.** Nothing for storefront checkout.
@@ -83,7 +83,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The refusal reason is shown in Arabic and English on web, REST and both apps (no reason key)
 - **(10) Next coding task.** On the H1-03 branch: App\Services\Shipping\RegulatedShippingGate modelled on RegulatedProductGate (modes off and strict, owner lists in config gcc.shipping.regulated, no category means refused, a recorded clearance table). tests/Feature/Storefront/RegulatedShippingGateTest: unclassified refused, listed class refused, clearance allows, mode off passes. Not wired to checkout until H1-06.
 - **Open owner decisions.** Q-13: which regulated classes may be shipped across each border, who approves that list (a competent authority or counsel), and that an unclassified product is refused (option a, closed by default).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### H1-05. Destination address accepted: country-aware rules and carrier serviceability
 
@@ -104,7 +103,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] An address whose city no carrier serves is refused at checkout with a translated reason (only the dispatcher holds it today (hold_city_unmapped))
 - **(10) Next coding task.** On a branch from main: a country table for the six markets (code, English and Arabic names, calling code, postal pattern) beside AddressCountry (isSaudi stays), a ShippingAddressService rule that validates phone and postal code per country, and a country filter on AddressCatalog. tests/Feature/Address/SixCountryAddressTest: each country accepts a well-formed and refuses a malformed address; Saudi payloads byte for byte unchanged.
 - **Open owner decisions.** The licensed source of region and city lists for AE, KW, QA, BH and OM, which postal and phone formats to enforce per country, and the unified address mode per storefront (Q-23).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### H1-06. One shipping eligibility engine decides local or cross-border and refuses with reasons
 
@@ -125,14 +123,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] With the switch off checkout behaves exactly as today, and every reason key exists in every locale file (no switch, no keys)
 - **(10) Next coding task.** After H1-01: App\Services\Shipping\ShippingEligibility returning EligibilityDecision(local|cross_border, allowed, reasons[]), composing CrossBorderPolicy and leaving product, route, address and payment as interfaces that fail closed. Wire it into Customer\SystemController::getChooseShippingAddressOther behind GCC_CROSS_BORDER_SHIPPING. tests/Feature/Storefront/ShippingEligibilityTest: local passes, unopened pair refused, flag off unchanged.
 - **Open owner decisions.** Whether staff may place a cross-border order by hand from the admin panel or POS. The pairs, regulated classes and duty rules are decided under H1-01, H1-04 and H1-09.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### H1-07. A foreign destination never changes the stock owner, seller or selling company
 
 - **State: IN PROGRESS** | plan lines 273 | GCC-16; GCC-13; DECISIONS ('Source storefront inventory and seller remain fixed'); Discovery E11-F10; owner questions Q-10, Q-39 | reviews: finance, legal, owner-decision
 - **(2) Functional requirement.** A cross-border order is created in the source storefront. Its lines keep the source product row's stock, seller and fulfillment provider, and the order is sold by the source selling company. The destination country only affects shipping, tax and duty and is stored as a separate fact.
 - **(3) Exists now in code (main).** main: a product is one row, OrderManager takes stock from that row by id and never reads a country, the line's provider is frozen when the order is placed (OrderItemOwnershipSnapshotter) and the destination sits in the order's address copy. Orders carry no storefront, country, currency or legal entity of their own: an order follows from its lines (GCC-14C doc in the PR 83 tree).
-- **(4) Done in the draft PRs.** #47 makes a product belong to one country; #48 makes a cart hold only its storefront's rows, so a cart cannot mix sources; #53 finishes a payment in the storefront it started in. All default off (GCC_STOREFRONTS_ENABLED). The order-level stamp is announced as the next step in #48 and does not exist.
+- **(4) Done in the draft PRs.** ... #48 announces the order-level stamp as the next step. In the pack it does not exist; its storefront and currency half is coded on gcc/p1-storefront-currency (PR 87, commit 8d500a66, not in PR 83 or PR 75, CI unread). The selling entity and the destination snapshot are not coded anywhere.
 - **(5) What remains.** (1) stamp the source storefront and selling entity on the order at creation and keep the destination as a separate snapshot; (2) tests with a foreign address proving the stock row, seller and provider are unchanged (shared with C-16); (3) refunds and returns going back to the source entity and currency (D2); (4) the entity model decision.
 - **(6) PRs and commits.** [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#53](https://github.com/fullstackfull/lavkoo/pull/53) `7e32bba`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
 - **(7) Tests.**
@@ -140,13 +137,14 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `ci` StorefrontPaymentCallbackTest: a paid Kuwait cart becomes an order although the callback names no storefront (PR 83 8ff3410: Storefront tests MySQL 8 and MariaDB 11.4.2, Tests SQLite (PHP 8.2, 8.3))
 - **(8) Dependencies and blockers.** Owner decisions on the first legal-entity model (Q-10) and on the one-entity cart against seller split (Q-39). CartManager.php and both CartControllers are changed by the security set and by the chain; the combined tree (PR 75 with PR 83) does not exist.
 - **(9) Acceptance criteria.**
-  - [MET] A cart holds only the products of its own storefront, so a foreign-destination order is always built from the source storefront's rows (StorefrontCartGuardTest::test_adding_another_countrys_product_to_the_cart_is_refused_and_leaves_the_cart_empty; PR 83 8ff3410, Storefront tests MySQL 8, MariaDB 11.4.2 and Tests SQLite)
+  - [CODED] A cart holds only the products of its own storefront, so a foreign-destination order is always built from the source storefront's rows (StorefrontCartGuardTest::test_adding_another_countrys_product_to_the_cart_is_refused_and_leaves_the_cart_empty; PR 83 8ff3410, Storefront tests MySQL 8, MariaDB 11.4.2 and Tests SQLite)
   - [MET] A payment started in one storefront is finished in that storefront whatever the callback request says (StorefrontPaymentCallbackTest::test_a_paid_kuwait_cart_becomes_an_order_although_the_callback_names_no_storefront; PR 83 8ff3410, same jobs)
   - [CODED] A foreign destination address never changes the product row whose stock is taken, the seller of the line or the provider snapshot (OrderManager never reads a country and decrements the product row; no test uses a foreign address (C-16 to pin it))
   - [MISSING] The order records its source storefront and selling entity separately from the destination country (orders carry no country or entity; #48 defers the stamp)
-- **(10) Next coding task.** On the #48 stack: nullable orders.storefront_country and orders.destination_country stamped at order creation behind the storefront flag (additive migration, tests on SQLite and the Storefront MySQL group), plus tests/Feature/Storefront/CrossBorderOwnershipTest: a Saudi-storefront order to a Kuwait address keeps the Saudi product row, stock, seller and provider snapshot. Share fixtures with C-16.
+- **(10) Next coding task.** Stack on PR 87 (gcc/p1-storefront-currency) and do not add a second orders.storefront_country. Add only the destination (orders.destination_country, or read it from the address snapshot) and the selling entity, behind the storefront flag, plus tests/Feature/Storefront/CrossBorderOwnershipTest on SQLite and the Storefront MySQL group: a Saudi-storefront order to a Kuwait address keeps the Saudi product row, stock, seller and provider snapshot. Share fixtures with C-16.
 - **Open owner decisions.** Q-10 first legal-entity model; Q-39 one-entity cart against seller split; which entity invoices a cross-border sale (the source entity, by GCC-16).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 
 #### H1-08. Shipping cost per destination and route, in the store's currency
 
@@ -158,7 +156,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(6) PRs and commits.** [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`
 - **(7) Tests.**
   - `ci` ShipmentCostServiceTest::test_a_city_outside_every_zone_is_a_missing_cost (carrier cost to the merchant) (PR 83 8ff3410 and PR 75 47b78ab: Sales-channel and cost tests (costs) MySQL 8.0 and MariaDB 11.4.2)
-- **(8) Dependencies and blockers.** GCC-05 storefront currency seam (orchestrator task M3, in progress, no PR yet); product weight; owner decisions Q-07 (decimals) and Q-08 (conversion policy). CartManager.php is changed by both integration sets.
+- **(8) Dependencies and blockers.** GCC-05 storefront currency seam (PR 87, gcc/p1-storefront-currency, slices 1-4 pushed, CI unread; shipping costs and free-delivery thresholds are explicitly left to later slices)
 - **(9) Acceptance criteria.**
   - [CODED] With zone_wise_shipping on, web checkout charges the destination zone's rate (country, region, free-over, base plus per kg) and falls back to the method cost when no zone matches (ShippingRateService and SystemController::zoneShippingCost; no test mentions ShippingZone in any tree)
   - [CODED] With the setting off, checkout charges the chosen method's cost unchanged (SystemController::zoneShippingCost returns the method cost; no test)
@@ -168,7 +166,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The carrier's cost to the merchant is estimated from the contract by destination country and city zone, and a city outside every zone is a missing cost, not free (ShipmentCostServiceTest::test_a_city_outside_every_zone_is_a_missing_cost; PR 83 8ff3410 and PR 75 47b78ab, Sales-channel and cost tests (costs) MySQL 8.0 and MariaDB 11.4.2)
 - **(10) Next coding task.** Test-only branch from main: tests/Feature/Shipping/ShippingZoneRateTest pinning ShippingRateService today (a specific zone beats the catch-all, region list, free-over, per-kg at weight 0, no zone returns the fallback) and SystemController::zoneShippingCost with the setting on and off. Then design the REST parity on the same branch.
 - **Open owner decisions.** Q-07 decimals and rounding per currency; Q-08 conversion policy for new stores (no automatic FX is decided); who sets cross-border shipping rates.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### H1-09. Tax and duties on a cross-border order
 
@@ -188,7 +186,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A route whose tax or duty cannot be determined refuses the order and never charges zero (no engine)
 - **(10) Next coding task.** Test-only on main first: tests/Unit/TaxModule/CalculateTaxServiceCountryTest pinning that countryCode selects a SystemTaxSetup and that getTaxSystemType ignores it. Then, stacked on the H1-06 branch, a CrossBorderTaxQuote value object whose default is 'not quoted', which the engine treats as refused (fail closed).
 - **Open owner decisions.** Q-11: tax and invoice per entity and who approves rates; whether the seller or the buyer pays duty per route; which entity invoices a cross-border sale.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### H1-10. Address-to-carrier city mapping that works in every country
 
@@ -209,7 +206,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Regions and cities of the other five countries exist in the address master (AddressImporter writes country SA only)
 - **(10) Next coding task.** On a branch from main: ProviderCityMappingService writes the country of the address region on every proposal and approval and filters candidates by it; an additive migration makes the alias unique per country; tests/Feature/Address/MappingCountryTest with a Riyadh in SA and a same-named test city in AE (test-only rows). Saudi mappings and payloads stay byte for byte the same.
 - **Open owner decisions.** The licensed source for the five countries' lists and who approves city mappings per country; whether a Saudi mapping may be reused on a cross-border route.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### H1-11. Carrier adapters open to providers in other countries
 
@@ -230,7 +226,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A GCC storefront never reaches the legacy Delivery Syria hook in checkout (the hook keys on a shipping method named DeliverySyria; no per-storefront methods (H1-14))
 - **(10) Next coding task.** Together with C-12, from main: tests/Feature/Fulfillment/ThirdProviderTest with a test-only FakeAeAdapter registered through config: route, preflight, dry-run dispatch and order summary. It will show the closed ProviderCode enum is the blocker; then replace the enum by a registry of codes or add a case per provider.
 - **Open owner decisions.** Q-33: which provider serves which country under which contract; Q-24: whether Delivery Syria stays disabled in Gulf storefronts (proposed: yes).
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
 
 #### H1-12. Torod Point and M5AZN integrations kept working as carriers
 
@@ -250,9 +245,9 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The provider is asked exactly once however many times the job runs, and a timeout after sending is never answered with a second send (DispatcherTest::test_the_provider_is_asked_exactly_once_however_many_times_the_job_runs, ::test_a_timeout_after_sending_is_never_answered_with_a_second_send; same jobs)
   - [MET] An order whose city has no approved Torod mapping is held and no request is made (TorodCityResolutionTest::test_no_order_request_is_ever_made_while_the_city_is_not_settled; PR 83 8ff3410 and PR 75 47b78ab, Address tests MySQL 8 and MariaDB 11.4.2)
   - [MET] Nothing leaves the host while the kill switch or the external-writes switch is off (ExternalWriteGuardTest::test_a_write_is_refused_before_anything_leaves_the_host; DispatcherTest::test_the_global_kill_switch_stops_everything; same Fulfillment + security jobs)
-- **(10) Next coding task.** On a branch from main add tests/Feature/Fulfillment/TorodPayloadStorefrontOnTest (shared with C-18): build one Torod and one M5AZN order payload with GCC_STOREFRONTS_ENABLED off and on (Saudi default) and assert the payloads are byte for byte equal; then run tests/Feature/Fulfillment and tests/Feature/Address on the combined tree when it exists.
+- **(10) Next coding task.** On a branch stacked on the storefront chain (for example #53, or the PR 83 integration branch, where config/gcc.php and GCC_STOREFRONTS_ENABLED exist) add tests/Feature/Fulfillment/TorodPayloadStorefrontOnTest (shared with C-18): build one Torod and one M5AZN order payload with the flag off and on (Saudi default) and assert the payloads are byte for byte equal; then run tests/Feature/Fulfillment and tests/Feature/Address on the combined tree when it exists.
 - **Open owner decisions.** Merging #1 also changes CLAUDE.md on main (its own note): the owner merges it, or only its Torod test line is cherry-picked.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
 
 #### H1-13. Shipping and tax trace for local and international orders, pinned by scenario tests
 
@@ -271,14 +266,14 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A single-currency store whose currency is not the riyal has its provider shipments held, not sent (PilotServerMoneyTest::test_a_single_currency_store_whose_default_currency_is_not_the_riyal_is_held_even_with_the_alias; same jobs)
   - [MISSING] A cross-border order (foreign destination, regulated and ordinary lines, KWD, BHD or OMR amounts) has an end-to-end scenario from checkout to refund (no shipping or fulfillment test uses a foreign destination or a Gulf currency other than the riyal)
   - [MISSING] A return and refund of a cross-border order restocks the source row and refunds in the original currency to the original merchant account (ReturnLogisticsService has no country or currency; no scenario)
-- **(10) Next coding task.** Test-only branch from main: tests/Feature/Shipping/ShippingScenarioMatrixTest with a data provider (local SA, local AE in AED, cross-border SA to KW in KWD, prepaid and cash on delivery, regulated and ordinary). Cases that need the engine are skipped with the reason 'pending H1-06'. Run it in the Fulfillment + security group on SQLite and MySQL 8.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **(10) Next coding task.** Test-only branch from main: tests/Feature/Fulfillment/ShippingScenarioMatrixTest (inside the Fulfillment + security group paths, so it runs on SQLite, MySQL 8 and MariaDB) with a data provider (local SA, local AE in AED, cross-border SA to KW in KWD, prepaid and cash on delivery, regulated and ordinary). Cases that need the engine are skipped with the reason 'pending H1-06'.
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
 
 #### H1-14. Local shipping rules belong to a storefront and are never inherited
 
 - **State: IN PROGRESS** | plan lines 260 | GCC-16; DECISIONS ('shipping rules are NOT automatically inherited across companies'); Discovery E11-F12; owner question Q-24 | reviews: owner-decision
 - **(2) Functional requirement.** Local shipping methods, costs, delivery times and zones belong to a storefront and its selling company: a store lists and charges only its own, sellers change only their own, staff change only their country's, and copying from another store creates a draft instead of sharing.
-- **(3) Exists now in code (main).** main: one global setting for shipping responsibility (inhouse or seller-wise), ShippingType per seller (order, category or product wise), ShippingMethod rows by creator with no country or currency, global delivery-country and ZIP lists and global zones. The shipping screens are in no staff-country slice. The shipping tables have no create migration in the repo (E11-F09).
+- **(3) Exists now in code (main).** ... The shipping_methods table has only a cost-column modify migration, and shipping_zones and return_shipments have none (E11-F09); shipping_types and category_shipping_costs do have create migrations (2022_03_13_111914, 2022_03_13_121514).
 - **(4) Done in the draft PRs.** #48: a shipping method can be chosen only for the caller's own cart group in the storefront, on web and REST. #52 (in the PR 75 tree): a seller changes only their own methods and category costs. Customer app #7: the shipping methods offered and chosen are dropped when the storefront changes. No draft gives a method a country.
 - **(5) What remains.** (1) an additive storefront column (or table) on methods, zones and category costs, legacy rows kept as the Saudi store's; (2) checkout and REST listings filtered to the storefront; (3) staff country scope on the shipping screens (GCC-14c slice 6); (4) copy as a draft; (5) seller methods per market.
 - **(6) PRs and commits.** [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#52](https://github.com/fullstackfull/lavkoo/pull/52) `ead8e2a`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`
@@ -286,7 +281,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `ci` StorefrontCartEdgesTest: a shipping method cannot be chosen for the cart group of another storefront or another customer, on web and REST (PR 83 8ff3410: Storefront tests MySQL 8 and MariaDB 11.4.2, Tests SQLite (PHP 8.2, 8.3))
   - `ci` SellerApiShippingMethodOwnershipTest and VendorCategoryShippingCostOwnershipTest (PR 75 47b78ab: Fulfillment + security tests MySQL 8 and MariaDB 11.4.2, Tests SQLite (PHP 8.2, 8.3))
   - `ci` storefront_cart_reload_test (customer app): the shipping methods offered and chosen are dropped on a storefront change (lavkooapp PR 7 56deea7: CI job storefront-header (success))
-- **(8) Dependencies and blockers.** Owner decision on shipping per market (Q-24); GCC-14c staff slices; the live schema of shipping_methods, shipping_types and shipping_zones is UNVERIFIED; CartManager.php is changed by both integration sets.
+- **(8) Dependencies and blockers.** the live schema of shipping_methods and shipping_zones is UNVERIFIED (no create migration; the tests build their own tables); shipping_types and category_shipping_costs are defined by create migrations
 - **(9) Acceptance criteria.**
   - [MET] A shipping method can be chosen only for the caller's own cart group in the storefront, on web and REST (StorefrontCartEdgesTest::test_a_shipping_method_cannot_be_chosen_for_the_cart_group_of_another_storefront, ::test_a_shipping_method_cannot_be_chosen_for_the_cart_group_of_another_customer; PR 83 8ff3410, Storefront tests MySQL 8, MariaDB 11.4.2 and Tests SQLite)
   - [MET] A seller can read, change, switch off or delete only their own shipping methods and category shipping costs (SellerApiShippingMethodOwnershipTest and VendorCategoryShippingCostOwnershipTest; PR 75 47b78ab (PR 52 ead8e2a), Fulfillment + security jobs MySQL 8 and MariaDB 11.4.2)
@@ -296,7 +291,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Copying a shipping rule between storefronts creates a draft and nothing is inherited (no copy tool)
 - **(10) Next coding task.** Stacked on #48: additive nullable storefront_country on shipping_methods (guarded by Schema::hasTable and hasColumn like products.storefront_country), ShippingMethod::scopeForStorefront, and the web set-shipping-method and REST choose-for-order accepting only the storefront's methods (legacy null rows belong to the default storefront). tests/Feature/Storefront/ShippingMethodStorefrontTest on SQLite and the Storefront MySQL group.
 - **Open owner decisions.** Q-24: which carriers and shipping methods each market uses, and whether the Delivery Syria method stays off in Gulf storefronts.
-- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+- **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 
 #### H2-01. Amazon integration kept and working for the Saudi marketplace
 
