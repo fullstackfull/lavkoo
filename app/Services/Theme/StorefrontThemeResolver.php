@@ -48,10 +48,8 @@ final class StorefrontThemeResolver
             return Theme::query()->where('is_active', true)->first();
         }
 
-        $storefronts = StorefrontResolver::fromConfig();
-        $default = $storefronts->defaultCountry();
-        // While storefronts are off the only storefront is the default one, whatever a payment callback bound the request to: the page caches key on it the same way.
-        $country = $storefronts->isEnabled() ? StorefrontContext::current()->country : $default;
+        $country = $this->requestStorefront();
+        $default = $this->defaultStorefront();
 
         return $this->activeThemeOf(storefront: $country) ?? ($country === $default ? null : $this->activeThemeOf(storefront: $default));
     }
@@ -64,10 +62,52 @@ final class StorefrontThemeResolver
         return $theme === null ? null : ThemeVersion::query()->where('theme_id', $theme->id)->published()->first();
     }
 
+    /**
+     * Whether a version may be previewed on this request (F-07): while themes are kept by storefront, only a version of a theme of the storefront the request is served from, so a preview token or a
+     * session preview of one storefront's draft is ignored on every other storefront, as a foreign token is. A theme that names no country is the default storefront's. Any version while they are not.
+     */
+    public function mayPreview(ThemeVersion $version): bool
+    {
+        if (!$this->keepsThemesByStorefront()) {
+            return true;
+        }
+
+        $theme = $version->theme;
+
+        return $theme !== null && $this->storefrontOf(theme: $theme) === $this->requestStorefront();
+    }
+
     /** The themes activating this one competes with: every theme while themes are not kept by storefront, else those of its storefront. */
     public function themesSharingStorefrontWith(Theme $theme): Builder
     {
         return $this->keepsThemesByStorefront() ? $this->themesOf(storefront: $this->storefrontOf(theme: $theme)) : Theme::query();
+    }
+
+    /**
+     * The storefronts whose cached copies of a theme go stale when it changes (F-02): only its own, unless it is the default storefront's, which every storefront without a theme of
+     * its own falls back to, or themes are not kept by storefront, where one theme serves all. Null means every storefront, which is what a change always reached.
+     *
+     * @return list<string>|null
+     */
+    public function storefrontsAffectedBy(Theme $theme): ?array
+    {
+        if (!$this->keepsThemesByStorefront()) {
+            return null;
+        }
+
+        $storefront = $this->storefrontOf(theme: $theme);
+
+        return $storefront === $this->defaultStorefront() ? null : [$storefront];
+    }
+
+    /**
+     * What an audit line of a change of a theme adds to say which storefront it was for. Nothing while themes are not kept by storefront, so the lines stay what they were.
+     *
+     * @return array<string, string>
+     */
+    public function auditContextOf(Theme $theme): array
+    {
+        return $this->keepsThemesByStorefront() ? ['storefront' => $this->storefrontOf(theme: $theme)] : [];
     }
 
     /** The storefront a theme belongs to: the default one for a theme that names no country. */
@@ -152,6 +192,12 @@ final class StorefrontThemeResolver
     private function defaultStorefront(): string
     {
         return StorefrontResolver::fromConfig()->defaultCountry();
+    }
+
+    /** The storefront the request is served from. While storefronts are off the only storefront is the default one, whatever a payment callback bound the request to: the page caches key on it the same way. */
+    private function requestStorefront(): string
+    {
+        return StorefrontResolver::fromConfig()->isEnabled() ? StorefrontContext::current()->country : $this->defaultStorefront();
     }
 
     private function columnReady(): bool
