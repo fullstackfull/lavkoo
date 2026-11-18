@@ -18,6 +18,9 @@ class StorefrontLegalTextCommand extends Command
     /** A text or a template is read from a file of at most this many bytes. */
     private const MAXIMUM_FILE_BYTES = 1048576;
 
+    /** The hash of a text is shown, and named back to the command, by its first characters: enough to tell one text from another, short enough to read aloud. */
+    private const MINIMUM_HASH_PREFIX_LENGTH = 12;
+
     protected $signature = 'gcc:storefront:legal-text
         {action : list, draft, edit, approve, publish, revoke or discard}
         {--country= : the storefront, for example KW (list and draft)}
@@ -29,6 +32,7 @@ class StorefrontLegalTextCommand extends Command
         {--template-file= : with draft: the file that holds the template to copy}
         {--body-file= : with edit: the file that holds the new text}
         {--effective-from= : with publish: when the text takes effect, as YYYY-MM-DD HH:MM in UTC; now when it is left out}
+        {--hash= : with approve and publish: the first 12 characters (or all 64) of the hash of the text you read, as list shows it; refused when the text is not that any more}
         {--reason= : with revoke and discard: why}';
 
     protected $description = 'Writes the legal text of a storefront: copies a template into a draft, edits it, approves it (someone other than its author), publishes it from a day, revokes it or discards it. Every step is audited and the readiness of the storefront reads what is written. Works while the switches are off';
@@ -63,9 +67,9 @@ class StorefrontLegalTextCommand extends Command
             ->get();
 
         $this->table(
-            ['id', 'country', 'type', 'locale', 'version', 'status', 'author', 'approved by', 'effective from (UTC)', 'revoked'],
+            ['id', 'country', 'type', 'locale', 'version', 'status', 'hash', 'author', 'approved by', 'effective from (UTC)', 'revoked'],
             $texts->map(fn (StorefrontLegalDocument $text): array => [
-                $text->id, $text->country_code, $text->document_type, $text->locale, $text->version, $text->status, $text->created_by ?? '-', $text->approved_by ?? '-',
+                $text->id, $text->country_code, $text->document_type, $text->locale, $text->version, $text->status, $this->hashPrefixOf($text), $text->created_by ?? '-', $text->approved_by ?? '-',
                 $text->effective_from?->utc()->format('Y-m-d H:i') ?? '-', $text->revoked_at === null ? '-' : $text->revoked_at->utc()->format('Y-m-d H:i'),
             ])->all(),
         );
@@ -81,6 +85,7 @@ class StorefrontLegalTextCommand extends Command
             $text = $publisher->draftNewVersionOf(textId: $this->integerOption('new-version-of'), author: $admin);
             $this->info("Draft {$text->id} is version {$text->version} of the {$text->document_type} ({$text->locale}) of {$text->country_code}, a copy of the text it replaces.");
             $this->line('Edit it (--body-file), then someone other than its author approves it.');
+            $this->reportHash($text);
 
             return self::SUCCESS;
         }
@@ -95,6 +100,7 @@ class StorefrontLegalTextCommand extends Command
 
         $this->info("Draft {$text->id}: the {$text->document_type} ({$text->locale}) of {$text->country_code}, version {$text->version}, a copy of the template.");
         $this->line('A text that is still the template is not approved: edit it (--body-file), then someone other than its author approves it.');
+        $this->reportHash($text);
 
         return self::SUCCESS;
     }
@@ -104,15 +110,18 @@ class StorefrontLegalTextCommand extends Command
         $text = $publisher->edit(textId: $this->integerOption('id'), body: $this->fileOption('body-file'), editor: $this->admin());
 
         $this->info("Text {$text->id} is changed and is a draft of admin {$text->created_by}: its approval, if it had one, is void.");
+        $this->reportHash($text);
 
         return self::SUCCESS;
     }
 
     private function approve(StorefrontLegalPublisher $publisher, StorefrontLegalReadiness $readiness): int
     {
-        $text = $publisher->approve(textId: $this->integerOption('id'), approver: $this->admin());
+        $textId = $this->integerOption('id');
+        $text = $publisher->approve(textId: $textId, approver: $this->admin(), expectedBodyHash: $this->expectedBodyHash($textId));
 
         $this->info("Text {$text->id} is approved by admin {$text->approved_by} (written by admin {$text->created_by}). It is not in force until it is published.");
+        $this->reportHash($text);
         $this->reportReadiness(readiness: $readiness, country: $text->country_code);
 
         return self::SUCCESS;
@@ -120,7 +129,8 @@ class StorefrontLegalTextCommand extends Command
 
     private function publish(StorefrontLegalPublisher $publisher, StorefrontLegalReadiness $readiness): int
     {
-        $text = $publisher->publish(textId: $this->integerOption('id'), publisher: $this->admin(), effectiveFrom: $this->effectiveFrom());
+        $textId = $this->integerOption('id');
+        $text = $publisher->publish(textId: $textId, publisher: $this->admin(), effectiveFrom: $this->effectiveFrom(), expectedBodyHash: $this->expectedBodyHash($textId));
 
         $this->info("Text {$text->id} is published and takes effect on {$text->effective_from->utc()->format('Y-m-d H:i')} UTC.");
         $this->reportReadiness(readiness: $readiness, country: $text->country_code);
@@ -145,6 +155,45 @@ class StorefrontLegalTextCommand extends Command
         $this->info("Text {$text->id} is discarded and kept as history.");
 
         return self::SUCCESS;
+    }
+
+    private function hashPrefixOf(StorefrontLegalDocument $text): string
+    {
+        return substr((string) $text->body_hash, offset: 0, length: self::MINIMUM_HASH_PREFIX_LENGTH);
+    }
+
+    private function reportHash(StorefrontLegalDocument $text): void
+    {
+        $this->line("Hash of the text as it stands: {$this->hashPrefixOf($text)}. Whoever approves or publishes it names this hash (--hash) after reading it, so that the step is taken on those words only.");
+    }
+
+    /**
+     * The hash of the words the person read, when they name one: the whole hash of the text as it stands now, so that the service compares it again under its own lock (a text that
+     * changes between this check and the step is refused there). Null when they name none.
+     */
+    private function expectedBodyHash(int $textId): ?string
+    {
+        if (!$this->filled('hash')) {
+            return null;
+        }
+
+        $prefix = strtolower(trim((string) $this->option('hash')));
+
+        if (preg_match('/^[0-9a-f]{' . self::MINIMUM_HASH_PREFIX_LENGTH . ',64}$/', $prefix) !== 1) {
+            throw new InvalidArgumentException('--hash is the first ' . self::MINIMUM_HASH_PREFIX_LENGTH . ' characters, or all 64, of the hash of the text you read, as list shows it.');
+        }
+
+        $text = StorefrontLegalDocument::query()->find($textId);
+
+        if ($text === null) {
+            throw new InvalidArgumentException("There is no legal text {$textId}.");
+        }
+
+        if (!str_starts_with((string) $text->body_hash, $prefix)) {
+            throw new RuntimeException("Text {$textId} changed after it was read: its hash starts with {$this->hashPrefixOf($text)}, not {$prefix}. Read it again before taking this step.");
+        }
+
+        return (string) $text->body_hash;
     }
 
     private function reportReadiness(StorefrontLegalReadiness $readiness, string $country): void

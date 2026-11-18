@@ -74,6 +74,19 @@ class StorefrontLegalTextCommandTest extends TestCase
         return (int) StorefrontLegalDocument::query()->latest('id')->value('id');
     }
 
+    private function hashPrefixOf(string $words): string
+    {
+        return substr(hash('sha256', $words), 0, 12);
+    }
+
+    private function editedTerms(string $words = 'The terms of Kuwait.'): int
+    {
+        $id = $this->draftTerms();
+        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $words)])->assertExitCode(0);
+
+        return $id;
+    }
+
     public function test_a_text_goes_from_a_template_to_a_published_text_through_the_command(): void
     {
         $this->text('draft', ['--country' => 'kw', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
@@ -197,6 +210,102 @@ class StorefrontLegalTextCommandTest extends TestCase
             ->assertExitCode(0);
 
         $this->text('list')->expectsOutputToContain('privacy')->expectsOutputToContain('terms')->assertExitCode(0);
+    }
+
+    // ---- an approval and a publication are bound to the words that were read ---------------------------------------------------------------------
+
+    public function test_the_list_and_every_step_that_leaves_a_text_show_the_first_twelve_characters_of_its_hash(): void
+    {
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
+            ->expectsOutputToContain($this->hashPrefixOf('TEMPLATE: the terms.'))
+            ->assertExitCode(0);
+
+        $this->text('edit', ['--id' => 1, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])
+            ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
+            ->assertExitCode(0);
+
+        $this->text('approve', ['--id' => 1, '--admin' => 12])
+            ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
+            ->assertExitCode(0);
+
+        $this->text('list')
+            ->expectsOutputToContain('hash')
+            ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
+            ->doesntExpectOutputToContain(hash('sha256', 'The terms of Kuwait.'))
+            ->assertExitCode(0);
+    }
+
+    public function test_a_new_version_shows_the_hash_of_the_copy(): void
+    {
+        $id = $this->editedTerms();
+        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+
+        $this->text('draft', ['--new-version-of' => $id, '--admin' => 11])
+            ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
+            ->assertExitCode(0);
+    }
+
+    public function test_a_step_taken_with_the_hash_of_the_words_that_were_read_is_accepted_as_a_prefix_or_whole_in_any_case(): void
+    {
+        $id = $this->editedTerms();
+
+        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => strtoupper($this->hashPrefixOf('The terms of Kuwait.'))])
+            ->expectsOutputToContain("Text {$id} is approved by admin 12")
+            ->assertExitCode(0);
+
+        $this->text('publish', ['--id' => $id, '--admin' => 12, '--hash' => hash('sha256', 'The terms of Kuwait.')])
+            ->expectsOutputToContain("Text {$id} is published")
+            ->assertExitCode(0);
+    }
+
+    public function test_a_hash_that_is_not_the_hash_of_the_words_refuses_the_step_and_changes_nothing(): void
+    {
+        $id = $this->editedTerms();
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('Other words.')])
+            ->expectsOutputToContain("Text {$id} changed after it was read")
+            ->assertExitCode(1);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
+
+        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, with a clause added.')])->assertExitCode(0);
+        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
+            ->expectsOutputToContain('changed after it was read')
+            ->assertExitCode(1);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
+        $this->assertSame($linesBefore + 1, DB::table('audit_logs')->count(), 'only the edit was audited');
+
+        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait, with a clause added.')])->assertExitCode(0);
+
+        $this->text('publish', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
+            ->expectsOutputToContain('changed after it was read')
+            ->assertExitCode(1);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, StorefrontLegalDocument::query()->findOrFail($id)->status);
+    }
+
+    public function test_a_hash_that_is_shorter_than_twelve_characters_or_is_not_hex_is_refused(): void
+    {
+        $id = $this->editedTerms();
+        $prefix = $this->hashPrefixOf('The terms of Kuwait.');
+
+        foreach ([substr($prefix, 0, 11), 'abc', str_repeat('g', 12), $prefix . 'z', hash('sha256', 'x') . 'a'] as $hash) {
+            $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $hash])
+                ->expectsOutputToContain('--hash is the first 12 characters, or all 64')
+                ->assertExitCode(1);
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
+    }
+
+    public function test_a_hash_named_for_a_text_that_does_not_exist_is_refused(): void
+    {
+        $this->text('approve', ['--id' => 99, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
+            ->expectsOutputToContain('There is no legal text 99.')
+            ->assertExitCode(1);
     }
 
     public function test_an_action_it_does_not_know_is_refused(): void

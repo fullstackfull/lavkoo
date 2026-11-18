@@ -23,6 +23,7 @@ use RuntimeException;
  * - A copy of a template is a **draft** carrying the hash of the template, and is never published by being copied. A text that is still the template when it is approved is refused.
  * - A **published text is never edited**: a change is a new version, which is a new draft that starts as a copy of the text it replaces.
  * - The approver is **not the author**. The author of a text is the last person who changed it, so an edit by the approver makes the approver the author and voids the approval.
+ * - An approval or a publication is bound to the words the person read: when they name the hash of those words, the step is refused if the locked text is not that any more.
  * - A text takes effect on a day the publisher names (now, or later), never in the past, and never before another text of the same type and locale that is already scheduled: the
  *   newest text by effective day is the one in force, and a newer version must not lose to an older one that was scheduled for later.
  * - Revoking keeps the row, and a revoked text in force keeps the storefront closed until a replacement takes effect. Nothing is deleted: a draft that is not wanted is discarded.
@@ -119,13 +120,17 @@ final class StorefrontLegalPublisher
         });
     }
 
-    /** The approval of a draft by someone other than its author, of a text that is not blank and is not the template it was copied from. */
-    public function approve(int $textId, int $approver): StorefrontLegalDocument
+    /**
+     * The approval of a draft by someone other than its author, of a text that is not blank and is not the template it was copied from. An approver who names the hash of the words
+     * they read ($expectedBodyHash) approves those words only: a text that has changed since is refused.
+     */
+    public function approve(int $textId, int $approver, ?string $expectedBodyHash = null): StorefrontLegalDocument
     {
         $this->knownPerson($approver);
 
-        return DB::transaction(function () use ($textId, $approver): StorefrontLegalDocument {
+        return DB::transaction(function () use ($textId, $approver, $expectedBodyHash): StorefrontLegalDocument {
             $text = $this->locked($textId);
+            $this->refuseATextChangedSinceItWasRead(text: $text, expectedBodyHash: $expectedBodyHash);
 
             if ($text->status !== StorefrontLegalDocument::STATUS_DRAFT) {
                 throw new RuntimeException("Text {$textId} is {$text->status}: only a draft is approved.");
@@ -151,8 +156,11 @@ final class StorefrontLegalPublisher
         });
     }
 
-    /** Publishes an approved text from a day that is now or later. It is in force from then on, and it never loses to a text of the same type and locale that is scheduled for later. */
-    public function publish(int $textId, int $publisher, ?DateTimeInterface $effectiveFrom = null): StorefrontLegalDocument
+    /**
+     * Publishes an approved text from a day that is now or later. It is in force from then on, and it never loses to a text of the same type and locale that is scheduled for later.
+     * A publisher who names the hash of the words they read ($expectedBodyHash) publishes those words only: a text that has changed since is refused.
+     */
+    public function publish(int $textId, int $publisher, ?DateTimeInterface $effectiveFrom = null, ?string $expectedBodyHash = null): StorefrontLegalDocument
     {
         $this->knownPerson($publisher);
         // The model keeps the moment as the digits of its own time zone and reads them back in the application's, so a moment given in UTC (the console command and the admin screen read
@@ -163,8 +171,9 @@ final class StorefrontLegalPublisher
             throw new InvalidArgumentException('A text does not take effect in the past: name a day that is now or later.');
         }
 
-        return DB::transaction(function () use ($textId, $publisher, $effective): StorefrontLegalDocument {
+        return DB::transaction(function () use ($textId, $publisher, $effective, $expectedBodyHash): StorefrontLegalDocument {
             $text = $this->locked($textId);
+            $this->refuseATextChangedSinceItWasRead(text: $text, expectedBodyHash: $expectedBodyHash);
 
             if ($text->status !== StorefrontLegalDocument::STATUS_APPROVED) {
                 throw new RuntimeException("Text {$textId} is {$text->status}: only an approved text is published.");
@@ -274,6 +283,14 @@ final class StorefrontLegalPublisher
 
         if ($open !== null) {
             throw new RuntimeException("Text {$open->id} ({$open->status}, version {$open->version}) of this type and locale is not published yet: it is published or discarded before another is started.");
+        }
+    }
+
+    /** A step is taken on the words the person read: when they name the hash of what they read and the locked text is not that any more, nothing is changed and nothing is audited. */
+    private function refuseATextChangedSinceItWasRead(StorefrontLegalDocument $text, ?string $expectedBodyHash): void
+    {
+        if ($expectedBodyHash !== null && !hash_equals((string) $text->body_hash, strtolower($expectedBodyHash))) {
+            throw new RuntimeException("Text {$text->id} changed after it was read: the words it holds now are not the ones whose hash was given. Read it again before taking this step.");
         }
     }
 

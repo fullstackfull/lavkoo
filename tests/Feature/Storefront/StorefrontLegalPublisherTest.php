@@ -204,6 +204,96 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->publisher()->approve(textId: $approved->id, approver: 13);
     }
 
+    // ---- an approval and a publication are bound to the words that were read ---------------------------------------------------------------------
+
+    public function test_a_text_is_approved_and_published_when_the_hash_named_is_the_hash_of_the_words_it_holds(): void
+    {
+        $draft = $this->draft();
+        $edited = $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait.', editor: self::AUTHOR);
+
+        $approved = $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $edited->body_hash);
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $approved->status);
+
+        $published = $this->publisher()->publish(textId: $draft->id, publisher: self::APPROVER, expectedBodyHash: strtoupper($edited->body_hash));
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $published->status, 'the hash is hex, and hex is read in either case');
+    }
+
+    public function test_a_hash_that_is_not_the_hash_of_the_words_refuses_the_approval_and_changes_and_audits_nothing(): void
+    {
+        $draft = $this->draft();
+        $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait.', editor: self::AUTHOR);
+        $linesBefore = count($this->auditLines());
+
+        foreach ([hash('sha256', 'Some other words.'), '', substr(hash('sha256', 'The terms of Kuwait.'), 0, 12)] as $hash) {
+            try {
+                $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $hash);
+                $this->fail('A text was approved on the hash of other words.');
+            } catch (RuntimeException $refusal) {
+                $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+                $this->assertStringContainsString('Read it again', $refusal->getMessage());
+            }
+        }
+
+        $text = $draft->fresh();
+        $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, null, null], [$text->status, $text->approved_by, $text->approved_at]);
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_an_edit_between_the_reading_and_the_approval_refuses_the_approval(): void
+    {
+        $draft = $this->draft();
+        $read = $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait.', editor: self::AUTHOR);
+        $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait, with a clause added after they were read.', editor: self::AUTHOR);
+        $linesBefore = count($this->auditLines());
+
+        try {
+            $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $read->body_hash);
+            $this->fail('A text was approved after it changed since it was read.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, $draft->fresh()->status);
+        $this->assertCount($linesBefore, $this->auditLines());
+
+        $approved = $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $draft->fresh()->body_hash);
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $approved->status, 'read again, the text is approved');
+    }
+
+    public function test_a_hash_that_is_not_the_hash_of_the_words_refuses_the_publication_and_changes_and_audits_nothing(): void
+    {
+        $approved = $this->approvedText();
+        $linesBefore = count($this->auditLines());
+
+        try {
+            $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, expectedBodyHash: hash('sha256', 'Some other words.'));
+            $this->fail('A text was published on the hash of other words.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+        }
+
+        $text = $approved->fresh();
+        $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, null, null], [$text->status, $text->published_at, $text->effective_from]);
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_an_edit_between_the_reading_and_the_publication_refuses_the_publication(): void
+    {
+        $approved = $this->approvedText();
+        $read = $approved->body_hash;
+        $this->publisher()->edit(textId: $approved->id, body: 'The terms of Kuwait, changed after the approval was read.', editor: self::APPROVER);
+
+        try {
+            $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, expectedBodyHash: $read);
+            $this->fail('A text was published after it changed since it was read.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, $approved->fresh()->status);
+        $this->assertNull($approved->fresh()->published_at);
+    }
+
     // ---- publishing -----------------------------------------------------------------------------------------------------------------------------
 
     public function test_an_approved_text_is_published_from_now_by_default_and_a_draft_is_not_published(): void
