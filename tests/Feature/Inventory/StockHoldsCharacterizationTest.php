@@ -268,14 +268,15 @@ class StockHoldsCharacterizationTest extends TestCase
         $this->assertSame([55, 0], [$this->stock(), $this->stockFlag()], 'the claim checks line qty <= return qty, then adds the return qty, not the line qty');
     }
 
-    public function test_a_restocked_return_of_a_variant_line_currently_leaves_the_variant_quantity_unchanged(): void
+    /** The characterization of the unfixed tree pinned [52, 20] (the variant JSON was never written); a sibling pull request of this tree writes it, so the line's own variant is restocked too. */
+    public function test_a_restocked_return_of_a_variant_line_restores_the_variant_quantity_too(): void
     {
         $this->storeProduct(self::PRODUCT, stock: 50, variation: json_encode([['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]));
         $this->storeOrder(self::ORDER, self::PRODUCT, 2, variantKey: 'Red');
 
         app(ReturnLogisticsService::class)->receive($this->returnFor(2, $this->lineId()));
 
-        $this->assertSame([52, 20], [$this->stock(), $this->variantQuantity('Red')], 'current_stock rises, the variant JSON is never written');
+        $this->assertSame([52, 22], [$this->stock(), $this->variantQuantity('Red')], 'current_stock rises and so does the variant it was sold from');
     }
 
     // ---- provider fulfillment hold (app/Services/Fulfillment/ShipmentTracker.php:164-213) ----------------------------------------

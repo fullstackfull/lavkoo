@@ -32,7 +32,8 @@ class PointsToWalletFormulaCharacterizationTest extends TestCase
     private const CUSTOMER_ID = 1;
     private const POINTS = 100;
     private const SAR_PER_USD = 3.75;
-    private const DELTA = 0.0001;
+    /** The ledger column holds three decimals on a real server (SQLite keeps the whole float), so 1 / 3.75 is stored as 0.267. */
+    private const DELTA = 0.0005;
 
     /** The REST conversion multiplies by Convert::default(1) and divides by the same rate again: one dollar, 3.75 SAR. */
     private const API_MULTI_CURRENCY_CREDIT = 1.0;

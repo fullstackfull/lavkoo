@@ -153,20 +153,20 @@ class OrderActionPermissionCharacterizationTest extends TestCase
     }
 
     /**
-     * Admin suspension rotates the seller's auth_token, so a suspended seller's old token stops working. Rejection does not
-     * rotate it, so the token a rejected seller already holds still decides refunds on the v2 seller API.
+     * Admin suspension rotates the seller's auth_token, so a suspended seller's old token stops working. Rejection does not rotate it. The
+     * characterization of the unfixed tree pinned that the token a rejected seller already holds still decided refunds on the v2 seller API (200);
+     * the approved gate of this tree (gcc/p0-seller-v2-refund-approved-gate) refuses it, as the v3 route above does.
      */
-    public function test_currently_the_v2_seller_api_lets_a_rejected_sellers_token_decide_a_refund(): void
+    public function test_the_v2_seller_api_refuses_a_rejected_sellers_token_before_it_decides_a_refund(): void
     {
         DB::table('sellers')->where('id', self::SELLER_ID)->update(['status' => 'rejected']);
 
         $response = $this->withToken(self::OWNER_TOKEN)
             ->postJson('/api/v2/seller/refund/refund-status-update', ['refund_request_id' => $this->refundRequestId(), 'refund_status' => 'rejected', 'note' => 'placeholder']);
 
-        $response->assertStatus(200);
-        $this->assertSame('refund status updated successfully!', $response->json('message'));
-        $this->assertSame('rejected', DB::table('refund_requests')->where('id', $this->refundRequestId())->value('status'));
-        $this->assertSame(1, DB::table('refund_statuses')->where('change_by', 'seller')->count());
+        $response->assertStatus(401);
+        $this->assertSame('pending', DB::table('refund_requests')->where('id', $this->refundRequestId())->value('status'));
+        $this->assertSame(0, DB::table('refund_statuses')->where('change_by', 'seller')->count());
     }
 
     public function test_vendor_panel_staff_with_orders_manage_passes_the_gate_to_the_order_status_controller(): void
