@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsStorefrontMoneyWorld;
 use Tests\TestCase;
@@ -178,6 +179,7 @@ class StorefrontMoneyCommandTest extends TestCase
     public function test_the_readiness_command_says_what_each_storefront_was_given_and_what_it_was_not_and_still_succeeds(): void
     {
         config(['gcc.storefronts.countries.QA.active' => false]);
+        Schema::dropIfExists('shipping_types');
         $this->giveStorefrontAmounts(country: 'KW', currency: 'KWD', amounts: ['minimum_order_amount' => '5.000', 'free_delivery_over_amount' => '50.000']);
         $this->giveStorefrontAmounts(country: 'AE', currency: 'AED', amounts: ['minimum_order_amount' => '40.00']);
         $this->giveStorefrontAmounts(country: 'BH', currency: 'SAR', amounts: ['minimum_order_amount' => '100']);
