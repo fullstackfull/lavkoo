@@ -98,6 +98,7 @@ class StorefrontRefundRecordTest extends ApiAddressTestCase
             config(["gcc.storefronts.countries.{$storefront}.active" => true]);
         }
         $this->approveNoTaxFor('KW', 'QA', 'BH', 'OM');
+        $this->activateStorefrontFor('KW', 'QA', 'BH', 'OM');
         StorefrontCatalog::flush();
     }
 

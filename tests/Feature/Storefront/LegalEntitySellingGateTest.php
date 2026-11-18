@@ -5,6 +5,7 @@ namespace Tests\Feature\Storefront;
 use App\Exceptions\StorefrontNotSellableException;
 use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontSellingGate;
+use Tests\Support\ActivatesStorefront;
 use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsLegalEntityWorld;
 use Tests\TestCase;
@@ -15,6 +16,7 @@ use Tests\TestCase;
  */
 class LegalEntitySellingGateTest extends TestCase
 {
+    use ActivatesStorefront;
     use ApprovesStorefrontTax;
     use BuildsLegalEntityWorld;
 
@@ -25,6 +27,7 @@ class LegalEntitySellingGateTest extends TestCase
         $this->buildLegalEntityWorld();
         config(['gcc.storefronts.legal.grandfathered' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM']]);
         $this->approveNoTaxFor('AE', 'KW', 'QA', 'BH', 'OM');
+        $this->activateStorefrontFor('AE', 'KW', 'QA', 'BH', 'OM');
     }
 
     protected function tearDown(): void
