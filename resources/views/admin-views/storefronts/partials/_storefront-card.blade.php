@@ -41,6 +41,13 @@
                 {{ translate($label) }}
             </li>
         @endforeach
+        {{-- A prerequisite this list does not know (a later pull request adds one, the selling company) is shown by its own name, so a storefront is never blocked by something the page does not say. --}}
+        @foreach (array_diff($unmet, array_keys($prerequisites)) as $otherPrerequisite)
+            <li class="mb-1" data-prerequisite="{{ $otherPrerequisite }}" data-met="no">
+                <x-k.badge tone="danger" :dot="false">{{ translate('unmet') }}</x-k.badge>
+                <code>{{ $otherPrerequisite }}</code>
+            </li>
+        @endforeach
     </ul>
 
     @if (!$storefront['is_default'] && $canOpenTheLegalTexts)

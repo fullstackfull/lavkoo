@@ -109,6 +109,20 @@ class AdminStorefrontLifecycleScreenTest extends AdminStorefrontScreenTestCase
         $this->assertStringNotContainsString(route('admin.storefronts.ready', 'KW'), $kuwait, 'a draft with something unmet is not offered the step');
     }
 
+    public function test_a_prerequisite_the_page_does_not_know_is_shown_by_its_name_and_blocks_the_ready_step(): void
+    {
+        $html = view('admin-views.storefronts.partials._storefront-card', [
+            'storefront' => ['country' => 'KW', 'currency' => 'KWD', 'is_default' => false, 'status' => $this->lifecycle()->statusOf('KW'), 'unmet' => ['company']],
+            'modes' => StorefrontLifecycle::MODES,
+            'canChangeTheLifecycle' => true,
+            'canOpenTheLegalTexts' => true,
+        ])->render();
+
+        $this->assertStringContainsString('data-prerequisite="company" data-met="no"', $html, 'a later pull request adds a prerequisite, and the page must say what blocks a storefront');
+        $this->assertStringContainsString('data-prerequisite="legal_texts" data-met="yes"', $html);
+        $this->assertStringNotContainsString(route('admin.storefronts.ready', 'KW'), $html);
+    }
+
     public function test_a_storefront_with_everything_it_needs_is_offered_the_ready_step(): void
     {
         $this->meetThePrerequisitesOf();
