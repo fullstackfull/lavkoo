@@ -221,13 +221,18 @@ class StorefrontLegalTextCommand extends Command
         return (int) $value;
     }
 
-    /** The admin who takes the step: an id that is in the table of admins, because a step by somebody who does not exist is a step by nobody. */
+    /** The admin who takes the step: an id in the table of admins whose status is on (the status the login checks), because a step by somebody who does not exist or may no longer act is a step by nobody. */
     private function admin(): int
     {
         $id = $this->integerOption('admin', meaning: 'the id of an admin');
+        $admin = Admin::query()->find($id, columns: ['id', 'status']);
 
-        if (!Admin::query()->whereKey($id)->exists()) {
+        if ($admin === null) {
             throw new InvalidArgumentException("There is no admin {$id}.");
+        }
+
+        if (!$admin->status) {
+            throw new InvalidArgumentException("Admin {$id} is switched off and takes no step.");
         }
 
         return $id;

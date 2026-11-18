@@ -36,8 +36,9 @@ class StorefrontLegalTextCommandTest extends TestCase
         Schema::create('admins', static function (Blueprint $table): void {
             $table->id();
             $table->string('name')->nullable();
+            $table->boolean('status')->default(1);
         });
-        DB::table('admins')->insert([['id' => 11, 'name' => 'Author'], ['id' => 12, 'name' => 'Approver']]);
+        DB::table('admins')->insert([['id' => 11, 'name' => 'Author', 'status' => 1], ['id' => 12, 'name' => 'Approver', 'status' => 1], ['id' => 13, 'name' => 'Former employee', 'status' => 0]]);
 
         $this->directory = sys_get_temp_dir() . '/legal-text-' . bin2hex(random_bytes(4));
         mkdir($this->directory);
@@ -136,6 +137,31 @@ class StorefrontLegalTextCommandTest extends TestCase
             ->assertExitCode(1);
 
         $this->assertSame(0, StorefrontLegalDocument::query()->count());
+    }
+
+    public function test_an_admin_who_is_switched_off_takes_no_step_in_any_action(): void
+    {
+        $id = $this->editedTerms();
+
+        $this->text('draft', ['--country' => 'AE', '--type' => 'terms', '--locale' => 'en', '--admin' => 13, '--template-file' => $this->file('template2.txt', 'TEMPLATE')])
+            ->expectsOutputToContain('Admin 13 is switched off and takes no step.')
+            ->assertExitCode(1);
+        $this->text('edit', ['--id' => $id, '--admin' => 13, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, changed.')])
+            ->expectsOutputToContain('Admin 13 is switched off')
+            ->assertExitCode(1);
+        $this->text('approve', ['--id' => $id, '--admin' => 13])
+            ->expectsOutputToContain('Admin 13 is switched off')
+            ->assertExitCode(1);
+        $this->text('discard', ['--id' => $id, '--admin' => 13, '--reason' => 'Not wanted'])
+            ->expectsOutputToContain('Admin 13 is switched off')
+            ->assertExitCode(1);
+
+        $text = StorefrontLegalDocument::query()->findOrFail($id);
+        $this->assertSame([1, StorefrontLegalDocument::STATUS_DRAFT, 'The terms of Kuwait.'], [StorefrontLegalDocument::query()->count(), $text->status, $text->body]);
+        $this->assertSame(2, DB::table('audit_logs')->count(), 'only the draft and the edit of the admin who is on were audited');
+
+        DB::table('admins')->where('id', 13)->update(['status' => 1]);
+        $this->text('approve', ['--id' => $id, '--admin' => 13])->assertExitCode(0);
     }
 
     public function test_a_file_that_is_not_there_is_refused(): void
