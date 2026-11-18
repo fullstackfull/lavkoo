@@ -2,9 +2,13 @@
 
 namespace App\Utils;
 
+use App\Services\DigitalProductFileService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Intervention\Image\Exception\NotReadableException;
 use Intervention\Image\Facades\Image;
+use Symfony\Component\HttpFoundation\File\File;
 
 class ImageManager
 {
@@ -22,14 +26,21 @@ class ImageManager
             // and never even used. That made every upload path an arbitrary-file-write primitive.
             // Removed: each branch below writes the file it actually returns.
 
-            if (in_array($image->getClientOriginalExtension(), ['gif', 'svg'])) {
-                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $image->getClientOriginalExtension();
+            if (StoredFileExtension::isGifToKeep($image)) {
+                $imageName = Carbon::now()->toDateString() . "-" . uniqid() . ".gif";
                 Storage::disk($storage)->put($dir . $imageName, file_get_contents($image));
             } else {
                 if (in_array(request()->ip(), ['127.0.0.1', '::1']) && !(imagetypes() & IMG_WEBP) || env('APP_DEBUG') && !(imagetypes() & IMG_WEBP)) {
                     $format = 'png';
                 }
-                $imageWebp = Image::make($image)->encode($format, 85);
+                if (!StoredFileExtension::isRasterImage($image)) {
+                    throw ValidationException::withMessages(['image' => translate('the_file_is_not_a_supported_image')]);
+                }
+                try {
+                    $imageWebp = Image::make($image)->encode($format, 85);
+                } catch (NotReadableException) {
+                    throw ValidationException::withMessages(['image' => translate('the_file_is_not_a_supported_image')]);
+                }
                 $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
                 Storage::disk($storage)->put($dir . $imageName, $imageWebp);
                 $imageWebp->destroy();
@@ -44,7 +55,7 @@ class ImageManager
     {
         $storage = config('filesystems.disks.default') ?? 'public';
         if ($file != null) {
-            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
+            $fileName = Carbon::now()->toDateString() . "-" . uniqid() . "." . StoredFileExtension::of(clientExtension: $format, file: $file instanceof File ? $file : null);
             if (!Storage::disk($storage)->exists($dir)) {
                 Storage::disk($storage)->makeDirectory($dir);
             }
@@ -58,17 +69,16 @@ class ImageManager
 
     public static function update(string $dir, $old_image, string $format, $image, $file_type = 'image'): string
     {
-        if (self::checkFileExists(filePath: $dir.$old_image)['status']) {
-            Storage::disk(self::checkFileExists(filePath: $dir . $old_image)['disk'])->delete($dir . $old_image);
-        }
+        self::delete(full_path: $dir . $old_image);
 
         return $file_type == 'file' ? ImageManager::file_upload($dir, $format, $image) : ImageManager::upload($dir, $format, $image);
     }
 
     public static function delete($full_path): array
     {
-        if (self::checkFileExists(filePath: $full_path)['status']) {
+        if (PlainFileName::staysInside(path: (string) $full_path) && self::checkFileExists(filePath: $full_path)['status'] && !SharedProductFile::isShared(path: (string) $full_path)) {
             Storage::disk(self::checkFileExists(filePath: $full_path)['disk'])->delete($full_path);
+            app(DigitalProductFileService::class)->deletePrivateCopy(path: (string) $full_path);
         }
         return [
             'success' => 1,
@@ -87,6 +97,11 @@ class ImageManager
             return [
                 'status' => true,
                 'disk' => 's3'
+            ];
+        } elseif (app(DigitalProductFileService::class)->holdsPrivately(path: $filePath)) {
+            return [
+                'status' => true,
+                'disk' => DigitalProductFileService::PRIVATE_DISK
             ];
         } else {
             return [

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -56,7 +57,7 @@ class BusinessPage extends Model
     public function getBannerFullUrlAttribute(): string|null|array
     {
         $banner = $this->banner;
-        if (strpos(url()->current(), '/api') && !$banner) {
+        if (RequestArea::isApi() && !$banner) {
             return [
                 'key' => $banner?->file_name ?? 'business-pages',
                 'path' => getStorageImages(path: $banner?->file_name, type: 'business-page'),

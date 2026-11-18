@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DeliveryMan;
 use App\Models\PasswordReset;
 use App\Utils\Helpers;
+use App\Utils\RequestText;
 use App\Utils\SMSModule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,9 @@ use Modules\Gateways\Traits\SmsGateway;
 
 class LoginController extends Controller
 {
+    /** How long a delivery man has, once the code is verified, to choose the new password. */
+    private const VERIFIED_CODE_MINUTES = 30;
+
     public function login(Request $request):JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -67,15 +71,16 @@ class LoginController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        PasswordReset::where(['user_type' => 'delivery_man', 'identity' => $request['identity']])->delete();
-        $deliveryMan = DeliveryMan::where(['phone' => $request['identity']])->orWhere(['email' => $request['identity']])->first();
+        $identity = RequestText::of($request['identity']);
+        PasswordReset::where(['user_type' => 'delivery_man', 'identity' => $identity])->delete();
+        $deliveryMan = $identity === '' ? null : DeliveryMan::where(['phone' => $identity])->orWhere(['email' => $identity])->first();
         $verificationBy = getWebConfig(name: 'deliveryman_forgot_password_method') ?? 'phone';
 
         if (isset($deliveryMan)) {
             $otp = (config('app.mode') == 'live') ? rand(1000, 9999) : 1234;
 
             PasswordReset::insert([
-                'identity' => $request['identity'],
+                'identity' => $identity,
                 'token' => $otp,
                 'user_type' => 'delivery_man',
                 'created_at' => now(),
@@ -129,7 +134,9 @@ class LoginController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $data = PasswordReset::where(['token' => $request['otp'], 'identity' => $request['identity'], 'user_type' => 'delivery_man'])->first();
+        $identity = RequestText::of($request['identity']);
+        $code = RequestText::of($request['otp']);
+        $data = $identity === '' || $code === '' ? null : PasswordReset::where(['token' => $code, 'identity' => $identity, 'user_type' => 'delivery_man'])->first();
         if (!$data) {
             return response()->json(['message' => translate('Invalid_OTP')], 403);
         }
@@ -141,7 +148,9 @@ class LoginController extends Controller
             return response()->json(['message' => translate('OTP_expired')], 403);
         }
 
-        $deliveryManPhone = DeliveryMan::where(['phone' => $request['identity']])->orWhere(['email' => $request['identity']])->first();
+        $data->update(['expires_at' => now()->addMinutes(self::VERIFIED_CODE_MINUTES)]);
+
+        $deliveryManPhone = DeliveryMan::where(['phone' => $identity])->orWhere(['email' => $identity])->first();
         return response()->json([
             'message' => translate('OTP_verified_successfully'),
             'phone' => $deliveryManPhone['phone'],
@@ -161,12 +170,25 @@ class LoginController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        DeliveryMan::where(['phone' => $request['phone']])
-            ->update(['password' => bcrypt(str_replace(' ', '', $request['password']))]);
+        $phone = RequestText::of($request['phone']);
+        $deliveryMen = $phone === '' ? collect() : DeliveryMan::where(['phone' => $phone])->limit(2)->get();
+        $deliveryMan = $deliveryMen->count() === 1 ? $deliveryMen->first() : null;
+        $identities = $deliveryMan ? $this->identitiesOf(deliveryMan: $deliveryMan) : [];
+        if (!PasswordReset::where('user_type', 'delivery_man')->whereIn('identity', $identities)->where('expires_at', '>', now())->exists()) {
+            return response()->json(['message' => translate('Invalid_OTP')], 403);
+        }
 
-        PasswordReset::where(['identity' => $request['phone'], 'user_type' => 'delivery_man'])->delete();
+        DeliveryMan::whereKey($deliveryMan['id'])->update(['password' => bcrypt(str_replace(' ', '', $request['password']))]);
+
+        PasswordReset::where('user_type', 'delivery_man')->whereIn('identity', $identities)->delete();
 
         return response()->json(['message' => translate('Password_changed_successfully')], 200);
 
+    }
+
+    /** What a delivery man may have typed to be sent a code: their phone or their e-mail. */
+    private function identitiesOf(DeliveryMan $deliveryMan): array
+    {
+        return array_values(array_filter([$deliveryMan['phone'], $deliveryMan['email']], static fn (?string $identity): bool => $identity !== null && $identity !== ''));
     }
 }

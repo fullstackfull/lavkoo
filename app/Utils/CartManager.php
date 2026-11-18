@@ -843,7 +843,9 @@ class CartManager
         $guest_id = session('guest_id') ?? ($request->guest_id ?? 0);
         $status = 1;
         $qty = 0;
-        $cart = Cart::where(['id' => $request->key, 'customer_id' => ($user == 'offline' ? $guest_id : $user['id'])])->first();
+        // Guests and customers count their ids separately, so a number alone names no owner.
+        $ownCarts = ['customer_id' => ($user == 'offline' ? $guest_id : $user['id']), 'is_guest' => ($user == 'offline' ? 1 : 0)];
+        $cart = Cart::where($ownCarts + ['id' => $request->key])->first();
 
         if (!$cart) {
             return [
@@ -913,9 +915,8 @@ class CartManager
         $cart->save();
 
         if ($request['buy_now'] == 1) {
-            Cart::where(['customer_id' => ($user == 'offline' ? $guest_id : $user['id']), 'is_guest' => ($user == 'offline' ? 1 : 0)])
-                ->update(['is_checked' => 0]);
-            Cart::where(['id' => $request->key, 'customer_id' => ($user == 'offline' ? $guest_id : $user['id'])])->update(['is_checked' => 1]);
+            Cart::where($ownCarts)->update(['is_checked' => 0]);
+            Cart::where($ownCarts + ['id' => $request->key])->update(['is_checked' => 1]);
         }
 
         // Analytics: recorded here rather than in the two controllers that call this, because web

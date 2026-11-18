@@ -17,7 +17,6 @@ use Exception;
 use App\Enums\WebConfigKey;
 use App\Traits\CommonTrait;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use App\Services\ShopService;
 use App\Traits\PaginatorTrait;
@@ -33,6 +32,7 @@ use App\Exports\VendorOrderListExport;
 use App\Exports\VendorWithdrawRequest;
 use App\Events\VendorRegistrationEvent;
 use App\Http\Controllers\BaseController;
+use App\Models\Admin;
 use App\Events\WithdrawStatusUpdateEvent;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use App\Contracts\Repositories\ShopRepositoryInterface;
@@ -129,14 +129,13 @@ class VendorController extends BaseController
     public function add(VendorAddRequest $request): JsonResponse
     {
 
-        $adminEmail = $this->adminRepo->getFirstWhere(['admin_role_id' => 1]);
-        if ($adminEmail && isset($adminEmail['email']) && $request['email'] === $adminEmail['email']) {
+        if (Admin::masterAdminUsesEmail($request['email'])) {
             return response()->json([
                 'error' => 1,
                 'message' => translate('Email_already_exist_please_try_another_email'),
             ]);
         }
-        $vendor = $this->vendorRepo->add(data: $this->vendorService->getAddData($request));
+        $vendor = $this->vendorRepo->add(data: $this->vendorService->getAddData(request: $request, createdByAdmin: true));
         $this->shopRepo->add($this->shopService->getAddShopDataForRegistration(request: $request, vendorId: $vendor['id']));
         $this->vendorWalletRepo->add($this->vendorService->getInitialWalletData(vendorId: $vendor['id']));
         $data = [
@@ -160,8 +159,8 @@ class VendorController extends BaseController
      * Delegates to updateStatus() per vendor. That method picks a different email
      * template for each transition — a pending vendor being approved gets
      * "registration approved", an active one being suspended gets "account
-     * suspended" — and suspending also rotates the vendor's auth token so their
-     * session dies. None of that may be duplicated here.
+     * suspended" — and the vendor model rotates the auth token on any change of
+     * status so their session dies. None of that may be duplicated here.
      *
      * Its RedirectResponse is discarded: this endpoint answers with JSON, and the
      * per-vendor toasts it flashes are replaced by one aggregate result.
@@ -218,7 +217,6 @@ class VendorController extends BaseController
         } else if ($request['status'] == "rejected") {
             ToastMagic::info(translate('Vendor_has_been_rejected_successfully'));
         } else if ($request['status'] == "suspended") {
-            $this->vendorRepo->update(id: $request['id'], data: ['auth_token' => Str::random(80)]);
             ToastMagic::info(translate('Vendor_has_been_suspended_successfully'));
         }
         if ($vendor['status'] == 'pending') {
@@ -855,9 +853,6 @@ public function destroy(int $id): RedirectResponse
         if ($seller->status === 'approved') {
             // تحديث الحالة إلى معلق
             $this->vendorRepo->update(id: $id, data: ['status' => 'suspended']);
-            
-            // تدوير رمز المصادقة (auth_token) لمنع البائع من الدخول فوراً (نفس منطق دالة updateStatus)
-            $this->vendorRepo->update(id: $id, data: ['auth_token' => \Illuminate\Support\Str::random(80)]);
         }
 
         // 2. تنفيذ الحذف الناعم للبائع (سواء كان معلقاً الآن أو معلقاً أصلاً)

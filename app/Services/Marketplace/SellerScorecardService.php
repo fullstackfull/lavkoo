@@ -2,6 +2,7 @@
 
 namespace App\Services\Marketplace;
 
+use App\Models\OrderDetail;
 use App\Models\SellerVerificationDocument;
 use App\Services\Platform\Policy;
 use Illuminate\Support\Facades\DB;
@@ -169,7 +170,7 @@ class SellerScorecardService
             return ['items_total' => 0, 'items_refunded' => 0];
         }
 
-        $base = DB::table('order_details')->where('seller_id', $sellerId);
+        $base = OrderDetail::ofSeller(sellerId: $sellerId);
 
         return [
             'items_total' => (clone $base)->count(),
@@ -188,6 +189,7 @@ class SellerScorecardService
         $q = DB::table('reviews')
             ->join('products', 'products.id', '=', 'reviews.product_id')
             ->where('products.user_id', $sellerId)
+            ->where('products.added_by', 'seller')
             ->where('reviews.status', 1);
 
         $count = (clone $q)->count();
@@ -206,6 +208,7 @@ class SellerScorecardService
         return DB::table('product_moderation_events')
             ->join('products', 'products.id', '=', 'product_moderation_events.product_id')
             ->where('products.user_id', $sellerId)
+            ->where('products.added_by', 'seller')
             ->whereIn('product_moderation_events.action', ['rejected', 'suspended'])
             ->count();
     }

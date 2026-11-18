@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\Rules\StoredFileNames;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
 use Illuminate\Foundation\Http\FormRequest;
@@ -75,7 +76,11 @@ class ProductUpdateRequest extends FormRequest
                 $codeScope->uniqueRuleForBarcode(country: $country, ignoreProductId: $product->id),
             ],
             'video_url' => 'nullable|url',
-        ];
+            'existing_thumbnail' => [new StoredFileNames()],
+            'existing_images' => [new StoredFileNames()],
+            'existing_preview_file' => [new StoredFileNames()],
+            'existing_meta_image' => [new StoredFileNames()],
+        ] + StoredFileNames::forColorImages(fields: array_keys($this->all()));
     }
 
     public function messages(): array

@@ -37,6 +37,7 @@ use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductEditImageRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Repositories\DigitalProductPublishingHouseRepository;
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
@@ -97,6 +98,7 @@ class ProductController extends BaseController
         private readonly BannerRepositoryInterface                  $bannerRepo,
         private readonly ShopRepositoryInterface                    $shopRepo,
         private readonly ProductService                             $productService,
+        private readonly DigitalProductFileService                  $digitalFiles,
     )
     {
         $this->middleware(ScopeProductsToStaffCountries::class);
@@ -411,7 +413,7 @@ class ProductController extends BaseController
                     }
                     $uploadedFile = '';
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     $this->digitalProductVariationRepo->add(data: [
                         'product_id' => $product['id'],
@@ -441,7 +443,7 @@ class ProductController extends BaseController
                     $uploadedFile = $variation['file'] ?? '';
                     $variation = $this->digitalProductVariationRepo->getFirstWhere(params: ['product_id' => $product['id'], 'variant_key' => $variation['variant_key']]);
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     $this->digitalProductVariationRepo->updateByParams(params: ['product_id' => $product['id'], 'variant_key' => $variation['variant_key']], data: [
                         'variant_key' => $request->input('digital_product_variant_key.' . $uniqueKey),
@@ -541,6 +543,22 @@ class ProductController extends BaseController
         ]);
     }
 
+    public function downloadDigitalFile(string|int $id): BinaryFileResponse
+    {
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id]);
+        abort_if($product === null, 404);
+
+        return $this->digitalFiles->download(name: $product['digital_file_ready']) ?? abort(404);
+    }
+
+    public function downloadDigitalVariationFile(string|int $id): BinaryFileResponse
+    {
+        $variation = $this->digitalProductVariationRepo->getFirstWhere(params: ['id' => $id]);
+        abort_if($variation === null, 404);
+
+        return $this->digitalFiles->download(name: $variation['file']) ?? abort(404);
+    }
+
     public function updateFeaturedStatus(Request $request): JsonResponse
     {
         $status = $request['status'];
@@ -638,14 +656,20 @@ class ProductController extends BaseController
 
     public function deleteImage(Request $request, ProductService $service): RedirectResponse
     {
-        $this->deleteFile(filePath: '/product/' . $request['image']);
         $product = $this->productRepo->getFirstWhere(params: ['id' => $request['id']]);
+        if (!$product) {
+            ToastMagic::error(translate('product_not_found') . '!');
+            return back();
+        }
 
         if (count(json_decode($product['images'])) < 2) {
             ToastMagic::warning(translate('you_can_not_delete_all_images'));
             return back();
         }
 
+        if (in_array($request['image'], $service->imageNames(product: $product), true)) {
+            $this->deleteFile(filePath: '/product/' . $request['image']);
+        }
         $imageProcessing = $service->deleteImage(request: $request, product: $product);
 
         $updateData = [

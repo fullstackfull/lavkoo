@@ -135,7 +135,6 @@ Route::get('/cash', function () {
             Route::post('verify-email', 'verifyEmail');
             Route::post('verify-phone', 'verifyPhone');
             Route::post('registration-with-otp', 'registrationWithOTP');
-            Route::post('existing-account-check', 'existingAccountCheck');
             Route::post('registration-with-social-media', 'registrationWithSocialMedia');
             Route::post('forgot-password', 'passwordResetRequest');
         });
@@ -437,7 +436,7 @@ Route::get('/cash', function () {
     Route::group(['prefix' => 'customer', 'middleware' => 'apiGuestCheck'], function () {
         Route::group(['prefix' => 'order'], function () {
             Route::controller(OrderController::class)->group(function () {
-                Route::get('digital-product-download/{id}', 'digital_product_download');
+                Route::get('digital-product-download/{id}/{fileName?}', 'digital_product_download')->name('customer-api.orders.digital-file');
                 Route::get('digital-product-download-otp-verify', 'digital_product_download_otp_verify');
                 Route::post('digital-product-download-otp-resend', 'digital_product_download_otp_resend');
             });

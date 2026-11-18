@@ -4,9 +4,12 @@ namespace App\Traits;
 
 use App\Models\Order;
 use App\Models\Setting;
+use App\Utils\PlainFileName;
+use App\Utils\StoredFileExtension;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Redirector;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\App;
@@ -65,17 +68,18 @@ trait  Processor
         return (isset($config)) ? $config : null;
     }
 
+    /** Stores an uploaded raster image; a value that is not an uploaded image (a path or an address the request names) is no image, and the old one stays. */
     public function file_uploader(string $dir, string $format, $image = null, $old_image = null)
     {
-        if ($image == null) return $old_image ?? 'def.png';
+        if (!$image instanceof UploadedFile || !StoredFileExtension::isRasterImage(image: $image)) return $old_image ?? 'def.png';
 
-        if (isset($old_image)) Storage::disk('public')->delete($dir . $old_image);
+        if (PlainFileName::isPlain($old_image)) Storage::disk('public')->delete($dir . $old_image);
 
         $imageName = Carbon::now()->toDateString() . "-" . uniqid() . "." . $format;
         if (!Storage::disk('public')->exists($dir)) {
             Storage::disk('public')->makeDirectory($dir);
         }
-        Storage::disk('public')->put($dir . $imageName, file_get_contents($image));
+        Storage::disk('public')->put($dir . $imageName, $image->get());
 
         return $imageName;
     }

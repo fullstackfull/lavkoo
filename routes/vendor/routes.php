@@ -136,7 +136,6 @@ Route::group(['middleware' => ['maintenance_mode', 'actch:admin_panel']], functi
                     Route::get('new-cart-id', 'addNewCartId')->name('new-cart-id');
                 });
                 Route::controller(POSOrderController::class)->group(function () {
-                    Route::post(POSOrder::ORDER_DETAILS[URI] . '/{id}', 'index')->name('order-details');
                     Route::post(POSOrder::ORDER_PLACE[URI], 'placeOrder')->name('order-place');
                     Route::any(POSOrder::CANCEL_ORDER[URI], 'cancelOrder')->name('cancel-order');
                     Route::any(POSOrder::HOLD_ORDERS[URI], 'getAllHoldOrdersView')->name('view-hold-orders');
@@ -160,6 +159,8 @@ Route::group(['middleware' => ['maintenance_mode', 'actch:admin_panel']], functi
                     Route::post('sku-combination', 'getSkuCombinationView')->name('sku-combination');
                     Route::post('digital-variation-combination', 'getDigitalVariationCombinationView')->name('digital-variation-combination');
                     Route::post('digital-variation-file-delete', 'deleteDigitalVariationFile')->name('digital-variation-file-delete');
+                    Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('digital-file');
+                    Route::get('digital-variation-file/{id}/{fileName?}', 'downloadDigitalVariationFile')->name('digital-variation-file');
                     Route::post('status-update', 'updateStatus')->name('status-update');
                     Route::get('export-excel/{type}', 'exportList')->name('export-excel');
                     Route::get('view/{id}', 'getView')->name('view');
@@ -199,6 +200,7 @@ Route::group(['middleware' => ['maintenance_mode', 'actch:admin_panel']], functi
                     Route::get('add-delivery-man/{order_id}/{d_man_id}', 'addDeliveryMan')->name('add-delivery-man');
                     Route::post('amount-date-update', 'updateAmountDate')->name('amount-date-update');
                     Route::post('digital-file-upload-after-sell', 'uploadDigitalFileAfterSell')->name('digital-file-upload-after-sell');
+                    Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('digital-file');
                     Route::post('status', 'updateStatus')->name('status');
                     Route::post('customer-return-amount', 'orderReturnAmountToCustomer')->name('customer-return-amount');
                     Route::post('customer-due-amount', 'orderDueAmountSwitchToCOD')->name('customer-due-amount');

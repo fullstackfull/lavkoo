@@ -18,6 +18,7 @@ use App\Models\Seller;
 use App\Models\Setting;
 use App\Traits\CommonTrait;
 use App\Models\User;
+use App\Services\Payments\PaymentSettlementScope;
 use App\Utils\CartManager;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
@@ -33,6 +34,11 @@ class Helpers
 
     public static function getCustomerInformation($request = null)
     {
+        $settlement = PaymentSettlementScope::current();
+        if ($settlement !== null) {
+            return $settlement->registeredPayer ?? 'offline';
+        }
+
         $user = null;
         if (auth('customer')->check()) {
             $user = auth('customer')->user();
@@ -61,7 +67,7 @@ class Helpers
 
     public static function default_lang()
     {
-        if (strpos(url()->current(), '/api')) {
+        if (RequestArea::isApi()) {
             $lang = App::getLocale();
         } elseif (session()->has('local')) {
             $lang = session('local');
@@ -528,21 +534,11 @@ class Helpers
 
     public static function get_seller_by_token($request)
     {
-        $data = '';
-        $success = 0;
-
-        $token = explode(' ', $request->header('authorization'));
-        if (count($token) > 1 && strlen($token[1]) > 30) {
-            $seller = Seller::where(['auth_token' => $token['1']])->first();
-            if (isset($seller)) {
-                $data = $seller;
-                $success = 1;
-            }
-        }
+        $seller = self::getSellerByToken($request);
 
         return [
-            'success' => $success,
-            'data' => $data
+            'success' => $seller ? 1 : 0,
+            'data' => $seller ?? ''
         ];
     }
 
@@ -551,7 +547,7 @@ class Helpers
     {
         $token = explode(' ', $request->header('authorization'));
         if (count($token) > 1 && strlen($token[1]) > 30) {
-            return Seller::where(['auth_token' => $token['1']])->first();
+            return Seller::approved()->where(['auth_token' => $token['1']])->first();
         }
         return null;
     }
@@ -597,36 +593,7 @@ class Helpers
 
     public static function setEnvironmentValue($envKey, $envValue)
     {
-        $envFile = app()->environmentFilePath();
-        $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-
-        if (preg_match('/[^a-zA-Z0-9]/', $envValue)) {
-            $formattedValue = "\"{$envValue}\"";
-        } else {
-            $formattedValue = $envValue;
-        }
-
-        $replacement = "{$envKey}={$formattedValue}";
-        $keyFound = false;
-        $newLines = [];
-
-        foreach ($lines as $line) {
-            if (trim($line) === '') {
-                continue;
-            }
-            if (preg_match("/^{$envKey}\s*=/i", trim($line))) {
-                $newLines[] = $replacement;
-                $keyFound = true;
-            } else {
-                $newLines[] = $line;
-            }
-        }
-
-        if (!$keyFound) {
-            $newLines[] = $replacement;
-        }
-        file_put_contents($envFile, implode(PHP_EOL, $newLines) . PHP_EOL);
-        return $formattedValue;
+        return EnvironmentFile::set(path: app()->environmentFilePath(), key: $envKey, value: $envValue);
     }
 
     public static function sales_commission_before_order($cart_group_id, $coupon_discount): int|string

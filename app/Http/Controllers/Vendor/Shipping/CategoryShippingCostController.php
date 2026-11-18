@@ -42,6 +42,10 @@ class CategoryShippingCostController extends BaseController
     public function update(object $request): RedirectResponse
     {
         if ($request['ids']) {
+            if (!$this->areAllOwnRows(ids: (array)$request['ids'])) {
+                ToastMagic::error(translate('category_shipping_cost_not_found'));
+                return redirect()->back();
+            }
             foreach ($request['ids'] as $key => $id) {
                 $this->categoryShippingCostRepo->update(
                     id: $id,
@@ -57,5 +61,12 @@ class CategoryShippingCostController extends BaseController
         return redirect()->back();
     }
 
+    /** The form lists the seller's own rows; a post that names any other row (another seller's, the platform's) is refused whole. */
+    private function areAllOwnRows(array $ids): bool
+    {
+        $ownIds = $this->categoryShippingCostRepo->getListWhere(filters: ['seller_id' => auth('seller')->id()])->pluck('id')->all();
+
+        return array_diff($ids, $ownIds) === [];
+    }
 
 }

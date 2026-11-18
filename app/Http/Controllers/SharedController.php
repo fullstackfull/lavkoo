@@ -20,17 +20,16 @@ class SharedController extends Controller
 
     public function changeLanguage(Request $request): JsonResponse
     {
-        $direction = 'ltr';
-        $language = getWebConfig('language');
-        foreach ($language as $data) {
-            if ($data['code'] == $request['language_code']) {
-                $direction = $data['direction'] ?? 'ltr';
-            }
+        $languageCode = $request['language_code'];
+        $selectedLanguage = is_string($languageCode) ? collect(getWebConfig('language') ?? [])->firstWhere('code', $languageCode) : null;
+        if (!$selectedLanguage) {
+            return response()->json(['message' => translate('the_language_code_is_not_valid')], 422);
         }
+
         session()->forget('language_settings');
         Helpers::language_load();
-        session()->put('local', $request['language_code']);
-        Session::put('direction', $direction);
+        session()->put('local', $languageCode);
+        Session::put('direction', $selectedLanguage['direction'] ?? 'ltr');
         Artisan::call('cache:clear');
         return response()->json(['message' => translate('language_change_successfully') . '.']);
     }

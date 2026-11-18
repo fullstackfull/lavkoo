@@ -473,7 +473,16 @@ class CartController extends Controller
         ])->first();
 
         if (isset($cart) == false) {
-            $cart = Cart::find($request->id);
+            // The row being changed has to be this customer's own row of this product: its price is taken from the product asked for.
+            $cart = Cart::where([
+                'id' => $request->id,
+                'product_id' => $request['product_id'],
+                'customer_id' => $user == 'offline' ? session('guest_id') : $user->id,
+                'is_guest' => $user == 'offline' ? 1 : '0',
+            ])->first();
+            if (!$cart) {
+                return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+            }
             $cart['color'] = $request->has('color') ? $request['color'] : null;
             $cart['choices'] = json_encode($choices);
 

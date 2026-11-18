@@ -205,11 +205,11 @@
     </script>
     <script>
         async function initAutocomplete() {
-            var myLatLng = { lat: {{$shipping_latitude??'-33.8688'}}, lng: {{$shipping_longitude??'151.2195'}} };
+            var myLatLng = { lat: {{ (float) ($shipping_latitude ?? -33.8688) }}, lng: {{ (float) ($shipping_longitude ?? 151.2195) }} };
             const { Map } = await google.maps.importLibrary("maps");
             const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
             const map = new google.maps.Map(document.getElementById("location_map_canvas"), {
-                center: { lat: {{$shipping_latitude??'-33.8688'}}, lng: {{$shipping_longitude??'151.2195'}} },
+                center: { lat: {{ (float) ($shipping_latitude ?? -33.8688) }}, lng: {{ (float) ($shipping_longitude ?? 151.2195) }} },
                 zoom: 13,
                 mapId: 'roadmap'
             });

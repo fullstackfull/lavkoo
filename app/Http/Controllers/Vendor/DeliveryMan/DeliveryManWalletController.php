@@ -97,7 +97,9 @@ class DeliveryManWalletController extends BaseController
      */
     public function getOrderStatusHistory(string|int $order): View
     {
-        $histories = $this->orderStatusHistoryRepo->getListWhere(filters: ['order_id' => $order]);
+        $ownOrder = $this->orderRepo->getFirstWhere(params: ['id' => $order, 'seller_id' => auth('seller')->id(), 'seller_is' => 'seller']);
+        abort_if(boolean: !$ownOrder, code: 404);
+        $histories = $this->orderStatusHistoryRepo->getListWhere(filters: ['order_id' => $ownOrder['id']]);
         return view(DeliveryManWallet::ORDER_STATUS_HISTORY[VIEW], compact('histories'));
     }
 

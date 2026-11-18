@@ -25,11 +25,7 @@ class PageController extends Controller
 
     public function getPageView(Request $request): View|RedirectResponse
     {
-        $filter = ['slug' => $request['slug']];
-        if (!($request->has('source') && $request->source == 'admin')) {
-            $filter += ['status' => 1];
-        }
-        $businessPage = $this->businessPageRepo->getFirstWhere(params: $filter, relations: ['banner']);
+        $businessPage = $this->businessPageRepo->getFirstWhere(params: ['slug' => $request['slug'], 'status' => 1], relations: ['banner']);
         if (!$businessPage) {
             Toastr::error(translate('Page_not_found'));
             return redirect()->route('home');

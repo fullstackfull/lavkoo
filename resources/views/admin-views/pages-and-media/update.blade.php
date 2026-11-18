@@ -27,7 +27,7 @@
                            data-bs-toggle="tooltip"
                            data-bs-title="{{ translate('this_page_is_not_available_on_website_please_turn_on_the_status.') }}"
                     @else
-                           href="{{ route('business-page.view', ['slug' => $businessPage['slug'], 'source' => 'admin']) }}" @endif>
+                           href="{{ route('business-page.view', ['slug' => $businessPage['slug']]) }}" @endif>
                         {{ translate('View_URL') }}
                         <i class="fi fi-rr-up-right-from-square"></i>
                     </a>

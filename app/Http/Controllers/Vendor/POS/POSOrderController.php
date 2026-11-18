@@ -8,7 +8,6 @@ use App\Contracts\Repositories\OrderDetailRepositoryInterface;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\StorageRepositoryInterface;
-use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Enums\SessionKey;
 use App\Enums\ViewPaths\Vendor\POSOrder;
 use App\Events\DigitalProductDownloadEvent;
@@ -43,7 +42,6 @@ class POSOrderController extends BaseController
      * @param CustomerRepositoryInterface $customerRepo
      * @param OrderRepositoryInterface $orderRepo
      * @param OrderDetailRepositoryInterface $orderDetailRepo
-     * @param VendorRepositoryInterface $vendorRepo
      * @param DigitalProductVariationRepositoryInterface $digitalProductVariationRepo
      * @param StorageRepositoryInterface $storageRepo
      * @param POSService $POSService
@@ -56,7 +54,6 @@ class POSOrderController extends BaseController
         private readonly CustomerRepositoryInterface                $customerRepo,
         private readonly OrderRepositoryInterface                   $orderRepo,
         private readonly OrderDetailRepositoryInterface             $orderDetailRepo,
-        private readonly VendorRepositoryInterface                  $vendorRepo,
         private readonly DigitalProductVariationRepositoryInterface $digitalProductVariationRepo,
         private readonly StorageRepositoryInterface                 $storageRepo,
         private readonly POSService                                 $POSService,
@@ -71,29 +68,10 @@ class POSOrderController extends BaseController
      * @param Request|null $request
      * @param string|null $type
      * @return View|Collection|LengthAwarePaginator|callable|RedirectResponse|null
-     * @throws Exception
      */
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse
     {
-        return $this->getOrderDetails(id: $type);
-    }
-
-    /**
-     * @param string $id
-     * @return View|RedirectResponse
-     * @throws Exception
-     */
-    public function getOrderDetails(string $id): View|RedirectResponse
-    {
-        $vendorId = auth('seller')->id();
-        $vendor = $this->vendorRepo->getFirstWhere(params: ['id' => $vendorId]);
-        $getPOSStatus = getWebConfig('seller_pos');
-        if ($vendor['pos_status'] == 0 || $getPOSStatus == 0) {
-            ToastMagic::warning(translate('access_denied!!'));
-            return redirect()->back();
-        }
-        $order = $this->orderRepo->getFirstWhere(params: ['id' => $id], relations: ['details', 'shipping', 'seller']);
-        return view(POSOrder::ORDER_DETAILS[VIEW], compact('order'));
+        // TODO: Implement index() method.
     }
 
     /**
@@ -137,7 +115,7 @@ class POSOrderController extends BaseController
         $cartListSession = $this->cartService->filterSessionCartList(cart: session($cartId));
 
         if (count($cartListSession) > 0) {
-            $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+            $products = $this->productRepo->getListWithScope(filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()], whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);
@@ -381,7 +359,7 @@ class POSOrderController extends BaseController
         $cartListSession = $this->cartService->filterSessionCartList(cart: session($cartName));
 
         if (count($cartListSession) > 0) {
-            $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+            $products = $this->productRepo->getListWithScope(filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()], whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartName), $products, $customerCartData[$cartName]['customerId']);

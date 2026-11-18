@@ -52,6 +52,7 @@ use App\Services\SellerIntelligence\Severity\SeverityEngine;
 use App\Traits\UpdateClass;
 use App\Utils\Helpers;
 use App\Utils\ProductManager;
+use App\Utils\RequestArea;
 use Exception;
 use Illuminate\Foundation\AliasLoader;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -225,7 +226,7 @@ class AppServiceProvider extends ServiceProvider
                         'meta_description' => substr(strip_tags(str_replace('&nbsp;', ' ', (BusinessPage::where('slug', 'about-us')->first()?->description ?? ''))), 0, 160),
                     ];
 
-                    if ((!Request::is('admin') && !Request::is('admin/*') && !Request::is('seller/*') && !Request::is('vendor/*')) || Request::is('vendor/auth/registration/*')) {
+                    if (!RequestArea::isPanel()) {
                         $userId = Auth::guard('customer')->user() ? Auth::guard('customer')->id() : 0;
                         $flashDeal = ProductManager::getPriorityWiseFlashDealsProductsQuery(userId: $userId);
 
