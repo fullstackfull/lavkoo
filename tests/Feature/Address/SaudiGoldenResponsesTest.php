@@ -35,6 +35,27 @@ class SaudiGoldenResponsesTest extends ApiAddressTestCase
         $this->openTheWallet();
     }
 
+    /** What the order list reads of a product, a review and a colour, which the order pipeline world leaves out. */
+    private function giveTheTablesTheOrderListFormats(): void
+    {
+        if (!Schema::hasColumn('reviews', 'order_id')) {
+            Schema::table('reviews', fn (Blueprint $table) => $table->unsignedBigInteger('order_id')->nullable());
+        }
+        if (!Schema::hasTable('colors')) {
+            Schema::create('colors', function (Blueprint $table): void {
+                $table->id();
+                $table->string('name')->nullable();
+                $table->string('code')->nullable();
+            });
+        }
+
+        foreach (['colors', 'attributes', 'choice_options', 'category_ids', 'images', 'variation'] as $column) {
+            if (!Schema::hasColumn('products', $column)) {
+                Schema::table('products', fn (Blueprint $table) => $table->text($column)->nullable());
+            }
+        }
+    }
+
     /** A store whose wallet is on: the setting the wallet writer asks for and the ledger it writes to. */
     private function openTheWallet(): void
     {
@@ -59,8 +80,8 @@ class SaudiGoldenResponsesTest extends ApiAddressTestCase
     }
 
     /**
-     * The values that change from run to run (times, random references) are named, never compared, and a decimal is the number it is whichever way the engine hands it
-     * back (SQLite gives 100, MySQL "100.00").
+     * The values that change from run to run (times, random references) are named, never compared, and a decimal or a count is the number it is whichever way the engine
+     * hands it back (SQLite gives 100 and 1, MySQL "100.00" and "1").
      */
     private function normalized(mixed $value, string $key = ''): mixed
     {
@@ -77,6 +98,10 @@ class SaudiGoldenResponsesTest extends ApiAddressTestCase
 
         if (in_array($key, ['transaction_id', 'order_group_id', 'verification_code'], true)) {
             return '<random>';
+        }
+
+        if (is_string($value) && str_ends_with($key, '_count') && ctype_digit($value)) {
+            return (int) $value;
         }
 
         if (is_string($value) && preg_match('/^-?\d+\.\d+$/', $value)) {
@@ -132,6 +157,19 @@ class SaudiGoldenResponsesTest extends ApiAddressTestCase
         $response = $this->asCustomer($customer)->getJson(self::COD)->assertOk();
 
         $this->assertMatchesGolden('cash_on_delivery', ['status' => $response->status(), 'body' => $response->json(), 'rows' => $this->rowsLeftBy($customer->id)]);
+    }
+
+    public function test_the_order_list_the_app_reads_after_a_cash_on_delivery_order(): void
+    {
+        $this->giveTheTablesTheOrderListFormats();
+        $customer = $this->makeCustomer(['email' => 'golden@example.test']);
+        $this->putOneProductInTheCart($customer->id);
+        DB::table('products')->update(['colors' => '[]', 'attributes' => '[]', 'choice_options' => '[]', 'category_ids' => '[]', 'images' => '[]', 'variation' => '[]']);
+        $this->asCustomer($customer)->getJson(self::COD)->assertOk();
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/customer/order/list?limit=10&offset=1');
+
+        $this->assertMatchesGolden('order_list', ['status' => $response->status(), 'body' => $response->json()]);
     }
 
     public function test_the_wallet_order_of_one_hundred_riyals(): void
