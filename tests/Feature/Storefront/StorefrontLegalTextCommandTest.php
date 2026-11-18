@@ -228,7 +228,7 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->assertTrue(StorefrontLegalDocument::query()->findOrFail($id)->effective_from->lessThanOrEqualTo(now()));
     }
 
-    public function test_it_revokes_with_a_reason_and_starts_a_new_version(): void
+    public function test_it_revokes_with_a_reason_and_the_replacement_is_written_from_a_template(): void
     {
         $id = $this->draftTerms();
         $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
@@ -239,8 +239,28 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->text('revoke', ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause'])->expectsOutputToContain('Text 1 is revoked')->assertExitCode(0);
 
         $this->text('draft', ['--new-version-of' => $id, '--admin' => 11])
+            ->expectsOutputToContain('Text 1 is revoked: a revoked text is not copied into a new version.')
+            ->assertExitCode(1);
+
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
+            ->expectsOutputToContain('Draft 2: the terms (en) of KW, version 2, a copy of the template.')
+            ->assertExitCode(0);
+    }
+
+    public function test_it_starts_a_new_version_of_a_published_text_that_cannot_be_approved_until_it_is_edited(): void
+    {
+        $id = $this->editedTerms();
+        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+
+        $this->text('draft', ['--new-version-of' => $id, '--admin' => 11])
             ->expectsOutputToContain('Draft 2 is version 2 of the terms (en) of KW, a copy of the text it replaces.')
             ->assertExitCode(0);
+
+        $this->text('approve', ['--id' => 2, '--admin' => 12])->expectsOutputToContain('still the template it was copied from')->assertExitCode(1);
+
+        $this->text('edit', ['--id' => 2, '--admin' => 11, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, version 2.')])->assertExitCode(0);
+        $this->text('approve', ['--id' => 2, '--admin' => 12])->assertExitCode(0);
     }
 
     public function test_it_discards_a_draft_that_is_not_wanted(): void

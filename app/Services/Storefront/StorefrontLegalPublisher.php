@@ -21,7 +21,8 @@ use RuntimeException;
  *                          ▲  edit/discard        │ edit returns it to draft
  *
  * - A copy of a template is a **draft** carrying the hash of the template, and is never published by being copied. A text that is still the template when it is approved is refused.
- * - A **published text is never edited**: a change is a new version, which is a new draft that starts as a copy of the text it replaces.
+ * - A **published text is never edited**: a change is a new version, which is a new draft that starts as a copy of the newest published text it replaces (never of a revoked or a
+ *   superseded one) and carries the hash of that text as its template hash, so that a copy nobody edited is no more approved than an unedited template.
  * - The approver is **not the author**. The author of a text is the last person who changed it, so an edit by the approver makes the approver the author and voids the approval.
  * - An approval or a publication is bound to the words the person read: when they name the hash of those words, the step is refused if the locked text is not that any more.
  * - A text takes effect on a day the publisher names (now, or later), never in the past, and never before another text of the same type and locale that is already scheduled: the
@@ -68,7 +69,11 @@ final class StorefrontLegalPublisher
         });
     }
 
-    /** A new version of a published text: a draft that starts as a copy of the text it replaces, which stays in force until the new version takes effect. */
+    /**
+     * A new version of the newest published text of a type and locale: a draft that starts as a copy of the text it replaces, which stays in force until the new version takes effect.
+     * The copy carries the hash of the text it was copied from as its template hash, so that a copy nobody edited is not approved. A revoked text is not copied (the replacement of a
+     * revoked text is written from a template), and neither is a text that a newer published one has superseded.
+     */
     public function draftNewVersionOf(int $textId, int $author): StorefrontLegalDocument
     {
         $this->knownPerson($author);
@@ -80,9 +85,25 @@ final class StorefrontLegalPublisher
                 throw new RuntimeException("Text {$textId} is not published ({$published->status}): only a published text has a new version; a draft is edited.");
             }
 
+            if ($published->revoked_at !== null) {
+                throw new RuntimeException("Text {$textId} is revoked: a revoked text is not copied into a new version. Write its replacement from a template (draftFromTemplate).");
+            }
+
+            $newestVersion = (int) StorefrontLegalDocument::query()
+                ->where('country_code', $published->country_code)
+                ->where('document_type', $published->document_type)
+                ->where('locale', $published->locale)
+                ->where('status', StorefrontLegalDocument::STATUS_PUBLISHED)
+                ->max('version');
+
+            if ((int) $published->version !== $newestVersion) {
+                throw new RuntimeException("Text {$textId} (version {$published->version}) is not the newest published text of this type and locale: version {$newestVersion} is, and a new version is a copy of the newest one.");
+            }
+
             $this->refuseASecondOpenText(country: $published->country_code, documentType: $published->document_type, locale: $published->locale);
 
-            $draft = $this->insertDraft(country: $published->country_code, documentType: $published->document_type, locale: $published->locale, body: (string) $published->body, templateHash: null, author: $author);
+            $body = (string) $published->body;
+            $draft = $this->insertDraft(country: $published->country_code, documentType: $published->document_type, locale: $published->locale, body: $body, templateHash: hash('sha256', $body), author: $author);
 
             $this->audit(action: 'storefront.legal_text.drafted', text: $draft, before: null, after: $draft, admin: $author, context: ['from' => 'version', 'previous_text_id' => $published->id]);
 

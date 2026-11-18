@@ -86,7 +86,7 @@ class StorefrontLegalTextCommand extends Command
         if ($this->filled('new-version-of')) {
             $text = $publisher->draftNewVersionOf(textId: $this->integerOption('new-version-of'), author: $admin);
             $this->info("Draft {$text->id} is version {$text->version} of the {$text->document_type} ({$text->locale}) of {$text->country_code}, a copy of the text it replaces.");
-            $this->line('Edit it (--body-file), then someone other than its author approves it.');
+            $this->line('A copy that is not edited is not approved: edit it (--body-file), then someone other than its author approves it.');
             $this->reportHash($text);
 
             return self::SUCCESS;
