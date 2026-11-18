@@ -21,11 +21,13 @@ class CouponController extends Controller
         $coupons = Coupon::whereIn('seller_id', [$seller->id, '0'])
             ->when(isset($request['search']) && !empty($request['search']), function ($query) use ($request) {
                 $key = searchTerms($request['search']);
-                foreach ($key as $value) {
-                    $query->where('title', 'like', "%{$value}%")
-                        ->orWhere('code', 'like', "%{$value}%")
-                        ->orWhere('discount_type', 'like', "%{$value}%");
-                }
+                $query->where(function ($query) use ($key) {
+                    foreach ($key as $value) {
+                        $query->orWhere('title', 'like', "%{$value}%")
+                            ->orWhere('code', 'like', "%{$value}%")
+                            ->orWhere('discount_type', 'like', "%{$value}%");
+                    }
+                });
             })
             ->withCount('order')->latest()
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
@@ -115,7 +117,7 @@ class CouponController extends Controller
 
         ]);
 
-        $coupon = Coupon::where(['coupon_bearer' => 'seller'])->whereIn('seller_id', [$seller->id, '0'])->find($id);
+        $coupon = $this->findOwnCoupon(sellerId: $seller->id, id: $id);
         if (!$coupon) {
             return response()->json(['message' => translate('coupon_not_found')], 403);
         }
@@ -146,7 +148,7 @@ class CouponController extends Controller
     public function status_update(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $coupon = Coupon::where(['coupon_bearer' => 'seller'])->whereIn('seller_id', [$seller->id, '0'])->find($request->id);
+        $coupon = $this->findOwnCoupon(sellerId: $seller->id, id: $request->id);
         if (!$coupon) {
             return response()->json(['message' => translate('coupon_not_found')], 403);
         }
@@ -213,6 +215,12 @@ class CouponController extends Controller
             }
         }
         return response()->json(['message' => translate('coupon_invalid')], 202);
+    }
+
+    // seller_id 0 means every vendor, so it is never the vendor's own: only a coupon the vendor added for its own shop may be changed.
+    private function findOwnCoupon(int|string $sellerId, int|string|null $id): ?Coupon
+    {
+        return Coupon::where(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => $sellerId])->find($id);
     }
 
     public function customers(Request $request): JsonResponse
