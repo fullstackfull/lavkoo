@@ -271,7 +271,7 @@ class OrderEditService
                     && (empty($request['variant']) || ($item['variant'] ?? '') == $request['variant']);
             });
 
-        $taxConfig = self::getTaxSystemType();
+        $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
 
         $productData = [
             'current_stock' => $currentStock,
@@ -508,7 +508,7 @@ class OrderEditService
                         && (empty($productItem['variant']) || ($item['variant'] ?? '') == $productItem['variant']);
                 });
 
-            $taxConfig = self::getTaxSystemType();
+            $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
 
             $productList[$this->generateProductIndex(id: $product['id'], variant: $productItem['variant'])] = [
                 'current_stock' => $currentStock,

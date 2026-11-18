@@ -2,6 +2,8 @@
 
 namespace Modules\TaxModule\app\Models;
 
+use App\Services\Storefront\StorefrontTax;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -19,6 +21,17 @@ class SystemTaxSetup extends Model
         'is_included' => 'integer',
         'tax_ids' => 'array',
     ];
+
+    /**
+     * The rows no storefront owns, which is the platform's setup. A row that carries the code of a configured storefront other than the default one belongs to that
+     * storefront (GCC-05 and D1-07), so the screens and services that mean "the" setup of the platform leave it out; a row with no code, or any other code, stays.
+     */
+    public function scopeOfThePlatform(Builder $query): Builder
+    {
+        $storefronts = app(StorefrontTax::class)->storefrontCountries();
+
+        return $query->where(static fn (Builder $inner): Builder => $inner->whereNull('country_code')->orWhereNotIn('country_code', $storefronts));
+    }
 
     public function additionalData(): HasMany
     {

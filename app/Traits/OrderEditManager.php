@@ -388,7 +388,7 @@ trait OrderEditManager
             $orderDueAmount = $orderAmount - $initOrderAmount;
         }
 
-        $taxConfig = self::getTaxSystemType();
+        $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
 
         $adminCommission = (float)str_replace(",", "", Helpers::seller_sales_commission($order['seller_is'], $order['seller_id'], $couponSummary['total_cart_amount']));
 
@@ -529,7 +529,7 @@ trait OrderEditManager
             }
         }
 
-        $taxConfig = self::getTaxSystemType();
+        $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
         OrderTax::where('order_id', $order['id'])->where('tax_for', 'tax_for_orders')->delete();
         self::updateEditOrderTaxAmount(order: $order, taxConfig: $taxConfig, taxSummary: $editOrderSummary['tax_summary']);
 
@@ -655,7 +655,7 @@ trait OrderEditManager
 
     public function calculateEditOrderTaxAmount(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $couponSummary = [], object|array $data = []): array
     {
-        $taxConfig = self::getTaxSystemType();
+        $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
 
         $totalDiscountOnProduct = 0;
         if ($data['is_shipping_free'] == 1) {
