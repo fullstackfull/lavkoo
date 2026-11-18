@@ -548,7 +548,7 @@ class CustomerController extends Controller
             ->where('id', $request['order_id'])
             ->where(function ($query) use ($request) {
                 auth('api')->check()
-                    ? $query->where('customer_id', auth('api')->id())
+                    ? $query->ownedByCustomer(customerId: auth('api')->id())
                     : $query->where(['customer_id' => $request['guest_id'], 'is_guest' => 1]);
             })
             ->first();
@@ -589,7 +589,7 @@ class CustomerController extends Controller
             ->where('id', $request['order_id'])
             ->where(function ($query) use ($request) {
                 auth('api')->check()
-                    ? $query->where('customer_id', auth('api')->id())
+                    ? $query->ownedByCustomer(customerId: auth('api')->id())
                     : $query->where(['customer_id' => $request['guest_id'], 'is_guest' => 1]);
             })
             ->first();
