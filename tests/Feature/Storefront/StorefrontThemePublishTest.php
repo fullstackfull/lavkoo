@@ -224,8 +224,8 @@ class StorefrontThemePublishTest extends TestCase
         $themes->publish($this->draftOf($theme));
         $themes->restoreVersion($source);
 
-        $this->assertSame(['theme_id' => $theme->id], $this->auditContext('theme.published'));
-        $this->assertSame(['restored_from_version_id' => $source->id, 'theme_id' => $theme->id], $this->auditContext('theme.restored'));
+        $this->assertEquals(['theme_id' => $theme->id], $this->auditContext('theme.published'));
+        $this->assertEquals(['restored_from_version_id' => $source->id, 'theme_id' => $theme->id], $this->auditContext('theme.restored'), 'a JSON column does not keep the order of the keys on every engine');
         $this->assertNull(DB::table('audit_logs')->where('action', 'theme.activated')->value('context'));
     }
 }
