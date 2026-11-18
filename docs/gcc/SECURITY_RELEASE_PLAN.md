@@ -17,7 +17,7 @@ built **from the server's own commit**, not from `main`. So there are two honest
 |---|---|---|
 | What the server gets | the 24 fixes **and** the 395 commits between `698aa1e` and `main` | the 24 fixes (as one net change each) and **nothing else** but one config line (below) |
 | Built from | `main` (after the owner merges the set, in stages) | `698aa1e` (the tree the server runs) |
-| Files an overlay would carry | 796 (686 added, 110 modified) under `app`, `bootstrap`, `config`, `database`, `resources`, `routes`, today, **before** the 24 pull requests | **209** (182 modified, 27 added) |
+| Files an overlay would carry | 796 (686 added, 110 modified) under `app`, `bootstrap`, `config`, `database`, `resources`, `routes`, today, **before** the 24 pull requests | **211** (184 modified, 27 added) |
 | Files an overlay cannot carry | 3 today (`firebase-messaging-sw.js`, `public/firebase-messaging-sw.js`, `robots.txt`), **plus the 17 of the security set** once it is merged | **17** (`.htaccess`, 14 files under `Modules/`, two files under `public/`) |
 | Migrations that come with it | 32 new files since the baseline (address, operational costs, sales channels, fulfilment, MyFatoorah …), **plus the 3 data-only ones of the set** | the **3** data-only ones of the set |
 | Behaviour that changes beyond the security fixes | the whole of those 395 commits (all of it written to be dormant until its migrations run; none of it has ever run on this server) | none, except `config('app.mode')` (the OTP decision, section 6) |
@@ -52,13 +52,13 @@ customer app (`lavkooapp#4`) and the delivery-man app are ready for stage 1, **5
 | | |
 |---|---|
 | Repository | `fullstackfull/lavkoo`; the three branches below are pushed. The draft pull request [#78](https://github.com/fullstackfull/lavkoo/pull/78) has `gcc/release/security-hotfix-base` (a branch that only points at `698aa1e`) as its base, so that its diff is exactly the hotfix; the integration of the whole set on `main` is the draft pull request [#75](https://github.com/fullstackfull/lavkoo/pull/75) (`gcc/release/security-integration`, CI evidence only, do not merge) |
-| Branch of the fixes | `gcc/release/security-hotfix`, **25 commits** on top of `698aa1e`, tip **`665057a5d839f3626663dc451f88965a60e51893`** |
-| Branch to build the package from | `gcc/release/security-hotfix-package`, **one commit** on top of the tip: **`844bd27fc439deebf0b6e9c1fd6c9f2398e7d8b3`**. Its tree is the tip with the 17 files an overlay cannot carry put back to their baseline versions, because `build-overlay.php` refuses a release that changes a file outside `app`, `bootstrap`, `config`, `database`, `resources` and `routes` (the builder's own words: *Deploy it by hand, deliberately*) |
-| Commit that is on the server afterwards | the tip: `665057a5…`. The overlay files are identical in both commits; the 17 are deployed by hand **from the tip** |
+| Branch of the fixes | `gcc/release/security-hotfix`, **26 commits** on top of `698aa1e`, tip **`fafa1a2e863579c0741a6f28e832025420fb458d`** (the 25th commit, `665057a5…`, ended the five stages; the 26th is stage 0, added 2026-11-18) |
+| Branch to build the package from | `gcc/release/security-hotfix-package`, head **`0969c157305e76bf56ba1353914f59c10d2b4f6d`**: a merge commit (first parent the earlier package commit `844bd27f…`, second parent the package commit `2bab0d1c…` built on the new tip), so that the branch moved forward without rewriting anything. Its tree is the tip with the 17 files an overlay cannot carry put back to their baseline versions, because `build-overlay.php` refuses a release that changes a file outside `app`, `bootstrap`, `config`, `database`, `resources` and `routes` (the builder's own words: *Deploy it by hand, deliberately*) |
+| Commit that is on the server afterwards | the tip: `fafa1a2e…`. The overlay files are identical in both commits; the 17 are deployed by hand **from the tip** |
 | Composer | no change (`composer.json` and `composer.lock` are identical to the baseline's and to `main`'s): no `composer install`, no `dump-autoload` |
 
-The 25 commits are the 24 pull requests, each as **one commit with its net change** applied to the baseline, in the stage order of section 2, plus one
-that is not a pull request (the 9th, `config/app.php`, section 6). Each commit message names the pull request, the range it was taken from, what had
+The first 25 commits are the 24 pull requests, each as **one commit with its net change** applied to the baseline, in the stage order of section 2, plus one
+that is not a pull request (the 9th, `config/app.php`, section 6). The 26th is stage 0: the change of PR 85 applied on the tip as a clean cherry-pick (the difference between the two tips is exactly the five files of PR 85, 129 insertions and 114 deletions; the route file loses 85 lines and nothing else). Each commit message names the pull request, the range it was taken from, what had
 to be adapted and why. The shas of the commits that end each stage are the sha of the stage packages' `--head` (section 2).
 
 ### How each pull request was ported
@@ -103,10 +103,10 @@ An **incremental overlay** built from `698aa1e` to the package commit. Built her
 
 | | |
 |---|---|
-| Files in the package | **209**: 182 modified, 27 added (the branch changes 226 production files: 209 here, 17 by hand) |
-| States `deploy.php verify` gives them against a scratch copy of the baseline tree | **175 CLEAN, 7 MERGE, 27 NEW**: `Result: every file can be applied.` (the 7 MERGE are `resources/lang/{ae,bd,en,es,in,ks,sa}/new-messages.php`: the keys of the release are put into the live file, the site's own keys stay) |
-| `apply` on that scratch copy | `[ok] 209 file(s) written`; 202 files are byte for byte the release's, the 7 language files are merged |
-| `rollback` on that scratch copy | `[ok] 209 file(s) restored`; the tree is byte for byte the baseline's again **except** `resources/lang/bd/new-messages.php` and `resources/lang/in/new-messages.php`, which hold the same array written again (the tool re-serialises a merged language file; their baseline copies use double quotes) |
+| Files in the package | **211**: 184 modified, 27 added (the branch changes 228 production files: 211 here, 17 by hand) |
+| States `deploy.php verify` gives them against a scratch copy of the baseline tree | **177 CLEAN, 7 MERGE, 27 NEW**: `Result: every file can be applied.` (the 7 MERGE are `resources/lang/{ae,bd,en,es,in,ks,sa}/new-messages.php`: the keys of the release are put into the live file, the site's own keys stay) |
+| `apply` on that scratch copy | `[ok] 211 file(s) written`; 204 files are byte for byte the release's, the 7 language files are merged |
+| `rollback` on that scratch copy | `[ok] 211 file(s) restored`; the tree is byte for byte the baseline's again **except** `resources/lang/bd/new-messages.php` and `resources/lang/in/new-messages.php`, which hold the same array written again (the tool re-serialises a merged language file; their baseline copies use double quotes) |
 | Migrations in the manifest | 3, all data only (section 3, stage 1) |
 | Refusal of `build-overlay.php` for the **tip** | exactly the 17 files of section 4, nothing else |
 | New routes | 16 added (digital-file downloads, the draft preview of a blog post, the barcode sheet's signed link), 2 removed (`GET api/v1/customer/order/digital-product-download/{id}` is replaced by the same path with an optional file name; `POST vendor/pos/order-details/{id}`); 95 existing routes got a new middleware (a `module:` permission, `seller_staff_access`, `seller_can:…`, `seller_owner`) |
@@ -118,7 +118,7 @@ Closing one door and leaving another is no fix, so the set is shipped in five st
 cannot be split**: a customer or a seller can be taken over by someone who knows only a phone number or an e-mail, through five doors at once (#62, #58,
 #59, #45, #60), and the page that carries a seller's session token (#44) is open to everybody.
 
-**Stage 0 (added 2026-11-18).** The five stages do not remove everything the baseline carries that a web request can reach, or that is written to the log. A separate draft branch (PR 85, `gcc/release/security-hotfix-stage0`, three source files under `app` and `routes`) removes the maintenance routes a web request could trigger and the log calls that wrote one-time codes. It changes nothing for users and can go before stage 1. What it does not touch, and the owner must do: rotate or revoke the credentials that are tracked in the repository (see `docs/integrations/security-findings.md`, SEC-15), and take decision 15.
+**Stage 0 (added 2026-11-18).** The five stages do not remove everything the baseline carries that a web request can reach, or that is written to the log. Stage 0 (PR 85, `gcc/release/security-hotfix-stage0`, cut from the baseline: **three** files under `app` and `routes`) removes the maintenance routes a web request could trigger and the log calls that wrote one-time codes. It changes nothing for users, carries no migration and no file by hand, and goes **first**. It is also the 26th commit of the hotfix branch, so the all-at-once package carries it. The five stage packages of the earlier plan are unchanged except the package of stage 4, which is built from the tip of stage 3 plus stage 0 (and the tip of stage 4 plus stage 0): stage 0 and stage 4 both change `routes/web/routes.php`, and the package must start from the file that stage 0 left on the server (section 4, *By stage*). Applied in order on a scratch copy (stage 0, then 1, 2, 3, 4, 5) every `verify` answers *every file can be applied* with no `DRIFTED` file. What stage 0 does not touch, and the owner must do: rotate or revoke the credentials that are tracked in the repository (see `docs/integrations/security-findings.md`, SEC-15), and take decision 15.
 
 | Stage | Pull requests, in the order of the commits | Hotfix commits (the tip of the stage is the `--head` of its package) | Why here |
 |---|---|---|---|
@@ -148,7 +148,7 @@ server after stage *n−1*) to the tip of stage *n*; the recipe is in section 4 
 | 4 | 73 | 14 / 59 | 3 | 0 | 5 |
 | 5 | 4 | 0 / 4 | 1 | 0 | 5 |
 
-(A file that two stages change is in both packages; the 209 of section 1B are the distinct files, the 17 by hand are 4 + 4 + 5 + 5 with two of them in two stages.)
+(A file that two stages change is in both packages; the 211 of section 1B are the distinct files (stage 0's three files are among them: `routes/web/routes.php` is in stage 4 as well), the 17 by hand are 4 + 4 + 5 + 5 with two of them in two stages.)
 Shipping all five at once is the same procedure with the one package of section 1B.
 
 ---
@@ -157,6 +157,22 @@ Shipping all five at once is the same procedure with the one package of section 
 
 Wherever a command below says `art`, it is the function defined in section 4. `DOMAIN` is the shop's address. **Every smoke test here reads or is refused;
 none of them writes** unless it says so. A refusal that a test expects is the fix working.
+
+### Stage 0. Maintenance routes and one-time codes in the log (1 pull request, 3 files, goes first)
+
+**What it closes.** Three one-off maintenance routes in `routes/web/routes.php` could be triggered by a web request that carried a key written in the code; they are removed (85 lines). The vendor password reset wrote the phone number and the one-time code to the application log at five points, and the SMS and WhatsApp gateway service wrote the text of the message that carries the code; those log calls are removed and the WhatsApp debug payload now hides the message as it already hid the gateway secret. Draft PR 85, cut from the baseline (`gcc/release/security-hotfix-stage0`, `b83fd189…`), with two guard tests that fail if a route file ever again runs commands or writes files, or a log call records a code or a message.
+
+**Files.** Overlay: `app/Http/Controllers/Vendor/Auth/ForgotPasswordController.php`, `app/Services/ZenderOtpService.php`, `routes/web/routes.php` (3 files, all `CLEAN` on the baseline). By hand: none. Migrations: none. `.env` and config: nothing. The change is also the 26th commit of the hotfix branch, so the all-at-once package carries it.
+
+**Before the stage.** Nothing beyond section 4's steps. Read the diff of PR 85 (the three files).
+
+**What people notice, what employees must be told.** Nothing.
+
+**Smoke tests (read-only).** Each of the three removed routes (the list is the diff of PR 85) answers 404 instead of running. Ask for a password-reset code for a test seller account with a person's agreement and read `storage/logs/laravel.log` afterwards: no line may carry the code, the phone number or the message text.
+
+**The old log.** Codes and numbers that the baseline wrote to `storage/logs/` **before** this stage stay in those files. Treat them as sensitive: who can read the log, how long it is kept and whether the old files are rotated out or deleted is the administrator's and the owner's decision, and the files are not touched by this release.
+
+**Rollback.** `deploy.php rollback` of the stage's backup directory (3 files); nothing else was changed.
 
 ### Stage 1. Account takeover (8 pull requests and one config line)
 
@@ -401,8 +417,8 @@ SECFIX=/path/outside/every/web/root/overlay-security           # a NEW directory
 SECMAN=/path/outside/every/web/root/security-manual            # a NEW directory: the 17 files an overlay cannot carry, with their checksums
 PHP=php                                                        # the PHP binary of the earlier deployments (write its full path if several are installed)
 BASELINE=698aa1e74afb43eedc37fe2a683c6aae6002b8bc              # the tree the server runs (Hotfix 1)
-TIP=665057a5d839f3626663dc451f88965a60e51893                   # the commit that is on the server afterwards: gcc/release/security-hotfix
-PKGCOMMIT=844bd27fc439deebf0b6e9c1fd6c9f2398e7d8b3             # the commit the package is built from: gcc/release/security-hotfix-package
+TIP=fafa1a2e863579c0741a6f28e832025420fb458d                   # the commit that is on the server afterwards: gcc/release/security-hotfix (the five stages and stage 0)
+PKGCOMMIT=0969c157305e76bf56ba1353914f59c10d2b4f6d             # the commit the package is built from: gcc/release/security-hotfix-package
 : "${APP:?}" "${BACKUPS:?}" "${SECFIX:?}" "${SECMAN:?}" "${DOCROOT:?}" "${PHP:?}"     # stops here if one of them is empty (DOCROOT is the one from phase 0 of the pilot deployment)
 for dir in "$BACKUPS" "$SECFIX" "$SECMAN"; do
   case "$(realpath -m "$dir")/" in "$(realpath -m "$DOCROOT")"/*) echo "STOP: $dir is inside the web root" ;; *) echo "ok: $dir is outside the web root" ;; esac
@@ -480,7 +496,7 @@ mkdir -p "$SECMAN" && tar -xzf manual.tar.gz -C "$SECMAN"
 php -r '$m = json_decode(file_get_contents($argv[1]), true); echo count($m["files"]), " files, base ", $m["base"], ", head ", $m["head"], ", migrations ", count($m["migrations"]), PHP_EOL;' "$SECFIX/MANIFEST.json"
 ```
 
-Expected: `209 files, base 698aa1e74afb43eedc37fe2a683c6aae6002b8bc, head 844bd27fc439deebf0b6e9c1fd6c9f2398e7d8b3, migrations 3`. A base of `34dce65…`, `30dcbf64…` or `ef843600…` means a different, larger package was built: do not use it.
+Expected: `211 files, base 698aa1e74afb43eedc37fe2a683c6aae6002b8bc, head 0969c157305e76bf56ba1353914f59c10d2b4f6d, migrations 3`. A base of `34dce65…`, `30dcbf64…` or `ef843600…` means a different, larger package was built: do not use it.
 
 **H-3. Compare it with the files on the server (reads only).**
 
@@ -488,7 +504,7 @@ Expected: `209 files, base 698aa1e74afb43eedc37fe2a683c6aae6002b8bc, head 844bd2
 "$PHP" "$SECFIX/deploy.php" verify --app="$APP" --package="$SECFIX"
 ```
 
-Expected, and nothing else: `Summary: 175 CLEAN, 7 MERGE, 27 NEW` and `Result: every file can be applied.` `CLEAN` means the file on the server is exactly the one Hotfix 1 installed. `MERGE` is each of the
+Expected, and nothing else: `Summary: 177 CLEAN, 7 MERGE, 27 NEW` and `Result: every file can be applied.` `CLEAN` means the file on the server is exactly the one Hotfix 1 installed. `MERGE` is each of the
 seven language files `resources/lang/{ae,bd,en,es,in,ks,sa}/new-messages.php`: the keys this release adds are put into the live file and every key the site already has keeps the site's wording. `NEW` is a file that does not exist on the server yet.
 A `DRIFTED` file means someone changed it since Hotfix 1: read what they changed (`diff -u "$SECFIX/base/<path>" "$APP/<path>"`), and accept it by name (`--accept-drift=…`) **only after a person has looked, and never for a language file**: accepting a drift
 **replaces** the live file with the release's version (the live one is backed up first), so what the site changed in it is gone.
@@ -559,28 +575,35 @@ the H-6 outputs; what the smoke tests showed (a screenshot is fine; no customer 
 
 ### By stage
 
-Shipping the stages one at a time uses the **same steps** with a package per stage. The loop below builds them: the package of stage *n* is built from the tip of stage *n−1* (for stage 1: `698aa1e`),
-and its package commit puts the stage's out-of-scope files back to what the previous stage left on the server, so that `build-overlay.php` accepts the rest.
+Shipping the stages one at a time uses the **same steps** with a package per stage, **stage 0 first**. The loop below builds them: the package of stage 0 is built from the baseline to the commit of PR 85; the package of stage *n* is built from the tip of stage *n−1* (for stage 1: `698aa1e`), **except stage 4**, whose base and head are the tips of stage 3 and of stage 4 *plus the change of stage 0* (stage 0 and stage 4 both change `routes/web/routes.php`: built from the plain tips, stage 4 would find that file changed on the server and refuse it as `DRIFTED`).
+Each package commit puts the stage's out-of-scope files back to what the previous stage left on the server, so that `build-overlay.php` accepts the rest. The scratch commits are made in the scratch clone only (`git cherry-pick` needs no more than the git of any current distribution).
 
 ```bash
+S0=b83fd1895a885af8b618ce3ff8a3869c8186b731                       # stage 0: gcc/release/security-hotfix-stage0, cut from the baseline
+git -C "$WORK/repo" fetch origin gcc/release/security-hotfix-stage0
+test "$(git -C "$WORK/repo" rev-parse $S0)" = "$S0" && echo "stage 0 is the commit of this document"
 cd "$WORK/repo" && git checkout --detach $TIP
+with_s0() { git checkout -q --detach "$1" && git -c user.name=build -c user.email=build@localhost cherry-pick $S0 >/dev/null && git rev-parse HEAD; }   # "$1" plus the change of stage 0: a scratch commit in the scratch clone only
+php scripts/deploy/build-overlay.php --repo=. --base=698aa1e74afb43eedc37fe2a683c6aae6002b8bc --head=$S0 --out="$WORK/overlay-0" --archive      # stage 0: 3 files, nothing by hand
 prev=698aa1e74afb43eedc37fe2a683c6aae6002b8bc
 for pair in "1 779a3e5046b716474f1e889a4681260549b744e7" "2 b7842fa1f3462bac3d059fa8be5dbf96ed8dc953" "3 6263b8b398739812c9cd10001aa61a391a0fc3d9" "4 53ba4a2591a33be63eeee35d91ac75bcbf610f4d" "5 665057a5d839f3626663dc451f88965a60e51893"; do
-  set -- $pair; n=$1; tip=$2
-  manual=$(php scripts/deploy/build-overlay.php --repo=. --base=$prev --head=$tip --out="$WORK/probe-$n" 2>&1 | sed -n 's/^  - \(.*\) changes, and an overlay.*/\1/p')   # the refusal names the stage's files by hand (none for stage 1: then the probe is the package)
+  set -- $pair; n=$1; tip=$2; base=$prev; head=$tip
+  [ "$n" = 4 ] && base=$(with_s0 $prev) && head=$(with_s0 $tip)                 # stage 0 and stage 4 both change routes/web/routes.php: stage 4 starts from the file stage 0 left
+  manual=$(php scripts/deploy/build-overlay.php --repo=. --base=$base --head=$head --out="$WORK/probe-$n" 2>&1 | sed -n 's/^  - \(.*\) changes, and an overlay.*/\1/p')   # the refusal names the stage's files by hand (none for stages 0 and 1: then the probe is the package)
   rm -rf "$WORK/probe-$n"
-  git checkout -q --detach $tip
-  [ -n "$manual" ] && git checkout -q $prev -- $manual && git -c user.name=build -c user.email=build@localhost commit -q -m "package stage $n"      # a scratch commit in the scratch clone only
-  php scripts/deploy/build-overlay.php --repo=. --base=$prev --head=$(git rev-parse HEAD) --out="$WORK/overlay-$n" --archive
+  git checkout -q --detach $head
+  [ -n "$manual" ] && git checkout -q $base -- $manual && git -c user.name=build -c user.email=build@localhost commit -q -m "package stage $n"      # a scratch commit in the scratch clone only
+  php scripts/deploy/build-overlay.php --repo=. --base=$base --head=$(git rev-parse HEAD) --out="$WORK/overlay-$n" --archive
   mkdir -p "$WORK/manual-$n" && [ -n "$manual" ] && git archive $tip -- $manual | tar -x -C "$WORK/manual-$n"   # the stage's files by hand, as the stage's tip has them
   git checkout -q --detach $tip && prev=$tip
 done
 ```
 
-Built this way (measured): stage 1 **50 files, 3 migrations**; stage 2 **97 files, 4 by hand**; stage 3 **19 files, 4 by hand**; stage 4 **73 files, 5 by hand**; stage 5 **4 files, 5 by hand**. Then, for every stage in turn:
-H-2 and H-3 with that stage's package (the base in `MANIFEST.json` is the previous stage's tip; the files by hand are compared with what the previous stage left, `git show <previous tip>:<path> | sha256sum`),
+Built this way (measured, 2026-11-18): stage 0 **3 files** (nothing by hand, no migration); stage 1 **50 files, 3 migrations**; stage 2 **97 files, 4 by hand**; stage 3 **19 files, 4 by hand**; stage 4 **73 files, 5 by hand**; stage 5 **4 files, 5 by hand**. Then, for every stage in turn, stage 0 first:
+H-2 and H-3 with that stage's package (the base in `MANIFEST.json` is the previous stage's tip: the baseline for stages 0 and 1, the tip of stage 3 plus stage 0 for stage 4; the files by hand are compared with what the previous stage left, `git show <previous tip>:<path> | sha256sum`),
 H-4 with `$STAMP-security-s<n>` as the backup directory, H-5 for stage 1 only, H-6, and the smoke tests and the "before the stage" list of that stage. **Wait for the stage's smoke tests and a day of the log before the next stage**; a stage is taken back (section 5) before the next one is applied, never after.
-The commit that is on the server after stage *n* is the tip of stage *n*; stage 5's tip is `$TIP`.
+`deploy.php verify` answers, on a scratch copy of the baseline with the earlier stages applied, and nothing else: stage 0 `3 CLEAN`; stage 1 `36 CLEAN, 7 MERGE, 7 NEW`; stage 2 `87 CLEAN, 7 MERGE, 3 NEW`; stage 3 `16 CLEAN, 3 NEW`; stage 4 `56 CLEAN, 3 MERGE, 14 NEW`; stage 5 `3 CLEAN, 1 MERGE`; each with `Result: every file can be applied.` A `DRIFTED` file at stage 1, 2, 3 or 5 is a change on the server: read it (H-3) before anything else.
+The files on the server after stage *n* are those of the tip of stage *n* (and of stage 0's three files); after stage 5 they are those of `$TIP`.
 
 ---
 
@@ -644,9 +667,23 @@ last in the window, after the files have started and been checked in maintenance
 
 ## 7. What is verified and what is not
 
-**Repeated by the lead on the pushed branches (2026-11-17, before this plan was published).** The commit identities, trailers and the absence of model names were checked on all 26 commits; `php -l` on the 383 changed PHP files: 0 errors; `leak-guard.php --base=698aa1e`: nothing added; `build-overlay.php` on the tip refuses exactly the 17 files of appendix B (the same list), and on the package commit `844bd27f` it builds **209 files** (182 modified, 27 added); `deploy.php verify` against a fresh `git archive` of `698aa1e`: **175 CLEAN, 7 MERGE, 27 NEW, every file can be applied**. The whole-suite runs below are the worker's. **CI of the same tip, with the baseline's own workflow (2026-11-17):** on the draft pull request [#78](https://github.com/fullstackfull/lavkoo/pull/78) the whole suite on SQLite on PHP 8.2 and on PHP 8.3, the syntax jobs and the secret check passed; the job *Fulfillment + security tests, MySQL 8* was cut off by that workflow's own 25-minute timeout (reported as cancelled, not failed: with the tests of the 24 pull requests the group takes 24 to 28 minutes on a runner). The draft pull request [#81](https://github.com/fullstackfull/lavkoo/pull/81) is the same tree with that one timeout raised to 45 minutes: **every job passed, the MySQL 8 group in 24 minutes, except `Deployment overlay`**, which is red on both as expected (it refuses the 17 files an overlay cannot carry; the job and the deploy scripts are untouched).
+**Repeated by the lead on the pushed branches (2026-11-17, before this plan was published).** The commit identities, trailers and the absence of model names were checked on all 26 commits; `php -l` on the 383 changed PHP files: 0 errors; `leak-guard.php --base=698aa1e`: nothing added; `build-overlay.php` on the tip refuses exactly the 17 files of appendix B (the same list), and on the earlier package commit `844bd27f` it built **209 files** (182 modified, 27 added); `deploy.php verify` against a fresh `git archive` of `698aa1e`: **175 CLEAN, 7 MERGE, 27 NEW, every file can be applied** (the figures of the tip with stage 0 are in the next subsection). The whole-suite runs below are the worker's. **CI of the same tip, with the baseline's own workflow (2026-11-17):** on the draft pull request [#78](https://github.com/fullstackfull/lavkoo/pull/78) the whole suite on SQLite on PHP 8.2 and on PHP 8.3, the syntax jobs and the secret check passed; the job *Fulfillment + security tests, MySQL 8* was cut off by that workflow's own 25-minute timeout (reported as cancelled, not failed: with the tests of the 24 pull requests the group takes 24 to 28 minutes on a runner). The draft pull request [#81](https://github.com/fullstackfull/lavkoo/pull/81) is the same tree with that one timeout raised to 45 minutes: **every job passed, the MySQL 8 group in 24 minutes, except `Deployment overlay`**, which is red on both as expected (it refuses the 17 files an overlay cannot carry; the job and the deploy scripts are untouched).
 
-### The full runs on the final tree (tip `665057a5`, tree `4b53b15b2628c4141073c491974fd73193245843`)
+### The tip with stage 0 (`fafa1a2e`, tree `ef31a7675121020f3cde076cae8960ab19412519`), 2026-11-18
+
+Stage 0 (PR 85) was applied on the tip of the five stages as a clean cherry-pick (the 26th commit). The difference between the two tips is exactly the five files of PR 85: three production files and two tests, 129 insertions and 114 deletions; the route file change is a pure deletion of 85 lines, and the hotfix's own route changes in the same file are intact. `php -l` is clean on the changed files; the leak guard adds nothing; the 17 files of appendix B are byte for byte the old tip's.
+
+| Check | Result |
+|---|---|
+| SQLite, the whole suite (`tests/Unit` and `tests/Feature`), in the worktree of the tip with stage 0 | **5,647 tests, 23,999 assertions: OK**; 55 skipped, 8 PHPUnit deprecations. The old tip ran 5,642 tests: the five more are the tests of the two files of stage 0 |
+| `build-overlay.php` on the tip | refuses exactly the 17 files of appendix B |
+| The all-at-once package (`gcc/release/security-hotfix-package` at `0969c157`) | **211 files** (184 modified, 27 added), 3 migrations; `deploy.php verify` on a scratch copy of the baseline: **177 CLEAN, 7 MERGE, 27 NEW**, *every file can be applied*; `apply`: 211 files written; with the 17 files copied from the tip, every deployable file equals the tip's (the differences left against the tip's archive are the files an overlay never carries: `tests/`, and `.env.example`) and the 7 language files are equal as arrays (same keys and values, another order of the keys); `rollback`: 211 files restored, and with the 17 files restored from their copies the tree equals the baseline's except `resources/lang/bd/new-messages.php` and `resources/lang/in/new-messages.php` (the same arrays written again, as in section 1B) |
+| The six packages of the staged path, applied in order on a second scratch copy of the baseline (stage 0, 1, 2, 3, 4 built from the tip of stage 3 plus stage 0, 5) | 3, 50, 97, 19, 73 and 4 files; `verify` before each: `3 CLEAN`; `36 CLEAN, 7 MERGE, 7 NEW`; `87 CLEAN, 7 MERGE, 3 NEW`; `16 CLEAN, 3 NEW`; `56 CLEAN, 3 MERGE, 14 NEW`; `3 CLEAN, 1 MERGE`; every one *every file can be applied*, **no file `DRIFTED`**. After each stage every deployable file equals the expected tree (the tip of the stage plus stage 0); after stage 5 the whole equals the all-at-once result (language files equal as arrays). Rolled back newest first, the tree equals the baseline's except the same two language files |
+| The loop of section 4 (*By stage*), run in a scratch clone exactly as printed | the same six packages: 3, 50, 97, 19, 73, 4 files |
+
+Nothing was applied to a real tree. CI of the new heads, with the baseline's workflow (PR 78, the 25-minute MySQL timeout applies), with the 45-minute timeout (PR 81), and with the two-engine matrix (PR 86), is read in the handoff of the day it finishes.
+
+### The full runs on the tree before stage 0 (tip `665057a5`, tree `4b53b15b2628c4141073c491974fd73193245843`)
 
 | Mode | Scope | Result |
 |---|---|---|
@@ -710,9 +747,9 @@ Counts of tests overlap where two pull requests share a test file (`AdminRouteTa
 
 ### On the deployment tooling
 
-* `build-overlay.php` on the tip refuses **exactly the 17 files** of appendix B and nothing else. On the package commit it builds **209** files; the package's own checksums verify.
-* `deploy.php verify` against a scratch copy of the baseline tree: **175 CLEAN, 7 MERGE, 27 NEW**, `every file can be applied`. `apply` on a scratch copy: 209 files written, 202 identical to the release's, 7 language files merged. `rollback`: 209 files restored, the tree byte for byte the baseline except two language files that hold the same array written again. Nothing was applied to a real tree.
-* The five stage packages were built with the loop of section 4 from the commits of section 2: 50, 97, 19, 73 and 4 files (3, 0, 0, 0 and 0 migrations). **Applied one after the other on a scratch copy of the baseline tree**, each stage's `verify` answers `every file can be applied` (stage 1: 36 CLEAN, 7 MERGE, 7 NEW; stage 2: 87 CLEAN, 7 MERGE, 3 NEW; stage 3: 16 CLEAN, 3 NEW; stage 4: 56 CLEAN, 3 MERGE, 14 NEW; stage 5: 3 CLEAN, 1 MERGE), and the result equals the single package's: the same 209 files, the seven language files equal as arrays (7,802 keys in `es`, no value different; only the order of the keys differs). Rolled back newest first, the tree equals the baseline's git objects for all 14,043 files **except** `resources/lang/bd/new-messages.php` and `resources/lang/in/new-messages.php` (the same arrays written again).
+* `build-overlay.php` on the tip refuses **exactly the 17 files** of appendix B and nothing else (checked again on the tip with stage 0). On the package commit it builds **211** files; the package's own checksums verify.
+* `deploy.php verify` against a scratch copy of the baseline tree: **177 CLEAN, 7 MERGE, 27 NEW**, `every file can be applied`. `apply` on a scratch copy: 211 files written, 204 identical to the release's, 7 language files merged. `rollback`: 211 files restored, the tree byte for byte the baseline except two language files that hold the same array written again. Nothing was applied to a real tree.
+* The five stage packages were built with the loop of section 4 from the commits of section 2: 50, 97, 19, 73 and 4 files (3, 0, 0, 0 and 0 migrations). **Applied one after the other on a scratch copy of the baseline tree** (before stage 0 was added to the line), each stage's `verify` answers `every file can be applied` (stage 1: 36 CLEAN, 7 MERGE, 7 NEW; stage 2: 87 CLEAN, 7 MERGE, 3 NEW; stage 3: 16 CLEAN, 3 NEW; stage 4: 56 CLEAN, 3 MERGE, 14 NEW; stage 5: 3 CLEAN, 1 MERGE), and the result equals the single package's: the same 209 files, the seven language files equal as arrays (7,802 keys in `es`, no value different; only the order of the keys differs). Rolled back newest first, the tree equals the baseline's git objects for all 14,043 files **except** `resources/lang/bd/new-messages.php` and `resources/lang/in/new-messages.php` (the same arrays written again).
 
 * After the commits were re-created (the finding above) the package was **built again** from the new package commit: its 209 files are byte for byte those of the first build (`diff -r` of the two `files/` directories; the manifests differ only in `head` and `built_at`), `verify` against a fresh scratch copy of the baseline gave the same **175 CLEAN, 7 MERGE, 27 NEW**, the refusal output of the tip is byte for byte the first one (17 files), and the five stage packages again have 50, 97, 19, 73 and 4 files. `apply`, `rollback` and the one-after-the-other application above were run on the first build, which is the same set of files.
 
@@ -746,7 +783,7 @@ One production line at a time was changed with a script, the tests that should n
 
 ### Not verified (it needs the live server, the devices or the engines that do not exist here)
 
-* **The server itself**: its PHP version and OPcache, its queue and cron, its web-server configuration (`.htaccess` is read by Apache only; under nginx the `.htaccess` lines do nothing), its drift in any of the 209 + 17 files. `deploy.php verify` against the real tree is what proves the files.
+* **The server itself**: its PHP version and OPcache, its queue and cron, its web-server configuration (`.htaccess` is read by Apache only; under nginx the `.htaccess` lines do nothing), its drift in any of the 211 + 17 files. `deploy.php verify` against the real tree is what proves the files.
 * **MariaDB 11.4** (CI runs it next to MySQL 8; it is not available here). The three migrations are data only (`Schema::hasTable`, `Schema::hasColumn`, `DB::table()->delete()` and `->update()`), with no schema and no engine-specific SQL; the tests that depend on a case-insensitive collation ran on MySQL 8 and are skipped on SQLite.
 * **PHP 8.2** was not run, only parsed and scanned (above). CI runs it.
 * **The two Flutter apps and the delivery-man app**: nothing was run on a device. The compatibility statements are the ones of the 2026-11-17 audits.
@@ -766,8 +803,16 @@ One production line at a time was changed with a script, the tests that should n
 
 ## Appendix A. The files of every stage
 
-`A` = added, `M` = modified. The files a stage's package carries are the ones in its list under *Overlay*; *By hand* are the files an overlay cannot carry. A file two stages change is in both lists (the 209 files of section 1B are the distinct ones). The complete list of the one package of section 1B is `MANIFEST.json` of the package.
+`A` = added, `M` = modified. The files a stage's package carries are the ones in its list under *Overlay*; *By hand* are the files an overlay cannot carry. A file two stages change is in both lists (the 211 files of section 1B are the distinct ones). The complete list of the one package of section 1B is `MANIFEST.json` of the package.
 
+
+### Stage 0: Maintenance routes and one-time codes in the log (`698aa1e` to `b83fd189`, PR 85): 3 overlay files, 0 by hand
+
+```text
+M app/Http/Controllers/Vendor/Auth/ForgotPasswordController.php
+M app/Services/ZenderOtpService.php
+M routes/web/routes.php
+```
 
 ### Stage 1: Account takeover (`698aa1e` to `779a3e50`): 50 overlay files, 0 by hand
 
@@ -970,6 +1015,8 @@ Modules/TaxModule/routes/web.php
 
 ### Stage 4: Uploads and files (`6263b8b3` to `53ba4a25`): 73 overlay files, 5 by hand
 
+Built from the tip of stage 3 plus stage 0 to the tip of stage 4 plus stage 0 (section 4, *By stage*): the same 73 files, because stage 0's change to `routes/web/routes.php` is already in the base.
+
 ```text
 A app/Console/Commands/PrivatizeDigitalFilesCommand.php
 M app/Http/Controllers/Admin/AppCarouselController.php
@@ -1079,7 +1126,7 @@ Modules/Blog/routes/admin/routes.php
 
 ## Appendix B. The 17 files an overlay cannot carry, with their checksums
 
-SHA-256 of the file **as the server has it today** (the baseline `698aa1e`) and **as the hotfix tip `665057a5` has it**. H-3 compares the server's copy with the first column, H-4 with the second. The `manual-baseline.sha256` of H-1 is the first column.
+SHA-256 of the file **as the server has it today** (the baseline `698aa1e`) and **as the hotfix tip `fafa1a2e` has it** (stage 0 changes none of the 17: the second column is the same at `665057a5`). H-3 compares the server's copy with the first column, H-4 with the second. The `manual-baseline.sha256` of H-1 is the first column.
 
 | File | Stage(s) | Baseline SHA-256 | Tip SHA-256 |
 |---|---|---|---|
