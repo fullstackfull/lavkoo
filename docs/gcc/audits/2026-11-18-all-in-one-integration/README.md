@@ -182,6 +182,19 @@ Run 334 (id 44328554559, a `workflow_dispatch` of `gcc/release/all-integration-c
 
 **What the findings say about the suite.** Two of the three (runs 308 and 310) are the same species: a test that passes on SQLite because it builds a fresh database for each class and tolerates a column that does not exist, and fails on the engines production uses. The third (run 307) is a fixture that aged with the calendar. Run 293 and PR 94's real-engine group are what keep finding them; the repairs are in the tests and change no behaviour.
 
+### The fifth run (342) and the pull requests' own runs of the evening, read per job on 2026-11-18
+
+Run 342 (id 44338693813, head `a5f7de59`) **finished: 30 jobs success and 2 skipped by design** (the last job ended at 16:46 UTC). It is the proof the tracker uses for the criteria of #107, #110 and #111 and for the criteria that rest on "a tree holds both sets and is green". Four pull requests were then run on their own heads, one at a time, because the account's runners are shared by the three repositories (about 20 jobs at once):
+
+| Run | Pull request, head | Result when read | What it proves |
+|---|---|---|---|
+| 344 | #112 `cb4ca5f2` | 18 of 23 jobs green; the overlay job red by design; the strict-mode MariaDB job and three sales-channel MySQL jobs (which hold none of these tests) still running | `Tests, SQLite` on PHP 8.2 and 8.3 and the Storefront tests on MySQL 8 and MariaDB 11.4.2: F-02 criteria 0 and 3 |
+| 345 | #113 `71c01d0d` | 21 of 23 green; the overlay red by design; one sales-channel MySQL job still running | the same four jobs and the strict-mode job (Storefront tests: 871 tests, 2,491 assertions): F-03 criteria 2 and 4 |
+| 348 | #114 `9f099f97` | 19 success at 18:07 UTC; the overlay red by design; the strict-mode MariaDB job and two sales-channel MySQL jobs still running | `Tests, SQLite` on PHP 8.2 (7,130 tests, 99 skipped) and 8.3; Storefront tests on MySQL 8 and MariaDB 11.4.2 (841 tests, 2,826 assertions each; the publisher's 36 tests and the command's 11 among them): I2-01 criterion 3, I2-03 criterion 3 |
+| 349 | #115 `f5913ab7` | 17 success at 18:06 UTC; the overlay red by design; the strict-mode MariaDB job and four sales-channel jobs still running | `Tests, SQLite` on PHP 8.2 (7,264 tests, 99 skipped as on its base) and 8.3; Storefront tests on MySQL 8 and MariaDB 11.4.2 (975 tests, 3,505 assertions each; 6 skipped by design: the side-bar test needs tables of the whole panel and is SQLite only): I2-03 criterion 4, I2-11 criterion 4 |
+
+Where a job was still running when read, the tracker does not claim it. Nothing was red that a change had caused. The integration branch was saved at `772f1c36` (it holds #112, #113, #114 and #115 and the stop-journey test, on top of the head of run 342); **no run was dispatched on it**.
+
 ## What this means for `main`
 
 1. The sets can be merged in any order, but merging them without these reconciliations turns the CI of `main` red in the groups named above, because guards written for one set meet the behaviour of another. The reconciliation commits are `4fe8e4ea`, `244c5361`, `3c0671f5`, `8b6fff75`, `83da41fa`, `f5a565f4`, `8f3d0f38` and `6f6a5e52`; beyond the conflict resolutions themselves they are tests and one document, except three that change code: the in-transaction cents of the wallet checkout (`4fe8e4ea`), the one phone rule (`83da41fa`) and the two staff scope rule kinds with the null-id guard (`6f6a5e52`, and `4096f1be` on PR 69).
