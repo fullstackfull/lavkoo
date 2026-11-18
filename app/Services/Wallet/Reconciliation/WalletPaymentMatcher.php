@@ -37,7 +37,7 @@ final class WalletPaymentMatcher
         $group = isset($orders['order_group_id']) ? 'COALESCE(order_group_id, id)' : 'id';
         $methods = self::WALLET_METHODS;
 
-        $debits = $probe->select("SELECT COUNT(*) AS c, COALESCE(SUM(debit), 0) AS s FROM wallet_transactions WHERE transaction_type = 'order_place' AND debit > 0 AND user_id IS NOT NULL AND id <= ?", [$snapshotId])[0];
+        $debits = $probe->select("SELECT COUNT(*) AS c FROM wallet_transactions WHERE transaction_type = 'order_place' AND debit > 0 AND user_id IS NOT NULL AND id <= ?", [$snapshotId])[0];
         $groups = $probe->select("SELECT COUNT(*) AS c FROM (SELECT customer_id, {$group} AS grp FROM orders WHERE payment_method IN ({$methods}) AND customer_id IS NOT NULL GROUP BY customer_id, {$group}) g")[0];
 
         $matchedDebits = 0;
