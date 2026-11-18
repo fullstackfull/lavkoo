@@ -223,15 +223,24 @@ class AdminProductMoneyTest extends TestCase
         $this->postJson('/admin/__money-probe-create', ['storefront_country' => 'KW'])->assertJsonPath('model', 'multi_currency');
     }
 
-    /** The five pickers and searches that span every country (multiple-product-details, search, search-all-product, picker-options, picker-labels) are not in the group and name no one market. */
+    /**
+     * The five pickers and searches that span every country (multiple-product-details, search, search-all-product, picker-options, picker-labels)
+     * name no one market, so none of them runs in a country's money, whichever permission guards them: the two pickers of the product form sit
+     * under module:catalog on their own, outside the group of the screens that work on one product.
+     */
     public function test_every_admin_product_route_of_the_catalog_group_carries_the_middleware(): void
     {
-        $routes = collect(Route::getRoutes()->getRoutes())
-            ->filter(fn ($route) => str_starts_with($route->uri(), 'admin/products/') && in_array('module:catalog', $route->gatherMiddleware(), true));
+        $pickerUris = ['admin/products/picker-options', 'admin/products/picker-labels'];
+        [$pickers, $productRoutes] = collect(Route::getRoutes()->getRoutes())
+            ->filter(fn ($route) => str_starts_with($route->uri(), 'admin/products/') && in_array('module:catalog', $route->gatherMiddleware(), true))
+            ->partition(fn ($route) => in_array($route->uri(), $pickerUris, true));
 
-        $this->assertGreaterThan(30, $routes->count());
-        foreach ($routes as $route) {
+        $this->assertGreaterThan(30, $productRoutes->count());
+        foreach ($productRoutes as $route) {
             $this->assertContains('money.market', $route->gatherMiddleware(), "{$route->uri()} must run in the money of its product's country");
+        }
+        foreach ($pickers as $route) {
+            $this->assertNotContains('money.market', $route->gatherMiddleware(), "{$route->uri()} spans every country and names no market");
         }
         $this->assertSame(ScopeMoneyToMarket::class, app('router')->getMiddleware()['money.market']);
     }
